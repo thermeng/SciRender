@@ -36,6 +36,7 @@ Thumbs.db
 /.qmake.stash
 **/.qmlls.ini
 
+
 # qtcreator generated files
 *.pro.user*
 *.qbs.user*
@@ -86,3 +87,6 @@ CMakeLists.txt.user*
 
 # Ignore vendors
 /vendor/
+
+# Ignore
+/.hermes/

@@ -13,6 +13,8 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVariant>
+#include <QVariantList>
 
 // Core Graphics Dependencies (Replacing GLFW windows management entirely)
 #include <glad/glad.h>
@@ -182,6 +184,15 @@ public:
     bool hasMeshScalars() const { return meshHasScalars; }
     const std::string& getActiveScalarName() const { return activeScalarName; }
 
+    // QML-visible accessors for the colorbar legend overlay.
+    Q_INVOKABLE bool hasMeshScalarsQml() const { return meshHasScalars; }
+    Q_INVOKABLE float getDataScalarMinQml() const { return dataScalarMin; }
+    Q_INVOKABLE float getDataScalarMaxQml() const { return dataScalarMax; }
+
+    // Returns a list of [t, r, g, b] stops (t in 0..1, rgb in 0..1) sampling the
+    // active colormap, suitable for building a QML gradient/legend.
+    Q_INVOKABLE QVariantList getColormapStops() const;
+
     // Dynamic Slices & Iso-Filter Threshold Registers
     float sliceHeightX = 0.0f;
     float sliceHeightY = 0.0f;
@@ -191,6 +202,7 @@ public:
     bool invertZ = false;
     float filterMin = 0.0f;
     float filterMax = 1.0f;
+    bool clipEnabled = false;
 
     // 4-Point Light Parameter Set registers
     float lightKeyWarmth = 0.6f;
@@ -268,6 +280,7 @@ private:
     GLint invertZLoc = -1;
     GLint filterMinLoc = -1;
     GLint filterMaxLoc = -1;
+    GLint clipEnabledLoc = -1;
     GLint scalarMinLoc = -1;
     GLint scalarMaxLoc = -1;
     GLint hasScalarsLoc = -1;

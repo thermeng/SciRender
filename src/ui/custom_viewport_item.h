@@ -1,42 +1,50 @@
 #pragma once
 
-#include <QtQuick/QQuickItem>
+#include <QtQuick/QQuickFramebufferObject>
+#include <QOpenGLFramebufferObject>
 #include <QPoint>
+#include <QString>
 #include "renderer/renderer.h"
 
-class CustomViewportItem : public QQuickItem {
+class ViewportFboRenderer : public QQuickFramebufferObject::Renderer {
+public:
+    ViewportFboRenderer();
+    void synchronize(QQuickFramebufferObject* item) override;
+    QOpenGLFramebufferObject* createFramebufferObject(const QSize& size) override;
+    void render() override;
+
+private:
+    ::Renderer* m_scene = nullptr;
+    bool m_initialized = false;
+    QSize m_fboSize;
+};
+
+class ViewportVisualizer : public QQuickFramebufferObject {
     Q_OBJECT
-    Q_PROPERTY(Renderer* renderer READ renderer WRITE setRenderer NOTIFY rendererChanged)
+    Q_PROPERTY(::Renderer* renderer READ renderer WRITE setRenderer NOTIFY rendererChanged)
 
 public:
-    explicit CustomViewportItem(QQuickItem* parent = nullptr);
-    ~CustomViewportItem() override = default;
+    explicit ViewportVisualizer(QQuickItem* parent = nullptr);
 
-    Renderer* renderer() const { return m_renderer; }
-    void setRenderer(Renderer* r);
+    ::Renderer* renderer() const;
+    void setRenderer(::Renderer* r);
+
+    QQuickFramebufferObject::Renderer* createRenderer() const override;
 
 signals:
     void rendererChanged();
 
-private:
-    // Wires the Renderer's screenshotRequested signal to the render thread so the
-    // GL pixel read happens with the OpenGL context current. Idempotent.
-    void tryConnectScreenshotCapture();
-
 protected:
-    // Capture user input directly inside the QML frame area
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
 
-    // Catch viewport size alterations mid-session
-    void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
-
 private:
-    Renderer* m_renderer = nullptr;
+    // Screenshot path forwarded from the GUI thread; consumed in synchronize().
+    QString m_pendingScreenshot;
+    ::Renderer* m_scene = nullptr;
     QPoint m_lastMousePos;
     bool m_isRightClick = false;
-    bool m_renderConnectionsDone = false; // guards one-time window signal connections
-    bool m_screenshotConnected = false;   // guards one-time screenshot capture connection
+    friend class ViewportFboRenderer;
 };

@@ -1,4 +1,4 @@
-#include "renderer/renderer.h"
+﻿#include "renderer/renderer.h"
 #include "colormaps/Colormaps.h"
 #include "camera/Camera.h"
 #include "export/screenshot.h"
@@ -80,6 +80,11 @@ void Renderer::initGLAD() {
     if (!gladLoadGLLoader(loader)) {
         qFatal("Fatal: GLAD failed to map target core OpenGL function addresses using Qt resolver hook.");
     }
+
+    // ponytail: diagnostic to confirm desktop vs ANGLE/ES context after launch.
+    qDebug() << "[GL DIAGNOSTIC] VERSION:" << (const char*)glGetString(GL_VERSION)
+             << "| RENDERER:" << (const char*)glGetString(GL_RENDERER)
+             << "| GLSL:" << (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
 }
 
 std::string Renderer::readShaderFile(const std::string& filePath) {
@@ -182,6 +187,7 @@ void Renderer::initShaders() {
     invertZLoc = glGetUniformLocation(shaderProgram, "uInvertZ");
     filterMinLoc = glGetUniformLocation(shaderProgram, "uFilterMin");
     filterMaxLoc = glGetUniformLocation(shaderProgram, "uFilterMax");
+    clipEnabledLoc = glGetUniformLocation(shaderProgram, "uClipEnabled");
 
     scalarMinLoc = glGetUniformLocation(shaderProgram, "uScalarMin");
     scalarMaxLoc = glGetUniformLocation(shaderProgram, "uScalarMax");
@@ -588,6 +594,7 @@ void Renderer::renderFrame() {
         glUniform1i(invertZLoc, invertZ ? 1 : 0);
         glUniform1f(filterMinLoc, filterMin);
         glUniform1f(filterMaxLoc, filterMax);
+        glUniform1i(clipEnabledLoc, clipEnabled ? 1 : 0);
 
         glUniform1f(scalarMinLoc, scalarMin);
         glUniform1f(scalarMaxLoc, scalarMax);
@@ -712,9 +719,13 @@ bool Renderer::captureScreenshotToFile(const QString& path) {
 
     // Called on the render thread with the GL context current. Use device-pixel
     // dimensions so the captured image matches the real framebuffer.
+    // When rendered via QQuickFramebufferObject, the scene graph has its own FBO
+    // bound (not the default 0), so read from whatever is currently bound.
+    GLint boundFbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &boundFbo);
     int deviceW = static_cast<int>(width * devicePixelRatio);
     int deviceH = static_cast<int>(height * devicePixelRatio);
-    std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(0, deviceW, deviceH, config.transparentBackground);
+    std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(boundFbo, deviceW, deviceH, config.transparentBackground);
 
     bool success = ScreenshotExporter::saveToFile(config.filePath, pixels, deviceW, deviceH, config);
     if (success) {
@@ -737,6 +748,19 @@ QStringList Renderer::getColormapNames() const {
         list.append(QString::fromUtf8(Colormaps::getName(static_cast<ColormapType>(i))));
     }
     return list;
+}
+
+QVariantList Renderer::getColormapStops() const {
+    QVariantList out;
+    const int steps = 16;
+    for (int i = 0; i <= steps; ++i) {
+        float t = static_cast<float>(i) / static_cast<float>(steps);
+        glm::vec3 c = Colormaps::evaluate(t, static_cast<ColormapType>(colormapChoice));
+        QVariantList stop;
+        stop << t << c.r << c.g << c.b;
+        out.append(QVariant(stop));
+    }
+    return out;
 }
 
 std::vector<std::string> Renderer::getAvailableScalarNames() const {

@@ -1,157 +1,174 @@
+﻿#include <glad/glad.h>
 #include "custom_viewport_item.h"
 #include <QQuickWindow>
 #include <QMouseEvent>
 #include <QWheelEvent>
-#include <glad/glad.h>
+#include <QOpenGLContext>
 #include <QDebug>
+#include <QQuickOpenGLUtils>
+#include <QImage>
+#include <QStandardPaths>
+#include <vector>
 
-CustomViewportItem::CustomViewportItem(QQuickItem* parent)
-    : QQuickItem(parent) {
+// ---------------------------------------------------------------------------
+// ViewportVisualizer (QQuickFramebufferObject)
+//
+// The previous approach drew raw OpenGL into the default framebuffer inside
+// QQuickWindow::beforeRendering. That fails on Qt 6 because the scene graph
+// starts its own render pass with a clear after beforeRendering, so anything
+// drawn there is immediately erased. The only reliable way to composite raw
+// OpenGL under a QML UI is to render into an OFFSCREEN framebuffer object and
+// let the scene graph texturize it as a normal item. This file implements that.
+// ---------------------------------------------------------------------------
+
+ViewportVisualizer::ViewportVisualizer(QQuickItem* parent)
+    : QQuickFramebufferObject(parent) {
     setAcceptedMouseButtons(Qt::AllButtons);
+    // Keep the FBO continuous (camera interaction, animation).
     setFlag(ItemHasContents, true);
-
-    connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow *window) {
-        if (!window) return;
-
-        // CRITICAL FIX: We draw the GL scene in beforeRendering. In Qt 6 the
-        // scene graph always clears the framebuffer, so to keep our underlay
-        // visible we make the window transparent: the clear then uses an
-        // alpha=0 color and our GL content (which clears to bgColor itself in
-        // renderFrame()) shows through. The sidebar/overlay QML draws on top.
-        window->setColor(Qt::transparent);
-
-        // Guard against duplicate connections if windowChanged fires more than once.
-        if (m_renderConnectionsDone) return;
-        m_renderConnectionsDone = true;
-
-        // Step A: Keep beforeSynchronizing purely for data state adjustments if needed
-        connect(window, &QQuickWindow::beforeSynchronizing, this, [this]() {
-            // Properties synchronization only (keep lightweight)
-        }, Qt::DirectConnection);
-
-        // Step B: Direct underlay rendering loop injection
-        connect(window, &QQuickWindow::beforeRendering, this, [this, window]() {
-            if (!m_renderer) return;
-
-            static bool openGLAssetsInitialized = false;
-            if (!openGLAssetsInitialized) {
-                m_renderer->initGLAD();
-                m_renderer->initShaders();
-                m_renderer->initGrid();
-                m_renderer->initGizmo();
-                openGLAssetsInitialized = true;
-            }
-
-            // SAFE RENDERING THREAD HANDOFF ROUTINE
-            if (m_renderer->consumeMeshChanged()) {
-                // 1. Fetch the queued raw geometry under a thread-safe lock.
-                //    Copy quickly to minimize lock contention time.
-                RenderMesh meshToUpload;
-                m_renderer->takeQueuedMesh(meshToUpload);
-
-                // 2. Safe to call glDelete/glGen/glBufferData routines here because
-                //    we are on the render thread. uploadMesh() cleans up old GPU
-                //    handles internally, so we must NOT call clearMeshes() here
-                //    (that would reset hasMeshLoaded and re-show the drop overlay).
-                if (!meshToUpload.vertices.empty()) {
-                    m_renderer->uploadMesh(meshToUpload);
-                }
-            }
-
-            // Forward device-pixel dimensions so the GL viewport matches the real
-            // framebuffer on HiDPI displays.
-            if (window) {
-                m_renderer->setDevicePixelRatio(static_cast<float>(window->devicePixelRatio()));
-            }
-            m_renderer->resizeViewport(static_cast<int>(this->width()), static_cast<int>(this->height()));
-            m_renderer->renderFrame();
-
-        }, Qt::DirectConnection);
-
-        // Establish the screenshot capture connection now that we have a window.
-        tryConnectScreenshotCapture();
-    });
 }
 
-void CustomViewportItem::tryConnectScreenshotCapture() {
-    // Connect only once, and only when both the window and the renderer exist.
-    if (m_screenshotConnected || !window() || !m_renderer) return;
-    m_screenshotConnected = true;
-
-    // The Renderer emits screenshotRequested from the GUI thread (where no GL
-    // context is current). We perform the actual GL read + save here, connected
-    // to afterRendering with DirectConnection so it runs on the render thread
-    // while the OpenGL context is bound.
-    connect(m_renderer, &Renderer::screenshotRequested, window(), [this](const QString& path) {
-        if (m_renderer) m_renderer->captureScreenshotToFile(path);
-    }, Qt::DirectConnection);
+QQuickFramebufferObject::Renderer* ViewportVisualizer::createRenderer() const {
+    return new ViewportFboRenderer();
 }
 
-void CustomViewportItem::setRenderer(Renderer* r) {
-    if (m_renderer == r) return;
-
-    if (m_renderer) {
-        m_renderer->disconnect(this);
-    }
-
-    m_renderer = r;
+void ViewportVisualizer::setRenderer(::Renderer* r) {
+    if (m_scene == r) return;
+    m_scene = r;
     emit rendererChanged();
 
-    if (m_renderer) {
-        // When a new mesh finishes loading, force the Qt Quick Window to redraw
-        connect(m_renderer, &Renderer::meshDataUpdated, this, [this]() {
-            if (window()) {
-                window()->update(); // Force a modern OpenGL frame paint pass
-            }
+    // The scene is now bound: make sure at least one FBO render is scheduled
+    // (gizmo/grid show immediately even before any mesh is loaded).
+    update();
+
+    // When a new mesh finishes loading, ask the scene graph for a repaint so
+    // the FBO re-renders with the new geometry.
+    if (m_scene) {
+        connect(m_scene, &::Renderer::meshDataUpdated, this, [this]() {
+            update();
         });
-        // The window may already exist; wire up render-thread screenshot capture.
-        tryConnectScreenshotCapture();
+        connect(m_scene, &::Renderer::screenshotRequested, this, [this](const QString& path) {
+            // Run on the GUI thread (QML side). We forward to the renderer which
+            // performs the GL read inside its FBO render pass via synchronize().
+            if (m_scene) m_pendingScreenshot = path;
+            update();
+        });
     }
 }
 
-void CustomViewportItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) {
-    QQuickItem::geometryChange(newGeometry, oldGeometry);
-    if (m_renderer) {
-        // Forward physical widget geometry shifts down into your camera aspect matrix structures
-        m_renderer->resizeViewport(static_cast<int>(newGeometry.width()),
-                                   static_cast<int>(newGeometry.height()));
-    }
-    if (window()) window()->update();
-}
+::Renderer* ViewportVisualizer::renderer() const { return m_scene; }
 
-void CustomViewportItem::mousePressEvent(QMouseEvent* event) {
+void ViewportVisualizer::mousePressEvent(QMouseEvent* event) {
     m_lastMousePos = event->pos();
     m_isRightClick = (event->button() == Qt::RightButton);
     event->accept();
 }
 
-void CustomViewportItem::mouseMoveEvent(QMouseEvent* event) {
-    if (!m_renderer) return;
-
+void ViewportVisualizer::mouseMoveEvent(QMouseEvent* event) {
+    if (!m_scene) return;
     QPoint delta = event->pos() - m_lastMousePos;
     m_lastMousePos = event->pos();
-
     if (m_isRightClick) {
-        m_renderer->pan(delta.x() * 0.005, delta.y() * 0.005);
+        m_scene->pan(delta.x() * 0.005, delta.y() * 0.005);
     } else {
-        m_renderer->azimuth(-delta.x() * 0.5);
-        m_renderer->elevation(delta.y() * 0.5);
+        m_scene->azimuth(-delta.x() * 0.5);
+        m_scene->elevation(delta.y() * 0.5);
+    }
+    update();
+    event->accept();
+}
+
+void ViewportVisualizer::mouseReleaseEvent(QMouseEvent* event) {
+    event->accept();
+}
+
+void ViewportVisualizer::wheelEvent(QWheelEvent* event) {
+    if (!m_scene) return;
+    double factor = (event->angleDelta().y() > 0) ? 0.9 : 1.1;
+    m_scene->dolly(factor);
+    update();
+    event->accept();
+}
+
+// ---------------------------------------------------------------------------
+// ViewportFboRenderer
+// ---------------------------------------------------------------------------
+
+ViewportFboRenderer::ViewportFboRenderer()
+    : m_initialized(false) {
+}
+
+void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
+    ViewportVisualizer* vv = qobject_cast<ViewportVisualizer*>(item);
+    if (!vv) return;
+
+    // Hand the shared Renderer pointer over to the render thread.
+    m_scene = vv->renderer();
+
+    // Forward the latest size in LOGICAL pixels; renderFrame() multiplies by
+    // devicePixelRatio exactly once to match the device-sized FBO. (Passing
+    // device px here double-applied the dpr and supersized glViewport.)
+    if (m_scene) {
+        const float dpr = static_cast<float>(item->window() ? item->window()->devicePixelRatio() : 1.0);
+        m_scene->setDevicePixelRatio(dpr);
+        m_scene->resizeViewport(
+            static_cast<int>(item->width()),
+            static_cast<int>(item->height()));
     }
 
-    if (window()) window()->update(); // Force continuous UI repaint scheduling
-    event->accept();
+    // Drain the queued mesh handoff (upload happens on the render thread, like
+    // the old beforeRendering path did — safe because we own the GL context).
+    if (m_scene && m_scene->consumeMeshChanged()) {
+        RenderMesh meshToUpload;
+        m_scene->takeQueuedMesh(meshToUpload);
+        if (!meshToUpload.vertices.empty()) {
+            m_scene->uploadMesh(meshToUpload);
+        }
+    }
+
+    // Screenshot request forwarded from the QML/GUI side.
+    if (!vv->m_pendingScreenshot.isEmpty() && m_scene) {
+        m_scene->captureScreenshotToFile(vv->m_pendingScreenshot);
+        vv->m_pendingScreenshot.clear();
+    }
 }
 
-void CustomViewportItem::mouseReleaseEvent(QMouseEvent* event) {
-    event->accept();
+QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSize& size) {
+    m_fboSize = size;
+    QOpenGLFramebufferObjectFormat format;
+    format.setAttachment(QOpenGLFramebufferObject::Depth);
+    format.setSamples(0); // raw GL draw handles MSAA itself if needed
+    return new QOpenGLFramebufferObject(size, format);
 }
 
-void CustomViewportItem::wheelEvent(QWheelEvent* event) {
-    if (!m_renderer) return;
+void ViewportFboRenderer::render() {
+    if (!m_scene) return;
 
-    double factor = (event->angleDelta().y() > 0) ? 0.9 : 1.1;
-    m_renderer->dolly(factor);
+    if (!m_initialized) {
+        // GLAD must resolve against THIS context (the FBO render context).
+        m_scene->initGLAD();
+        m_scene->initShaders();
+        m_scene->initGrid();
+        m_scene->initGizmo();
+        m_initialized = true;
+    }
 
-    if (window()) window()->update();
-    event->accept();
+    // The FBO is already bound as the GL draw target by the scene graph; our
+    // renderFrame() clears/draws into it. The SG composites this FBO texture
+    // on top of the background and BELOW the QML overlays (colorbar, etc.).
+    m_scene->renderFrame();
+
+    // ---- TEMP: save the FBO to a PNG on the first frame so we can SEE what the
+    // GL pass produced (decisive headless-free verification of the draw path). ----
+    // Must happen BEFORE resetOpenGLState() (which rebinds Qt's FBO).
+    static bool dumped = false;
+    if (!dumped) {
+        dumped = true;
+        QString path = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                       + "/fbo_dump.png";
+        m_scene->captureScreenshotToFile(path);
+    }
+
+    // Qt 6: restore default GL state so the scene graph is not surprised.
+    QQuickOpenGLUtils::resetOpenGLState();
 }

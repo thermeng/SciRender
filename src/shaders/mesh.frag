@@ -32,7 +32,12 @@ uniform int uInvertZ; // 0 = Keep Back,   1 = Keep Front
 uniform float uFilterMin;
 uniform float uFilterMax;
 
-uniform sampler1D uColormapLUT; 
+uniform sampler1D uColormapLUT;
+
+// ponytail: clipping is OFF unless the UI explicitly enables it. With the old
+// default (slice=0, invert=false) the shader discarded the whole mesh because
+// vWorldPos.x>0 was true for almost every vertex -> blank viewport.
+uniform bool uClipEnabled;
 
 out vec4 FragColor;
 
@@ -72,12 +77,16 @@ void lightContribution(vec3 rawLightDir, vec3 norm, vec3 viewDir, float intensit
 void main() {
     // 1. Unified Slicing & Isolation Filtering
     // Evaluates all clipping and scalar isolation states together to optimize branch prediction
-    bool clipX = (uInvertX == 1) ? (vWorldPos.x < uSliceHeightX) : (vWorldPos.x > uSliceHeightX);
-    bool clipY = (uInvertY == 1) ? (vWorldPos.y < uSliceHeightY) : (vWorldPos.y > uSliceHeightY);
-    bool clipZ = (uInvertZ == 1) ? (vWorldPos.z < uSliceHeightZ) : (vWorldPos.z > uSliceHeightZ);
-    bool filterScalar = uHasScalars && (vScalar < uFilterMin || vScalar > uFilterMax);
+    bool clipped = false;
+    if (uClipEnabled) {
+        bool clipX = (uInvertX == 1) ? (vWorldPos.x < uSliceHeightX) : (vWorldPos.x > uSliceHeightX);
+        bool clipY = (uInvertY == 1) ? (vWorldPos.y < uSliceHeightY) : (vWorldPos.y > uSliceHeightZ);
+        bool clipZ = (uInvertZ == 1) ? (vWorldPos.z < uSliceHeightZ) : (vWorldPos.z > uSliceHeightZ);
+        bool filterScalar = uHasScalars && (vScalar < uFilterMin || vScalar > uFilterMax);
+        clipped = clipX || clipY || clipZ || filterScalar;
+    }
 
-    if (clipX || clipY || clipZ || filterScalar) {
+    if (clipped) {
         discard;
     }
 

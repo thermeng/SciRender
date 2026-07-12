@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+﻿cmake_minimum_required(VERSION 3.16)
 project(RendererQT LANGUAGES C CXX)
 
 # Force C++20 standard
@@ -92,7 +92,6 @@ qt_add_qml_module(RendererQT
     VERSION 1.0
     QML_FILES
         ui/Main.qml
-        ui/Sidebar.qml
     RESOURCES
         src/shaders/mesh.vert
         src/shaders/mesh.frag
@@ -109,3 +108,4 @@ add_custom_command(TARGET RendererQT POST_BUILD
             "$<TARGET_FILE_DIR:RendererQT>/shaders"
     COMMENT "--- Synchronizing runtime GLSL shader files ---"
 )
+
