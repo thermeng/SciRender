@@ -53,6 +53,8 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
             if (m_scene) m_pendingScreenshot = path;
             update();
         });
+        // ponytail: lighting changes never repainted before — connect once here (guarded by setRenderer's early return)
+        connect(m_scene, &::Renderer::lightingParametersChanged, this, [this]() { update(); });
     }
 }
 

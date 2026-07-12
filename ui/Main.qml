@@ -42,6 +42,58 @@ Window {
             text: "Open Mesh"
             onClicked: fileDialog.open()
         }
+        Button {
+            text: lightingPanel.visible ? "Hide Lighting" : "Lighting"
+            onClicked: lightingPanel.visible = !lightingPanel.visible
+        }
+    }
+
+    // Collapsible Lighting control panel (slider block, no per-slider boilerplate)
+    Column {
+        id: lightingPanel
+        visible: false
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.topMargin: 56
+        anchors.leftMargin: 12
+        width: 220
+        spacing: 4
+        opacity: 0.95
+
+        // ponytail: one helper row factory keeps all 17 sliders to a single declarative line each
+        component LightSlider : Row {
+            required property string label
+            required property real value
+            required property real from
+            required property real to
+            required property real step
+            required property var onSet
+            spacing: 6
+            Text { text: parent.label; color: "#cccccc"; font.pixelSize: 11; width: 70; elide: Text.ElideRight }
+            Slider {
+                width: 130; from: parent.from; to: parent.to; stepSize: parent.step
+                value: parent.value
+                onMoved: parent.onSet(value)
+            }
+            Text { text: parent.value.toFixed(1); color: "#999999"; font.pixelSize: 10; width: 30 }
+        }
+
+        LightSlider { label: "Intensity";   value: backendRenderer.lightInt;         from: 0; to: 3; step: 0.05; onSet: v => backendRenderer.lightInt = v }
+        LightSlider { label: "Key Az";      value: backendRenderer.lightKeyAzimuth;  from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightKeyAzimuth = v }
+        LightSlider { label: "Key El";      value: backendRenderer.lightKeyElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightKeyElevation = v }
+        LightSlider { label: "Fill Az";     value: backendRenderer.lightFillAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightFillAzimuth = v }
+        LightSlider { label: "Fill El";     value: backendRenderer.lightFillElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightFillElevation = v }
+        LightSlider { label: "Back Az";     value: backendRenderer.lightBackAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightBackAzimuth = v }
+        LightSlider { label: "Back El";     value: backendRenderer.lightBackElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightBackElevation = v }
+        LightSlider { label: "Head Az";     value: backendRenderer.lightHeadAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightHeadAzimuth = v }
+        LightSlider { label: "Head El";     value: backendRenderer.lightHeadElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightHeadElevation = v }
+        LightSlider { label: "Key Int";     value: backendRenderer.lightKeyIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightKeyIntensity = v }
+        LightSlider { label: "Fill Int";    value: backendRenderer.lightFillIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightFillIntensity = v }
+        LightSlider { label: "Head Int";    value: backendRenderer.lightHeadIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightHeadIntensity = v }
+        LightSlider { label: "Ambient";     value: backendRenderer.matAmbient;       from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matAmbient = v }
+        LightSlider { label: "Diffuse";     value: backendRenderer.matDiffuse;       from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matDiffuse = v }
+        LightSlider { label: "Specular";    value: backendRenderer.matSpecular;      from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matSpecular = v }
+        LightSlider { label: "Shininess";   value: backendRenderer.matShininess;     from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matShininess = v }
     }
 
     FileDialog {
