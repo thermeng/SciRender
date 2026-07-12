@@ -107,7 +107,10 @@ signals:
     void wireframeChanged();
     void gridVisibilityChanged();
     void surfaceVisibilityChanged();
+    void hasMeshLoadedChanged();
+    void currentMeshNameChanged();
     void meshLoadStateChanged();
+    void meshDataUpdated();
     void lightingParametersChanged();
     void colormapChanged();
     void screenshotCaptured(const QString& targetSavedPath);
@@ -284,4 +287,7 @@ private:
     bool showWireframe = false;
     int triangleCount = 0;
     float lightInt = 1.0f;
+
+    RenderMesh dynamicMeshQueue;
+    std::mutex meshQueueMutex;
 };

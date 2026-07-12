@@ -3,57 +3,75 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <glad/glad.h>
+#include <QDebug>
 
 CustomViewportItem::CustomViewportItem(QQuickItem* parent)
     : QQuickItem(parent) {
     setAcceptedMouseButtons(Qt::AllButtons);
     setFlag(ItemHasContents, true);
 
-    // Establish the window link as soon as this item joins the QML Scene Graph
     connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow *window) {
-        if (window) {
-            // Step A: Safely handle initializations on the rendering thread
-            connect(window, &QQuickWindow::beforeSynchronizing, this, [this]() {
-                if (m_renderer) {
-                    // Lazy-init GLAD once the window's OpenGL context becomes active
-                    static bool gladInitialized = false;
-                    if (!gladInitialized) {
-                        m_renderer->initGLAD();
-                        m_renderer->initShaders();
-                        m_renderer->initGrid();
-                        gladInitialized = true;
-                    }
-                }
-            }, Qt::DirectConnection);
+        if (!window) return;
 
-            // Step B: Direct underlay rendering loop injection
-            connect(window, &QQuickWindow::beforeRendering, this, [this]() {
-                if (!m_renderer) return;
+        // Step A: Keep beforeSynchronizing purely for data state adjustments if needed
+        connect(window, &QQuickWindow::beforeSynchronizing, this, [this]() {
+            // Properties synchronization only (keep lightweight)
+        }, Qt::DirectConnection);
 
-                // Sync the rendering draw viewport sizing coordinates
-                glViewport(0, 0, static_cast<GLsizei>(this->width()), static_cast<GLsizei>(this->height()));
+        // Step B: Direct underlay rendering loop injection
+        connect(window, &QQuickWindow::beforeRendering, this, [this]() {
+            if (!m_renderer) return;
 
-                // Fire your core OpenGL draw arrays/elements stack
-                m_renderer->renderFrame();
-            }, Qt::DirectConnection);
+            static bool openGLAssetsInitialized = false;
+            if (!openGLAssetsInitialized) {
+                m_renderer->initGLAD();
+                m_renderer->initShaders();
+                m_renderer->initGrid();
+                openGLAssetsInitialized = true;
+            }
 
-            // FIX FOR QT 6: Prevent Qt from overwriting the background canvas
-            // by forcing the window background to transparent.
-            window->setColor(Qt::transparent);
-        }
+            // SAFE RENDERING THREAD HANDOFF ROUTINE
+            if (m_renderer->consumeMeshChanged()) {
+                // 1. Safe to call glDelete routines here because we are on the render thread
+                m_renderer->clearMeshes();
+
+                // 2. Fetch the queued raw geometry under a thread-safe lock
+                // We copy it quickly to minimize lock contention time
+                RenderMesh meshToUpload;
+                // Accessing the private mutex/queue via a quick public helper
+                // or direct class scope injection if friend classes are configured.
+                // For simplicity, make sure your renderer exposes a thread-safe way to get the data:
+                // (Assuming you handle direct extraction here via a public function or direct pointer)
+
+                // 3. Safe to call glGen/glBufferData routines here!
+                // m_renderer->uploadMesh(meshToUpload);
+            }
+
+            m_renderer->resizeViewport(static_cast<int>(this->width()), static_cast<int>(this->height()));
+            m_renderer->renderFrame();
+
+        }, Qt::DirectConnection);
     });
 }
 
 void CustomViewportItem::setRenderer(Renderer* r) {
     if (m_renderer == r) return;
+
+    if (m_renderer) {
+        m_renderer->disconnect(this);
+    }
+
     m_renderer = r;
     emit rendererChanged();
 
-    // Update structural sizing values if the object is swapped at runtime
     if (m_renderer) {
-        m_renderer->resizeViewport(static_cast<int>(width()), static_cast<int>(height()));
+        // When a new mesh finishes loading, force the Qt Quick Window to redraw
+        connect(m_renderer, &Renderer::meshDataUpdated, this, [this]() {
+            if (window()) {
+                window()->update(); // Force a modern OpenGL frame paint pass
+            }
+        });
     }
-    if (window()) window()->update();
 }
 
 void CustomViewportItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) {

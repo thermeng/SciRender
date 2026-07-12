@@ -8,6 +8,7 @@ Rectangle {
     border.color: "#3c3c3c"
     border.width: 1
 
+    property QtObject backendRenderer: null
     signal resetViewClicked()
 
     Column {
@@ -33,8 +34,8 @@ Rectangle {
 
         CheckBox {
             text: "Wireframe Overlay"
-            checked: backendRenderer.isWireframe
-            onCheckedChanged: backendRenderer.isWireframe = checked
+            checked: backendRenderer ? backendRenderer.isWireframe : false
+            onCheckedChanged: if (backendRenderer) backendRenderer.isWireframe = checked
 
             contentItem: Text {
                 text: parent.text
@@ -46,8 +47,8 @@ Rectangle {
 
         CheckBox {
             text: "Show Dynamic Grid"
-            checked: backendRenderer.isGridVisible
-            onCheckedChanged: backendRenderer.isGridVisible = checked
+            checked: backendRenderer ? backendRenderer.isGridVisible : false
+            onCheckedChanged: if (backendRenderer) backendRenderer.isGridVisible = checked
 
             contentItem: Text {
                 text: parent.text
@@ -64,23 +65,22 @@ Rectangle {
             spacing: 10
             Text { text: "Intensity:"; color: "#ffffff"; width: 60; anchors.verticalCenter: parent.verticalCenter }
             Slider {
-                id: lightSlider
-                from: 0.0
-                to: 2.0
-                value: backendRenderer.lightInt
-                onMoved: backendRenderer.lightInt = value
-                width: 160
-            }
+                    id: lightSlider
+                    from: 0.0
+                    to: 2.0
+                    // 2. USE AN EXPLICIT NULL GUARD SO IT NEVER EVALUATES "null.lightInt"
+                    value: sidebarRoot.backendRenderer ? sidebarRoot.backendRenderer.lightInt : 1.0
+                    onMoved: if (sidebarRoot.backendRenderer) sidebarRoot.backendRenderer.lightInt = value
+                    width: 160
+                }
         }
-
         // --- Multi-Scalar Field Control ---
         Text { text: "Active Colormap Lookup"; color: "#aaaaaa"; font.pixelSize: 14 }
 
         ComboBox {
-            width: parent.width
             model: ["Cool to Warm", "Viridis", "Jet", "Grayscale"]
-            currentIndex: backendRenderer.colormapChoice
-            onCurrentIndexChanged: backendRenderer.colormapChoice = currentIndex
+            currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
+            onCurrentIndexChanged: if (backendRenderer) backendRenderer.colormapChoice = currentIndex
         }
 
         // --- Native Action Triggers ---
@@ -94,13 +94,10 @@ Rectangle {
 
         // --- Live File Diagnostics ---
         Text {
-            text: backendRenderer.hasMeshLoaded
+            text: (backendRenderer && backendRenderer.hasMeshLoaded)
                   ? "Active File: " + backendRenderer.currentMeshName
                   : "No dataset loaded into workspace"
-            color: backendRenderer.hasMeshLoaded ? "#4ec9b0" : "#ce9178"
-            font.pixelSize: 12
-            wrapMode: Text.Wrap
-            width: parent.width
+            color: (backendRenderer && backendRenderer.hasMeshLoaded) ? "#4ec9b0" : "#ce9178"
         }
     }
 }

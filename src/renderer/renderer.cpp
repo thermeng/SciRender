@@ -20,6 +20,7 @@
 #include <QDir>
 #include <QQuickOpenGLUtils>
 #include <QFileInfo>
+#include <QOpenGLContext>
 
 static bool compileShader(GLuint shader, const char* source, const char* type) {
     glShaderSource(shader, 1, &source, nullptr);
@@ -41,7 +42,7 @@ Renderer::Renderer(QObject* parent)
     // Default system initialization parameters
     meshColor[0] = 0.4f; meshColor[1] = 0.9f; meshColor[2] = 0.4f;
     surfaceColor[0] = 1.0f; surfaceColor[1] = 1.0f; surfaceColor[2] = 1.0f;
-    bgColor[0] = 0.15f; bgColor[1] = 0.15f; bgColor[2] = 0.15f;
+    bgColor[0] = 0.12f; bgColor[1] = 0.12f; bgColor[2] = 0.12f;
 
     worldCenterX = 0.0; worldCenterY = 0.0; worldCenterZ = 0.0;
     worldRadius = 1.0;
@@ -60,7 +61,23 @@ Renderer::~Renderer() {
 #pragma GCC diagnostic pop
 
 void Renderer::initGLAD() {
-    // Glad is managed externally by the CustomViewportItem hook safely on startup
+    // Harvest the current active OpenGL context created by the Qt Quick Scene Graph thread
+    QOpenGLContext* currentContext = QOpenGLContext::currentContext();
+    if (!currentContext) {
+        qFatal("Fatal: initGLAD called but no active Qt OpenGL context was found on this thread.");
+        return;
+    }
+
+    // Pass the lambda directly as a function pointer without any reinterpret_cast.
+    // The compiler automatically converts a non-capturing lambda into a matching raw function pointer.
+    GLADloadproc loader = [](const char* name) -> void* {
+        QOpenGLContext* ctx = QOpenGLContext::currentContext();
+        return ctx ? reinterpret_cast<void*>(ctx->getProcAddress(name)) : nullptr;
+    };
+
+    if (!gladLoadGLLoader(loader)) {
+        qFatal("Fatal: GLAD failed to map target core OpenGL function addresses using Qt resolver hook.");
+    }
 }
 
 std::string Renderer::readShaderFile(const std::string& filePath) {
@@ -230,6 +247,17 @@ void Renderer::initGrid() {
 }
 
 void Renderer::uploadMesh(const RenderMesh& renderMesh) {
+
+    // WIPE OUT OLD OPENGL HANDLES BEFORE GENERATING NEW ONES
+    for (auto& m : meshes) {
+        glDeleteVertexArrays(1, &m.vao);
+        glDeleteBuffers(1, &m.vbo);
+        glDeleteBuffers(1, &m.nbo);
+        glDeleteBuffers(1, &m.ebo);
+        if (m.sbo) glDeleteBuffers(1, &m.sbo);
+    }
+    meshes.clear(); // Empty the graphics tracking vector cleanly
+
     Mesh mesh;
     mesh.indexCount = static_cast<int>(renderMesh.indices.size());
 
@@ -277,10 +305,10 @@ void Renderer::destroyMesh(Mesh& mesh) {
     if (mesh.sbo) glDeleteBuffers(1, &mesh.sbo);
 }
 
+// 1. Rewrite clearMeshes to be strictly for UI/Reset calls (Runs on GUI Thread)
 void Renderer::clearMeshes() {
-    for (auto& m : meshes) {
-        destroyMesh(m);
-    }
+    // We don't call destroyMesh directly here anymore because it contains raw glDelete calls.
+    // Instead, we let the render thread handle handle destruction or flag it.
     meshes.clear();
     hasMeshLoaded = false;
     meshHasScalars = false;
@@ -293,8 +321,6 @@ void Renderer::loadMesh(const QString& filePath) {
     if (filePath.isEmpty()) return;
 
     std::string stdPath = filePath.toStdString();
-
-    // Auto strip protocol formatting prefixes generated via standard QML Drop zones
     if (stdPath.rfind("file:///", 0) == 0) {
         stdPath = stdPath.substr(8);
     } else if (stdPath.rfind("file://", 0) == 0) {
@@ -307,10 +333,13 @@ void Renderer::loadMesh(const QString& filePath) {
         return;
     }
 
-    clearMeshes();
-    cachedMeshSource = loaded;
+    // Thread-safe handoff of the CPU geometry data
+    {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        dynamicMeshQueue = loaded;
+    }
 
-    // Isolate active bounds geometry parameters directly from the computed high-precision bounds
+    // Update dimensions and properties safely on the UI thread
     worldMinX = loaded.bounds.minX; worldMaxX = loaded.bounds.maxX;
     worldMinY = loaded.bounds.minY; worldMaxY = loaded.bounds.maxY;
     worldMinZ = loaded.bounds.minZ; worldMaxZ = loaded.bounds.maxZ;
@@ -320,40 +349,42 @@ void Renderer::loadMesh(const QString& filePath) {
     worldCenterZ = loaded.bounds.centerZ;
     worldRadius  = loaded.bounds.worldRadius;
 
-    uploadMesh(loaded);
-
-    // Track active configuration sizes
     QFileInfo fileInfo(filePath);
     currentMeshName = fileInfo.fileName().toStdString();
     triangleCount = static_cast<int>(loaded.indices.size() / 3);
+
+    // UI components read these variables immediately
     hasMeshLoaded = true;
-    meshChanged = true;
 
-    if (meshHasScalars && !loaded.scalarName.empty()) {
+    // NOTE: If meshChanged is a boolean variable used inside consumeMeshChanged(),
+    // keep it, but we also must emit the signal for the Viewport Item.
+    this->meshChanged = true;
+
+    if (!loaded.scalars.empty()) {
+        meshHasScalars = true;
         activeScalarName = loaded.scalarName;
-        if (!loaded.scalars.empty()) {
-            float minVal = loaded.scalars[0];
-            float maxVal = loaded.scalars[0];
-
-            for (float val : loaded.scalars) {
-                if (val < minVal) minVal = val;
-                if (val > maxVal) maxVal = val;
-            }
-
-            dataScalarMin = minVal;
-            dataScalarMax = maxVal;
-        } else {
-            dataScalarMin = 0.0f;
-            dataScalarMax = 1.0f;
+        float minVal = loaded.scalars[0];
+        float maxVal = loaded.scalars[0];
+        for (float val : loaded.scalars) {
+            if (val < minVal) minVal = val;
+            if (val > maxVal) maxVal = val;
         }
+        dataScalarMin = minVal;
+        dataScalarMax = maxVal;
         scalarMin = dataScalarMin;
         scalarMax = dataScalarMax;
-        filterMin = 0.0f;
-        filterMax = 1.0f;
+    } else {
+        meshHasScalars = false;
+        dataScalarMin = 0.0f;
+        dataScalarMax = 1.0f;
     }
 
     resetCamera();
+
     emit meshLoadStateChanged();
+
+    // 2. Alert the CustomViewportItem to trigger a Scene Graph update
+    emit meshDataUpdated();
 }
 
 void Renderer::resetCamera() {
