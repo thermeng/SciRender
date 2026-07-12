@@ -78,7 +78,7 @@ Rectangle {
         Text { text: "Active Colormap Lookup"; color: "#aaaaaa"; font.pixelSize: 14 }
 
         ComboBox {
-            model: ["Cool to Warm", "Viridis", "Jet", "Grayscale"]
+            model: backendRenderer ? backendRenderer.getColormapNames() : []
             currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
             onCurrentIndexChanged: if (backendRenderer) backendRenderer.colormapChoice = currentIndex
         }

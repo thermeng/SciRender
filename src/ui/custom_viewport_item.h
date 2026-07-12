@@ -18,6 +18,11 @@ public:
 signals:
     void rendererChanged();
 
+private:
+    // Wires the Renderer's screenshotRequested signal to the render thread so the
+    // GL pixel read happens with the OpenGL context current. Idempotent.
+    void tryConnectScreenshotCapture();
+
 protected:
     // Capture user input directly inside the QML frame area
     void mousePressEvent(QMouseEvent* event) override;
@@ -32,4 +37,6 @@ private:
     Renderer* m_renderer = nullptr;
     QPoint m_lastMousePos;
     bool m_isRightClick = false;
+    bool m_renderConnectionsDone = false; // guards one-time window signal connections
+    bool m_screenshotConnected = false;   // guards one-time screenshot capture connection
 };

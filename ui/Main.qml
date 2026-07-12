@@ -8,7 +8,7 @@ Window {
     height: 768
     visible: true
     title: "High-Performance Qt Graphics Engine Client"
-    color: "#1e1e1e"
+    color: "transparent" // GL underlay (drawn in beforeRendering) shows through
 
     Row {
         anchors.fill: parent
@@ -33,7 +33,7 @@ Window {
         Rectangle {
             width: parent.width - controlSidebar.width
             height: parent.height
-            color: "#000000" // Standard fallback viewport color
+            color: "transparent" // Must be transparent so the GL underlay (drawn in beforeRendering) shows through
 
             ViewportVisualizer {
                 id: openGLViewport
@@ -46,10 +46,9 @@ Window {
                     anchors.fill: parent
                     onDropped: (drop) => {
                         if (drop.hasUrls) {
-                            drop.acceptProposedAction(); // Signal event handled completely
                             let cleanPath = drop.urls[0].toString().replace("file:///", "");
                             backendRenderer.loadMesh(cleanPath);
-                            drop.accept(); // Terminate event bubble loops safely
+                            drop.acceptProposedAction();
                         }
                     }
                 }

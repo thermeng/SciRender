@@ -24,6 +24,7 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <atomic>
 #include <optional>
 
 #include "mesh/mesh_loader.h"
@@ -63,7 +64,11 @@ public:
     void initGLAD();
     void initShaders();
     void initGrid();
+    void initGizmo();
     void renderFrame();
+
+    // Uploads CPU geometry to the GPU. Safe to call on the render thread.
+    void uploadMesh(const RenderMesh& renderMesh);
     void resizeViewport(int width, int height);
 
     // Modern Qt Property Accessors & Mutators
@@ -96,6 +101,9 @@ public slots:
     void resetCamera();
     void snapToOrthoView(int axis);
     bool captureScreenshotWithDialog();
+    // Performs the actual GL pixel read + file save. MUST be called on the
+    // render thread while the OpenGL context is current (see CustomViewportItem).
+    bool captureScreenshotToFile(const QString& path);
     void toggleGrid(bool visible);
     void toggleSurface(bool visible);
 
@@ -103,17 +111,20 @@ public slots:
     QStringList getAvailableScalars() const;
     void setActiveScalarField(const QString& fieldName);
 
+    // Returns the list of colormap display names in ColormapType enum order,
+    // suitable for binding directly to a QML ComboBox model.
+    QStringList getColormapNames() const;
+
 signals:
     void wireframeChanged();
     void gridVisibilityChanged();
     void surfaceVisibilityChanged();
-    void hasMeshLoadedChanged();
-    void currentMeshNameChanged();
     void meshLoadStateChanged();
     void meshDataUpdated();
     void lightingParametersChanged();
     void colormapChanged();
     void screenshotCaptured(const QString& targetSavedPath);
+    void screenshotRequested(const QString& targetPath);
 
 public:
     // VTK Camera Inline Forwarders
@@ -138,6 +149,10 @@ public:
     void setSidebarWidth(float w) { sidebarWidth = w; }
     float getSidebarWidth() const { return sidebarWidth; }
 
+
+    // Device-pixel-ratio aware sizing so the GL viewport matches the real
+    // framebuffer on HiDPI displays.
+    void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
     std::vector<std::string> getAvailableScalarNames() const;
     void setActiveScalarFieldStd(const std::string& fieldName);
 
@@ -151,7 +166,15 @@ public:
     GridPlane activeGridPlane = GridPlane::AutoLowest;
 
     void setScalarRange(float min, float max) { scalarMin = min; scalarMax = max; }
-    bool consumeMeshChanged() { bool v = meshChanged; meshChanged = false; return v; }
+    bool consumeMeshChanged() { return meshChanged.exchange(false); }
+
+    // Thread-safe extraction of the queued mesh produced on the UI thread by loadMesh().
+    // Copies the geometry out under the mesh queue mutex so the caller can safely
+    // perform GL upload on the render thread.
+    void takeQueuedMesh(RenderMesh& out) {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        out = dynamicMeshQueue;
+    }
     float getScalarMin() const { return scalarMin; }
     float getScalarMax() const { return scalarMax; }
     float getDataScalarMin() const { return dataScalarMin; }
@@ -195,13 +218,13 @@ private:
     void drawGizmo();
     void updateColormapTexture();
     void destroyMesh(Mesh& mesh);
-    void uploadMesh(const RenderMesh& renderMesh);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     std::string readShaderFile(const std::string& filePath);
 
     // Display Dimension Registers
     int width = 800;
     int height = 600;
+    float devicePixelRatio = 1.0f; // device pixels per logical pixel (HiDPI)
 
     // Viewport Core Transform Tracking Classes
     Camera camera;
@@ -230,6 +253,12 @@ private:
     GLint keyIntensityLoc = -1;
     GLint fillIntensityLoc = -1;
     GLint headIntensityLoc = -1;
+    GLint backIntensityLoc = -1;
+
+    GLint keyColorLoc = -1;
+    GLint fillColorLoc = -1;
+    GLint backColorLoc = -1;
+    GLint headColorLoc = -1;
 
     GLint sliceHeightXLoc = -1;
     GLint sliceHeightYLoc = -1;
@@ -243,7 +272,6 @@ private:
     GLint scalarMaxLoc = -1;
     GLint hasScalarsLoc = -1;
     GLint lutTextureLoc = -1;
-    GLint colormapTypeLoc = -1;
 
     double camDistance = 3.0;
     double nearPlane = 0.1;
@@ -276,14 +304,15 @@ private:
     int colormapChoice = 0;
     int lastUploadedChoice = -1;
     GLuint colormapTex = 0;
-
+    std::atomic<bool> meshChanged{true};
     float scalarMin = 0.0f;
     float scalarMax = 1.0f;
     float dataScalarMin = 0.0f;
     float dataScalarMax = 1.0f;
     bool meshHasScalars = false;
-    bool meshChanged = true;
 
+    std::mutex meshGLMutex; // guards meshes GPU-handle teardown/uploads across threads
+    bool m_destroying = false; // set in ~Renderer to suppress signals during teardown
     bool showWireframe = false;
     int triangleCount = 0;
     float lightInt = 1.0f;

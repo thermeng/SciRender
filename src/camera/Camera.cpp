@@ -97,27 +97,22 @@ glm::quat Camera::computeGizmoQuat() const {
 }
 
 void Camera::snapToOrthoView(int axis) {
+    glm::dvec3 target = focalPoint;
+    glm::dvec3 up(0.0, 1.0, 0.0);
     switch (axis) {
-    case 0: // Right
-        position = { focalPoint.x + distance, focalPoint.y, focalPoint.z };
-        viewUp = { 0.0, 1.0, 0.0 };
-        break;
-    case 1: // Top
-        position = { focalPoint.x, focalPoint.y + distance, focalPoint.z };
-        viewUp = { 0.0, 0.0, -1.0 };
-        break;
-    case 2: // Front
-        position = { focalPoint.x, focalPoint.y, focalPoint.z + distance };
-        viewUp = { 0.0, 1.0, 0.0 };
-        break;
+    case 0: target.x += distance; up = { 0.0, 1.0, 0.0 }; break;   // +X
+    case 1: target.x -= distance; up = { 0.0, 1.0, 0.0 }; break;   // -X
+    case 2: target.y += distance; up = { 0.0, 0.0, -1.0 }; break;  // +Y
+    case 3: target.y -= distance; up = { 0.0, 0.0, 1.0 }; break;   // -Y
+    case 4: target.z += distance; up = { 0.0, 1.0, 0.0 }; break;   // +Z
+    case 5: target.z -= distance; up = { 0.0, 1.0, 0.0 }; break;   // -Z
+    default: return; // Unknown axis: leave camera untouched
     }
+    position = target;
+    viewUp = up;
+    orthogonalizeViewUp();
 }
 
 glm::mat4 Camera::getViewMatrix() const {
     return glm::lookAt(glm::vec3(position), glm::vec3(focalPoint), glm::vec3(viewUp));
-}
-
-glm::mat4 Camera::getProjectionMatrix(double aspectRatio, double nearPlane, double farPlane) const {
-    // 45.0f is a standard field-of-view value. Adjust this if you track FOV state variables.
-    return glm::perspective(glm::radians(45.0f), static_cast<float>(aspectRatio), static_cast<float>(nearPlane), static_cast<float>(farPlane));
 }

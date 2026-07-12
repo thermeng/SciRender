@@ -30,5 +30,4 @@ public:
     glm::quat computeGizmoQuat() const;
     glm::dvec3 directionOfProjection() const;
     glm::mat4 getViewMatrix() const;
-    glm::mat4 getProjectionMatrix(double aspectRatio, double nearPlane, double farPlane) const;
 };

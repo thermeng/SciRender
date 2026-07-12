@@ -51,12 +51,14 @@ Renderer::Renderer(QObject* parent)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wattributes"
 Renderer::~Renderer() {
+    m_destroying = true; // suppress signal emissions during teardown
     clearMeshes();
     if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
     if (gridVBO) glDeleteBuffers(1, &gridVBO);
     if (gridShaderProgram) glDeleteProgram(gridShaderProgram);
     if (shaderProgram) glDeleteProgram(shaderProgram);
     if (colormapTex) glDeleteTextures(1, &colormapTex);
+    gizmo.shutdown();
 }
 #pragma GCC diagnostic pop
 
@@ -142,43 +144,49 @@ void Renderer::initShaders() {
     glDeleteShader(frag);
 
     // Uniform Caching Passes
-    mvpLoc = glGetUniformLocation(shaderProgram, "u_MVP");
-    modelLoc = glGetUniformLocation(shaderProgram, "u_Model");
-    viewLoc = glGetUniformLocation(shaderProgram, "u_View");
-    lightDirLoc = glGetUniformLocation(shaderProgram, "u_LightDir");
-    viewPosLoc = glGetUniformLocation(shaderProgram, "u_ViewPos");
-    wireframeLoc = glGetUniformLocation(shaderProgram, "u_Wireframe");
-    colorLoc = glGetUniformLocation(shaderProgram, "u_Color");
-    surfaceColorLoc = glGetUniformLocation(shaderProgram, "u_SurfaceColor");
+    // NOTE: Names MUST match the GLSL declarations in src/shaders/mesh.{vert,frag}
+    mvpLoc = glGetUniformLocation(shaderProgram, "uMVP");
+    modelLoc = glGetUniformLocation(shaderProgram, "uModel");
+    viewLoc = glGetUniformLocation(shaderProgram, "uView");
+    lightDirLoc = glGetUniformLocation(shaderProgram, "uLightDir");
+    viewPosLoc = glGetUniformLocation(shaderProgram, "uViewPos");
+    wireframeLoc = glGetUniformLocation(shaderProgram, "uWireframe");
+    colorLoc = glGetUniformLocation(shaderProgram, "uMeshColor");
+    surfaceColorLoc = glGetUniformLocation(shaderProgram, "uSurfaceColor");
 
-    lightFillLoc = glGetUniformLocation(shaderProgram, "u_LightFillDir");
-    lightBack1Loc = glGetUniformLocation(shaderProgram, "u_LightBack1Dir");
-    lightBack2Loc = glGetUniformLocation(shaderProgram, "u_LightBack2Dir");
-    lightHeadLoc = glGetUniformLocation(shaderProgram, "u_LightHeadDir");
+    lightFillLoc = glGetUniformLocation(shaderProgram, "uLightFill");
+    lightBack1Loc = glGetUniformLocation(shaderProgram, "uLightBack1");
+    lightBack2Loc = glGetUniformLocation(shaderProgram, "uLightBack2");
+    lightHeadLoc = glGetUniformLocation(shaderProgram, "uLightHead");
 
-    matAmbientLoc = glGetUniformLocation(shaderProgram, "u_MatAmbient");
-    matDiffuseLoc = glGetUniformLocation(shaderProgram, "u_MatDiffuse");
-    matSpecularLoc = glGetUniformLocation(shaderProgram, "u_MatSpecular");
-    matShininessLoc = glGetUniformLocation(shaderProgram, "u_MatShininess");
+    matAmbientLoc = glGetUniformLocation(shaderProgram, "uMatAmbient");
+    matDiffuseLoc = glGetUniformLocation(shaderProgram, "uMatDiffuse");
+    matSpecularLoc = glGetUniformLocation(shaderProgram, "uMatSpecular");
+    matShininessLoc = glGetUniformLocation(shaderProgram, "uMatShininess");
 
-    keyIntensityLoc = glGetUniformLocation(shaderProgram, "u_KeyIntensity");
-    fillIntensityLoc = glGetUniformLocation(shaderProgram, "u_FillIntensity");
-    headIntensityLoc = glGetUniformLocation(shaderProgram, "u_HeadIntensity");
+    keyIntensityLoc = glGetUniformLocation(shaderProgram, "uKeyIntensity");
+    fillIntensityLoc = glGetUniformLocation(shaderProgram, "uFillIntensity");
+    headIntensityLoc = glGetUniformLocation(shaderProgram, "uHeadIntensity");
+    backIntensityLoc = glGetUniformLocation(shaderProgram, "uBackIntensity");
 
-    sliceHeightXLoc = glGetUniformLocation(shaderProgram, "u_SliceHeightX");
-    sliceHeightYLoc = glGetUniformLocation(shaderProgram, "u_SliceHeightY");
-    sliceHeightZLoc = glGetUniformLocation(shaderProgram, "u_SliceHeightZ");
-    invertXLoc = glGetUniformLocation(shaderProgram, "u_InvertX");
-    invertYLoc = glGetUniformLocation(shaderProgram, "u_InvertY");
-    invertZLoc = glGetUniformLocation(shaderProgram, "u_InvertZ");
-    filterMinLoc = glGetUniformLocation(shaderProgram, "u_FilterMin");
-    filterMaxLoc = glGetUniformLocation(shaderProgram, "u_FilterMax");
+    keyColorLoc = glGetUniformLocation(shaderProgram, "uKeyColor");
+    fillColorLoc = glGetUniformLocation(shaderProgram, "uFillColor");
+    backColorLoc = glGetUniformLocation(shaderProgram, "uBackColor");
+    headColorLoc = glGetUniformLocation(shaderProgram, "uHeadColor");
 
-    scalarMinLoc = glGetUniformLocation(shaderProgram, "u_ScalarMin");
-    scalarMaxLoc = glGetUniformLocation(shaderProgram, "u_ScalarMax");
-    hasScalarsLoc = glGetUniformLocation(shaderProgram, "u_HasScalars");
-    lutTextureLoc = glGetUniformLocation(shaderProgram, "u_LutTexture");
-    colormapTypeLoc = glGetUniformLocation(shaderProgram, "u_ColormapType");
+    sliceHeightXLoc = glGetUniformLocation(shaderProgram, "uSliceHeightX");
+    sliceHeightYLoc = glGetUniformLocation(shaderProgram, "uSliceHeightY");
+    sliceHeightZLoc = glGetUniformLocation(shaderProgram, "uSliceHeightZ");
+    invertXLoc = glGetUniformLocation(shaderProgram, "uInvertX");
+    invertYLoc = glGetUniformLocation(shaderProgram, "uInvertY");
+    invertZLoc = glGetUniformLocation(shaderProgram, "uInvertZ");
+    filterMinLoc = glGetUniformLocation(shaderProgram, "uFilterMin");
+    filterMaxLoc = glGetUniformLocation(shaderProgram, "uFilterMax");
+
+    scalarMinLoc = glGetUniformLocation(shaderProgram, "uScalarMin");
+    scalarMaxLoc = glGetUniformLocation(shaderProgram, "uScalarMax");
+    hasScalarsLoc = glGetUniformLocation(shaderProgram, "uHasScalars");
+    lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
 }
 
 void Renderer::initGrid() {
@@ -220,7 +228,7 @@ void Renderer::initGrid() {
     glDeleteShader(vert);
     glDeleteShader(frag);
 
-    gridMVPLoc = glGetUniformLocation(gridShaderProgram, "u_MVP");
+    gridMVPLoc = glGetUniformLocation(gridShaderProgram, "uMVP");
 
     // Math vertex buffer generation
     std::vector<float> gridVertices;
@@ -246,17 +254,24 @@ void Renderer::initGrid() {
     glBindVertexArray(0);
 }
 
-void Renderer::uploadMesh(const RenderMesh& renderMesh) {
+void Renderer::initGizmo() {
+    gizmo.init();
+}
 
+void Renderer::uploadMesh(const RenderMesh& renderMesh) {
     // WIPE OUT OLD OPENGL HANDLES BEFORE GENERATING NEW ONES
-    for (auto& m : meshes) {
-        glDeleteVertexArrays(1, &m.vao);
-        glDeleteBuffers(1, &m.vbo);
-        glDeleteBuffers(1, &m.nbo);
-        glDeleteBuffers(1, &m.ebo);
-        if (m.sbo) glDeleteBuffers(1, &m.sbo);
+    // Guarded by meshGLMutex so it cannot race with clearMeshes() on the UI thread.
+    {
+        std::lock_guard<std::mutex> lock(meshGLMutex);
+        for (auto& m : meshes) {
+            glDeleteVertexArrays(1, &m.vao);
+            glDeleteBuffers(1, &m.vbo);
+            glDeleteBuffers(1, &m.nbo);
+            glDeleteBuffers(1, &m.ebo);
+            if (m.sbo) glDeleteBuffers(1, &m.sbo);
+        }
+        meshes.clear(); // Empty the graphics tracking vector cleanly
     }
-    meshes.clear(); // Empty the graphics tracking vector cleanly
 
     Mesh mesh;
     mesh.indexCount = static_cast<int>(renderMesh.indices.size());
@@ -307,14 +322,20 @@ void Renderer::destroyMesh(Mesh& mesh) {
 
 // 1. Rewrite clearMeshes to be strictly for UI/Reset calls (Runs on GUI Thread)
 void Renderer::clearMeshes() {
-    // We don't call destroyMesh directly here anymore because it contains raw glDelete calls.
-    // Instead, we let the render thread handle handle destruction or flag it.
-    meshes.clear();
+    // Free GPU resources for any uploaded meshes. Guarded by meshGLMutex so it
+    // cannot race with uploadMesh() running on the render thread.
+    {
+        std::lock_guard<std::mutex> lock(meshGLMutex);
+        for (auto& m : meshes) {
+            destroyMesh(m);
+        }
+        meshes.clear();
+    }
     hasMeshLoaded = false;
     meshHasScalars = false;
     triangleCount = 0;
     currentMeshName = "";
-    emit meshLoadStateChanged();
+    if (!m_destroying) emit meshLoadStateChanged();
 }
 
 void Renderer::loadMesh(const QString& filePath) {
@@ -339,6 +360,10 @@ void Renderer::loadMesh(const QString& filePath) {
         dynamicMeshQueue = loaded;
     }
 
+    // Cache the source mesh so scalar-field queries (getAvailableScalars,
+    // setActiveScalarFieldStd) operate on real data rather than an empty struct.
+    cachedMeshSource = loaded;
+
     // Update dimensions and properties safely on the UI thread
     worldMinX = loaded.bounds.minX; worldMaxX = loaded.bounds.maxX;
     worldMinY = loaded.bounds.minY; worldMaxY = loaded.bounds.maxY;
@@ -356,8 +381,8 @@ void Renderer::loadMesh(const QString& filePath) {
     // UI components read these variables immediately
     hasMeshLoaded = true;
 
-    // NOTE: If meshChanged is a boolean variable used inside consumeMeshChanged(),
-    // keep it, but we also must emit the signal for the Viewport Item.
+    // NOTE: meshChanged is an atomic flag consumed by the render thread in
+    // consumeMeshChanged(); set it so the queued mesh gets uploaded.
     this->meshChanged = true;
 
     if (!loaded.scalars.empty()) {
@@ -466,10 +491,19 @@ void Renderer::renderFrame() {
     glClearColor(bgColor[0], bgColor[1], bgColor[2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    // Establish the full-window viewport for the scene (grid + mesh). The gizmo
+    // pass sets its own smaller viewport later, then we restore here is not needed
+    // because the gizmo restores via glViewport in drawGizmo's own call.
+    // Use device-pixel dimensions so the GL viewport matches the real framebuffer
+    // on HiDPI displays (width/height are logical; multiply by devicePixelRatio).
+    int deviceW = static_cast<int>(width * devicePixelRatio);
+    int deviceH = static_cast<int>(height * devicePixelRatio);
+    glViewport(0, 0, deviceW, deviceH);
+
     glm::mat4 view = camera.getViewMatrix();
     glm::mat4 proj = glm::perspective(
         glm::radians(45.0f),
-        static_cast<float>(width) / static_cast<float>(height),
+        static_cast<float>(deviceW) / static_cast<float>(deviceH),
         static_cast<float>(nearPlane),
         static_cast<float>(farPlane)
         );
@@ -524,11 +558,26 @@ void Renderer::renderFrame() {
         glUniform1f(matAmbientLoc, matAmbient);
         glUniform1f(matDiffuseLoc, matDiffuse);
         glUniform1f(matSpecularLoc, matSpecular);
-        glUniform1f(matShininessLoc, matShininess * 128.0f);
+        // matShininess is a 0..1 "shininess" factor; the shader converts it to an
+        // exponent via pow(2.0, uMatShininess * 10.0). Pass the raw factor so the
+        // two sides agree on the convention.
+        glUniform1f(matShininessLoc, matShininess);
 
         glUniform1f(keyIntensityLoc, lightInt * lightKF);
         glUniform1f(fillIntensityLoc, lightInt * lightKB);
         glUniform1f(headIntensityLoc, lightInt * lightKH);
+        glUniform1f(backIntensityLoc, lightInt * lightKB);
+
+        // Light kit colors (warm-white key/fill/head, neutral back) so the
+        // diffuse/specular terms are non-zero and the mesh is actually lit.
+        const float keyCol[3] = { 1.0f, 0.96f, 0.88f };
+        const float fillCol[3] = { 0.85f, 0.9f, 1.0f };
+        const float backCol[3] = { 0.9f, 0.9f, 0.95f };
+        const float headCol[3] = { 1.0f, 1.0f, 1.0f };
+        glUniform3fv(keyColorLoc, 1, keyCol);
+        glUniform3fv(fillColorLoc, 1, fillCol);
+        glUniform3fv(backColorLoc, 1, backCol);
+        glUniform3fv(headColorLoc, 1, headCol);
 
         // Assign Dynamic Clip Slices Filters
         glUniform1f(sliceHeightXLoc, sliceHeightX);
@@ -542,8 +591,7 @@ void Renderer::renderFrame() {
 
         glUniform1f(scalarMinLoc, scalarMin);
         glUniform1f(scalarMaxLoc, scalarMax);
-        glUniform1i(hasScalarsLoc, (meshHasScalars && colormapChoice > 0) ? 1 : 0);
-        glUniform1i(colormapTypeLoc, colormapChoice);
+        glUniform1i(hasScalarsLoc, meshHasScalars ? 1 : 0);
 
         if (meshHasScalars && colormapTex != 0) {
             glActiveTexture(GL_TEXTURE0);
@@ -581,31 +629,20 @@ void Renderer::renderFrame() {
 
 void Renderer::drawGizmo() {
     glDisable(GL_DEPTH_TEST);
-    gizmo.draw(width, height, camera.computeGizmoQuat(), sidebarWidth);
+    // Scale the sidebar offset to device pixels so the gizmo sits at the correct
+    // X position on HiDPI displays.
+    gizmo.draw(width, height, camera.computeGizmoQuat(), sidebarWidth * devicePixelRatio);
     glEnable(GL_DEPTH_TEST);
 }
 
 void Renderer::getGizmoAxisEndpoints(float& xEndX, float& xEndY, float& yEndX, float& yEndY, float& zEndX, float& zEndY) {
-    gizmo.getAxisEndpoints(width, height, camera.computeGizmoQuat(), sidebarWidth,
+    gizmo.getAxisEndpoints(width, height, camera.computeGizmoQuat(), sidebarWidth * devicePixelRatio,
                            xEndX, xEndY, yEndX, yEndY, zEndX, zEndY);
 }
 
 void Renderer::snapToOrthoView(int axis) {
-    glm::dvec3 targetPos = camera.focalPoint;
-    glm::dvec3 up(0.0, 1.0, 0.0);
-
-    switch (axis) {
-    case 0: targetPos.x += camera.distance; up = glm::dvec3(0.0, 1.0, 0.0); break;  // +X
-    case 1: targetPos.x -= camera.distance; up = glm::dvec3(0.0, 1.0, 0.0); break;  // -X
-    case 2: targetPos.y += camera.distance; up = glm::dvec3(0.0, 0.0, -1.0); break; // +Y
-    case 3: targetPos.y -= camera.distance; up = glm::dvec3(0.0, 0.0, 1.0); break;  // -Y
-    case 4: targetPos.z += camera.distance; up = glm::dvec3(0.0, 1.0, 0.0); break;  // +Z
-    case 5: targetPos.z -= camera.distance; up = glm::dvec3(0.0, 1.0, 0.0); break;  // -Z
-    }
-
-    camera.position = targetPos;
-    camera.viewUp = up;
-    camera.orthogonalizeViewUp();
+    // Delegate to the Camera implementation so both stay in sync (6-axis support).
+    camera.snapToOrthoView(axis);
 }
 
 bool Renderer::captureScreenshotWithDialog() {
@@ -644,14 +681,42 @@ bool Renderer::captureScreenshotWithDialog() {
         }
     }
 
-    // Direct assignment works safely here
+    // This slot runs on the GUI thread where the OpenGL context is NOT current,
+    // so we must NOT read pixels here. Instead, forward the request to the render
+    // thread (CustomViewportItem connects screenshotRequested -> afterRendering)
+    // which performs the actual GL read + save while the context is bound.
+    emit screenshotRequested(targetPath);
+    return true;
+}
+
+bool Renderer::captureScreenshotToFile(const QString& path) {
+    if (path.isEmpty()) return false;
+
+    ExportConfig config;
+    config.transparentBackground = false;
+    config.quality = 95;
+    config.format = ExportFormat::PNG;
+
+    QString targetPath = path;
+    if (targetPath.endsWith(".jpg", Qt::CaseInsensitive) || targetPath.endsWith(".jpeg", Qt::CaseInsensitive)) {
+        config.format = ExportFormat::JPEG;
+    } else if (targetPath.endsWith(".bmp", Qt::CaseInsensitive)) {
+        config.format = ExportFormat::BMP;
+    } else {
+        config.format = ExportFormat::PNG;
+        if (!targetPath.endsWith(".png", Qt::CaseInsensitive)) {
+            targetPath += ".png";
+        }
+    }
     config.filePath = targetPath;
 
-    std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(0, width, height, config.transparentBackground);
+    // Called on the render thread with the GL context current. Use device-pixel
+    // dimensions so the captured image matches the real framebuffer.
+    int deviceW = static_cast<int>(width * devicePixelRatio);
+    int deviceH = static_cast<int>(height * devicePixelRatio);
+    std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(0, deviceW, deviceH, config.transparentBackground);
 
-    // Pass the QString directly as requested by ScreenshotExporter signature requirements
-    bool success = ScreenshotExporter::saveToFile(config.filePath, pixels, width, height, config);
-
+    bool success = ScreenshotExporter::saveToFile(config.filePath, pixels, deviceW, deviceH, config);
     if (success) {
         emit screenshotCaptured(targetPath);
     }
@@ -662,6 +727,14 @@ QStringList Renderer::getAvailableScalars() const {
     QStringList list;
     if (!cachedMeshSource.scalarName.empty()) {
         list.append(QString::fromStdString(cachedMeshSource.scalarName));
+    }
+    return list;
+}
+
+QStringList Renderer::getColormapNames() const {
+    QStringList list;
+    for (int i = 0; i < static_cast<int>(ColormapType::Count); ++i) {
+        list.append(QString::fromUtf8(Colormaps::getName(static_cast<ColormapType>(i))));
     }
     return list;
 }

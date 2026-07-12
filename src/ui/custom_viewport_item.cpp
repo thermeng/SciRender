@@ -13,13 +13,24 @@ CustomViewportItem::CustomViewportItem(QQuickItem* parent)
     connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow *window) {
         if (!window) return;
 
+        // CRITICAL FIX: We draw the GL scene in beforeRendering. In Qt 6 the
+        // scene graph always clears the framebuffer, so to keep our underlay
+        // visible we make the window transparent: the clear then uses an
+        // alpha=0 color and our GL content (which clears to bgColor itself in
+        // renderFrame()) shows through. The sidebar/overlay QML draws on top.
+        window->setColor(Qt::transparent);
+
+        // Guard against duplicate connections if windowChanged fires more than once.
+        if (m_renderConnectionsDone) return;
+        m_renderConnectionsDone = true;
+
         // Step A: Keep beforeSynchronizing purely for data state adjustments if needed
         connect(window, &QQuickWindow::beforeSynchronizing, this, [this]() {
             // Properties synchronization only (keep lightweight)
         }, Qt::DirectConnection);
 
         // Step B: Direct underlay rendering loop injection
-        connect(window, &QQuickWindow::beforeRendering, this, [this]() {
+        connect(window, &QQuickWindow::beforeRendering, this, [this, window]() {
             if (!m_renderer) return;
 
             static bool openGLAssetsInitialized = false;
@@ -27,31 +38,53 @@ CustomViewportItem::CustomViewportItem(QQuickItem* parent)
                 m_renderer->initGLAD();
                 m_renderer->initShaders();
                 m_renderer->initGrid();
+                m_renderer->initGizmo();
                 openGLAssetsInitialized = true;
             }
 
             // SAFE RENDERING THREAD HANDOFF ROUTINE
             if (m_renderer->consumeMeshChanged()) {
-                // 1. Safe to call glDelete routines here because we are on the render thread
-                m_renderer->clearMeshes();
-
-                // 2. Fetch the queued raw geometry under a thread-safe lock
-                // We copy it quickly to minimize lock contention time
+                // 1. Fetch the queued raw geometry under a thread-safe lock.
+                //    Copy quickly to minimize lock contention time.
                 RenderMesh meshToUpload;
-                // Accessing the private mutex/queue via a quick public helper
-                // or direct class scope injection if friend classes are configured.
-                // For simplicity, make sure your renderer exposes a thread-safe way to get the data:
-                // (Assuming you handle direct extraction here via a public function or direct pointer)
+                m_renderer->takeQueuedMesh(meshToUpload);
 
-                // 3. Safe to call glGen/glBufferData routines here!
-                // m_renderer->uploadMesh(meshToUpload);
+                // 2. Safe to call glDelete/glGen/glBufferData routines here because
+                //    we are on the render thread. uploadMesh() cleans up old GPU
+                //    handles internally, so we must NOT call clearMeshes() here
+                //    (that would reset hasMeshLoaded and re-show the drop overlay).
+                if (!meshToUpload.vertices.empty()) {
+                    m_renderer->uploadMesh(meshToUpload);
+                }
             }
 
+            // Forward device-pixel dimensions so the GL viewport matches the real
+            // framebuffer on HiDPI displays.
+            if (window) {
+                m_renderer->setDevicePixelRatio(static_cast<float>(window->devicePixelRatio()));
+            }
             m_renderer->resizeViewport(static_cast<int>(this->width()), static_cast<int>(this->height()));
             m_renderer->renderFrame();
 
         }, Qt::DirectConnection);
+
+        // Establish the screenshot capture connection now that we have a window.
+        tryConnectScreenshotCapture();
     });
+}
+
+void CustomViewportItem::tryConnectScreenshotCapture() {
+    // Connect only once, and only when both the window and the renderer exist.
+    if (m_screenshotConnected || !window() || !m_renderer) return;
+    m_screenshotConnected = true;
+
+    // The Renderer emits screenshotRequested from the GUI thread (where no GL
+    // context is current). We perform the actual GL read + save here, connected
+    // to afterRendering with DirectConnection so it runs on the render thread
+    // while the OpenGL context is bound.
+    connect(m_renderer, &Renderer::screenshotRequested, window(), [this](const QString& path) {
+        if (m_renderer) m_renderer->captureScreenshotToFile(path);
+    }, Qt::DirectConnection);
 }
 
 void CustomViewportItem::setRenderer(Renderer* r) {
@@ -71,6 +104,8 @@ void CustomViewportItem::setRenderer(Renderer* r) {
                 window()->update(); // Force a modern OpenGL frame paint pass
             }
         });
+        // The window may already exist; wire up render-thread screenshot capture.
+        tryConnectScreenshotCapture();
     }
 }
 
