@@ -56,6 +56,8 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
         // ponytail: lighting changes never repainted before — connect once here (guarded by setRenderer's early return)
         connect(m_scene, &::Renderer::lightingParametersChanged, this, [this]() { update(); });
         connect(m_scene, &::Renderer::viewChanged, this, [this]() { update(); });
+        // ponytail: colormap switch must repaint the GL mesh, not just the QML legend
+        connect(m_scene, &::Renderer::colormapChanged, this, [this]() { update(); });
     }
 }
 
@@ -72,7 +74,7 @@ void ViewportVisualizer::mouseMoveEvent(QMouseEvent* event) {
     QPoint delta = event->pos() - m_lastMousePos;
     m_lastMousePos = event->pos();
     if (m_isRightClick) {
-        m_scene->pan(delta.x() * 0.005, delta.y() * 0.005);
+        m_scene->pan(delta.x(), delta.y());
     } else {
         m_scene->azimuth(-delta.x() * 0.5);
         m_scene->elevation(delta.y() * 0.5);
@@ -160,17 +162,6 @@ void ViewportFboRenderer::render() {
     // renderFrame() clears/draws into it. The SG composites this FBO texture
     // on top of the background and BELOW the QML overlays (colorbar, etc.).
     m_scene->renderFrame();
-
-    // ---- TEMP: save the FBO to a PNG on the first frame so we can SEE what the
-    // GL pass produced (decisive headless-free verification of the draw path). ----
-    // Must happen BEFORE resetOpenGLState() (which rebinds Qt's FBO).
-    static bool dumped = false;
-    if (!dumped) {
-        dumped = true;
-        QString path = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-                       + "/fbo_dump.png";
-        m_scene->captureScreenshotToFile(path);
-    }
 
     // Qt 6: restore default GL state so the scene graph is not surprised.
     QQuickOpenGLUtils::resetOpenGLState();

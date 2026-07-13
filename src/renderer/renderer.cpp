@@ -491,8 +491,8 @@ void Renderer::renderFrame() {
     // Standard buffer setups
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+    // ponytail: no face culling — meshes (hexes/structured grids) show inverted/inside faces
+    glDisable(GL_CULL_FACE);
 
     glClearColor(bgColor[0], bgColor[1], bgColor[2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -537,7 +537,7 @@ void Renderer::renderFrame() {
     }
 
     // Main Mesh Rendering Operations
-    if (showSurface && !meshes.empty() && shaderProgram != 0) {
+    if ((showSurface || showWireframe) && !meshes.empty() && shaderProgram != 0) {
         glUseProgram(shaderProgram);
         updateColormapTexture();
 
@@ -609,10 +609,12 @@ void Renderer::renderFrame() {
         for (const auto& m : meshes) {
             glBindVertexArray(m.vao);
 
-            // Phase 1: Solid Base Pass
-            glUniform1i(wireframeLoc, 0);
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            glDrawElements(GL_TRIANGLES, m.indexCount, GL_UNSIGNED_INT, 0);
+            // Phase 1: Solid Base Pass (only when surface shown)
+            if (showSurface) {
+                glUniform1i(wireframeLoc, 0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glDrawElements(GL_TRIANGLES, m.indexCount, GL_UNSIGNED_INT, 0);
+            }
 
             // Phase 2: Structural Wireframe Layer Overlay
             if (showWireframe) {
