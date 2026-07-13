@@ -50,6 +50,10 @@ ApplicationWindow {
             text: clipPanel.visible ? "Hide Slicing" : "Slicing"
             onClicked: clipPanel.visible = !clipPanel.visible
         }
+        Button {
+            text: viewPanel.visible ? "Hide View" : "View"
+            onClicked: viewPanel.visible = !viewPanel.visible
+        }
 
         ComboBox {
             id: colormapCombo
@@ -150,6 +154,41 @@ ApplicationWindow {
         // ponytail: raw-data range, not 0..1 — shader compares raw vScalar against these
         ClipSlider { label: "Min"; value: backendRenderer.filterMin; from: backendRenderer.dataScalarMinQml; to: backendRenderer.dataScalarMaxQml; onSet: v => backendRenderer.filterMin = v }
         ClipSlider { label: "Max"; value: backendRenderer.filterMax; from: backendRenderer.dataScalarMinQml; to: backendRenderer.dataScalarMaxQml; onSet: v => backendRenderer.filterMax = v }
+    }
+
+    // View / camera & display panel (ponytail: ortho snaps + axis snap + wireframe/grid/surface toggles)
+    Column {
+        id: viewPanel
+        visible: false
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.topMargin: 56
+        anchors.leftMargin: 488
+        width: 220
+        spacing: 4
+        opacity: 0.95
+
+        Text { text: "Orthographic view"; color: "#888"; font.pixelSize: 10 }
+        Row { spacing: 6
+            Button { text: "+X"; width: 48; onClicked: backendRenderer.snapToOrthoView(0) }
+            Button { text: "-X"; width: 48; onClicked: backendRenderer.snapToOrthoView(1) }
+            Button { text: "+Y"; width: 48; onClicked: backendRenderer.snapToOrthoView(2) }
+        }
+        Row { spacing: 6
+            Button { text: "-Y"; width: 48; onClicked: backendRenderer.snapToOrthoView(3) }
+            Button { text: "+Z"; width: 48; onClicked: backendRenderer.snapToOrthoView(4) }
+            Button { text: "-Z"; width: 48; onClicked: backendRenderer.snapToOrthoView(5) }
+        }
+        Text { text: "Quick axis snap"; color: "#888"; font.pixelSize: 10 }
+        Row { spacing: 6
+            Button { text: "X"; width: 48; onClicked: backendRenderer.snapToAxisView(0, false) }
+            Button { text: "Y"; width: 48; onClicked: backendRenderer.snapToAxisView(1, false) }
+            Button { text: "Z"; width: 48; onClicked: backendRenderer.snapToAxisView(2, false) }
+        }
+        Text { text: "Display"; color: "#888"; font.pixelSize: 10 }
+        CheckBox { text: "Wireframe"; checked: backendRenderer.isWireframe; onToggled: backendRenderer.isWireframe = checked }
+        CheckBox { text: "Grid";      checked: backendRenderer.isGridVisible; onToggled: backendRenderer.isGridVisible = checked }
+        CheckBox { text: "Surface";   checked: backendRenderer.isSurfaceVisible; onToggled: backendRenderer.isSurfaceVisible = checked }
     }
 
     // Gizmo interaction overlay (matches the bottom-left GL gizmo rect exactly).

@@ -657,6 +657,7 @@ void Renderer::getGizmoAxisEndpoints(float& xEndX, float& xEndY, float& yEndX, f
 void Renderer::snapToOrthoView(int axis) {
     // Delegate to the Camera implementation so both stay in sync (6-axis support).
     camera.snapToOrthoView(axis);
+    emit viewChanged(); // ponytail: ortho snap must repaint; snapToAxisView already does this
 }
 
 void Renderer::snapToAxisView(int axis, bool flip) {

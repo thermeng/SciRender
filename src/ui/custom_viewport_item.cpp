@@ -58,6 +58,10 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
         connect(m_scene, &::Renderer::viewChanged, this, [this]() { update(); });
         // ponytail: colormap switch must repaint the GL mesh, not just the QML legend
         connect(m_scene, &::Renderer::colormapChanged, this, [this]() { update(); });
+        // ponytail: wireframe/grid/surface setters emit these but nothing repainted them before
+        connect(m_scene, &::Renderer::wireframeChanged, this, [this]() { update(); });
+        connect(m_scene, &::Renderer::gridVisibilityChanged, this, [this]() { update(); });
+        connect(m_scene, &::Renderer::surfaceVisibilityChanged, this, [this]() { update(); });
     }
 }
 
@@ -89,7 +93,7 @@ void ViewportVisualizer::mouseReleaseEvent(QMouseEvent* event) {
 
 void ViewportVisualizer::wheelEvent(QWheelEvent* event) {
     if (!m_scene) return;
-    double factor = (event->angleDelta().y() > 0) ? 0.9 : 1.1;
+    double factor = (event->angleDelta().y() > 0) ? 1.1 : 0.9; // ponytail: scroll up = zoom IN (smaller distance)
     m_scene->dolly(factor);
     update();
     event->accept();
