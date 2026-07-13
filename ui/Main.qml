@@ -209,7 +209,7 @@ ApplicationWindow {
                 width: 210
                 enabled: backendRenderer ? backendRenderer.meshHasScalars : false
                 model: backendRenderer ? backendRenderer.availableScalars : []
-                currentIndex: backendRenderer ? backendRenderer.availableScalars.indexOf(backendRenderer.getActiveScalarNameQml()) : -1
+                currentIndex: backendRenderer ? backendRenderer.availableScalars.indexOf(backendRenderer.activeScalarName) : -1
                 onActivated: index => backendRenderer.setActiveScalarField(model[index])
             }
             Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
@@ -307,7 +307,7 @@ ApplicationWindow {
         visible: backendRenderer ? (backendRenderer.hasMeshLoaded && backendRenderer.meshHasScalars) : false
 
         Text {
-            text: backendRenderer ? backendRenderer.getActiveScalarNameQml() : ""
+            text: backendRenderer ? backendRenderer.activeScalarName : ""
             color: "#dddddd"
             font.pixelSize: 12
         }

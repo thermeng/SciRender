@@ -79,6 +79,8 @@ class Renderer : public QObject {
     Q_PROPERTY(int gizmoSize READ getGizmoSize WRITE setGizmoSize NOTIFY meshLoadStateChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
+    // ponytail: active scalar name must refresh the colorbar label on load + field switch
+    Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
     // ponytail: property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't notify)
