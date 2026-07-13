@@ -4,13 +4,13 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import RendererQTUI 1.0 // Registers our custom C++ native view item namespace
 
-Window {
+ApplicationWindow {
     width: 1024
     height: 768
     visible: true
     title: "RendererQT"
     color: "#1e1e1e" // base window background; the GL scene is drawn into a
-                    // QQuickFramebufferObject and composited as a normal item on top.
+                     // QQuickFramebufferObject and composited as a normal item on top.
 
     // High-Performance Raw OpenGL Output Subwindow Area
     ViewportVisualizer {
@@ -45,6 +45,10 @@ Window {
         Button {
             text: lightingPanel.visible ? "Hide Lighting" : "Lighting"
             onClicked: lightingPanel.visible = !lightingPanel.visible
+        }
+        Button {
+            text: clipPanel.visible ? "Hide Slicing" : "Slicing"
+            onClicked: clipPanel.visible = !clipPanel.visible
         }
 
         ComboBox {
@@ -104,6 +108,50 @@ Window {
         LightSlider { label: "Shininess";   value: backendRenderer.matShininess;     from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matShininess = v }
     }
 
+    // Slicing & Clipping panel
+    Column {
+        id: clipPanel
+        visible: false
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.topMargin: 56
+        anchors.leftMargin: 244
+        width: 240
+        spacing: 4
+        opacity: 0.95
+
+        component ClipSlider : Row {
+            required property string label
+            required property real value
+            required property real from
+            required property real to
+            required property var onSet
+            spacing: 6
+            Text { text: parent.label; color: "#cccccc"; font.pixelSize: 11; width: 60; elide: Text.ElideRight }
+            Slider { width: 140; from: parent.from; to: parent.to; value: parent.value; onMoved: parent.onSet(value) }
+        }
+
+        CheckBox { text: "Enable Clipping"; checked: backendRenderer.clipEnabled; onToggled: backendRenderer.clipEnabled = checked }
+
+        Text { text: "Cut planes (world units)"; color: "#888"; font.pixelSize: 10 }
+        ClipSlider { label: "Slice X"; value: backendRenderer.sliceHeightX; from: backendRenderer.worldMinX; to: backendRenderer.worldMaxX; onSet: v => backendRenderer.sliceHeightX = v }
+        ClipSlider { label: "Slice Y"; value: backendRenderer.sliceHeightY; from: backendRenderer.worldMinY; to: backendRenderer.worldMaxY; onSet: v => backendRenderer.sliceHeightY = v }
+        ClipSlider { label: "Slice Z"; value: backendRenderer.sliceHeightZ; from: backendRenderer.worldMinZ; to: backendRenderer.worldMaxZ; onSet: v => backendRenderer.sliceHeightZ = v }
+
+        Text { text: "Keep side"; color: "#888"; font.pixelSize: 10 }
+        Row {
+            spacing: 10
+            CheckBox { text: "Inv X"; checked: backendRenderer.invertX; onToggled: backendRenderer.invertX = checked }
+            CheckBox { text: "Inv Y"; checked: backendRenderer.invertY; onToggled: backendRenderer.invertY = checked }
+            CheckBox { text: "Inv Z"; checked: backendRenderer.invertZ; onToggled: backendRenderer.invertZ = checked }
+        }
+
+        Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
+        // ponytail: raw-data range, not 0..1 — shader compares raw vScalar against these
+        ClipSlider { label: "Min"; value: backendRenderer.filterMin; from: backendRenderer.dataScalarMinQml; to: backendRenderer.dataScalarMaxQml; onSet: v => backendRenderer.filterMin = v }
+        ClipSlider { label: "Max"; value: backendRenderer.filterMax; from: backendRenderer.dataScalarMinQml; to: backendRenderer.dataScalarMaxQml; onSet: v => backendRenderer.filterMax = v }
+    }
+
     // Gizmo interaction overlay (matches the bottom-left GL gizmo rect exactly).
     // The gizmo is drawn at device px (sidebarWidth*dpr + 16, bottom-left, size*gizmoSize*dpr).
     // We place this MouseArea in logical QML coords at the same spot and convert on click.
@@ -146,7 +194,7 @@ Window {
             const axis = backendRenderer.pickGizmoAxis(glX, glY);
             if (axis >= 0) backendRenderer.snapToAxisView(axis, true);
         }
-
+    }
 
     FileDialog {
         id: fileDialog
@@ -177,7 +225,7 @@ Window {
         visible: backendRenderer ? (backendRenderer.hasMeshLoaded && backendRenderer.hasMeshScalarsQml()) : false
 
         Text {
-            text: "Scalar: " + (backendRenderer ? backendRenderer.getActiveScalarName() : "")
+            text: "Scalar: " + (backendRenderer ? backendRenderer.getActiveScalarNameQml() : "")
             color: "#dddddd"
             font.pixelSize: 12
         }
@@ -212,5 +260,39 @@ Window {
             }
         }
     }
-}
+
+    // ---- Menu bar ----
+    menuBar: MenuBar {
+        Menu {
+            title: "File"
+            MenuItem { text: "Open Mesh..."; onTriggered: fileDialog.open() }
+            MenuItem { text: "Clear"; onTriggered: backendRenderer.clearMeshes() }
+            MenuSeparator {}
+            MenuItem { text: "Exit"; onTriggered: Qt.quit() }
+        }
+        Menu {
+            title: "View"
+            MenuItem { text: "Lighting"; onTriggered: lightingPanel.visible = !lightingPanel.visible }
+            MenuItem { text: "Slicing & Clipping"; onTriggered: clipPanel.visible = !clipPanel.visible }
+            MenuSeparator {}
+            MenuItem { text: "Reset Camera"; onTriggered: backendRenderer.resetCamera() }
+        }
+    }
+
+    // ---- Status bar ----
+    footer: Rectangle {
+        color: "#2a2a2a"
+        height: 22
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.leftMargin: 8
+            color: "#bbbbbb"
+            font.pixelSize: 11
+            text: (backendRenderer && backendRenderer.hasMeshLoaded)
+                ? "Mesh: " + backendRenderer.currentMeshName + "   |   Tris: " + backendRenderer.triangleCount
+                  + (backendRenderer.hasMeshScalarsQml() ? "   |   Scalar: " + backendRenderer.getActiveScalarNameQml() : "")
+                : "No mesh loaded"
+        }
+    }
 }

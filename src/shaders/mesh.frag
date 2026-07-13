@@ -80,7 +80,7 @@ void main() {
     bool clipped = false;
     if (uClipEnabled) {
         bool clipX = (uInvertX == 1) ? (vWorldPos.x < uSliceHeightX) : (vWorldPos.x > uSliceHeightX);
-        bool clipY = (uInvertY == 1) ? (vWorldPos.y < uSliceHeightY) : (vWorldPos.y > uSliceHeightZ);
+        bool clipY = (uInvertY == 1) ? (vWorldPos.y < uSliceHeightY) : (vWorldPos.y > uSliceHeightY);
         bool clipZ = (uInvertZ == 1) ? (vWorldPos.z < uSliceHeightZ) : (vWorldPos.z > uSliceHeightZ);
         bool filterScalar = uHasScalars && (vScalar < uFilterMin || vScalar > uFilterMax);
         clipped = clipX || clipY || clipZ || filterScalar;

@@ -76,6 +76,26 @@ class Renderer : public QObject {
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
     // ponytail: property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't notify)
     Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY colormapChanged)
+    // ponytail: world bounds exposed so the slice-panel sliders can set their from/to ranges
+    Q_PROPERTY(double worldMinX READ getWorldMinX NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(double worldMaxX READ getWorldMaxX NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(double worldMinY READ getWorldMinY NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(double worldMaxY READ getWorldMaxY NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(double worldMinZ READ getWorldMinZ NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(double worldMaxZ READ getWorldMaxZ NOTIFY meshLoadStateChanged)
+    // ponytail: data scalar range exposed so the scalar-filter sliders + colorbar use the real range (raw vScalar, not 0..1)
+    Q_PROPERTY(double dataScalarMinQml READ getDataScalarMinQml NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(double dataScalarMaxQml READ getDataScalarMaxQml NOTIFY meshLoadStateChanged)
+    // ponytail: slice/clip exposed as props so QML can set them AND trigger a repaint
+    Q_PROPERTY(bool clipEnabled READ getClipEnabled WRITE setClipEnabled NOTIFY viewChanged)
+    Q_PROPERTY(float sliceHeightX READ getSliceX WRITE setSliceX NOTIFY viewChanged)
+    Q_PROPERTY(float sliceHeightY READ getSliceY WRITE setSliceY NOTIFY viewChanged)
+    Q_PROPERTY(float sliceHeightZ READ getSliceZ WRITE setSliceZ NOTIFY viewChanged)
+    Q_PROPERTY(bool invertX READ getInvertX WRITE setInvertX NOTIFY viewChanged)
+    Q_PROPERTY(bool invertY READ getInvertY WRITE setInvertY NOTIFY viewChanged)
+    Q_PROPERTY(bool invertZ READ getInvertZ WRITE setInvertZ NOTIFY viewChanged)
+    Q_PROPERTY(float filterMin READ getFilterMin WRITE setFilterMin NOTIFY viewChanged)
+    Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
 
 public:
     explicit Renderer(QObject* parent = nullptr);
@@ -255,11 +275,40 @@ public:
     float getDataScalarMax() const { return dataScalarMax; }
     bool hasMeshScalars() const { return meshHasScalars; }
     const std::string& getActiveScalarName() const { return activeScalarName; }
+    // ponytail: QString accessor so QML bindings can read the active scalar name (std::string isn't a QML metatype)
+    Q_INVOKABLE QString getActiveScalarNameQml() const { return QString::fromStdString(activeScalarName); }
 
     // QML-visible accessors for the colorbar legend overlay.
     Q_INVOKABLE bool hasMeshScalarsQml() const { return meshHasScalars; }
     Q_INVOKABLE float getDataScalarMinQml() const { return dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return dataScalarMax; }
+
+    // ponytail: slice/clip getters/setters — setters emit viewChanged (cheap repaint)
+    bool getClipEnabled() const { return clipEnabled; }
+    void setClipEnabled(bool v) { if (clipEnabled != v) { clipEnabled = v; emit viewChanged(); } }
+    float getSliceX() const { return sliceHeightX; }
+    void setSliceX(float v) { if (sliceHeightX != v) { sliceHeightX = v; emit viewChanged(); } }
+    float getSliceY() const { return sliceHeightY; }
+    void setSliceY(float v) { if (sliceHeightY != v) { sliceHeightY = v; emit viewChanged(); } }
+    float getSliceZ() const { return sliceHeightZ; }
+    void setSliceZ(float v) { if (sliceHeightZ != v) { sliceHeightZ = v; emit viewChanged(); } }
+    bool getInvertX() const { return invertX; }
+    void setInvertX(bool v) { if (invertX != v) { invertX = v; emit viewChanged(); } }
+    bool getInvertY() const { return invertY; }
+    void setInvertY(bool v) { if (invertY != v) { invertY = v; emit viewChanged(); } }
+    bool getInvertZ() const { return invertZ; }
+    void setInvertZ(bool v) { if (invertZ != v) { invertZ = v; emit viewChanged(); } }
+    float getFilterMin() const { return filterMin; }
+    void setFilterMin(float v) { if (filterMin != v) { filterMin = v; emit viewChanged(); } }
+    float getFilterMax() const { return filterMax; }
+    void setFilterMax(float v) { if (filterMax != v) { filterMax = v; emit viewChanged(); } }
+
+    double getWorldMinX() const { return worldMinX; }
+    double getWorldMaxX() const { return worldMaxX; }
+    double getWorldMinY() const { return worldMinY; }
+    double getWorldMaxY() const { return worldMaxY; }
+    double getWorldMinZ() const { return worldMinZ; }
+    double getWorldMaxZ() const { return worldMaxZ; }
 
     // Returns a list of [t, r, g, b] stops (t in 0..1, rgb in 0..1) sampling the
     // active colormap, suitable for building a QML gradient/legend.

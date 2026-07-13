@@ -404,6 +404,9 @@ void Renderer::loadMesh(const QString& filePath) {
         dataScalarMax = maxVal;
         scalarMin = dataScalarMin;
         scalarMax = dataScalarMax;
+        // ponytail: default filter spans the whole field so enabling clipping doesn't blank the mesh
+        filterMin = dataScalarMin;
+        filterMax = dataScalarMax;
     } else {
         meshHasScalars = false;
         dataScalarMin = 0.0f;
