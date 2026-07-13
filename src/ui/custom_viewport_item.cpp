@@ -55,6 +55,7 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
         });
         // ponytail: lighting changes never repainted before — connect once here (guarded by setRenderer's early return)
         connect(m_scene, &::Renderer::lightingParametersChanged, this, [this]() { update(); });
+        connect(m_scene, &::Renderer::viewChanged, this, [this]() { update(); });
     }
 }
 

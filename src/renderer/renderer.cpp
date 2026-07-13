@@ -636,9 +636,11 @@ void Renderer::renderFrame() {
 
 void Renderer::drawGizmo() {
     glDisable(GL_DEPTH_TEST);
-    // Scale the sidebar offset to device pixels so the gizmo sits at the correct
-    // X position on HiDPI displays.
-    gizmo.draw(width, height, camera.computeGizmoQuat(), sidebarWidth * devicePixelRatio);
+    // Pass device-pixel dimensions so the gizmo sits bottom-left correctly on HiDPI.
+    gizmo.draw(static_cast<int>(width * devicePixelRatio),
+               static_cast<int>(height * devicePixelRatio),
+               camera.computeGizmoQuat(),
+               sidebarWidth * devicePixelRatio);
     glEnable(GL_DEPTH_TEST);
 }
 
@@ -650,6 +652,12 @@ void Renderer::getGizmoAxisEndpoints(float& xEndX, float& xEndY, float& yEndX, f
 void Renderer::snapToOrthoView(int axis) {
     // Delegate to the Camera implementation so both stay in sync (6-axis support).
     camera.snapToOrthoView(axis);
+}
+
+void Renderer::snapToAxisView(int axis, bool flip) {
+    int preset = flip ? (axis * 2 + 1) : (axis * 2);
+    camera.snapToOrthoView(preset);
+    emit viewChanged();
 }
 
 bool Renderer::captureScreenshotWithDialog() {
