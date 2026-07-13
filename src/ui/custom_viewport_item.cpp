@@ -135,11 +135,10 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
         }
     }
 
-    // Screenshot request forwarded from the QML/GUI side.
-    if (!vv->m_pendingScreenshot.isEmpty() && m_scene) {
-        m_scene->captureScreenshotToFile(vv->m_pendingScreenshot);
-        vv->m_pendingScreenshot.clear();
-    }
+    // Carry the screenshot request across to render() (GL context current there).
+    // Clear the visualizer copy so it is NOT re-copied on the next frame.
+    m_pendingScreenshot = vv->m_pendingScreenshot;
+    vv->m_pendingScreenshot.clear();
 }
 
 QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSize& size) {
@@ -169,4 +168,12 @@ void ViewportFboRenderer::render() {
 
     // Qt 6: restore default GL state so the scene graph is not surprised.
     QQuickOpenGLUtils::resetOpenGLState();
+
+    // ponytail: capture here, NOT in synchronize() — synchronize runs on the GUI
+    // thread with no GL context current; render() owns the context. FBO now holds
+    // the freshly drawn frame, so the read is correct.
+    if (!m_pendingScreenshot.isEmpty()) {
+        m_scene->captureScreenshotToFile(m_pendingScreenshot);
+        m_pendingScreenshot.clear();
+    }
 }

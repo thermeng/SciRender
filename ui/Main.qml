@@ -193,7 +193,7 @@ ApplicationWindow {
         Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
         Row { spacing: 6
             Button { text: "Reset Cam"; width: 100; onClicked: backendRenderer.resetCamera() }
-            Button { text: "Screenshot"; width: 110; onClicked: backendRenderer.captureScreenshotWithDialog() }
+            Button { text: "Screenshot"; width: 110; onClicked: screenshotSaveDialog.open() }
         }
         Button {
             text: "Background Color"
@@ -258,6 +258,17 @@ ApplicationWindow {
         onAccepted: {
             let cleanPath = selectedFile.toString().replace("file:///", "");
             backendRenderer.loadMesh(cleanPath);
+        }
+    }
+
+    FileDialog {
+        id: screenshotSaveDialog
+        title: "Save Screenshot"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["PNG Images (*.png)", "JPEG Images (*.jpg *.jpeg)", "BMP Images (*.bmp)", "All files (*)"]
+        onAccepted: {
+            let cleanPath = selectedFile.toString().replace("file:///", "");
+            backendRenderer.requestScreenshot(cleanPath);
         }
     }
 

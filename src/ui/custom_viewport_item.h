@@ -17,6 +17,7 @@ private:
     ::Renderer* m_scene = nullptr;
     bool m_initialized = false;
     QSize m_fboSize;
+    QString m_pendingScreenshot; // ponytail: carried from GUI thread (synchronize) to render() where GL context is current
 };
 
 class ViewportVisualizer : public QQuickFramebufferObject {

@@ -15,8 +15,6 @@
 #include <algorithm>
 
 // Qt Core & UI Utilities replacing Win32 APIs
-#include <QFileDialog>
-#include <QStandardPaths>
 #include <QDir>
 #include <QQuickOpenGLUtils>
 #include <QFileInfo>
@@ -671,48 +669,14 @@ void Renderer::snapToAxisView(int axis, bool flip) {
     emit viewChanged();
 }
 
-bool Renderer::captureScreenshotWithDialog() {
-    QString selectedFilter;
-    QString targetPath = QFileDialog::getSaveFileName(
-        nullptr,
-        tr("Export Viewport Screenshot"),
-        QStandardPaths::writableLocation(QStandardPaths::PicturesLocation),
-        tr("PNG Images (*.png);;JPEG Images (*.jpg *.jpeg);;BMP Images (*.bmp);;All Files (*)"),
-        &selectedFilter
-        );
-
-    if (targetPath.isEmpty()) {
-        return false;
+void Renderer::requestScreenshot(const QString& path) {
+    if (path.isEmpty()) {
+        return;
     }
-
-    ExportConfig config;
-    config.transparentBackground = false;
-    config.quality = 95;
-    config.format = ExportFormat::PNG;
-
-    if (selectedFilter.contains("JPEG", Qt::CaseInsensitive) || targetPath.endsWith(".jpg", Qt::CaseInsensitive) || targetPath.endsWith(".jpeg", Qt::CaseInsensitive)) {
-        config.format = ExportFormat::JPEG;
-        if (!targetPath.endsWith(".jpg", Qt::CaseInsensitive) && !targetPath.endsWith(".jpeg", Qt::CaseInsensitive)) {
-            targetPath += ".jpg";
-        }
-    } else if (selectedFilter.contains("BMP", Qt::CaseInsensitive) || targetPath.endsWith(".bmp", Qt::CaseInsensitive)) {
-        config.format = ExportFormat::BMP;
-        if (!targetPath.endsWith(".bmp", Qt::CaseInsensitive)) {
-            targetPath += ".bmp";
-        }
-    } else {
-        config.format = ExportFormat::PNG;
-        if (!targetPath.endsWith(".png", Qt::CaseInsensitive)) {
-            targetPath += ".png";
-        }
-    }
-
-    // This slot runs on the GUI thread where the OpenGL context is NOT current,
-    // so we must NOT read pixels here. Instead, forward the request to the render
-    // thread (CustomViewportItem connects screenshotRequested -> afterRendering)
-    // which performs the actual GL read + save while the context is bound.
-    emit screenshotRequested(targetPath);
-    return true;
+    // ponytail: the actual GL pixel read + save is unsafe here (GUI thread, no GL
+    // context). Forward to the render thread (CustomViewportItem connects
+    // screenshotRequested -> render() where the context is current).
+    emit screenshotRequested(path);
 }
 
 bool Renderer::captureScreenshotToFile(const QString& path) {

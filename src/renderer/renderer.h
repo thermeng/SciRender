@@ -178,7 +178,11 @@ public slots:
     void clearMeshes();
     void resetCamera();
     void snapToOrthoView(int axis);
-    bool captureScreenshotWithDialog();
+    // ponytail: QWidget-based QFileDialog is unsafe under QGuiApplication (crashes
+    // with "Cannot create a QWidget without QApplication"). Path is chosen in QML
+    // via FileDialog and handed here; the actual GL read+save happens on the
+    // render thread through captureScreenshotToFile (see CustomViewportItem).
+    Q_INVOKABLE void requestScreenshot(const QString& path);
     // Performs the actual GL pixel read + file save. MUST be called on the
     // render thread while the OpenGL context is current (see CustomViewportItem).
     bool captureScreenshotToFile(const QString& path);
