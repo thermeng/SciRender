@@ -15,6 +15,7 @@
 #include <QStringList>
 #include <QVariant>
 #include <QVariantList>
+#include <QColor>
 
 // Core Graphics Dependencies (Replacing GLFW windows management entirely)
 #include <glad/glad.h>
@@ -71,6 +72,8 @@ class Renderer : public QObject {
     Q_PROPERTY(float lightFillIntensity READ getLightFillIntensity WRITE setLightFillIntensity NOTIFY lightingParametersChanged)
     Q_PROPERTY(float lightHeadIntensity READ getLightHeadIntensity WRITE setLightHeadIntensity NOTIFY lightingParametersChanged)
     Q_PROPERTY(int triangleCount READ getTriangleCount NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(int pointCount READ getPointCount NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(int gizmoSize READ getGizmoSize WRITE setGizmoSize NOTIFY meshLoadStateChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
@@ -122,6 +125,9 @@ public:
 
     bool getHasMeshLoaded() const { return hasMeshLoaded; }
     int getTriangleCount() const { return triangleCount; }
+    int getPointCount() const { return pointCount; }
+    QColor getBgColorQml() const { return QColor::fromRgbF(bgColor[0], bgColor[1], bgColor[2]); }
+    void setBgColorQml(const QColor& c) { bgColor[0] = c.redF(); bgColor[1] = c.greenF(); bgColor[2] = c.blueF(); emit viewChanged(); }
 
     int getColormapChoice() const { return colormapChoice; }
     void setColormapChoice(int choice);
@@ -446,6 +452,7 @@ private:
     bool m_destroying = false; // set in ~Renderer to suppress signals during teardown
     bool showWireframe = false;
     int triangleCount = 0;
+    int pointCount = 0;
     float lightInt = 0.2f;
 
     RenderMesh dynamicMeshQueue;

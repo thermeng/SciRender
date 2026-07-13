@@ -189,6 +189,22 @@ ApplicationWindow {
         CheckBox { text: "Wireframe"; checked: backendRenderer.isWireframe; onToggled: backendRenderer.isWireframe = checked }
         CheckBox { text: "Grid";      checked: backendRenderer.isGridVisible; onToggled: backendRenderer.isGridVisible = checked }
         CheckBox { text: "Surface";   checked: backendRenderer.isSurfaceVisible; onToggled: backendRenderer.isSurfaceVisible = checked }
+
+        Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
+        Row { spacing: 6
+            Button { text: "Reset Cam"; width: 100; onClicked: backendRenderer.resetCamera() }
+            Button { text: "Screenshot"; width: 110; onClicked: backendRenderer.captureScreenshotWithDialog() }
+        }
+        Button {
+            text: "Background Color"
+            width: 216
+            onClicked: bgDialog.open()
+        }
+        ColorDialog {
+            id: bgDialog
+            selectedColor: backendRenderer ? backendRenderer.bgColor : "#000000"
+            onAccepted: backendRenderer.bgColor = selectedColor
+        }
     }
 
     // Gizmo interaction overlay (matches the bottom-left GL gizmo rect exactly).
@@ -329,7 +345,7 @@ ApplicationWindow {
             color: "#bbbbbb"
             font.pixelSize: 11
             text: (backendRenderer && backendRenderer.hasMeshLoaded)
-                ? "Mesh: " + backendRenderer.currentMeshName + "   |   Tris: " + backendRenderer.triangleCount
+                ? "Mesh: " + backendRenderer.currentMeshName + "   |   Pts: " + backendRenderer.pointCount + "   |   Tris: " + backendRenderer.triangleCount
                   + (backendRenderer.hasMeshScalarsQml() ? "   |   Scalar: " + backendRenderer.getActiveScalarNameQml() : "")
                 : "No mesh loaded"
         }
