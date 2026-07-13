@@ -46,7 +46,7 @@ ApplicationWindow {
         color: "#262626"
         z: 20
 
-        // Gizmo offset follows the rail width (getSidebarWidth used by the MouseArea below).
+        // ponytail: rail width pushed to renderer (leftover hook; no gizmo now)
         Component.onCompleted: backendRenderer.setSidebarWidth(width)
 
         component RailButton : ToolButton {
@@ -220,50 +220,6 @@ ApplicationWindow {
                 currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
                 onActivated: index => backendRenderer.colormapChoice = index
             }
-        }
-    }
-
-    // Gizmo interaction overlay (matches the bottom-left GL gizmo rect exactly).
-    // The gizmo is drawn at device px (sidebarWidth*dpr + 16, bottom-left, size*gizmoSize*dpr).
-    // We place this MouseArea in logical QML coords at the same spot and convert on click.
-    MouseArea {
-        property int gizmoMargin: 16
-        anchors.left: parent.left
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: backendRenderer ? backendRenderer.getSidebarWidth() + gizmoMargin : gizmoMargin
-        anchors.bottomMargin: gizmoMargin
-        width: backendRenderer ? backendRenderer.gizmoSize : 200
-        height: backendRenderer ? backendRenderer.gizmoSize : 200
-        acceptedButtons: Qt.LeftButton
-
-        hoverEnabled: true
-        onPositionChanged: (mouse) => {
-            // mouse.x/y are LOCAL to this area; pickGizmoAxis needs ABSOLUTE window GL device px.
-            // ponytail: gizmo drawn at absolute device px (sidebar*dpr+16, winH*dpr-16-size); x/y here are absolute window coords.
-            const dpr = backendRenderer ? backendRenderer.devicePixelRatio : 1.0;
-            const winH = parent.height * dpr;
-            const glX = (x + mouse.x) * dpr;
-            const glY = winH - ((y + mouse.y) * dpr);
-            const axis = backendRenderer.pickGizmoAxis(glX, glY);
-            backendRenderer.setHoveredAxis(axis);
-        }
-        onExited: backendRenderer.setHoveredAxis(-1);
-
-        onClicked: (mouse) => {
-            const dpr = backendRenderer ? backendRenderer.devicePixelRatio : 1.0;
-            const winH = parent.height * dpr;
-            const glX = (x + mouse.x) * dpr;
-            const glY = winH - ((y + mouse.y) * dpr);
-            const axis = backendRenderer.pickGizmoAxis(glX, glY);
-            if (axis >= 0) backendRenderer.snapToAxisView(axis, false);
-        }
-        onDoubleClicked: (mouse) => {
-            const dpr = backendRenderer ? backendRenderer.devicePixelRatio : 1.0;
-            const winH = parent.height * dpr;
-            const glX = (x + mouse.x) * dpr;
-            const glY = winH - ((y + mouse.y) * dpr);
-            const axis = backendRenderer.pickGizmoAxis(glX, glY);
-            if (axis >= 0) backendRenderer.snapToAxisView(axis, true);
         }
     }
 

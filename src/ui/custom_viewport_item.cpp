@@ -38,7 +38,7 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
     emit rendererChanged();
 
     // The scene is now bound: make sure at least one FBO render is scheduled
-    // (gizmo/grid show immediately even before any mesh is loaded).
+    // (grid shows immediately even before any mesh is loaded).
     update();
 
     // When a new mesh finishes loading, ask the scene graph for a repaint so

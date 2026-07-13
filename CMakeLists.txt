@@ -46,13 +46,13 @@ add_executable(RendererQT
     src/camera/Camera.cpp
     src/camera/Camera.h
     src/colormaps/Colormaps.h
+    src/mesh/vtk_parser.cpp
     src/gizmo/gizmo.cpp
     src/gizmo/gizmo.h
-    src/mesh/mesh_loader.h
     src/mesh/mesh_loader.cpp
+    src/mesh/mesh_loader.h
     src/mesh/mesh_utils.cpp
     src/mesh/stl_parser.cpp
-    src/mesh/vtk_parser.cpp
     src/export/screenshot.cpp
     src/export/screenshot.h
     src/ui/custom_viewport_item.cpp

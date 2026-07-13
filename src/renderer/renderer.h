@@ -76,7 +76,6 @@ class Renderer : public QObject {
     Q_PROPERTY(int triangleCount READ getTriangleCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int pointCount READ getPointCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
-    Q_PROPERTY(int gizmoSize READ getGizmoSize WRITE setGizmoSize NOTIFY meshLoadStateChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
     // ponytail: active scalar name must refresh the colorbar label on load + field switch
@@ -193,7 +192,7 @@ public slots:
     // render thread while the OpenGL context is current (see CustomViewportItem).
     bool captureScreenshotToFile(const QString& path);
     void toggleGrid(bool visible);
-    void snapToAxisView(int axis, bool flip); // gizmo-driven snap: axis 0/1/2, flip=true -> negative side
+    void snapToAxisView(int axis, bool flip); // ortho snap: axis 0/1/2, flip=true -> negative side
     void toggleSurface(bool visible);
 
     // Multi-Scalar Dynamic Interop
@@ -212,7 +211,7 @@ signals:
     void meshDataUpdated();
     void lightingParametersChanged();
     void colormapChanged();
-    void viewChanged(); // gizmo hover/snap -> viewport repaint
+    void viewChanged(); // view change -> viewport repaint
     void screenshotCaptured(const QString& targetSavedPath);
     void screenshotRequested(const QString& targetPath);
 
@@ -232,30 +231,8 @@ public:
     float* getBgColor() { return bgColor; }
     void getWorldCenter(float& x, float& y, float& z) const { x = static_cast<float>(worldCenterX); y = static_cast<float>(worldCenterY); z = static_cast<float>(worldCenterZ); }
     float getWorldRadius() const { return static_cast<float>(worldRadius); }
-    void getGizmoAxisEndpoints(float& xEndX, float& xEndY, float& yEndX, float& yEndY, float& zEndX, float& zEndY);
-    void setHoveredAxis(int axis) { gizmo.setHoveredAxis(axis); emit viewChanged(); }
-    int getGizmoSize() const { return gizmo.getSize(); }
-    Q_INVOKABLE void setGizmoSize(int size) { gizmo.setSize(size); }
     float getDevicePixelRatio() const { return devicePixelRatio; }
 
-    // Gizmo interaction helpers (called from the QML MouseArea over the gizmo rect)
-    Q_INVOKABLE int pickGizmoAxis(float px, float py) {
-        // px,py are device pixels in GL (bottom-left) origin.
-        float xX, xY, yX, yY, zX, zY;
-        gizmo.getAxisEndpoints(static_cast<int>(width * devicePixelRatio),
-                               static_cast<int>(height * devicePixelRatio),
-                               camera.computeGizmoQuat(),
-                               sidebarWidth * devicePixelRatio,
-                               xX, xY, yX, yY, zX, zY);
-        auto near = [&](float ax, float ay) -> bool {
-            float dx = ax - px, dy = ay - py;
-            return (dx * dx + dy * dy) <= (18.0f * 18.0f);
-        };
-        if (near(xX, xY)) return 0;
-        if (near(yX, yY)) return 1;
-        if (near(zX, zY)) return 2;
-        return -1;
-    }
     Q_INVOKABLE void setSidebarWidth(float w) { sidebarWidth = w; }
     float getSidebarWidth() const { return sidebarWidth; }
 

@@ -58,6 +58,7 @@ Renderer::~Renderer() {
     if (colormapTex) glDeleteTextures(1, &colormapTex);
     gizmo.shutdown();
 }
+
 #pragma GCC diagnostic pop
 
 void Renderer::initGLAD() {
@@ -503,11 +504,9 @@ void Renderer::renderFrame() {
     glClearColor(bgColor[0], bgColor[1], bgColor[2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Establish the full-window viewport for the scene (grid + mesh). The gizmo
-    // pass sets its own smaller viewport later, then we restore here is not needed
-    // because the gizmo restores via glViewport in drawGizmo's own call.
-    // Use device-pixel dimensions so the GL viewport matches the real framebuffer
-    // on HiDPI displays (width/height are logical; multiply by devicePixelRatio).
+    // Establish the full-window viewport for the scene (grid + mesh). The scene
+    // draws full-window; set the GL viewport here in device pixels so it matches
+    // the real framebuffer on HiDPI displays (width/height are logical).
     int deviceW = static_cast<int>(width * devicePixelRatio);
     int deviceH = static_cast<int>(height * devicePixelRatio);
     glViewport(0, 0, deviceW, deviceH);
@@ -643,18 +642,11 @@ void Renderer::renderFrame() {
 }
 
 void Renderer::drawGizmo() {
+    // Pure low-level overlay: isolated corner viewport, rotation-only view, raw GL.
     glDisable(GL_DEPTH_TEST);
-    // Pass device-pixel dimensions so the gizmo sits bottom-left correctly on HiDPI.
-    gizmo.draw(static_cast<int>(width * devicePixelRatio),
-               static_cast<int>(height * devicePixelRatio),
-               camera.computeGizmoQuat(),
-               sidebarWidth * devicePixelRatio);
+    gizmo.draw(camera.getViewMatrix(), static_cast<float>(devicePixelRatio),
+               static_cast<int>(height * devicePixelRatio));
     glEnable(GL_DEPTH_TEST);
-}
-
-void Renderer::getGizmoAxisEndpoints(float& xEndX, float& xEndY, float& yEndX, float& yEndY, float& zEndX, float& zEndY) {
-    gizmo.getAxisEndpoints(width, height, camera.computeGizmoQuat(), sidebarWidth * devicePixelRatio,
-                           xEndX, xEndY, yEndX, yEndY, zEndX, zEndY);
 }
 
 void Renderer::snapToOrthoView(int axis) {

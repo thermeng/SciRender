@@ -1,67 +1,42 @@
 #pragma once
+// Low-level modern-OpenGL 3D coordinate triad overlay with billboarded text labels.
+// Pure GL (lines for axes, texture-mapped quads for X/Y/Z glyphs). No Qt layout.
+// Designed to be drawn inside a corner viewport that tracks the camera's rotation.
 
-#include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glad/glad.h>
 
 class Gizmo {
 public:
     Gizmo();
     ~Gizmo();
 
-    void init();
-
-    // width/height/sidebarWidth are in DEVICE pixels (already scaled by dpr on the caller side).
-    void draw(int width, int height, const glm::quat& quat, float sidebarWidth);
+    // Builds GL programs, buffers, and the glyph atlas. Call with a live GL context.
+    bool init();
+    // Releases all owned GL resources.
     void shutdown();
 
-    // Computes on-screen (device-px, OpenGL-origin bottom-left) tip positions for each axis.
-    // Used by the renderer for click hit-testing.
-    void getAxisEndpoints(int width, int height, const glm::quat& quat, float sidebarWidth,
-                          float& xEndX, float& xEndY,
-                          float& yEndX, float& yEndY,
-                          float& zEndX, float& zEndY);
+    // Draws the triad into a fixed bottom-left corner viewport.
+    //  mainView : the scene's full view matrix (used only for its rotation part)
+    //  dpr      : device-pixel-ratio so the overlay footprint stays constant on HiDPI
+    void draw(const glm::mat4& mainView, float dpr, int fbHeight);
 
-    void setSize(int pixels) { viewportSize = pixels; }
-    int getSize() const { return viewportSize; }
-    void setHoveredAxis(int axis) { hoveredAxis = axis; }
-    int getHoveredAxis() const { return hoveredAxis; }
-
-    // Hit-test a device-px point (OpenGL-origin bottom-left) against the three axis tips.
-    // Returns 0=X, 1=Y, 2=Z, or -1 if not near any tip.
-    int pickAxis(int width, int height, const glm::quat& quat, float sidebarWidth,
-                 float px, float py, float radiusPx = 18.0f) const;
-
-    void drawWithMVP(const glm::mat4& mvp);
-
-    static glm::mat4 getViewMatrix(float rotationX, float rotationY);
-    static glm::mat4 getViewMatrix(const glm::quat& quat);
+    bool isInitialized() const { return lineProgram != 0 && textProgram != 0; }
 
 private:
-    GLuint vao = 0, vbo = 0;
-    GLuint shaderProgram = 0;
-    GLint mvpLoc = -1;
+    // Axis lines (origin -> tip, per-vertex color)
+    GLuint lineVAO = 0, lineVBO = 0, lineProgram = 0;
+    GLint  lineMvpLoc = -1, lineColorLoc = -1, linePosLoc = -1, lineColLoc = -1;
 
-    // Arrow cone geometry (unit axis-aligned, scaled/oriented per axis at draw time)
-    GLuint coneVAO = 0, coneVBO = 0, coneEBO = 0;
-    int coneIndexCount = 0;
+    // Billboard text quads (6 verts/char, vec4 = px.xy + uv.uv)
+    GLuint textVAO = 0, textVBO = 0, textProgram = 0;
+    GLint  textMvpLoc = -1, textColorLoc = -1, textTexLoc = -1, textPosLoc = -1;
+    GLuint glyphTex = 0;
+    int    glyphAtlasW = 0, glyphAtlasH = 0;
 
-    // Center sphere origin marker geometry handles
-    GLuint sphereVAO = 0, sphereVBO = 0, sphereEBO = 0;
-    int sphereIndexCount = 0;
-
-    // Shader uniform lookup cache parameters
-    GLint useUniformColorLoc = -1;
-    GLint uniformColorLoc = -1;
-
-    int viewportSize = 200;
-    int hoveredAxis = -1;
-
-    // Shared MVP computation so draw() and getAxisEndpoints() stay in lockstep.
-    static glm::mat4 computeMVP(const glm::quat& quat);
-    void axisTipScreen(int width, int height, float sidebarWidth,
-                               const glm::mat4& mvp, const glm::vec4& worldTip,
-                               float& sx, float& sy) const;
+    bool buildAtlas();      // rasterize X/Y/Z into a horizontal strip atlas via Qt
+    bool buildLineProgram();
+    bool buildTextProgram();
 };
