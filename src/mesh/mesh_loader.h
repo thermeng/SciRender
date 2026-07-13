@@ -47,6 +47,7 @@ struct RenderMesh {
     std::vector<float> normals;    // nx,ny,nz interleaved
     std::vector<float> scalars;    // Active scalar field (per-vertex, optional)
     std::string scalarName = "";   // Name of active scalar field
+    std::vector<std::string> availableScalarNames; // ponytail: all point-scalar field names for the QML switcher
 
     // High-precision bounding volume (double for camera-relative precision)
     BoundingVolume bounds;

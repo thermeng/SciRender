@@ -203,6 +203,15 @@ ApplicationWindow {
         y: 180
         Column {
             spacing: 6
+            Text { text: "Scalar field"; color: "#888"; font.pixelSize: 10 }
+            ComboBox {
+                id: scalarCombo
+                width: 210
+                enabled: backendRenderer ? backendRenderer.meshHasScalars : false
+                model: backendRenderer ? backendRenderer.availableScalars : []
+                currentIndex: backendRenderer ? backendRenderer.availableScalars.indexOf(backendRenderer.getActiveScalarNameQml()) : -1
+                onActivated: index => backendRenderer.setActiveScalarField(model[index])
+            }
             Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
             ComboBox {
                 id: colormapCombo
@@ -295,19 +304,49 @@ ApplicationWindow {
         anchors.bottom: parent.bottom
         anchors.margins: 12
         spacing: 4
-        visible: backendRenderer ? (backendRenderer.hasMeshLoaded && backendRenderer.hasMeshScalarsQml()) : false
+        visible: backendRenderer ? (backendRenderer.hasMeshLoaded && backendRenderer.meshHasScalars) : false
 
         Text {
-            text: "Scalar: " + (backendRenderer ? backendRenderer.getActiveScalarNameQml() : "")
+            text: backendRenderer ? backendRenderer.getActiveScalarNameQml() : ""
             color: "#dddddd"
             font.pixelSize: 12
         }
 
         // Gradient bar + aligned min/max labels on a single row
+        // Row {
+        //     spacing: 6
+        //     // Vertical gradient bar built from the active colormap stops
+        //     Rectangle {
+        //         width: 20
+        //         height: 200
+        //         border.color: "#555555"
+        //         border.width: 1
+        //         clip: true
+        //         Repeater {
+        //             model: backendRenderer ? backendRenderer.colormapStops : []
+        //             // Each stop is [t, r, g, b] with t in 0..1, rgb in 0..1.
+        //             // Fill bottom (t=0) to top (t=1); y is the strip's top edge.
+        //             delegate: Rectangle {
+        //                 width: 20
+        //                 height: 200 / backendRenderer.colormapStops.length
+        //                 y: 200 - (modelData[0] * 200 + height)
+        //                 color: Qt.rgba(modelData[1], modelData[2], modelData[3], 1.0)
+        //             }
+        //         }
+        //     }
+        //     // Max at top of bar, min at bottom, vertically aligned to the bar.
+        //     Item {
+        //         width: 48; height: 200
+        //         Text { text: backendRenderer ? backendRenderer.getDataScalarMaxQml().toFixed(3) : ""; color: "#dddddd"; font.pixelSize: 11; anchors.right: parent.right; anchors.top: parent.top }
+        //         Text { text: backendRenderer ? backendRenderer.getDataScalarMinQml().toFixed(3) : ""; color: "#dddddd"; font.pixelSize: 11; anchors.right: parent.right; anchors.bottom: parent.bottom }
+        //     }
+        // }
+        // Gradient bar + aligned min/max labels on a single row
         Row {
-            spacing: 6
-            // Vertical gradient bar built from the active colormap stops
+            spacing: 8
+            
             Rectangle {
+                id: gradientBar
                 width: 20
                 height: 200
                 border.color: "#555555"
@@ -315,8 +354,6 @@ ApplicationWindow {
                 clip: true
                 Repeater {
                     model: backendRenderer ? backendRenderer.colormapStops : []
-                    // Each stop is [t, r, g, b] with t in 0..1, rgb in 0..1.
-                    // Fill bottom (t=0) to top (t=1); y is the strip's top edge.
                     delegate: Rectangle {
                         width: 20
                         height: 200 / backendRenderer.colormapStops.length
@@ -325,11 +362,27 @@ ApplicationWindow {
                     }
                 }
             }
-            // Max at top of bar, min at bottom, vertically aligned to the bar.
+
+            // Fixed container where labels are anchored to exact geometric lines
             Item {
-                width: 48; height: 200
-                Text { text: backendRenderer ? backendRenderer.getDataScalarMaxQml().toFixed(3) : ""; color: "#dddddd"; font.pixelSize: 11; anchors.right: parent.right; anchors.top: parent.top }
-                Text { text: backendRenderer ? backendRenderer.getDataScalarMinQml().toFixed(3) : ""; color: "#dddddd"; font.pixelSize: 11; anchors.right: parent.right; anchors.bottom: parent.bottom }
+                width: 55 
+                height: gradientBar.height
+                
+                Text { 
+                    text: backendRenderer ? backendRenderer.getDataScalarMaxQml().toFixed(3) : ""
+                    color: "#dddddd" 
+                    font.pixelSize: 11
+                    anchors.left: parent.left
+                    anchors.top: parent.top // ponytail: max flush with top of bar
+                }
+                
+                Text { 
+                    text: backendRenderer ? backendRenderer.getDataScalarMinQml().toFixed(3) : ""
+                    color: "#dddddd" 
+                    font.pixelSize: 11
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom // ponytail: min flush with bottom of bar
+                }
             }
         }
     }
@@ -364,7 +417,6 @@ ApplicationWindow {
             font.pixelSize: 11
             text: (backendRenderer && backendRenderer.hasMeshLoaded)
                 ? "Mesh: " + backendRenderer.currentMeshName + "   |   Pts: " + backendRenderer.pointCount + "   |   Tris: " + backendRenderer.triangleCount
-                  + (backendRenderer.hasMeshScalarsQml() ? "   |   Scalar: " + backendRenderer.getActiveScalarNameQml() : "")
                 : "No mesh loaded"
         }
     }

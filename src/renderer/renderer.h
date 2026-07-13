@@ -53,6 +53,8 @@ class Renderer : public QObject {
     Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY gridVisibilityChanged)
     Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY surfaceVisibilityChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
+    // ponytail: reactive flag so the scalar-field ComboBox enables on load (method call won't refresh binding)
+    Q_PROPERTY(bool meshHasScalars READ hasMeshScalarsQml NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString currentMeshName READ getCurrentMeshNameQStr NOTIFY meshLoadStateChanged)
 
     Q_PROPERTY(float lightInt READ getLightInt WRITE setLightInt NOTIFY lightingParametersChanged)
@@ -76,6 +78,8 @@ class Renderer : public QObject {
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(int gizmoSize READ getGizmoSize WRITE setGizmoSize NOTIFY meshLoadStateChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
+
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
     // ponytail: property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't notify)
     Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY colormapChanged)
@@ -191,8 +195,8 @@ public slots:
     void toggleSurface(bool visible);
 
     // Multi-Scalar Dynamic Interop
-    QStringList getAvailableScalars() const;
-    void setActiveScalarField(const QString& fieldName);
+    QStringList getAvailableScalars() const; // ponytail: READ for availableScalars Q_PROPERTY
+    Q_INVOKABLE void setActiveScalarField(const QString& fieldName);
 
     // Returns the list of colormap display names in ColormapType enum order,
     // suitable for binding directly to a QML ComboBox model.
@@ -442,7 +446,7 @@ private:
     bool showSurface = true;
     int gridVertexCount = 0;
 
-    int colormapChoice = 0;
+    int colormapChoice = 3; // ponytail: default CoolWarm
     int lastUploadedChoice = -1;
     GLuint colormapTex = 0;
     std::atomic<bool> meshChanged{true};

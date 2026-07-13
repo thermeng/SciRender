@@ -551,6 +551,13 @@ private:
             mesh.scalars = mesh.attributes->pointScalars[mesh.scalarName];
         }
 
+        // ponytail: expose every point-scalar field name so the UI can switch fields
+        if (hasAttributes) {
+            for (const auto& [name, _] : mesh.attributes->pointScalars) {
+                mesh.availableScalarNames.push_back(name);
+            }
+        }
+
         // 4. Calculate ranges and bounds safely on the new layout footprint
         calculateScalarRanges();
         mesh_utils::computeBounds(mesh);

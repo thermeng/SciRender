@@ -719,8 +719,8 @@ bool Renderer::captureScreenshotToFile(const QString& path) {
 
 QStringList Renderer::getAvailableScalars() const {
     QStringList list;
-    if (!cachedMeshSource.scalarName.empty()) {
-        list.append(QString::fromStdString(cachedMeshSource.scalarName));
+    for (const auto& name : cachedMeshSource.availableScalarNames) {
+        list.append(QString::fromStdString(name));
     }
     return list;
 }
@@ -759,9 +759,27 @@ void Renderer::setActiveScalarField(const QString& fieldName) {
 }
 
 void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
-    if (cachedMeshSource.scalarName == fieldName) {
-        activeScalarName = fieldName;
+    if (fieldName == activeScalarName) return;
+    // ponytail: fields live in pointScalars; swap the active vector and let the
+    // existing render-thread upload path (meshChanged) push the new sbo.
+    auto it = cachedMeshSource.attributes->pointScalars.find(fieldName);
+    if (it == cachedMeshSource.attributes->pointScalars.end()) return;
+
+    activeScalarName = fieldName;
+    cachedMeshSource.scalarName = fieldName;
+    cachedMeshSource.scalars = it->second;
+    dynamicMeshQueue.scalarName = fieldName;
+    dynamicMeshQueue.scalars = it->second;
+
+    if (!cachedMeshSource.scalars.empty()) {
+        float mn = cachedMeshSource.scalars[0], mx = cachedMeshSource.scalars[0];
+        for (float v : cachedMeshSource.scalars) { if (v < mn) mn = v; if (v > mx) mx = v; }
+        dataScalarMin = mn; dataScalarMax = mx;
+        scalarMin = mn; scalarMax = mx;
+        filterMin = mn; filterMax = mx;
     }
+    meshChanged = true; // ponytail: trigger GPU re-upload of the scalar buffer
+    emit meshDataUpdated();
 }
 
 void Renderer::setWireframe(bool enabled) {
