@@ -433,6 +433,9 @@ void Renderer::resetCamera() {
     if (camera.distance < 1.0) {
         camera.distance = 1.0; // Prevent the camera from nesting inside a flat/empty mesh
     }
+    // ponytail: near/far must bracket the real geometry — hardcoding far=100 clipped large meshes into the void
+    nearPlane = std::max(0.01, worldRadius * 0.001);
+    farPlane  = std::max(100.0, worldRadius * 10.0);
 
     // 3. Reset the position vector relative to the focal point along the Z axis
     camera.position = camera.focalPoint + glm::dvec3(0.0, 0.0, camera.distance);
