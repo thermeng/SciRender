@@ -250,7 +250,7 @@ public:
         if (near(zX, zY)) return 2;
         return -1;
     }
-    void setSidebarWidth(float w) { sidebarWidth = w; }
+    Q_INVOKABLE void setSidebarWidth(float w) { sidebarWidth = w; }
     float getSidebarWidth() const { return sidebarWidth; }
 
 

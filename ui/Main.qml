@@ -15,7 +15,10 @@ ApplicationWindow {
     // High-Performance Raw OpenGL Output Subwindow Area
     ViewportVisualizer {
         id: openGLViewport
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.left: rail.right
         renderer: backendRenderer // Links instance reference directly to C++ target
 
         // Drop zone overlay for dragging raw STL/VTK files directly into the viewport
@@ -31,179 +34,183 @@ ApplicationWindow {
         }
     }
 
-    // Minimal load toolbar
-    Row {
+    // ---- Icon rail (VS Code / Blender activity-bar style) ----
+    // Slim vertical strip of icon buttons on the left edge. Each opens a floating
+    // popover next to it (auto-closes on click-away). Viewport stays full-bleed.
+    Rectangle {
+        id: rail
+        width: 48
         anchors.top: parent.top
+        anchors.bottom: parent.bottom
         anchors.left: parent.left
-        anchors.margins: 12
-        spacing: 8
+        color: "#262626"
+        z: 20
 
-        Button {
-            text: "Open Mesh"
-            onClicked: fileDialog.open()
-        }
-        Button {
-            text: lightingPanel.visible ? "Hide Lighting" : "Lighting"
-            onClicked: lightingPanel.visible = !lightingPanel.visible
-        }
-        Button {
-            text: clipPanel.visible ? "Hide Slicing" : "Slicing"
-            onClicked: clipPanel.visible = !clipPanel.visible
-        }
-        Button {
-            text: viewPanel.visible ? "Hide View" : "View"
-            onClicked: viewPanel.visible = !viewPanel.visible
-        }
+        // Gizmo offset follows the rail width (getSidebarWidth used by the MouseArea below).
+        Component.onCompleted: backendRenderer.setSidebarWidth(width)
 
-        ComboBox {
-            id: colormapCombo
-            width: 210
-            model: backendRenderer ? backendRenderer.getColormapNames() : []
-            currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
-            onActivated: index => backendRenderer.colormapChoice = index
-        }
-    }
-
-    // Collapsible Lighting control panel (slider block, no per-slider boilerplate)
-    Column {
-        id: lightingPanel
-        visible: false
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.topMargin: 56
-        anchors.leftMargin: 12
-        width: 220
-        spacing: 4
-        opacity: 0.95
-
-        // ponytail: one helper row factory keeps all 17 sliders to a single declarative line each
-        component LightSlider : Row {
-            required property string label
-            required property real value
-            required property real from
-            required property real to
-            required property real step
-            required property var onSet
-            spacing: 6
-            Text { text: parent.label; color: "#cccccc"; font.pixelSize: 11; width: 70; elide: Text.ElideRight }
-            Slider {
-                width: 130; from: parent.from; to: parent.to; stepSize: parent.step
-                value: parent.value
-                onMoved: parent.onSet(value)
+        component RailButton : ToolButton {
+            width: 48; height: 44
+            font.pixelSize: 20
+            property bool active: false
+            background: Rectangle {
+                color: parent.active ? "#3a3a3a" : (parent.hovered ? "#333333" : "transparent")
+                Rectangle { // active accent bar
+                    width: 3; height: parent.height
+                    color: "#4a90d9"
+                    visible: parent.parent.active
+                }
             }
-            Text { text: parent.value.toFixed(1); color: "#999999"; font.pixelSize: 10; width: 30 }
         }
 
-        LightSlider { label: "Intensity";   value: backendRenderer.lightInt;         from: 0; to: 3; step: 0.05; onSet: v => backendRenderer.lightInt = v }
-        LightSlider { label: "Key Az";      value: backendRenderer.lightKeyAzimuth;  from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightKeyAzimuth = v }
-        LightSlider { label: "Key El";      value: backendRenderer.lightKeyElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightKeyElevation = v }
-        LightSlider { label: "Fill Az";     value: backendRenderer.lightFillAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightFillAzimuth = v }
-        LightSlider { label: "Fill El";     value: backendRenderer.lightFillElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightFillElevation = v }
-        LightSlider { label: "Back Az";     value: backendRenderer.lightBackAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightBackAzimuth = v }
-        LightSlider { label: "Back El";     value: backendRenderer.lightBackElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightBackElevation = v }
-        LightSlider { label: "Head Az";     value: backendRenderer.lightHeadAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightHeadAzimuth = v }
-        LightSlider { label: "Head El";     value: backendRenderer.lightHeadElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightHeadElevation = v }
-        LightSlider { label: "Key Int";     value: backendRenderer.lightKeyIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightKeyIntensity = v }
-        LightSlider { label: "Fill Int";    value: backendRenderer.lightFillIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightFillIntensity = v }
-        LightSlider { label: "Head Int";    value: backendRenderer.lightHeadIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightHeadIntensity = v }
-        LightSlider { label: "Ambient";     value: backendRenderer.matAmbient;       from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matAmbient = v }
-        LightSlider { label: "Diffuse";     value: backendRenderer.matDiffuse;       from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matDiffuse = v }
-        LightSlider { label: "Specular";    value: backendRenderer.matSpecular;      from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matSpecular = v }
-        LightSlider { label: "Shininess";   value: backendRenderer.matShininess;     from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matShininess = v }
+        Column {
+            anchors.top: parent.top
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 2
+
+            RailButton { text: "\u{1F4C2}"; ToolTip.text: "Open Mesh"; ToolTip.visible: hovered; onClicked: fileDialog.open() }
+            RailButton { text: "\u{1F4A1}"; ToolTip.text: "Lighting"; ToolTip.visible: hovered; active: lightingPopup.opened; onClicked: lightingPopup.opened ? lightingPopup.close() : lightingPopup.open() }
+            RailButton { text: "\u2702";    ToolTip.text: "Slicing & Clipping"; ToolTip.visible: hovered; active: clipPopup.opened; onClicked: clipPopup.opened ? clipPopup.close() : clipPopup.open() }
+            RailButton { text: "\u{1F441}"; ToolTip.text: "View & Display"; ToolTip.visible: hovered; active: viewPopup.opened; onClicked: viewPopup.opened ? viewPopup.close() : viewPopup.open() }
+            RailButton { text: "\u{1F3A8}"; ToolTip.text: "Colormap"; ToolTip.visible: hovered; active: colormapPopup.opened; onClicked: colormapPopup.opened ? colormapPopup.close() : colormapPopup.open() }
+        }
     }
 
-    // Slicing & Clipping panel
-    Column {
-        id: clipPanel
-        visible: false
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.topMargin: 56
-        anchors.leftMargin: 244
-        width: 240
-        spacing: 4
-        opacity: 0.95
+    // Shared popover styling: floats to the right of the rail, dismissed on click-away.
+    component FlyoutPopup : Popup {
+        x: rail.width + 4
+        padding: 10
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+        background: Rectangle { color: "#2b2b2b"; border.color: "#444"; radius: 4 }
+    }
 
-        component ClipSlider : Row {
-            required property string label
-            required property real value
-            required property real from
-            required property real to
-            required property var onSet
+    // Lighting popover
+    FlyoutPopup {
+        id: lightingPopup
+        y: 48
+        Column {
+            spacing: 4
+            component LightSlider : Row {
+                required property string label
+                required property real value
+                required property real from
+                required property real to
+                required property real step
+                required property var onSet
+                spacing: 6
+                Text { text: parent.label; color: "#cccccc"; font.pixelSize: 11; width: 70; elide: Text.ElideRight }
+                Slider { width: 130; from: parent.from; to: parent.to; stepSize: parent.step; value: parent.value; onMoved: parent.onSet(value) }
+                Text { text: parent.value.toFixed(1); color: "#999999"; font.pixelSize: 10; width: 30 }
+            }
+            LightSlider { label: "Intensity";   value: backendRenderer.lightInt;         from: 0; to: 3; step: 0.05; onSet: v => backendRenderer.lightInt = v }
+            LightSlider { label: "Key Az";      value: backendRenderer.lightKeyAzimuth;  from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightKeyAzimuth = v }
+            LightSlider { label: "Key El";      value: backendRenderer.lightKeyElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightKeyElevation = v }
+            LightSlider { label: "Fill Az";     value: backendRenderer.lightFillAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightFillAzimuth = v }
+            LightSlider { label: "Fill El";     value: backendRenderer.lightFillElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightFillElevation = v }
+            LightSlider { label: "Back Az";     value: backendRenderer.lightBackAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightBackAzimuth = v }
+            LightSlider { label: "Back El";     value: backendRenderer.lightBackElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightBackElevation = v }
+            LightSlider { label: "Head Az";     value: backendRenderer.lightHeadAzimuth; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightHeadAzimuth = v }
+            LightSlider { label: "Head El";     value: backendRenderer.lightHeadElevation;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightHeadElevation = v }
+            LightSlider { label: "Key Int";     value: backendRenderer.lightKeyIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightKeyIntensity = v }
+            LightSlider { label: "Fill Int";    value: backendRenderer.lightFillIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightFillIntensity = v }
+            LightSlider { label: "Head Int";    value: backendRenderer.lightHeadIntensity;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightHeadIntensity = v }
+            LightSlider { label: "Ambient";     value: backendRenderer.matAmbient;       from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matAmbient = v }
+            LightSlider { label: "Diffuse";     value: backendRenderer.matDiffuse;       from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matDiffuse = v }
+            LightSlider { label: "Specular";    value: backendRenderer.matSpecular;      from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matSpecular = v }
+            LightSlider { label: "Shininess";   value: backendRenderer.matShininess;     from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matShininess = v }
+        }
+    }
+
+    // Slicing & Clipping popover
+    FlyoutPopup {
+        id: clipPopup
+        y: 92
+        Column {
+            spacing: 4
+            component ClipSlider : Row {
+                required property string label
+                required property real value
+                required property real from
+                required property real to
+                required property var onSet
+                spacing: 6
+                Text { text: parent.label; color: "#cccccc"; font.pixelSize: 11; width: 60; elide: Text.ElideRight }
+                Slider { width: 140; from: parent.from; to: parent.to; value: parent.value; onMoved: parent.onSet(value) }
+            }
+            CheckBox { text: "Enable Clipping"; checked: backendRenderer.clipEnabled; onToggled: backendRenderer.clipEnabled = checked }
+            Text { text: "Cut planes (world units)"; color: "#888"; font.pixelSize: 10 }
+            ClipSlider { label: "Slice X"; value: backendRenderer.sliceHeightX; from: backendRenderer.worldMinX; to: backendRenderer.worldMaxX; onSet: v => backendRenderer.sliceHeightX = v }
+            ClipSlider { label: "Slice Y"; value: backendRenderer.sliceHeightY; from: backendRenderer.worldMinY; to: backendRenderer.worldMaxY; onSet: v => backendRenderer.sliceHeightY = v }
+            ClipSlider { label: "Slice Z"; value: backendRenderer.sliceHeightZ; from: backendRenderer.worldMinZ; to: backendRenderer.worldMaxZ; onSet: v => backendRenderer.sliceHeightZ = v }
+            Text { text: "Keep side"; color: "#888"; font.pixelSize: 10 }
+            Row { spacing: 10
+                CheckBox { text: "Inv X"; checked: backendRenderer.invertX; onToggled: backendRenderer.invertX = checked }
+                CheckBox { text: "Inv Y"; checked: backendRenderer.invertY; onToggled: backendRenderer.invertY = checked }
+                CheckBox { text: "Inv Z"; checked: backendRenderer.invertZ; onToggled: backendRenderer.invertZ = checked }
+            }
+            Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
+            ClipSlider { label: "Min"; value: backendRenderer.filterMin; from: backendRenderer.dataScalarMinQml; to: backendRenderer.dataScalarMaxQml; onSet: v => backendRenderer.filterMin = v }
+            ClipSlider { label: "Max"; value: backendRenderer.filterMax; from: backendRenderer.dataScalarMinQml; to: backendRenderer.dataScalarMaxQml; onSet: v => backendRenderer.filterMax = v }
+        }
+    }
+
+    // View / camera & display popover
+    FlyoutPopup {
+        id: viewPopup
+        y: 136
+        Column {
+            spacing: 4
+            Text { text: "Orthographic view"; color: "#888"; font.pixelSize: 10 }
+            Row { spacing: 6
+                Button { text: "+X"; width: 48; onClicked: backendRenderer.snapToOrthoView(0) }
+                Button { text: "-X"; width: 48; onClicked: backendRenderer.snapToOrthoView(1) }
+                Button { text: "+Y"; width: 48; onClicked: backendRenderer.snapToOrthoView(2) }
+            }
+            Row { spacing: 6
+                Button { text: "-Y"; width: 48; onClicked: backendRenderer.snapToOrthoView(3) }
+                Button { text: "+Z"; width: 48; onClicked: backendRenderer.snapToOrthoView(4) }
+                Button { text: "-Z"; width: 48; onClicked: backendRenderer.snapToOrthoView(5) }
+            }
+            Text { text: "Quick axis snap"; color: "#888"; font.pixelSize: 10 }
+            Row { spacing: 6
+                Button { text: "X"; width: 48; onClicked: backendRenderer.snapToAxisView(0, false) }
+                Button { text: "Y"; width: 48; onClicked: backendRenderer.snapToAxisView(1, false) }
+                Button { text: "Z"; width: 48; onClicked: backendRenderer.snapToAxisView(2, false) }
+            }
+            Text { text: "Display"; color: "#888"; font.pixelSize: 10 }
+            CheckBox { text: "Wireframe"; checked: backendRenderer.isWireframe; onToggled: backendRenderer.isWireframe = checked }
+            CheckBox { text: "Grid";      checked: backendRenderer.isGridVisible; onToggled: backendRenderer.isGridVisible = checked }
+            CheckBox { text: "Surface";   checked: backendRenderer.isSurfaceVisible; onToggled: backendRenderer.isSurfaceVisible = checked }
+            Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
+            Row { spacing: 6
+                Button { text: "Reset Cam"; width: 100; onClicked: backendRenderer.resetCamera() }
+                Button { text: "Screenshot"; width: 110; onClicked: screenshotSaveDialog.open() }
+            }
+            Button { text: "Background Color"; width: 216; onClicked: bgDialog.open() }
+            ColorDialog {
+                id: bgDialog
+                selectedColor: backendRenderer ? backendRenderer.bgColor : "#000000"
+                onAccepted: backendRenderer.bgColor = selectedColor
+            }
+        }
+    }
+
+    // Colormap popover
+    FlyoutPopup {
+        id: colormapPopup
+        y: 180
+        Column {
             spacing: 6
-            Text { text: parent.label; color: "#cccccc"; font.pixelSize: 11; width: 60; elide: Text.ElideRight }
-            Slider { width: 140; from: parent.from; to: parent.to; value: parent.value; onMoved: parent.onSet(value) }
-        }
-
-        CheckBox { text: "Enable Clipping"; checked: backendRenderer.clipEnabled; onToggled: backendRenderer.clipEnabled = checked }
-
-        Text { text: "Cut planes (world units)"; color: "#888"; font.pixelSize: 10 }
-        ClipSlider { label: "Slice X"; value: backendRenderer.sliceHeightX; from: backendRenderer.worldMinX; to: backendRenderer.worldMaxX; onSet: v => backendRenderer.sliceHeightX = v }
-        ClipSlider { label: "Slice Y"; value: backendRenderer.sliceHeightY; from: backendRenderer.worldMinY; to: backendRenderer.worldMaxY; onSet: v => backendRenderer.sliceHeightY = v }
-        ClipSlider { label: "Slice Z"; value: backendRenderer.sliceHeightZ; from: backendRenderer.worldMinZ; to: backendRenderer.worldMaxZ; onSet: v => backendRenderer.sliceHeightZ = v }
-
-        Text { text: "Keep side"; color: "#888"; font.pixelSize: 10 }
-        Row {
-            spacing: 10
-            CheckBox { text: "Inv X"; checked: backendRenderer.invertX; onToggled: backendRenderer.invertX = checked }
-            CheckBox { text: "Inv Y"; checked: backendRenderer.invertY; onToggled: backendRenderer.invertY = checked }
-            CheckBox { text: "Inv Z"; checked: backendRenderer.invertZ; onToggled: backendRenderer.invertZ = checked }
-        }
-
-        Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
-        // ponytail: raw-data range, not 0..1 — shader compares raw vScalar against these
-        ClipSlider { label: "Min"; value: backendRenderer.filterMin; from: backendRenderer.dataScalarMinQml; to: backendRenderer.dataScalarMaxQml; onSet: v => backendRenderer.filterMin = v }
-        ClipSlider { label: "Max"; value: backendRenderer.filterMax; from: backendRenderer.dataScalarMinQml; to: backendRenderer.dataScalarMaxQml; onSet: v => backendRenderer.filterMax = v }
-    }
-
-    // View / camera & display panel (ponytail: ortho snaps + axis snap + wireframe/grid/surface toggles)
-    Column {
-        id: viewPanel
-        visible: false
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.topMargin: 56
-        anchors.leftMargin: 488
-        width: 220
-        spacing: 4
-        opacity: 0.95
-
-        Text { text: "Orthographic view"; color: "#888"; font.pixelSize: 10 }
-        Row { spacing: 6
-            Button { text: "+X"; width: 48; onClicked: backendRenderer.snapToOrthoView(0) }
-            Button { text: "-X"; width: 48; onClicked: backendRenderer.snapToOrthoView(1) }
-            Button { text: "+Y"; width: 48; onClicked: backendRenderer.snapToOrthoView(2) }
-        }
-        Row { spacing: 6
-            Button { text: "-Y"; width: 48; onClicked: backendRenderer.snapToOrthoView(3) }
-            Button { text: "+Z"; width: 48; onClicked: backendRenderer.snapToOrthoView(4) }
-            Button { text: "-Z"; width: 48; onClicked: backendRenderer.snapToOrthoView(5) }
-        }
-        Text { text: "Quick axis snap"; color: "#888"; font.pixelSize: 10 }
-        Row { spacing: 6
-            Button { text: "X"; width: 48; onClicked: backendRenderer.snapToAxisView(0, false) }
-            Button { text: "Y"; width: 48; onClicked: backendRenderer.snapToAxisView(1, false) }
-            Button { text: "Z"; width: 48; onClicked: backendRenderer.snapToAxisView(2, false) }
-        }
-        Text { text: "Display"; color: "#888"; font.pixelSize: 10 }
-        CheckBox { text: "Wireframe"; checked: backendRenderer.isWireframe; onToggled: backendRenderer.isWireframe = checked }
-        CheckBox { text: "Grid";      checked: backendRenderer.isGridVisible; onToggled: backendRenderer.isGridVisible = checked }
-        CheckBox { text: "Surface";   checked: backendRenderer.isSurfaceVisible; onToggled: backendRenderer.isSurfaceVisible = checked }
-
-        Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
-        Row { spacing: 6
-            Button { text: "Reset Cam"; width: 100; onClicked: backendRenderer.resetCamera() }
-            Button { text: "Screenshot"; width: 110; onClicked: screenshotSaveDialog.open() }
-        }
-        Button {
-            text: "Background Color"
-            width: 216
-            onClicked: bgDialog.open()
-        }
-        ColorDialog {
-            id: bgDialog
-            selectedColor: backendRenderer ? backendRenderer.bgColor : "#000000"
-            onAccepted: backendRenderer.bgColor = selectedColor
+            Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
+            ComboBox {
+                id: colormapCombo
+                width: 210
+                model: backendRenderer ? backendRenderer.getColormapNames() : []
+                currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
+                onActivated: index => backendRenderer.colormapChoice = index
+            }
         }
     }
 
@@ -338,8 +345,8 @@ ApplicationWindow {
         }
         Menu {
             title: "View"
-            MenuItem { text: "Lighting"; onTriggered: lightingPanel.visible = !lightingPanel.visible }
-            MenuItem { text: "Slicing & Clipping"; onTriggered: clipPanel.visible = !clipPanel.visible }
+            MenuItem { text: "Lighting"; onTriggered: lightingPopup.opened ? lightingPopup.close() : lightingPopup.open() }
+            MenuItem { text: "Slicing & Clipping"; onTriggered: clipPopup.opened ? clipPopup.close() : clipPopup.open() }
             MenuSeparator {}
             MenuItem { text: "Reset Camera"; onTriggered: backendRenderer.resetCamera() }
         }
