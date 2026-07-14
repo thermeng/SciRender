@@ -78,7 +78,9 @@ void ViewportVisualizer::mouseMoveEvent(QMouseEvent* event) {
     QPoint delta = event->pos() - m_lastMousePos;
     m_lastMousePos = event->pos();
     if (m_isRightClick) {
-        m_scene->pan(delta.x(), delta.y());
+        // Negate the Y delta so dragging down (positive delta.y) 
+        // pans the camera down (negative camera movement)
+        m_scene->pan(delta.x(), -delta.y());
     } else {
         m_scene->azimuth(-delta.x() * 0.5);
         m_scene->elevation(delta.y() * 0.5);
