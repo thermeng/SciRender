@@ -50,7 +50,6 @@ class Renderer : public QObject {
     // QML Data Binding Interop Properties Matrix
     // -----------------------------------------------------------------------
     Q_PROPERTY(bool isWireframe READ isWireframe WRITE setWireframe NOTIFY wireframeChanged)
-    Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY gridVisibilityChanged)
     Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY surfaceVisibilityChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
     // ponytail: reactive flag so the scalar-field ComboBox enables on load (method call won't refresh binding)
@@ -112,7 +111,6 @@ public:
     // Core Initialization & Graphics Lifecycle Routines called by Qt Context
     void initGLAD();
     void initShaders();
-    void initGrid();
     void initGizmo();
     void renderFrame();
 
@@ -123,8 +121,6 @@ public:
     // Modern Qt Property Accessors & Mutators
     bool isWireframe() const { return showWireframe; }
     void setWireframe(bool enabled);
-
-    bool isGridVisible() const { return showGrid; }
 
     bool isSurfaceVisible() const { return showSurface; }
 
@@ -191,7 +187,6 @@ public slots:
     // Performs the actual GL pixel read + file save. MUST be called on the
     // render thread while the OpenGL context is current (see CustomViewportItem).
     bool captureScreenshotToFile(const QString& path);
-    void toggleGrid(bool visible);
     void snapToAxisView(int axis, bool flip); // ortho snap: axis 0/1/2, flip=true -> negative side
     void toggleSurface(bool visible);
 
@@ -205,7 +200,6 @@ public slots:
 
 signals:
     void wireframeChanged();
-    void gridVisibilityChanged();
     void surfaceVisibilityChanged();
     void meshLoadStateChanged();
     void meshDataUpdated();
@@ -248,9 +242,6 @@ public:
         outMinY = static_cast<float>(worldMinY); outMaxY = static_cast<float>(worldMaxY);
         outMinZ = static_cast<float>(worldMinZ); outMaxZ = static_cast<float>(worldMaxZ);
     }
-
-    enum class GridPlane { XY, XZ, YZ, AutoLowest };
-    GridPlane activeGridPlane = GridPlane::AutoLowest;
 
     void setScalarRange(float min, float max) { scalarMin = min; scalarMax = max; }
     bool consumeMeshChanged() { return meshChanged.exchange(false); }
@@ -417,13 +408,8 @@ private:
     double worldMinZ = -10.0, worldMaxZ = 10.0;
 
     float sidebarWidth = 0.0f;
-    GLuint gridVAO = 0, gridVBO = 0;
-    GLuint gridShaderProgram = 0;
     GLint scalarAttribLoc = -1;
-    GLint gridMVPLoc = -1;
-    bool showGrid = false;
     bool showSurface = true;
-    int gridVertexCount = 0;
 
     int colormapChoice = 3; // ponytail: default CoolWarm
     int lastUploadedChoice = -1;

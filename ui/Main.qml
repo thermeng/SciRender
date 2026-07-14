@@ -181,7 +181,6 @@ ApplicationWindow {
             }
             Text { text: "Display"; color: "#888"; font.pixelSize: 10 }
             CheckBox { text: "Wireframe"; checked: backendRenderer.isWireframe; onToggled: backendRenderer.isWireframe = checked }
-            CheckBox { text: "Grid";      checked: backendRenderer.isGridVisible; onToggled: backendRenderer.isGridVisible = checked }
             CheckBox { text: "Surface";   checked: backendRenderer.isSurfaceVisible; onToggled: backendRenderer.isSurfaceVisible = checked }
             Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
             Row { spacing: 6
@@ -268,35 +267,6 @@ ApplicationWindow {
             font.pixelSize: 12
         }
 
-        // Gradient bar + aligned min/max labels on a single row
-        // Row {
-        //     spacing: 6
-        //     // Vertical gradient bar built from the active colormap stops
-        //     Rectangle {
-        //         width: 20
-        //         height: 200
-        //         border.color: "#555555"
-        //         border.width: 1
-        //         clip: true
-        //         Repeater {
-        //             model: backendRenderer ? backendRenderer.colormapStops : []
-        //             // Each stop is [t, r, g, b] with t in 0..1, rgb in 0..1.
-        //             // Fill bottom (t=0) to top (t=1); y is the strip's top edge.
-        //             delegate: Rectangle {
-        //                 width: 20
-        //                 height: 200 / backendRenderer.colormapStops.length
-        //                 y: 200 - (modelData[0] * 200 + height)
-        //                 color: Qt.rgba(modelData[1], modelData[2], modelData[3], 1.0)
-        //             }
-        //         }
-        //     }
-        //     // Max at top of bar, min at bottom, vertically aligned to the bar.
-        //     Item {
-        //         width: 48; height: 200
-        //         Text { text: backendRenderer ? backendRenderer.getDataScalarMaxQml().toFixed(3) : ""; color: "#dddddd"; font.pixelSize: 11; anchors.right: parent.right; anchors.top: parent.top }
-        //         Text { text: backendRenderer ? backendRenderer.getDataScalarMinQml().toFixed(3) : ""; color: "#dddddd"; font.pixelSize: 11; anchors.right: parent.right; anchors.bottom: parent.bottom }
-        //     }
-        // }
         // Gradient bar + aligned min/max labels on a single row
         Row {
             spacing: 8
