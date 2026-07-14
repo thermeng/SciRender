@@ -97,7 +97,8 @@ Gizmo::~Gizmo() { shutdown(); }
 
 // ----------------------------------------------------------------------------
 // Atlas: rasterize 'X','Y','Z' into a 3-cell horizontal strip, white-on-clear.
-// Uploaded mirrored (GL origin is bottom-left) so UV (0,0) maps to glyph bottom-left.
+// Uploaded AS-IS: QImage row 0 (glyph top) lands at texture v=0. The V flip that
+// makes glyphs upright happens in draw(), not here.
 // ----------------------------------------------------------------------------
 bool Gizmo::buildAtlas() {
     const char chars[3] = { 'X', 'Y', 'Z' };
@@ -121,8 +122,8 @@ bool Gizmo::buildAtlas() {
         }
     }
     QImage gl = img.convertToFormat(QImage::Format_RGBA8888);
-    // NOTE: no vertical mirror here — the overlay's coordinate space already matches
-    // GL's bottom-left origin, so flipping would invert the glyphs (classic Y-inversion bug).
+    // NOTE: no vertical mirror here — the atlas already has glyph-top at v=0, and
+    // draw() samples v=0 at the quad's top edge, so the glyphs are upright as-is.
     for (int y = 0; y < gl.height(); ++y) {
         auto* row = reinterpret_cast<QRgb*>(gl.scanLine(y));
         for (int x = 0; x < gl.width(); ++x) {
@@ -276,9 +277,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
         cy = std::max(half, std::min(foot - half, cy));
 
         float u0 = i * cellU, u1 = (i + 1) * cellU;
-        // Atlas uploaded unflipped (QPainter top-row = glyph top = texture v=0).
-        // Flip V here so the quad's bottom edge samples v=1 (glyph bottom).
-        float v0 = 1.0f,     v1 = 0.0f;
+        float v0 = 0.0f,     v1 = 1.0f;
         float hx = glyph * 0.5f, hy = glyph * 0.5f;
         float tri[6][4] = {
             { cx - hx, cy + hy, u0, v1 }, // TL
