@@ -60,6 +60,7 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
         connect(m_scene, &::Renderer::colormapChanged, this, [this]() { update(); });
         // ponytail: wireframe/surface setters emit these but nothing repainted them before
         connect(m_scene, &::Renderer::wireframeChanged, this, [this]() { update(); });
+        connect(m_scene, &::Renderer::gridVisibilityChanged, this, [this]() { update(); });
         connect(m_scene, &::Renderer::surfaceVisibilityChanged, this, [this]() { update(); });
     }
 }
@@ -153,6 +154,7 @@ void ViewportFboRenderer::render() {
         // GLAD must resolve against THIS context (the FBO render context).
         m_scene->initGLAD();
         m_scene->initShaders();
+        m_scene->initGrid();
         m_scene->initGizmo();
         m_initialized = true;
     }

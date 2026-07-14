@@ -52,6 +52,9 @@ Renderer::~Renderer() {
     m_destroying = true; // suppress signal emissions during teardown
     clearMeshes();
     if (shaderProgram) glDeleteProgram(shaderProgram);
+    if (gridProgram) glDeleteProgram(gridProgram);
+    if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
+    if (gridVBO) glDeleteBuffers(1, &gridVBO);
     if (colormapTex) glDeleteTextures(1, &colormapTex);
     gizmo.shutdown();
 }
@@ -189,6 +192,78 @@ void Renderer::initShaders() {
     scalarMaxLoc = glGetUniformLocation(shaderProgram, "uScalarMax");
     hasScalarsLoc = glGetUniformLocation(shaderProgram, "uHasScalars");
     lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
+}
+
+void Renderer::initGrid() {
+    auto load = [](const QString& p) -> std::string {
+        QFile f(p);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) { qCritical() << "grid shader missing" << p; return ""; }
+        return QTextStream(&f).readAll().toStdString();
+    };
+    std::string vs = load(":/RendererQTUI/src/shaders/grid.vert");
+    std::string fs = load(":/RendererQTUI/src/shaders/grid.frag");
+    if (vs.empty() || fs.empty()) return;
+
+    GLuint v = glCreateShader(GL_VERTEX_SHADER);
+    GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
+    if (!compileShader(v, vs.c_str(), "GRID_VERT") || !compileShader(f, fs.c_str(), "GRID_FRAG")) {
+        glDeleteShader(v); glDeleteShader(f); return;
+    }
+    gridProgram = glCreateProgram();
+    glAttachShader(gridProgram, v);
+    glAttachShader(gridProgram, f);
+    glLinkProgram(gridProgram);
+    glDeleteShader(v); glDeleteShader(f);
+
+    gridInvViewLoc = glGetUniformLocation(gridProgram, "uInvView");
+    gridInvProjLoc = glGetUniformLocation(gridProgram, "uInvProj");
+    gridViewLoc    = glGetUniformLocation(gridProgram, "uView");
+    gridProjLoc    = glGetUniformLocation(gridProgram, "uProj");
+    gridCamPosLoc  = glGetUniformLocation(gridProgram, "uCamPos");
+    gridColorLoc   = glGetUniformLocation(gridProgram, "uColor");
+    gridBgLoc      = glGetUniformLocation(gridProgram, "uBg");
+    gridFalloffLoc = glGetUniformLocation(gridProgram, "uFalloff");
+
+    const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f,  1.0f, 1.0f };
+    glGenVertexArrays(1, &gridVAO);
+    glGenBuffers(1, &gridVBO);
+    glBindVertexArray(gridVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+}
+
+void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
+    if (!showGrid || gridProgram == 0) return;
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(gridProgram);
+
+    glm::mat4 invView = glm::inverse(view);
+    glm::mat4 invProj = glm::inverse(proj);
+    glUniformMatrix4fv(gridInvViewLoc, 1, GL_FALSE, glm::value_ptr(invView));
+    glUniformMatrix4fv(gridInvProjLoc, 1, GL_FALSE, glm::value_ptr(invProj));
+    glUniformMatrix4fv(gridViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(gridProjLoc, 1, GL_FALSE, glm::value_ptr(proj));
+    glUniform3f(gridCamPosLoc, (float)camera.position.x, (float)camera.position.y, (float)camera.position.z);
+    glUniform3f(gridColorLoc, 0.6f, 0.6f, 0.65f);
+    glUniform3f(gridBgLoc, bgColor[0], bgColor[1], bgColor[2]);
+    glUniform1f(gridFalloffLoc, 0.02f);
+
+    glBindVertexArray(gridVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+
+    glDisable(GL_BLEND);
+    glUseProgram(0);
+}
+
+void Renderer::toggleGrid(bool visible) {
+    if (showGrid == visible) return;
+    showGrid = visible;
+    emit gridVisibilityChanged();
 }
 
 void Renderer::initGizmo() {
@@ -556,6 +631,8 @@ void Renderer::renderFrame() {
         glBindVertexArray(0);
         glUseProgram(0);
     }
+
+    drawGrid(view, proj);
 
     drawGizmo();
 

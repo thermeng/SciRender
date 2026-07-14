@@ -181,6 +181,7 @@ ApplicationWindow {
             }
             Text { text: "Display"; color: "#888"; font.pixelSize: 10 }
             CheckBox { text: "Wireframe"; checked: backendRenderer.isWireframe; onToggled: backendRenderer.isWireframe = checked }
+            CheckBox { text: "Grid";      checked: backendRenderer.isGridVisible; onToggled: backendRenderer.isGridVisible = checked }
             CheckBox { text: "Surface";   checked: backendRenderer.isSurfaceVisible; onToggled: backendRenderer.isSurfaceVisible = checked }
             Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
             Row { spacing: 6

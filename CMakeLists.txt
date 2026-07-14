@@ -95,6 +95,8 @@ qt_add_qml_module(RendererQT
     RESOURCES
         src/shaders/mesh.vert
         src/shaders/mesh.frag
+        src/shaders/grid.vert
+        src/shaders/grid.frag
 )
 # ---------------------------------------------------------------------------
 # 5. Post-Build Pipeline Automation (Shader Dynamic Sync)

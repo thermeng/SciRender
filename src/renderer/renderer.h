@@ -51,6 +51,7 @@ class Renderer : public QObject {
     // -----------------------------------------------------------------------
     Q_PROPERTY(bool isWireframe READ isWireframe WRITE setWireframe NOTIFY wireframeChanged)
     Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY surfaceVisibilityChanged)
+    Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY gridVisibilityChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
     // ponytail: reactive flag so the scalar-field ComboBox enables on load (method call won't refresh binding)
     Q_PROPERTY(bool meshHasScalars READ hasMeshScalarsQml NOTIFY meshLoadStateChanged)
@@ -111,6 +112,8 @@ public:
     // Core Initialization & Graphics Lifecycle Routines called by Qt Context
     void initGLAD();
     void initShaders();
+    void initGrid();
+    void drawGrid(const glm::mat4& view, const glm::mat4& proj);
     void initGizmo();
     void renderFrame();
 
@@ -123,6 +126,8 @@ public:
     void setWireframe(bool enabled);
 
     bool isSurfaceVisible() const { return showSurface; }
+    bool isGridVisible() const { return showGrid; }
+    void toggleGrid(bool visible);
 
     bool getHasMeshLoaded() const { return hasMeshLoaded; }
     int getTriangleCount() const { return triangleCount; }
@@ -201,6 +206,7 @@ public slots:
 signals:
     void wireframeChanged();
     void surfaceVisibilityChanged();
+    void gridVisibilityChanged();
     void meshLoadStateChanged();
     void meshDataUpdated();
     void lightingParametersChanged();
@@ -410,6 +416,14 @@ private:
     float sidebarWidth = 0.0f;
     GLint scalarAttribLoc = -1;
     bool showSurface = true;
+    bool showGrid = false;
+
+    // ponytail: grid (procedural ray-cast ground plane)
+    GLuint gridVAO = 0, gridVBO = 0;
+    GLuint gridProgram = 0;
+    GLint gridInvViewLoc = -1, gridInvProjLoc = -1;
+    GLint gridViewLoc = -1, gridProjLoc = -1;
+    GLint gridCamPosLoc = -1, gridColorLoc = -1, gridBgLoc = -1, gridFalloffLoc = -1;
 
     int colormapChoice = 3; // ponytail: default CoolWarm
     int lastUploadedChoice = -1;
