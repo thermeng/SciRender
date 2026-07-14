@@ -47,11 +47,14 @@ bool ScreenshotExporter::saveToFile(const QString& path, const std::vector<unsig
         return false;
     }
 
-    // Map your pixel structure directly onto high-fidelity Qt Image layouts
+    // Map raw pixels onto a Qt image. The GL buffer is tight-packed
+    // (GL_PACK_ALIGNMENT=1), but QImage's 4-arg ctor auto-strides to
+    // 4-byte alignment for Format_RGB888, over-reading the last rows when
+    // width*3 isn't a multiple of 4. Pass the tight stride explicitly.
+    const int channels = config.transparentBackground ? 4 : 3;
     QImage::Format qFormat = config.transparentBackground ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
-
-    // Instantiate a wrapper pointing to the raw array memory buffer safely
-    QImage img(pixels.data(), width, height, qFormat);
+    const int stride = width * channels;
+    QImage img(pixels.data(), width, height, stride, qFormat);
 
     // Determine the string token layout Qt uses for formatting
     const char* formatStr = "PNG";

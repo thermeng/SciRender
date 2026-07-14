@@ -19,10 +19,11 @@ static bool isBinarySTL(const std::string& filePath) {
     file.read(reinterpret_cast<char*>(&triCount), 4);
     if (file.gcount() != 4) return false;
 
-    // Sanity check: file size should be 80 + 4 + triCount * 50
+    // Some valid binary STLs carry trailing/appended data (color blocks, comments);
+    // the strict-equality check below rejected them. Relax to >= so they still load.
     file.seekg(0, std::ios::end);
     auto fileSize = file.tellg();
-    return (fileSize == static_cast<std::streamoff>(84 + triCount * 50));
+    return (fileSize >= static_cast<std::streamoff>(84 + triCount * 50));
 }
 
 static RenderMesh parseSTLAscii(const std::string& filePath) {

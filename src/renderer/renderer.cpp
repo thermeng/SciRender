@@ -51,9 +51,6 @@ Renderer::Renderer(QObject* parent)
 Renderer::~Renderer() {
     m_destroying = true; // suppress signal emissions during teardown
     clearMeshes();
-    if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
-    if (gridVBO) glDeleteBuffers(1, &gridVBO);
-    if (gridShaderProgram) glDeleteProgram(gridShaderProgram);
     if (shaderProgram) glDeleteProgram(shaderProgram);
     if (colormapTex) glDeleteTextures(1, &colormapTex);
     gizmo.shutdown();
@@ -192,71 +189,6 @@ void Renderer::initShaders() {
     scalarMaxLoc = glGetUniformLocation(shaderProgram, "uScalarMax");
     hasScalarsLoc = glGetUniformLocation(shaderProgram, "uHasScalars");
     lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
-}
-
-void Renderer::initGrid() {
-    // Helper lambda to safely read the shader text from the QRC resource package
-    auto loadEmbeddedShader = [](const QString& rscPath) -> std::string {
-        QFile file(rscPath);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            qCritical() << "Fatal Error: Required engine grid shader asset missing at path:" << rscPath;
-            return "";
-        }
-        QTextStream stream(&file);
-        return stream.readAll().toStdString();
-    };
-
-    // Load from your embedded asset mapping compiled via your QML Module module definition
-    std::string vertSrc = loadEmbeddedShader(":/RendererQTUI/src/shaders/grid.vert");
-    std::string fragSrc = loadEmbeddedShader(":/RendererQTUI/src/shaders/grid.frag");
-
-    // Defensive crash guard against empty or missing file buffers
-    if (vertSrc.empty() || fragSrc.empty()) {
-        qFatal("Grid shader initialization aborted due to missing embedded assets.");
-        return;
-    }
-
-    GLuint vert = glCreateShader(GL_VERTEX_SHADER);
-    GLuint frag = glCreateShader(GL_FRAGMENT_SHADER);
-
-    if (!compileShader(vert, vertSrc.c_str(), "GRID_VERT") || !compileShader(frag, fragSrc.c_str(), "GRID_FRAG")) {
-        glDeleteShader(vert);
-        glDeleteShader(frag);
-        return;
-    }
-
-    gridShaderProgram = glCreateProgram();
-    glAttachShader(gridShaderProgram, vert);
-    glAttachShader(gridShaderProgram, frag);
-    glLinkProgram(gridShaderProgram);
-
-    glDeleteShader(vert);
-    glDeleteShader(frag);
-
-    gridMVPLoc = glGetUniformLocation(gridShaderProgram, "uMVP");
-
-    // Math vertex buffer generation
-    std::vector<float> gridVertices;
-    int gridLines = 40;
-    float step = 1.0f;
-    float start = -(gridLines / 2) * step;
-    float end = (gridLines / 2) * step;
-
-    for (int i = 0; i <= gridLines; ++i) {
-        float pos = start + i * step;
-        gridVertices.insert(gridVertices.end(), { pos, 0.0f, start, pos, 0.0f, end });
-        gridVertices.insert(gridVertices.end(), { start, 0.0f, pos, end, 0.0f, pos });
-    }
-    gridVertexCount = static_cast<int>(gridVertices.size() / 3);
-
-    glGenVertexArrays(1, &gridVAO);
-    glGenBuffers(1, &gridVBO);
-    glBindVertexArray(gridVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
-    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
 }
 
 void Renderer::initGizmo() {
@@ -521,26 +453,6 @@ void Renderer::renderFrame() {
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = proj * view * model;
 
-    // Render Grid Underlay if activated
-    if (showGrid && gridShaderProgram != 0) {
-        glUseProgram(gridShaderProgram);
-
-        float lowestY = static_cast<float>(worldMinY);
-        glm::mat4 gridModel = glm::translate(glm::mat4(1.0f), glm::vec3((float)worldCenterX, lowestY, (float)worldCenterZ));
-
-        // Scale grid according to bounds size parameters
-        float gridScale = static_cast<float>(worldRadius * 2.5);
-        if(gridScale < 1.0f) gridScale = 1.0f;
-        gridModel = glm::scale(gridModel, glm::vec3(gridScale, 1.0f, gridScale));
-
-        glm::mat4 gridMVP = proj * view * gridModel;
-        glUniformMatrix4fv(gridMVPLoc, 1, GL_FALSE, glm::value_ptr(gridMVP));
-
-        glBindVertexArray(gridVAO);
-        glDrawArrays(GL_LINES, 0, gridVertexCount);
-        glBindVertexArray(0);
-    }
-
     // Main Mesh Rendering Operations
     if ((showSurface || showWireframe) && !meshes.empty() && shaderProgram != 0) {
         glUseProgram(shaderProgram);
@@ -552,8 +464,18 @@ void Renderer::renderFrame() {
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
         // Setup Light Parameters
+        // computeLightDirections() returns WORLD-space directions. The shader
+        // works in VIEW space (vNormal and viewDir are view-space), so transform
+        // the lights through the view rotation. The dot product is then
+        // rotation-invariant => world-fixed lighting that does not track the camera.
+        glm::mat3 viewRot = glm::mat3(view);
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
+        kDir  = glm::normalize(viewRot * kDir);
+        fDir  = glm::normalize(viewRot * fDir);
+        b1Dir = glm::normalize(viewRot * b1Dir);
+        b2Dir = glm::normalize(viewRot * b2Dir);
+        hDir  = glm::normalize(viewRot * hDir);
         glUniform3fv(lightDirLoc, 1, glm::value_ptr(kDir));
         glUniform3fv(lightFillLoc, 1, glm::value_ptr(fDir));
         glUniform3fv(lightBack1Loc, 1, glm::value_ptr(b1Dir));
@@ -778,12 +700,6 @@ void Renderer::setWireframe(bool enabled) {
     if (showWireframe == enabled) return;
     showWireframe = enabled;
     emit wireframeChanged();
-}
-
-void Renderer::toggleGrid(bool visible) {
-    if (showGrid == visible) return;
-    showGrid = visible;
-    emit gridVisibilityChanged();
 }
 
 void Renderer::toggleSurface(bool visible) {

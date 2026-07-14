@@ -115,11 +115,20 @@ private:
     }
 
     void parseRectilinearAxis(std::ifstream& file, std::vector<float>& axisCoords, std::istringstream& iss) {
-        int count; std::string type; iss >> count >> type;
+        int count; std::string type; iss >> count >> type; type = mesh_utils::toUpper(type);
         axisCoords.resize(count);
         if (isBinary) {
-            file.read(reinterpret_cast<char*>(axisCoords.data()), count * sizeof(float));
-            fixEndianness(axisCoords.data(), count);
+            if (type == "DOUBLE") {
+                std::vector<double> tmp(count);
+                file.read(reinterpret_cast<char*>(tmp.data()), count * sizeof(double));
+                if (mesh_utils::isLittleEndian()) {
+                    for (auto& v : tmp) std::reverse(reinterpret_cast<char*>(&v), reinterpret_cast<char*>(&v) + sizeof(double));
+                }
+                for (int i = 0; i < count; ++i) axisCoords[i] = static_cast<float>(tmp[i]);
+            } else {
+                file.read(reinterpret_cast<char*>(axisCoords.data()), count * sizeof(float));
+                fixEndianness(axisCoords.data(), count);
+            }
         }
         else {
             for (int i = 0; i < count; ++i) file >> axisCoords[i];
@@ -129,7 +138,7 @@ private:
     void parsePointsBlock(std::istringstream& iss, std::ifstream& file) {
         iss >> numPoints;
         std::string dataType; iss >> dataType; dataType = mesh_utils::toUpper(dataType);
-        mesh.vertices.resize(numPoints * 3);
+        mesh.vertices.resize(static_cast<size_t>(numPoints) * 3);
 
         if (isBinary) {
             if (dataType == "DOUBLE") {
@@ -296,7 +305,7 @@ private:
     }
 
     void generateStructuredPointsGeometry() {
-        mesh.vertices.resize(numPoints * 3);
+        mesh.vertices.resize(static_cast<size_t>(numPoints) * 3);
         int vIdx = 0;
         for (int z = 0; z < dimZ; ++z) {
             for (int y = 0; y < dimY; ++y) {
@@ -310,7 +319,7 @@ private:
     }
 
     void generateRectilinearGridGeometry() {
-        mesh.vertices.resize(numPoints * 3);
+        mesh.vertices.resize(static_cast<size_t>(numPoints) * 3);
         int vIdx = 0;
         for (int z = 0; z < dimZ; ++z) {
             for (int y = 0; y < dimY; ++y) {
@@ -327,7 +336,8 @@ private:
         int cellsX = std::max(1, dX - 1);
         int cellsY = std::max(1, dY - 1);
         int cellsZ = std::max(1, dZ - 1);
-        int totalCells = cellsX * cellsY * cellsZ;
+        // ponytail: 64-bit count — int overflows at ~1290^3 cells
+        size_t totalCells = static_cast<size_t>(cellsX) * cellsY * cellsZ;
 
         mesh.indices.reserve(totalCells * 36);
         std::vector<std::vector<int>> cellToVertices(totalCells);
@@ -423,7 +433,7 @@ private:
             int type = (c < static_cast<int>(cellTypes.size())) ? cellTypes[c] : 0;
             if (type == 0) {
                 if (numPointsInCell == 3) type = 5;
-                if (numPointsInCell == 4) type = 10;
+            if (numPointsInCell == 4) type = 9;
                 if (numPointsInCell == 8) type = 12;
             }
 
@@ -479,6 +489,18 @@ private:
                         });
                 }
                 break;
+            case 11: { // VTK_VOXEL — structured-grid corner ordering, permute to HEX (0,1,3,2,4,5,7,6)
+                if (idx + 7 < static_cast<int>(rawCellData.size())) {
+                    int h0 = rawCellData[idx + 0], h1 = rawCellData[idx + 1], h2 = rawCellData[idx + 3], h3 = rawCellData[idx + 2];
+                    int h4 = rawCellData[idx + 4], h5 = rawCellData[idx + 5], h6 = rawCellData[idx + 7], h7 = rawCellData[idx + 6];
+                    mesh.indices.insert(mesh.indices.end(), {
+                        h0, h3, h1, h1, h3, h2, h4, h5, h7, h5, h6, h7,
+                        h0, h1, h4, h1, h5, h4, h2, h3, h6, h3, h7, h6,
+                        h0, h4, h3, h3, h4, h7, h1, h2, h5, h2, h6, h5
+                    });
+                }
+                break;
+            }
             default:
                 for (int i = 1; i < numPointsInCell - 1; ++i) {
                     if (idx + i + 1 < static_cast<int>(rawCellData.size())) {
@@ -499,6 +521,12 @@ private:
     void finalizeMeshData() {
         if (mesh.vertices.empty()) {
             std::cerr << "VTK Parser Error: Empty data sequence." << std::endl;
+            return;
+        }
+        // ponytail: vertices present but no triangles => blank viewport with no error.
+        // Surface it instead of silently handing an empty draw call to the GPU.
+        if (mesh.indices.empty()) {
+            std::cerr << "VTK Parser Error: topology produced no triangles (missing/invalid CELLS/POLYGONS/DIMENSIONS). Mesh will not render." << std::endl;
             return;
         }
 

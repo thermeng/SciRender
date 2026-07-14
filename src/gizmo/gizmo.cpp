@@ -231,6 +231,10 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     const int y0 = fbHeight - m - s;
     glViewport(m, y0, s, s);
 
+    // ponytail: NO clear — scene already painted this corner with bgColor before
+    // drawGizmo() runs, so blending on top keeps the gizmo transparent (model stays
+    // visible behind it) instead of an opaque plate covering the mesh.
+
     // Rotation-only view matrix (strips camera translation).
     const glm::mat4 gizmoView = glm::mat4(glm::mat3(mainView));
     // Tight ortho but with margin so the triad + labels never reach the viewport edge.
@@ -272,7 +276,9 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
         cy = std::max(half, std::min(foot - half, cy));
 
         float u0 = i * cellU, u1 = (i + 1) * cellU;
-        float v0 = 0.0f,     v1 = 1.0f;
+        // Atlas uploaded unflipped (QPainter top-row = glyph top = texture v=0).
+        // Flip V here so the quad's bottom edge samples v=1 (glyph bottom).
+        float v0 = 1.0f,     v1 = 0.0f;
         float hx = glyph * 0.5f, hy = glyph * 0.5f;
         float tri[6][4] = {
             { cx - hx, cy + hy, u0, v1 }, // TL

@@ -58,9 +58,8 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
         connect(m_scene, &::Renderer::viewChanged, this, [this]() { update(); });
         // ponytail: colormap switch must repaint the GL mesh, not just the QML legend
         connect(m_scene, &::Renderer::colormapChanged, this, [this]() { update(); });
-        // ponytail: wireframe/grid/surface setters emit these but nothing repainted them before
+        // ponytail: wireframe/surface setters emit these but nothing repainted them before
         connect(m_scene, &::Renderer::wireframeChanged, this, [this]() { update(); });
-        connect(m_scene, &::Renderer::gridVisibilityChanged, this, [this]() { update(); });
         connect(m_scene, &::Renderer::surfaceVisibilityChanged, this, [this]() { update(); });
     }
 }
@@ -125,14 +124,12 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
             static_cast<int>(item->height()));
     }
 
-    // Drain the queued mesh handoff (upload happens on the render thread, like
-    // the old beforeRendering path did — safe because we own the GL context).
+    // Drain the queued mesh handoff. Only copy CPU data here (GUI thread,
+    // no GL context). The actual GL upload happens in render() where the
+    // context is current — calling uploadMesh (glGenBuffers etc.) here is UB.
     if (m_scene && m_scene->consumeMeshChanged()) {
-        RenderMesh meshToUpload;
-        m_scene->takeQueuedMesh(meshToUpload);
-        if (!meshToUpload.vertices.empty()) {
-            m_scene->uploadMesh(meshToUpload);
-        }
+        m_scene->takeQueuedMesh(m_pendingMesh);
+        m_uploadPending = !m_pendingMesh.vertices.empty();
     }
 
     // Carry the screenshot request across to render() (GL context current there).
@@ -156,7 +153,6 @@ void ViewportFboRenderer::render() {
         // GLAD must resolve against THIS context (the FBO render context).
         m_scene->initGLAD();
         m_scene->initShaders();
-        m_scene->initGrid();
         m_scene->initGizmo();
         m_initialized = true;
     }
@@ -164,6 +160,13 @@ void ViewportFboRenderer::render() {
     // The FBO is already bound as the GL draw target by the scene graph; our
     // renderFrame() clears/draws into it. The SG composites this FBO texture
     // on top of the background and BELOW the QML overlays (colorbar, etc.).
+    // Upload any pending mesh NOW — this is the render thread with the GL
+    // context current. (synchronize() only copied the CPU data.)
+    if (m_uploadPending) {
+        m_scene->uploadMesh(m_pendingMesh);
+        m_uploadPending = false;
+    }
+
     m_scene->renderFrame();
 
     // Qt 6: restore default GL state so the scene graph is not surprised.

@@ -17,6 +17,10 @@ private:
     ::Renderer* m_scene = nullptr;
     bool m_initialized = false;
     QSize m_fboSize;
+    // ponytail: CPU mesh handoff lives in synchronize() (GUI thread, no GL
+    // context), but the GL upload must run in render() (context current).
+    RenderMesh m_pendingMesh;
+    bool m_uploadPending = false;
     QString m_pendingScreenshot; // ponytail: carried from GUI thread (synchronize) to render() where GL context is current
 };
 

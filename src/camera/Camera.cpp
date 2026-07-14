@@ -55,11 +55,11 @@ void Camera::pan(double dx, double dy) {
     glm::dvec3 dir = directionOfProjection();
     glm::dvec3 right = glm::cross(dir, viewUp);
     if (glm::length(right) < 0.001) right = glm::dvec3(1.0, 0.0, 0.0);
-    right = -glm::normalize(right);
-
-    glm::dvec3 up = glm::normalize(glm::cross(right, dir));
-
-    glm::dvec3 motion = right * dx * panSpeed + up * dy * panSpeed;
+    right = glm::normalize(right);
+    glm::dvec3 up = glm::normalize(glm::cross(right, dir)); // true up
+    // Grab-style: moving the mouse right should drag the scene right (negate X).
+    // Vertical must use the true up so it tracks the horizontal axis consistently.
+    glm::dvec3 motion = (-right) * dx * panSpeed + up * dy * panSpeed;
     focalPoint += motion;
     position += motion;
 }
@@ -97,15 +97,19 @@ glm::quat Camera::computeGizmoQuat() const {
 }
 
 void Camera::snapToOrthoView(int axis) {
+    // ParaView/VTK axial presets: the SAME world axis stays "up" for each opposite pair,
+    // so +X/-X, +Y/-Y, +Z/-Z only differ by azimuth (a horizontal mirror), never a
+    // vertical flip. This keeps the reference axis always pointing up, like ParaView.
+    //   X / Y faces -> world +Z is up;  Z face -> world +Y is up.
     glm::dvec3 target = focalPoint;
     glm::dvec3 up(0.0, 1.0, 0.0);
     switch (axis) {
-    case 0: target.x += distance; up = { 0.0, 1.0, 0.0 }; break;   // +X
-    case 1: target.x -= distance; up = { 0.0, 1.0, 0.0 }; break;   // -X
-    case 2: target.y += distance; up = { 0.0, 0.0, -1.0 }; break;  // +Y
-    case 3: target.y -= distance; up = { 0.0, 0.0, 1.0 }; break;   // -Y
-    case 4: target.z += distance; up = { 0.0, 1.0, 0.0 }; break;   // +Z
-    case 5: target.z -= distance; up = { 0.0, 1.0, 0.0 }; break;   // -Z
+    case 0: target.x += distance; up = { 0.0, 0.0,  1.0 }; break;  // +X
+    case 1: target.x -= distance; up = { 0.0, 0.0,  1.0 }; break;  // -X
+    case 2: target.y += distance; up = { 0.0, 0.0,  1.0 }; break;  // +Y
+    case 3: target.y -= distance; up = { 0.0, 0.0,  1.0 }; break;  // -Y
+    case 4: target.z += distance; up = { 0.0, 1.0,  0.0 }; break;  // +Z
+    case 5: target.z -= distance; up = { 0.0, 1.0,  0.0 }; break;  // -Z
     default: return; // Unknown axis: leave camera untouched
     }
     position = target;
