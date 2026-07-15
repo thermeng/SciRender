@@ -20,6 +20,7 @@
 #include <QQuickOpenGLUtils>
 #include <QFileInfo>
 #include <QOpenGLContext>
+#include <QSettings>
 
 static bool compileShader(GLuint shader, const char* source, const char* type) {
     glShaderSource(shader, 1, &source, nullptr);
@@ -45,6 +46,8 @@ Renderer::Renderer(QObject* parent)
 
     worldCenterX = 0.0; worldCenterY = 0.0; worldCenterZ = 0.0;
     worldRadius = 1.0;
+
+    loadRecentFromSettings();
 }
 
 #pragma GCC diagnostic push
@@ -358,6 +361,23 @@ void Renderer::clearMeshes() {
     if (!m_destroying) emit meshLoadStateChanged();
 }
 
+void Renderer::openRecent(const QString& filePath) {
+    if (filePath.isEmpty()) return;
+    // ponytail: same path as the file dialog; just delegate
+    loadMesh(filePath);
+}
+
+void Renderer::loadRecentFromSettings() {
+    QSettings s;
+    recentFiles = s.value("recentFiles").toStringList();
+    recentFiles.removeAll(""); // ponytail: guard against stale empty entries
+}
+
+void Renderer::saveRecentToSettings() const {
+    QSettings s;
+    s.setValue("recentFiles", recentFiles);
+}
+
 void Renderer::loadMesh(const QString& filePath) {
     if (filePath.isEmpty()) return;
 
@@ -429,6 +449,16 @@ void Renderer::loadMesh(const QString& filePath) {
     }
 
     resetCamera();
+
+    // ponytail: push into recent files (most-recent first, dedup, cap 8)
+    {
+        QString absPath = QFileInfo(QString::fromStdString(stdPath)).absoluteFilePath();
+        recentFiles.removeAll(absPath);
+        recentFiles.prepend(absPath);
+        while (recentFiles.size() > 8) recentFiles.removeLast();
+        emit meshLoadStateChanged(); // ponytail: refresh QML recent list
+        saveRecentToSettings(); // ponytail: persist across restarts
+    }
 
     emit meshLoadStateChanged();
 
@@ -652,6 +682,31 @@ void Renderer::renderFrame() {
         drawGizmo();
     }
 
+    // ponytail: perf HUD — update ~4x/sec to avoid repaint spam; cheap std::chrono
+    if (showFps) {
+        auto now = std::chrono::steady_clock::now();
+        if (m_frameCount == 0) {
+            m_lastFrameTime = now; // ponytail: seed clock on first frame, no measurement
+            m_frameCount = 1;
+        } else {
+            double dt = std::chrono::duration<double>(now - m_lastFrameTime).count();
+            m_frameCount++;
+            m_fpsAccum += dt;
+            if (m_fpsAccum >= 0.25) {
+                double fps = (m_frameCount - 1) / m_fpsAccum;
+                double ms = (m_fpsAccum / (m_frameCount - 1)) * 1000.0;
+                fpsText = QString("FPS: %1  | %2 ms/frame  | %3 tris")
+                    .arg(fps, 0, 'f', 0)
+                    .arg(ms, 0, 'f', 1)
+                    .arg(triangleCount);
+                m_frameCount = 0;
+                m_fpsAccum = 0.0;
+                emit fpsChanged();
+            }
+            m_lastFrameTime = now;
+        }
+    }
+
     // CRITICAL CORE SYNC FIX: Restore standard Qt Quick scene graph drawing states
     QQuickOpenGLUtils::resetOpenGLState();
 }
@@ -817,4 +872,33 @@ void Renderer::setColormapChoice(int choice) {
     if (colormapChoice == choice) return;
     colormapChoice = choice;
     emit colormapChanged();
+}
+
+// ponytail: presets just set existing light uniforms — no new render path
+void Renderer::applyLightingPreset(int preset) {
+    switch (preset) {
+    case PRESET_STUDIO: // 3-point feel: strong key, soft fill, rim back, neutral head
+        lightKeyAzimuth = 35.0f;  lightKeyElevation = 55.0f;  lightKF = 4.0f;
+        lightFillAzimuth = -45.0f; lightFillElevation = -20.0f; lightKB = 2.0f;
+        lightBackAzimuth = 140.0f; lightBackElevation = 10.0f;
+        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;   lightKH = 2.5f;
+        matAmbient = 0.10f; matDiffuse = 0.78f; matSpecular = 0.25f; matShininess = 0.6f;
+        break;
+    case PRESET_CADFLAT: // even, shadowless look for inspecting geometry
+        lightKeyAzimuth = 0.0f;   lightKeyElevation = 45.0f;  lightKF = 1.2f;
+        lightFillAzimuth = 180.0f; lightFillElevation = 45.0f; lightKB = 1.2f;
+        lightBackAzimuth = 90.0f;  lightBackElevation = 45.0f;
+        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;   lightKH = 1.0f;
+        matAmbient = 0.45f; matDiffuse = 0.8f; matSpecular = 0.0f; matShininess = 0.0f;
+        break;
+    case PRESET_SOFT: // gentle, low-contrast, warm
+    default:
+        lightKeyAzimuth = 20.0f;  lightKeyElevation = 50.0f;  lightKF = 2.5f;
+        lightFillAzimuth = -30.0f; lightFillElevation = -30.0f; lightKB = 2.2f;
+        lightBackAzimuth = 120.0f; lightBackElevation = 5.0f;
+        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;   lightKH = 1.5f;
+        matAmbient = 0.18f; matDiffuse = 0.7f; matSpecular = 0.1f; matShininess = 0.4f;
+        break;
+    }
+    emit lightingParametersChanged();
 }

@@ -14,6 +14,19 @@ ApplicationWindow {
     title: "RendererQT"
     color: "#1e1e1e"
 
+    // ponytail: keyboard shortcuts via Shortcut (window-level, no focus juggling).
+    // ApplicationWindow is a QQuickWindow and has no Keys handler / focus property.
+    Shortcut { sequence: "R";          onActivated: if (backendRenderer) backendRenderer.resetCamera() }
+    Shortcut { sequence: "W";          onActivated: if (backendRenderer) backendRenderer.isWireframe = !backendRenderer.isWireframe }
+    Shortcut { sequence: "G";          onActivated: if (backendRenderer) backendRenderer.isGridVisible = !backendRenderer.isGridVisible }
+    Shortcut { sequence: "S";          onActivated: if (backendRenderer) { screenshotSaveDialog.currentFile = backendRenderer.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
+    Shortcut { sequence: "Left";       onActivated: if (backendRenderer) backendRenderer.azimuth(-5) }
+    Shortcut { sequence: "Right";      onActivated: if (backendRenderer) backendRenderer.azimuth(5) }
+    Shortcut { sequence: "Up";         onActivated: if (backendRenderer) backendRenderer.elevation(5) }
+    Shortcut { sequence: "Down";       onActivated: if (backendRenderer) backendRenderer.elevation(-5) }
+    Shortcut { sequence: "Ctrl+=";     onActivated: if (backendRenderer) backendRenderer.dolly(1.1) }
+    Shortcut { sequence: "Ctrl+-";     onActivated: if (backendRenderer) backendRenderer.dolly(0.9) }
+
     // High-Performance Raw OpenGL Output Subwindow Area
     ViewportVisualizer {
         id: openGLViewport
@@ -235,6 +248,14 @@ ApplicationWindow {
                         visible: rail.activeSection === 0
                         spacing: 4
                         width: parent.width
+                        Text { text: "Presets"; color: "#888"; font.pixelSize: 10 }
+                        Row { spacing: 6
+                            // ponytail: ints map to PRESET_STUDIO/CADFLAT/SOFT in renderer.cpp
+                            Button { text: "Studio";   width: 64; onClicked: backendRenderer.applyLightingPreset(0) }
+                            Button { text: "CAD Flat"; width: 70; onClicked: backendRenderer.applyLightingPreset(1) }
+                            Button { text: "Soft";     width: 56; onClicked: backendRenderer.applyLightingPreset(2) }
+                        }
+                        Item { height: 4 }
                         LightSlider { label: "Intensity";   value: backendRenderer ? backendRenderer.lightInt : 0;         from: 0; to: 3; step: 0.05; onSet: v => backendRenderer.lightInt = v }
                         LightSlider { label: "Key Az";      value: backendRenderer ? backendRenderer.lightKeyAzimuth : 0;  from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightKeyAzimuth = v }
                         LightSlider { label: "Key El";      value: backendRenderer ? backendRenderer.lightKeyElevation : 0;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightKeyElevation = v }
@@ -302,6 +323,7 @@ ApplicationWindow {
                         CheckBox { text: "Wireframe"; checked: backendRenderer ? backendRenderer.isWireframe : false; onToggled: backendRenderer.isWireframe = checked }
                         CheckBox { text: "Grid";      checked: backendRenderer ? backendRenderer.isGridVisible : false; onToggled: backendRenderer.isGridVisible = checked }
                         CheckBox { text: "Surface";   checked: backendRenderer ? backendRenderer.isSurfaceVisible : false; onToggled: backendRenderer.isSurfaceVisible = checked }
+                        CheckBox { text: "Auto-Rotate"; checked: backendRenderer ? backendRenderer.autoRotate : false; onToggled: backendRenderer.autoRotate = checked }
                         Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Button { text: "Reset Cam"; width: 92; onClicked: backendRenderer.resetCamera() }
@@ -315,6 +337,7 @@ ApplicationWindow {
                         }
                         Text { text: "Overlays"; color: "#888"; font.pixelSize: 10 }
                         CheckBox { text: "Gizmo"; checked: backendRenderer ? backendRenderer.isGizmoVisible : true; onToggled: backendRenderer.isGizmoVisible = checked }
+                        CheckBox { text: "FPS HUD"; checked: backendRenderer ? backendRenderer.showFps : false; onToggled: backendRenderer.showFps = checked }
                         Text { text: "Colors"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Button { text: "Mesh Color"; width: 100; onClicked: meshColorDialog.open() }
@@ -389,6 +412,43 @@ ApplicationWindow {
             let urlStr = selectedFile.toString();
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
             backendRenderer.requestScreenshot(cleanPath);
+        }
+    }
+
+    // ponytail: turntable — ~30fps azimuth nudge while autoRotate is on
+    Timer {
+        interval: 33
+        running: backendRenderer ? backendRenderer.autoRotate : false
+        repeat: true
+        onTriggered: if (backendRenderer) backendRenderer.azimuth(0.6)
+    }
+
+    // ponytail: FPS HUD needs continuous frames; drive repaints only while shown
+    Timer {
+        interval: 16
+        running: backendRenderer ? backendRenderer.showFps : false
+        repeat: true
+        onTriggered: openGLViewport.update()
+    }
+
+    // Centered drop prompt context overlay
+    // ponytail: on-screen perf HUD (top-left)
+    Rectangle {
+        anchors.top: parent.top
+        anchors.left: rail.right
+        anchors.margins: 8
+        width: hudText.width + 16
+        height: hudText.height + 8
+        color: "#000000aa"
+        radius: 4
+        visible: backendRenderer ? backendRenderer.showFps : false
+        Text {
+            id: hudText
+            anchors.centerIn: parent
+            text: backendRenderer ? backendRenderer.fpsText : ""
+            color: "#7CFC00"
+            font.pixelSize: 12
+            font.family: "Consolas, Menlo, monospace"
         }
     }
 
@@ -467,6 +527,23 @@ ApplicationWindow {
         Menu {
             title: "File"
             MenuItem { text: "Open Mesh..."; onTriggered: fileDialog.open() }
+            Menu {
+                title: "Open Recent"
+                enabled: backendRenderer ? backendRenderer.recentFiles.length > 0 : false
+                // ponytail: rebuild the submenu from recentFiles each open
+                onAboutToShow: {
+                    // QQuickMenu has no clearMenuItems(); remove all current items
+                    while (count > 0) { let it = itemAt(0); removeItem(it); it.destroy(); }
+                    const list = backendRenderer ? backendRenderer.recentFiles : [];
+                    for (let i = 0; i < list.length; ++i) {
+                        const p = list[i];
+                        const item = recentItem.createObject(this, { "text": p });
+                        item.triggered.connect(() => backendRenderer.openRecent(p));
+                        addItem(item);
+                    }
+                }
+                Component { id: recentItem; MenuItem {} }
+            }
             MenuItem { text: "Clear"; onTriggered: backendRenderer.clearMeshes() }
             MenuSeparator {}
             MenuItem { text: "Exit"; onTriggered: Qt.quit() }

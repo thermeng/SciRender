@@ -29,6 +29,7 @@
 #include <mutex>
 #include <atomic>
 #include <optional>
+#include <chrono>
 
 #include "mesh/mesh_loader.h"
 #include "gizmo/gizmo.h"
@@ -81,6 +82,8 @@ class Renderer : public QObject {
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
+    // ponytail: recent files list for the File menu
+    Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     // ponytail: active scalar name must refresh the colorbar label on load + field switch
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
@@ -110,10 +113,15 @@ class Renderer : public QObject {
 
     // ponytail: gizmo + mesh/surface color + screenshot options exposed to the UI
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
+    Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged) // ponytail: turntable
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
     Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
     Q_PROPERTY(int screenshotQuality READ getScreenshotQuality WRITE setScreenshotQuality NOTIFY viewChanged)
+
+    // ponytail: on-screen perf HUD (FPS / frame ms / tris)
+    Q_PROPERTY(bool showFps READ getShowFps WRITE setShowFps NOTIFY viewChanged)
+    Q_PROPERTY(QString fpsText READ getFpsText NOTIFY fpsChanged)
 
 public:
     explicit Renderer(QObject* parent = nullptr);
@@ -191,6 +199,7 @@ public:
     // -----------------------------------------------------------------------
 public slots:
     void loadMesh(const QString& filePath);
+    void openRecent(const QString& filePath); // ponytail: load from recent list
     void clearMeshes();
     void resetCamera();
     void snapToOrthoView(int axis);
@@ -209,6 +218,9 @@ public slots:
 
     // Multi-Scalar Dynamic Interop
     QStringList getAvailableScalars() const; // ponytail: READ for availableScalars Q_PROPERTY
+    QStringList getRecentFiles() const { return recentFiles; } // ponytail: READ for recentFiles
+    void loadRecentFromSettings(); // ponytail: restore recent list at startup
+    void saveRecentToSettings() const; // ponytail: persist recent list on load
     Q_INVOKABLE void setActiveScalarField(const QString& fieldName);
 
     // Returns the list of colormap display names in ColormapType enum order,
@@ -226,6 +238,7 @@ signals:
     void viewChanged(); // view change -> viewport repaint
     void screenshotCaptured(const QString& targetSavedPath);
     void screenshotRequested(const QString& targetPath);
+    void fpsChanged(); // ponytail: HUD text refresh
 
 public:
     // VTK Camera Inline Forwarders (QML-invokable so the UI can drive the camera)
@@ -251,6 +264,8 @@ public:
     // ponytail: gizmo + color + screenshot option accessors (QML-exposed)
     bool isGizmoVisible() const { return showGizmo; }
     void setGizmoVisible(bool v) { if (showGizmo != v) { showGizmo = v; emit viewChanged(); } }
+    bool getAutoRotate() const { return autoRotate; }
+    void setAutoRotate(bool v) { if (autoRotate != v) { autoRotate = v; emit viewChanged(); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
     void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); emit viewChanged(); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(surfaceColor[0], surfaceColor[1], surfaceColor[2]); }
@@ -263,6 +278,17 @@ public:
     Q_INVOKABLE QString generateScreenshotFilename() const {
         return ScreenshotExporter::generateFilename(QString::fromStdString(currentMeshName), ExportFormat::PNG);
     }
+
+    // ponytail: lighting presets — reuse existing light uniforms, no new infra
+    Q_INVOKABLE void applyLightingPreset(int preset); // 0=Studio 1=CAD-Flat 2=Soft
+    static constexpr int PRESET_STUDIO = 0;
+    static constexpr int PRESET_CADFLAT = 1;
+    static constexpr int PRESET_SOFT = 2;
+
+    // ponytail: on-screen perf HUD accessors
+    bool getShowFps() const { return showFps; }
+    void setShowFps(bool v) { if (showFps != v) { showFps = v; emit viewChanged(); } }
+    QString getFpsText() const { return fpsText; }
 
 
     // Device-pixel-ratio aware sizing so the GL viewport matches the real
@@ -467,6 +493,7 @@ private:
     bool m_destroying = false; // set in ~Renderer to suppress signals during teardown
     bool showWireframe = false;
     bool showGizmo = true;       // ponytail: orientation gizmo toggle (UI-exposed)
+    bool autoRotate = false;     // ponytail: turntable
     int triangleCount = 0;
     int pointCount = 0;
     float lightInt = 0.2f;
@@ -474,6 +501,16 @@ private:
     // ponytail: screenshot export options (UI-exposed)
     bool screenshotTransparent = false;
     int screenshotQuality = 95;
+
+    // ponytail: on-screen perf HUD state
+    bool showFps = false;
+    QString fpsText = "FPS: --";
+    std::chrono::steady_clock::time_point m_lastFrameTime;
+    int m_frameCount = 0;
+    double m_fpsAccum = 0.0; // seconds elapsed since last HUD update
+
+    // ponytail: recent files (most-recent first), persisted by main.cpp via QSettings
+    QStringList recentFiles;
 
     RenderMesh dynamicMeshQueue;
     std::mutex meshQueueMutex;
