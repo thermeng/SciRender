@@ -21,13 +21,20 @@ the program can run from the build directory.
 
 ## Features
 
-- Scalar surface coloring with colormaps + scalar/vector colorbars
-- Vector field arrow glyphs (uniform-length)
+- Loads VTK `STRUCTURED_GRID` (curvilinear), `RECTILINEAR_GRID`,
+  `STRUCTURED_POINTS`, `POLYDATA`, `UNSTRUCTURED_GRID` and STL
+- Scalar surface coloring with colormaps; per-dataset **surface** tessellation
+  for curvilinear grids (boundary shell, not the full volume)
+- Vector field arrow glyphs (instanced, uniform-length)
+- **Colorbar legend:** clean gradient bar with a user-controllable number of
+  tick labels (`colorbarTicks`, 2–20) spread across the live data range;
+  applies to both the scalar and vector-magnitude bars
+- Clipping/slicing planes; clipping auto-resets to disabled on each new mesh load
 - Camera-relative Light Kit: key/fill/back/head lights that track the view,
   key intensity + K-ratios, kit-wide warm tint
 - Axis triad + light-direction markers in a corner overlay
 - Screenshot export (PNG/JPEG/BMP), optional transparency
-- QML side panel: lighting, slicing/clipping, presets, recent files
+- QML side panel: lighting, slicing/clipping, colormap, presets, recent files
 
 ## Layout
 
