@@ -72,7 +72,6 @@ class Renderer : public QObject {
     Q_PROPERTY(bool meshHasScalars READ hasMeshScalarsQml NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString currentMeshName READ getCurrentMeshNameQStr NOTIFY meshLoadStateChanged)
 
-    Q_PROPERTY(float lightInt READ getLightInt WRITE setLightInt NOTIFY lightingParametersChanged)
     Q_PROPERTY(float lightKeyAzimuth READ getLightKeyAzimuth WRITE setLightKeyAzimuth NOTIFY lightingParametersChanged)
     Q_PROPERTY(float lightKeyElevation READ getLightKeyElevation WRITE setLightKeyElevation NOTIFY lightingParametersChanged)
     Q_PROPERTY(float lightFillAzimuth READ getLightFillAzimuth WRITE setLightFillAzimuth NOTIFY lightingParametersChanged)
@@ -86,8 +85,11 @@ class Renderer : public QObject {
     Q_PROPERTY(float matSpecular READ getMatSpecular WRITE setMatSpecular NOTIFY lightingParametersChanged)
     Q_PROPERTY(float matShininess READ getMatShininess WRITE setMatShininess NOTIFY lightingParametersChanged)
     Q_PROPERTY(float lightKeyIntensity READ getLightKeyIntensity WRITE setLightKeyIntensity NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightFillIntensity READ getLightFillIntensity WRITE setLightFillIntensity NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightHeadIntensity READ getLightHeadIntensity WRITE setLightHeadIntensity NOTIFY lightingParametersChanged)
+    Q_PROPERTY(float lightKF READ getLightKF WRITE setLightKF NOTIFY lightingParametersChanged)
+    Q_PROPERTY(float lightKB READ getLightKB WRITE setLightKB NOTIFY lightingParametersChanged)
+    Q_PROPERTY(float lightKH READ getLightKH WRITE setLightKH NOTIFY lightingParametersChanged)
+    Q_PROPERTY(bool lightKitEnabled READ getLightKitEnabled WRITE setLightKitEnabled NOTIFY lightingParametersChanged)
+    Q_PROPERTY(float lightWarm READ getLightWarm WRITE setLightWarm NOTIFY lightingParametersChanged)
     Q_PROPERTY(int triangleCount READ getTriangleCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int pointCount READ getPointCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
@@ -183,9 +185,6 @@ public:
     int getColormapChoice() const { return colormapChoice; }
     void setColormapChoice(int choice);
 
-    float getLightInt() const { return lightInt; }
-    void setLightInt(float intensity) { lightInt = intensity; emit lightingParametersChanged(); }
-
     float getLightKeyAzimuth() const { return lightKeyAzimuth; }
     void setLightKeyAzimuth(float v) { lightKeyAzimuth = v; emit lightingParametersChanged(); }
     float getLightKeyElevation() const { return lightKeyElevation; }
@@ -210,12 +209,18 @@ public:
     void setMatSpecular(float v) { matSpecular = v; emit lightingParametersChanged(); }
     float getMatShininess() const { return matShininess; }
     void setMatShininess(float v) { matShininess = v; emit lightingParametersChanged(); }
-    float getLightKeyIntensity() const { return lightKF; }
-    void setLightKeyIntensity(float v) { lightKF = v; emit lightingParametersChanged(); }
-    float getLightFillIntensity() const { return lightKB; }
-    void setLightFillIntensity(float v) { lightKB = v; emit lightingParametersChanged(); }
-    float getLightHeadIntensity() const { return lightKH; }
-    void setLightHeadIntensity(float v) { lightKH = v; emit lightingParametersChanged(); }
+    float getLightKeyIntensity() const { return lightKeyIntensity; }
+    void setLightKeyIntensity(float v) { lightKeyIntensity = v; emit lightingParametersChanged(); }
+    float getLightKF() const { return lightKF; }
+    void setLightKF(float v) { lightKF = v; emit lightingParametersChanged(); }
+    float getLightKB() const { return lightKB; }
+    void setLightKB(float v) { lightKB = v; emit lightingParametersChanged(); }
+    float getLightKH() const { return lightKH; }
+    void setLightKH(float v) { lightKH = v; emit lightingParametersChanged(); }
+    bool getLightKitEnabled() const { return lightKitEnabled; }
+    void setLightKitEnabled(bool v) { lightKitEnabled = v; emit lightingParametersChanged(); }
+    float getLightWarm() const { return lightWarm; }
+    void setLightWarm(float v) { lightWarm = v; emit lightingParametersChanged(); }
 
     // Direct String Mapper adjustments for Qt Engines
     QString getCurrentMeshNameQStr() const { return QString::fromStdString(currentMeshName); }
@@ -325,6 +330,7 @@ public:
 
     // ponytail: lighting presets — reuse existing light uniforms, no new infra
     Q_INVOKABLE void applyLightingPreset(int preset); // 0=Studio 1=CAD-Flat 2=Soft
+    Q_INVOKABLE void resetLighting();                 // restore default Light Kit
     static constexpr int PRESET_STUDIO = 0;
     static constexpr int PRESET_CADFLAT = 1;
     static constexpr int PRESET_SOFT = 2;
@@ -429,6 +435,11 @@ public:
     float lightBackElevation = 0.0f;
     float lightHeadAzimuth = 0.0f;
     float lightHeadElevation = 0.0f;
+
+    // Light Kit state
+    bool  lightKitEnabled = true;
+    float lightKeyIntensity = 1.0f;  // "Int" — key intensity (0..1)
+    float lightWarm = 0.5f;          // kit-wide warm tint (0 cold .. 0.5 neutral .. 1 warm)
 
     float matAmbient = 0.08f;
     float matDiffuse = 0.75f;
@@ -571,7 +582,6 @@ private:
     bool vectorLutDirty = true;   // ponytail: rebuild vector LUT when choice changes
     int triangleCount = 0;
     int pointCount = 0;
-    float lightInt = 0.2f;
 
     // ponytail: screenshot export options (UI-exposed)
     bool screenshotTransparent = false;

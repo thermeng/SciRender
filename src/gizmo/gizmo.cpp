@@ -200,6 +200,18 @@ bool Gizmo::init() {
     glEnableVertexAttribArray(textPosLoc);
     glBindVertexArray(0);
 
+    // ponytail: light-marker disc VBO (5 lights * 6 verts * vec5 = px.xy + rgb)
+    glGenVertexArrays(1, &lightMarkVAO);
+    glGenBuffers(1, &lightMarkVBO);
+    glBindVertexArray(lightMarkVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, lightMarkVBO);
+    glBufferData(GL_ARRAY_BUFFER, 5 * 6 * 5 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(linePosLoc, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(linePosLoc);
+    glVertexAttribPointer(lineColLoc, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(lineColLoc);
+    glBindVertexArray(0);
+
     return true;
 }
 
@@ -320,4 +332,50 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
     glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
+}
+
+void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float dpr, int fbHeight, int foot) {
+    if (!isInitialized()) return;
+
+    const int m = static_cast<int>(10 * dpr);
+    const int s = static_cast<int>(foot * dpr);
+    const int y0 = fbHeight - m - s;
+    glViewport(m, y0, s, s);
+
+    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean blendWas = glIsEnabled(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // px space [0..foot]x[0..foot] -> clip; markers are constant kit-local dirs.
+    const glm::mat4 pxMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
+    const float r = 6.0f; // disc radius in px
+    float quad[6][5];     // 2 triangles; per-vertex (x,y,r,g,b)
+
+    glUseProgram(lineProgram);
+    glUniformMatrix4fv(lineMvpLoc, 1, GL_FALSE, glm::value_ptr(pxMVP));
+    glBindVertexArray(lightMarkVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, lightMarkVBO);
+    for (int i = 0; i < 5; ++i) {
+        float cx = (dirs[i].x * 0.5f + 0.5f) * foot;
+        float cy = (dirs[i].y * 0.5f + 0.5f) * foot;
+        const float q[6][5] = {
+            { cx - r, cy - r, cols[i].r, cols[i].g, cols[i].b },
+            { cx + r, cy - r, cols[i].r, cols[i].g, cols[i].b },
+            { cx - r, cy + r, cols[i].r, cols[i].g, cols[i].b },
+            { cx + r, cy - r, cols[i].r, cols[i].g, cols[i].b },
+            { cx + r, cy + r, cols[i].r, cols[i].g, cols[i].b },
+            { cx - r, cy + r, cols[i].r, cols[i].g, cols[i].b },
+        };
+        std::memcpy(quad, q, sizeof(q));
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+    }
+    glBindVertexArray(0);
+    glUseProgram(0);
+
+    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glViewport(m, y0, s, s); // unchanged, but keep symmetric with draw()
 }

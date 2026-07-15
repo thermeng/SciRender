@@ -16,6 +16,13 @@
 #include <algorithm>
 #include <limits>
 
+// ponytail: kit-wide warm tint (shared by light colors + viewport markers).
+// 0 = cold blue, 0.5 = neutral white, 1 = warm red.
+static glm::vec3 warmColorTint(float w) {
+    if (w < 0.5f) return glm::mix(glm::vec3(0.6f, 0.7f, 1.0f), glm::vec3(1.0f, 1.0f, 1.0f), w / 0.5f);
+    return glm::mix(glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(1.0f, 0.85f, 0.7f), (w - 0.5f) / 0.5f);
+}
+
 // Qt Core & UI Utilities replacing Win32 APIs
 #include <QDir>
 #include <QQuickOpenGLUtils>
@@ -565,6 +572,27 @@ void Renderer::loadMesh(const QString& filePath) {
     // UI components read these variables immediately
     hasMeshLoaded = true;
 
+    // ponytail: reset per-mesh vector state so a newly loaded mesh doesn't
+    // inherit the previous mesh's vector field / toggles / magnitude range.
+    // showVectors and vectorUseColormap default off; vectorName is cleared so
+    // the render thread selects the new mesh's first available field.
+    setShowVectors(false);
+    setVectorUseColormap(false);
+    if (!loaded.pointVectors.empty()) {
+        cachedMeshSource.vectorName = loaded.availableVectorNames.front();
+    } else {
+        cachedMeshSource.vectorName.clear();
+    }
+    // magnitude range is recomputed by uploadVectorGlyphs for vector meshes;
+    // reset to defaults for the no-vector case so the (hidden) colorbar can't
+    // display stale bounds.
+    if (vectorMagMin != 0.0f || vectorMagMax != 1.0f) {
+        vectorMagMin = 0.0f;
+        vectorMagMax = 1.0f;
+        emit vectorColormapChanged();
+    }
+    vectorGlyphDirty = true; // force glyph buffer rebuild for the new geometry
+
     // NOTE: meshChanged is an atomic flag consumed by the render thread in
     // consumeMeshChanged(); set it so the queued mesh gets uploaded.
     this->meshChanged = true;
@@ -644,17 +672,25 @@ void Renderer::resizeViewport(int w, int h) {
 }
 
 void Renderer::computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head) {
+    // Light Kit: lights live in the CAMERA frame (azimuth/elevation about
+    // the camera's look-at point), so they move WITH the view. Build the camera->world
+    // rotation basis and rotate each kit-local direction into world space before
+    // handing it to the world-space fragment shader.
+    glm::dvec3 fwd   = glm::normalize(camera.position - camera.focalPoint); // toward camera
+    glm::dvec3 right = glm::normalize(glm::cross(fwd, camera.viewUp));
+    glm::dvec3 up    = glm::cross(right, fwd);
+    glm::mat3 M(right, up, fwd); // kit X->right, Y->up, Z->toward camera
     auto toRad = [](float deg) { return deg * 3.14159265f / 180.0f; };
-    auto calcDir = [&](float az, float el) {
-        float a = toRad(az);
-        float e = toRad(el);
-        return glm::normalize(glm::vec3(std::sin(a) * std::cos(e), std::sin(e), std::cos(a) * std::cos(e)));
+    auto kitDir = [&](float az, float el) {
+        float a = toRad(az), e = toRad(el);
+        glm::vec3 local(std::sin(a) * std::cos(e), std::sin(e), std::cos(a) * std::cos(e));
+        return glm::vec3(glm::normalize(M * local));
     };
-    key = calcDir(lightKeyAzimuth, lightKeyElevation);
-    fill = calcDir(lightFillAzimuth, lightFillElevation);
-    back1 = calcDir(lightBackAzimuth, lightBackElevation);
-    back2 = calcDir(lightBackAzimuth + 180.0f, -lightBackElevation);
-    head = calcDir(lightHeadAzimuth, lightHeadElevation);
+    key  = kitDir(lightKeyAzimuth,  lightKeyElevation);
+    fill = kitDir(lightFillAzimuth, lightFillElevation);
+    back1 = kitDir(lightBackAzimuth,  lightBackElevation);
+    back2 = kitDir(lightBackAzimuth + 180.0f, -lightBackElevation);
+    head = kitDir(lightHeadAzimuth,  lightHeadElevation);
 }
 
 void Renderer::updateColormapTexture() {
@@ -747,12 +783,10 @@ void Renderer::renderFrame() {
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
         // Setup Light Parameters
-        // Lights are defined in WORLD space (azimuth/elevation about world axes)
-        // and must stay fixed in the world as the camera orbits. The fragment
-        // shader now does lighting in world space (using vWorldNormal and
-        // uViewPos), so we pass the directions through unchanged. Previously
-        // they were rotated by the view matrix, which re-anchored them to the
-        // camera and made them appear to move when rotating the mesh.
+        // Light Kit: directions are computed in the CAMERA frame inside
+        // computeLightDirections() and rotated into world space, so the lights
+        // track the camera (headlight stays head-on, key stays overhead-in-view).
+        // The fragment shader lights in world space (vWorldNormal + uViewPos).
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
         glUniform3fv(lightDirLoc, 1, glm::value_ptr(kDir));
@@ -772,14 +806,18 @@ void Renderer::renderFrame() {
         glUniform1f(matSpecularLoc, matSpecular);
         glUniform1f(matShininessLoc, matShininess);
 
-        glUniform1f(keyIntensityLoc, lightInt * lightKF);
-        glUniform1f(fillIntensityLoc, lightInt * lightKB);
-        glUniform1f(headIntensityLoc, lightInt * lightKH);
-        glUniform1f(backIntensityLoc, lightInt * lightKB);
+        // Light Kit intensities: key = Int; fill/back/head = key / Kratio.
+        float keyI = lightKitEnabled ? lightKeyIntensity : 0.0f;
+        glUniform1f(keyIntensityLoc,  keyI);
+        glUniform1f(fillIntensityLoc, lightKitEnabled ? keyI / lightKF : 0.0f);
+        glUniform1f(headIntensityLoc, lightKitEnabled ? keyI / lightKH : 0.0f);
+        glUniform1f(backIntensityLoc, lightKitEnabled ? keyI / lightKB : 0.0f);
 
-        const float keyCol[3] = { 1.0f, 0.96f, 0.88f };
-        const float fillCol[3] = { 0.85f, 0.9f, 1.0f };
-        const float backCol[3] = { 0.9f, 0.9f, 0.95f };
+        // Light Kit: kit-wide warm tint drives light colors.
+        glm::vec3 tint = warmColorTint(lightWarm);
+        const float keyCol[3]  = { tint.r,       tint.g,       tint.b };
+        const float fillCol[3] = { tint.r*0.90f, tint.g*0.92f, tint.b*1.00f };
+        const float backCol[3] = { tint.r*0.95f, tint.g*0.95f, tint.b*0.98f };
         const float headCol[3] = { 1.0f, 1.0f, 1.0f };
         glUniform3fv(keyColorLoc, 1, keyCol);
         glUniform3fv(fillColorLoc, 1, fillCol);
@@ -910,6 +948,26 @@ void Renderer::drawGizmo() {
     glDisable(GL_DEPTH_TEST);
     gizmo.draw(camera.getViewMatrix(), static_cast<float>(devicePixelRatio),
                static_cast<int>(height * devicePixelRatio));
+    // ponytail: Light Kit markers — kit-local dirs are constant, so they
+    // stay put in the corner overlay while the axis triad rotates (proves lights
+    // track the camera). Only drawn when the kit is enabled.
+    if (lightKitEnabled) {
+        auto kd = [](float az, float el) -> glm::vec3 {
+            float a = az * 3.14159265f / 180.0f, e = el * 3.14159265f / 180.0f;
+            return glm::vec3(std::sin(a) * std::cos(e), std::sin(e), std::cos(a) * std::cos(e));
+        };
+        glm::vec3 kitDirs[5] = {
+            kd(lightKeyAzimuth,  lightKeyElevation),
+            kd(lightFillAzimuth, lightFillElevation),
+            kd(lightBackAzimuth,  lightBackElevation),
+            kd(lightBackAzimuth + 180.0f, -lightBackElevation),
+            kd(lightHeadAzimuth,  lightHeadElevation),
+        };
+        glm::vec3 tint = warmColorTint(lightWarm);
+        glm::vec3 cols[5] = { tint, tint * 0.9f, tint * 0.95f, tint * 0.95f, glm::vec3(1.0f, 1.0f, 1.0f) };
+        gizmo.drawLights(kitDirs, cols, static_cast<float>(devicePixelRatio),
+                         static_cast<int>(height * devicePixelRatio));
+    }
     glEnable(GL_DEPTH_TEST);
 }
 
@@ -1081,31 +1139,48 @@ void Renderer::setColormapChoice(int choice) {
     emit colormapChanged();
 }
 
-// ponytail: presets just set existing light uniforms — no new render path
 void Renderer::applyLightingPreset(int preset) {
     switch (preset) {
-    case PRESET_STUDIO: // 3-point feel: strong key, soft fill, rim back, neutral head
-        lightKeyAzimuth = 35.0f;  lightKeyElevation = 55.0f;  lightKF = 4.0f;
-        lightFillAzimuth = -45.0f; lightFillElevation = -20.0f; lightKB = 2.0f;
-        lightBackAzimuth = 140.0f; lightBackElevation = 10.0f;
-        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;   lightKH = 2.5f;
+    case PRESET_STUDIO: // 3-point feel: strong key, soft fill, rim back, subtle head
+        lightKeyAzimuth = 35.0f;   lightKeyElevation = 45.0f;   lightKF = 4.0f;  // Lowered key elevation slightly for better catchlights
+        lightFillAzimuth = -45.0f; lightFillElevation = 20.0f;  lightKB = 1.5f;  // FIXED: Fill now shines from slightly above (20.0f)
+        lightBackAzimuth = 140.0f; lightBackElevation = 30.0f;                  // Raised back light for a nicer top-down rim
+        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;   lightKH = 0.5f;  // FIXED: Reduced headlight so it doesn't flatten the depth
+        lightKeyIntensity = 1.0f;  lightWarm = 0.5f;
         matAmbient = 0.10f; matDiffuse = 0.78f; matSpecular = 0.25f; matShininess = 0.6f;
         break;
-    case PRESET_CADFLAT: // even, shadowless look for inspecting geometry
+
+    case PRESET_CADFLAT: // even, shadowless look for inspecting geometry (kept as-is, it's great)
         lightKeyAzimuth = 0.0f;   lightKeyElevation = 45.0f;  lightKF = 1.2f;
         lightFillAzimuth = 180.0f; lightFillElevation = 45.0f; lightKB = 1.2f;
         lightBackAzimuth = 90.0f;  lightBackElevation = 45.0f;
-        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;   lightKH = 1.0f;
+        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;  lightKH = 1.0f;
+        lightKeyIntensity = 1.0f;  lightWarm = 0.5f;
         matAmbient = 0.45f; matDiffuse = 0.8f; matSpecular = 0.0f; matShininess = 0.0f;
         break;
+
     case PRESET_SOFT: // gentle, low-contrast, warm
     default:
-        lightKeyAzimuth = 20.0f;  lightKeyElevation = 50.0f;  lightKF = 2.5f;
-        lightFillAzimuth = -30.0f; lightFillElevation = -30.0f; lightKB = 2.2f;
-        lightBackAzimuth = 120.0f; lightBackElevation = 5.0f;
-        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;   lightKH = 1.5f;
-        matAmbient = 0.18f; matDiffuse = 0.7f; matSpecular = 0.1f; matShininess = 0.4f;
+        lightKeyAzimuth = 20.0f;   lightKeyElevation = 40.0f;  lightKF = 2.5f;
+        lightFillAzimuth = -30.0f; lightFillElevation = 15.0f; lightKB = 1.8f;  // FIXED: Soft fill from a slightly raised angle
+        lightBackAzimuth = 120.0f; lightBackElevation = 25.0f;                  // Raised back light for softer rim dispersion
+        lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;  lightKH = 0.8f;  // Lowered headlight to keep contrast soft but visible
+        lightKeyIntensity = 1.0f;  lightWarm = 0.6f;
+        matAmbient = 0.20f; matDiffuse = 0.7f; matSpecular = 0.08f; matShininess = 0.3f; // Slightly bumped ambient for "softness"
         break;
     }
+    emit lightingParametersChanged();
+}
+
+void Renderer::resetLighting() {
+    // Restore the default Light Kit configuration.
+    lightKitEnabled = true;
+    lightKeyIntensity = 0.5f;  lightWarm = 0.5f;
+    lightKF = 3.0f; lightKB = 3.5f; lightKH = 3.0f;
+    lightKeyAzimuth = 10.0f;  lightKeyElevation = 50.0f;
+    lightFillAzimuth = -10.0f; lightFillElevation = -75.0f;
+    lightBackAzimuth = 110.0f; lightBackElevation = 0.0f;
+    lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;
+    matAmbient = 0.08f; matDiffuse = 0.75f; matSpecular = 0.15f; matShininess = 0.5f;
     emit lightingParametersChanged();
 }

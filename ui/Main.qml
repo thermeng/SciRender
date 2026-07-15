@@ -213,11 +213,15 @@ ApplicationWindow {
                     spacing: 4
                     Item { height: 8 }
 
-                    // Lighting Controls
+                    // Lighting Controls — Light Kit
                     Column {
                         visible: rail.activeSection === 0
                         spacing: 4
                         width: parent.width
+                        Row { spacing: 6
+                            CheckBox { text: "Light Kit"; checked: backendRenderer ? backendRenderer.lightKitEnabled : true; onToggled: backendRenderer.lightKitEnabled = checked }
+                            Button { text: "Reset"; onClicked: backendRenderer.resetLighting() }
+                        }
                         Text { text: "Presets"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             // ponytail: ints map to PRESET_STUDIO/CADFLAT/SOFT in renderer.cpp
@@ -226,22 +230,21 @@ ApplicationWindow {
                             Button { text: "Soft";     width: 56; onClicked: backendRenderer.applyLightingPreset(2) }
                         }
                         Item { height: 4 }
-                        LightSlider { label: "Intensity";   value: backendRenderer ? backendRenderer.lightInt : 0;         from: 0; to: 3; step: 0.05; onSet: v => backendRenderer.lightInt = v }
-                        LightSlider { label: "Key Az";      value: backendRenderer ? backendRenderer.lightKeyAzimuth : 0;  from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightKeyAzimuth = v }
-                        LightSlider { label: "Key El";      value: backendRenderer ? backendRenderer.lightKeyElevation : 0;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightKeyElevation = v }
-                        LightSlider { label: "Fill Az";     value: backendRenderer ? backendRenderer.lightFillAzimuth : 0; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightFillAzimuth = v }
-                        LightSlider { label: "Fill El";     value: backendRenderer ? backendRenderer.lightFillElevation : 0;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightFillElevation = v }
-                        LightSlider { label: "Back Az";     value: backendRenderer ? backendRenderer.lightBackAzimuth : 0; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightBackAzimuth = v }
-                        LightSlider { label: "Back El";     value: backendRenderer ? backendRenderer.lightBackElevation : 0;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightBackElevation = v }
-                        LightSlider { label: "Head Az";     value: backendRenderer ? backendRenderer.lightHeadAzimuth : 0; from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightHeadAzimuth = v }
-                        LightSlider { label: "Head El";     value: backendRenderer ? backendRenderer.lightHeadElevation : 0;from: -90; to: 90; step: 1; onSet: v => backendRenderer.lightHeadElevation = v }
-                        LightSlider { label: "Key Int";     value: backendRenderer ? backendRenderer.lightKeyIntensity : 0;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightKeyIntensity = v }
-                        LightSlider { label: "Fill Int";    value: backendRenderer ? backendRenderer.lightFillIntensity : 0;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightFillIntensity = v }
-                        LightSlider { label: "Head Int";    value: backendRenderer ? backendRenderer.lightHeadIntensity : 0;from: 0; to: 10; step: 0.1; onSet: v => backendRenderer.lightHeadIntensity = v }
-                        LightSlider { label: "Ambient";     value: backendRenderer ? backendRenderer.matAmbient : 0;       from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matAmbient = v }
-                        LightSlider { label: "Diffuse";     value: backendRenderer ? backendRenderer.matDiffuse : 0;       from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matDiffuse = v }
-                        LightSlider { label: "Specular";    value: backendRenderer ? backendRenderer.matSpecular : 0;      from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matSpecular = v }
-                        LightSlider { label: "Shininess";   value: backendRenderer ? backendRenderer.matShininess : 0;     from: 0; to: 1; step: 0.01; onSet: v => backendRenderer.matShininess = v }
+                        LightSlider { label: "Int (Key)"; value: backendRenderer ? backendRenderer.lightKeyIntensity : 0; from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.lightKeyIntensity = v }
+                        LightSlider { label: "Warm";      value: backendRenderer ? backendRenderer.lightWarm : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.lightWarm = v }
+                        LightSlider { label: "K:F";       value: backendRenderer ? backendRenderer.lightKF : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendRenderer.lightKF = v }
+                        LightSlider { label: "K:B";       value: backendRenderer ? backendRenderer.lightKB : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendRenderer.lightKB = v }
+                        LightSlider { label: "K:H";       value: backendRenderer ? backendRenderer.lightKH : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendRenderer.lightKH = v }
+                        LightSlider { label: "Key Az";  value: backendRenderer ? backendRenderer.lightKeyAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightKeyAzimuth = v }
+                        LightSlider { label: "Key El";  value: backendRenderer ? backendRenderer.lightKeyElevation : 0;   from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightKeyElevation = v }
+                        LightSlider { label: "Fill Az"; value: backendRenderer ? backendRenderer.lightFillAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightFillAzimuth = v }
+                        LightSlider { label: "Fill El"; value: backendRenderer ? backendRenderer.lightFillElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightFillElevation = v }
+                        LightSlider { label: "Back Az"; value: backendRenderer ? backendRenderer.lightBackAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightBackAzimuth = v }
+                        LightSlider { label: "Back El"; value: backendRenderer ? backendRenderer.lightBackElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightBackElevation = v }
+                        LightSlider { label: "Head Az"; value: backendRenderer ? backendRenderer.lightHeadAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightHeadAzimuth = v }
+                        LightSlider { label: "Head El"; value: backendRenderer ? backendRenderer.lightHeadElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightHeadElevation = v }
+                        LightSlider { label: "Ambient"; value: backendRenderer ? backendRenderer.matAmbient : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.matAmbient = v }
+                        LightSlider { label: "Diffuse"; value: backendRenderer ? backendRenderer.matDiffuse : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.matDiffuse = v }
                     }
 
                     // Slicing & Clipping Controls
