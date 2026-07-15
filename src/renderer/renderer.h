@@ -35,6 +35,8 @@
 #include "camera/Camera.h"
 #include "export/screenshot.h"
 
+class QOpenGLFramebufferObject;
+
 struct Mesh {
     GLuint vao;
     GLuint vbo;
@@ -199,7 +201,9 @@ public slots:
     Q_INVOKABLE void requestScreenshot(const QString& path);
     // Performs the actual GL pixel read + file save. MUST be called on the
     // render thread while the OpenGL context is current (see CustomViewportItem).
-    bool captureScreenshotToFile(const QString& path);
+    // When fbo is provided, captures from that viewport FBO (excludes QML UI
+    // chrome). When null, falls back to the currently bound framebuffer.
+    bool captureScreenshotToFile(const QString& path, QOpenGLFramebufferObject* fbo = nullptr);
     void snapToAxisView(int axis, bool flip); // ortho snap: axis 0/1/2, flip=true -> negative side
     void toggleSurface(bool visible);
 

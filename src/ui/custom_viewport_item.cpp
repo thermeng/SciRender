@@ -147,7 +147,8 @@ QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSi
     QOpenGLFramebufferObjectFormat format;
     format.setAttachment(QOpenGLFramebufferObject::Depth);
     format.setSamples(0); // raw GL draw handles MSAA itself if needed
-    return new QOpenGLFramebufferObject(size, format);
+    m_fbo = new QOpenGLFramebufferObject(size, format);
+    return m_fbo;
 }
 
 void ViewportFboRenderer::render() {
@@ -180,7 +181,7 @@ void ViewportFboRenderer::render() {
     // resetOpenGLState(): that call can unbind the FBO, after which glReadPixels
     // would read the wrong/empty buffer and produce a blank capture.
     if (!m_pendingScreenshot.isEmpty()) {
-        m_scene->captureScreenshotToFile(m_pendingScreenshot);
+        m_scene->captureScreenshotToFile(m_pendingScreenshot, m_fbo);
         m_pendingScreenshot.clear();
     }
 

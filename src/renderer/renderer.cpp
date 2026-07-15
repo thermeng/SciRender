@@ -3,6 +3,7 @@
 #include "camera/Camera.h"
 #include "export/screenshot.h"
 #include "mesh/mesh_loader.h"
+#include <QOpenGLFramebufferObject>
 
 #include <cstring>
 #include <cmath>
@@ -695,7 +696,7 @@ void Renderer::requestScreenshot(const QString& path) {
     emit screenshotRequested(path);
 }
 
-bool Renderer::captureScreenshotToFile(const QString& path) {
+bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferObject* fbo) {
     if (path.isEmpty()) return false;
 
     ExportConfig config;
@@ -716,14 +717,24 @@ bool Renderer::captureScreenshotToFile(const QString& path) {
     }
     config.filePath = targetPath;
 
-    // Called on the render thread with the GL context current. Use device-pixel
-    // dimensions so the captured image matches the real framebuffer.
-    // When rendered via QQuickFramebufferObject, the scene graph has its own FBO
-    // bound (not the default 0), so read from whatever is currently bound.
-    GLint boundFbo = 0;
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &boundFbo);
-    int deviceW = static_cast<int>(width * devicePixelRatio);
-    int deviceH = static_cast<int>(height * devicePixelRatio);
+    // Called on the render thread with the GL context current. Capture from the
+    // viewport FBO when provided so the saved image contains ONLY the 3D scene
+    // (grid/mesh/gizmo) and NOT the QML UI chrome (rail, colorbar, status bar).
+    // Reading GL_FRAMEBUFFER_BINDING here is unsafe: renderFrame() ends with
+    // resetOpenGLState() which can unbind the viewport FBO, leaving the binding
+    // pointing at the window/default framebuffer that holds the composited UI.
+    GLuint boundFbo = 0;
+    int deviceW = 0;
+    int deviceH = 0;
+    if (fbo) {
+        boundFbo = fbo->handle();
+        deviceW = fbo->width();
+        deviceH = fbo->height();
+    } else {
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, reinterpret_cast<GLint*>(&boundFbo));
+        deviceW = static_cast<int>(width * devicePixelRatio);
+        deviceH = static_cast<int>(height * devicePixelRatio);
+    }
     std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(boundFbo, deviceW, deviceH, config.transparentBackground);
 
     bool success = ScreenshotExporter::saveToFile(config.filePath, pixels, deviceW, deviceH, config);
