@@ -244,12 +244,9 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     // Rotation-only view matrix (strips camera translation).
     const glm::mat4 gizmoView = glm::mat4(glm::mat3(mainView));
     // Tight ortho but with margin so the triad + labels never reach the viewport edge.
-    // Apply the SAME Y-flip as the main scene (renderer.cpp) so the triad is not
-    // vertically mirrored under QML FBO compositing. The label positions below are
-    // derived from this same matrix, so they stay attached to their tips.
-    const glm::mat4 gizmoProj = glm::scale(
-        glm::ortho(-1.55f, 1.55f, -1.55f, 1.55f, -10.0f, 10.0f),
-        glm::vec3(1.0f, -1.0f, 1.0f));
+    // No Y-flip: main scene is drawn in standard GL convention and mirrored once at
+    // the compositing layer, so the gizmo matches (unflipped) to stay attached.
+    const glm::mat4 gizmoProj = glm::ortho(-1.55f, 1.55f, -1.55f, 1.55f, -10.0f, 10.0f);
     const glm::mat4 lineMVP = gizmoProj * gizmoView;
 
     glDisable(GL_DEPTH_TEST);

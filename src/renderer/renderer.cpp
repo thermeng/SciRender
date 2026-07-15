@@ -537,16 +537,6 @@ void Renderer::renderFrame() {
         static_cast<float>(farPlane)
         );
 
-    // =========================================================================
-    // FIX: Mirror only Y so the FBO renders right-side-up under QML compositing.
-    // We must NOT negate Z here: glm::scale() post-multiplies, so scaling Z by
-    // -1 flips the *view-space Z of the input position*, pushing in-front
-    // geometry (z_view < 0) to z > 0 (behind the camera). That both clips near
-    // surfaces and inverts depth vs glDepthFunc(GL_LESS)+clear(1.0), so far
-    // faces occlude near ones. Flipping Y alone keeps depth correct.
-    // =========================================================================
-    proj = glm::scale(proj, glm::vec3(1.0f, -1.0f, 1.0f));
-
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = proj * view * model;
 

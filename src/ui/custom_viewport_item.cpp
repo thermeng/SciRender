@@ -26,6 +26,9 @@ ViewportVisualizer::ViewportVisualizer(QQuickItem* parent)
     setAcceptedMouseButtons(Qt::AllButtons);
     // Keep the FBO continuous (camera interaction, animation).
     setFlag(ItemHasContents, true);
+    // ponytail: Y-flip now lives here (scene-graph FBO node mirrors the texture)
+    // instead of a depth-hazardous glm::scale in the render path.
+    setMirrorVertically(true);
 }
 
 QQuickFramebufferObject::Renderer* ViewportVisualizer::createRenderer() const {
