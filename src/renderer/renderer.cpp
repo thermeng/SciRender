@@ -283,6 +283,9 @@ void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
     if (!showGrid || gridProgram == 0) return;
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Force filled: the wireframe pass may have left GL_POLYGON_MODE as GL_LINE,
+    // which would rasterize the fullscreen grid quad as just its edges (grid vanishes).
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     glUseProgram(gridProgram);
 
     glm::mat4 invView = glm::inverse(view);
@@ -877,6 +880,7 @@ void Renderer::renderFrame() {
             }
         }
         glBindVertexArray(0);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // reset at source: wireframe pass left GL_LINE
         glUseProgram(0);
     }
 
@@ -927,10 +931,9 @@ void Renderer::renderFrame() {
             if (m_fpsAccum >= 0.25) {
                 double fps = (m_frameCount - 1) / m_fpsAccum;
                 double ms = (m_fpsAccum / (m_frameCount - 1)) * 1000.0;
-                fpsText = QString("FPS: %1  | %2 ms/frame  | %3 tris")
+                fpsText = QString("FPS: %1  | %2 ms/frame")
                     .arg(fps, 0, 'f', 0)
-                    .arg(ms, 0, 'f', 1)
-                    .arg(triangleCount);
+                    .arg(ms, 0, 'f', 1);
                 m_frameCount = 0;
                 m_fpsAccum = 0.0;
                 emit fpsChanged();
