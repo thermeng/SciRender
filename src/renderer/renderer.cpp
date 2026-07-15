@@ -16,7 +16,7 @@
 #include <algorithm>
 #include <limits>
 
-// ponytail: kit-wide warm tint (shared by light colors + viewport markers).
+// kit-wide warm tint (shared by light colors + viewport markers).
 // 0 = cold blue, 0.5 = neutral white, 1 = warm red.
 static glm::vec3 warmColorTint(float w) {
     if (w < 0.5f) return glm::mix(glm::vec3(0.6f, 0.7f, 1.0f), glm::vec3(1.0f, 1.0f, 1.0f), w / 0.5f);
@@ -99,7 +99,7 @@ void Renderer::initGLAD() {
         qFatal("Fatal: GLAD failed to map target core OpenGL function addresses using Qt resolver hook.");
     }
 
-    // ponytail: diagnostic to confirm desktop vs ANGLE/ES context after launch.
+    // diagnostic to confirm desktop vs ANGLE/ES context after launch.
     qDebug() << "[GL DIAGNOSTIC] VERSION:" << (const char*)glGetString(GL_VERSION)
              << "| RENDERER:" << (const char*)glGetString(GL_RENDERER)
              << "| GLSL:" << (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
@@ -212,7 +212,7 @@ void Renderer::initShaders() {
     hasScalarsLoc = glGetUniformLocation(shaderProgram, "uHasScalars");
     lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
 
-    // ponytail: instanced vector glyph program
+    // instanced vector glyph program
     std::string gvert = loadEmbeddedShader(":/RendererQTUI/src/shaders/glyph.vert");
     std::string gfrag = loadEmbeddedShader(":/RendererQTUI/src/shaders/glyph.frag");
     if (!gvert.empty() && !gfrag.empty()) {
@@ -367,7 +367,7 @@ void Renderer::uploadMesh(const RenderMesh& renderMesh) {
     glBindVertexArray(0);
     meshes.push_back(mesh);
 
-    // ponytail: (re)build instanced vector arrow glyphs from the cached source mesh
+    // (re)build instanced vector arrow glyphs from the cached source mesh
     rebuildVectorGlyphs();
 }
 
@@ -379,7 +379,7 @@ void Renderer::destroyMesh(Mesh& mesh) {
     if (mesh.sbo) glDeleteBuffers(1, &mesh.sbo);
 }
 
-// ponytail: build a unit arrow (local space, arrow along +Y, height 1) and a
+// build a unit arrow (local space, arrow along +Y, height 1) and a
 // per-point instance buffer [ox,oy,oz, dx,dy,dz] from the active vector field.
 static void buildUnitArrow(std::vector<float>& verts, std::vector<float>& norms, std::vector<unsigned int>& idx) {
     const int SEG = 8;
@@ -427,13 +427,13 @@ void Renderer::rebuildVectorGlyphs() {
 
     int numPts = static_cast<int>(cachedMeshSource.vertices.size() / 3);
     int stride = std::max(1, vectorStride);
-    // ponytail: track min/max magnitude across the (strided) sample for LUT normalization
+    // track min/max magnitude across the (strided) sample for LUT normalization
     float magMin = std::numeric_limits<float>::max();
     float magMax = -std::numeric_limits<float>::max();
     std::vector<float> inst;
     for (int i = 0; i < numPts; i += stride) {
         float dx = vecArr[i * 3 + 0], dy = vecArr[i * 3 + 1], dz = vecArr[i * 3 + 2];
-        // ponytail: skip near-zero vectors so the cloud isn't cluttered with dots
+        // skip near-zero vectors so the cloud isn't cluttered with dots
         if (dx * dx + dy * dy + dz * dz < 1e-12f) continue;
         float m = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (m < magMin) magMin = m;
@@ -446,7 +446,7 @@ void Renderer::rebuildVectorGlyphs() {
     if (inst.empty()) return;
     vectorMagMin = magMin;
     vectorMagMax = magMax;
-    emit vectorColormapChanged(); // ponytail: refresh vector colorbar range
+    emit vectorColormapChanged(); // refresh vector colorbar range
     std::vector<float> av, an; std::vector<unsigned int> ai;
     buildUnitArrow(av, an, ai);
 
@@ -488,7 +488,7 @@ void Renderer::rebuildVectorGlyphs() {
 void Renderer::setActiveVectorField(const QString& fieldName) {
     if (fieldName.isEmpty()) return;
     cachedMeshSource.vectorName = fieldName.toStdString();
-    vectorGlyphDirty = true; // ponytail: GL rebuild deferred to render thread (GUI thread has no GL ctx)
+    vectorGlyphDirty = true; // GL rebuild deferred to render thread (GUI thread has no GL ctx)
     emit meshDataUpdated();
 }
 
@@ -513,14 +513,14 @@ void Renderer::clearMeshes() {
 
 void Renderer::openRecent(const QString& filePath) {
     if (filePath.isEmpty()) return;
-    // ponytail: same path as the file dialog; just delegate
+    // same path as the file dialog; just delegate
     loadMesh(filePath);
 }
 
 void Renderer::loadRecentFromSettings() {
     QSettings s;
     recentFiles = s.value("recentFiles").toStringList();
-    recentFiles.removeAll(""); // ponytail: guard against stale empty entries
+    recentFiles.removeAll(""); // guard against stale empty entries
 }
 
 void Renderer::saveRecentToSettings() const {
@@ -567,12 +567,12 @@ void Renderer::loadMesh(const QString& filePath) {
     QFileInfo fileInfo(QString::fromStdString(stdPath));
     currentMeshName = fileInfo.fileName().toStdString();
     triangleCount = static_cast<int>(loaded.indices.size() / 3);
-    pointCount = static_cast<int>(loaded.vertices.size() / 3); // ponytail: vertices are xyz triples
+    pointCount = static_cast<int>(loaded.vertices.size() / 3); // vertices are xyz triples
 
     // UI components read these variables immediately
     hasMeshLoaded = true;
 
-    // ponytail: reset per-mesh vector state so a newly loaded mesh doesn't
+    // reset per-mesh vector state so a newly loaded mesh doesn't
     // inherit the previous mesh's vector field / toggles / magnitude range.
     // showVectors and vectorUseColormap default off; vectorName is cleared so
     // the render thread selects the new mesh's first available field.
@@ -610,7 +610,7 @@ void Renderer::loadMesh(const QString& filePath) {
         dataScalarMax = maxVal;
         scalarMin = dataScalarMin;
         scalarMax = dataScalarMax;
-        // ponytail: default filter spans the whole field so enabling clipping doesn't blank the mesh
+        // default filter spans the whole field so enabling clipping doesn't blank the mesh
         filterMin = dataScalarMin;
         filterMax = dataScalarMax;
     } else {
@@ -621,14 +621,14 @@ void Renderer::loadMesh(const QString& filePath) {
 
     resetCamera();
 
-    // ponytail: push into recent files (most-recent first, dedup, cap 8)
+    // push into recent files (most-recent first, dedup, cap 8)
     {
         QString absPath = QFileInfo(QString::fromStdString(stdPath)).absoluteFilePath();
         recentFiles.removeAll(absPath);
         recentFiles.prepend(absPath);
         while (recentFiles.size() > 8) recentFiles.removeLast();
-        emit meshLoadStateChanged(); // ponytail: refresh QML recent list
-        saveRecentToSettings(); // ponytail: persist across restarts
+        emit meshLoadStateChanged(); // refresh QML recent list
+        saveRecentToSettings(); // persist across restarts
     }
 
     emit meshLoadStateChanged();
@@ -714,7 +714,7 @@ void Renderer::updateColormapTexture() {
         lastUploadedChoice = colormapChoice;
     }
 
-    // ponytail: vector magnitude LUT — SEPARATE guard, independent of scalar early-return
+    // vector magnitude LUT — SEPARATE guard, independent of scalar early-return
     if (vectorColormapTex == 0 || vectorLutDirty || vectorLastUploadedChoice != vectorColormapChoice) {
         std::vector<unsigned char> pd; pd.reserve(256 * 3);
         for (int i = 0; i < 256; ++i) {
@@ -738,7 +738,7 @@ void Renderer::updateColormapTexture() {
 }
 
 void Renderer::renderFrame() {
-    // ponytail: GL glyph rebuild must run on the render thread (GL context
+    // GL glyph rebuild must run on the render thread (GL context
     // current here), never from GUI-thread setters that call setActiveVectorField/
     // setVectorStride. Consume the flag once so a single-change set doesn't thrash.
     if (vectorGlyphDirty.exchange(false)) {
@@ -748,7 +748,7 @@ void Renderer::renderFrame() {
     // Standard buffer setups
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
-    // ponytail: no face culling — meshes (hexes/structured grids) show inverted/inside faces
+    // no face culling — meshes (hexes/structured grids) show inverted/inside faces
     glDisable(GL_CULL_FACE);
 
     glClearColor(bgColor[0], bgColor[1], bgColor[2], 1.0f);
@@ -880,9 +880,9 @@ void Renderer::renderFrame() {
         glUseProgram(0);
     }
 
-    // ponytail: instanced vector arrow glyphs (drawn after surface, before grid/gizmo)
+    // instanced vector arrow glyphs (drawn after surface, before grid/gizmo)
     if (showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // ponytail: ensure solid arrows even if wireframe pass left GL_LINE
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // ensure solid arrows even if wireframe pass left GL_LINE
         glUseProgram(glyphProgram);
         glUniformMatrix4fv(glyphMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
         glUniform1f(glyphScaleLoc, vectorScale);
@@ -892,7 +892,7 @@ void Renderer::renderFrame() {
         glm::vec3 camPos = glm::vec3(camera.position);
         glUniform3fv(glyphViewPosLoc, 1, glm::value_ptr(camPos));
         glUniform3fv(glyphColorLoc, 1, vectorColor);
-        // ponytail: color by magnitude using the vector's OWN LUT (independent of scalar colormap)
+        // color by magnitude using the vector's OWN LUT (independent of scalar colormap)
         glUniform1i(glyphUseColormapLoc, vectorUseColormap ? 1 : 0);
         glUniform1f(glyphMagMinLoc, vectorMagMin);
         glUniform1f(glyphMagMaxLoc, vectorMagMax);
@@ -914,11 +914,11 @@ void Renderer::renderFrame() {
         drawGizmo();
     }
 
-    // ponytail: perf HUD — update ~4x/sec to avoid repaint spam; cheap std::chrono
+    // perf HUD — update ~4x/sec to avoid repaint spam; cheap std::chrono
     if (showFps) {
         auto now = std::chrono::steady_clock::now();
         if (m_frameCount == 0) {
-            m_lastFrameTime = now; // ponytail: seed clock on first frame, no measurement
+            m_lastFrameTime = now; // seed clock on first frame, no measurement
             m_frameCount = 1;
         } else {
             double dt = std::chrono::duration<double>(now - m_lastFrameTime).count();
@@ -948,10 +948,10 @@ void Renderer::drawGizmo() {
     glDisable(GL_DEPTH_TEST);
     gizmo.draw(camera.getViewMatrix(), static_cast<float>(devicePixelRatio),
                static_cast<int>(height * devicePixelRatio));
-    // ponytail: Light Kit markers — kit-local dirs are constant, so they
+    // Light Kit markers — kit-local dirs are constant, so they
     // stay put in the corner overlay while the axis triad rotates (proves lights
     // track the camera). Only drawn when the kit is enabled.
-    if (lightKitEnabled) {
+    if (lightKitEnabled && showLightMarkers) {
         auto kd = [](float az, float el) -> glm::vec3 {
             float a = az * 3.14159265f / 180.0f, e = el * 3.14159265f / 180.0f;
             return glm::vec3(std::sin(a) * std::cos(e), std::sin(e), std::cos(a) * std::cos(e));
@@ -974,7 +974,7 @@ void Renderer::drawGizmo() {
 void Renderer::snapToOrthoView(int axis) {
     // Delegate to the Camera implementation so both stay in sync (6-axis support).
     camera.snapToOrthoView(axis);
-    emit viewChanged(); // ponytail: ortho snap must repaint; snapToAxisView already does this
+    emit viewChanged(); // ortho snap must repaint; snapToAxisView already does this
 }
 
 void Renderer::snapToAxisView(int axis, bool flip) {
@@ -987,7 +987,7 @@ void Renderer::requestScreenshot(const QString& path) {
     if (path.isEmpty()) {
         return;
     }
-    // ponytail: the actual GL pixel read + save is unsafe here (GUI thread, no GL
+    // the actual GL pixel read + save is unsafe here (GUI thread, no GL
     // context). Forward to the render thread (CustomViewportItem connects
     // screenshotRequested -> render() where the context is current).
     emit screenshotRequested(path);
@@ -1097,7 +1097,7 @@ void Renderer::setActiveScalarField(const QString& fieldName) {
 
 void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
     if (fieldName == activeScalarName) return;
-    // ponytail: fields live in pointScalars; swap the active vector and let the
+    // fields live in pointScalars; swap the active vector and let the
     // existing render-thread upload path (meshChanged) push the new sbo.
     if (!cachedMeshSource.attributes.has_value()) return;
     auto it = cachedMeshSource.attributes->pointScalars.find(fieldName);
@@ -1116,9 +1116,9 @@ void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
         scalarMin = mn; scalarMax = mx;
         filterMin = mn; filterMax = mx;
     }
-    meshChanged = true; // ponytail: trigger GPU re-upload of the scalar buffer
+    meshChanged = true; // trigger GPU re-upload of the scalar buffer
     emit meshDataUpdated();
-    emit meshLoadStateChanged(); // ponytail: refresh QML colorbar/labels on field switch
+    emit meshLoadStateChanged(); // refresh QML colorbar/labels on field switch
 }
 
 void Renderer::setWireframe(bool enabled) {

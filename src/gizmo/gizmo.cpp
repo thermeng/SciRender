@@ -200,7 +200,7 @@ bool Gizmo::init() {
     glEnableVertexAttribArray(textPosLoc);
     glBindVertexArray(0);
 
-    // ponytail: light-marker disc VBO (5 lights * 6 verts * vec5 = px.xy + rgb)
+    // light-marker disc VBO (5 lights * 6 verts * vec5 = px.xy + rgb)
     glGenVertexArrays(1, &lightMarkVAO);
     glGenBuffers(1, &lightMarkVBO);
     glBindVertexArray(lightMarkVAO);
@@ -234,22 +234,24 @@ void Gizmo::shutdown() {
 void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     if (!isInitialized()) return;
 
-    // Preserve engine state we mutate (viewport + depth test + blend + bindings).
+    // Preserve engine state we mutate (viewport + depth test + blend + poly mode + bindings).
     GLint prevVP[4];
     glGetIntegerv(GL_VIEWPORT, prevVP);
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
     GLboolean blendWas = glIsEnabled(GL_BLEND);
+    GLint polyMode[2];
+    glGetIntegerv(GL_POLYGON_MODE, polyMode);
 
     // 2. Isolated corner viewport footprint (scaled by dpr so it stays constant on HiDPI).
     const int foot = 120;
     const int margin = 10;
     const int s = static_cast<int>(foot * dpr);
     const int m = static_cast<int>(margin * dpr);
-    // ponytail: context origin is top-left, so bottom edge = fbHeight - margin - size
+    // context origin is top-left, so bottom edge = fbHeight - margin - size
     const int y0 = fbHeight - m - s;
     glViewport(m, y0, s, s);
 
-    // ponytail: NO clear — scene already painted this corner with bgColor before
+    // NO clear — scene already painted this corner with bgColor before
     // drawGizmo() runs, so blending on top keeps the gizmo transparent (model stays
     // visible behind it) instead of an opaque plate covering the mesh.
 
@@ -264,6 +266,9 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Force filled quads: a wireframe pass elsewhere may have left GL_POLYGON_MODE
+    // as GL_LINE, which would rasterize the text/marker quads as outlines.
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
     // ---- Axis lines ----
     glUseProgram(lineProgram);
@@ -331,6 +336,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     // ---- State handover: restore everything we touched ----
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(polyMode[0]));
     glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
 }
 
@@ -344,9 +350,12 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
 
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
     GLboolean blendWas = glIsEnabled(GL_BLEND);
+    GLint polyMode[2];
+    glGetIntegerv(GL_POLYGON_MODE, polyMode);
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // force filled discs (see draw())
 
     // px space [0..foot]x[0..foot] -> clip; markers are constant kit-local dirs.
     const glm::mat4 pxMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
@@ -377,5 +386,6 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
 
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(polyMode[0]));
     glViewport(m, y0, s, s); // unchanged, but keep symmetric with draw()
 }

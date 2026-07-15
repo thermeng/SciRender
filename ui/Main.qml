@@ -14,7 +14,7 @@ ApplicationWindow {
     title: "RendererQT"
     color: "#1e1e1e"
 
-    // ponytail: keyboard shortcuts via Shortcut (window-level, no focus juggling).
+    // keyboard shortcuts via Shortcut (window-level, no focus juggling).
     // ApplicationWindow is a QQuickWindow and has no Keys handler / focus property.
     Shortcut { sequence: "R";          onActivated: if (backendRenderer) backendRenderer.resetCamera() }
     Shortcut { sequence: "W";          onActivated: if (backendRenderer) backendRenderer.isWireframe = !backendRenderer.isWireframe }
@@ -39,7 +39,8 @@ ApplicationWindow {
             activeSection === 1 ? "Slicing & Clipping" :
             activeSection === 2 ? "View & Display" :
             activeSection === 3 ? "Colormap" :
-            activeSection === 4 ? "Vectors" : ""
+            activeSection === 4 ? "Vectors" :
+            activeSection === 5 ? "Screenshot" : ""
         width: 48 + (expanded ? panelWidth : 0)
         anchors.top: parent.top
         anchors.bottom: parent.bottom
@@ -93,6 +94,7 @@ ApplicationWindow {
             RailButton { text: "\u{1F441}"; ToolTip.text: "View & Display"; ToolTip.visible: hovered; active: rail.activeSection === 2; onClicked: rail.toggleSection(2) }
             RailButton { text: "\u{1F3A8}"; ToolTip.text: "Colormap"; ToolTip.visible: hovered; active: rail.activeSection === 3; onClicked: rail.toggleSection(3) }
             RailButton { text: "\u{27A1}";    ToolTip.text: "Vectors"; ToolTip.visible: hovered; active: rail.activeSection === 4; onClicked: rail.toggleSection(4) }
+            RailButton { text: "\u{1F4F7}"; ToolTip.text: "Screenshot"; ToolTip.visible: hovered; active: rail.activeSection === 5; onClicked: rail.toggleSection(5) }
         }
 
         // ---- Docked content panel (slides out to the right of the icon strip) ----
@@ -218,17 +220,8 @@ ApplicationWindow {
                         visible: rail.activeSection === 0
                         spacing: 4
                         width: parent.width
-                        Row { spacing: 6
-                            CheckBox { text: "Light Kit"; checked: backendRenderer ? backendRenderer.lightKitEnabled : true; onToggled: backendRenderer.lightKitEnabled = checked }
-                            Button { text: "Reset"; onClicked: backendRenderer.resetLighting() }
-                        }
-                        Text { text: "Presets"; color: "#888"; font.pixelSize: 10 }
-                        Row { spacing: 6
-                            // ponytail: ints map to PRESET_STUDIO/CADFLAT/SOFT in renderer.cpp
-                            Button { text: "Studio";   width: 64; onClicked: backendRenderer.applyLightingPreset(0) }
-                            Button { text: "CAD Flat"; width: 70; onClicked: backendRenderer.applyLightingPreset(1) }
-                            Button { text: "Soft";     width: 56; onClicked: backendRenderer.applyLightingPreset(2) }
-                        }
+                        Button { text: "Reset"; onClicked: backendRenderer.resetLighting() }
+                        CheckBox { text: "Light Markers"; checked: backendRenderer ? backendRenderer.showLightMarkers : false; onToggled: backendRenderer.showLightMarkers = checked }
                         Item { height: 4 }
                         LightSlider { label: "Int (Key)"; value: backendRenderer ? backendRenderer.lightKeyIntensity : 0; from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.lightKeyIntensity = v }
                         LightSlider { label: "Warm";      value: backendRenderer ? backendRenderer.lightWarm : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.lightWarm = v }
@@ -263,9 +256,6 @@ ApplicationWindow {
                             CheckBox { text: "Inv Y"; checked: backendRenderer ? backendRenderer.invertY : false; onToggled: backendRenderer.invertY = checked }
                             CheckBox { text: "Inv Z"; checked: backendRenderer ? backendRenderer.invertZ : false; onToggled: backendRenderer.invertZ = checked }
                         }
-                        Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
-                        ClipSlider { label: "Min"; value: backendRenderer ? backendRenderer.filterMin : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMin = v }
-                        ClipSlider { label: "Max"; value: backendRenderer ? backendRenderer.filterMax : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMax = v }
                     }
 
                     // View & Display Controls
@@ -300,7 +290,6 @@ ApplicationWindow {
                         Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Button { text: "Reset Cam"; width: 92; onClicked: backendRenderer.resetCamera() }
-                            Button { text: "Screenshot"; width: 100; onClicked: { screenshotSaveDialog.currentFile = backendRenderer.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
                         }
                         Button { text: "Background Color"; width: parent.width; onClicked: bgDialog.open() }
                         Text { text: "Camera roll"; color: "#888"; font.pixelSize: 10 }
@@ -313,12 +302,9 @@ ApplicationWindow {
                         CheckBox { text: "FPS HUD"; checked: backendRenderer ? backendRenderer.showFps : false; onToggled: backendRenderer.showFps = checked }
                         Text { text: "Colors"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
-                            Button { text: "Mesh Color"; width: 100; onClicked: meshColorDialog.open() }
+                            Button { text: "Wireframe Color"; width: 100; onClicked: meshColorDialog.open() }
                             Button { text: "Surface Color"; width: 100; onClicked: surfaceColorDialog.open() }
                         }
-                        Text { text: "Screenshot"; color: "#888"; font.pixelSize: 10 }
-                        CheckBox { text: "Transparent (PNG)"; checked: backendRenderer ? backendRenderer.screenshotTransparent : false; onToggled: backendRenderer.screenshotTransparent = checked }
-                        LightSlider { label: "JPEG Q"; value: backendRenderer ? backendRenderer.screenshotQuality : 95; from: 1; to: 100; step: 1; onSet: v => backendRenderer.screenshotQuality = v }
                     }
 
                     // Colormap Selector Panel
@@ -343,9 +329,23 @@ ApplicationWindow {
                             currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
                             onActivated: index => backendRenderer.colormapChoice = index
                         }
+                        Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
+                        ClipSlider { label: "Min"; value: backendRenderer ? backendRenderer.filterMin : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMin = v }
+                        ClipSlider { label: "Max"; value: backendRenderer ? backendRenderer.filterMax : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMax = v }
                     }
 
-                    // Vectors Panel (ponytail: moved out of View & Display into its own section)
+                    // Screenshot Controls
+                    Column {
+                        visible: rail.activeSection === 5
+                        spacing: 4
+                        width: parent.width
+                        Button { text: "Save Screenshot"; width: parent.width; onClicked: { screenshotSaveDialog.currentFile = backendRenderer.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
+                        Text { text: "Options"; color: "#888"; font.pixelSize: 10 }
+                        CheckBox { text: "Transparent (PNG)"; checked: backendRenderer ? backendRenderer.screenshotTransparent : false; onToggled: backendRenderer.screenshotTransparent = checked }
+                        LightSlider { label: "JPEG Q"; value: backendRenderer ? backendRenderer.screenshotQuality : 95; from: 1; to: 100; step: 1; onSet: v => backendRenderer.screenshotQuality = v }
+                    }
+
+                    // Vectors Panel
                     Column {
                         visible: rail.activeSection === 4
                         spacing: 4
@@ -456,7 +456,7 @@ ApplicationWindow {
         onAccepted: {
             let urlStr = selectedFile.toString();
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
-            // ponytail: Option B — grab viewport + legend subtree (clean crop, no rail).
+            // Option B — grab viewport + legend subtree (clean crop, no rail).
             // Transparent PNG keeps the original FBO-only path (legends excluded, since
             // QML overlays have no alpha to composite).
             if (backendRenderer && backendRenderer.screenshotTransparent) {
@@ -467,7 +467,7 @@ ApplicationWindow {
         }
     }
 
-    // ponytail: turntable — ~30fps azimuth nudge while autoRotate is on
+    // turntable — ~30fps azimuth nudge while autoRotate is on
     Timer {
         interval: 33
         running: backendRenderer ? backendRenderer.autoRotate : false
@@ -475,7 +475,7 @@ ApplicationWindow {
         onTriggered: if (backendRenderer) backendRenderer.azimuth(0.6)
     }
 
-    // ponytail: FPS HUD needs continuous frames; drive repaints only while shown
+    // FPS HUD needs continuous frames; drive repaints only while shown
     Timer {
         interval: 16
         running: backendRenderer ? backendRenderer.showFps : false
@@ -484,10 +484,10 @@ ApplicationWindow {
     }
 
     // Centered drop prompt context overlay
-    // ponytail: on-screen perf HUD (top-left)
+    // on-screen perf HUD (top-right)
     Rectangle {
         anchors.top: parent.top
-        anchors.left: rail.right
+        anchors.right: parent.right
         anchors.margins: 8
         width: hudText.width + 16
         height: hudText.height + 8
@@ -574,14 +574,14 @@ ApplicationWindow {
         }
     }
 
-    // Vector magnitude colorbar (ponytail: SEPARATE legend, top-right, shown only when color-by-magnitude is on)
+    // Vector magnitude colorbar (SEPARATE legend, top-right, shown only when color-by-magnitude is on)
     Column {
         id: vectorColorbar
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 12
         spacing: 4
-        // ponytail: gate on the CURRENT mesh actually having vector fields, not just the
+        // gate on the CURRENT mesh actually having vector fields, not just the
         // persisted showVectors/vectorUseColormap toggles — otherwise the bar stays up after
         // loading a new mesh that has no vectors.
         visible: backendRenderer ? (backendRenderer.showVectors && backendRenderer.vectorUseColormap && backendRenderer.hasMeshLoaded && backendRenderer.availableVectors.length > 0) : false
@@ -648,7 +648,7 @@ ApplicationWindow {
             Menu {
                 title: "Open Recent"
                 enabled: backendRenderer ? backendRenderer.recentFiles.length > 0 : false
-                // ponytail: rebuild the submenu from recentFiles each open
+                // rebuild the submenu from recentFiles each open
                 onAboutToShow: {
                     // QQuickMenu has no clearMenuItems(); remove all current items
                     while (count > 0) { let it = itemAt(0); removeItem(it); it.destroy(); }

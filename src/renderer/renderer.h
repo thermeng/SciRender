@@ -47,7 +47,7 @@ struct Mesh {
     int indexCount;
 };
 
-// ponytail: instanced arrow glyphs for VTK VECTORS
+// instanced arrow glyphs for VTK VECTORS
 struct VectorGlyph {
     GLuint vao = 0;
     GLuint vbo = 0;   // arrow vertex positions
@@ -68,7 +68,7 @@ class Renderer : public QObject {
     Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY surfaceVisibilityChanged)
     Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY gridVisibilityChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
-    // ponytail: reactive flag so the scalar-field ComboBox enables on load (method call won't refresh binding)
+    // reactive flag so the scalar-field ComboBox enables on load (method call won't refresh binding)
     Q_PROPERTY(bool meshHasScalars READ hasMeshScalarsQml NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString currentMeshName READ getCurrentMeshNameQStr NOTIFY meshLoadStateChanged)
 
@@ -89,47 +89,48 @@ class Renderer : public QObject {
     Q_PROPERTY(float lightKB READ getLightKB WRITE setLightKB NOTIFY lightingParametersChanged)
     Q_PROPERTY(float lightKH READ getLightKH WRITE setLightKH NOTIFY lightingParametersChanged)
     Q_PROPERTY(bool lightKitEnabled READ getLightKitEnabled WRITE setLightKitEnabled NOTIFY lightingParametersChanged)
+    Q_PROPERTY(bool showLightMarkers READ getShowLightMarkers WRITE setShowLightMarkers NOTIFY lightingParametersChanged)
     Q_PROPERTY(float lightWarm READ getLightWarm WRITE setLightWarm NOTIFY lightingParametersChanged)
     Q_PROPERTY(int triangleCount READ getTriangleCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int pointCount READ getPointCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
-    // ponytail: vector glyph controls
+    // vector glyph controls
     Q_PROPERTY(bool showVectors READ getShowVectors WRITE setShowVectors NOTIFY viewChanged)
     Q_PROPERTY(float vectorScale READ getVectorScale WRITE setVectorScale NOTIFY viewChanged)
     Q_PROPERTY(int vectorStride READ getVectorStride WRITE setVectorStride NOTIFY viewChanged)
     Q_PROPERTY(QColor vectorColor READ getVectorColorQml WRITE setVectorColorQml NOTIFY viewChanged)
-    // ponytail: active vector field (multi-field combo)
+    // active vector field (multi-field combo)
     Q_PROPERTY(QString vectorField READ getVectorField WRITE setActiveVectorField NOTIFY meshDataUpdated)
     Q_PROPERTY(QStringList availableVectors READ getAvailableVectors NOTIFY meshDataUpdated)
-    // ponytail: color arrows by magnitude via the shared colormap LUT
+    // color arrows by magnitude via the shared colormap LUT
     Q_PROPERTY(bool vectorUseColormap READ getVectorUseColormap WRITE setVectorUseColormap NOTIFY viewChanged)
     Q_PROPERTY(int vectorColormapChoice READ getVectorColormapChoice WRITE setVectorColormapChoice NOTIFY viewChanged)
-    // ponytail: recent files list for the File menu
+    // recent files list for the File menu
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
-    // ponytail: active scalar name must refresh the colorbar label on load + field switch
+    // active scalar name must refresh the colorbar label on load + field switch
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
-    // ponytail: property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't notify)
+    // property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't notify)
     Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY colormapChanged)
-    // ponytail: separate colorbar data for vector magnitude (independent of scalar colormap)
+    // separate colorbar data for vector magnitude (independent of scalar colormap)
     Q_PROPERTY(QVariantList vectorColormapStops READ getVectorColormapStops NOTIFY vectorColormapChanged)
     Q_PROPERTY(float vectorMagMin READ getVectorMagMin NOTIFY vectorColormapChanged)
     Q_PROPERTY(float vectorMagMax READ getVectorMagMax NOTIFY vectorColormapChanged)
     Q_PROPERTY(QString vectorFieldName READ getVectorField NOTIFY meshDataUpdated)
-    // ponytail: world bounds exposed so the slice-panel sliders can set their from/to ranges
+    // world bounds exposed so the slice-panel sliders can set their from/to ranges
     Q_PROPERTY(double worldMinX READ getWorldMinX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMaxX READ getWorldMaxX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMinY READ getWorldMinY NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMaxY READ getWorldMaxY NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMinZ READ getWorldMinZ NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMaxZ READ getWorldMaxZ NOTIFY meshLoadStateChanged)
-    // ponytail: data scalar range exposed so the scalar-filter sliders + colorbar use the real range (raw vScalar, not 0..1)
+    // data scalar range exposed so the scalar-filter sliders + colorbar use the real range (raw vScalar, not 0..1)
     Q_PROPERTY(double dataScalarMinQml READ getDataScalarMinQml NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double dataScalarMaxQml READ getDataScalarMaxQml NOTIFY meshLoadStateChanged)
-    // ponytail: slice/clip exposed as props so QML can set them AND trigger a repaint
+    // slice/clip exposed as props so QML can set them AND trigger a repaint
     Q_PROPERTY(bool clipEnabled READ getClipEnabled WRITE setClipEnabled NOTIFY viewChanged)
     Q_PROPERTY(float sliceHeightX READ getSliceX WRITE setSliceX NOTIFY viewChanged)
     Q_PROPERTY(float sliceHeightY READ getSliceY WRITE setSliceY NOTIFY viewChanged)
@@ -140,15 +141,15 @@ class Renderer : public QObject {
     Q_PROPERTY(float filterMin READ getFilterMin WRITE setFilterMin NOTIFY viewChanged)
     Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
 
-    // ponytail: gizmo + mesh/surface color + screenshot options exposed to the UI
+    // gizmo + mesh/surface color + screenshot options exposed to the UI
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
-    Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged) // ponytail: turntable
+    Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged) // turntable
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
     Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
     Q_PROPERTY(int screenshotQuality READ getScreenshotQuality WRITE setScreenshotQuality NOTIFY viewChanged)
 
-    // ponytail: on-screen perf HUD (FPS / frame ms / tris)
+    // on-screen perf HUD (FPS / frame ms / tris)
     Q_PROPERTY(bool showFps READ getShowFps WRITE setShowFps NOTIFY viewChanged)
     Q_PROPERTY(QString fpsText READ getFpsText NOTIFY fpsChanged)
 
@@ -219,6 +220,8 @@ public:
     void setLightKH(float v) { lightKH = v; emit lightingParametersChanged(); }
     bool getLightKitEnabled() const { return lightKitEnabled; }
     void setLightKitEnabled(bool v) { lightKitEnabled = v; emit lightingParametersChanged(); }
+    bool getShowLightMarkers() const { return showLightMarkers; }
+    void setShowLightMarkers(bool v) { showLightMarkers = v; emit lightingParametersChanged(); }
     float getLightWarm() const { return lightWarm; }
     void setLightWarm(float v) { lightWarm = v; emit lightingParametersChanged(); }
 
@@ -231,11 +234,11 @@ public:
     // -----------------------------------------------------------------------
 public slots:
     void loadMesh(const QString& filePath);
-    void openRecent(const QString& filePath); // ponytail: load from recent list
+    void openRecent(const QString& filePath); // load from recent list
     void clearMeshes();
     void resetCamera();
     void snapToOrthoView(int axis);
-    // ponytail: QWidget-based QFileDialog is unsafe under QGuiApplication (crashes
+    // QWidget-based QFileDialog is unsafe under QGuiApplication (crashes
     // with "Cannot create a QWidget without QApplication"). Path is chosen in QML
     // via FileDialog and handed here; the actual GL read+save happens on the
     // render thread through captureScreenshotToFile (see CustomViewportItem).
@@ -249,10 +252,10 @@ public slots:
     void toggleSurface(bool visible);
 
     // Multi-Scalar Dynamic Interop
-    QStringList getAvailableScalars() const; // ponytail: READ for availableScalars Q_PROPERTY
-    QStringList getRecentFiles() const { return recentFiles; } // ponytail: READ for recentFiles
-    void loadRecentFromSettings(); // ponytail: restore recent list at startup
-    void saveRecentToSettings() const; // ponytail: persist recent list on load
+    QStringList getAvailableScalars() const; // READ for availableScalars Q_PROPERTY
+    QStringList getRecentFiles() const { return recentFiles; } // READ for recentFiles
+    void loadRecentFromSettings(); // restore recent list at startup
+    void saveRecentToSettings() const; // persist recent list on load
     Q_INVOKABLE void setActiveScalarField(const QString& fieldName);
 
     // Returns the list of colormap display names in ColormapType enum order,
@@ -267,11 +270,11 @@ signals:
     void meshDataUpdated();
     void lightingParametersChanged();
     void colormapChanged();
-    void vectorColormapChanged(); // ponytail: vector magnitude LUT + range changed
+    void vectorColormapChanged(); // vector magnitude LUT + range changed
     void viewChanged(); // view change -> viewport repaint
     void screenshotCaptured(const QString& targetSavedPath);
     void screenshotRequested(const QString& targetPath);
-    void fpsChanged(); // ponytail: HUD text refresh
+    void fpsChanged(); // HUD text refresh
 
 public:
     // VTK Camera Inline Forwarders (QML-invokable so the UI can drive the camera)
@@ -294,7 +297,7 @@ public:
     Q_INVOKABLE void setSidebarWidth(float w) { sidebarWidth = w; }
     float getSidebarWidth() const { return sidebarWidth; }
 
-    // ponytail: gizmo + color + screenshot option accessors (QML-exposed)
+    // gizmo + color + screenshot option accessors (QML-exposed)
     bool isGizmoVisible() const { return showGizmo; }
     void setGizmoVisible(bool v) { if (showGizmo != v) { showGizmo = v; emit viewChanged(); } }
     bool getAutoRotate() const { return autoRotate; }
@@ -303,7 +306,7 @@ public:
     void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); emit viewChanged(); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(surfaceColor[0], surfaceColor[1], surfaceColor[2]); }
     void setSurfaceColorQml(const QColor& c) { surfaceColor[0] = c.redF(); surfaceColor[1] = c.greenF(); surfaceColor[2] = c.blueF(); emit viewChanged(); }
-    // ponytail: vector glyph accessors (uniform-length arrows)
+    // vector glyph accessors (uniform-length arrows)
     bool getShowVectors() const { return showVectors; }
     void setShowVectors(bool v) { if (showVectors != v) { showVectors = v; emit viewChanged(); } }
     float getVectorScale() const { return vectorScale; }
@@ -323,19 +326,19 @@ public:
     void setScreenshotTransparent(bool v) { screenshotTransparent = v; }
     int getScreenshotQuality() const { return screenshotQuality; }
     void setScreenshotQuality(int v) { screenshotQuality = (v < 1 ? 1 : (v > 100 ? 100 : v)); }
-    // ponytail: default timestamped screenshot filename (wires up ScreenshotExporter::generateFilename)
+    // default timestamped screenshot filename (wires up ScreenshotExporter::generateFilename)
     Q_INVOKABLE QString generateScreenshotFilename() const {
         return ScreenshotExporter::generateFilename(QString::fromStdString(currentMeshName), ExportFormat::PNG);
     }
 
-    // ponytail: lighting presets — reuse existing light uniforms, no new infra
+    // lighting presets — reuse existing light uniforms, no new infra
     Q_INVOKABLE void applyLightingPreset(int preset); // 0=Studio 1=CAD-Flat 2=Soft
     Q_INVOKABLE void resetLighting();                 // restore default Light Kit
     static constexpr int PRESET_STUDIO = 0;
     static constexpr int PRESET_CADFLAT = 1;
     static constexpr int PRESET_SOFT = 2;
 
-    // ponytail: on-screen perf HUD accessors
+    // on-screen perf HUD accessors
     bool getShowFps() const { return showFps; }
     void setShowFps(bool v) { if (showFps != v) { showFps = v; emit viewChanged(); } }
     QString getFpsText() const { return fpsText; }
@@ -369,7 +372,7 @@ public:
     float getDataScalarMax() const { return dataScalarMax; }
     bool hasMeshScalars() const { return meshHasScalars; }
     const std::string& getActiveScalarName() const { return activeScalarName; }
-    // ponytail: QString accessor so QML bindings can read the active scalar name (std::string isn't a QML metatype)
+    // QString accessor so QML bindings can read the active scalar name (std::string isn't a QML metatype)
     Q_INVOKABLE QString getActiveScalarNameQml() const { return QString::fromStdString(activeScalarName); }
 
     // QML-visible accessors for the colorbar legend overlay.
@@ -377,7 +380,7 @@ public:
     Q_INVOKABLE float getDataScalarMinQml() const { return dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return dataScalarMax; }
 
-    // ponytail: slice/clip getters/setters — setters emit viewChanged (cheap repaint)
+    // slice/clip getters/setters — setters emit viewChanged (cheap repaint)
     bool getClipEnabled() const { return clipEnabled; }
     void setClipEnabled(bool v) { if (clipEnabled != v) { clipEnabled = v; emit viewChanged(); } }
     float getSliceX() const { return sliceHeightX; }
@@ -423,7 +426,7 @@ public:
     bool clipEnabled = false;
 
     // 4-Point Light Parameter Set registers
-    // ponytail: warmth fields deleted — dead (never read by computeLightDirections/drawMesh)
+    // warmth fields deleted — dead (never read by computeLightDirections/drawMesh)
     float lightKF = 3.0f;
     float lightKB = 3.5f;
     float lightKH = 3.0f;
@@ -438,6 +441,7 @@ public:
 
     // Light Kit state
     bool  lightKitEnabled = true;
+    bool  showLightMarkers = false; // triad light-marker overlay (default off)
     float lightKeyIntensity = 1.0f;  // "Int" — key intensity (0..1)
     float lightWarm = 0.5f;          // kit-wide warm tint (0 cold .. 0.5 neutral .. 1 warm)
 
@@ -507,7 +511,7 @@ private:
     GLint hasScalarsLoc = -1;
     GLint lutTextureLoc = -1;
 
-    // ponytail: glyph program + uniform cache (instanced vector arrows)
+    // glyph program + uniform cache (instanced vector arrows)
     GLuint glyphProgram = 0;
     GLint glyphMvpLoc = -1;
     GLint glyphScaleLoc = -1;
@@ -543,22 +547,22 @@ private:
     bool showSurface = true;
     bool showGrid = false;
 
-    // ponytail: grid (procedural ray-cast ground plane)
+    // grid (procedural ray-cast ground plane)
     GLuint gridVAO = 0, gridVBO = 0;
     GLuint gridProgram = 0;
     GLint gridInvViewLoc = -1, gridInvProjLoc = -1;
     GLint gridViewLoc = -1, gridProjLoc = -1;
     GLint gridCamPosLoc = -1, gridColorLoc = -1, gridBgLoc = -1, gridFalloffLoc = -1;
 
-    int colormapChoice = 3; // ponytail: default CoolWarm
+    int colormapChoice = 3; // default CoolWarm
     int lastUploadedChoice = -1;
     GLuint colormapTex = 0;
-    // ponytail: separate LUT for vector magnitude (independent of scalar colormap)
+    // separate LUT for vector magnitude (independent of scalar colormap)
     int vectorColormapChoice = 3;
     int vectorLastUploadedChoice = -1;
     GLuint vectorColormapTex = 0;
     std::atomic<bool> meshChanged{true};
-    std::atomic<bool> vectorGlyphDirty{false}; // ponytail: GL glyph rebuild deferred to render thread
+    std::atomic<bool> vectorGlyphDirty{false}; // GL glyph rebuild deferred to render thread
     float scalarMin = 0.0f;
     float scalarMax = 1.0f;
     float dataScalarMin = 0.0f;
@@ -568,9 +572,9 @@ private:
     std::mutex meshGLMutex; // guards meshes GPU-handle teardown/uploads across threads
     bool m_destroying = false; // set in ~Renderer to suppress signals during teardown
     bool showWireframe = false;
-    bool showGizmo = true;       // ponytail: orientation gizmo toggle (UI-exposed)
-    bool autoRotate = false;     // ponytail: turntable
-    // ponytail: instanced vector arrows (uniform-length)
+    bool showGizmo = true;       // orientation gizmo toggle (UI-exposed)
+    bool autoRotate = false;     // turntable
+    // instanced vector arrows (uniform-length)
     VectorGlyph vectorGlyph;
     bool showVectors = false;
     float vectorScale = 1.0f;
@@ -579,22 +583,22 @@ private:
     bool vectorUseColormap = false;
     float vectorMagMin = 0.0f;
     float vectorMagMax = 1.0f;
-    bool vectorLutDirty = true;   // ponytail: rebuild vector LUT when choice changes
+    bool vectorLutDirty = true;   // rebuild vector LUT when choice changes
     int triangleCount = 0;
     int pointCount = 0;
 
-    // ponytail: screenshot export options (UI-exposed)
+    // screenshot export options (UI-exposed)
     bool screenshotTransparent = false;
     int screenshotQuality = 95;
 
-    // ponytail: on-screen perf HUD state
+    // on-screen perf HUD state
     bool showFps = false;
     QString fpsText = "FPS: --";
     std::chrono::steady_clock::time_point m_lastFrameTime;
     int m_frameCount = 0;
     double m_fpsAccum = 0.0; // seconds elapsed since last HUD update
 
-    // ponytail: recent files (most-recent first), persisted by main.cpp via QSettings
+    // recent files (most-recent first), persisted by main.cpp via QSettings
     QStringList recentFiles;
 
     RenderMesh dynamicMeshQueue;
