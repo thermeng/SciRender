@@ -14,6 +14,7 @@
 #include <sstream>
 #include <vector>
 #include <algorithm>
+#include <limits>
 
 // Qt Core & UI Utilities replacing Win32 APIs
 #include <QDir>
@@ -65,6 +66,7 @@ Renderer::~Renderer() {
         if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
         if (gridVBO) glDeleteBuffers(1, &gridVBO);
         if (colormapTex) glDeleteTextures(1, &colormapTex);
+        if (vectorColormapTex) glDeleteTextures(1, &vectorColormapTex);
         gizmo.shutdown();
     }
 }
@@ -202,6 +204,31 @@ void Renderer::initShaders() {
     scalarMaxLoc = glGetUniformLocation(shaderProgram, "uScalarMax");
     hasScalarsLoc = glGetUniformLocation(shaderProgram, "uHasScalars");
     lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
+
+    // ponytail: instanced vector glyph program
+    std::string gvert = loadEmbeddedShader(":/RendererQTUI/src/shaders/glyph.vert");
+    std::string gfrag = loadEmbeddedShader(":/RendererQTUI/src/shaders/glyph.frag");
+    if (!gvert.empty() && !gfrag.empty()) {
+        GLuint gv = glCreateShader(GL_VERTEX_SHADER);
+        GLuint gf = glCreateShader(GL_FRAGMENT_SHADER);
+        const char* gvs = gvert.c_str();
+        const char* gfs = gfrag.c_str();
+        glShaderSource(gv, 1, &gvs, nullptr); glCompileShader(gv);
+        glShaderSource(gf, 1, &gfs, nullptr); glCompileShader(gf);
+        glyphProgram = glCreateProgram();
+        glAttachShader(glyphProgram, gv); glAttachShader(glyphProgram, gf);
+        glLinkProgram(glyphProgram);
+        glDeleteShader(gv); glDeleteShader(gf);
+        glyphMvpLoc = glGetUniformLocation(glyphProgram, "uMVP");
+        glyphScaleLoc = glGetUniformLocation(glyphProgram, "uScale");
+        glyphLightDirLoc = glGetUniformLocation(glyphProgram, "uLightDir");
+        glyphViewPosLoc = glGetUniformLocation(glyphProgram, "uViewPos");
+        glyphColorLoc = glGetUniformLocation(glyphProgram, "uColor");
+        glyphUseColormapLoc = glGetUniformLocation(glyphProgram, "uUseColormap");
+        glyphMagMinLoc = glGetUniformLocation(glyphProgram, "uMagMin");
+        glyphMagMaxLoc = glGetUniformLocation(glyphProgram, "uMagMax");
+        glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
+    }
 }
 
 void Renderer::initGrid() {
@@ -332,6 +359,9 @@ void Renderer::uploadMesh(const RenderMesh& renderMesh) {
 
     glBindVertexArray(0);
     meshes.push_back(mesh);
+
+    // ponytail: (re)build instanced vector arrow glyphs from the cached source mesh
+    rebuildVectorGlyphs();
 }
 
 void Renderer::destroyMesh(Mesh& mesh) {
@@ -340,6 +370,119 @@ void Renderer::destroyMesh(Mesh& mesh) {
     glDeleteBuffers(1, &mesh.nbo);
     glDeleteBuffers(1, &mesh.ebo);
     if (mesh.sbo) glDeleteBuffers(1, &mesh.sbo);
+}
+
+// ponytail: build a unit arrow (local space, arrow along +Y, height 1) and a
+// per-point instance buffer [ox,oy,oz, dx,dy,dz] from the active vector field.
+static void buildUnitArrow(std::vector<float>& verts, std::vector<float>& norms, std::vector<unsigned int>& idx) {
+    const int SEG = 8;
+    const float rs = 0.04f, rh = 0.12f, yHead = 0.75f;
+    for (int i = 0; i < SEG; ++i) {
+        float a0 = (i / (float)SEG) * 2.0f * 3.14159265f;
+        float a1 = ((i + 1) / (float)SEG) * 2.0f * 3.14159265f;
+        int b = (int)verts.size() / 3;
+        auto P = [&](float y, float r, float ang) { verts.push_back(cosf(ang) * r); verts.push_back(y); verts.push_back(sinf(ang) * r); };
+        auto N = [&](float ang) { norms.push_back(cosf(ang)); norms.push_back(0.0f); norms.push_back(sinf(ang)); };
+        P(0, rs, a0); N(a0); P(0, rs, a1); N(a1); P(yHead, rs, a1); N(a1); P(yHead, rs, a0); N(a0);
+        idx.insert(idx.end(), { (unsigned)b, (unsigned)b + 1, (unsigned)b + 2, (unsigned)b, (unsigned)b + 2, (unsigned)b + 3 });
+    }
+    for (int i = 0; i < SEG; ++i) {
+        float a0 = (i / (float)SEG) * 2.0f * 3.14159265f;
+        float a1 = ((i + 1) / (float)SEG) * 2.0f * 3.14159265f;
+        int b = (int)verts.size() / 3;
+        auto P = [&](float y, float r, float ang) { verts.push_back(cosf(ang) * r); verts.push_back(y); verts.push_back(sinf(ang) * r); };
+        glm::vec3 n0 = glm::normalize(glm::vec3(cosf(a0) * rh, 0.25f, sinf(a0) * rh));
+        glm::vec3 n1 = glm::normalize(glm::vec3(cosf(a1) * rh, 0.25f, sinf(a1) * rh));
+        P(yHead, rh, a0); norms.insert(norms.end(), { n0.x, n0.y, n0.z });
+        P(yHead, rh, a1); norms.insert(norms.end(), { n1.x, n1.y, n1.z });
+        P(1.0f, 0.0f, 0.0f); norms.insert(norms.end(), { n0.x, n0.y, n0.z });
+        idx.insert(idx.end(), { (unsigned)b, (unsigned)b + 1, (unsigned)b + 2 });
+    }
+}
+
+void Renderer::rebuildVectorGlyphs() {
+    // teardown previous glyph GL handles
+    if (vectorGlyph.vao) glDeleteVertexArrays(1, &vectorGlyph.vao);
+    if (vectorGlyph.vbo) glDeleteBuffers(1, &vectorGlyph.vbo);
+    if (vectorGlyph.nbo) glDeleteBuffers(1, &vectorGlyph.nbo);
+    if (vectorGlyph.ebo) glDeleteBuffers(1, &vectorGlyph.ebo);
+    if (vectorGlyph.instVBO) glDeleteBuffers(1, &vectorGlyph.instVBO);
+    vectorGlyph = VectorGlyph{};
+
+    if (cachedMeshSource.pointVectors.empty()) return;
+
+    const std::string& field = cachedMeshSource.vectorName.empty()
+        ? cachedMeshSource.availableVectorNames.front()
+        : cachedMeshSource.vectorName;
+    auto it = cachedMeshSource.pointVectors.find(field);
+    if (it == cachedMeshSource.pointVectors.end()) return;
+    const auto& vecArr = it->second;
+
+    int numPts = static_cast<int>(cachedMeshSource.vertices.size() / 3);
+    int stride = std::max(1, vectorStride);
+    // ponytail: track min/max magnitude across the (strided) sample for LUT normalization
+    float magMin = std::numeric_limits<float>::max();
+    float magMax = -std::numeric_limits<float>::max();
+    std::vector<float> inst;
+    for (int i = 0; i < numPts; i += stride) {
+        float dx = vecArr[i * 3 + 0], dy = vecArr[i * 3 + 1], dz = vecArr[i * 3 + 2];
+        // ponytail: skip near-zero vectors so the cloud isn't cluttered with dots
+        if (dx * dx + dy * dy + dz * dz < 1e-12f) continue;
+        float m = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (m < magMin) magMin = m;
+        if (m > magMax) magMax = m;
+        inst.push_back(cachedMeshSource.vertices[i * 3 + 0]);
+        inst.push_back(cachedMeshSource.vertices[i * 3 + 1]);
+        inst.push_back(cachedMeshSource.vertices[i * 3 + 2]);
+        inst.push_back(dx); inst.push_back(dy); inst.push_back(dz);
+    }
+    if (inst.empty()) return;
+    vectorMagMin = magMin;
+    vectorMagMax = magMax;
+    emit vectorColormapChanged(); // ponytail: refresh vector colorbar range
+    std::vector<float> av, an; std::vector<unsigned int> ai;
+    buildUnitArrow(av, an, ai);
+
+    glGenVertexArrays(1, &vectorGlyph.vao);
+    glGenBuffers(1, &vectorGlyph.vbo);
+    glGenBuffers(1, &vectorGlyph.nbo);
+    glGenBuffers(1, &vectorGlyph.ebo);
+    glGenBuffers(1, &vectorGlyph.instVBO);
+
+    glBindVertexArray(vectorGlyph.vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vectorGlyph.vbo);
+    glBufferData(GL_ARRAY_BUFFER, av.size() * sizeof(float), av.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vectorGlyph.nbo);
+    glBufferData(GL_ARRAY_BUFFER, an.size() * sizeof(float), an.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vectorGlyph.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ai.size() * sizeof(unsigned int), ai.data(), GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vectorGlyph.instVBO);
+    glBufferData(GL_ARRAY_BUFFER, inst.size() * sizeof(float), inst.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(2);
+    glVertexAttribDivisor(2, 1);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+    glVertexAttribDivisor(3, 1);
+
+    glBindVertexArray(0);
+    vectorGlyph.glyphIndexCount = static_cast<int>(ai.size());
+    vectorGlyph.instanceCount = static_cast<int>(inst.size() / 6);
+}
+
+void Renderer::setActiveVectorField(const QString& fieldName) {
+    if (fieldName.isEmpty()) return;
+    cachedMeshSource.vectorName = fieldName.toStdString();
+    vectorGlyphDirty = true; // ponytail: GL rebuild deferred to render thread (GUI thread has no GL ctx)
+    emit meshDataUpdated();
 }
 
 // 1. Rewrite clearMeshes to be strictly for UI/Reset calls (Runs on GUI Thread)
@@ -515,34 +658,57 @@ void Renderer::computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3
 }
 
 void Renderer::updateColormapTexture() {
-    if (colormapChoice == lastUploadedChoice && colormapTex != 0) return;
-
-    // Dynamically sample 256 structural elements across procedural math maps
-    std::vector<unsigned char> paletteData;
-    paletteData.reserve(256 * 3);
-
-    for (int i = 0; i < 256; ++i) {
-        float t = static_cast<float>(i) / 255.0f;
-        glm::vec3 rgb = Colormaps::evaluate(t, static_cast<ColormapType>(colormapChoice));
-        paletteData.push_back(static_cast<unsigned char>(rgb.r * 255.0f));
-        paletteData.push_back(static_cast<unsigned char>(rgb.g * 255.0f));
-        paletteData.push_back(static_cast<unsigned char>(rgb.b * 255.0f));
+    // Scalar LUT (surface) — independent guard
+    if (colormapTex == 0 || colormapChoice != lastUploadedChoice) {
+        std::vector<unsigned char> pd; pd.reserve(256 * 3);
+        for (int i = 0; i < 256; ++i) {
+            float t = static_cast<float>(i) / 255.0f;
+            glm::vec3 rgb = Colormaps::evaluate(t, static_cast<ColormapType>(colormapChoice));
+            pd.push_back(static_cast<unsigned char>(rgb.r * 255.0f));
+            pd.push_back(static_cast<unsigned char>(rgb.g * 255.0f));
+            pd.push_back(static_cast<unsigned char>(rgb.b * 255.0f));
+        }
+        if (colormapTex == 0) glGenTextures(1, &colormapTex);
+        glBindTexture(GL_TEXTURE_1D, colormapTex);
+        glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, pd.data());
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_1D, 0);
+        lastUploadedChoice = colormapChoice;
     }
 
-    if (colormapTex == 0) {
-        glGenTextures(1, &colormapTex);
+    // ponytail: vector magnitude LUT — SEPARATE guard, independent of scalar early-return
+    if (vectorColormapTex == 0 || vectorLutDirty || vectorLastUploadedChoice != vectorColormapChoice) {
+        std::vector<unsigned char> pd; pd.reserve(256 * 3);
+        for (int i = 0; i < 256; ++i) {
+            float t = static_cast<float>(i) / 255.0f;
+            glm::vec3 rgb = Colormaps::evaluate(t, static_cast<ColormapType>(vectorColormapChoice));
+            pd.push_back(static_cast<unsigned char>(rgb.r * 255.0f));
+            pd.push_back(static_cast<unsigned char>(rgb.g * 255.0f));
+            pd.push_back(static_cast<unsigned char>(rgb.b * 255.0f));
+        }
+        if (vectorColormapTex == 0) glGenTextures(1, &vectorColormapTex);
+        glBindTexture(GL_TEXTURE_1D, vectorColormapTex);
+        glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, pd.data());
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_1D, 0);
+        vectorLastUploadedChoice = vectorColormapChoice;
+        vectorLutDirty = false;
+        emit vectorColormapChanged();
     }
-    glBindTexture(GL_TEXTURE_1D, colormapTex);
-    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, paletteData.data());
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glBindTexture(GL_TEXTURE_1D, 0);
-
-    lastUploadedChoice = colormapChoice;
 }
 
 void Renderer::renderFrame() {
+    // ponytail: GL glyph rebuild must run on the render thread (GL context
+    // current here), never from GUI-thread setters that call setActiveVectorField/
+    // setVectorStride. Consume the flag once so a single-change set doesn't thrash.
+    if (vectorGlyphDirty.exchange(false)) {
+        rebuildVectorGlyphs();
+    }
+
     // Standard buffer setups
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -672,6 +838,34 @@ void Renderer::renderFrame() {
                 glDisable(GL_POLYGON_OFFSET_LINE);
             }
         }
+        glBindVertexArray(0);
+        glUseProgram(0);
+    }
+
+    // ponytail: instanced vector arrow glyphs (drawn after surface, before grid/gizmo)
+    if (showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // ponytail: ensure solid arrows even if wireframe pass left GL_LINE
+        glUseProgram(glyphProgram);
+        glUniformMatrix4fv(glyphMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniform1f(glyphScaleLoc, vectorScale);
+        glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
+        computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
+        glUniform3fv(glyphLightDirLoc, 1, glm::value_ptr(kDir));
+        glm::vec3 camPos = glm::vec3(camera.position);
+        glUniform3fv(glyphViewPosLoc, 1, glm::value_ptr(camPos));
+        glUniform3fv(glyphColorLoc, 1, vectorColor);
+        // ponytail: color by magnitude using the vector's OWN LUT (independent of scalar colormap)
+        glUniform1i(glyphUseColormapLoc, vectorUseColormap ? 1 : 0);
+        glUniform1f(glyphMagMinLoc, vectorMagMin);
+        glUniform1f(glyphMagMaxLoc, vectorMagMax);
+        if (vectorUseColormap && vectorColormapTex != 0) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_1D, vectorColormapTex);
+            glUniform1i(glyphLutLoc, 1);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        glBindVertexArray(vectorGlyph.vao);
+        glDrawElementsInstanced(GL_TRIANGLES, vectorGlyph.glyphIndexCount, GL_UNSIGNED_INT, 0, vectorGlyph.instanceCount);
         glBindVertexArray(0);
         glUseProgram(0);
     }
@@ -811,6 +1005,19 @@ QVariantList Renderer::getColormapStops() const {
     for (int i = 0; i <= steps; ++i) {
         float t = static_cast<float>(i) / static_cast<float>(steps);
         glm::vec3 c = Colormaps::evaluate(t, static_cast<ColormapType>(colormapChoice));
+        QVariantList stop;
+        stop << t << c.r << c.g << c.b;
+        out.append(QVariant(stop));
+    }
+    return out;
+}
+
+QVariantList Renderer::getVectorColormapStops() const {
+    QVariantList out;
+    const int steps = 16;
+    for (int i = 0; i <= steps; ++i) {
+        float t = static_cast<float>(i) / static_cast<float>(steps);
+        glm::vec3 c = Colormaps::evaluate(t, static_cast<ColormapType>(vectorColormapChoice));
         QVariantList stop;
         stop << t << c.r << c.g << c.b;
         out.append(QVariant(stop));

@@ -32,6 +32,8 @@ struct DatasetAttributes {
     std::map<std::string, std::vector<float>> pointScalars;
     // Cell data scalars (per-cell, averaged to vertices during parsing)
     std::map<std::string, std::vector<float>> cellScalars;
+    // ponytail: VTK VECTORS — per-point 3-component, interleaved [x,y,z]
+    std::map<std::string, std::vector<float>> pointVectors;
 
     // Global scalar range boundaries (Required by renderer & color LUT mapping)
     float scalarMin = 0.0f;
@@ -48,6 +50,12 @@ struct RenderMesh {
     std::vector<float> scalars;    // Active scalar field (per-vertex, optional)
     std::string scalarName = "";   // Name of active scalar field
     std::vector<std::string> availableScalarNames; // ponytail: all point-scalar field names for the QML switcher
+
+    // ponytail: VTK VECTORS — unrolled so it aligns with unrolled `vertices`
+    std::map<std::string, std::vector<float>> pointVectors; // interleaved [x,y,z] per unrolled vertex
+    std::vector<std::string> availableVectorNames;          // for a QML switcher
+    std::string vectorName = "";                            // active vector field name
+    bool meshHasVectors() const { return !pointVectors.empty(); }
 
     // High-precision bounding volume (double for camera-relative precision)
     BoundingVolume bounds;

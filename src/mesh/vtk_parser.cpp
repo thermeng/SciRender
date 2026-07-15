@@ -104,6 +104,7 @@ private:
         else if (token == "POLYGONS") { parsePolygonsBlock(iss, file); }
         else if (token == "TRIANGLE_STRIPS") { parseTriangleStripsBlock(iss, file); }
         else if (token == "SCALARS") { parseScalarsBlock(iss, file); }
+        else if (token == "VECTORS") { parseVectorsBlock(iss, file); }
     }
 
     void handleDimensions(std::istringstream& iss) {
@@ -278,6 +279,47 @@ private:
         else {
             mesh.attributes->cellScalars[scalarName] = readScalars;
             cellScalarsStorage[scalarName] = std::move(readScalars);
+        }
+    }
+
+    void parseVectorsBlock(std::istringstream& iss, std::ifstream& file) {
+        std::string vecName, dataType;
+        iss >> vecName >> dataType;
+        dataType = mesh_utils::toUpper(dataType);
+
+        if (mesh.vectorName.empty()) mesh.vectorName = vecName;
+
+        int activeElementCount = readingPointData ? numPoints : numCells;
+        if (activeElementCount == 0 && attributeTargetCount > 0) {
+            activeElementCount = attributeTargetCount;
+        }
+
+        std::vector<float> readVecs(static_cast<size_t>(activeElementCount) * 3);
+
+        if (isBinary) {
+            if (dataType == "DOUBLE") {
+                std::vector<double> tmp(readVecs.size());
+                file.read(reinterpret_cast<char*>(tmp.data()), tmp.size() * sizeof(double));
+                if (mesh_utils::isLittleEndian()) {
+                    for (auto& v : tmp) std::reverse(reinterpret_cast<char*>(&v), reinterpret_cast<char*>(&v) + sizeof(double));
+                }
+                for (size_t i = 0; i < tmp.size(); ++i) readVecs[i] = static_cast<float>(tmp[i]);
+            } else { // FLOAT
+                file.read(reinterpret_cast<char*>(readVecs.data()), readVecs.size() * sizeof(float));
+                fixEndianness(readVecs.data(), readVecs.size());
+            }
+        } else {
+            for (size_t i = 0; i < readVecs.size(); ++i) file >> readVecs[i];
+            clearTrailingLine(file);
+        }
+
+        // ponytail: POINT_DATA VECTORS only; cell vectors are rare, skip+warn
+        if (readingPointData) {
+            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            mesh.attributes->pointVectors[vecName] = std::move(readVecs);
+            std::cerr << "VTK: parsed POINT VECTORS '" << vecName << "' (" << activeElementCount << " vectors)" << std::endl;
+        } else {
+            std::cerr << "VTK Parser Warning: CELL_DATA VECTORS not supported yet; skipping '" << vecName << "'" << std::endl;
         }
     }
 
@@ -564,6 +606,16 @@ private:
                         unrolledPointScalars[name].push_back(0.0f);
                     }
                 }
+                // ponytail: unroll per-point vectors to align with unrolled vertices
+                for (const auto& [name, vecArr] : mesh.attributes->pointVectors) {
+                    float vx = 0.0f, vy = 0.0f, vz = 0.0f;
+                    if (originalPointIdx >= 0 && originalPointIdx * 3 + 2 < static_cast<int>(vecArr.size())) {
+                        vx = vecArr[originalPointIdx * 3 + 0];
+                        vy = vecArr[originalPointIdx * 3 + 1];
+                        vz = vecArr[originalPointIdx * 3 + 2];
+                    }
+                    mesh.pointVectors[name].insert(mesh.pointVectors[name].end(), { vx, vy, vz });
+                }
             }
         }
 
@@ -584,6 +636,14 @@ private:
             for (const auto& [name, _] : mesh.attributes->pointScalars) {
                 mesh.availableScalarNames.push_back(name);
             }
+            // ponytail: expose vector field names for the UI switcher
+            for (const auto& [name, _] : mesh.attributes->pointVectors) {
+                mesh.availableVectorNames.push_back(name);
+            }
+        }
+
+        if (mesh.vectorName.empty() && !mesh.availableVectorNames.empty()) {
+            mesh.vectorName = mesh.availableVectorNames.front();
         }
 
         // 4. Calculate ranges and bounds safely on the new layout footprint

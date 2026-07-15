@@ -70,7 +70,8 @@ ApplicationWindow {
             activeSection === 0 ? "Lighting" :
             activeSection === 1 ? "Slicing & Clipping" :
             activeSection === 2 ? "View & Display" :
-            activeSection === 3 ? "Colormap" : ""
+            activeSection === 3 ? "Colormap" :
+            activeSection === 4 ? "Vectors" : ""
         width: 48 + (expanded ? panelWidth : 0)
         anchors.top: parent.top
         anchors.bottom: parent.bottom
@@ -123,6 +124,7 @@ ApplicationWindow {
             RailButton { text: "\u2702";    ToolTip.text: "Slicing & Clipping"; ToolTip.visible: hovered; active: rail.activeSection === 1; onClicked: rail.toggleSection(1) }
             RailButton { text: "\u{1F441}"; ToolTip.text: "View & Display"; ToolTip.visible: hovered; active: rail.activeSection === 2; onClicked: rail.toggleSection(2) }
             RailButton { text: "\u{1F3A8}"; ToolTip.text: "Colormap"; ToolTip.visible: hovered; active: rail.activeSection === 3; onClicked: rail.toggleSection(3) }
+            RailButton { text: "\u{27A1}";    ToolTip.text: "Vectors"; ToolTip.visible: hovered; active: rail.activeSection === 4; onClicked: rail.toggleSection(4) }
         }
 
         // ---- Docked content panel (slides out to the right of the icon strip) ----
@@ -371,6 +373,37 @@ ApplicationWindow {
                             onActivated: index => backendRenderer.colormapChoice = index
                         }
                     }
+
+                    // Vectors Panel (ponytail: moved out of View & Display into its own section)
+                    Column {
+                        visible: rail.activeSection === 4
+                        spacing: 4
+                        width: parent.width
+                        CheckBox { text: "Show vectors"; checked: backendRenderer ? backendRenderer.showVectors : false; onToggled: backendRenderer.showVectors = checked }
+                        Text { text: "Field"; color: "#888"; font.pixelSize: 10 }
+                        ComboBox {
+                            width: parent.width
+                            model: backendRenderer ? backendRenderer.availableVectors : []
+                            currentIndex: backendRenderer ? Math.max(0, availableVectors.indexOf(backendRenderer.vectorField)) : 0
+                            onActivated: backendRenderer.setActiveVectorField(currentText)
+                        }
+                        Text { text: "Arrow scale"; color: "#888"; font.pixelSize: 10 }
+                        LightSlider { label: "Scale"; value: backendRenderer ? backendRenderer.vectorScale : 1.0; from: 0.01; to: 5.0; step: 0.01; onSet: v => backendRenderer.vectorScale = v }
+                        Text { text: "Stride (skip every N)"; color: "#888"; font.pixelSize: 10 }
+                        LightSlider { label: "Stride"; value: backendRenderer ? backendRenderer.vectorStride : 1; from: 1; to: 20; step: 1; onSet: v => backendRenderer.vectorStride = v }
+                        Row { spacing: 6
+                            Button { text: "Vector Color"; width: 100; onClicked: vectorColorDialog.open() }
+                        }
+                        Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
+                        CheckBox { text: "Color by magnitude"; checked: backendRenderer ? backendRenderer.vectorUseColormap : false; onToggled: backendRenderer.vectorUseColormap = checked }
+                        ComboBox {
+                            width: parent.width
+                            enabled: backendRenderer ? backendRenderer.vectorUseColormap : false
+                            model: backendRenderer ? backendRenderer.getColormapNames() : []
+                            currentIndex: backendRenderer ? backendRenderer.vectorColormapChoice : 0
+                            onActivated: index => backendRenderer.vectorColormapChoice = index
+                        }
+                    }
                 }
             }
         }
@@ -389,6 +422,11 @@ ApplicationWindow {
             id: surfaceColorDialog
             selectedColor: backendRenderer ? backendRenderer.surfaceColor : "#ffffff"
             onAccepted: backendRenderer.surfaceColor = selectedColor
+        }
+        ColorDialog {
+            id: vectorColorDialog
+            selectedColor: backendRenderer ? backendRenderer.vectorColor : "#3399ff"
+            onAccepted: backendRenderer.vectorColor = selectedColor
         }
     }
 
@@ -513,6 +551,67 @@ ApplicationWindow {
 
                 Text {
                     text: backendRenderer ? backendRenderer.dataScalarMinQml.toFixed(3) : ""
+                    color: "#dddddd"
+                    font.pixelSize: 11
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                }
+            }
+        }
+    }
+
+    // Vector magnitude colorbar (ponytail: SEPARATE legend, top-right, shown only when color-by-magnitude is on)
+    Column {
+        id: vectorColorbar
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 12
+        spacing: 4
+        visible: backendRenderer ? (backendRenderer.showVectors && backendRenderer.vectorUseColormap && backendRenderer.hasMeshLoaded) : false
+
+        Text {
+            text: (backendRenderer ? backendRenderer.vectorFieldName : "") + " | magnitude"
+            color: "#dddddd"
+            font.pixelSize: 12
+        }
+
+        Row {
+            spacing: 8
+
+            Rectangle {
+                id: vectorGradientBar
+                width: 20
+                height: 200
+                border.color: "#555555"
+                border.width: 1
+                clip: true
+
+                Repeater {
+                    model: backendRenderer ? backendRenderer.vectorColormapStops : []
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: 20
+                        height: backendRenderer.vectorColormapStops.length ? (200 / backendRenderer.vectorColormapStops.length) : 0
+                        y: 200 - (modelData[0] * 200 + height)
+                        color: Qt.rgba(modelData[1], modelData[2], modelData[3], 1.0)
+                    }
+                }
+            }
+
+            Item {
+                width: 60
+                height: vectorGradientBar.height
+
+                Text {
+                    text: backendRenderer ? backendRenderer.vectorMagMax.toFixed(3) : ""
+                    color: "#dddddd"
+                    font.pixelSize: 11
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                }
+
+                Text {
+                    text: backendRenderer ? backendRenderer.vectorMagMin.toFixed(3) : ""
                     color: "#dddddd"
                     font.pixelSize: 11
                     anchors.left: parent.left

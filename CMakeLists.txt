@@ -97,7 +97,10 @@ qt_add_qml_module(RendererQT
         src/shaders/mesh.frag
         src/shaders/grid.vert
         src/shaders/grid.frag
+        src/shaders/glyph.vert
+        src/shaders/glyph.frag
 )
+
 # ---------------------------------------------------------------------------
 # 5. Post-Build Pipeline Automation (Shader Dynamic Sync)
 # ---------------------------------------------------------------------------

@@ -47,6 +47,17 @@ struct Mesh {
     int indexCount;
 };
 
+// ponytail: instanced arrow glyphs for VTK VECTORS
+struct VectorGlyph {
+    GLuint vao = 0;
+    GLuint vbo = 0;   // arrow vertex positions
+    GLuint nbo = 0;   // arrow normals
+    GLuint ebo = 0;
+    GLuint instVBO = 0; // per-instance [ox,oy,oz, dx,dy,dz]
+    int glyphIndexCount = 0;
+    int instanceCount = 0;
+};
+
 class Renderer : public QObject {
     Q_OBJECT
 
@@ -82,6 +93,17 @@ class Renderer : public QObject {
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
+    // ponytail: vector glyph controls
+    Q_PROPERTY(bool showVectors READ getShowVectors WRITE setShowVectors NOTIFY viewChanged)
+    Q_PROPERTY(float vectorScale READ getVectorScale WRITE setVectorScale NOTIFY viewChanged)
+    Q_PROPERTY(int vectorStride READ getVectorStride WRITE setVectorStride NOTIFY viewChanged)
+    Q_PROPERTY(QColor vectorColor READ getVectorColorQml WRITE setVectorColorQml NOTIFY viewChanged)
+    // ponytail: active vector field (multi-field combo)
+    Q_PROPERTY(QString vectorField READ getVectorField WRITE setActiveVectorField NOTIFY meshDataUpdated)
+    Q_PROPERTY(QStringList availableVectors READ getAvailableVectors NOTIFY meshDataUpdated)
+    // ponytail: color arrows by magnitude via the shared colormap LUT
+    Q_PROPERTY(bool vectorUseColormap READ getVectorUseColormap WRITE setVectorUseColormap NOTIFY viewChanged)
+    Q_PROPERTY(int vectorColormapChoice READ getVectorColormapChoice WRITE setVectorColormapChoice NOTIFY viewChanged)
     // ponytail: recent files list for the File menu
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     // ponytail: active scalar name must refresh the colorbar label on load + field switch
@@ -90,6 +112,11 @@ class Renderer : public QObject {
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
     // ponytail: property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't notify)
     Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY colormapChanged)
+    // ponytail: separate colorbar data for vector magnitude (independent of scalar colormap)
+    Q_PROPERTY(QVariantList vectorColormapStops READ getVectorColormapStops NOTIFY vectorColormapChanged)
+    Q_PROPERTY(float vectorMagMin READ getVectorMagMin NOTIFY vectorColormapChanged)
+    Q_PROPERTY(float vectorMagMax READ getVectorMagMax NOTIFY vectorColormapChanged)
+    Q_PROPERTY(QString vectorFieldName READ getVectorField NOTIFY meshDataUpdated)
     // ponytail: world bounds exposed so the slice-panel sliders can set their from/to ranges
     Q_PROPERTY(double worldMinX READ getWorldMinX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMaxX READ getWorldMaxX NOTIFY meshLoadStateChanged)
@@ -235,6 +262,7 @@ signals:
     void meshDataUpdated();
     void lightingParametersChanged();
     void colormapChanged();
+    void vectorColormapChanged(); // ponytail: vector magnitude LUT + range changed
     void viewChanged(); // view change -> viewport repaint
     void screenshotCaptured(const QString& targetSavedPath);
     void screenshotRequested(const QString& targetPath);
@@ -270,6 +298,22 @@ public:
     void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); emit viewChanged(); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(surfaceColor[0], surfaceColor[1], surfaceColor[2]); }
     void setSurfaceColorQml(const QColor& c) { surfaceColor[0] = c.redF(); surfaceColor[1] = c.greenF(); surfaceColor[2] = c.blueF(); emit viewChanged(); }
+    // ponytail: vector glyph accessors (uniform-length arrows)
+    bool getShowVectors() const { return showVectors; }
+    void setShowVectors(bool v) { if (showVectors != v) { showVectors = v; emit viewChanged(); } }
+    float getVectorScale() const { return vectorScale; }
+    void setVectorScale(float v) { if (vectorScale != v) { vectorScale = v; emit viewChanged(); } }
+    int getVectorStride() const { return vectorStride; }
+    void setVectorStride(int v) { int s = v < 1 ? 1 : v; if (vectorStride != s) { vectorStride = s; vectorGlyphDirty = true; emit viewChanged(); } }
+    QColor getVectorColorQml() const { return QColor::fromRgbF(vectorColor[0], vectorColor[1], vectorColor[2]); }
+    void setVectorColorQml(const QColor& c) { vectorColor[0] = c.redF(); vectorColor[1] = c.greenF(); vectorColor[2] = c.blueF(); emit viewChanged(); }
+    bool getVectorUseColormap() const { return vectorUseColormap; }
+    void setVectorUseColormap(bool v) { if (vectorUseColormap != v) { vectorUseColormap = v; emit viewChanged(); } }
+    int getVectorColormapChoice() const { return vectorColormapChoice; }
+    void setVectorColormapChoice(int c) { if (vectorColormapChoice != c) { vectorColormapChoice = c; vectorLutDirty = true; emit viewChanged(); } }
+    QStringList getAvailableVectors() const { QStringList l; for (const auto& n : cachedMeshSource.availableVectorNames) l.append(QString::fromStdString(n)); return l; }
+    QString getVectorField() const { return QString::fromStdString(cachedMeshSource.vectorName); }
+    Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
     bool getScreenshotTransparent() const { return screenshotTransparent; }
     void setScreenshotTransparent(bool v) { screenshotTransparent = v; }
     int getScreenshotQuality() const { return screenshotQuality; }
@@ -357,6 +401,9 @@ public:
     // Returns a list of [t, r, g, b] stops (t in 0..1, rgb in 0..1) sampling the
     // active colormap, suitable for building a QML gradient/legend.
     Q_INVOKABLE QVariantList getColormapStops() const;
+    Q_INVOKABLE QVariantList getVectorColormapStops() const;
+    float getVectorMagMin() const { return vectorMagMin; }
+    float getVectorMagMax() const { return vectorMagMax; }
 
     // Dynamic Slices & Iso-Filter Threshold Registers
     float sliceHeightX = 0.0f;
@@ -392,6 +439,7 @@ private:
     void drawGizmo();
     void updateColormapTexture();
     void destroyMesh(Mesh& mesh);
+    void rebuildVectorGlyphs();
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     std::string readShaderFile(const std::string& filePath);
 
@@ -448,6 +496,18 @@ private:
     GLint hasScalarsLoc = -1;
     GLint lutTextureLoc = -1;
 
+    // ponytail: glyph program + uniform cache (instanced vector arrows)
+    GLuint glyphProgram = 0;
+    GLint glyphMvpLoc = -1;
+    GLint glyphScaleLoc = -1;
+    GLint glyphLightDirLoc = -1;
+    GLint glyphViewPosLoc = -1;
+    GLint glyphColorLoc = -1;
+    GLint glyphUseColormapLoc = -1;
+    GLint glyphMagMinLoc = -1;
+    GLint glyphMagMaxLoc = -1;
+    GLint glyphLutLoc = -1;
+
     double camDistance = 3.0;
     double nearPlane = 0.1;
     double farPlane = 100.0;
@@ -482,7 +542,12 @@ private:
     int colormapChoice = 3; // ponytail: default CoolWarm
     int lastUploadedChoice = -1;
     GLuint colormapTex = 0;
+    // ponytail: separate LUT for vector magnitude (independent of scalar colormap)
+    int vectorColormapChoice = 3;
+    int vectorLastUploadedChoice = -1;
+    GLuint vectorColormapTex = 0;
     std::atomic<bool> meshChanged{true};
+    std::atomic<bool> vectorGlyphDirty{false}; // ponytail: GL glyph rebuild deferred to render thread
     float scalarMin = 0.0f;
     float scalarMax = 1.0f;
     float dataScalarMin = 0.0f;
@@ -494,6 +559,16 @@ private:
     bool showWireframe = false;
     bool showGizmo = true;       // ponytail: orientation gizmo toggle (UI-exposed)
     bool autoRotate = false;     // ponytail: turntable
+    // ponytail: instanced vector arrows (uniform-length)
+    VectorGlyph vectorGlyph;
+    bool showVectors = false;
+    float vectorScale = 1.0f;
+    int vectorStride = 1;
+    float vectorColor[3] = { 0.2f, 0.6f, 1.0f };
+    bool vectorUseColormap = false;
+    float vectorMagMin = 0.0f;
+    float vectorMagMax = 1.0f;
+    bool vectorLutDirty = true;   // ponytail: rebuild vector LUT when choice changes
     int triangleCount = 0;
     int pointCount = 0;
     float lightInt = 0.2f;
