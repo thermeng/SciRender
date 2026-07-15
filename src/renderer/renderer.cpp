@@ -798,6 +798,7 @@ void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
     }
     meshChanged = true; // ponytail: trigger GPU re-upload of the scalar buffer
     emit meshDataUpdated();
+    emit meshLoadStateChanged(); // ponytail: refresh QML colorbar/labels on field switch
 }
 
 void Renderer::setWireframe(bool enabled) {

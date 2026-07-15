@@ -444,7 +444,7 @@ ApplicationWindow {
                 height: gradientBar.height
 
                 Text {
-                    text: backendRenderer ? backendRenderer.getDataScalarMaxQml().toFixed(3) : ""
+                    text: backendRenderer ? backendRenderer.dataScalarMaxQml.toFixed(3) : ""
                     color: "#dddddd"
                     font.pixelSize: 11
                     anchors.left: parent.left
@@ -452,7 +452,7 @@ ApplicationWindow {
                 }
 
                 Text {
-                    text: backendRenderer ? backendRenderer.getDataScalarMinQml().toFixed(3) : ""
+                    text: backendRenderer ? backendRenderer.dataScalarMinQml.toFixed(3) : ""
                     color: "#dddddd"
                     font.pixelSize: 11
                     anchors.left: parent.left
