@@ -34,7 +34,7 @@ uniform float uFilterMax;
 
 uniform sampler1D uColormapLUT;
 
-// ponytail: clipping is OFF unless the UI explicitly enables it. With the old
+// clipping is OFF unless the UI explicitly enables it. With the old
 // default (slice=0, invert=false) the shader discarded the whole mesh because
 // vWorldPos.x>0 was true for almost every vertex -> blank viewport.
 uniform bool uClipEnabled;
@@ -59,7 +59,7 @@ uniform vec3 uFillColor;
 uniform vec3 uBackColor;
 uniform vec3 uHeadColor;
 
-// ponytail: diffuse-only from fixed world-space lights; no specular term, so
+// diffuse-only from fixed world-space lights; no specular term, so
 // the highlight never tracks the camera as it orbits.
 void lightContribution(vec3 rawLightDir, vec3 norm, float intensity,
                        vec3 lightColor, inout vec3 diffuse) {

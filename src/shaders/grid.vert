@@ -1,5 +1,5 @@
 #version 330 core
-// ponytail: full-screen quad proxy; NDC position flows straight to gl_Position.
+// full-screen quad proxy; NDC position flows straight to gl_Position.
 // near/far world points are reconstructed via inverse view/proj so the fragment
 // shader can cast a ray to the y=0 ground plane.
 layout(location = 0) in vec2 aPos;

@@ -23,7 +23,7 @@ public:
     //  dpr      : device-pixel-ratio so the overlay footprint stays constant on HiDPI
     void draw(const glm::mat4& mainView, float dpr, int fbHeight);
 
-    // ponytail: draws Light Kit direction markers in the corner viewport.
+    // draws Light Kit direction markers in the corner viewport.
     //  dirs[]  : kit-local unit directions (constant per light, so markers stay put
     //           while the world-axis triad rotates — visually proving the lights
     //           track the camera).
@@ -43,7 +43,7 @@ private:
     GLuint glyphTex = 0;
     int    glyphAtlasW = 0, glyphAtlasH = 0;
 
-    // ponytail: light-marker disc geometry (5 lights * 6 verts * vec5 = px.xy + rgb)
+    // light-marker disc geometry (5 lights * 6 verts * vec5 = px.xy + rgb)
     GLuint lightMarkVAO = 0, lightMarkVBO = 0;
 
     bool buildAtlas();      // rasterize X/Y/Z into a horizontal strip atlas via Qt

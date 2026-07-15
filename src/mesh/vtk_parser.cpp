@@ -313,7 +313,7 @@ private:
             clearTrailingLine(file);
         }
 
-        // ponytail: POINT_DATA VECTORS only; cell vectors are rare, skip+warn
+        // POINT_DATA VECTORS only; cell vectors are rare, skip+warn
         if (readingPointData) {
             if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
             mesh.attributes->pointVectors[vecName] = std::move(readVecs);
@@ -378,7 +378,7 @@ private:
         int cellsX = std::max(1, dX - 1);
         int cellsY = std::max(1, dY - 1);
         int cellsZ = std::max(1, dZ - 1);
-        // ponytail: 64-bit count — int overflows at ~1290^3 cells
+        // 64-bit count — int overflows at ~1290^3 cells
         size_t totalCells = static_cast<size_t>(cellsX) * cellsY * cellsZ;
 
         mesh.indices.reserve(totalCells * 36);
@@ -565,7 +565,7 @@ private:
             std::cerr << "VTK Parser Error: Empty data sequence." << std::endl;
             return;
         }
-        // ponytail: vertices present but no triangles => blank viewport with no error.
+        // vertices present but no triangles => blank viewport with no error.
         // Surface it instead of silently handing an empty draw call to the GPU.
         if (mesh.indices.empty()) {
             std::cerr << "VTK Parser Error: topology produced no triangles (missing/invalid CELLS/POLYGONS/DIMENSIONS). Mesh will not render." << std::endl;
@@ -606,7 +606,7 @@ private:
                         unrolledPointScalars[name].push_back(0.0f);
                     }
                 }
-                // ponytail: unroll per-point vectors to align with unrolled vertices
+                // unroll per-point vectors to align with unrolled vertices
                 for (const auto& [name, vecArr] : mesh.attributes->pointVectors) {
                     float vx = 0.0f, vy = 0.0f, vz = 0.0f;
                     if (originalPointIdx >= 0 && originalPointIdx * 3 + 2 < static_cast<int>(vecArr.size())) {
@@ -631,12 +631,12 @@ private:
             mesh.scalars = mesh.attributes->pointScalars[mesh.scalarName];
         }
 
-        // ponytail: expose every point-scalar field name so the UI can switch fields
+        // expose every point-scalar field name so the UI can switch fields
         if (hasAttributes) {
             for (const auto& [name, _] : mesh.attributes->pointScalars) {
                 mesh.availableScalarNames.push_back(name);
             }
-            // ponytail: expose vector field names for the UI switcher
+            // expose vector field names for the UI switcher
             for (const auto& [name, _] : mesh.attributes->pointVectors) {
                 mesh.availableVectorNames.push_back(name);
             }

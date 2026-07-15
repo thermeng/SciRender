@@ -5,8 +5,8 @@ in float vMag;
 
 uniform vec3 uViewPos;
 uniform vec3 uLightDir;       // key light direction (world space), matches mesh shader
-uniform vec3 uColor;          // ponytail: flat arrow color when colormap disabled
-uniform bool uUseColormap;    // ponytail: color arrows by magnitude via shared LUT
+uniform vec3 uColor;          // flat arrow color when colormap disabled
+uniform bool uUseColormap;    // color arrows by magnitude via shared LUT
 uniform sampler1D uColormapLUT;
 
 out vec4 FragColor;

@@ -26,7 +26,7 @@ ViewportVisualizer::ViewportVisualizer(QQuickItem* parent)
     setAcceptedMouseButtons(Qt::AllButtons);
     // Keep the FBO continuous (camera interaction, animation).
     setFlag(ItemHasContents, true);
-    // ponytail: Y-flip now lives here (scene-graph FBO node mirrors the texture)
+    // Y-flip now lives here (scene-graph FBO node mirrors the texture)
     // instead of a depth-hazardous glm::scale in the render path.
     setMirrorVertically(true);
 }
@@ -56,12 +56,12 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
             if (m_scene) m_pendingScreenshot = path;
             update();
         });
-        // ponytail: lighting changes never repainted before — connect once here (guarded by setRenderer's early return)
+        // lighting changes never repainted before — connect once here (guarded by setRenderer's early return)
         connect(m_scene, &::Renderer::lightingParametersChanged, this, [this]() { update(); });
         connect(m_scene, &::Renderer::viewChanged, this, [this]() { update(); });
-        // ponytail: colormap switch must repaint the GL mesh, not just the QML legend
+        // colormap switch must repaint the GL mesh, not just the QML legend
         connect(m_scene, &::Renderer::colormapChanged, this, [this]() { update(); });
-        // ponytail: wireframe/surface setters emit these but nothing repainted them before
+        // wireframe/surface setters emit these but nothing repainted them before
         connect(m_scene, &::Renderer::wireframeChanged, this, [this]() { update(); });
         connect(m_scene, &::Renderer::gridVisibilityChanged, this, [this]() { update(); });
         connect(m_scene, &::Renderer::surfaceVisibilityChanged, this, [this]() { update(); });
@@ -99,7 +99,7 @@ void ViewportVisualizer::mouseReleaseEvent(QMouseEvent* event) {
 
 void ViewportVisualizer::wheelEvent(QWheelEvent* event) {
     if (!m_scene) return;
-    double factor = (event->angleDelta().y() > 0) ? 1.1 : 0.9; // ponytail: scroll up = zoom IN (smaller distance)
+    double factor = (event->angleDelta().y() > 0) ? 1.1 : 0.9; // scroll up = zoom IN (smaller distance)
     m_scene->dolly(factor);
     update();
     event->accept();
@@ -178,7 +178,7 @@ void ViewportFboRenderer::render() {
 
     m_scene->renderFrame();
 
-    // ponytail: capture here, NOT in synchronize() — synchronize runs on the GUI
+    // capture here, NOT in synchronize() — synchronize runs on the GUI
     // thread with no GL context current; render() owns the context. FBO now holds
     // the freshly drawn frame, so the read is correct. MUST happen BEFORE
     // resetOpenGLState(): that call can unbind the FBO, after which glReadPixels

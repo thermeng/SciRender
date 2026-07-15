@@ -17,12 +17,12 @@ private:
     ::Renderer* m_scene = nullptr;
     bool m_initialized = false;
     QSize m_fboSize;
-    QOpenGLFramebufferObject* m_fbo = nullptr; // ponytail: viewport FBO, used for screenshot capture
-    // ponytail: CPU mesh handoff lives in synchronize() (GUI thread, no GL
+    QOpenGLFramebufferObject* m_fbo = nullptr; // viewport FBO, used for screenshot capture
+    // CPU mesh handoff lives in synchronize() (GUI thread, no GL
     // context), but the GL upload must run in render() (context current).
     RenderMesh m_pendingMesh;
     bool m_uploadPending = false;
-    QString m_pendingScreenshot; // ponytail: carried from GUI thread (synchronize) to render() where GL context is current
+    QString m_pendingScreenshot; // carried from GUI thread (synchronize) to render() where GL context is current
 };
 
 class ViewportVisualizer : public QQuickFramebufferObject {

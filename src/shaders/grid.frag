@@ -1,5 +1,5 @@
 #version 330 core
-// ponytail: procedural infinite ground grid via screen-space ray cast to y=0.
+// procedural infinite ground grid via screen-space ray cast to y=0.
 // Grid lines are drawn in world space with fwidth() AA so line width stays
 // constant regardless of distance. Depth is written manually so the grid
 // occludes/is-occluded by meshes correctly. Fades to background at the horizon.
@@ -43,7 +43,7 @@ void main() {
     vec3 col = mix(uBg, uColor, g);
     fragColor = vec4(col, alpha);
 
-    // ponytail: write true depth so the grid sits correctly in the depth buffer.
+    // write true depth so the grid sits correctly in the depth buffer.
     // clip.z/clip.w is NDC in [-1,1]; gl_FragDepth needs window depth [0,1].
     vec4 clip = uProj * uView * vec4(worldPos, 1.0);
     gl_FragDepth = 0.5 * (clip.z / clip.w) + 0.5;

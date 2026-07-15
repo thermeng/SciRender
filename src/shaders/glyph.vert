@@ -11,9 +11,9 @@ uniform float uMagMax;
 
 out vec3 vNormal;
 out vec3 vWorldPos;
-out float vMag;   // ponytail: per-instance magnitude for LUT coloring
+out float vMag;   // per-instance magnitude for LUT coloring
 
-// ponytail: rotate +Y onto dir (Rodrigues about up x dir), uniform-length arrows
+// rotate +Y onto dir (Rodrigues about up x dir), uniform-length arrows
 mat3 alignToDir(vec3 dir) {
     vec3 up = vec3(0.0, 1.0, 0.0);
     float c = dot(up, dir);
@@ -30,13 +30,13 @@ void main() {
     vec3 dir = mag > 1e-6 ? iDir / mag : vec3(0.0, 1.0, 0.0);
     mat3 R = alignToDir(dir);
 
-    // ponytail: uniform-length arrows — scale the whole arrow by uScale (not magnitude)
+    // uniform-length arrows — scale the whole arrow by uScale (not magnitude)
     vec3 local = R * (aPos * uScale);
     vec3 world = iOrigin + local;
 
     vWorldPos = world;
     vNormal = R * aNormal;
-    // ponytail: normalize magnitude to [0,1] across the field for LUT lookup
+    // normalize magnitude to [0,1] across the field for LUT lookup
     float span = max(uMagMax - uMagMin, 1e-6);
     vMag = clamp((mag - uMagMin) / span, 0.0, 1.0);
     gl_Position = uMVP * vec4(world, 1.0);
