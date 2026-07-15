@@ -137,6 +137,8 @@ class Renderer : public QObject {
     // data scalar range exposed so the scalar-filter sliders + colorbar use the real range (raw vScalar, not 0..1)
     Q_PROPERTY(double dataScalarMinQml READ getDataScalarMinQml NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double dataScalarMaxQml READ getDataScalarMaxQml NOTIFY meshLoadStateChanged)
+    // user-controllable number of tick labels on the scalar colorbar legend
+    Q_PROPERTY(int colorbarTicks READ getColorbarTicks WRITE setColorbarTicks NOTIFY colorbarChanged)
     // slice/clip exposed as props so QML can set them AND trigger a repaint
     Q_PROPERTY(bool clipEnabled READ getClipEnabled WRITE setClipEnabled NOTIFY viewChanged)
     Q_PROPERTY(float sliceHeightX READ getSliceX WRITE setSliceX NOTIFY viewChanged)
@@ -296,6 +298,7 @@ signals:
     void meshDataUpdated();
     void lightingParametersChanged();
     void colormapChanged();
+    void colorbarChanged(); // colorbar tick count changed
     void vectorColormapChanged(); // vector magnitude LUT + range changed
     void viewChanged(); // view change -> viewport repaint
     void screenshotCaptured(const QString& targetSavedPath);
@@ -405,6 +408,8 @@ public:
     Q_INVOKABLE bool hasMeshScalarsQml() const { return meshHasScalars; }
     Q_INVOKABLE float getDataScalarMinQml() const { return dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return dataScalarMax; }
+    int getColorbarTicks() const { return colorbarTicks; }
+    void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (colorbarTicks != c) { colorbarTicks = c; emit colorbarChanged(); } }
 
     // slice/clip getters/setters — setters emit viewChanged (cheap repaint)
     bool getClipEnabled() const { return clipEnabled; }
@@ -603,6 +608,7 @@ private:
     float scalarMax = 1.0f;
     float dataScalarMin = 0.0f;
     float dataScalarMax = 1.0f;
+    int colorbarTicks = 6; // number of tick labels on the scalar colorbar
     bool meshHasScalars = false;
 
     std::mutex meshGLMutex; // guards meshes GPU-handle teardown/uploads across threads

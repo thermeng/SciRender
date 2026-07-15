@@ -727,6 +727,9 @@ void Renderer::loadMesh(const QString& filePath) {
     // the render thread selects the new mesh's first available field.
     setShowVectors(false);
     setVectorUseColormap(false);
+    // Disable clipping on a fresh mesh so it doesn't carry over from the
+    // previous dataset (which would otherwise slice the new mesh unexpectedly).
+    setClipEnabled(false);
     if (!loaded.pointVectors.empty()) {
         cachedMeshSource.vectorName = loaded.availableVectorNames.front();
     } else {

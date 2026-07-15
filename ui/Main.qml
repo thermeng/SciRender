@@ -380,6 +380,17 @@ ApplicationWindow {
                             }
                         }
                         CheckBox { text: "Reverse palette"; checked: backendRenderer ? backendRenderer.colormapReversed : false; onToggled: backendRenderer.colormapReversed = checked }
+                        Row {
+                            spacing: 8
+                            Text { text: "Colorbar ticks"; color: "#888"; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
+                            SpinBox {
+                                id: colorbarTicksSpin
+                                from: 2; to: 20; stepSize: 1
+                                value: backendRenderer ? backendRenderer.colorbarTicks : 6
+                                onValueChanged: backendRenderer.colorbarTicks = value
+                                width: 100
+                            }
+                        }
                         Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
                         ClipSlider { label: "Min"; value: backendRenderer ? backendRenderer.filterMin : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMin = v }
                         ClipSlider { label: "Max"; value: backendRenderer ? backendRenderer.filterMax : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMax = v }
@@ -680,8 +691,6 @@ ApplicationWindow {
                 id: gradientBar
                 width: 20
                 height: 200
-                border.color: "#555555"
-                border.width: 1
                 clip: true
 
                 Repeater {
@@ -696,24 +705,26 @@ ApplicationWindow {
                 }
             }
 
+            // Tick labels spread across the full range (count is user-controllable).
             Item {
-                width: 55
+                width: 60
                 height: gradientBar.height
 
-                Text {
-                    text: backendRenderer ? backendRenderer.dataScalarMaxQml.toFixed(3) : ""
-                    color: "#dddddd"
-                    font.pixelSize: 11
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                }
-
-                Text {
-                    text: backendRenderer ? backendRenderer.dataScalarMinQml.toFixed(3) : ""
-                    color: "#dddddd"
-                    font.pixelSize: 11
-                    anchors.left: parent.left
-                    anchors.bottom: parent.bottom
+                Repeater {
+                    model: backendRenderer ? Math.max(2, backendRenderer.colorbarTicks) : 2
+                    delegate: Text {
+                        required property int index
+                        property int tickCount: backendRenderer ? backendRenderer.colorbarTicks : 2
+                        property real frac: tickCount > 1 ? (index / (tickCount - 1)) : 0
+                        property real value: backendRenderer
+                            ? (backendRenderer.dataScalarMinQml + (backendRenderer.dataScalarMaxQml - backendRenderer.dataScalarMinQml) * frac)
+                            : 0
+                        text: value.toFixed(3)
+                        color: "#dddddd"
+                        font.pixelSize: 10
+                        anchors.right: parent.right
+                        y: (1 - frac) * 200 - height / 2
+                    }
                 }
             }
         }
