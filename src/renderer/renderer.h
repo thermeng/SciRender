@@ -107,12 +107,14 @@ class Renderer : public QObject {
     // color arrows by magnitude via the shared colormap LUT
     Q_PROPERTY(bool vectorUseColormap READ getVectorUseColormap WRITE setVectorUseColormap NOTIFY viewChanged)
     Q_PROPERTY(int vectorColormapChoice READ getVectorColormapChoice WRITE setVectorColormapChoice NOTIFY viewChanged)
+    Q_PROPERTY(bool vectorColormapReversed READ getVectorColormapReversed WRITE setVectorColormapReversed NOTIFY vectorColormapChanged)
     // recent files list for the File menu
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     // active scalar name must refresh the colorbar label on load + field switch
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
+    Q_PROPERTY(bool colormapReversed READ getColormapReversed WRITE setColormapReversed NOTIFY colormapChanged)
     // property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't notify)
     Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY colormapChanged)
     // separate colorbar data for vector magnitude (independent of scalar colormap)
@@ -185,6 +187,10 @@ public:
 
     int getColormapChoice() const { return colormapChoice; }
     void setColormapChoice(int choice);
+    bool getColormapReversed() const { return colormapReversed; }
+    void setColormapReversed(bool reversed);
+    bool getVectorColormapReversed() const { return vectorColormapReversed; }
+    void setVectorColormapReversed(bool reversed);
 
     float getLightKeyAzimuth() const { return lightKeyAzimuth; }
     void setLightKeyAzimuth(float v) { lightKeyAzimuth = v; emit lightingParametersChanged(); }
@@ -261,6 +267,9 @@ public slots:
     // Returns the list of colormap display names in ColormapType enum order,
     // suitable for binding directly to a QML ComboBox model.
     Q_INVOKABLE QStringList getColormapNames() const;
+    // Returns a PNG data-URI gradient preview for the palette at `index`, so the
+    // QML dropdown can show a visual swatch instead of just the name.
+    Q_INVOKABLE QString getColormapPreviewUri(int index) const;
 
 signals:
     void wireframeChanged();
@@ -550,16 +559,21 @@ private:
     // grid (procedural ray-cast ground plane)
     GLuint gridVAO = 0, gridVBO = 0;
     GLuint gridProgram = 0;
+    double gridPlaneY = 0.0; // ground height; set to mesh y-min on load so the mesh rests on it
     GLint gridInvViewLoc = -1, gridInvProjLoc = -1;
     GLint gridViewLoc = -1, gridProjLoc = -1;
-    GLint gridCamPosLoc = -1, gridColorLoc = -1, gridBgLoc = -1, gridFalloffLoc = -1;
+    GLint gridCamPosLoc = -1, gridColorLoc = -1, gridBgLoc = -1, gridFalloffLoc = -1, gridPlaneYLoc = -1;
 
     int colormapChoice = 3; // default CoolWarm
     int lastUploadedChoice = -1;
+    bool colormapReversed = false;
+    bool lastUploadedReversed = false;
     GLuint colormapTex = 0;
     // separate LUT for vector magnitude (independent of scalar colormap)
     int vectorColormapChoice = 3;
     int vectorLastUploadedChoice = -1;
+    bool vectorColormapReversed = false;
+    bool vectorLastUploadedReversed = false;
     GLuint vectorColormapTex = 0;
     std::atomic<bool> meshChanged{true};
     std::atomic<bool> vectorGlyphDirty{false}; // GL glyph rebuild deferred to render thread

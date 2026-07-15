@@ -12,6 +12,7 @@ uniform vec3  uCamPos;
 uniform vec3  uColor;
 uniform vec3  uBg;
 uniform float uFalloff; // exp(-dist*falloff) horizon fade rate
+uniform float uPlaneY;  // ground-plane height (mesh y-min), default 0
 
 out vec4 fragColor;
 
@@ -27,7 +28,7 @@ float gridFactor(vec2 coord, float scale) {
 void main() {
     vec3 rayDir = normalize(vFar - vNear);
     if (abs(rayDir.y) < 1e-5) discard;       // looking along the plane: no hit
-    float t = -vNear.y / rayDir.y;
+    float t = (uPlaneY - vNear.y) / rayDir.y;
     if (t < 0.0) discard;                    // plane behind the camera
     vec3 worldPos = vNear + t * rayDir;
 

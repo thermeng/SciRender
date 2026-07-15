@@ -1,6 +1,7 @@
 ﻿import QtQuick
 import QtQuick.Window
 import QtQuick.Controls
+import QtQuick.Layouts
 import QtQuick.Dialogs
 import RendererQTUI 1.0 // Registers our custom C++ native view item namespace
 
@@ -325,10 +326,57 @@ ApplicationWindow {
                         ComboBox {
                             id: colormapCombo
                             width: parent.width
-                            model: backendRenderer ? backendRenderer.getColormapNames() : []
+                            property var entries: {
+                                var names = backendRenderer.getColormapNames();
+                                var e = [];
+                                for (var i = 0; i < names.length; ++i)
+                                    e.push({ name: names[i], uri: backendRenderer.getColormapPreviewUri(i) });
+                                return e;
+                            }
+                            model: entries
+                            textRole: "name"
                             currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
                             onActivated: index => backendRenderer.colormapChoice = index
+                            contentItem: RowLayout {
+                                spacing: 8
+                                Image {
+                                    source: colormapCombo.entries[colormapCombo.currentIndex] ? colormapCombo.entries[colormapCombo.currentIndex].uri : ""
+                                    sourceSize.width: 128; sourceSize.height: 16
+                                    fillMode: Image.Stretch
+                                    Layout.preferredWidth: 48; Layout.preferredHeight: 12
+                                    verticalAlignment: Image.AlignVCenter
+                                }
+                                Text {
+                                    text: colormapCombo.displayText
+                                    color: "#ddd"; font.pixelSize: 12
+                                    Layout.fillWidth: true; verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                }
+                            }
+                            delegate: ItemDelegate {
+                                width: colormapCombo.width
+                                height: 24
+                                RowLayout {
+                                    spacing: 8
+                                    anchors.fill: parent
+                                    Image {
+                                        source: modelData.uri
+                                        sourceSize.width: 128; sourceSize.height: 16
+                                        fillMode: Image.Stretch
+                                        Layout.preferredWidth: 48; Layout.preferredHeight: 12
+                                        verticalAlignment: Image.AlignVCenter
+                                    }
+                                    Text {
+                                        text: modelData.name
+                                        color: "#ddd"; font.pixelSize: 12
+                                        Layout.fillWidth: true; verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                highlighted: colormapCombo.highlightedIndex === index
+                            }
                         }
+                        CheckBox { text: "Reverse palette"; checked: backendRenderer ? backendRenderer.colormapReversed : false; onToggled: backendRenderer.colormapReversed = checked }
                         Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
                         ClipSlider { label: "Min"; value: backendRenderer ? backendRenderer.filterMin : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMin = v }
                         ClipSlider { label: "Max"; value: backendRenderer ? backendRenderer.filterMax : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMax = v }
@@ -368,12 +416,60 @@ ApplicationWindow {
                         Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
                         CheckBox { text: "Color by magnitude"; checked: backendRenderer ? backendRenderer.vectorUseColormap : false; onToggled: backendRenderer.vectorUseColormap = checked }
                         ComboBox {
+                            id: vectorColormapCombo
                             width: parent.width
                             enabled: backendRenderer ? backendRenderer.vectorUseColormap : false
-                            model: backendRenderer ? backendRenderer.getColormapNames() : []
+                            property var entries: {
+                                var names = backendRenderer.getColormapNames();
+                                var e = [];
+                                for (var i = 0; i < names.length; ++i)
+                                    e.push({ name: names[i], uri: backendRenderer.getColormapPreviewUri(i) });
+                                return e;
+                            }
+                            model: entries
+                            textRole: "name"
                             currentIndex: backendRenderer ? backendRenderer.vectorColormapChoice : 0
                             onActivated: index => backendRenderer.vectorColormapChoice = index
+                            contentItem: RowLayout {
+                                spacing: 8
+                                Image {
+                                    source: vectorColormapCombo.entries[vectorColormapCombo.currentIndex] ? vectorColormapCombo.entries[vectorColormapCombo.currentIndex].uri : ""
+                                    sourceSize.width: 128; sourceSize.height: 16
+                                    fillMode: Image.Stretch
+                                    Layout.preferredWidth: 48; Layout.preferredHeight: 12
+                                    verticalAlignment: Image.AlignVCenter
+                                }
+                                Text {
+                                    text: vectorColormapCombo.displayText
+                                    color: "#ddd"; font.pixelSize: 12
+                                    Layout.fillWidth: true; verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                }
+                            }
+                            delegate: ItemDelegate {
+                                width: vectorColormapCombo.width
+                                height: 24
+                                RowLayout {
+                                    spacing: 8
+                                    anchors.fill: parent
+                                    Image {
+                                        source: modelData.uri
+                                        sourceSize.width: 128; sourceSize.height: 16
+                                        fillMode: Image.Stretch
+                                        Layout.preferredWidth: 48; Layout.preferredHeight: 12
+                                        verticalAlignment: Image.AlignVCenter
+                                    }
+                                    Text {
+                                        text: modelData.name
+                                        color: "#ddd"; font.pixelSize: 12
+                                        Layout.fillWidth: true; verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                highlighted: vectorColormapCombo.highlightedIndex === index
+                            }
                         }
+                        CheckBox { text: "Reverse palette"; enabled: backendRenderer ? backendRenderer.vectorUseColormap : false; checked: backendRenderer ? backendRenderer.vectorColormapReversed : false; onToggled: backendRenderer.vectorColormapReversed = checked }
                     }
                 }
             }

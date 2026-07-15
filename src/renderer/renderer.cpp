@@ -15,6 +15,8 @@
 #include <vector>
 #include <algorithm>
 #include <limits>
+#include <QImage>
+#include <QBuffer>
 
 // kit-wide warm tint (shared by light colors + viewport markers).
 // 0 = cold blue, 0.5 = neutral white, 1 = warm red.
@@ -267,6 +269,7 @@ void Renderer::initGrid() {
     gridColorLoc   = glGetUniformLocation(gridProgram, "uColor");
     gridBgLoc      = glGetUniformLocation(gridProgram, "uBg");
     gridFalloffLoc = glGetUniformLocation(gridProgram, "uFalloff");
+    gridPlaneYLoc  = glGetUniformLocation(gridProgram, "uPlaneY");
 
     const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f,  1.0f, 1.0f };
     glGenVertexArrays(1, &gridVAO);
@@ -295,9 +298,15 @@ void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
     glUniformMatrix4fv(gridViewLoc, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(gridProjLoc, 1, GL_FALSE, glm::value_ptr(proj));
     glUniform3f(gridCamPosLoc, (float)camera.position.x, (float)camera.position.y, (float)camera.position.z);
-    glUniform3f(gridColorLoc, 0.6f, 0.6f, 0.65f);
+    // Pick a grid-line color that contrasts with the background so it never
+    // blends into it when the user changes the background color.
+    float bgLum = 0.299f * bgColor[0] + 0.587f * bgColor[1] + 0.114f * bgColor[2];
+    glm::vec3 gridCol = (bgLum > 0.5f) ? glm::vec3(0.18f, 0.18f, 0.20f)
+                                       : glm::vec3(0.78f, 0.78f, 0.82f);
+    glUniform3f(gridColorLoc, gridCol.r, gridCol.g, gridCol.b);
     glUniform3f(gridBgLoc, bgColor[0], bgColor[1], bgColor[2]);
     glUniform1f(gridFalloffLoc, 0.02f);
+    glUniform1f(gridPlaneYLoc, static_cast<float>(gridPlaneY));
 
     glBindVertexArray(gridVAO);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -561,6 +570,8 @@ void Renderer::loadMesh(const QString& filePath) {
     worldMinX = loaded.bounds.minX; worldMaxX = loaded.bounds.maxX;
     worldMinY = loaded.bounds.minY; worldMaxY = loaded.bounds.maxY;
     worldMinZ = loaded.bounds.minZ; worldMaxZ = loaded.bounds.maxZ;
+    // Ground the grid at the mesh's lowest point so it appears to rest on it.
+    gridPlaneY = worldMinY;
 
     worldCenterX = loaded.bounds.centerX;
     worldCenterY = loaded.bounds.centerY;
@@ -702,11 +713,13 @@ void Renderer::computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3
 
 void Renderer::updateColormapTexture() {
     // Scalar LUT (surface) — independent guard
-    if (colormapTex == 0 || colormapChoice != lastUploadedChoice) {
+    bool scalarReverse = colormapReversed;
+    if (colormapTex == 0 || colormapChoice != lastUploadedChoice || scalarReverse != lastUploadedReversed) {
         std::vector<unsigned char> pd; pd.reserve(256 * 3);
         for (int i = 0; i < 256; ++i) {
             float t = static_cast<float>(i) / 255.0f;
-            glm::vec3 rgb = Colormaps::evaluate(t, static_cast<ColormapType>(colormapChoice));
+            float s = scalarReverse ? (1.0f - t) : t;
+            glm::vec3 rgb = Colormaps::evaluate(s, static_cast<ColormapType>(colormapChoice));
             pd.push_back(static_cast<unsigned char>(rgb.r * 255.0f));
             pd.push_back(static_cast<unsigned char>(rgb.g * 255.0f));
             pd.push_back(static_cast<unsigned char>(rgb.b * 255.0f));
@@ -719,14 +732,17 @@ void Renderer::updateColormapTexture() {
         glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glBindTexture(GL_TEXTURE_1D, 0);
         lastUploadedChoice = colormapChoice;
+        lastUploadedReversed = scalarReverse;
     }
 
     // vector magnitude LUT — SEPARATE guard, independent of scalar early-return
-    if (vectorColormapTex == 0 || vectorLutDirty || vectorLastUploadedChoice != vectorColormapChoice) {
+    bool vectorReverse = vectorColormapReversed;
+    if (vectorColormapTex == 0 || vectorLutDirty || vectorLastUploadedChoice != vectorColormapChoice || vectorReverse != vectorLastUploadedReversed) {
         std::vector<unsigned char> pd; pd.reserve(256 * 3);
         for (int i = 0; i < 256; ++i) {
             float t = static_cast<float>(i) / 255.0f;
-            glm::vec3 rgb = Colormaps::evaluate(t, static_cast<ColormapType>(vectorColormapChoice));
+            float s = vectorReverse ? (1.0f - t) : t;
+            glm::vec3 rgb = Colormaps::evaluate(s, static_cast<ColormapType>(vectorColormapChoice));
             pd.push_back(static_cast<unsigned char>(rgb.r * 255.0f));
             pd.push_back(static_cast<unsigned char>(rgb.g * 255.0f));
             pd.push_back(static_cast<unsigned char>(rgb.b * 255.0f));
@@ -739,6 +755,7 @@ void Renderer::updateColormapTexture() {
         glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glBindTexture(GL_TEXTURE_1D, 0);
         vectorLastUploadedChoice = vectorColormapChoice;
+        vectorLastUploadedReversed = vectorReverse;
         vectorLutDirty = false;
         emit vectorColormapChanged();
     }
@@ -1073,12 +1090,32 @@ QStringList Renderer::getColormapNames() const {
     return list;
 }
 
+QString Renderer::getColormapPreviewUri(int index) const {
+    const int w = 128, h = 16;
+    QImage img(w, h, QImage::Format_RGB888);
+    ColormapType type = static_cast<ColormapType>(index);
+    for (int x = 0; x < w; ++x) {
+        float t = static_cast<float>(x) / static_cast<float>(w - 1);
+        glm::vec3 c = Colormaps::evaluate(t, type);
+        int r = static_cast<int>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
+        int g = static_cast<int>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
+        int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
+        for (int y = 0; y < h; ++y) img.setPixel(x, y, qRgb(r, g, b));
+    }
+    QByteArray ba;
+    QBuffer buf(&ba);
+    buf.open(QIODevice::WriteOnly);
+    img.save(&buf, "PNG");
+    return QString("data:image/png;base64,") + QString::fromLatin1(ba.toBase64());
+}
+
 QVariantList Renderer::getColormapStops() const {
     QVariantList out;
     const int steps = 16;
     for (int i = 0; i <= steps; ++i) {
         float t = static_cast<float>(i) / static_cast<float>(steps);
-        glm::vec3 c = Colormaps::evaluate(t, static_cast<ColormapType>(colormapChoice));
+        float s = colormapReversed ? (1.0f - t) : t;
+        glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(colormapChoice));
         QVariantList stop;
         stop << t << c.r << c.g << c.b;
         out.append(QVariant(stop));
@@ -1091,7 +1128,8 @@ QVariantList Renderer::getVectorColormapStops() const {
     const int steps = 16;
     for (int i = 0; i <= steps; ++i) {
         float t = static_cast<float>(i) / static_cast<float>(steps);
-        glm::vec3 c = Colormaps::evaluate(t, static_cast<ColormapType>(vectorColormapChoice));
+        float s = vectorColormapReversed ? (1.0f - t) : t;
+        glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(vectorColormapChoice));
         QVariantList stop;
         stop << t << c.r << c.g << c.b;
         out.append(QVariant(stop));
@@ -1153,6 +1191,18 @@ void Renderer::setColormapChoice(int choice) {
     if (colormapChoice == choice) return;
     colormapChoice = choice;
     emit colormapChanged();
+}
+
+void Renderer::setColormapReversed(bool reversed) {
+    if (colormapReversed == reversed) return;
+    colormapReversed = reversed;
+    emit colormapChanged();
+}
+
+void Renderer::setVectorColormapReversed(bool reversed) {
+    if (vectorColormapReversed == reversed) return;
+    vectorColormapReversed = reversed;
+    emit vectorColormapChanged();
 }
 
 void Renderer::applyLightingPreset(int preset) {
