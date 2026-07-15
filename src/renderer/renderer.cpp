@@ -657,7 +657,9 @@ void Renderer::renderFrame() {
 
     drawGrid(view, proj);
 
-    drawGizmo();
+    if (showGizmo) {
+        drawGizmo();
+    }
 
     // CRITICAL CORE SYNC FIX: Restore standard Qt Quick scene graph drawing states
     QQuickOpenGLUtils::resetOpenGLState();
@@ -697,8 +699,8 @@ bool Renderer::captureScreenshotToFile(const QString& path) {
     if (path.isEmpty()) return false;
 
     ExportConfig config;
-    config.transparentBackground = false;
-    config.quality = 95;
+    config.transparentBackground = screenshotTransparent;
+    config.quality = screenshotQuality;
     config.format = ExportFormat::PNG;
 
     QString targetPath = path;

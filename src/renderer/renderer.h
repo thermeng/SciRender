@@ -33,6 +33,7 @@
 #include "mesh/mesh_loader.h"
 #include "gizmo/gizmo.h"
 #include "camera/Camera.h"
+#include "export/screenshot.h"
 
 struct Mesh {
     GLuint vao;
@@ -104,6 +105,13 @@ class Renderer : public QObject {
     Q_PROPERTY(bool invertZ READ getInvertZ WRITE setInvertZ NOTIFY viewChanged)
     Q_PROPERTY(float filterMin READ getFilterMin WRITE setFilterMin NOTIFY viewChanged)
     Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
+
+    // ponytail: gizmo + mesh/surface color + screenshot options exposed to the UI
+    Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
+    Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
+    Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
+    Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
+    Q_PROPERTY(int screenshotQuality READ getScreenshotQuality WRITE setScreenshotQuality NOTIFY viewChanged)
 
 public:
     explicit Renderer(QObject* parent = nullptr);
@@ -216,12 +224,12 @@ signals:
     void screenshotRequested(const QString& targetPath);
 
 public:
-    // VTK Camera Inline Forwarders
-    void azimuth(double angle) { camera.azimuth(angle); }
-    void elevation(double angle) { camera.elevation(angle); }
-    void roll(double angle) { camera.roll(angle); }
-    void pan(double dx, double dy) { camera.pan(dx, dy); }
-    void dolly(double factor) { camera.dolly(factor); camDistance = camera.distance; }
+    // VTK Camera Inline Forwarders (QML-invokable so the UI can drive the camera)
+    Q_INVOKABLE void azimuth(double angle) { camera.azimuth(angle); emit viewChanged(); }
+    Q_INVOKABLE void elevation(double angle) { camera.elevation(angle); emit viewChanged(); }
+    Q_INVOKABLE void roll(double angle) { camera.roll(angle); emit viewChanged(); }
+    Q_INVOKABLE void pan(double dx, double dy) { camera.pan(dx, dy); emit viewChanged(); }
+    Q_INVOKABLE void dolly(double factor) { camera.dolly(factor); camDistance = camera.distance; emit viewChanged(); }
     void orthogonalizeViewUp() { camera.orthogonalizeViewUp(); }
     glm::dvec3 directionOfProjection() const { return camera.directionOfProjection(); }
 
@@ -235,6 +243,22 @@ public:
 
     Q_INVOKABLE void setSidebarWidth(float w) { sidebarWidth = w; }
     float getSidebarWidth() const { return sidebarWidth; }
+
+    // ponytail: gizmo + color + screenshot option accessors (QML-exposed)
+    bool isGizmoVisible() const { return showGizmo; }
+    void setGizmoVisible(bool v) { if (showGizmo != v) { showGizmo = v; emit viewChanged(); } }
+    QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
+    void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); emit viewChanged(); }
+    QColor getSurfaceColorQml() const { return QColor::fromRgbF(surfaceColor[0], surfaceColor[1], surfaceColor[2]); }
+    void setSurfaceColorQml(const QColor& c) { surfaceColor[0] = c.redF(); surfaceColor[1] = c.greenF(); surfaceColor[2] = c.blueF(); emit viewChanged(); }
+    bool getScreenshotTransparent() const { return screenshotTransparent; }
+    void setScreenshotTransparent(bool v) { screenshotTransparent = v; }
+    int getScreenshotQuality() const { return screenshotQuality; }
+    void setScreenshotQuality(int v) { screenshotQuality = (v < 1 ? 1 : (v > 100 ? 100 : v)); }
+    // ponytail: default timestamped screenshot filename (wires up ScreenshotExporter::generateFilename)
+    Q_INVOKABLE QString generateScreenshotFilename() const {
+        return ScreenshotExporter::generateFilename(QString::fromStdString(currentMeshName), ExportFormat::PNG);
+    }
 
 
     // Device-pixel-ratio aware sizing so the GL viewport matches the real
@@ -438,9 +462,14 @@ private:
     std::mutex meshGLMutex; // guards meshes GPU-handle teardown/uploads across threads
     bool m_destroying = false; // set in ~Renderer to suppress signals during teardown
     bool showWireframe = false;
+    bool showGizmo = true;       // ponytail: orientation gizmo toggle (UI-exposed)
     int triangleCount = 0;
     int pointCount = 0;
     float lightInt = 0.2f;
+
+    // ponytail: screenshot export options (UI-exposed)
+    bool screenshotTransparent = false;
+    int screenshotQuality = 95;
 
     RenderMesh dynamicMeshQueue;
     std::mutex meshQueueMutex;

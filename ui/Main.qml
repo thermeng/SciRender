@@ -276,9 +276,11 @@ ApplicationWindow {
 
                     // View & Display Controls
                     Column {
+                        id: viewCol
                         visible: rail.activeSection === 2
                         spacing: 4
                         width: parent.width
+                        property real rollPrev: 0
                         Text { text: "Orthographic view"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Button { text: "+X"; width: 48; onClicked: backendRenderer.snapToOrthoView(0) }
@@ -303,9 +305,24 @@ ApplicationWindow {
                         Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Button { text: "Reset Cam"; width: 92; onClicked: backendRenderer.resetCamera() }
-                            Button { text: "Screenshot"; width: 100; onClicked: screenshotSaveDialog.open() }
+                            Button { text: "Screenshot"; width: 100; onClicked: { screenshotSaveDialog.currentFile = backendRenderer.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
                         }
                         Button { text: "Background Color"; width: parent.width; onClicked: bgDialog.open() }
+                        Text { text: "Camera roll"; color: "#888"; font.pixelSize: 10 }
+                        LightSlider {
+                            label: "Roll"; value: 0; from: -180; to: 180; step: 1
+                            onSet: v => { backendRenderer.roll(v - viewCol.rollPrev); viewCol.rollPrev = v; }
+                        }
+                        Text { text: "Overlays"; color: "#888"; font.pixelSize: 10 }
+                        CheckBox { text: "Gizmo"; checked: backendRenderer ? backendRenderer.isGizmoVisible : true; onToggled: backendRenderer.isGizmoVisible = checked }
+                        Text { text: "Colors"; color: "#888"; font.pixelSize: 10 }
+                        Row { spacing: 6
+                            Button { text: "Mesh Color"; width: 100; onClicked: meshColorDialog.open() }
+                            Button { text: "Surface Color"; width: 100; onClicked: surfaceColorDialog.open() }
+                        }
+                        Text { text: "Screenshot"; color: "#888"; font.pixelSize: 10 }
+                        CheckBox { text: "Transparent (PNG)"; checked: backendRenderer ? backendRenderer.screenshotTransparent : false; onToggled: backendRenderer.screenshotTransparent = checked }
+                        LightSlider { label: "JPEG Q"; value: backendRenderer ? backendRenderer.screenshotQuality : 95; from: 1; to: 100; step: 1; onSet: v => backendRenderer.screenshotQuality = v }
                     }
 
                     // Colormap Selector Panel
@@ -339,6 +356,16 @@ ApplicationWindow {
             id: bgDialog
             selectedColor: backendRenderer ? backendRenderer.bgColor : "#000000"
             onAccepted: backendRenderer.bgColor = selectedColor
+        }
+        ColorDialog {
+            id: meshColorDialog
+            selectedColor: backendRenderer ? backendRenderer.meshColor : "#66e666"
+            onAccepted: backendRenderer.meshColor = selectedColor
+        }
+        ColorDialog {
+            id: surfaceColorDialog
+            selectedColor: backendRenderer ? backendRenderer.surfaceColor : "#ffffff"
+            onAccepted: backendRenderer.surfaceColor = selectedColor
         }
     }
 
