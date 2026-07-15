@@ -1,9 +1,12 @@
-# RendererQT
+# SciRender
 
-Qt 6 + OpenGL viewer for scientific meshes. Loads VTK `STRUCTURED_GRID` /
-`POLYDATA` and STL files, maps scalar point data to a surface colormap, and
-draws optional vector glyphs. Includes a camera-relative Light Kit, axis triad
-gizmo, screenshot export, and a QML control panel.
+Qt 6 + OpenGL scientific mesh rendering toolkit. Loads VTK
+`STRUCTURED_GRID` (curvilinear), `RECTILINEAR_GRID`, `STRUCTURED_POINTS`,
+`POLYDATA`, `UNSTRUCTURED_GRID` and STL files, maps scalar point
+data to surface colormaps, and draws instanced vector-field arrow glyphs.
+A camera-relative Light Kit, axis triad, clipping/slicing planes, LOD
+and screenshot export round out the feature set, all driven from a QML
+control panel.
 
 ## Build
 
