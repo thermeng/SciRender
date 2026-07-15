@@ -19,7 +19,9 @@ void main() {
     vWorldPos = vec3(uModel * vec4(aPos, 1.0)); 
     
     vFragPos = vec3(uView * uModel * vec4(aPos, 1.0));
-    mat3 normalMatrix = transpose(inverse(mat3(uView * uModel)));
-    vNormal = normalMatrix * aNormal;
+    // World-space normal: lighting is done in world space so the lights stay
+    // fixed in the world while the camera orbits. Model has no rotation/scale
+    // here (identity), so the normal is used directly in world space.
+    vNormal = aNormal;
     vScalar = aScalar;
 }

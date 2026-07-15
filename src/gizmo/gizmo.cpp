@@ -8,6 +8,7 @@
 #include <QPainter>
 #include <QFont>
 #include <QString>
+#include <QOpenGLContext>
 
 // ----------------------------------------------------------------------------
 // Shaders
@@ -203,6 +204,10 @@ bool Gizmo::init() {
 }
 
 void Gizmo::shutdown() {
+    // Only free GL objects when a context is current. shutdown() is called from
+    // Renderer::~Renderer() on the GUI thread after the scene graph is gone, so
+    // no context is current there — skip to avoid GL errors (driver reclaims).
+    if (!QOpenGLContext::currentContext()) return;
     if (lineVAO)   glDeleteVertexArrays(1, &lineVAO);
     if (lineVBO)   glDeleteBuffers(1, &lineVBO);
     if (textVAO)   glDeleteVertexArrays(1, &textVAO);
@@ -239,7 +244,12 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     // Rotation-only view matrix (strips camera translation).
     const glm::mat4 gizmoView = glm::mat4(glm::mat3(mainView));
     // Tight ortho but with margin so the triad + labels never reach the viewport edge.
-    const glm::mat4 gizmoProj = glm::ortho(-1.55f, 1.55f, -1.55f, 1.55f, -10.0f, 10.0f);
+    // Apply the SAME Y-flip as the main scene (renderer.cpp) so the triad is not
+    // vertically mirrored under QML FBO compositing. The label positions below are
+    // derived from this same matrix, so they stay attached to their tips.
+    const glm::mat4 gizmoProj = glm::scale(
+        glm::ortho(-1.55f, 1.55f, -1.55f, 1.55f, -10.0f, 10.0f),
+        glm::vec3(1.0f, -1.0f, 1.0f));
     const glm::mat4 lineMVP = gizmoProj * gizmoView;
 
     glDisable(GL_DEPTH_TEST);
@@ -277,15 +287,18 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
         cy = std::max(half, std::min(foot - half, cy));
 
         float u0 = i * cellU, u1 = (i + 1) * cellU;
-        float v0 = 0.0f,     v1 = 1.0f;
+        // Atlas uploaded with glyph-top at texture v=0 (no UNPACK_FLIP_Y), so the
+        // quad's TOP edge must sample v=0 and its BOTTOM edge v=1. The previous
+        // mapping (top->v1, bottom->v0) rendered the labels upside-down.
+        float vTop = 0.0f, vBot = 1.0f;
         float hx = glyph * 0.5f, hy = glyph * 0.5f;
         float tri[6][4] = {
-            { cx - hx, cy + hy, u0, v1 }, // TL
-            { cx + hx, cy + hy, u1, v1 }, // TR
-            { cx - hx, cy - hy, u0, v0 }, // BL
-            { cx + hx, cy + hy, u1, v1 }, // TR
-            { cx + hx, cy - hy, u1, v0 }, // BR
-            { cx - hx, cy - hy, u0, v0 }, // BL
+            { cx - hx, cy + hy, u0, vTop }, // TL
+            { cx + hx, cy + hy, u1, vTop }, // TR
+            { cx - hx, cy - hy, u0, vBot }, // BL
+            { cx + hx, cy + hy, u1, vTop }, // TR
+            { cx + hx, cy - hy, u1, vBot }, // BR
+            { cx - hx, cy - hy, u0, vBot }, // BL
         };
         std::memcpy(quads[i], tri, sizeof(tri));
     }

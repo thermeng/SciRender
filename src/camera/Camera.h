@@ -27,7 +27,6 @@ public:
     void snapToOrthoView(int axis);
     void updateDistance();
 
-    glm::quat computeGizmoQuat() const;
     glm::dvec3 directionOfProjection() const;
     glm::mat4 getViewMatrix() const;
 };

@@ -27,8 +27,10 @@ void Camera::elevation(double angle) {
         right = glm::normalize(right);
     }
 
+    // VTK rotates about +right (= cross(viewUp, directionOfProjection)); the
+    // negation here previously inverted the elevation sign relative to VTK.
     glm::dmat4 transform = glm::translate(glm::dmat4(1.0), focalPoint)
-        * glm::rotate(glm::dmat4(1.0), glm::radians(angle), -right)
+        * glm::rotate(glm::dmat4(1.0), glm::radians(angle), right)
         * glm::translate(glm::dmat4(1.0), -focalPoint);
 
     position = glm::dvec3(transform * glm::dvec4(position, 1.0));
@@ -79,21 +81,6 @@ void Camera::updateDistance() {
 
 glm::dvec3 Camera::directionOfProjection() const {
     return glm::normalize(focalPoint - position);
-}
-
-glm::quat Camera::computeGizmoQuat() const {
-    glm::dvec3 forward = directionOfProjection();
-    glm::dvec3 right = glm::cross(forward, viewUp);
-    if (glm::length(right) < 0.001) right = glm::dvec3(1.0, 0.0, 0.0);
-    right = glm::normalize(right);
-    glm::dvec3 realUp = glm::cross(right, forward);
-
-    glm::dmat4 camOrient(1.0);
-    camOrient[0] = glm::dvec4(right, 0.0);
-    camOrient[1] = glm::dvec4(realUp, 0.0);
-    camOrient[2] = glm::dvec4(-forward, 0.0);
-
-    return glm::quat(glm::inverse(glm::quat_cast(camOrient)));
 }
 
 void Camera::snapToOrthoView(int axis) {

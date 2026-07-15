@@ -51,12 +51,18 @@ Renderer::Renderer(QObject* parent)
 Renderer::~Renderer() {
     m_destroying = true; // suppress signal emissions during teardown
     clearMeshes();
-    if (shaderProgram) glDeleteProgram(shaderProgram);
-    if (gridProgram) glDeleteProgram(gridProgram);
-    if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
-    if (gridVBO) glDeleteBuffers(1, &gridVBO);
-    if (colormapTex) glDeleteTextures(1, &colormapTex);
-    gizmo.shutdown();
+    // GL deletes must only run with a current context. The Renderer lives on the
+    // GUI thread and is torn down after the scene graph, so no GL context is
+    // current here — calling glDelete* would emit GL errors and leak nothing
+    // recoverable. Skip them; the driver reclaims the resources with the context.
+    if (QOpenGLContext::currentContext()) {
+        if (shaderProgram) glDeleteProgram(shaderProgram);
+        if (gridProgram) glDeleteProgram(gridProgram);
+        if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
+        if (gridVBO) glDeleteBuffers(1, &gridVBO);
+        if (colormapTex) glDeleteTextures(1, &colormapTex);
+        gizmo.shutdown();
+    }
 }
 
 #pragma GCC diagnostic pop
@@ -387,7 +393,7 @@ void Renderer::loadMesh(const QString& filePath) {
     worldCenterZ = loaded.bounds.centerZ;
     worldRadius  = loaded.bounds.worldRadius;
 
-    QFileInfo fileInfo(filePath);
+    QFileInfo fileInfo(QString::fromStdString(stdPath));
     currentMeshName = fileInfo.fileName().toStdString();
     triangleCount = static_cast<int>(loaded.indices.size() / 3);
     pointCount = static_cast<int>(loaded.vertices.size() / 3); // ponytail: vertices are xyz triples
@@ -434,24 +440,28 @@ void Renderer::resetCamera() {
     camera.focalPoint = glm::dvec3(worldCenterX, worldCenterY, worldCenterZ);
 
     // 2. Determine an ideal camera setback distance based on the mesh's bounding radius
-    // A standard factor is ~2.5 to 3.0 times the radius to clear the field of view (FOV)
     camera.distance = worldRadius * 2.5;
     if (camera.distance < 1.0) {
         camera.distance = 1.0; // Prevent the camera from nesting inside a flat/empty mesh
     }
-    // ponytail: near/far must bracket the real geometry — hardcoding far=100 clipped large meshes into the void
-    nearPlane = std::max(0.01, worldRadius * 0.001);
-    farPlane  = std::max(100.0, worldRadius * 10.0);
 
-    // 3. Reset the position vector relative to the focal point along the Z axis
+    // 3. Set the near and far planes tightly but safely around the radius
+    // Since we inverted Z in the projection matrix, ensure these bracket the geometry seamlessly.
+    nearPlane = std::max(0.01, worldRadius * 0.01);
+    farPlane  = std::max(100.0, worldRadius * 20.0);
+
+    // 4. Reset the position vector relative to the focal point along the Z axis.
+    // If the model looks tiny or huge, we need to make sure the camera sits on the 
+    // positive side of the center point facing down toward it.
     camera.position = camera.focalPoint + glm::dvec3(0.0, 0.0, camera.distance);
 
-    // 4. Force a clean baseline view orientation (Up vector along +Y axis)
+    // 5. Force a clean baseline view orientation (Up vector along +Y axis)
     camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
     camera.orthogonalizeViewUp();
 
-    // 5. Trigger a viewport update if a window context is currently active
-    // (If your header declares resetCamera as a slot, you can also emit cameraChanged() here)
+    // 6. Alert the framework that the camera matrix needs recalculating
+    emit viewChanged();
+    emit meshDataUpdated();
 }
 
 void Renderer::resizeViewport(int w, int h) {
@@ -525,6 +535,17 @@ void Renderer::renderFrame() {
         static_cast<float>(nearPlane),
         static_cast<float>(farPlane)
         );
+
+    // =========================================================================
+    // FIX: Mirror only Y so the FBO renders right-side-up under QML compositing.
+    // We must NOT negate Z here: glm::scale() post-multiplies, so scaling Z by
+    // -1 flips the *view-space Z of the input position*, pushing in-front
+    // geometry (z_view < 0) to z > 0 (behind the camera). That both clips near
+    // surfaces and inverts depth vs glDepthFunc(GL_LESS)+clear(1.0), so far
+    // faces occlude near ones. Flipping Y alone keeps depth correct.
+    // =========================================================================
+    proj = glm::scale(proj, glm::vec3(1.0f, -1.0f, 1.0f));
+
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = proj * view * model;
 
@@ -539,18 +560,14 @@ void Renderer::renderFrame() {
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
         // Setup Light Parameters
-        // computeLightDirections() returns WORLD-space directions. The shader
-        // works in VIEW space (vNormal and viewDir are view-space), so transform
-        // the lights through the view rotation. The dot product is then
-        // rotation-invariant => world-fixed lighting that does not track the camera.
-        glm::mat3 viewRot = glm::mat3(view);
+        // Lights are defined in WORLD space (azimuth/elevation about world axes)
+        // and must stay fixed in the world as the camera orbits. The fragment
+        // shader now does lighting in world space (using vWorldNormal and
+        // uViewPos), so we pass the directions through unchanged. Previously
+        // they were rotated by the view matrix, which re-anchored them to the
+        // camera and made them appear to move when rotating the mesh.
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-        kDir  = glm::normalize(viewRot * kDir);
-        fDir  = glm::normalize(viewRot * fDir);
-        b1Dir = glm::normalize(viewRot * b1Dir);
-        b2Dir = glm::normalize(viewRot * b2Dir);
-        hDir  = glm::normalize(viewRot * hDir);
         glUniform3fv(lightDirLoc, 1, glm::value_ptr(kDir));
         glUniform3fv(lightFillLoc, 1, glm::value_ptr(fDir));
         glUniform3fv(lightBack1Loc, 1, glm::value_ptr(b1Dir));
@@ -566,9 +583,6 @@ void Renderer::renderFrame() {
         glUniform1f(matAmbientLoc, matAmbient);
         glUniform1f(matDiffuseLoc, matDiffuse);
         glUniform1f(matSpecularLoc, matSpecular);
-        // matShininess is a 0..1 "shininess" factor; the shader converts it to an
-        // exponent via pow(2.0, uMatShininess * 10.0). Pass the raw factor so the
-        // two sides agree on the convention.
         glUniform1f(matShininessLoc, matShininess);
 
         glUniform1f(keyIntensityLoc, lightInt * lightKF);
@@ -576,8 +590,6 @@ void Renderer::renderFrame() {
         glUniform1f(headIntensityLoc, lightInt * lightKH);
         glUniform1f(backIntensityLoc, lightInt * lightKB);
 
-        // Light kit colors (warm-white key/fill/head, neutral back) so the
-        // diffuse/specular terms are non-zero and the mesh is actually lit.
         const float keyCol[3] = { 1.0f, 0.96f, 0.88f };
         const float fillCol[3] = { 0.85f, 0.9f, 1.0f };
         const float backCol[3] = { 0.9f, 0.9f, 0.95f };
@@ -608,14 +620,25 @@ void Renderer::renderFrame() {
             glUniform1i(lutTextureLoc, 0);
         }
 
-        for (const auto& m : meshes) {
-            glBindVertexArray(m.vao);
+        // Guard against clearMeshes()/uploadMesh() mutating `meshes` on the GUI
+        // thread (both take meshGLMutex). Snapshot the handles under the lock so
+        // we don't iterate the vector while it is being cleared/rebuilt.
+        struct DrawEntry { GLuint vao; int indexCount; };
+        std::vector<DrawEntry> drawList;
+        {
+            std::lock_guard<std::mutex> lock(meshGLMutex);
+            drawList.reserve(meshes.size());
+            for (const auto& m : meshes) drawList.push_back({m.vao, m.indexCount});
+        }
+
+        for (const auto& e : drawList) {
+            glBindVertexArray(e.vao);
 
             // Phase 1: Solid Base Pass (only when surface shown)
             if (showSurface) {
                 glUniform1i(wireframeLoc, 0);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                glDrawElements(GL_TRIANGLES, m.indexCount, GL_UNSIGNED_INT, 0);
+                glDrawElements(GL_TRIANGLES, e.indexCount, GL_UNSIGNED_INT, 0);
             }
 
             // Phase 2: Structural Wireframe Layer Overlay
@@ -624,7 +647,7 @@ void Renderer::renderFrame() {
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
                 glPolygonOffset(-1.0f, -1.0f);
-                glDrawElements(GL_TRIANGLES, m.indexCount, GL_UNSIGNED_INT, 0);
+                glDrawElements(GL_TRIANGLES, e.indexCount, GL_UNSIGNED_INT, 0);
                 glDisable(GL_POLYGON_OFFSET_LINE);
             }
         }
@@ -753,6 +776,7 @@ void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
     if (fieldName == activeScalarName) return;
     // ponytail: fields live in pointScalars; swap the active vector and let the
     // existing render-thread upload path (meshChanged) push the new sbo.
+    if (!cachedMeshSource.attributes.has_value()) return;
     auto it = cachedMeshSource.attributes->pointScalars.find(fieldName);
     if (it == cachedMeshSource.attributes->pointScalars.end()) return;
 

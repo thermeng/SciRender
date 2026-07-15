@@ -78,9 +78,10 @@ void ViewportVisualizer::mouseMoveEvent(QMouseEvent* event) {
     QPoint delta = event->pos() - m_lastMousePos;
     m_lastMousePos = event->pos();
     if (m_isRightClick) {
-        // Negate the Y delta so dragging down (positive delta.y) 
-        // pans the camera down (negative camera movement)
-        m_scene->pan(delta.x(), -delta.y());
+        // Grab-style panning: pass raw deltas. pan() already negates X so the
+        // scene follows the cursor; vertical uses +up so dragging down moves the
+        // camera up (scene follows the cursor down) — consistent with horizontal.
+        m_scene->pan(delta.x(), delta.y());
     } else {
         m_scene->azimuth(-delta.x() * 0.5);
         m_scene->elevation(delta.y() * 0.5);
@@ -173,14 +174,16 @@ void ViewportFboRenderer::render() {
 
     m_scene->renderFrame();
 
-    // Qt 6: restore default GL state so the scene graph is not surprised.
-    QQuickOpenGLUtils::resetOpenGLState();
-
     // ponytail: capture here, NOT in synchronize() — synchronize runs on the GUI
     // thread with no GL context current; render() owns the context. FBO now holds
-    // the freshly drawn frame, so the read is correct.
+    // the freshly drawn frame, so the read is correct. MUST happen BEFORE
+    // resetOpenGLState(): that call can unbind the FBO, after which glReadPixels
+    // would read the wrong/empty buffer and produce a blank capture.
     if (!m_pendingScreenshot.isEmpty()) {
         m_scene->captureScreenshotToFile(m_pendingScreenshot);
         m_pendingScreenshot.clear();
     }
+
+    // Qt 6: restore default GL state so the scene graph is not surprised.
+    QQuickOpenGLUtils::resetOpenGLState();
 }

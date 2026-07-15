@@ -96,13 +96,16 @@ void main() {
         return;
     }
 
-    // 3. Normal & View Vectors
+    // 3. Normal & View Vectors (world space)
+    // vNormal is the world-space normal; uViewPos is the camera position in
+    // world space. Lighting is computed in world space so the lights remain
+    // fixed in the world as the camera orbits the mesh.
     vec3 norm = normalize(vNormal);
     if (!gl_FrontFacing) {
         norm = -norm; // Ensures correct shading on interior walls exposed by cutting planes
     }
 
-    vec3 viewDir = normalize(-vFragPos);
+    vec3 viewDir = normalize(uViewPos - vWorldPos);
     
     // 4. Lighting Accumulation
     vec3 totalDiffuse = vec3(0.0);
