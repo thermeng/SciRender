@@ -137,7 +137,32 @@ ApplicationWindow {
                 required property var onSet
                 spacing: 6
                 Text { text: parent.label; color: "#cccccc"; font.pixelSize: 11; width: 60; elide: Text.ElideRight }
-                Slider { width: 140; from: parent.from; to: parent.to; value: parent.value; onMoved: parent.onSet(value) }
+                Slider {
+                    id: clipSlider
+                    width: 120; from: parent.from; to: parent.to; value: parent.value
+                    onMoved: parent.onSet(value)
+                }
+                TextField {
+                    id: clipValueField
+                    width: 56
+                    font.pixelSize: 11
+                    color: "#cccccc"
+                    horizontalAlignment: Text.AlignRight
+                    selectByMouse: true
+                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+                    validator: DoubleValidator { bottom: parent.from; top: parent.to }
+                    // Re-sync from the slider value only when the user isn't actively editing,
+                    // so typing isn't clobbered by live value updates.
+                    text: clipValueField.activeFocus ? clipValueField.text : parent.value.toFixed(3)
+                    onAccepted: commitClipValue()
+                    onEditingFinished: commitClipValue()
+                    function commitClipValue() {
+                        let v = parseFloat(clipValueField.text)
+                        if (isNaN(v)) { clipValueField.text = parent.value.toFixed(3); return }
+                        v = Math.min(parent.to, Math.max(parent.from, v))
+                        parent.onSet(v)
+                    }
+                }
             }
             CheckBox { text: "Enable Clipping"; checked: backendRenderer.clipEnabled; onToggled: backendRenderer.clipEnabled = checked }
             Text { text: "Cut planes (world units)"; color: "#888"; font.pixelSize: 10 }
