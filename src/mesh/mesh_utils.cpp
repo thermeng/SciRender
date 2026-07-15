@@ -225,6 +225,34 @@ void computeNormals(RenderMesh& mesh) {
         mesh.scalars = std::move(newScalars);
     }
 
+    // Sync per-point vectors the same way: a duplicated vertex must carry the
+    // same vector as its source, otherwise glyph code indexed by vertex count
+    // would read past the end of the (smaller) vector arrays and crash.
+    if (!mesh.pointVectors.empty()) {
+        size_t newVertCount = newVertices.size() / 3;
+        std::map<std::string, std::vector<float>> newPointVectors;
+        for (auto& [name, vecArr] : mesh.pointVectors) {
+            std::vector<float> newVec(newVertCount * 3, 0.0f);
+            for (size_t oldV = 0; oldV < numVerts; ++oldV) {
+                float vx = 0.0f, vy = 0.0f, vz = 0.0f;
+                if (oldV * 3 + 2 < vecArr.size()) {
+                    vx = vecArr[oldV * 3 + 0];
+                    vy = vecArr[oldV * 3 + 1];
+                    vz = vecArr[oldV * 3 + 2];
+                }
+                for (int newV : vertexRemap[oldV]) {
+                    if (static_cast<size_t>(newV) < newVertCount) {
+                        newVec[newV * 3 + 0] = vx;
+                        newVec[newV * 3 + 1] = vy;
+                        newVec[newV * 3 + 2] = vz;
+                    }
+                }
+            }
+            newPointVectors[name] = std::move(newVec);
+        }
+        mesh.pointVectors = std::move(newPointVectors);
+    }
+
     // Apply changes
     mesh.vertices = std::move(newVertices);
     mesh.normals = std::move(newNormals);

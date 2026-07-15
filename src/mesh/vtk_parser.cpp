@@ -259,6 +259,12 @@ private:
                 file.read(reinterpret_cast<char*>(readScalars.data()), readScalars.size() * sizeof(float));
                 fixEndianness(readScalars.data(), readScalars.size());
             }
+            else if (dataType == "INT" || dataType == "UNSIGNED_INT" || dataType == "LONG" || dataType == "SHORT") {
+                std::vector<int32_t> tempInts(readScalars.size());
+                file.read(reinterpret_cast<char*>(tempInts.data()), tempInts.size() * sizeof(int32_t));
+                fixEndianness(tempInts.data(), tempInts.size());
+                for (size_t i = 0; i < tempInts.size(); ++i) readScalars[i] = static_cast<float>(tempInts[i]);
+            }
             else if (dataType == "UNSIGNED_CHAR") {
                 std::vector<uint8_t> tempBytes(readScalars.size());
                 file.read(reinterpret_cast<char*>(tempBytes.data()), tempBytes.size());
@@ -344,7 +350,12 @@ private:
             globalCellToVertices = triangulateUnstructuredCells(rawCellData, cellTypes, numCells);
         }
         else if (datasetType == "STRUCTURED_GRID") {
-            globalCellToVertices = generateStructuredGridIndices(dimX, dimY, dimZ);
+            // Curvilinear grid: point positions come from the POINTS block (parsed
+            // separately); we only build the surface tessellation here.
+            if (!mesh.vertices.empty()) {
+                globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+                numCells = static_cast<int>(globalCellToVertices.size());
+            }
         }
     }
 
@@ -410,6 +421,68 @@ private:
                     cellIdx++;
                 }
             }
+        }
+        return cellToVertices;
+    }
+
+    // Build a renderable SURFACE for a STRUCTURED_GRID (curvilinear) dataset.
+    // A curvilinear grid is a deformed lattice whose point positions are given
+    // explicitly (POINTS block); its topology is still a regular DIMENSIONS grid.
+    // Rendering the full volumetric tessellation is wasteful and hides interior
+    // faces, so we emit the 6 boundary faces for a 3D grid (or the single planar
+    // layer for a 2D grid). Point indexing follows VTK: idx = x + y*dX + z*dX*dY
+    // (x fastest), matching the order the POINTS block is written in.
+    std::vector<std::vector<int>> generateStructuredGridSurface(int dX, int dY, int dZ) {
+        std::vector<std::vector<int>> cellToVertices;
+        auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
+        auto addQuad = [&](int a, int b, int c, int d) {
+            mesh.indices.push_back(a); mesh.indices.push_back(b); mesh.indices.push_back(c);
+            mesh.indices.push_back(a); mesh.indices.push_back(c); mesh.indices.push_back(d);
+            cellToVertices.push_back({ a, b, c, d });
+        };
+
+        const int cx = std::max(1, dX - 1);
+        const int cy = std::max(1, dY - 1);
+        const int cz = std::max(1, dZ - 1);
+
+        const bool is3D = (dX > 1 && dY > 1 && dZ > 1);
+        if (is3D) {
+            // Bottom (z = 0, outward -Z)
+            for (int y = 0; y < cy; ++y)
+                for (int x = 0; x < cx; ++x)
+                    addQuad(idx(x, y, 0), idx(x, y + 1, 0), idx(x + 1, y + 1, 0), idx(x + 1, y, 0));
+            // Top (z = dZ-1, outward +Z)
+            for (int y = 0; y < cy; ++y)
+                for (int x = 0; x < cx; ++x)
+                    addQuad(idx(x, y, dZ - 1), idx(x + 1, y, dZ - 1), idx(x + 1, y + 1, dZ - 1), idx(x, y + 1, dZ - 1));
+            // Left (x = 0, outward -X)
+            for (int z = 0; z < cz; ++z)
+                for (int y = 0; y < cy; ++y)
+                    addQuad(idx(0, y, z), idx(0, y, z + 1), idx(0, y + 1, z + 1), idx(0, y + 1, z));
+            // Right (x = dX-1, outward +X)
+            for (int z = 0; z < cz; ++z)
+                for (int y = 0; y < cy; ++y)
+                    addQuad(idx(dX - 1, y, z), idx(dX - 1, y + 1, z), idx(dX - 1, y + 1, z + 1), idx(dX - 1, y, z + 1));
+            // Back (y = 0, outward -Y)
+            for (int z = 0; z < cz; ++z)
+                for (int x = 0; x < cx; ++x)
+                    addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
+            // Front (y = dY-1, outward +Y)
+            for (int z = 0; z < cz; ++z)
+                for (int x = 0; x < cx; ++x)
+                    addQuad(idx(x, dY - 1, z), idx(x, dY - 1, z + 1), idx(x + 1, dY - 1, z + 1), idx(x + 1, dY - 1, z));
+        } else if (dZ == 1) {
+            for (int y = 0; y < cy; ++y)
+                for (int x = 0; x < cx; ++x)
+                    addQuad(idx(x, y, 0), idx(x + 1, y, 0), idx(x + 1, y + 1, 0), idx(x, y + 1, 0));
+        } else if (dY == 1) {
+            for (int z = 0; z < cz; ++z)
+                for (int x = 0; x < cx; ++x)
+                    addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
+        } else if (dX == 1) {
+            for (int z = 0; z < cz; ++z)
+                for (int y = 0; y < cy; ++y)
+                    addQuad(idx(0, y, z), idx(0, y + 1, z), idx(0, y + 1, z + 1), idx(0, y, z + 1));
         }
         return cellToVertices;
     }
@@ -577,56 +650,21 @@ private:
         // 1. Process cell data onto the compact vertex layout first
         extrapolateCellDataToPoints();
 
-        // 2. Force complete unrolling for flat shading rendering setups
-        std::vector<float> rawVertices = mesh.vertices;
-        std::vector<int> originalIndices = mesh.indices;
-
-        std::vector<float> unrolledVertices;
-        std::vector<int> unrolledIndices;
-        std::map<std::string, std::vector<float>> unrolledPointScalars;
-
-        unrolledVertices.reserve(originalIndices.size() * 3);
-        unrolledIndices.reserve(originalIndices.size());
-
-        bool hasAttributes = mesh.attributes.has_value();
-
-        for (size_t i = 0; i < originalIndices.size(); ++i) {
-            int originalPointIdx = originalIndices[i];
-
-            unrolledVertices.push_back(rawVertices[originalPointIdx * 3 + 0]);
-            unrolledVertices.push_back(rawVertices[originalPointIdx * 3 + 1]);
-            unrolledVertices.push_back(rawVertices[originalPointIdx * 3 + 2]);
-
-            unrolledIndices.push_back(static_cast<int>(i));
-
-            if (hasAttributes) {
-                for (const auto& [name, scalarVec] : mesh.attributes->pointScalars) {
-                    if (originalPointIdx >= 0 && originalPointIdx < static_cast<int>(scalarVec.size())) {
-                        unrolledPointScalars[name].push_back(scalarVec[originalPointIdx]);
-                    }
-                    else {
-                        unrolledPointScalars[name].push_back(0.0f);
-                    }
-                }
-                // unroll per-point vectors to align with unrolled vertices
-                for (const auto& [name, vecArr] : mesh.attributes->pointVectors) {
-                    float vx = 0.0f, vy = 0.0f, vz = 0.0f;
-                    if (originalPointIdx >= 0 && originalPointIdx * 3 + 2 < static_cast<int>(vecArr.size())) {
-                        vx = vecArr[originalPointIdx * 3 + 0];
-                        vy = vecArr[originalPointIdx * 3 + 1];
-                        vz = vecArr[originalPointIdx * 3 + 2];
-                    }
-                    mesh.pointVectors[name].insert(mesh.pointVectors[name].end(), { vx, vy, vz });
-                }
+        // 2. Keep the mesh INDEXED (shared vertices). Previously the mesh was fully
+        //    "unrolled" into a non-indexed layout (one copy of every vertex per
+        //    triangle). For a 50^3 volume that is 4.2M triangles -> 12.7M vertices,
+        //    and every scalar/vector attribute was duplicated the same way, blowing
+        //    RAM to ~1.4 GB. Flat shading is instead obtained via angle-based
+        //    normals in computeNormals(), which runs on the indexed layout and only
+        //    splits normals at genuinely sharp edges.
+        if (mesh.attributes.has_value()) {
+            // Align per-point vectors with the (shared) vertices for glyph rendering.
+            for (const auto& [name, vecArr] : mesh.attributes->pointVectors) {
+                mesh.pointVectors[name] = vecArr;
             }
         }
 
-        mesh.vertices = std::move(unrolledVertices);
-        mesh.indices = std::move(unrolledIndices);
-
-        if (hasAttributes) {
-            mesh.attributes->pointScalars = std::move(unrolledPointScalars);
-        }
+        bool hasAttributes = mesh.attributes.has_value();
 
         // 3. Extract the active array directly for your GPU-bound flat vector representation
         if (!mesh.scalarName.empty() && hasAttributes && mesh.attributes->pointScalars.count(mesh.scalarName)) {

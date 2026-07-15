@@ -16,6 +16,7 @@
 #include <QVariant>
 #include <QVariantList>
 #include <QColor>
+#include <QTimer>
 
 // Core Graphics Dependencies (Replacing GLFW windows management entirely)
 #include <glad/glad.h>
@@ -65,6 +66,7 @@ class Renderer : public QObject {
     // QML Data Binding Interop Properties Matrix
     // -----------------------------------------------------------------------
     Q_PROPERTY(bool isWireframe READ isWireframe WRITE setWireframe NOTIFY wireframeChanged)
+    Q_PROPERTY(bool useLod READ getUseLod WRITE setUseLod NOTIFY viewChanged)
     Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY surfaceVisibilityChanged)
     Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY gridVisibilityChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
@@ -172,11 +174,21 @@ public:
 
     // Uploads CPU geometry to the GPU. Safe to call on the render thread.
     void uploadMesh(const RenderMesh& renderMesh);
+    // Build a single GPU Mesh from a CPU RenderMesh and append it to `out`.
+    void buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out);
+    // Vertex-clustering decimation used to build the LOD mesh. Returns an empty
+    // mesh when decimation is not worthwhile (small meshes).
+    RenderMesh decimate(const RenderMesh& renderMesh) const;
+    // Mark the camera as moving and (re)start the LOD debounce timer.
+    void markCameraMoving();
+    void onLodTimer();
     void resizeViewport(int width, int height);
 
     // Modern Qt Property Accessors & Mutators
     bool isWireframe() const { return showWireframe; }
     void setWireframe(bool enabled);
+    bool getUseLod() const { return useLod; }
+    void setUseLod(bool enabled);
 
     bool isSurfaceVisible() const { return showSurface; }
     bool isGridVisible() const { return showGrid; }
@@ -292,11 +304,11 @@ signals:
 
 public:
     // VTK Camera Inline Forwarders (QML-invokable so the UI can drive the camera)
-    Q_INVOKABLE void azimuth(double angle) { camera.azimuth(angle); emit viewChanged(); }
-    Q_INVOKABLE void elevation(double angle) { camera.elevation(angle); emit viewChanged(); }
-    Q_INVOKABLE void roll(double angle) { camera.roll(angle); emit viewChanged(); }
-    Q_INVOKABLE void pan(double dx, double dy) { camera.pan(dx, dy); emit viewChanged(); }
-    Q_INVOKABLE void dolly(double factor) { camera.dolly(factor); camDistance = camera.distance; emit viewChanged(); }
+    Q_INVOKABLE void azimuth(double angle) { camera.azimuth(angle); markCameraMoving(); emit viewChanged(); }
+    Q_INVOKABLE void elevation(double angle) { camera.elevation(angle); markCameraMoving(); emit viewChanged(); }
+    Q_INVOKABLE void roll(double angle) { camera.roll(angle); markCameraMoving(); emit viewChanged(); }
+    Q_INVOKABLE void pan(double dx, double dy) { camera.pan(dx, dy); markCameraMoving(); emit viewChanged(); }
+    Q_INVOKABLE void dolly(double factor) { camera.dolly(factor); camDistance = camera.distance; markCameraMoving(); emit viewChanged(); }
     void orthogonalizeViewUp() { camera.orthogonalizeViewUp(); }
     glm::dvec3 directionOfProjection() const { return camera.directionOfProjection(); }
 
@@ -542,6 +554,11 @@ private:
     double farPlane = 100.0;
     bool hasMeshLoaded = false;
     std::vector<Mesh> meshes;
+    std::vector<Mesh> decimatedMeshes; // LOD: coarse GPU meshes drawn during camera motion
+    bool hasDecimated = false;
+    bool useLod = true;                // user toggle for the LOD system
+    std::atomic<bool> cameraMoving{false}; // true while the camera is in motion
+    QTimer* m_lodTimer = nullptr;      // debounce: clears cameraMoving after motion stops
 
     RenderMesh cachedMeshSource;
     std::string currentMeshName;

@@ -290,6 +290,7 @@ ApplicationWindow {
                         CheckBox { text: "Grid";      checked: backendRenderer ? backendRenderer.isGridVisible : false; onToggled: backendRenderer.isGridVisible = checked }
                         CheckBox { text: "Surface";   checked: backendRenderer ? backendRenderer.isSurfaceVisible : false; onToggled: backendRenderer.isSurfaceVisible = checked }
                         CheckBox { text: "Auto-Rotate"; checked: backendRenderer ? backendRenderer.autoRotate : false; onToggled: backendRenderer.autoRotate = checked }
+                        CheckBox { text: "Level of Detail"; checked: backendRenderer ? backendRenderer.useLod : true; onToggled: backendRenderer.useLod = checked }
                         Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Button { text: "Reset Cam"; width: 92; onClicked: backendRenderer.resetCamera() }
@@ -405,7 +406,7 @@ ApplicationWindow {
                         ComboBox {
                             width: parent.width
                             model: backendRenderer ? backendRenderer.availableVectors : []
-                            currentIndex: backendRenderer ? Math.max(0, availableVectors.indexOf(backendRenderer.vectorField)) : 0
+                            currentIndex: backendRenderer ? Math.max(0, backendRenderer.availableVectors.indexOf(backendRenderer.vectorField)) : 0
                             onActivated: backendRenderer.setActiveVectorField(currentText)
                         }
                         Text { text: "Arrow scale"; color: "#888"; font.pixelSize: 10 }

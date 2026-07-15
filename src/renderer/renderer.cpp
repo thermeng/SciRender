@@ -15,8 +15,10 @@
 #include <vector>
 #include <algorithm>
 #include <limits>
+#include <unordered_map>
 #include <QImage>
 #include <QBuffer>
+#include <QTimer>
 
 // kit-wide warm tint (shared by light colors + viewport markers).
 // 0 = cold blue, 0.5 = neutral white, 1 = warm red.
@@ -56,6 +58,13 @@ Renderer::Renderer(QObject* parent)
 
     worldCenterX = 0.0; worldCenterY = 0.0; worldCenterZ = 0.0;
     worldRadius = 1.0;
+
+    // LOD debounce: when the camera stops moving, this fires once and forces a
+    // final repaint with the full-resolution mesh.
+    m_lodTimer = new QTimer(this);
+    m_lodTimer->setSingleShot(true);
+    m_lodTimer->setInterval(140);
+    connect(m_lodTimer, &QTimer::timeout, this, &Renderer::onLodTimer);
 
     loadRecentFromSettings();
 }
@@ -326,21 +335,7 @@ void Renderer::initGizmo() {
     gizmo.init();
 }
 
-void Renderer::uploadMesh(const RenderMesh& renderMesh) {
-    // WIPE OUT OLD OPENGL HANDLES BEFORE GENERATING NEW ONES
-    // Guarded by meshGLMutex so it cannot race with clearMeshes() on the UI thread.
-    {
-        std::lock_guard<std::mutex> lock(meshGLMutex);
-        for (auto& m : meshes) {
-            glDeleteVertexArrays(1, &m.vao);
-            glDeleteBuffers(1, &m.vbo);
-            glDeleteBuffers(1, &m.nbo);
-            glDeleteBuffers(1, &m.ebo);
-            if (m.sbo) glDeleteBuffers(1, &m.sbo);
-        }
-        meshes.clear(); // Empty the graphics tracking vector cleanly
-    }
-
+void Renderer::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out) {
     Mesh mesh;
     mesh.indexCount = static_cast<int>(renderMesh.indices.size());
 
@@ -377,10 +372,141 @@ void Renderer::uploadMesh(const RenderMesh& renderMesh) {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, renderMesh.indices.size() * sizeof(unsigned int), renderMesh.indices.data(), GL_STATIC_DRAW);
 
     glBindVertexArray(0);
-    meshes.push_back(mesh);
+    out.push_back(mesh);
+}
+
+void Renderer::uploadMesh(const RenderMesh& renderMesh) {
+    std::vector<Mesh> newFull, newDec;
+
+    // Full-resolution mesh.
+    buildMeshGL(renderMesh, newFull);
+
+    // LOD: a coarsely decimated mesh, used only while the camera is moving.
+    RenderMesh decimated = decimate(renderMesh);
+    bool lodWorthwhile = !decimated.indices.empty() &&
+                         decimated.indices.size() < renderMesh.indices.size() / 2;
+    if (lodWorthwhile) buildMeshGL(decimated, newDec);
+
+    // WIPE OUT OLD OPENGL HANDLES BEFORE GENERATING NEW ONES
+    // Guarded by meshGLMutex so it cannot race with clearMeshes() on the UI thread.
+    {
+        std::lock_guard<std::mutex> lock(meshGLMutex);
+        for (auto& m : meshes) destroyMesh(m);
+        meshes.clear();
+        for (auto& m : decimatedMeshes) destroyMesh(m);
+        decimatedMeshes.clear();
+
+        meshes = std::move(newFull);
+        decimatedMeshes = std::move(newDec);
+        hasDecimated = !decimatedMeshes.empty();
+    }
 
     // (re)build instanced vector arrow glyphs from the cached source mesh
     rebuildVectorGlyphs();
+}
+
+void Renderer::markCameraMoving() {
+    cameraMoving = true;
+    if (m_lodTimer) m_lodTimer->start(); // (re)arm: fires 140ms after motion stops
+}
+
+void Renderer::onLodTimer() {
+    cameraMoving = false;
+    emit viewChanged(); // one last repaint, now with the full mesh
+}
+
+RenderMesh Renderer::decimate(const RenderMesh& in) const {
+    RenderMesh out;
+    const size_t nv = in.vertices.size() / 3;
+    // Small meshes gain nothing from LOD and risk degeneracy — skip them.
+    if (nv < 4000 || in.indices.size() < 3) return out;
+
+    const double minX = in.bounds.minX, minY = in.bounds.minY, minZ = in.bounds.minZ;
+    const double dx = in.bounds.maxX - minX, dy = in.bounds.maxY - minY, dz = in.bounds.maxZ - minZ;
+    const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (diag < 1e-9) return out;
+
+    // Cells per axis chosen so the cluster count is a coarse fraction of the
+    // vertices (~half the "one cell per vertex" resolution => ~1/8th vertices).
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
+    const double cell = diag / cellsPerAxis;
+
+    auto clampCell = [&](double v, int n) {
+        int i = static_cast<int>(std::floor(v / cell));
+        if (i < 0) i = 0; else if (i >= n) i = n - 1;
+        return i;
+    };
+    auto keyFor = [&](size_t i) -> uint64_t {
+        const int ci = clampCell(in.vertices[3 * i + 0] - minX, cellsPerAxis);
+        const int cj = clampCell(in.vertices[3 * i + 1] - minY, cellsPerAxis);
+        const int ck = clampCell(in.vertices[3 * i + 2] - minZ, cellsPerAxis);
+        return static_cast<uint64_t>(ci)
+             | (static_cast<uint64_t>(cj) << 20)
+             | (static_cast<uint64_t>(ck) << 40);
+    };
+
+    std::unordered_map<uint64_t, int> cellToNew;
+    std::vector<int> remap(nv, -1);
+    std::vector<double> sx, sy, sz, nx, ny, nz, sc, cnt;
+    const bool hasS = !in.scalars.empty();
+
+    for (size_t i = 0; i < nv; ++i) {
+        const uint64_t k = keyFor(i);
+        auto it = cellToNew.find(k);
+        int newIdx;
+        if (it == cellToNew.end()) {
+            newIdx = static_cast<int>(cellToNew.size());
+            cellToNew[k] = newIdx;
+            sx.push_back(0.0); sy.push_back(0.0); sz.push_back(0.0);
+            nx.push_back(0.0); ny.push_back(0.0); nz.push_back(0.0);
+            sc.push_back(0.0); cnt.push_back(0.0);
+        } else {
+            newIdx = it->second;
+        }
+        remap[i] = newIdx;
+        sx[newIdx] += in.vertices[3 * i + 0];
+        sy[newIdx] += in.vertices[3 * i + 1];
+        sz[newIdx] += in.vertices[3 * i + 2];
+        nx[newIdx] += in.normals[3 * i + 0];
+        ny[newIdx] += in.normals[3 * i + 1];
+        nz[newIdx] += in.normals[3 * i + 2];
+        if (hasS) sc[newIdx] += in.scalars[i];
+        cnt[newIdx] += 1.0;
+    }
+
+    const int newCount = static_cast<int>(cellToNew.size());
+    out.vertices.resize(static_cast<size_t>(newCount) * 3);
+    out.normals.resize(static_cast<size_t>(newCount) * 3);
+    if (hasS) out.scalars.resize(newCount);
+
+    for (int i = 0; i < newCount; ++i) {
+        const double inv = 1.0 / cnt[i];
+        out.vertices[3 * i + 0] = static_cast<float>(sx[i] * inv);
+        out.vertices[3 * i + 1] = static_cast<float>(sy[i] * inv);
+        out.vertices[3 * i + 2] = static_cast<float>(sz[i] * inv);
+        double nl = std::sqrt(nx[i] * nx[i] + ny[i] * ny[i] + nz[i] * nz[i]);
+        if (nl > 1e-12) { nl = 1.0 / nl; } else { nl = 0.0; }
+        out.normals[3 * i + 0] = static_cast<float>(nx[i] * nl);
+        out.normals[3 * i + 1] = static_cast<float>(ny[i] * nl);
+        out.normals[3 * i + 2] = static_cast<float>(nz[i] * nl);
+        if (hasS) out.scalars[i] = static_cast<float>(sc[i] * inv);
+    }
+
+    // Remap triangles, dropping any that collapsed into a single cell.
+    out.indices.reserve(in.indices.size());
+    for (size_t t = 0; t + 2 < in.indices.size(); t += 3) {
+        const int a = remap[in.indices[t]];
+        const int b = remap[in.indices[t + 1]];
+        const int c = remap[in.indices[t + 2]];
+        if (a == b || b == c || a == c) continue;
+        out.indices.push_back(a);
+        out.indices.push_back(b);
+        out.indices.push_back(c);
+    }
+
+    out.bounds = in.bounds; // vertices stay within the same box
+    return out;
 }
 
 void Renderer::destroyMesh(Mesh& mesh) {
@@ -514,6 +640,11 @@ void Renderer::clearMeshes() {
             destroyMesh(m);
         }
         meshes.clear();
+        for (auto& m : decimatedMeshes) {
+            destroyMesh(m);
+        }
+        decimatedMeshes.clear();
+        hasDecimated = false;
     }
     hasMeshLoaded = false;
     meshHasScalars = false;
@@ -889,8 +1020,12 @@ void Renderer::renderFrame() {
         std::vector<DrawEntry> drawList;
         {
             std::lock_guard<std::mutex> lock(meshGLMutex);
-            drawList.reserve(meshes.size());
-            for (const auto& m : meshes) drawList.push_back({m.vao, m.indexCount});
+            // While the camera is moving, draw the coarse LOD mesh to keep framerate
+            // high; otherwise draw the full-resolution mesh.
+            const std::vector<Mesh>& src =
+                (useLod && cameraMoving.load() && hasDecimated) ? decimatedMeshes : meshes;
+            drawList.reserve(src.size());
+            for (const auto& m : src) drawList.push_back({m.vao, m.indexCount});
         }
 
         for (const auto& e : drawList) {
@@ -1183,6 +1318,14 @@ void Renderer::setWireframe(bool enabled) {
     if (showWireframe == enabled) return;
     showWireframe = enabled;
     emit wireframeChanged();
+}
+
+void Renderer::setUseLod(bool enabled) {
+    if (useLod == enabled) return;
+    useLod = enabled;
+    cameraMoving = false; // force a clean repaint at the chosen resolution
+    if (m_lodTimer) m_lodTimer->stop();
+    emit viewChanged();
 }
 
 void Renderer::toggleSurface(bool visible) {
