@@ -388,7 +388,7 @@ ApplicationWindow {
                                 from: 2; to: 20; stepSize: 1
                                 value: backendRenderer ? backendRenderer.colorbarTicks : 6
                                 onValueChanged: backendRenderer.colorbarTicks = value
-                                width: 100
+                                width: 64
                             }
                         }
                         Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
@@ -755,8 +755,6 @@ ApplicationWindow {
                 id: vectorGradientBar
                 width: 20
                 height: 200
-                border.color: "#555555"
-                border.width: 1
                 clip: true
 
                 Repeater {
@@ -771,24 +769,26 @@ ApplicationWindow {
                 }
             }
 
+            // Tick labels spread across the full magnitude range (count is user-controllable).
             Item {
                 width: 60
                 height: vectorGradientBar.height
 
-                Text {
-                    text: backendRenderer ? backendRenderer.vectorMagMax.toFixed(3) : ""
-                    color: "#dddddd"
-                    font.pixelSize: 11
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                }
-
-                Text {
-                    text: backendRenderer ? backendRenderer.vectorMagMin.toFixed(3) : ""
-                    color: "#dddddd"
-                    font.pixelSize: 11
-                    anchors.left: parent.left
-                    anchors.bottom: parent.bottom
+                Repeater {
+                    model: backendRenderer ? Math.max(2, backendRenderer.colorbarTicks) : 2
+                    delegate: Text {
+                        required property int index
+                        property int tickCount: backendRenderer ? backendRenderer.colorbarTicks : 2
+                        property real frac: tickCount > 1 ? (index / (tickCount - 1)) : 0
+                        property real value: backendRenderer
+                            ? (backendRenderer.vectorMagMin + (backendRenderer.vectorMagMax - backendRenderer.vectorMagMin) * frac)
+                            : 0
+                        text: value.toFixed(3)
+                        color: "#dddddd"
+                        font.pixelSize: 10
+                        anchors.right: parent.right
+                        y: (1 - frac) * 200 - height / 2
+                    }
                 }
             }
         }
