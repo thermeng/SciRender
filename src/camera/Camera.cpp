@@ -84,9 +84,10 @@ glm::dvec3 Camera::directionOfProjection() const {
 }
 
 void Camera::snapToOrthoView(int axis) {
-    // ParaView/VTK axial presets: the SAME world axis stays "up" for each opposite pair,
+    // VTK axial presets: the SAME world axis stays "up" for each opposite pair,
     // so +X/-X, +Y/-Y, +Z/-Z only differ by azimuth (a horizontal mirror), never a
-    // vertical flip. This keeps the reference axis always pointing up, like ParaView.
+    // vertical flip. This keeps the reference axis always pointing up, matching the
+    // VTK/Qt 3D convention used here.
     //   X / Y faces -> world +Z is up;  Z face -> world +Y is up.
     glm::dvec3 target = focalPoint;
     glm::dvec3 up(0.0, 1.0, 0.0);
