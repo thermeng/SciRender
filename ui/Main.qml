@@ -578,7 +578,10 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.margins: 12
         spacing: 4
-        visible: backendRenderer ? (backendRenderer.showVectors && backendRenderer.vectorUseColormap && backendRenderer.hasMeshLoaded) : false
+        // ponytail: gate on the CURRENT mesh actually having vector fields, not just the
+        // persisted showVectors/vectorUseColormap toggles — otherwise the bar stays up after
+        // loading a new mesh that has no vectors.
+        visible: backendRenderer ? (backendRenderer.showVectors && backendRenderer.vectorUseColormap && backendRenderer.hasMeshLoaded && backendRenderer.availableVectors.length > 0) : false
 
         Text {
             text: (backendRenderer ? backendRenderer.vectorFieldName : "") + " | magnitude"
