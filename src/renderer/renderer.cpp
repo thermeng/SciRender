@@ -519,6 +519,8 @@ void Renderer::clearMeshes() {
     meshHasScalars = false;
     triangleCount = 0;
     pointCount = 0;
+    meshDataType = "";
+    meshFormat = "";
     currentMeshName = "";
     if (!m_destroying) emit meshLoadStateChanged();
 }
@@ -582,6 +584,8 @@ void Renderer::loadMesh(const QString& filePath) {
     currentMeshName = fileInfo.fileName().toStdString();
     triangleCount = static_cast<int>(loaded.indices.size() / 3);
     pointCount = static_cast<int>(loaded.vertices.size() / 3); // vertices are xyz triples
+    meshDataType = loaded.datasetType;
+    meshFormat = loaded.fileFormat;
 
     // UI components read these variables immediately
     hasMeshLoaded = true;

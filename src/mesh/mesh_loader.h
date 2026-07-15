@@ -63,6 +63,10 @@ struct RenderMesh {
     // Optional dataset attributes (point/cell scalar maps)
     std::optional<DatasetAttributes> attributes;
 
+    // Source metadata for the info panel
+    std::string datasetType = ""; // VTK DATASET token (e.g. STRUCTURED_GRID) or "STL"
+    std::string fileFormat  = ""; // "VTK" or "STL"
+
     // Default constructor
     RenderMesh() = default;
 };

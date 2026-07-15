@@ -52,6 +52,8 @@ public:
         buildTopology();
         finalizeMeshData();
 
+        mesh.datasetType = datasetType.empty() ? "UNKNOWN" : datasetType;
+        mesh.fileFormat = "VTK";
         return mesh;
     }
 

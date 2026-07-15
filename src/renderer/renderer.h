@@ -93,6 +93,9 @@ class Renderer : public QObject {
     Q_PROPERTY(float lightWarm READ getLightWarm WRITE setLightWarm NOTIFY lightingParametersChanged)
     Q_PROPERTY(int triangleCount READ getTriangleCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int pointCount READ getPointCount NOTIFY meshLoadStateChanged)
+    // info-panel metadata
+    Q_PROPERTY(QString meshDataType READ getMeshDataType NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(QString meshFormat READ getMeshFormat NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
@@ -182,6 +185,8 @@ public:
     bool getHasMeshLoaded() const { return hasMeshLoaded; }
     int getTriangleCount() const { return triangleCount; }
     int getPointCount() const { return pointCount; }
+    QString getMeshDataType() const { return QString::fromStdString(meshDataType); }
+    QString getMeshFormat() const { return QString::fromStdString(meshFormat); }
     QColor getBgColorQml() const { return QColor::fromRgbF(bgColor[0], bgColor[1], bgColor[2]); }
     void setBgColorQml(const QColor& c) { bgColor[0] = c.redF(); bgColor[1] = c.greenF(); bgColor[2] = c.blueF(); emit viewChanged(); }
 
@@ -600,6 +605,8 @@ private:
     bool vectorLutDirty = true;   // rebuild vector LUT when choice changes
     int triangleCount = 0;
     int pointCount = 0;
+    std::string meshDataType; // VTK DATASET type or "STL" (info panel)
+    std::string meshFormat;   // "VTK" or "STL" (info panel)
 
     // screenshot export options (UI-exposed)
     bool screenshotTransparent = false;

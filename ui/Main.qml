@@ -41,7 +41,8 @@ ApplicationWindow {
             activeSection === 2 ? "View & Display" :
             activeSection === 3 ? "Colormap" :
             activeSection === 4 ? "Vectors" :
-            activeSection === 5 ? "Screenshot" : ""
+            activeSection === 5 ? "Screenshot" :
+            activeSection === 6 ? "Mesh Info" : ""
         width: 48 + (expanded ? panelWidth : 0)
         anchors.top: parent.top
         anchors.bottom: parent.bottom
@@ -96,6 +97,7 @@ ApplicationWindow {
             RailButton { text: "\u{1F3A8}"; ToolTip.text: "Colormap"; ToolTip.visible: hovered; active: rail.activeSection === 3; onClicked: rail.toggleSection(3) }
             RailButton { text: "\u{27A1}";    ToolTip.text: "Vectors"; ToolTip.visible: hovered; active: rail.activeSection === 4; onClicked: rail.toggleSection(4) }
             RailButton { text: "\u{1F4F7}"; ToolTip.text: "Screenshot"; ToolTip.visible: hovered; active: rail.activeSection === 5; onClicked: rail.toggleSection(5) }
+            RailButton { text: "\u{1F4CA}"; ToolTip.text: "Mesh Info"; ToolTip.visible: hovered; active: rail.activeSection === 6; onClicked: rail.toggleSection(6) }
         }
 
         // ---- Docked content panel (slides out to the right of the icon strip) ----
@@ -470,6 +472,52 @@ ApplicationWindow {
                             }
                         }
                         CheckBox { text: "Reverse palette"; enabled: backendRenderer ? backendRenderer.vectorUseColormap : false; checked: backendRenderer ? backendRenderer.vectorColormapReversed : false; onToggled: backendRenderer.vectorColormapReversed = checked }
+                    }
+
+                    Column {
+                        visible: rail.activeSection === 6
+                        spacing: 6
+                        width: parent.width
+                        Text { text: "Source"; color: "#888"; font.pixelSize: 10 }
+                        Row { spacing: 6
+                            Text { text: "Type"; color: "#888"; font.pixelSize: 11; width: 64 }
+                            Text { text: backendRenderer ? backendRenderer.meshDataType : "—"; color: "#ddd"; font.pixelSize: 11 }
+                        }
+                        Row { spacing: 6
+                            Text { text: "Format"; color: "#888"; font.pixelSize: 11; width: 64 }
+                            Text { text: backendRenderer ? backendRenderer.meshFormat : "—"; color: "#ddd"; font.pixelSize: 11 }
+                        }
+                        Text { text: "Geometry"; color: "#888"; font.pixelSize: 10 }
+                        Row { spacing: 6
+                            Text { text: "Triangles"; color: "#888"; font.pixelSize: 11; width: 64 }
+                            Text { text: backendRenderer ? backendRenderer.triangleCount : 0; color: "#ddd"; font.pixelSize: 11 }
+                        }
+                        Row { spacing: 6
+                            Text { text: "Points"; color: "#888"; font.pixelSize: 11; width: 64 }
+                            Text { text: backendRenderer ? backendRenderer.pointCount : 0; color: "#ddd"; font.pixelSize: 11 }
+                        }
+                        Text { text: "Bounding box"; color: "#888"; font.pixelSize: 10 }
+                        GridLayout {
+                            columns: 4
+                            width: parent.width
+                            columnSpacing: 4
+                            Text { text: ""; color: "#888"; font.pixelSize: 10 }
+                            Text { text: "X"; color: "#aaa"; font.pixelSize: 10 }
+                            Text { text: "Y"; color: "#aaa"; font.pixelSize: 10 }
+                            Text { text: "Z"; color: "#aaa"; font.pixelSize: 10 }
+                            Text { text: "Min"; color: "#888"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.worldMinX.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.worldMinY.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.worldMinZ.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: "Max"; color: "#888"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.worldMaxX.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.worldMaxY.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.worldMaxZ.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: "Δ"; color: "#888"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? (backendRenderer.worldMaxX - backendRenderer.worldMinX).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? (backendRenderer.worldMaxY - backendRenderer.worldMinY).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? (backendRenderer.worldMaxZ - backendRenderer.worldMinZ).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                        }
                     }
                 }
             }

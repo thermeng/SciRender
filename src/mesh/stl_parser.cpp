@@ -192,8 +192,8 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
 }
 
 RenderMesh parseSTL(const std::string& filePath) {
-    if (isBinarySTL(filePath)) {
-        return parseSTLBinary(filePath);
-    }
-    return parseSTLAscii(filePath);
+    RenderMesh mesh = isBinarySTL(filePath) ? parseSTLBinary(filePath) : parseSTLAscii(filePath);
+    mesh.datasetType = "STL";
+    mesh.fileFormat = "STL";
+    return mesh;
 }
