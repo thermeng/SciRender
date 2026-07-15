@@ -27,40 +27,8 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+=";     onActivated: if (backendRenderer) backendRenderer.dolly(1.1) }
     Shortcut { sequence: "Ctrl+-";     onActivated: if (backendRenderer) backendRenderer.dolly(0.9) }
 
-    // High-Performance Raw OpenGL Output Subwindow Area
-    ViewportVisualizer {
-        id: openGLViewport
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.right: parent.right
-        anchors.left: rail.right
-        renderer: backendRenderer // Links instance reference directly to C++ target
-
-        // Drop zone overlay for dragging raw STL/VTK files directly into the viewport
-        DropArea {
-            anchors.fill: parent
-            onDropped: (drop) => {
-                if (drop.hasUrls) {
-                    // Fixes cross-platform file path resolution for Win/Mac/Linux
-                    let urlStr = drop.urls[0].toString();
-                    let cleanPath = urlStr.startsWith("file://") ? urlToPath(urlStr) : urlStr;
-                    backendRenderer.loadMesh(cleanPath);
-                    drop.acceptProposedAction();
-                }
-            }
-        }
-    }
-
-    // Helper JavaScript function to strip out protocols securely across OS environments
-    function urlToPath(urlStr) {
-        if (Qt.platform.os === "windows") {
-            return urlStr.replace("file:///", "");
-        } else {
-            return urlStr.replace("file://", "");
-        }
-    }
-
-    // ---- Expandable icon rail ----
+    // High-Performance Raw OpenGL Output Subwindow Area — wrapped in captureRoot so the
+    // screenshot grabs viewport + legend overlays WITHOUT the left rail chrome (Option B).
     Rectangle {
         id: rail
         readonly property int panelWidth: 220
@@ -430,6 +398,42 @@ ApplicationWindow {
         }
     }
 
+    // Helper JavaScript function to strip out protocols securely across OS environments
+    function urlToPath(urlStr) {
+        if (Qt.platform.os === "windows") {
+            return urlStr.replace("file:///", "");
+        } else {
+            return urlStr.replace("file://", "");
+        }
+    }
+
+    Item {
+        id: captureRoot
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.left: rail.right
+
+        ViewportVisualizer {
+            id: openGLViewport
+            anchors.fill: parent
+            renderer: backendRenderer // Links instance reference directly to C++ target
+
+        // Drop zone overlay for dragging raw STL/VTK files directly into the viewport
+        DropArea {
+            anchors.fill: parent
+            onDropped: (drop) => {
+                if (drop.hasUrls) {
+                    // Fixes cross-platform file path resolution for Win/Mac/Linux
+                    let urlStr = drop.urls[0].toString();
+                    let cleanPath = urlStr.startsWith("file://") ? urlToPath(urlStr) : urlStr;
+                    backendRenderer.loadMesh(cleanPath);
+                    drop.acceptProposedAction();
+                }
+            }
+        }
+    }
+
     FileDialog {
         id: fileDialog
         title: "Load Mesh"
@@ -449,7 +453,14 @@ ApplicationWindow {
         onAccepted: {
             let urlStr = selectedFile.toString();
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
-            backendRenderer.requestScreenshot(cleanPath);
+            // ponytail: Option B — grab viewport + legend subtree (clean crop, no rail).
+            // Transparent PNG keeps the original FBO-only path (legends excluded, since
+            // QML overlays have no alpha to composite).
+            if (backendRenderer && backendRenderer.screenshotTransparent) {
+                backendRenderer.requestScreenshot(cleanPath);
+            } else {
+                captureRoot.grabToImage(function(grabResult) { grabResult.saveToFile(cleanPath); });
+            }
         }
     }
 
@@ -620,6 +631,8 @@ ApplicationWindow {
             }
         }
     }
+
+    } // captureRoot
 
     // ---- Menu bar ----
     menuBar: MenuBar {
