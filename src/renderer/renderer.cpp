@@ -650,6 +650,10 @@ void Renderer::resetCamera() {
         camera.distance = 1.0; // Prevent the camera from nesting inside a flat/empty mesh
     }
 
+    // Allow zooming out to a generous multiple of the model size (and always a
+    // sensible floor) so the user can't dolly into infinite distance.
+    camera.maxDistance = std::max(1000.0, worldRadius * 50.0);
+
     // 3. Set the near and far planes tightly but safely around the radius
     // Since we inverted Z in the projection matrix, ensure these bracket the geometry seamlessly.
     nearPlane = std::max(0.01, worldRadius * 0.01);
@@ -765,6 +769,15 @@ void Renderer::renderFrame() {
     glViewport(0, 0, deviceW, deviceH);
 
     glm::mat4 view = camera.getViewMatrix();
+
+    // Clip planes must track the current camera distance. resetCamera() only
+    // sets them once from the mesh radius, so zooming out (dolly) would otherwise
+    // push the mesh past the far plane (mesh disappears) and clip the ground grid
+    // at the horizon (grid cut off in a horizontal band at screen center).
+    double camDist = camera.distance;
+    nearPlane = std::max(0.01, camDist * 0.001);
+    farPlane  = std::max(farPlane, camDist + worldRadius + 250.0);
+
     glm::mat4 proj = glm::perspective(
         glm::radians(45.0f),
         static_cast<float>(deviceW) / static_cast<float>(deviceH),

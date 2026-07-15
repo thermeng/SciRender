@@ -14,6 +14,7 @@ public:
     glm::dvec3 focalPoint;
     glm::dvec3 viewUp;
     double distance;
+    double maxDistance; // upper bound on `distance` set by the renderer on reset
 
     // Core Transformation Methods
     void azimuth(double angle);

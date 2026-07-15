@@ -5,7 +5,8 @@ Camera::Camera()
     : position(0.0, 0.0, 3.0),
     focalPoint(0.0, 0.0, 0.0),
     viewUp(0.0, 1.0, 0.0),
-    distance(3.0) {
+    distance(3.0),
+    maxDistance(1.0e6) {
 }
 
 void Camera::azimuth(double angle) {
@@ -69,6 +70,7 @@ void Camera::pan(double dx, double dy) {
 void Camera::dolly(double factor) {
     if (factor <= 0.0) factor = 0.001; // Guard against division by zero/negative zoom
     double newDist = distance / factor;
+    if (newDist > maxDistance) newDist = maxDistance; // Clamp how far we can zoom out
     glm::dvec3 dir = directionOfProjection();
     position = focalPoint - dir * newDist;
 
