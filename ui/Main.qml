@@ -736,7 +736,7 @@ ApplicationWindow {
     Rectangle {
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.margins: 8
+        anchors.margins: 0
         width: hudText.width + 16
         height: hudText.height + 8
         color: "#000000aa"

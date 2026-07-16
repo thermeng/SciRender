@@ -247,8 +247,8 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     const int margin = 10;
     const int s = static_cast<int>(foot * dpr);
     const int m = static_cast<int>(margin * dpr);
-    // context origin is top-left, so bottom edge = fbHeight - margin - size
-    const int y0 = fbHeight - m - s;
+    
+    const int y0 = m;
     glViewport(m, y0, s, s);
 
     // NO clear — scene already painted this corner with bgColor before
@@ -343,9 +343,13 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
 void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float dpr, int fbHeight, int foot) {
     if (!isInitialized()) return;
 
+    // Preserve engine state we mutate (viewport + depth test + blend + poly mode + bindings).
+    GLint prevVP[4];
+    glGetIntegerv(GL_VIEWPORT, prevVP);
+
     const int m = static_cast<int>(10 * dpr);
     const int s = static_cast<int>(foot * dpr);
-    const int y0 = fbHeight - m - s;
+    const int y0 = fbHeight - m - s; // FBO top-left -> screen bottom-left (see draw())
     glViewport(m, y0, s, s);
 
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
@@ -384,8 +388,9 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     glBindVertexArray(0);
     glUseProgram(0);
 
+    // ---- State handover: restore everything we touched ----
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
     glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(polyMode[0]));
-    glViewport(m, y0, s, s); // unchanged, but keep symmetric with draw()
+    glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
 }

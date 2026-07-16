@@ -227,6 +227,10 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    // The colorbar is a full-viewport blit: always draw into the full FBO
+    // viewport, since a prior pass (e.g. gizmo light markers) may have left a
+    // smaller viewport bound. Without this the legend would be squashed.
+    glViewport(0, 0, deviceW, deviceH);
 
     glUseProgram(program_);
     glUniform1i(texLoc_, 0);
