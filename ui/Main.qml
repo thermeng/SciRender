@@ -1,4 +1,4 @@
-import QtQuick
+ï»¿import QtQuick
 import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -28,7 +28,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+=";     onActivated: if (backendRenderer) backendRenderer.dolly(1.1) }
     Shortcut { sequence: "Ctrl+-";     onActivated: if (backendRenderer) backendRenderer.dolly(0.9) }
 
-    // High-Performance Raw OpenGL Output Subwindow Area — wrapped in captureRoot so the
+    // High-Performance Raw OpenGL Output Subwindow Area ï¿½ wrapped in captureRoot so the
     // screenshot grabs viewport + legend overlays WITHOUT the left rail chrome (Option B).
     Rectangle {
         id: rail
@@ -218,7 +218,7 @@ ApplicationWindow {
                     spacing: 4
                     Item { height: 8 }
 
-                    // Lighting Controls — Light Kit
+                    // Lighting Controls ï¿½ Light Kit
                     Column {
                         visible: rail.activeSection === 0
                         spacing: 4
@@ -509,11 +509,11 @@ ApplicationWindow {
                         Text { text: "Source"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Text { text: "Type"; color: "#888"; font.pixelSize: 11; width: 64 }
-                            Text { text: backendRenderer ? backendRenderer.meshDataType : "—"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.meshDataType : "ï¿½"; color: "#ddd"; font.pixelSize: 11 }
                         }
                         Row { spacing: 6
                             Text { text: "Format"; color: "#888"; font.pixelSize: 11; width: 64 }
-                            Text { text: backendRenderer ? backendRenderer.meshFormat : "—"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.meshFormat : "ï¿½"; color: "#ddd"; font.pixelSize: 11 }
                         }
                         Text { text: "Geometry"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
@@ -541,7 +541,7 @@ ApplicationWindow {
                             Text { text: backendRenderer ? backendRenderer.worldMaxX.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? backendRenderer.worldMaxY.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? backendRenderer.worldMaxZ.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
-                            Text { text: "?"; color: "#888"; font.pixelSize: 11 }
+                            Text { text: "Delta"; color: "#888"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? (backendRenderer.worldMaxX - backendRenderer.worldMinX).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? (backendRenderer.worldMaxY - backendRenderer.worldMinY).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? (backendRenderer.worldMaxZ - backendRenderer.worldMinZ).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
@@ -578,10 +578,15 @@ ApplicationWindow {
             title: "About SciRender"
             modal: true
             standardButtons: Dialog.Ok
-            anchors.centerIn: parent
+            width: 420
+            onAboutToShow: {
+                x = Math.round((windowRoot.width - width) / 2)
+                y = Math.round((windowRoot.height - height) / 2)
+            }
             contentItem: Column {
                 spacing: 10
                 padding: 18
+                width: aboutDialog.width - 36
                 Text {
                     text: "SciRender"
                     font.bold: true; font.pixelSize: 18; color: "#dddddd"
@@ -589,15 +594,15 @@ ApplicationWindow {
                 Text {
                     text: "A Qt 6 + OpenGL scientific mesh rendering toolkit for VTK and STL datasets."
                     font.pixelSize: 12; color: "#bbbbbb"
-                    width: 360; wrapMode: Text.WordWrap
+                    width: parent.width - 36; wrapMode: Text.WordWrap
                 }
                 Text {
                     text: "GPU shaders, instanced vector glyphs, light kit, slicing/clipping, and colormaps."
                     font.pixelSize: 11; color: "#999999"
-                    width: 360; wrapMode: Text.WordWrap
+                    width: parent.width - 36; wrapMode: Text.WordWrap
                 }
                 Text {
-                    text: "Build: MinGW 64-bit · Qt 6.11"
+                    text: "Build: MinGW 64-bit Â· Qt 6.11"
                     font.pixelSize: 10; color: "#777777"
                 }
             }
@@ -609,10 +614,15 @@ ApplicationWindow {
             title: "Keyboard Shortcuts"
             modal: true
             standardButtons: Dialog.Ok
-            anchors.centerIn: parent
+            width: 380
+            onAboutToShow: {
+                x = Math.round((windowRoot.width - width) / 2)
+                y = Math.round((windowRoot.height - height) / 2)
+            }
             contentItem: Column {
                 spacing: 4
                 padding: 18
+                width: shortcutsDialog.width - 36
                 property var rows: [
                     ["R", "Reset camera"],
                     ["W", "Toggle wireframe"],
@@ -627,7 +637,7 @@ ApplicationWindow {
                     model: parent.rows
                     Row {
                         spacing: 12
-                        width: 320
+                        width: parent.width - 36
                         Rectangle {
                             width: 64; height: 22; radius: 3; color: "#333333"
                             border.color: "#555"
@@ -704,9 +714,6 @@ ApplicationWindow {
         onAccepted: {
             let urlStr = selectedFile.toString();
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
-            // Option B — grab viewport + legend subtree (clean crop, no rail).
-            // Transparent PNG keeps the original FBO-only path (legends excluded, since
-            // QML overlays have no alpha to composite).
             if (backendRenderer && backendRenderer.screenshotTransparent) {
                 backendRenderer.requestScreenshot(cleanPath);
             } else {
@@ -715,7 +722,7 @@ ApplicationWindow {
         }
     }
 
-    // turntable — ~30fps azimuth nudge while autoRotate is on
+    // turntable ï¿½ ~30fps azimuth nudge while autoRotate is on
     Timer {
         interval: 33
         running: backendRenderer ? backendRenderer.autoRotate : false
@@ -807,7 +814,7 @@ ApplicationWindow {
             MenuItem { text: "Keyboard Shortcuts"; onTriggered: shortcutsDialog.open() }
             MenuItem { text: "About SciRender"; onTriggered: aboutDialog.open() }
             MenuSeparator {}
-            MenuItem { text: "Documentation"; onTriggered: Qt.openUrl("https://github.com/anomalyco/opencode") }
+            MenuItem { text: "Documentation"; onTriggered: Qt.openUrlExternally("https://github.com/thermeng/SciRender") }
         }
     }
 
@@ -824,9 +831,9 @@ ApplicationWindow {
             text: (backendRenderer && backendRenderer.hasMeshLoaded)
                 ? "Mesh: " + backendRenderer.currentMeshName
                   + "   |   Type: " + backendRenderer.meshDataType
-                  + "   |   Pts: " + backendRenderer.pointCount
-                  + "   |   Tris: " + backendRenderer.triangleCount
-                : "No mesh loaded — drag a .stl / .vtk file, or use File ? Open Mesh"
+                  + "   |   Points: " + backendRenderer.pointCount
+                  + "   |   Triangles: " + backendRenderer.triangleCount
+                : "No mesh loaded | drag a .stl / .vtk file, or use File > Open Mesh"
         }
     }
 }
