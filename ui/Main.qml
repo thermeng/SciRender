@@ -395,6 +395,7 @@ ApplicationWindow {
                             }
                         }
                         CheckBox { text: "Reverse palette"; checked: backendRenderer ? backendRenderer.colormapReversed : false; onToggled: backendRenderer.colormapReversed = checked }
+                        CheckBox { text: "Show colorbar"; checked: backendRenderer ? backendRenderer.showScalarColorbar : true; onToggled: backendRenderer.showScalarColorbar = checked }
                         Row {
                             spacing: 8
                             Text { text: "Colorbar ticks"; color: "#888"; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
@@ -760,130 +761,11 @@ ApplicationWindow {
         visible: backendRenderer ? !backendRenderer.hasMeshLoaded : true
     }
 
-    // Colorbar legend overlay (shown only for scalar-valued meshes)
-    Column {
-        id: colorbar
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.margins: 12
-        spacing: 4
-        visible: backendRenderer ? (backendRenderer.hasMeshLoaded && backendRenderer.meshHasScalars) : false
-
-        Text {
-            text: backendRenderer ? backendRenderer.activeScalarName : ""
-            color: "#dddddd"
-            font.pixelSize: 12
-        }
-
-        Row {
-            spacing: 8
-
-            Rectangle {
-                id: gradientBar
-                width: 20
-                height: 200
-                clip: true
-
-                Repeater {
-                    model: backendRenderer ? backendRenderer.colormapStops : []
-                    delegate: Rectangle {
-                        required property var modelData // Added to eliminate compiler mapping warning
-                        width: 20
-                        height: backendRenderer.colormapStops.length ? (200 / backendRenderer.colormapStops.length) : 0
-                        y: 200 - (modelData[0] * 200 + height)
-                        color: Qt.rgba(modelData[1], modelData[2], modelData[3], 1.0)
-                    }
-                }
-            }
-
-            // Tick labels spread across the full range (count is user-controllable).
-            Item {
-                width: 60
-                height: gradientBar.height
-
-                Repeater {
-                    model: backendRenderer ? Math.max(2, backendRenderer.colorbarTicks) : 2
-                    delegate: Text {
-                        required property int index
-                        property int tickCount: backendRenderer ? backendRenderer.colorbarTicks : 2
-                        property real frac: tickCount > 1 ? (index / (tickCount - 1)) : 0
-                        property real value: backendRenderer
-                            ? (backendRenderer.dataScalarMinQml + (backendRenderer.dataScalarMaxQml - backendRenderer.dataScalarMinQml) * frac)
-                            : 0
-                        text: value.toFixed(3)
-                        color: "#dddddd"
-                        font.pixelSize: 10
-                        anchors.right: parent.right
-                        y: (1 - frac) * 200 - height / 2
-                    }
-                }
-            }
-        }
-    }
-
-    // Vector magnitude colorbar (SEPARATE legend, top-right, shown only when color-by-magnitude is on)
-    Column {
-        id: vectorColorbar
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: 12
-        spacing: 4
-        // gate on the CURRENT mesh actually having vector fields, not just the
-        // persisted showVectors/vectorUseColormap toggles — otherwise the bar stays up after
-        // loading a new mesh that has no vectors.
-        visible: backendRenderer ? (backendRenderer.showVectors && backendRenderer.vectorUseColormap && backendRenderer.hasMeshLoaded && backendRenderer.availableVectors.length > 0) : false
-
-        Text {
-            text: (backendRenderer ? backendRenderer.vectorFieldName : "") + " | magnitude"
-            color: "#dddddd"
-            font.pixelSize: 12
-        }
-
-        Row {
-            spacing: 8
-
-            Rectangle {
-                id: vectorGradientBar
-                width: 20
-                height: 200
-                clip: true
-
-                Repeater {
-                    model: backendRenderer ? backendRenderer.vectorColormapStops : []
-                    delegate: Rectangle {
-                        required property var modelData
-                        width: 20
-                        height: backendRenderer.vectorColormapStops.length ? (200 / backendRenderer.vectorColormapStops.length) : 0
-                        y: 200 - (modelData[0] * 200 + height)
-                        color: Qt.rgba(modelData[1], modelData[2], modelData[3], 1.0)
-                    }
-                }
-            }
-
-            // Tick labels spread across the full magnitude range (count is user-controllable).
-            Item {
-                width: 60
-                height: vectorGradientBar.height
-
-                Repeater {
-                    model: backendRenderer ? Math.max(2, backendRenderer.colorbarTicks) : 2
-                    delegate: Text {
-                        required property int index
-                        property int tickCount: backendRenderer ? backendRenderer.colorbarTicks : 2
-                        property real frac: tickCount > 1 ? (index / (tickCount - 1)) : 0
-                        property real value: backendRenderer
-                            ? (backendRenderer.vectorMagMin + (backendRenderer.vectorMagMax - backendRenderer.vectorMagMin) * frac)
-                            : 0
-                        text: value.toFixed(3)
-                        color: "#dddddd"
-                        font.pixelSize: 10
-                        anchors.right: parent.right
-                        y: (1 - frac) * 200 - height / 2
-                    }
-                }
-            }
-        }
-    }
+    // NOTE: The colorbar legends (scalar + vector magnitude) are now baked into
+    // the GL viewport FBO by Renderer::drawColorbarLegends, so they appear in
+    // screenshots (including transparent PNG). The previous QML overlay legends
+    // were removed to avoid duplicate legends and to keep the live view in sync
+    // with the captured image.
 
     } // captureRoot
 

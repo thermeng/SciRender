@@ -48,9 +48,13 @@ bool ScreenshotExporter::saveToFile(const QString& path, const std::vector<unsig
         return false;
     }
 
-    // Map raw pixels onto a Qt image
-    const int channels = config.transparentBackground ? 4 : 3;
-    QImage::Format qFormat = config.transparentBackground ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
+    // Only PNG can actually store an alpha channel; JPEG/BMP discard it. Force a
+    // 3-channel (opaque) image for any non-PNG target so we never carry a
+    // meaningless 4th channel, and so the captured byte layout matches the
+    // channel count used in captureFBO (which also keys off transparency).
+    const bool keepAlpha = config.transparentBackground && (config.format == ExportFormat::PNG);
+    const int channels = keepAlpha ? 4 : 3;
+    QImage::Format qFormat = keepAlpha ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
     const int stride = width * channels;
 
     // CRITICAL FIX: Force QImage to copy the temporary 'pixels.data()' buffer.

@@ -34,6 +34,7 @@
 
 #include "mesh/mesh_loader.h"
 #include "gizmo/gizmo.h"
+#include "ui/colorbar_overlay.h"
 #include "camera/Camera.h"
 #include "export/screenshot.h"
 
@@ -95,6 +96,8 @@ class Renderer : public QObject {
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(float devicePixelRatio READ getDevicePixelRatio NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
+    // scalar colorbar legend on/off (the legend is baked into the FBO for screenshots)
+    Q_PROPERTY(bool showScalarColorbar READ getShowScalarColorbar WRITE setShowScalarColorbar NOTIFY viewChanged)
     // vector glyph controls
     Q_PROPERTY(bool showVectors READ getShowVectors WRITE setShowVectors NOTIFY viewChanged)
     Q_PROPERTY(float vectorScale READ getVectorScale WRITE setVectorScale NOTIFY viewChanged)
@@ -400,6 +403,8 @@ public:
     Q_INVOKABLE float getDataScalarMaxQml() const { return dataScalarMax; }
     int getColorbarTicks() const { return colorbarTicks; }
     void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (colorbarTicks != c) { colorbarTicks = c; emit colorbarChanged(); } }
+    bool getShowScalarColorbar() const { return showScalarColorbar; }
+    void setShowScalarColorbar(bool v) { if (showScalarColorbar != v) { showScalarColorbar = v; emit viewChanged(); } }
 
     // slice/clip getters/setters — setters emit viewChanged (cheap repaint)
     bool getClipEnabled() const { return clipEnabled; }
@@ -448,6 +453,10 @@ public:
 
 private:
     void drawGizmo();
+    // Bakes the scalar + vector colorbar legends into the currently-bound FBO so
+    // they are captured by screenshots (the QML colorbar overlay lives outside
+    // the GL surface and is therefore NOT included in the FBO capture).
+    void drawColorbarLegends(int deviceW, int deviceH);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     std::string readShaderFile(const std::string& filePath);
 
@@ -459,6 +468,7 @@ private:
     // Viewport Core Transform Tracking Classes
     Camera camera;
     Gizmo gizmo;
+    ColorbarOverlay colorbarOverlay;
 
     GLuint shaderProgram = 0;
     GLuint vao = 0, vbo = 0, ebo = 0;
@@ -555,6 +565,7 @@ private:
     float dataScalarMin = 0.0f;
     float dataScalarMax = 1.0f;
     int colorbarTicks = 6; // number of tick labels on the scalar colorbar
+    bool showScalarColorbar = true; // user-facing on/off for the scalar legend
     bool meshHasScalars = false;
 
     bool m_destroying = false; // set in ~Renderer to suppress signals during teardown

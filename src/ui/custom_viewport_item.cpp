@@ -151,6 +151,7 @@ QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSi
     m_fboSize = size;
     QOpenGLFramebufferObjectFormat format;
     format.setAttachment(QOpenGLFramebufferObject::Depth);
+    format.setInternalTextureFormat(GL_RGBA8); // RGBA color attachment so transparent PNG exports retain an alpha channel
     format.setSamples(0); // raw GL draw handles MSAA itself if needed
     m_fbo = new QOpenGLFramebufferObject(size, format);
     return m_fbo;

@@ -79,6 +79,7 @@ Renderer::~Renderer() {
         colormap.shutdown();
         vectorGlyph.shutdown();
         gizmo.shutdown();
+        colorbarOverlay.shutdown();
     }
 }
 #pragma GCC diagnostic pop
@@ -316,6 +317,7 @@ void Renderer::toggleGrid(bool visible) {
 
 void Renderer::initGizmo() {
     gizmo.init();
+    colorbarOverlay.init();
 }
 
 void Renderer::uploadMesh(const RenderMesh& renderMesh) {
@@ -439,6 +441,7 @@ void Renderer::loadMesh(const QString& filePath) {
 
     if (!loaded.scalars.empty()) {
         meshHasScalars = true;
+        setShowScalarColorbar(true);
         activeScalarName = loaded.scalarName;
         float minVal = loaded.scalars[0];
         float maxVal = loaded.scalars[0];
@@ -454,6 +457,7 @@ void Renderer::loadMesh(const QString& filePath) {
         filterMax = dataScalarMax;
     } else {
         meshHasScalars = false;
+        setShowScalarColorbar(false);
         dataScalarMin = 0.0f;
         dataScalarMax = 1.0f;
     }
@@ -610,7 +614,11 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
         deviceW = static_cast<int>(width * devicePixelRatio);
         deviceH = static_cast<int>(height * devicePixelRatio);
     }
-    std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(boundFbo, deviceW, deviceH, config.transparentBackground);
+    // Alpha is only meaningful for PNG exports; for JPEG/BMP we capture 3
+    // channels so the byte layout matches saveToFile (which also drops alpha
+    // for non-PNG). This keeps capture and save in lockstep.
+    const bool captureTransparent = config.transparentBackground && (config.format == ExportFormat::PNG);
+    std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(boundFbo, deviceW, deviceH, captureTransparent);
 
     bool success = ScreenshotExporter::saveToFile(config.filePath, pixels, deviceW, deviceH, config);
     if (success) emit screenshotCaptured(targetPath);
@@ -751,6 +759,47 @@ void Renderer::drawGizmo() {
     glEnable(GL_DEPTH_TEST);
 }
 
+void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
+    if (deviceW <= 0 || deviceH <= 0) return;
+    const float dpr = static_cast<float>(devicePixelRatio);
+
+    // Scalar colorbar: bottom-right (corner 0).
+    if (hasMeshLoaded && meshHasScalars && showScalarColorbar) {
+        ColorbarData data;
+        data.visible = true;
+        data.title = QString::fromStdString(activeScalarName);
+        data.stops = getColormapStops();
+        // The gradient is drawn top->t=1 (max) -> bottom->t=0 (min), so the top
+        // tick label must be the MAX value. i=0 is the top of the bar.
+        const int tickCount = colorbarTicks;
+        const float range = dataScalarMax - dataScalarMin;
+        for (int i = 0; i < tickCount; ++i) {
+            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+            const float v = dataScalarMax - range * frac; // top = max, bottom = min
+            data.tickLabels.append(QString::number(v, 'f', 3));
+        }
+        colorbarOverlay.draw(dpr, deviceW, deviceH, data, 0);
+    }
+
+    // Vector magnitude colorbar: top-right (corner 1).
+    if (showVectors && vectorUseColormap && hasMeshLoaded && !getAvailableVectors().isEmpty()) {
+        ColorbarData data;
+        data.visible = true;
+        data.title = getVectorField() + "\u{27A1}";
+        data.stops = getVectorColormapStops();
+        // Same orientation as the scalar bar: top of the gradient is the MAX
+        // magnitude, so the top label is magMax.
+        const int tickCount = colorbarTicks;
+        const float range = vectorGlyph.magMax - vectorGlyph.magMin;
+        for (int i = 0; i < tickCount; ++i) {
+            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+            const float v = vectorGlyph.magMax - range * frac; // top = max, bottom = min
+            data.tickLabels.append(QString::number(v, 'f', 3));
+        }
+        colorbarOverlay.draw(dpr, deviceW, deviceH, data, 1);
+    }
+}
+
 void Renderer::renderFrame() {
     // GL glyph rebuild must run on the render thread. Consume the flag once.
     if (vectorGlyphDirty.exchange(false)) {
@@ -761,7 +810,11 @@ void Renderer::renderFrame() {
     glDepthFunc(GL_LESS);
     glDisable(GL_CULL_FACE);
 
-    glClearColor(bgColor[0], bgColor[1], bgColor[2], 1.0f);
+    // Opaque background normally; when exporting a transparent PNG, clear with
+    // zero alpha so the background stays transparent. The viewport FBO is
+    // allocated with an RGBA8 color attachment, so this alpha is actually retained.
+    const float clearAlpha = screenshotTransparent ? 0.0f : 1.0f;
+    glClearColor(bgColor[0], bgColor[1], bgColor[2], clearAlpha);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     int deviceW = static_cast<int>(width * devicePixelRatio);
@@ -906,9 +959,15 @@ void Renderer::renderFrame() {
         glUseProgram(0);
     }
 
-    drawGrid(view, proj);
+    // In transparent export mode, skip the procedural grid entirely so only the
+    // mesh (and gizmo) show over a transparent background.
+    if (!screenshotTransparent) drawGrid(view, proj);
 
     if (showGizmo) drawGizmo();
+
+    // Draw the colorbar legends into the FBO so they appear in screenshots
+    // (including transparent PNG exports). Mirrors the QML overlay visibility.
+    drawColorbarLegends(deviceW, deviceH);
 
     if (showFps) {
         auto now = std::chrono::steady_clock::now();

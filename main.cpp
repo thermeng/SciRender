@@ -1,4 +1,5 @@
 ﻿#include <QGuiApplication>
+#include <QPalette>
 #include <QQmlApplicationEngine>
 #include <QtQml/QQmlContext>
 #include <QQuickStyle>
@@ -34,6 +35,21 @@ int main(int argc, char *argv[]) {
     qDebug() << "[LAUNCH DIAGNOSTIC 3/6] Engine fallback UI style forced to 'Fusion'.";
 
     QGuiApplication app(argc, argv);
+
+    // Match the native (Fusion) menu bar / dropdown menus to the left rail color
+    // (#262626) so the chrome is consistent. QML controls that set their own
+    // explicit colors are unaffected; only the palette-driven menu widgets change.
+    QPalette pal = app.palette();
+    const QColor rail("#262626");
+    pal.setColor(QPalette::Window, rail);
+    pal.setColor(QPalette::Button, rail);
+    pal.setColor(QPalette::Base, rail);
+    pal.setColor(QPalette::AlternateBase, rail.lighter(110));
+    pal.setColor(QPalette::Highlight, QColor("#3a3a3a"));
+    pal.setColor(QPalette::WindowText, QColor("#dddddd"));
+    pal.setColor(QPalette::ButtonText, QColor("#dddddd"));
+    pal.setColor(QPalette::Text, QColor("#dddddd"));
+    app.setPalette(pal);
 
     // Register your viewport item within the exact module namespace defined in CMake
     qmlRegisterType<ViewportVisualizer>("RendererQTUI", 1, 0, "ViewportVisualizer");

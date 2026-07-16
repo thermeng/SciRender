@@ -53,4 +53,4 @@ the program can run from the build directory.
 
 ## License
 
-No license file yet — add one before publishing if you want it open source.
+No license

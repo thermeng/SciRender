@@ -65,6 +65,8 @@ add_executable(RendererQT
     src/export/screenshot.h
     src/ui/custom_viewport_item.cpp
     src/ui/custom_viewport_item.h
+    src/ui/colorbar_overlay.cpp
+    src/ui/colorbar_overlay.h
 )
 
 # Inform your C++ files where GLSL shaders are housed
