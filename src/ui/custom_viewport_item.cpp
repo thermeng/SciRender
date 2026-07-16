@@ -61,6 +61,8 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
         connect(m_scene, &::Renderer::viewChanged, this, [this]() { update(); });
         // colormap switch must repaint the GL mesh, not just the QML legend
         connect(m_scene, &::Renderer::colormapChanged, this, [this]() { update(); });
+        // vector colormap (choice/reverse) must also repaint the GL glyphs
+        connect(m_scene, &::Renderer::vectorColormapChanged, this, [this]() { update(); });
         // wireframe/surface setters emit these but nothing repainted them before
         connect(m_scene, &::Renderer::wireframeChanged, this, [this]() { update(); });
         connect(m_scene, &::Renderer::gridVisibilityChanged, this, [this]() { update(); });
