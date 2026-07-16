@@ -1,9 +1,9 @@
-Ôªøimport QtQuick
+import QtQuick
 import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import RendererQTUI 1.0 // Registers our custom C++ native view item namespace
+import SciRenderUI 1.0 // Registers our custom C++ native view item namespace
 
 ApplicationWindow {
     id: windowRoot
@@ -12,7 +12,7 @@ ApplicationWindow {
     minimumWidth: 640
     minimumHeight: 480
     visible: true
-    title: "RendererQT"
+    title: "SciRender"
     color: "#1e1e1e"
 
     // keyboard shortcuts via Shortcut (window-level, no focus juggling).
@@ -28,7 +28,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+=";     onActivated: if (backendRenderer) backendRenderer.dolly(1.1) }
     Shortcut { sequence: "Ctrl+-";     onActivated: if (backendRenderer) backendRenderer.dolly(0.9) }
 
-    // High-Performance Raw OpenGL Output Subwindow Area ‚Äî wrapped in captureRoot so the
+    // High-Performance Raw OpenGL Output Subwindow Area ó wrapped in captureRoot so the
     // screenshot grabs viewport + legend overlays WITHOUT the left rail chrome (Option B).
     Rectangle {
         id: rail
@@ -218,7 +218,7 @@ ApplicationWindow {
                     spacing: 4
                     Item { height: 8 }
 
-                    // Lighting Controls ‚Äî Light Kit
+                    // Lighting Controls ó Light Kit
                     Column {
                         visible: rail.activeSection === 0
                         spacing: 4
@@ -509,11 +509,11 @@ ApplicationWindow {
                         Text { text: "Source"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Text { text: "Type"; color: "#888"; font.pixelSize: 11; width: 64 }
-                            Text { text: backendRenderer ? backendRenderer.meshDataType : "‚Äî"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.meshDataType : "ó"; color: "#ddd"; font.pixelSize: 11 }
                         }
                         Row { spacing: 6
                             Text { text: "Format"; color: "#888"; font.pixelSize: 11; width: 64 }
-                            Text { text: backendRenderer ? backendRenderer.meshFormat : "‚Äî"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendRenderer ? backendRenderer.meshFormat : "ó"; color: "#ddd"; font.pixelSize: 11 }
                         }
                         Text { text: "Geometry"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
@@ -541,7 +541,7 @@ ApplicationWindow {
                             Text { text: backendRenderer ? backendRenderer.worldMaxX.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? backendRenderer.worldMaxY.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? backendRenderer.worldMaxZ.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
-                            Text { text: "Œî"; color: "#888"; font.pixelSize: 11 }
+                            Text { text: "?"; color: "#888"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? (backendRenderer.worldMaxX - backendRenderer.worldMinX).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? (backendRenderer.worldMaxY - backendRenderer.worldMinY).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: backendRenderer ? (backendRenderer.worldMaxZ - backendRenderer.worldMinZ).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
@@ -597,7 +597,7 @@ ApplicationWindow {
                     width: 360; wrapMode: Text.WordWrap
                 }
                 Text {
-                    text: "Build: MinGW 64-bit ¬∑ Qt 6.11"
+                    text: "Build: MinGW 64-bit ∑ Qt 6.11"
                     font.pixelSize: 10; color: "#777777"
                 }
             }
@@ -618,8 +618,8 @@ ApplicationWindow {
                     ["W", "Toggle wireframe"],
                     ["G", "Toggle grid"],
                     ["S", "Save screenshot"],
-                    ["‚Üê / ‚Üí", "Orbit (azimuth)"],
-                    ["‚Üë / ‚Üì", "Elevation"],
+                    ["? / ?", "Orbit (azimuth)"],
+                    ["? / ?", "Elevation"],
                     ["Ctrl + =", "Zoom in"],
                     ["Ctrl + -", "Zoom out"]
                 ]
@@ -704,7 +704,7 @@ ApplicationWindow {
         onAccepted: {
             let urlStr = selectedFile.toString();
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
-            // Option B ‚Äî grab viewport + legend subtree (clean crop, no rail).
+            // Option B ó grab viewport + legend subtree (clean crop, no rail).
             // Transparent PNG keeps the original FBO-only path (legends excluded, since
             // QML overlays have no alpha to composite).
             if (backendRenderer && backendRenderer.screenshotTransparent) {
@@ -715,7 +715,7 @@ ApplicationWindow {
         }
     }
 
-    // turntable ‚Äî ~30fps azimuth nudge while autoRotate is on
+    // turntable ó ~30fps azimuth nudge while autoRotate is on
     Timer {
         interval: 33
         running: backendRenderer ? backendRenderer.autoRotate : false
@@ -826,7 +826,7 @@ ApplicationWindow {
                   + "   |   Type: " + backendRenderer.meshDataType
                   + "   |   Pts: " + backendRenderer.pointCount
                   + "   |   Tris: " + backendRenderer.triangleCount
-                : "No mesh loaded ‚Äî drag a .stl / .vtk file, or use File ‚ñ∏ Open Mesh"
+                : "No mesh loaded ó drag a .stl / .vtk file, or use File ? Open Mesh"
         }
     }
 }

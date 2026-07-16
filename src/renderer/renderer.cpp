@@ -1,4 +1,4 @@
-﻿#include "renderer/renderer.h"
+#include "renderer/renderer.h"
 #include "colormaps/Colormaps.h"
 #include "camera/Camera.h"
 #include "export/screenshot.h"
@@ -69,7 +69,7 @@ Renderer::~Renderer() {
     clearMeshes();
     // GL deletes must only run with a current context. The Renderer lives on the
     // GUI thread and is torn down after the scene graph, so no GL context is
-    // current here — calling glDelete* would emit GL errors and leak nothing
+    // current here � calling glDelete* would emit GL errors and leak nothing
     // recoverable. Skip them; the driver reclaims the resources with the context.
     if (QOpenGLContext::currentContext()) {
         if (shaderProgram) glDeleteProgram(shaderProgram);
@@ -127,8 +127,8 @@ void Renderer::initShaders() {
         return stream.readAll().toStdString();
     };
 
-    std::string vertSrcStr = loadEmbeddedShader(":/RendererQTUI/src/shaders/mesh.vert");
-    std::string fragSrcStr = loadEmbeddedShader(":/RendererQTUI/src/shaders/mesh.frag");
+    std::string vertSrcStr = loadEmbeddedShader(":/SciRenderUI/src/shaders/mesh.vert");
+    std::string fragSrcStr = loadEmbeddedShader(":/SciRenderUI/src/shaders/mesh.frag");
 
     if (vertSrcStr.empty() || fragSrcStr.empty()) {
         qFatal("Shader compilation aborted due to unreadable file streams.");
@@ -208,8 +208,8 @@ void Renderer::initShaders() {
     lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
 
     // instanced vector glyph program
-    std::string gvert = loadEmbeddedShader(":/RendererQTUI/src/shaders/glyph.vert");
-    std::string gfrag = loadEmbeddedShader(":/RendererQTUI/src/shaders/glyph.frag");
+    std::string gvert = loadEmbeddedShader(":/SciRenderUI/src/shaders/glyph.vert");
+    std::string gfrag = loadEmbeddedShader(":/SciRenderUI/src/shaders/glyph.frag");
     if (!gvert.empty() && !gfrag.empty()) {
         GLuint gv = glCreateShader(GL_VERTEX_SHADER);
         GLuint gf = glCreateShader(GL_FRAGMENT_SHADER);
@@ -239,8 +239,8 @@ void Renderer::initGrid() {
         if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) { qCritical() << "grid shader missing" << p; return ""; }
         return QTextStream(&f).readAll().toStdString();
     };
-    std::string vs = load(":/RendererQTUI/src/shaders/grid.vert");
-    std::string fs = load(":/RendererQTUI/src/shaders/grid.frag");
+    std::string vs = load(":/SciRenderUI/src/shaders/grid.vert");
+    std::string fs = load(":/SciRenderUI/src/shaders/grid.frag");
     if (vs.empty() || fs.empty()) return;
 
     GLuint v = glCreateShader(GL_VERTEX_SHADER);
@@ -483,7 +483,7 @@ void Renderer::resetCamera() {
     // Fit the whole bounding box in view. worldRadius is only half the largest
     // single axis, which under-frames elongated/cubic meshes in some viewports
     // (the mesh spills past the edges). Use the full box diagonal so any mesh
-    // shape/orientation is fully contained, and pad for the 45° FOV + aspect.
+    // shape/orientation is fully contained, and pad for the 45� FOV + aspect.
     const double dx = worldMaxX - worldMinX;
     const double dy = worldMaxY - worldMinY;
     const double dz = worldMaxZ - worldMinZ;

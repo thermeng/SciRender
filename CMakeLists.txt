@@ -1,5 +1,5 @@
-﻿cmake_minimum_required(VERSION 3.16)
-project(RendererQT LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.16)
+project(SciRender LANGUAGES C CXX)
 
 # Force C++20 standard
 set(CMAKE_CXX_STANDARD 20)
@@ -39,7 +39,7 @@ target_include_directories(glm INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vendor")
 # ---------------------------------------------------------------------------
 
 # Explicitly list source files to avoid capturing deleted/legacy main.cpp files
-add_executable(RendererQT
+add_executable(SciRender
     main.cpp   # Active Qt entry point at the project root
     src/renderer/renderer.cpp
     src/renderer/renderer.h
@@ -70,16 +70,16 @@ add_executable(RendererQT
 )
 
 # Inform your C++ files where GLSL shaders are housed
-target_compile_definitions(RendererQT PRIVATE
+target_compile_definitions(SciRender PRIVATE
     SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/shaders"
 )
 
 # Set base root compilation includes relative to 'src'
-target_include_directories(RendererQT PRIVATE "src")
+target_include_directories(SciRender PRIVATE "src")
 
 # Link everything together
 # FIX: Linked Qt6::QuickControls2 so the linker can map QQuickStyle symbols
-target_link_libraries(RendererQT PRIVATE
+target_link_libraries(SciRender PRIVATE
     glad
     glm
     OpenGL::GL
@@ -97,8 +97,8 @@ target_link_libraries(RendererQT PRIVATE
 # ---------------------------------------------------------------------------
 # 4. Declarative UI Assets Module + Shaders
 # ---------------------------------------------------------------------------
-qt_add_qml_module(RendererQT
-    URI RendererQTUI
+qt_add_qml_module(SciRender
+    URI SciRenderUI
     VERSION 1.0
     QML_FILES
         ui/Main.qml
@@ -114,11 +114,11 @@ qt_add_qml_module(RendererQT
 # ---------------------------------------------------------------------------
 # 5. Post-Build Pipeline Automation (Shader Dynamic Sync)
 # ---------------------------------------------------------------------------
-add_custom_command(TARGET RendererQT POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RendererQT>/shaders"
+add_custom_command(TARGET SciRender POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:SciRender>/shaders"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders"
-            "$<TARGET_FILE_DIR:RendererQT>/shaders"
+            "$<TARGET_FILE_DIR:SciRender>/shaders"
     COMMENT "--- Synchronizing runtime GLSL shader files ---"
 )
 
