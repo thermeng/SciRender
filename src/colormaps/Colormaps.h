@@ -19,13 +19,13 @@ namespace Colormaps {
 
     inline const char* getName(ColormapType type) {
         switch (type) {
-        case ColormapType::Viridis:   return "Viridis (Scalar/Magnitude)";
-        case ColormapType::Inferno:   return "Inferno (Thermal/Dissipation)";
-        case ColormapType::Turbo:     return "Turbo (High-Contrast Structural)";
-        case ColormapType::CoolWarm:  return "CoolWarm (Diverging)";
-        case ColormapType::MutedCoolWarm: return "Muted CoolWarm (3D Surface Shading)";
-        case ColormapType::BWR:       return "BWR (Strict Linear Diverging)";
-        case ColormapType::Cividis:   return "Cividis (Publication/Print Safe)";
+        case ColormapType::Viridis:   return "Viridis";
+        case ColormapType::Inferno:   return "Inferno";
+        case ColormapType::Turbo:     return "Turbo";
+        case ColormapType::CoolWarm:  return "CoolWarm";
+        case ColormapType::MutedCoolWarm: return "Muted CoolWarm";
+        case ColormapType::BWR:       return "BWR";
+        case ColormapType::Cividis:   return "Cividis";
         case ColormapType::Grayscale: return "Grayscale";
         default:                      return "Unknown";
         }

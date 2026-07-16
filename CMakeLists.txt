@@ -43,6 +43,14 @@ add_executable(RendererQT
     main.cpp   # Active Qt entry point at the project root
     src/renderer/renderer.cpp
     src/renderer/renderer.h
+    src/renderer/LightingModel.cpp
+    src/renderer/LightingModel.h
+    src/renderer/ColormapManager.cpp
+    src/renderer/ColormapManager.h
+    src/renderer/VectorGlyphSet.cpp
+    src/renderer/VectorGlyphSet.h
+    src/renderer/MeshGLManager.cpp
+    src/renderer/MeshGLManager.h
     src/camera/Camera.cpp
     src/camera/Camera.h
     src/colormaps/Colormaps.h

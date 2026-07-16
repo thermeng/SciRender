@@ -347,14 +347,29 @@ ApplicationWindow {
                                     sourceSize.width: 128; sourceSize.height: 16
                                     fillMode: Image.Stretch
                                     Layout.preferredWidth: 48; Layout.preferredHeight: 12
+                                    Layout.maximumHeight: 12
                                     verticalAlignment: Image.AlignVCenter
                                 }
                                 Text {
                                     text: colormapCombo.displayText
                                     color: "#ddd"; font.pixelSize: 12
-                                    Layout.fillWidth: true; verticalAlignment: Text.AlignVCenter
+                                    Layout.fillWidth: true; Layout.fillHeight: true
+                                    verticalAlignment: Text.AlignVCenter
                                     elide: Text.ElideRight
                                 }
+                            }
+                            popup: Popup {
+                                y: colormapCombo.height
+                                width: colormapCombo.width
+                                implicitHeight: contentItem.implicitHeight
+                                contentItem: ListView {
+                                    clip: true
+                                    implicitHeight: contentHeight
+                                    model: colormapCombo.popup.visible ? colormapCombo.delegateModel : null
+                                    currentIndex: colormapCombo.highlightedIndex
+                                    ScrollBar.vertical: ScrollBar {}
+                                }
+                                background: Rectangle { color: "#232323"; border.color: "#444" }
                             }
                             delegate: ItemDelegate {
                                 width: colormapCombo.width
@@ -554,6 +569,82 @@ ApplicationWindow {
             id: vectorColorDialog
             selectedColor: backendRenderer ? backendRenderer.vectorColor : "#3399ff"
             onAccepted: backendRenderer.vectorColor = selectedColor
+        }
+
+        // ---- Help: About ----
+        Dialog {
+            id: aboutDialog
+            title: "About SciRender"
+            modal: true
+            standardButtons: Dialog.Ok
+            anchors.centerIn: parent
+            contentItem: Column {
+                spacing: 10
+                padding: 18
+                Text {
+                    text: "SciRender"
+                    font.bold: true; font.pixelSize: 18; color: "#dddddd"
+                }
+                Text {
+                    text: "A Qt 6 + OpenGL scientific mesh rendering toolkit for VTK and STL datasets."
+                    font.pixelSize: 12; color: "#bbbbbb"
+                    width: 360; wrapMode: Text.WordWrap
+                }
+                Text {
+                    text: "GPU shaders, instanced vector glyphs, light kit, slicing/clipping, and colormaps."
+                    font.pixelSize: 11; color: "#999999"
+                    width: 360; wrapMode: Text.WordWrap
+                }
+                Text {
+                    text: "Build: MinGW 64-bit · Qt 6.11"
+                    font.pixelSize: 10; color: "#777777"
+                }
+            }
+        }
+
+        // ---- Help: Keyboard Shortcuts ----
+        Dialog {
+            id: shortcutsDialog
+            title: "Keyboard Shortcuts"
+            modal: true
+            standardButtons: Dialog.Ok
+            anchors.centerIn: parent
+            contentItem: Column {
+                spacing: 4
+                padding: 18
+                property var rows: [
+                    ["R", "Reset camera"],
+                    ["W", "Toggle wireframe"],
+                    ["G", "Toggle grid"],
+                    ["S", "Save screenshot"],
+                    ["← / →", "Orbit (azimuth)"],
+                    ["↑ / ↓", "Elevation"],
+                    ["Ctrl + =", "Zoom in"],
+                    ["Ctrl + -", "Zoom out"]
+                ]
+                Repeater {
+                    model: parent.rows
+                    Row {
+                        spacing: 12
+                        width: 320
+                        Rectangle {
+                            width: 64; height: 22; radius: 3; color: "#333333"
+                            border.color: "#555"
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData[0]
+                                color: "#9cdcfe"; font.pixelSize: 11
+                                font.family: "Consolas, Menlo, monospace"
+                            }
+                        }
+                        Text {
+                            text: modelData[1]
+                            color: "#cccccc"; font.pixelSize: 12
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -829,6 +920,13 @@ ApplicationWindow {
             MenuSeparator {}
             MenuItem { text: "Reset Camera"; onTriggered: backendRenderer.resetCamera() }
         }
+        Menu {
+            title: "Help"
+            MenuItem { text: "Keyboard Shortcuts"; onTriggered: shortcutsDialog.open() }
+            MenuItem { text: "About SciRender"; onTriggered: aboutDialog.open() }
+            MenuSeparator {}
+            MenuItem { text: "Documentation"; onTriggered: Qt.openUrl("https://github.com/anomalyco/opencode") }
+        }
     }
 
     // ---- Status bar ----
@@ -842,8 +940,11 @@ ApplicationWindow {
             color: "#bbbbbb"
             font.pixelSize: 11
             text: (backendRenderer && backendRenderer.hasMeshLoaded)
-                ? "Mesh: " + backendRenderer.currentMeshName + "   |   Pts: " + backendRenderer.pointCount + "   |   Tris: " + backendRenderer.triangleCount
-                : "No mesh loaded"
+                ? "Mesh: " + backendRenderer.currentMeshName
+                  + "   |   Type: " + backendRenderer.meshDataType
+                  + "   |   Pts: " + backendRenderer.pointCount
+                  + "   |   Tris: " + backendRenderer.triangleCount
+                : "No mesh loaded — drag a .stl / .vtk file, or use File ▸ Open Mesh"
         }
     }
 }

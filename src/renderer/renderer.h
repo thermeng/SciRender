@@ -37,28 +37,22 @@
 #include "camera/Camera.h"
 #include "export/screenshot.h"
 
+#include "renderer/LightingModel.h"
+#include "renderer/ColormapManager.h"
+#include "renderer/VectorGlyphSet.h"
+#include "renderer/MeshGLManager.h"
+
 class QOpenGLFramebufferObject;
 
-struct Mesh {
-    GLuint vao;
-    GLuint vbo;
-    GLuint nbo;
-    GLuint ebo;
-    GLuint sbo;
-    int indexCount;
-};
-
-// instanced arrow glyphs for VTK VECTORS
-struct VectorGlyph {
-    GLuint vao = 0;
-    GLuint vbo = 0;   // arrow vertex positions
-    GLuint nbo = 0;   // arrow normals
-    GLuint ebo = 0;
-    GLuint instVBO = 0; // per-instance [ox,oy,oz, dx,dy,dz]
-    int glyphIndexCount = 0;
-    int instanceCount = 0;
-};
-
+// Renderer is the QML-facing facade for the OpenGL scene. It owns the high-level
+// view state (camera, grid, gizmo, screenshot, scalar/vector field bookkeeping,
+// recent files, perf HUD) and delegates the heavy GPU/state responsibilities to
+// four cohesive helpers:
+//   - LightingModel    : 4-point light kit params, presets, direction math
+//   - ColormapManager  : scalar + vector-magnitude LUT textures & choices
+//   - VectorGlyphSet   : instanced arrow glyph GPU resources + magnitude range
+//   - MeshGLManager    : full + decimated (LOD) GPU meshes & upload/teardown
+// The Q_PROPERTY / Q_INVOKABLE surface is unchanged so Main.qml keeps working.
 class Renderer : public QObject {
     Q_OBJECT
 
@@ -120,7 +114,7 @@ class Renderer : public QObject {
 
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
     Q_PROPERTY(bool colormapReversed READ getColormapReversed WRITE setColormapReversed NOTIFY colormapChanged)
-    // property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't notify)
+    // property so QML Repeater re-reads on colormapChanged (Q_INVOKABLE alone doesn't NOTIFY)
     Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY colormapChanged)
     // separate colorbar data for vector magnitude (independent of scalar colormap)
     Q_PROPERTY(QVariantList vectorColormapStops READ getVectorColormapStops NOTIFY vectorColormapChanged)
@@ -176,11 +170,6 @@ public:
 
     // Uploads CPU geometry to the GPU. Safe to call on the render thread.
     void uploadMesh(const RenderMesh& renderMesh);
-    // Build a single GPU Mesh from a CPU RenderMesh and append it to `out`.
-    void buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out);
-    // Vertex-clustering decimation used to build the LOD mesh. Returns an empty
-    // mesh when decimation is not worthwhile (small meshes).
-    RenderMesh decimate(const RenderMesh& renderMesh) const;
     // Mark the camera as moving and (re)start the LOD debounce timer.
     void markCameraMoving();
     void onLodTimer();
@@ -204,51 +193,51 @@ public:
     QColor getBgColorQml() const { return QColor::fromRgbF(bgColor[0], bgColor[1], bgColor[2]); }
     void setBgColorQml(const QColor& c) { bgColor[0] = c.redF(); bgColor[1] = c.greenF(); bgColor[2] = c.blueF(); emit viewChanged(); }
 
-    int getColormapChoice() const { return colormapChoice; }
+    int getColormapChoice() const { return colormap.scalarChoice(); }
     void setColormapChoice(int choice);
-    bool getColormapReversed() const { return colormapReversed; }
+    bool getColormapReversed() const { return colormap.scalarReversed(); }
     void setColormapReversed(bool reversed);
-    bool getVectorColormapReversed() const { return vectorColormapReversed; }
+    bool getVectorColormapReversed() const { return colormap.vectorReversed(); }
     void setVectorColormapReversed(bool reversed);
 
-    float getLightKeyAzimuth() const { return lightKeyAzimuth; }
-    void setLightKeyAzimuth(float v) { lightKeyAzimuth = v; emit lightingParametersChanged(); }
-    float getLightKeyElevation() const { return lightKeyElevation; }
-    void setLightKeyElevation(float v) { lightKeyElevation = v; emit lightingParametersChanged(); }
-    float getLightFillAzimuth() const { return lightFillAzimuth; }
-    void setLightFillAzimuth(float v) { lightFillAzimuth = v; emit lightingParametersChanged(); }
-    float getLightFillElevation() const { return lightFillElevation; }
-    void setLightFillElevation(float v) { lightFillElevation = v; emit lightingParametersChanged(); }
-    float getLightBackAzimuth() const { return lightBackAzimuth; }
-    void setLightBackAzimuth(float v) { lightBackAzimuth = v; emit lightingParametersChanged(); }
-    float getLightBackElevation() const { return lightBackElevation; }
-    void setLightBackElevation(float v) { lightBackElevation = v; emit lightingParametersChanged(); }
-    float getLightHeadAzimuth() const { return lightHeadAzimuth; }
-    void setLightHeadAzimuth(float v) { lightHeadAzimuth = v; emit lightingParametersChanged(); }
-    float getLightHeadElevation() const { return lightHeadElevation; }
-    void setLightHeadElevation(float v) { lightHeadElevation = v; emit lightingParametersChanged(); }
-    float getMatAmbient() const { return matAmbient; }
-    void setMatAmbient(float v) { matAmbient = v; emit lightingParametersChanged(); }
-    float getMatDiffuse() const { return matDiffuse; }
-    void setMatDiffuse(float v) { matDiffuse = v; emit lightingParametersChanged(); }
-    float getMatSpecular() const { return matSpecular; }
-    void setMatSpecular(float v) { matSpecular = v; emit lightingParametersChanged(); }
-    float getMatShininess() const { return matShininess; }
-    void setMatShininess(float v) { matShininess = v; emit lightingParametersChanged(); }
-    float getLightKeyIntensity() const { return lightKeyIntensity; }
-    void setLightKeyIntensity(float v) { lightKeyIntensity = v; emit lightingParametersChanged(); }
-    float getLightKF() const { return lightKF; }
-    void setLightKF(float v) { lightKF = v; emit lightingParametersChanged(); }
-    float getLightKB() const { return lightKB; }
-    void setLightKB(float v) { lightKB = v; emit lightingParametersChanged(); }
-    float getLightKH() const { return lightKH; }
-    void setLightKH(float v) { lightKH = v; emit lightingParametersChanged(); }
-    bool getLightKitEnabled() const { return lightKitEnabled; }
-    void setLightKitEnabled(bool v) { lightKitEnabled = v; emit lightingParametersChanged(); }
-    bool getShowLightMarkers() const { return showLightMarkers; }
-    void setShowLightMarkers(bool v) { showLightMarkers = v; emit lightingParametersChanged(); }
-    float getLightWarm() const { return lightWarm; }
-    void setLightWarm(float v) { lightWarm = v; emit lightingParametersChanged(); }
+    float getLightKeyAzimuth() const { return lighting.lightKeyAzimuth; }
+    void setLightKeyAzimuth(float v) { lighting.lightKeyAzimuth = v; emit lightingParametersChanged(); }
+    float getLightKeyElevation() const { return lighting.lightKeyElevation; }
+    void setLightKeyElevation(float v) { lighting.lightKeyElevation = v; emit lightingParametersChanged(); }
+    float getLightFillAzimuth() const { return lighting.lightFillAzimuth; }
+    void setLightFillAzimuth(float v) { lighting.lightFillAzimuth = v; emit lightingParametersChanged(); }
+    float getLightFillElevation() const { return lighting.lightFillElevation; }
+    void setLightFillElevation(float v) { lighting.lightFillElevation = v; emit lightingParametersChanged(); }
+    float getLightBackAzimuth() const { return lighting.lightBackAzimuth; }
+    void setLightBackAzimuth(float v) { lighting.lightBackAzimuth = v; emit lightingParametersChanged(); }
+    float getLightBackElevation() const { return lighting.lightBackElevation; }
+    void setLightBackElevation(float v) { lighting.lightBackElevation = v; emit lightingParametersChanged(); }
+    float getLightHeadAzimuth() const { return lighting.lightHeadAzimuth; }
+    void setLightHeadAzimuth(float v) { lighting.lightHeadAzimuth = v; emit lightingParametersChanged(); }
+    float getLightHeadElevation() const { return lighting.lightHeadElevation; }
+    void setLightHeadElevation(float v) { lighting.lightHeadElevation = v; emit lightingParametersChanged(); }
+    float getMatAmbient() const { return lighting.matAmbient; }
+    void setMatAmbient(float v) { lighting.matAmbient = v; emit lightingParametersChanged(); }
+    float getMatDiffuse() const { return lighting.matDiffuse; }
+    void setMatDiffuse(float v) { lighting.matDiffuse = v; emit lightingParametersChanged(); }
+    float getMatSpecular() const { return lighting.matSpecular; }
+    void setMatSpecular(float v) { lighting.matSpecular = v; emit lightingParametersChanged(); }
+    float getMatShininess() const { return lighting.matShininess; }
+    void setMatShininess(float v) { lighting.matShininess = v; emit lightingParametersChanged(); }
+    float getLightKeyIntensity() const { return lighting.lightKeyIntensity; }
+    void setLightKeyIntensity(float v) { lighting.lightKeyIntensity = v; emit lightingParametersChanged(); }
+    float getLightKF() const { return lighting.lightKF; }
+    void setLightKF(float v) { lighting.lightKF = v; emit lightingParametersChanged(); }
+    float getLightKB() const { return lighting.lightKB; }
+    void setLightKB(float v) { lighting.lightKB = v; emit lightingParametersChanged(); }
+    float getLightKH() const { return lighting.lightKH; }
+    void setLightKH(float v) { lighting.lightKH = v; emit lightingParametersChanged(); }
+    bool getLightKitEnabled() const { return lighting.lightKitEnabled; }
+    void setLightKitEnabled(bool v) { lighting.lightKitEnabled = v; emit lightingParametersChanged(); }
+    bool getShowLightMarkers() const { return lighting.showLightMarkers; }
+    void setShowLightMarkers(bool v) { lighting.showLightMarkers = v; emit lightingParametersChanged(); }
+    float getLightWarm() const { return lighting.lightWarm; }
+    void setLightWarm(float v) { lighting.lightWarm = v; emit lightingParametersChanged(); }
 
     // Direct String Mapper adjustments for Qt Engines
     QString getCurrentMeshNameQStr() const { return QString::fromStdString(currentMeshName); }
@@ -306,7 +295,7 @@ signals:
     void fpsChanged(); // HUD text refresh
 
 public:
-    // VTK Camera Inline Forwarders (QML-invokable so the UI can drive the camera)
+    // VTK Camera inline Forwarders (QML-invokable so the UI can drive the camera)
     Q_INVOKABLE void azimuth(double angle) { camera.azimuth(angle); markCameraMoving(); emit viewChanged(); }
     Q_INVOKABLE void elevation(double angle) { camera.elevation(angle); markCameraMoving(); emit viewChanged(); }
     Q_INVOKABLE void roll(double angle) { camera.roll(angle); markCameraMoving(); emit viewChanged(); }
@@ -346,8 +335,8 @@ public:
     void setVectorColorQml(const QColor& c) { vectorColor[0] = c.redF(); vectorColor[1] = c.greenF(); vectorColor[2] = c.blueF(); emit viewChanged(); }
     bool getVectorUseColormap() const { return vectorUseColormap; }
     void setVectorUseColormap(bool v) { if (vectorUseColormap != v) { vectorUseColormap = v; emit viewChanged(); } }
-    int getVectorColormapChoice() const { return vectorColormapChoice; }
-    void setVectorColormapChoice(int c) { if (vectorColormapChoice != c) { vectorColormapChoice = c; vectorLutDirty = true; emit viewChanged(); } }
+    int getVectorColormapChoice() const { return colormap.vectorChoice(); }
+    void setVectorColormapChoice(int c) { if (colormap.vectorChoice() != c) { colormap.setVectorChoice(c); colormap.markVectorLutDirty(); emit viewChanged(); } }
     QStringList getAvailableVectors() const { QStringList l; for (const auto& n : cachedMeshSource.availableVectorNames) l.append(QString::fromStdString(n)); return l; }
     QString getVectorField() const { return QString::fromStdString(cachedMeshSource.vectorName); }
     Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
@@ -386,7 +375,7 @@ public:
     }
 
     void setScalarRange(float min, float max) { scalarMin = min; scalarMax = max; }
-    bool consumeMeshChanged() { return meshChanged.exchange(false); }
+    bool consumeMeshChanged() { return meshManager.meshChanged.exchange(false); }
 
     // Thread-safe extraction of the queued mesh produced on the UI thread by loadMesh().
     // Copies the geometry out under the mesh queue mutex so the caller can safely
@@ -395,6 +384,7 @@ public:
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         out = dynamicMeshQueue;
     }
+
     float getScalarMin() const { return scalarMin; }
     float getScalarMax() const { return scalarMax; }
     float getDataScalarMin() const { return dataScalarMin; }
@@ -442,8 +432,8 @@ public:
     // active colormap, suitable for building a QML gradient/legend.
     Q_INVOKABLE QVariantList getColormapStops() const;
     Q_INVOKABLE QVariantList getVectorColormapStops() const;
-    float getVectorMagMin() const { return vectorMagMin; }
-    float getVectorMagMax() const { return vectorMagMax; }
+    float getVectorMagMin() const { return vectorGlyph.magMin; }
+    float getVectorMagMax() const { return vectorGlyph.magMax; }
 
     // Dynamic Slices & Iso-Filter Threshold Registers
     float sliceHeightX = 0.0f;
@@ -456,36 +446,8 @@ public:
     float filterMax = 1.0f;
     bool clipEnabled = false;
 
-    // 4-Point Light Parameter Set registers
-    // warmth fields deleted — dead (never read by computeLightDirections/drawMesh)
-    float lightKF = 3.0f;
-    float lightKB = 3.5f;
-    float lightKH = 3.0f;
-    float lightKeyAzimuth = 10.0f;
-    float lightKeyElevation = 50.0f;
-    float lightFillAzimuth = -10.0f;
-    float lightFillElevation = -75.0f;
-    float lightBackAzimuth = 110.0f;
-    float lightBackElevation = 0.0f;
-    float lightHeadAzimuth = 0.0f;
-    float lightHeadElevation = 0.0f;
-
-    // Light Kit state
-    bool  lightKitEnabled = true;
-    bool  showLightMarkers = false; // triad light-marker overlay (default off)
-    float lightKeyIntensity = 1.0f;  // "Int" — key intensity (0..1)
-    float lightWarm = 0.5f;          // kit-wide warm tint (0 cold .. 0.5 neutral .. 1 warm)
-
-    float matAmbient = 0.08f;
-    float matDiffuse = 0.75f;
-    float matSpecular = 0.15f;
-    float matShininess = 0.5f;
-
 private:
     void drawGizmo();
-    void updateColormapTexture();
-    void destroyMesh(Mesh& mesh);
-    void rebuildVectorGlyphs();
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     std::string readShaderFile(const std::string& filePath);
 
@@ -558,9 +520,6 @@ private:
     double nearPlane = 0.1;
     double farPlane = 100.0;
     bool hasMeshLoaded = false;
-    std::vector<Mesh> meshes;
-    std::vector<Mesh> decimatedMeshes; // LOD: coarse GPU meshes drawn during camera motion
-    bool hasDecimated = false;
     bool useLod = true;                // user toggle for the LOD system
     std::atomic<bool> cameraMoving{false}; // true while the camera is in motion
     QTimer* m_lodTimer = nullptr;      // debounce: clears cameraMoving after motion stops
@@ -591,19 +550,6 @@ private:
     GLint gridViewLoc = -1, gridProjLoc = -1;
     GLint gridCamPosLoc = -1, gridColorLoc = -1, gridBgLoc = -1, gridFalloffLoc = -1, gridPlaneYLoc = -1;
 
-    int colormapChoice = 3; // default CoolWarm
-    int lastUploadedChoice = -1;
-    bool colormapReversed = false;
-    bool lastUploadedReversed = false;
-    GLuint colormapTex = 0;
-    // separate LUT for vector magnitude (independent of scalar colormap)
-    int vectorColormapChoice = 3;
-    int vectorLastUploadedChoice = -1;
-    bool vectorColormapReversed = false;
-    bool vectorLastUploadedReversed = false;
-    GLuint vectorColormapTex = 0;
-    std::atomic<bool> meshChanged{true};
-    std::atomic<bool> vectorGlyphDirty{false}; // GL glyph rebuild deferred to render thread
     float scalarMin = 0.0f;
     float scalarMax = 1.0f;
     float dataScalarMin = 0.0f;
@@ -611,21 +557,17 @@ private:
     int colorbarTicks = 6; // number of tick labels on the scalar colorbar
     bool meshHasScalars = false;
 
-    std::mutex meshGLMutex; // guards meshes GPU-handle teardown/uploads across threads
     bool m_destroying = false; // set in ~Renderer to suppress signals during teardown
     bool showWireframe = false;
     bool showGizmo = true;       // orientation gizmo toggle (UI-exposed)
     bool autoRotate = false;     // turntable
     // instanced vector arrows (uniform-length)
-    VectorGlyph vectorGlyph;
     bool showVectors = false;
     float vectorScale = 1.0f;
     int vectorStride = 1;
     float vectorColor[3] = { 0.2f, 0.6f, 1.0f };
     bool vectorUseColormap = false;
-    float vectorMagMin = 0.0f;
-    float vectorMagMax = 1.0f;
-    bool vectorLutDirty = true;   // rebuild vector LUT when choice changes
+    std::atomic<bool> vectorGlyphDirty{false}; // GL glyph rebuild deferred to render thread
     int triangleCount = 0;
     int pointCount = 0;
     std::string meshDataType; // VTK DATASET type or "STL" (info panel)
@@ -647,4 +589,10 @@ private:
 
     RenderMesh dynamicMeshQueue;
     std::mutex meshQueueMutex;
+
+    // --- extracted responsibility helpers -------------------------------------
+    LightingModel lighting;       // 4-point light kit params, presets, dir math
+    ColormapManager colormap;     // scalar + vector LUT textures & choices
+    VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
+    MeshGLManager meshManager;     // full + decimated GPU meshes & upload
 };
