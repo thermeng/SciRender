@@ -349,7 +349,7 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
 
     const int m = static_cast<int>(10 * dpr);
     const int s = static_cast<int>(foot * dpr);
-    const int y0 = fbHeight - m - s; // FBO top-left -> screen bottom-left (see draw())
+    const int y0 = m;
     glViewport(m, y0, s, s);
 
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
