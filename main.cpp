@@ -40,15 +40,15 @@ int main(int argc, char *argv[]) {
     // (#262626) so the chrome is consistent. QML controls that set their own
     // explicit colors are unaffected; only the palette-driven menu widgets change.
     QPalette pal = app.palette();
-    const QColor rail("#262626");
+    const QColor rail(0x26, 0x26, 0x26);
     pal.setColor(QPalette::Window, rail);
     pal.setColor(QPalette::Button, rail);
     pal.setColor(QPalette::Base, rail);
     pal.setColor(QPalette::AlternateBase, rail.lighter(110));
-    pal.setColor(QPalette::Highlight, QColor("#3a3a3a"));
-    pal.setColor(QPalette::WindowText, QColor("#dddddd"));
-    pal.setColor(QPalette::ButtonText, QColor("#dddddd"));
-    pal.setColor(QPalette::Text, QColor("#dddddd"));
+    pal.setColor(QPalette::Highlight, QColor(0x3a, 0x3a, 0x3a));
+    pal.setColor(QPalette::WindowText, QColor(0xdd, 0xdd, 0xdd));
+    pal.setColor(QPalette::ButtonText, QColor(0xdd, 0xdd, 0xdd));
+    pal.setColor(QPalette::Text, QColor(0xdd, 0xdd, 0xdd));
     app.setPalette(pal);
 
     // Register your viewport item within the exact module namespace defined in CMake

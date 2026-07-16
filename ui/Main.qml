@@ -628,8 +628,8 @@ ApplicationWindow {
                     ["W", "Toggle wireframe"],
                     ["G", "Toggle grid"],
                     ["S", "Save screenshot"],
-                    ["? / ?", "Orbit (azimuth)"],
-                    ["? / ?", "Elevation"],
+                    ["← / →", "Orbit (azimuth)"],
+                    ["↑ / ↓", "Elevation"],
                     ["Ctrl + =", "Zoom in"],
                     ["Ctrl + -", "Zoom out"]
                 ]

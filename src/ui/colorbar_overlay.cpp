@@ -125,14 +125,32 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
     const int margin    = static_cast<int>(14 * dpr);
     const int barW      = static_cast<int>(18 * dpr);
     const int barH      = static_cast<int>(220 * dpr);
-    const int labelW    = static_cast<int>(96 * dpr);
     const int spacing   = static_cast<int>(8 * dpr);
-    const int titleH    = static_cast<int>(20 * dpr);
-    const int titleGap  = static_cast<int>(8 * dpr); // gap between title and bar
     const int tickLen   = static_cast<int>(6 * dpr);
 
-    // Content widths: title/bar span the block; labels sit to the right.
-    const int blockW = barW + spacing + labelW;
+    // Title font/metrics -> dynamic title height and width.
+    QFont titleFont;
+    titleFont.setPointSizeF(10 * dpr);
+    const QFontMetrics titleFm(titleFont);
+    const int titleH   = titleFm.height();
+    const int titleW   = titleFm.horizontalAdvance(data.title);
+    const int titleGap = static_cast<int>(8 * dpr); // gap between title and bar
+
+    // Tick label font/metrics -> dynamic width from the longest label.
+    QFont tickFont;
+    tickFont.setPointSizeF(9 * dpr);
+    const QFontMetrics tickFm(tickFont);
+    int maxLabelW = 0;
+    for (const QVariant& lbl : data.tickLabels) {
+        maxLabelW = qMax(maxLabelW, tickFm.horizontalAdvance(lbl.toString()));
+    }
+    if (maxLabelW == 0) maxLabelW = tickFm.horizontalAdvance("0.0");
+
+    // Content widths: bar + gap + label block. blockW takes the max of the
+    // label block and the title so a long title never overflows the right edge.
+    const int labelW = maxLabelW;
+    const int labelBlockW = barW + spacing + labelW;
+    const int blockW = qMax(labelBlockW, titleW);
     const int blockH = titleH + titleGap + barH;
 
     int x, y;
@@ -147,8 +165,6 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
     }
 
     // ---- Title (left-aligned, above the bar, with a gap) ----
-    QFont titleFont;
-    titleFont.setPointSizeF(10 * dpr);
     p.setFont(titleFont);
     p.setPen(QColor("#e8e8e8"));
     const QRect titleRect(x, y, blockW, titleH);
@@ -181,8 +197,6 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
     p.drawRect(barX, barY, barW, barH);
 
     // ---- Tick marks + numeric labels ----
-    QFont tickFont;
-    tickFont.setPointSizeF(9 * dpr);
     p.setFont(tickFont);
     p.setPen(QColor("#e8e8e8"));
 
@@ -196,9 +210,9 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
         // tick mark on the right edge of the bar, pointing outward
         p.drawLine(barX + barW, ty, barX + barW + tickLen, ty);
 
-        // numeric label, right-aligned against the bar edge, vertically centered
-        const QRect labRect(labX, ty - static_cast<int>(tickFont.pointSizeF() * dpr * 0.5f),
-                            labelW, static_cast<int>(tickFont.pointSizeF() * dpr));
+        // numeric label, left-aligned against the bar edge, vertically centered
+        const QRect labRect(labX, ty - static_cast<int>(tickFm.height() * 0.5),
+                            labelW, tickFm.height());
         p.drawText(labRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, data.tickLabels[i]);
     }
 
@@ -212,7 +226,7 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     // fullscreen blit renders the legend upside-down in the FBO; captureFBO's
     // row-flip then bakes that inversion into the saved image. Mirror vertically
     // so the on-screen/window-space layout (top = max) is preserved in the PNG.
-    gl = gl.mirrored(false, true);
+    gl = gl.flipped(Qt::Vertical);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, tex_);
