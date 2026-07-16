@@ -1,5 +1,5 @@
-#include "renderer/VectorGlyphSet.h"
-#include "mesh/mesh_loader.h"
+#include "render/VectorGlyphSet.h"
+#include "core/mesh_loader.h"
 
 #include <glm/glm.hpp>
 #include <algorithm>

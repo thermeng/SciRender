@@ -1,4 +1,4 @@
-#include "gizmo/gizmo.h"
+#include "render/gizmo.h"
 
 #include <vector>
 #include <cstring>

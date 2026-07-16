@@ -4,7 +4,7 @@
 #include <QOpenGLFramebufferObject>
 #include <QPoint>
 #include <QString>
-#include "renderer/renderer.h"
+#include "render/renderer.h"
 
 class ViewportFboRenderer : public QQuickFramebufferObject::Renderer {
 public:

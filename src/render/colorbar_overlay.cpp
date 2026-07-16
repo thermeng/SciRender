@@ -1,4 +1,4 @@
-#include "ui/colorbar_overlay.h"
+#include "render/colorbar_overlay.h"
 
 #include <QImage>
 #include <QPainter>

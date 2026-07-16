@@ -7,7 +7,7 @@
 #include <QDebug> // Required for logging output streams
 #include <QTimer>
 
-#include "renderer/renderer.h"
+#include "render/renderer.h"
 #include "ui/custom_viewport_item.h"
 
 int main(int argc, char *argv[]) {

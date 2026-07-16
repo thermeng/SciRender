@@ -1,4 +1,4 @@
-#include "renderer/LightingModel.h"
+#include "LightingModel.h"
 
 #include <cmath>
 

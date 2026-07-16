@@ -32,16 +32,16 @@
 #include <optional>
 #include <chrono>
 
-#include "mesh/mesh_loader.h"
-#include "gizmo/gizmo.h"
-#include "ui/colorbar_overlay.h"
-#include "camera/Camera.h"
+#include "core/mesh_loader.h"
+#include "render/gizmo.h"
+#include "render/colorbar_overlay.h"
+#include "core/Camera.h"
 #include "export/screenshot.h"
 
-#include "renderer/LightingModel.h"
-#include "renderer/ColormapManager.h"
-#include "renderer/VectorGlyphSet.h"
-#include "renderer/MeshGLManager.h"
+#include "render/LightingModel.h"
+#include "render/ColormapManager.h"
+#include "render/VectorGlyphSet.h"
+#include "render/MeshGLManager.h"
 
 class QOpenGLFramebufferObject;
 

@@ -40,33 +40,33 @@ target_include_directories(glm INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vendor")
 
 # Explicitly list source files to avoid capturing deleted/legacy main.cpp files
 add_executable(SciRender
-    main.cpp   # Active Qt entry point at the project root
-    src/renderer/renderer.cpp
-    src/renderer/renderer.h
-    src/renderer/LightingModel.cpp
-    src/renderer/LightingModel.h
-    src/renderer/ColormapManager.cpp
-    src/renderer/ColormapManager.h
-    src/renderer/VectorGlyphSet.cpp
-    src/renderer/VectorGlyphSet.h
-    src/renderer/MeshGLManager.cpp
-    src/renderer/MeshGLManager.h
-    src/camera/Camera.cpp
-    src/camera/Camera.h
-    src/colormaps/Colormaps.h
-    src/mesh/vtk_parser.cpp
-    src/gizmo/gizmo.cpp
-    src/gizmo/gizmo.h
-    src/mesh/mesh_loader.cpp
-    src/mesh/mesh_loader.h
-    src/mesh/mesh_utils.cpp
-    src/mesh/stl_parser.cpp
-    src/export/screenshot.cpp
-    src/export/screenshot.h
+    src/app/main.cpp                 # Qt entry point
+    src/core/Camera.cpp
+    src/core/Camera.h
+    src/core/Colormaps.h
+    src/core/mesh_loader.cpp
+    src/core/mesh_loader.h
+    src/core/mesh_utils.cpp
+    src/core/vtk_parser.cpp
+    src/core/stl_parser.cpp
+    src/render/renderer.cpp
+    src/render/renderer.h
+    src/render/LightingModel.cpp
+    src/render/LightingModel.h
+    src/render/ColormapManager.cpp
+    src/render/ColormapManager.h
+    src/render/VectorGlyphSet.cpp
+    src/render/VectorGlyphSet.h
+    src/render/MeshGLManager.cpp
+    src/render/MeshGLManager.h
+    src/render/gizmo.cpp
+    src/render/gizmo.h
+    src/render/colorbar_overlay.cpp
+    src/render/colorbar_overlay.h
     src/ui/custom_viewport_item.cpp
     src/ui/custom_viewport_item.h
-    src/ui/colorbar_overlay.cpp
-    src/ui/colorbar_overlay.h
+    src/export/screenshot.cpp
+    src/export/screenshot.h
 )
 
 # Inform your C++ files where GLSL shaders are housed

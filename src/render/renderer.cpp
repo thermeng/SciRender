@@ -1,8 +1,8 @@
-#include "renderer/renderer.h"
-#include "colormaps/Colormaps.h"
-#include "camera/Camera.h"
+#include "render/renderer.h"
+#include "core/Colormaps.h"
+#include "core/Camera.h"
 #include "export/screenshot.h"
-#include "mesh/mesh_loader.h"
+#include "core/mesh_loader.h"
 #include <QOpenGLFramebufferObject>
 
 #include <cstring>

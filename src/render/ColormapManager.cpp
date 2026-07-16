@@ -1,5 +1,5 @@
-﻿#include "renderer/ColormapManager.h"
-#include "colormaps/Colormaps.h"
+#include "render/ColormapManager.h"
+#include "core/Colormaps.h"
 
 void ColormapManager::uploadLUT(GLuint& tex, int choice, bool reversed) const {
     std::vector<unsigned char> pd; pd.reserve(256 * 3);

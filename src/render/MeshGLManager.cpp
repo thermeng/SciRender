@@ -1,5 +1,5 @@
-#include "renderer/MeshGLManager.h"
-#include "mesh/mesh_loader.h"
+#include "render/MeshGLManager.h"
+#include "core/mesh_loader.h"
 
 #include <cmath>
 #include <unordered_map>
