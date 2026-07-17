@@ -129,11 +129,13 @@ void computeNormals(RenderMesh& mesh) {
         }
     }
 
-    // Step 3: For each vertex, bucket adjacent faces by the sign of their face
-    // normal. With SHARP_ANGLE_COS = 0.9 (~25 deg) any two faces whose
-    // normals share the same sign octant are guaranteed within the smooth
-    // threshold, so grouping is exact and runs in O(F) per vertex instead of
-    // the previous quadratic first-fit clustering (B6).
+    // Step 3: For each vertex, group adjacent faces into smooth groups using the
+    // ACTUAL face-normal angle (dot product) against SHARP_ANGLE_COS (~25 deg).
+    // A vertex is split only when its incident faces genuinely diverge beyond that
+    // threshold (a real sharp edge). The previous sign-octant heuristic (bucket by
+    // the sign of each normal component, spanning up to 90 deg) wrongly split smooth
+    // surfaces wherever any normal component crossed zero — e.g. along every meridian
+    // of a sphere or cone — producing the reported spurious "sharp lines" artifacts.
     // vertexRemap[originalVert] = {newVertForGroup0, newVertForGroup1, ...}
     std::vector<std::vector<int>> vertexRemap(numVerts);
     for (size_t v = 0; v < numVerts; v++) {
@@ -147,59 +149,64 @@ void computeNormals(RenderMesh& mesh) {
     newVertices = mesh.vertices;  // will grow with duplicates
     int nextVert = static_cast<int>(numVerts);
 
-    auto bucketOf = [](const FaceNormal& fn) -> int {
-        int bx = fn.nx > 0 ? 1 : (fn.nx < 0 ? 0 : 2);
-        int by = fn.ny > 0 ? 1 : (fn.ny < 0 ? 0 : 2);
-        int bz = fn.nz > 0 ? 1 : (fn.nz < 0 ? 0 : 2);
-        return bx * 9 + by * 3 + bz;
+    auto dot3 = [](const FaceNormal& a, const FaceNormal& b) {
+        return a.nx * b.nx + a.ny * b.ny + a.nz * b.nz;
     };
 
     for (size_t v = 0; v < numVerts; v++) {
         int fStart = adjOffsets[v], fEnd = adjOffsets[v + 1];
         if (fStart == fEnd) continue;
 
-        // 27 spatial buckets. The common case (a smooth vertex) has a single
-        // bucket; only sharp vertices span more than one.
-        int groupCount[27] = {0};
-        int bucketsUsed = 0;
-        for (int fi = fStart; fi < fEnd; fi++) {
+        // Greedily cluster incident faces into smooth groups. Seed group 0 with the
+        // first face; a subsequent face joins the current group only if its normal
+        // dot-product with every already-accepted face in that group stays >=
+        // SHARP_ANGLE_COS. Otherwise start a new group. This honors the intended
+        // ~25 deg smooth threshold exactly (a sphere's near-tangent faces all land in
+        // one group -> no split -> smooth shading; a cube corner's 90 deg faces stay
+        // in separate groups -> split).
+        std::vector<int> groupOf(fEnd - fStart, 0); // face slot -> group id
+        int numGroups = 1;
+        for (int fi = fStart + 1; fi < fEnd; fi++) {
             int f = adjFaces[fi];
-            int b = bucketOf(faceNormals[f]);
-            if (groupCount[b] == 0) bucketsUsed++;
-            groupCount[b]++;
+            bool merged = false;
+            for (int g = 0; g < numGroups; g++) {
+                bool ok = true;
+                for (int fj = fStart; fj < fi; fj++) {
+                    if (groupOf[fj - fStart] != g) continue;
+                    int of = adjFaces[fj];
+                    if (dot3(faceNormals[f], faceNormals[of]) < SHARP_ANGLE_COS) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok) { groupOf[fi - fStart] = g; merged = true; break; }
+            }
+            if (!merged) groupOf[fi - fStart] = numGroups++;
         }
 
-        if (bucketsUsed <= 1) continue;  // smooth vertex, no split needed
+        if (numGroups <= 1) continue;  // smooth vertex, no split needed
 
-        // Create duplicate vertices: exactly one per extra bucket (bucket 0
-        // keeps the original vertex, which is group 0). The index remap below
-        // routes every face in a bucket to that single duplicate, so pushing
-        // more than one per bucket only wasted memory on unreferenced vertices
-        // (S3).
-        int firstBucket = -1;
-        for (int b = 0; b < 27; b++) {
-            if (groupCount[b] == 0) continue;
-            if (firstBucket < 0) { firstBucket = b; continue; } // original vertex
+        // Create duplicate vertices: exactly one per extra group (group 0 keeps the
+        // original vertex). The index remap below routes every face in a group to its
+        // duplicate, so producing more than one per group would only waste memory on
+        // unreferenced vertices (S3).
+        for (int g = 1; g < numGroups; g++) {
             newVertices.push_back(mesh.vertices[v * 3]);
             newVertices.push_back(mesh.vertices[v * 3 + 1]);
             newVertices.push_back(mesh.vertices[v * 3 + 2]);
             vertexRemap[v].push_back(nextVert++);
         }
 
-        // Remap indices: route each adjacent face to its bucket's duplicate.
-        int gIdx = 0;
-        for (int b = 0; b < 27; b++) {
-            if (groupCount[b] == 0) continue;
-            int newV = vertexRemap[v][gIdx];
-            gIdx++;
-            for (int fi = fStart; fi < fEnd; fi++) {
-                int f = adjFaces[fi];
-                if (bucketOf(faceNormals[f]) != b) continue;
-                int base = f * 3;
-                for (int c = 0; c < 3; c++) {
-                    if (mesh.indices[base + c] == static_cast<int>(v)) {
-                        mesh.indices[base + c] = newV;
-                    }
+        // Remap indices: route each adjacent face to its group's duplicate.
+        for (int fi = fStart; fi < fEnd; fi++) {
+            int f = adjFaces[fi];
+            int g = groupOf[fi - fStart];
+            int newV = vertexRemap[v][g];
+            if (newV == static_cast<int>(v)) continue;  // original vertex, no remap
+            int base = f * 3;
+            for (int c = 0; c < 3; c++) {
+                if (mesh.indices[base + c] == static_cast<int>(v)) {
+                    mesh.indices[base + c] = newV;
                 }
             }
         }
