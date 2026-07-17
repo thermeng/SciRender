@@ -503,7 +503,12 @@ void Renderer::loadMesh(const QString& filePath) {
     QFileInfo fileInfo(QString::fromStdString(stdPath));
     currentMeshName = fileInfo.fileName().toStdString();
     triangleCount = static_cast<int>(dynamicMeshQueue.indices.size() / 3);
-    pointCount = static_cast<int>(dynamicMeshQueue.vertices.size() / 3);
+    // Report the topological point count (deduped, pre-normal-split) so the UI
+    // matches what ParaView shows. computeNormals() duplicates vertices at sharp
+    // edges only for shading, which would otherwise inflate the "Points" value.
+    pointCount = dynamicMeshQueue.sourcePointCount >= 0
+        ? dynamicMeshQueue.sourcePointCount
+        : static_cast<int>(dynamicMeshQueue.vertices.size() / 3);
     meshDataType = dynamicMeshQueue.datasetType;
     meshFormat = dynamicMeshQueue.fileFormat;
 

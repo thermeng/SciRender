@@ -193,6 +193,12 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
 
     mesh_utils::computeBounds(mesh);
 
+    // Record the topological point count (deduped, pre-normal-split) so the UI
+    // can report the true vertex count ParaView shows. computeNormals() below
+    // will duplicate vertices at sharp edges for shading, which would otherwise
+    // inflate the displayed "Points" value.
+    mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
+
     std::cout << "STL Parser (ASCII): Loaded " << triCount << " triangles, "
         << mesh.vertices.size() / 3 << " unique vertices (deduped)" << std::endl;
     return mesh;
@@ -267,6 +273,12 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
     file.close();
 
     mesh_utils::computeBounds(mesh);
+
+    // Record the topological point count (deduped, pre-normal-split) so the UI
+    // can report the true vertex count ParaView shows. computeNormals() below
+    // will duplicate vertices at sharp edges for shading, which would otherwise
+    // inflate the displayed "Points" value.
+    mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
 
     std::cout << "STL Parser (Binary): Loaded " << triCount << " triangles, "
         << mesh.vertices.size() / 3 << " unique vertices (deduped)" << std::endl;

@@ -1123,6 +1123,11 @@ private:
         calculateScalarRanges();
         mesh_utils::computeBounds(mesh);
 
+        // Record the topological point count BEFORE computeNormals() splits
+        // sharp edges (which duplicates vertices only for shading). The UI
+        // should report this true vertex count, matching what ParaView shows.
+        mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
+
         if (mesh.normals.empty() && !mesh.indices.empty()) {
             mesh_utils::computeNormals(mesh);
         }

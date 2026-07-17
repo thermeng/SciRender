@@ -67,6 +67,14 @@ struct RenderMesh {
     std::string datasetType = ""; // VTK DATASET token (e.g. STRUCTURED_GRID) or "STL"
     std::string fileFormat  = ""; // "VTK" or "STL"
 
+    // True/topological point count of the source geometry — the number of
+    // distinct vertices (after position dedup for STL). This is what tools like
+    // ParaView report. It must be captured BEFORE computeNormals() splits sharp
+    // edges, since that pass duplicates vertices purely for shading (one flat
+    // normal per sharp-edge side) and would otherwise inflate the displayed
+    // "Points" count. Defaults to the post-split vertex count if unset.
+    int sourcePointCount = -1;
+
     // Default constructor
     RenderMesh() = default;
 };
