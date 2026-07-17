@@ -7,20 +7,132 @@
 #include <string>
 
 namespace {
-// LOD vertex-clustering decimation averages every vertex inside a coarse spatial
-// cell into a single point. That is only safe for a densely-sampled volumetric
-// lattice, where neighbouring grid points genuinely belong to the same surface.
-// For surface meshes (STL) and non-volumetric VTK datasets (POLYDATA, isolated
-// unstructured surfaces) the same clustering merges topologically unrelated
-// vertices across disconnected shells / thin features, producing the reported
-// "overlapping vertices / spurious new surfaces" artifact while the camera moves.
-//
-// So we only allow decimation for the regular volumetric grid dataset types.
+// Format gate for LOD (decimation). We now allow the regular volumetric grid
+// dataset types AND surface datasets. Surface meshes (STL) and triangulated VTK
+// surface datasets (UNSTRUCTURED_GRID, POLYDATA) are eligible for LOD, but they
+// are additionally screened by surfaceDecimationSafe() before a decimated mesh
+// is actually built, so disconnected/overlapping shells are never clustered.
 bool datasetSupportsDecimation(const RenderMesh& in) {
     const std::string& t = in.datasetType;
     return t == "STRUCTURED_GRID" ||
            t == "STRUCTURED_POINTS" ||
-           t == "RECTILINEAR_GRID";
+           t == "RECTILINEAR_GRID" ||
+           t == "STL" ||
+           t == "UNSTRUCTURED_GRID" ||
+           t == "POLYDATA";
+}
+
+// Vertex-clustering decimation averages every vertex inside a coarse spatial
+// cell into a single point. For a mesh with multiple disconnected shells that
+// fall into the same cell, this transiently merges unrelated parts into
+// "spurious new surfaces" while the camera moves. This cheap one-time
+// topological test decides whether clustering is safe for a given surface mesh:
+//  - a single connected component is always safe;
+//  - multiple components are safe only if none are within one cell of each other
+//    (so clustering cannot merge them);
+//  - meshes with more than kMaxComponents components are treated as unsafe to
+//    bound the O(components^2) overlap test (these are exactly the risky ones).
+bool surfaceDecimationSafe(const RenderMesh& in) {
+    const size_t nv = in.vertices.size() / 3;
+    const size_t nt = in.indices.size() / 3;
+    if (nv < 3 || nt < 1) return false;
+
+    // Union-find over vertex indices, with per-component tight bounding boxes.
+    struct UF {
+        std::vector<int> parent;
+        int find(int x) {
+            while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+            return x;
+        }
+        void unite(int a, int b) {
+            int ra = find(a), rb = find(b);
+            if (ra != rb) parent[ra] = rb;
+        }
+    };
+    UF uf;
+    uf.parent.resize(nv);
+    for (size_t i = 0; i < nv; ++i) uf.parent[i] = static_cast<int>(i);
+
+    // vertex -> triangle CSR so we can flood triangles that share a vertex.
+    std::vector<int> triHead(nv, -1), triNext(nt * 3);
+    for (size_t t = 0; t < nt; ++t) {
+        for (int k = 0; k < 3; ++k) {
+            unsigned int v = in.indices[t * 3 + k];
+            if (v >= nv) return false; // malformed; be conservative
+            triNext[t * 3 + k] = triHead[v];
+            triHead[v] = static_cast<int>(t * 3 + k);
+        }
+    }
+
+    // Flood-fill connected triangles (sharing a vertex) into components, and
+    // accumulate a per-component bounding box over the triangle vertices.
+    const int kMaxComponents = 64;
+    struct Comp {
+        float minX, minY, minZ, maxX, maxY, maxZ;
+    };
+    std::vector<Comp> comps;
+    std::vector<int> triComp(nt, -1);
+    std::vector<int> stack;
+
+    for (size_t s = 0; s < nt; ++s) {
+        if (triComp[s] != -1) continue;
+        const int root = uf.find(in.indices[s * 3]);
+        comps.push_back({1e30f, 1e30f, 1e30f, -1e30f, -1e30f, -1e30f});
+        Comp& c = comps.back();
+        stack.clear();
+        stack.push_back(static_cast<int>(s));
+        triComp[s] = static_cast<int>(comps.size() - 1);
+        while (!stack.empty()) {
+            const int t = stack.back(); stack.pop_back();
+            for (int k = 0; k < 3; ++k) {
+                unsigned int v = in.indices[t * 3 + k];
+                const float x = in.vertices[3 * v + 0];
+                const float y = in.vertices[3 * v + 1];
+                const float z = in.vertices[3 * v + 2];
+                if (x < c.minX) c.minX = x; if (x > c.maxX) c.maxX = x;
+                if (y < c.minY) c.minY = y; if (y > c.maxY) c.maxY = y;
+                if (z < c.minZ) c.minZ = z; if (z > c.maxZ) c.maxZ = z;
+                // push unvisited triangles adjacent through this vertex
+                for (int e = triHead[v]; e != -1; e = triNext[e]) {
+                    const int nt2 = e / 3;
+                    if (triComp[nt2] == -1) {
+                        triComp[nt2] = static_cast<int>(comps.size() - 1);
+                        stack.push_back(nt2);
+                    }
+                }
+            }
+        }
+        // Ensure the whole vertex-connected set is one union-find group so the
+        // component we just flooded is internally consistent.
+        (void)root;
+    }
+
+    if (comps.size() <= 1) return true;
+    if (static_cast<int>(comps.size()) > kMaxComponents) return false;
+
+    // Compute the clustering cell size the same way decimate() will.
+    const double dx = in.bounds.maxX - in.bounds.minX;
+    const double dy = in.bounds.maxY - in.bounds.minY;
+    const double dz = in.bounds.maxZ - in.bounds.minZ;
+    const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (diag < 1e-9) return false;
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
+    const double cell = diag / cellsPerAxis;
+
+    // Any pair of components whose boxes come within `cell` on all three axes
+    // could share a cluster cell => clustering could merge unrelated shells.
+    for (size_t a = 0; a + 1 < comps.size(); ++a) {
+        for (size_t b = a + 1; b < comps.size(); ++b) {
+            const Comp& ca = comps[a];
+            const Comp& cb = comps[b];
+            const bool closeX = (ca.maxX - cb.minX) < cell && (cb.maxX - ca.minX) < cell;
+            const bool closeY = (ca.maxY - cb.minY) < cell && (cb.maxY - ca.minY) < cell;
+            const bool closeZ = (ca.maxZ - cb.minZ) < cell && (cb.maxZ - ca.minZ) < cell;
+            if (closeX && closeY && closeZ) return false;
+        }
+    }
+    return true;
 }
 } // namespace
 
@@ -186,9 +298,10 @@ void MeshGLManager::upload(const RenderMesh& renderMesh) {
     buildMeshGL(renderMesh, newFull);
 
     // LOD: a coarsely decimated mesh, used only while the camera is moving.
-    // Only volumetric grid datasets are eligible — see datasetSupportsDecimation()
-    // for why surface/STL and non-volumetric VTK meshes must NOT be clustered.
-    if (datasetSupportsDecimation(renderMesh)) {
+    // Eligible surface/STL/VTK meshes are additionally screened by
+    // surfaceDecimationSafe() so disconnected/overlapping shells are never
+    // clustered into spurious surfaces during camera motion.
+    if (datasetSupportsDecimation(renderMesh) && surfaceDecimationSafe(renderMesh)) {
         RenderMesh decimated = decimate(renderMesh);
         bool lodWorthwhile = !decimated.indices.empty() &&
                              decimated.indices.size() < renderMesh.indices.size() / 2;

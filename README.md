@@ -52,8 +52,22 @@ the program can run from the build directory.
 - Axis triad + light-direction markers in a corner overlay
 - Screenshot export (PNG/JPEG/BMP), optional transparency
 - QML side panel: lighting, slicing/clipping, colormap, presets, recent files
-- **Robust mesh loading:** exact STL vertex dedup and level-of-detail limited
-  to volumetric grids, so multi-shell surfaces stay intact while orbiting
+- **Robust mesh loading:** exact STL vertex dedup, and level-of-detail (LOD)
+  that is safe for multi-shell surfaces while orbiting
+
+### Level of Detail (LOD)
+
+LOD shows a coarser mesh only while the camera is moving, then snaps back to
+full detail when motion stops. It is used only when all of the following hold:
+
+- **Dataset type:** volumetric grids (`STRUCTURED_GRID`, `RECTILINEAR_GRID`,
+  `STRUCTURED_POINTS`) and surface meshes (`STL`, `POLYDATA`,
+  `UNSTRUCTURED_GRID`).
+- **Size:** at least 4000 vertices.
+- **Worthwhile:** the decimated mesh has less than half the original triangles.
+- **Multi-shell safe:** a single connected solid is always supported. Meshes
+  with multiple disconnected parts are only decimated when the parts are far
+  enough apart that they cannot be merged; otherwise full resolution is used.
 
 ## Layout
 
