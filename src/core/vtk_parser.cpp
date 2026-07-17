@@ -32,15 +32,23 @@ static bool readBinaryArray(std::ifstream& f, size_t count, std::vector<T>& out)
 }
 
 // VTK legacy binary: every binary data block is written aligned to a 4-byte
-// boundary. After reading a block we must advance the file position to the
-// next multiple of 4; otherwise any block whose byte size is not a multiple of
-// 4 shifts every subsequent block and corrupts the file. (File is opened in
-// binary mode, so seeking is safe.)
-void alignStream4(std::ifstream& f) {
-    std::streampos p = f.tellg();
-    if (p == std::streampos(-1)) return;
-    std::streamoff pad = (static_cast<std::streamoff>(4) - (static_cast<std::streamoff>(p) & 3)) & 3;
-    if (pad) f.seekg(p + pad);
+// boundary *relative to the start of that block*. The padding applied after a
+// block depends only on the block's own byte size, NOT on the absolute file
+// position. If we aligned against the absolute position we would wrongly pad
+// whenever a block happened to start at an unaligned offset (e.g. POINTS whose
+// preceding ASCII header ended at offset 81), which would overshoot the next
+// section header and desync every following block. All legacy VTK element types
+// here are 4- or 8-byte wide, so a block's byte size is always a multiple of 4
+// and the correct padding is therefore 0 — but we compute it from the bytes
+// read so the rule is correct for any type. (File is opened in binary mode, so
+// seeking is safe.)
+void alignStream4(std::ifstream& f, size_t bytesRead) {
+    std::streamoff pad = (static_cast<std::streamoff>(4) - (static_cast<std::streamoff>(bytesRead) & 3)) & 3;
+    if (pad) {
+        std::streampos p = f.tellg();
+        if (p == std::streampos(-1)) return;
+        f.seekg(p + pad);
+    }
 }
 
 // ── Parser Context ──────────────────────────────────────────────────────────
@@ -131,8 +139,11 @@ private:
         else if (token == "CELLS") { parseCellsBlock(iss, file); }
         else if (token == "CELL_TYPES") { parseCellTypesBlock(iss, file); }
         else if (token == "POLYGONS") { parsePolygonsBlock(iss, file); }
+        else if (token == "VERTICES") { parseVerticesBlock(iss, file); }
+        else if (token == "LINES") { parseLinesBlock(iss, file); }
         else if (token == "TRIANGLE_STRIPS") { parseTriangleStripsBlock(iss, file); }
         else if (token == "SCALARS") { parseScalarsBlock(iss, file); }
+        else if (token == "NORMALS") { parseNormalsBlock(iss, file); }
         else if (token == "VECTORS") { parseVectorsBlock(iss, file); }
     }
 
@@ -161,7 +172,7 @@ private:
                     return;
                 }
             }
-            alignStream4(file);
+            alignStream4(file, static_cast<size_t>(count) * sizeof(float));
         }
         else {
             for (int i = 0; i < count; ++i) file >> axisCoords[i];
@@ -231,7 +242,7 @@ private:
                     }
                 }
             }
-            alignStream4(file);
+            alignStream4(file, mesh.vertices.size() * sizeof(float));
         }
         else {
             for (int i = 0; i < numPoints * 3; ++i) {
@@ -254,7 +265,7 @@ private:
                 rawCellData.clear();
                 return;
             }
-            alignStream4(file);
+            alignStream4(file, static_cast<size_t>(cellSize) * sizeof(int32_t));
         }
         else {
             for (int i = 0; i < cellSize; ++i) file >> rawCellData[i];
@@ -272,7 +283,7 @@ private:
                 return;
             }
             for (int i = 0; i < numCells; ++i) cellTypes[i] = rawTypes[i];
-            alignStream4(file);
+            alignStream4(file, static_cast<size_t>(numCells) * sizeof(int32_t));
         }
         else {
             for (int i = 0; i < numCells; ++i) file >> cellTypes[i];
@@ -289,7 +300,7 @@ private:
                 polyData.clear();
                 return;
             }
-            alignStream4(file);
+            alignStream4(file, static_cast<size_t>(sizeOfPolysBlock) * sizeof(int32_t));
         }
         else {
             for (int i = 0; i < sizeOfPolysBlock; ++i) file >> polyData[i];
@@ -303,6 +314,54 @@ private:
         numCells = numPolys;
     }
 
+    // POLYDATA VERTICES: a list of cells, each cell a variable-length list
+    // of point indices. Render as a triangle fan (same triangulation as
+    // POLYGONS) so the geometry is drawable and the cell count matches
+    // ParaView's "Polygonal Mesh" report.
+    void parseVerticesBlock(std::istringstream& iss, std::ifstream& file) {
+        int numVerts = 0, sizeOfVertsBlock = 0; iss >> numVerts >> sizeOfVertsBlock;
+        std::vector<int32_t> vertData(sizeOfVertsBlock);
+        if (isBinary) {
+            if (!readBinaryArray(file, sizeOfVertsBlock, vertData)) {
+                std::cerr << "VTK Parser Warning: short read on binary VERTICES." << std::endl;
+                vertData.clear();
+                return;
+            }
+            alignStream4(file, static_cast<size_t>(sizeOfVertsBlock) * sizeof(int32_t));
+        }
+        else {
+            for (int i = 0; i < sizeOfVertsBlock; ++i) file >> vertData[i];
+            clearTrailingLine(file);
+        }
+        // VERTICES is its own topology source (see parsePolygonsBlock).
+        mesh.indices.clear();
+        globalCellToVertices = triangulatePolygons(vertData, numVerts);
+        numCells = numVerts;
+    }
+
+    // POLYDATA LINES: a list of cells, each cell a polyline (variable-length
+    // list of point indices). Emit GL_LINES pairs (p[i], p[i+1]) per segment.
+    void parseLinesBlock(std::istringstream& iss, std::ifstream& file) {
+        int numLines = 0, sizeOfLinesBlock = 0; iss >> numLines >> sizeOfLinesBlock;
+        std::vector<int32_t> lineData(sizeOfLinesBlock);
+        if (isBinary) {
+            if (!readBinaryArray(file, sizeOfLinesBlock, lineData)) {
+                std::cerr << "VTK Parser Warning: short read on binary LINES." << std::endl;
+                lineData.clear();
+                return;
+            }
+            alignStream4(file, static_cast<size_t>(sizeOfLinesBlock) * sizeof(int32_t));
+        }
+        else {
+            for (int i = 0; i < sizeOfLinesBlock; ++i) file >> lineData[i];
+            clearTrailingLine(file);
+        }
+        // LINES is its own topology source (see parsePolygonsBlock).
+        mesh.indices.clear();
+        globalCellToVertices = triangulateLines(lineData, numLines);
+        numCells = numLines;
+    }
+
     void parseTriangleStripsBlock(std::istringstream& iss, std::ifstream& file) {
         int numStrips = 0, sizeOfStripsBlock = 0; iss >> numStrips >> sizeOfStripsBlock;
         std::vector<int32_t> stripData(sizeOfStripsBlock);
@@ -312,7 +371,7 @@ private:
                 stripData.clear();
                 return;
             }
-            alignStream4(file);
+            alignStream4(file, static_cast<size_t>(sizeOfStripsBlock) * sizeof(int32_t));
         }
         else {
             for (int i = 0; i < sizeOfStripsBlock; ++i) file >> stripData[i];
@@ -367,9 +426,9 @@ private:
                 size_t total = static_cast<size_t>(activeElementCount) * static_cast<size_t>(numComponents);
                 if (!consumeBinaryScalars(file, dataType, total)) {
                     std::cerr << "VTK Parser Warning: short read consuming multi-component SCALARS '" << scalarName << "'." << std::endl;
-                }
-                alignStream4(file);
             }
+            alignStream4(file, mesh.vertices.size() * sizeof(float));
+        }
             return;
         }
 
@@ -432,10 +491,10 @@ private:
                 if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
                 if (readingPointData) mesh.attributes->pointScalars[scalarName]; // ensure key exists, empty
                 else { mesh.attributes->cellScalars[scalarName]; cellScalarsStorage[scalarName]; }
-                alignStream4(file);
+                alignStream4(file, static_cast<size_t>(activeElementCount) * static_cast<size_t>(numComponents) * sizeof(float));
                 return;
             }
-            alignStream4(file);
+            alignStream4(file, static_cast<size_t>(activeElementCount) * static_cast<size_t>(numComponents) * sizeof(float));
         }
         else {
             for (size_t i = 0; i < readScalars.size(); ++i) {
@@ -496,6 +555,54 @@ private:
         return false;
     }
 
+    // POLYDATA NORMALS: a 3-component per-point attribute (same layout as
+    // VECTORS). Store it directly in mesh.normals so the renderer uses the
+    // author-provided normals instead of angle-based vertex splitting (which
+    // would otherwise duplicate vertices and inflate the point count).
+    void parseNormalsBlock(std::istringstream& iss, std::ifstream& file) {
+        std::string normName, dataType;
+        iss >> normName >> dataType;
+        dataType = mesh_utils::toUpper(dataType);
+
+        int activeElementCount = readingPointData ? numPoints : numCells;
+        if (activeElementCount == 0 && attributeTargetCount > 0) {
+            activeElementCount = attributeTargetCount;
+        }
+
+        std::vector<float> readNorms(static_cast<size_t>(activeElementCount) * 3);
+
+        if (isBinary) {
+            bool ok = true;
+            if (dataType == "DOUBLE") {
+                std::vector<double> tmp(readNorms.size());
+                if (!readBinaryArray(file, tmp.size(), tmp)) ok = false;
+                else for (size_t i = 0; i < tmp.size(); ++i) readNorms[i] = static_cast<float>(tmp[i]);
+            } else { // FLOAT
+                if (!readBinaryArray(file, readNorms.size(), readNorms)) ok = false;
+            }
+            if (!ok) {
+                std::cerr << "VTK Parser Warning: short read on binary NORMALS '" << normName
+                          << "'; skipping field to avoid stream desync." << std::endl;
+                alignStream4(file, static_cast<size_t>(activeElementCount) * 3 * sizeof(float));
+                return;
+            }
+            alignStream4(file, static_cast<size_t>(activeElementCount) * 3 * sizeof(float));
+        } else {
+            for (size_t i = 0; i < readNorms.size(); ++i) {
+                if (!(file >> readNorms[i])) {
+                    std::cerr << "VTK Parser Warning: non-finite ASCII NORMALS '" << normName
+                              << "'; dropping field." << std::endl;
+                    readNorms.clear();
+                    break;
+                }
+            }
+            clearTrailingLine(file);
+        }
+
+        if (readNorms.empty()) return;
+        mesh.normals = std::move(readNorms);
+    }
+
     void parseVectorsBlock(std::istringstream& iss, std::ifstream& file) {
         std::string vecName, dataType;
         iss >> vecName >> dataType;
@@ -522,7 +629,7 @@ private:
             if (!vecReadOk) {
                 std::cerr << "VTK Parser Warning: short read on binary VECTORS '" << vecName
                           << "'; skipping field to avoid stream desync." << std::endl;
-                alignStream4(file);
+                alignStream4(file, readVecs.size() * sizeof(float));
                 return;
             }
             for (float v : readVecs) {
@@ -533,7 +640,7 @@ private:
                     break;
                 }
             }
-            alignStream4(file);
+            alignStream4(file, readVecs.size() * sizeof(float));
         } else {
             for (size_t i = 0; i < readVecs.size(); ++i) {
                 if (!(file >> readVecs[i]) || !std::isfinite(readVecs[i])) {
@@ -591,6 +698,15 @@ private:
             if (!mesh.vertices.empty()) {
                 globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
                 numCells = static_cast<int>(globalCellToVertices.size());
+            }
+        }
+        else if (datasetType == "POLYDATA") {
+            // POLYDATA topology is supplied entirely by the POINTS + VERTICES /
+            // LINES / POLYGONS / TRIANGLE_STRIPS blocks (parsed during the line
+            // loop). If a topology block produced indices, keep them; otherwise
+            // there is nothing to tessellate (points-only POLYDATA).
+            if (mesh.indices.empty() && !mesh.vertices.empty()) {
+                std::cerr << "VTK Parser Warning: POLYDATA has points but no VERTICES/LINES/POLYGONS/TRIANGLE_STRIPS; rendering points only." << std::endl;
             }
         }
     }
@@ -780,6 +896,31 @@ private:
         return cellToVertices;
     }
 
+    // POLYDATA LINES: each cell is a polyline; emit a GL_LINES segment
+    // (p[i], p[i+1]) per consecutive pair. Each cell's full vertex list is
+    // retained in cellToVertices for attribute extrapolation.
+    std::vector<std::vector<uint32_t>> triangulateLines(const std::vector<int32_t>& rawLineData, int numLines) {
+        int idx = 0;
+        std::vector<std::vector<uint32_t>> cellToVertices(numLines);
+        for (int l = 0; l < numLines; ++l) {
+            if (idx >= static_cast<int>(rawLineData.size())) break;
+            int nPoints = rawLineData[idx++];
+            if (nPoints < 0 || idx + nPoints > static_cast<int>(rawLineData.size())) break;
+
+            for (int i = 0; i < nPoints; ++i) {
+                cellToVertices[l].push_back(static_cast<uint32_t>(rawLineData[idx + i]));
+            }
+
+            for (int i = 0; i + 1 < nPoints; ++i) {
+                uint32_t a = rawLineData[idx + i];
+                uint32_t b = rawLineData[idx + i + 1];
+                mesh.indices.insert(mesh.indices.end(), { a, b });
+            }
+            idx += nPoints;
+        }
+        return cellToVertices;
+    }
+
     std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(const std::vector<int32_t>& rawCellData, const std::vector<int32_t>& cellTypes, int totalCells) {
         mesh.indices.clear();
         std::vector<std::vector<uint32_t>> cellToVertices(totalCells);
@@ -888,9 +1029,11 @@ private:
             std::cerr << "VTK Parser Error: Empty data sequence." << std::endl;
             return;
         }
-        // vertices present but no triangles => blank viewport with no error.
-        // Surface it instead of silently handing an empty draw call to the GPU.
-        if (mesh.indices.empty()) {
+        // vertices present but no triangles => blanket error for structured /
+        // unstructured grids (they should always tessellate). For POLYDATA it is
+        // legitimate to have a points-only or lines-only mesh, so still deliver
+        // it to the GPU rather than dropping it as an error.
+        if (mesh.indices.empty() && datasetType != "POLYDATA") {
             std::cerr << "VTK Parser Error: topology produced no triangles (missing/invalid CELLS/POLYGONS/DIMENSIONS). Mesh will not render." << std::endl;
             return;
         }
