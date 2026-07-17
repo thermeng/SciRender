@@ -170,6 +170,11 @@ QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSi
     format.setInternalTextureFormat(GL_RGBA8); // RGBA color attachment so transparent PNG exports retain an alpha channel
     format.setSamples(0); // raw GL draw handles MSAA itself if needed
     m_fbo = new QOpenGLFramebufferObject(size, format);
+    // A newly-allocated FBO is uninitialized; force the next render() to draw
+    // into it even if no other change occurred, otherwise the scene graph
+    // composites garbage until the next interaction (e.g. when the sidebar
+    // resizes the viewport or on window resize / DPR change).
+    m_dirty = true;
     return m_fbo;
 }
 
