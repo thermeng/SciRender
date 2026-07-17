@@ -78,7 +78,7 @@ private:
     // Intermediate storage cache specifically tracking split configurations
     std::unordered_map<std::string, std::vector<float>> cellScalarsStorage;
     std::unordered_map<std::string, std::vector<float>> cellVectorsStorage; // CELL_DATA VECTORS, extrapolated to points
-    std::vector<std::vector<int>> globalCellToVertices;
+    std::vector<std::vector<uint32_t>> globalCellToVertices;
 
     bool getVTKLine(std::ifstream& f, std::string& outLine) {
         outLine.clear();
@@ -404,7 +404,7 @@ private:
         }
     }
 
-    std::vector<std::vector<int>> generateStructuredGridIndices(int dX, int dY, int dZ) {
+    std::vector<std::vector<uint32_t>> generateStructuredGridIndices(int dX, int dY, int dZ) {
         int cellsX = std::max(1, dX - 1);
         int cellsY = std::max(1, dY - 1);
         int cellsZ = std::max(1, dZ - 1);
@@ -412,21 +412,21 @@ private:
         size_t totalCells = static_cast<size_t>(cellsX) * cellsY * cellsZ;
 
         mesh.indices.reserve(totalCells * 36);
-        std::vector<std::vector<int>> cellToVertices(totalCells);
+        std::vector<std::vector<uint32_t>> cellToVertices(totalCells);
 
         int cellIdx = 0;
         for (int z = 0; z < dZ - 1; ++z) {
             for (int y = 0; y < dY - 1; ++y) {
                 for (int x = 0; x < dX - 1; ++x) {
-                    int i0 = x + y * dX + z * dX * dY;
-                    int i1 = (x + 1) + y * dX + z * dX * dY;
-                    int i2 = (x + 1) + (y + 1) * dX + z * dX * dY;
-                    int i3 = x + (y + 1) * dX + z * dX * dY;
+                    uint32_t i0 = x + y * dX + z * dX * dY;
+                    uint32_t i1 = (x + 1) + y * dX + z * dX * dY;
+                    uint32_t i2 = (x + 1) + (y + 1) * dX + z * dX * dY;
+                    uint32_t i3 = x + (y + 1) * dX + z * dX * dY;
 
-                    int i4 = x + y * dX + (z + 1) * dX * dY;
-                    int i5 = (x + 1) + y * dX + (z + 1) * dX * dY;
-                    int i6 = (x + 1) + (y + 1) * dX + (z + 1) * dX * dY;
-                    int i7 = x + (y + 1) * dX + (z + 1) * dX * dY;
+                    uint32_t i4 = x + y * dX + (z + 1) * dX * dY;
+                    uint32_t i5 = (x + 1) + y * dX + (z + 1) * dX * dY;
+                    uint32_t i6 = (x + 1) + (y + 1) * dX + (z + 1) * dX * dY;
+                    uint32_t i7 = x + (y + 1) * dX + (z + 1) * dX * dY;
 
                     mesh.indices.insert(mesh.indices.end(), {
                         i0, i2, i1, i0, i3, i2, i4, i5, i6, i4, i6, i7,
@@ -449,13 +449,13 @@ private:
     // faces, so we emit the 6 boundary faces for a 3D grid (or the single planar
     // layer for a 2D grid). Point indexing follows VTK: idx = x + y*dX + z*dX*dY
     // (x fastest), matching the order the POINTS block is written in.
-    std::vector<std::vector<int>> generateStructuredGridSurface(int dX, int dY, int dZ) {
-        std::vector<std::vector<int>> cellToVertices;
+    std::vector<std::vector<uint32_t>> generateStructuredGridSurface(int dX, int dY, int dZ) {
+        std::vector<std::vector<uint32_t>> cellToVertices;
         auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
         auto addQuad = [&](int a, int b, int c, int d) {
-            mesh.indices.push_back(a); mesh.indices.push_back(b); mesh.indices.push_back(c);
-            mesh.indices.push_back(a); mesh.indices.push_back(c); mesh.indices.push_back(d);
-            cellToVertices.push_back({ a, b, c, d });
+            mesh.indices.push_back(static_cast<uint32_t>(a)); mesh.indices.push_back(static_cast<uint32_t>(b)); mesh.indices.push_back(static_cast<uint32_t>(c));
+            mesh.indices.push_back(static_cast<uint32_t>(a)); mesh.indices.push_back(static_cast<uint32_t>(c)); mesh.indices.push_back(static_cast<uint32_t>(d));
+            cellToVertices.push_back({ static_cast<uint32_t>(a), static_cast<uint32_t>(b), static_cast<uint32_t>(c), static_cast<uint32_t>(d) });
         };
 
         const int cx = std::max(1, dX - 1);
@@ -509,22 +509,22 @@ private:
         return cellToVertices;
     }
 
-    std::vector<std::vector<int>> triangulatePolygons(const std::vector<int>& rawPolygonData, int numPolys) {
+    std::vector<std::vector<uint32_t>> triangulatePolygons(const std::vector<int>& rawPolygonData, int numPolys) {
         int idx = 0;
-        std::vector<std::vector<int>> cellToVertices(numPolys);
+        std::vector<std::vector<uint32_t>> cellToVertices(numPolys);
         for (int p = 0; p < numPolys; ++p) {
             if (idx >= static_cast<int>(rawPolygonData.size())) break;
             int nPoints = rawPolygonData[idx++];
 
             for (int i = 0; i < nPoints; ++i) {
-                cellToVertices[p].push_back(rawPolygonData[idx + i]);
+                cellToVertices[p].push_back(static_cast<uint32_t>(rawPolygonData[idx + i]));
             }
 
             for (int i = 1; i < nPoints - 1; ++i) {
                 if (idx + i + 1 <= static_cast<int>(rawPolygonData.size())) {
-                    mesh.indices.push_back(rawPolygonData[idx + 0]);
-                    mesh.indices.push_back(rawPolygonData[idx + i]);
-                    mesh.indices.push_back(rawPolygonData[idx + i + 1]);
+                    mesh.indices.push_back(static_cast<uint32_t>(rawPolygonData[idx + 0]));
+                    mesh.indices.push_back(static_cast<uint32_t>(rawPolygonData[idx + i]));
+                    mesh.indices.push_back(static_cast<uint32_t>(rawPolygonData[idx + i + 1]));
                 }
             }
             idx += nPoints;
@@ -532,22 +532,22 @@ private:
         return cellToVertices;
     }
 
-    std::vector<std::vector<int>> triangulateTriangleStrips(const std::vector<int>& rawStripData, int numStrips) {
+    std::vector<std::vector<uint32_t>> triangulateTriangleStrips(const std::vector<int>& rawStripData, int numStrips) {
         int idx = 0;
-        std::vector<std::vector<int>> cellToVertices(numStrips);
+        std::vector<std::vector<uint32_t>> cellToVertices(numStrips);
         for (int s = 0; s < numStrips; ++s) {
             if (idx >= static_cast<int>(rawStripData.size())) break;
             int nPoints = rawStripData[idx++];
 
             for (int i = 0; i < nPoints; ++i) {
-                cellToVertices[s].push_back(rawStripData[idx + i]);
+                cellToVertices[s].push_back(static_cast<uint32_t>(rawStripData[idx + i]));
             }
 
             for (int i = 0; i < nPoints - 2; ++i) {
                 if (idx + i + 2 < static_cast<int>(rawStripData.size())) {
-                    int i0 = rawStripData[idx + i];
-                    int i1 = rawStripData[idx + i + 1];
-                    int i2 = rawStripData[idx + i + 2];
+                    uint32_t i0 = rawStripData[idx + i];
+                    uint32_t i1 = rawStripData[idx + i + 1];
+                    uint32_t i2 = rawStripData[idx + i + 2];
                     if (i % 2 == 0) mesh.indices.insert(mesh.indices.end(), { i0, i1, i2 });
                     else mesh.indices.insert(mesh.indices.end(), { i0, i2, i1 });
                 }
@@ -557,16 +557,16 @@ private:
         return cellToVertices;
     }
 
-    std::vector<std::vector<int>> triangulateUnstructuredCells(const std::vector<int>& rawCellData, const std::vector<int>& cellTypes, int totalCells) {
+    std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(const std::vector<int>& rawCellData, const std::vector<int>& cellTypes, int totalCells) {
         mesh.indices.clear();
-        std::vector<std::vector<int>> cellToVertices(totalCells);
+        std::vector<std::vector<uint32_t>> cellToVertices(totalCells);
         int idx = 0;
         for (int c = 0; c < totalCells; ++c) {
             if (idx >= static_cast<int>(rawCellData.size())) break;
             int numPointsInCell = rawCellData[idx++];
 
             for (int i = 0; i < numPointsInCell; ++i) {
-                cellToVertices[c].push_back(rawCellData[idx + i]);
+                cellToVertices[c].push_back(static_cast<uint32_t>(rawCellData[idx + i]));
             }
 
             int type = (c < static_cast<int>(cellTypes.size())) ? cellTypes[c] : 0;
@@ -579,27 +579,27 @@ private:
             switch (type) {
             case 5: // VTK_TRIANGLE
                 if (idx + 2 < static_cast<int>(rawCellData.size())) {
-                    mesh.indices.push_back(rawCellData[idx + 0]);
-                    mesh.indices.push_back(rawCellData[idx + 1]);
-                    mesh.indices.push_back(rawCellData[idx + 2]);
+                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
+                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 1]));
+                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 2]));
                 }
                 break;
             case 9: // VTK_QUAD
                 if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                    int i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
                     mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
                 }
                 break;
             case 10: // VTK_TETRA
                 if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                    int i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
                     mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3, i0, i3, i1, i1, i3, i2 });
                 }
                 break;
             case 12: // VTK_HEXAHEDRON
                 if (idx + 7 < static_cast<int>(rawCellData.size())) {
-                    int i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
-                    int i4 = rawCellData[idx + 4], i5 = rawCellData[idx + 5], i6 = rawCellData[idx + 6], i7 = rawCellData[idx + 7];
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
+                    uint32_t i4 = rawCellData[idx + 4], i5 = rawCellData[idx + 5], i6 = rawCellData[idx + 6], i7 = rawCellData[idx + 7];
                     mesh.indices.insert(mesh.indices.end(), {
                         i0, i3, i1, i1, i3, i2, i4, i5, i7, i5, i6, i7,
                         i0, i1, i4, i1, i5, i4, i2, i3, i6, i3, i7, i6,
@@ -609,8 +609,8 @@ private:
                 break;
             case 13: // VTK_WEDGE
                 if (idx + 5 < static_cast<int>(rawCellData.size())) {
-                    int i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2];
-                    int i3 = rawCellData[idx + 3], i4 = rawCellData[idx + 4], i5 = rawCellData[idx + 5];
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2];
+                    uint32_t i3 = rawCellData[idx + 3], i4 = rawCellData[idx + 4], i5 = rawCellData[idx + 5];
                     mesh.indices.insert(mesh.indices.end(), {
                         i0, i1, i2, i3, i5, i4,
                         i0, i1, i4, i0, i4, i3,
@@ -621,7 +621,7 @@ private:
                 break;
             case 14: // VTK_PYRAMID
                 if (idx + 4 < static_cast<int>(rawCellData.size())) {
-                    int i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3], i4 = rawCellData[idx + 4];
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3], i4 = rawCellData[idx + 4];
                     mesh.indices.insert(mesh.indices.end(), {
                         i0, i2, i1, i0, i3, i2,
                         i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
@@ -630,8 +630,8 @@ private:
                 break;
             case 11: { // VTK_VOXEL — structured-grid corner ordering, permute to HEX (0,1,3,2,4,5,7,6)
                 if (idx + 7 < static_cast<int>(rawCellData.size())) {
-                    int h0 = rawCellData[idx + 0], h1 = rawCellData[idx + 1], h2 = rawCellData[idx + 3], h3 = rawCellData[idx + 2];
-                    int h4 = rawCellData[idx + 4], h5 = rawCellData[idx + 5], h6 = rawCellData[idx + 7], h7 = rawCellData[idx + 6];
+                    uint32_t h0 = rawCellData[idx + 0], h1 = rawCellData[idx + 1], h2 = rawCellData[idx + 3], h3 = rawCellData[idx + 2];
+                    uint32_t h4 = rawCellData[idx + 4], h5 = rawCellData[idx + 5], h6 = rawCellData[idx + 7], h7 = rawCellData[idx + 6];
                     mesh.indices.insert(mesh.indices.end(), {
                         h0, h3, h1, h1, h3, h2, h4, h5, h7, h5, h6, h7,
                         h0, h1, h4, h1, h5, h4, h2, h3, h6, h3, h7, h6,
@@ -643,9 +643,9 @@ private:
             default:
                 for (int i = 1; i < numPointsInCell - 1; ++i) {
                     if (idx + i + 1 < static_cast<int>(rawCellData.size())) {
-                        mesh.indices.push_back(rawCellData[idx + 0]);
-                        mesh.indices.push_back(rawCellData[idx + i]);
-                        mesh.indices.push_back(rawCellData[idx + i + 1]);
+                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
+                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
+                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
                     }
                 }
                 break;
