@@ -480,14 +480,11 @@ void Renderer::loadMesh(const QString& filePath) {
     {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         dynamicMeshQueue = std::move(loaded);
+        // Copy (not move) the source under the lock so field switches that
+        // also take this mutex see a consistent snapshot.
+        cachedMeshSource = dynamicMeshQueue;
     }
 
-    // Cache the source mesh needed for field switching / legend lookups and the
-    // vector-glyph rebuild in renderFrame(). We COPY (not move) out of
-    // dynamicMeshQueue so the render thread's takeQueuedMesh() still receives the
-    // full geometry for GPU upload. Moving the arrays out of dynamicMeshQueue
-    // left it empty, which skipped the upload entirely and blanked the viewport.
-    cachedMeshSource = dynamicMeshQueue;
 
     // NOTE: meshChanged is an atomic flag consumed by the render thread in
     // consumeMeshChanged(); set it so the queued mesh gets uploaded.
@@ -539,6 +536,10 @@ void Renderer::loadMesh(const QString& filePath) {
             if (val < minVal) minVal = val;
             if (val > maxVal) maxVal = val;
         }
+        // Guard a uniform field so the shader never divides by zero
+        // (uScalarMax - uScalarMin == 0). The VTK parser already does this
+        // for its own range, but we recompute here and must keep the guard.
+        if (maxVal - minVal < 1e-6f) maxVal = minVal + 1.0f;
         dataScalarMin = minVal;
         dataScalarMax = maxVal;
         scalarMin = dataScalarMin;
@@ -717,8 +718,12 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
         if (superFbo.isValid()) {
             // Temporarily resize the renderer so renderFrame() targets the
             // supersampled FBO with correct viewport + colorbar layout.
+            // RAII guard restores the state even if renderFrame() throws.
             int savedW = width, savedH = height;
             float savedDpr = devicePixelRatio;
+            auto restoreState = [&]() {
+                width = savedW; height = savedH; devicePixelRatio = savedDpr;
+            };
             width = sw;
             height = sh;
             devicePixelRatio = 1.0f;
@@ -727,9 +732,7 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
             renderFrame();
             QQuickOpenGLUtils::resetOpenGLState();
             fbo = &superFbo;
-            devicePixelRatio = savedDpr;
-            width = savedW;
-            height = savedH;
+            restoreState();
         }
     }
 
@@ -829,8 +832,8 @@ QVariantList Renderer::getVectorColormapStops() const {
 
 std::vector<std::string> Renderer::getAvailableScalarNames() const {
     std::vector<std::string> list;
-    if (!cachedMeshSource.scalarName.empty()) {
-        list.push_back(cachedMeshSource.scalarName);
+    for (const auto& name : cachedMeshSource.availableScalarNames) {
+        list.push_back(name);
     }
     return list;
 }
@@ -845,15 +848,22 @@ void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
     auto it = cachedMeshSource.attributes->pointScalars.find(fieldName);
     if (it == cachedMeshSource.attributes->pointScalars.end()) return;
 
-    activeScalarName = fieldName;
-    cachedMeshSource.scalarName = fieldName;
-    cachedMeshSource.scalars = it->second;
-    dynamicMeshQueue.scalarName = fieldName;
-    dynamicMeshQueue.scalars = it->second;
+    // Mutates cachedMeshSource/dynamicMeshQueue which the render thread reads
+    // (takeQueuedMesh/cachedScalars) — guard against a concurrent load.
+    {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        activeScalarName = fieldName;
+        cachedMeshSource.scalarName = fieldName;
+        cachedMeshSource.scalars = it->second;
+        dynamicMeshQueue.scalarName = fieldName;
+        dynamicMeshQueue.scalars = it->second;
+    }
 
     if (!cachedMeshSource.scalars.empty()) {
         float mn = cachedMeshSource.scalars[0], mx = cachedMeshSource.scalars[0];
         for (float v : cachedMeshSource.scalars) { if (v < mn) mn = v; if (v > mx) mx = v; }
+        // Guard a uniform field so the shader never divides by zero.
+        if (mx - mn < 1e-6f) mx = mn + 1.0f;
         dataScalarMin = mn; dataScalarMax = mx;
         scalarMin = mn; scalarMax = mx;
         filterMin = mn; filterMax = mx;
@@ -867,6 +877,15 @@ void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
 
 void Renderer::setActiveVectorField(const QString& fieldName) {
     if (fieldName.isEmpty()) return;
+    // Ignore names not present in the mesh; otherwise VectorGlyphSet::rebuild
+    // silently no-ops and ALL glyphs disappear with no error surfaced.
+    if (cachedMeshSource.availableVectorNames.empty() ||
+        std::find(cachedMeshSource.availableVectorNames.begin(),
+                  cachedMeshSource.availableVectorNames.end(),
+                  fieldName.toStdString()) == cachedMeshSource.availableVectorNames.end()) {
+        setStatus(QString("Unknown vector field: %1").arg(fieldName));
+        return;
+    }
     cachedMeshSource.vectorName = fieldName.toStdString();
     vectorGlyphDirty = true; // GL rebuild deferred to render thread
     emit meshDataUpdated();
@@ -899,6 +918,16 @@ void Renderer::drawGizmo() {
 void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     if (deviceW <= 0 || deviceH <= 0) return;
     const float dpr = static_cast<float>(devicePixelRatio);
+
+    // The colorbar is a tiny fixed-size overlay; drawing it at the full
+    // supersampled screenshot resolution (up to 8192^2) would allocate a
+    // ~268 MB QImage per frame. Cap it to the on-screen (logical * dpr)
+    // size so the 3D content stays supersampled while the legend stays cheap.
+    const int maxLegendW = static_cast<int>(width * dpr);
+    const int maxLegendH = static_cast<int>(height * dpr);
+    if (deviceW > maxLegendW) deviceW = maxLegendW;
+    if (deviceH > maxLegendH) deviceH = maxLegendH;
+    if (deviceW <= 0 || deviceH <= 0) return;
 
     // Scalar colorbar: bottom-right (corner 0).
     if (hasMeshLoaded && meshHasScalars && showScalarColorbar) {

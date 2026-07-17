@@ -689,9 +689,20 @@ private:
 
         bool hasAttributes = mesh.attributes.has_value();
 
-        // 3. Extract the active array directly for your GPU-bound flat vector representation
+        // 3. Extract the active array directly for your GPU-bound flat vector representation.
+        // Only 1-component point scalars are usable as the per-vertex color field;
+        // a multi-component (e.g. SCALARS name float 3) array would be uploaded
+        // as a 1-float-per-vertex attribute and read misaligned. Guard it.
         if (!mesh.scalarName.empty() && hasAttributes && mesh.attributes->pointScalars.count(mesh.scalarName)) {
-            mesh.scalars = mesh.attributes->pointScalars[mesh.scalarName];
+            const std::vector<float>& active = mesh.attributes->pointScalars[mesh.scalarName];
+            size_t vCount = mesh.vertices.size() / 3;
+            if (!active.empty() && active.size() == vCount) {
+                mesh.scalars = active;
+            } else {
+                std::cerr << "VTK Parser Warning: active scalar '" << mesh.scalarName
+                          << "' is not 1-component per vertex; scalar coloring disabled." << std::endl;
+                mesh.scalars.clear();
+            }
         }
 
         // expose every point-scalar field name so the UI can switch fields

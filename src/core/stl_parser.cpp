@@ -274,7 +274,25 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
 }
 
 RenderMesh parseSTL(const std::string& filePath) {
-    RenderMesh mesh = isBinarySTL(filePath) ? parseSTLBinary(filePath) : parseSTLAscii(filePath);
+    // Determine format up front so a mis-detection can be diagnosed instead of
+    // silently yielding an empty mesh.
+    bool isBinary = isBinarySTL(filePath);
+    if (isBinary) {
+        RenderMesh mesh = parseSTLBinary(filePath);
+        if (mesh.vertices.empty() && mesh.indices.empty()) {
+            std::cerr << "STL Parser: binary detection passed but no triangles "
+                         "parsed (corrupt or mis-detected file): " << filePath << std::endl;
+        }
+        mesh.datasetType = "STL";
+        mesh.fileFormat = "STL";
+        if (!mesh.vertices.empty() && !mesh.indices.empty()
+            && mesh.normals.empty()) {
+            mesh_utils::computeNormals(mesh);
+        }
+        return mesh;
+    }
+
+    RenderMesh mesh = parseSTLAscii(filePath);
     mesh.datasetType = "STL";
     mesh.fileFormat = "STL";
 
