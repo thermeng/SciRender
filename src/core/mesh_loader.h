@@ -45,7 +45,7 @@ struct DatasetAttributes {
 struct RenderMesh {
     // Core GPU arrays (float for GPU upload)
     std::vector<float> vertices;   // x,y,z interleaved
-    std::vector<int> indices;      // Triangle indices
+    std::vector<uint32_t> indices; // Triangle indices (32-bit, matches GL_UNSIGNED_INT)
     std::vector<float> normals;    // nx,ny,nz interleaved
     std::vector<float> scalars;    // Active scalar field (per-vertex, optional)
     std::string scalarName = "";   // Name of active scalar field

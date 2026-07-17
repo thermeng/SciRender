@@ -52,16 +52,18 @@ the program can run from the build directory.
 - Axis triad + light-direction markers in a corner overlay
 - Screenshot export (PNG/JPEG/BMP), optional transparency
 - QML side panel: lighting, slicing/clipping, colormap, presets, recent files
+- **Robust mesh loading:** exact STL vertex dedup and level-of-detail limited
+  to volumetric grids, so multi-shell surfaces stay intact while orbiting
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `main.cpp`, `src/ui/` | Qt/QML entry point and viewport item |
-| `src/renderer/` | OpenGL renderer and lighting |
-| `src/camera/` | VTK-style camera (position/focal/up) |
-| `src/mesh/` | VTK/STL parsers and loaders |
-| `src/gizmo/` | Axis triad + light markers overlay |
+| `src/app/` | Qt/QML application entry point (`main.cpp`) |
+| `src/ui/` | Custom QML viewport item |
+| `src/core/` | VTK/STL parsers, mesh loading, camera, colormap definitions |
+| `src/render/` | OpenGL renderer, lighting, mesh/LOD upload, vector glyphs, colorbar, axis triad |
+| `src/export/` | Screenshot / image export |
 | `src/shaders/` | GLSL vertex/fragment shaders |
 | `vendor/` | GLAD, GLM |
 

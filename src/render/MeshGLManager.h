@@ -31,6 +31,13 @@ public:
     // cannot race with clear() on another thread.
     void upload(const RenderMesh& renderMesh);
 
+    // Re-uploads ONLY the per-vertex scalar buffer (sbo) for the already-built
+    // meshes. Used when the active scalar field changes so we avoid re-uploading
+    // the (potentially huge) vertex/normal/index arrays. If the new scalar array
+    // is empty, the sbo is detached. Mutex-guarded to avoid racing clear()/
+    // snapshotDrawList on other threads.
+    void updateScalars(const std::vector<float>& scalars);
+
     // Frees all GPU handles and clears both mesh lists. Mutex-guarded.
     void clear();
 

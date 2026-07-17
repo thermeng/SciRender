@@ -230,6 +230,7 @@ void Renderer::initShaders() {
         glyphMagMinLoc = glGetUniformLocation(glyphProgram, "uMagMin");
         glyphMagMaxLoc = glGetUniformLocation(glyphProgram, "uMagMax");
         glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
+        glyphScaleByMagLoc = glGetUniformLocation(glyphProgram, "uScaleByMag");
     }
 }
 
@@ -322,8 +323,9 @@ void Renderer::initGizmo() {
 
 void Renderer::uploadMesh(const RenderMesh& renderMesh) {
     meshManager.upload(renderMesh);
-    // (re)build instanced vector arrow glyphs from the cached source mesh
-    vectorGlyph.rebuild(cachedMeshSource, vectorStride);
+    // (re)build instanced vector arrow glyphs from the freshly uploaded mesh
+    // (full geometry + pointVectors), NOT the stripped cachedMeshSource.
+    vectorGlyph.rebuild(renderMesh, vectorStride);
     emit vectorColormapChanged(); // refresh vector colorbar range
 }
 
@@ -373,6 +375,76 @@ void Renderer::saveRecentToSettings() const {
     s.setValue("recentFiles", recentFiles);
 }
 
+void Renderer::saveStateToSettings() const {
+    QSettings s;
+    s.beginGroup("state");
+    // camera
+    s.setValue("camDistance", camera.distance);
+    s.setValue("camFocal", QVariantList{ camera.focalPoint.x, camera.focalPoint.y, camera.focalPoint.z });
+    s.setValue("camPos", QVariantList{ camera.position.x, camera.position.y, camera.position.z });
+    s.setValue("camUp", QVariantList{ camera.viewUp.x, camera.viewUp.y, camera.viewUp.z });
+    s.setValue("bgColor", QVariantList{ bgColor[0], bgColor[1], bgColor[2] });
+    // lighting
+    s.setValue("matSpecular", lighting.matSpecular);
+    s.setValue("matShininess", lighting.matShininess);
+    s.setValue("lightKeyIntensity", lighting.lightKeyIntensity);
+    s.setValue("lightWarm", lighting.lightWarm);
+    s.setValue("lightKitEnabled", lighting.lightKitEnabled);
+    // colormap
+    s.setValue("colormapChoice", colormap.scalarChoice());
+    s.setValue("colormapReversed", colormap.scalarReversed());
+    // vectors
+    s.setValue("vectorScale", vectorScale);
+    s.setValue("vectorScaleByMagnitude", vectorScaleByMagnitude);
+    s.endGroup();
+}
+
+void Renderer::restoreStateFromSettings() {
+    QSettings s;
+    if (!s.childGroups().contains("state")) return;
+    s.beginGroup("state");
+    auto readVec3 = [&](const QString& key, glm::dvec3& out) {
+        QVariantList v = s.value(key).toList();
+        if (v.size() == 3) out = glm::dvec3(v[0].toDouble(), v[1].toDouble(), v[2].toDouble());
+    };
+    auto readFColor = [&](const QString& key, float* c) {
+        QVariantList v = s.value(key).toList();
+        if (v.size() == 3) { c[0] = v[0].toFloat(); c[1] = v[1].toFloat(); c[2] = v[2].toFloat(); }
+    };
+
+    if (s.contains("camDistance")) {
+        camera.distance = s.value("camDistance").toDouble();
+        readVec3("camFocal", camera.focalPoint);
+        readVec3("camPos", camera.position);
+        readVec3("camUp", camera.viewUp);
+        camera.maxDistance = std::max(1000.0, camera.distance * 50.0);
+        camera.orthogonalizeViewUp();
+    }
+    readFColor("bgColor", bgColor);
+    if (s.contains("matSpecular")) {
+        lighting.matSpecular = s.value("matSpecular").toFloat();
+        lighting.matShininess = s.value("matShininess").toFloat();
+        lighting.lightKeyIntensity = s.value("lightKeyIntensity").toFloat();
+        lighting.lightWarm = s.value("lightWarm").toFloat();
+        lighting.lightKitEnabled = s.value("lightKitEnabled").toBool();
+    }
+    if (s.contains("colormapChoice")) {
+        colormap.setScalarChoice(s.value("colormapChoice").toInt());
+        colormap.setScalarReversed(s.value("colormapReversed").toBool());
+    }
+    if (s.contains("vectorScale")) {
+        vectorScale = s.value("vectorScale").toFloat();
+        vectorScaleByMagnitude = s.value("vectorScaleByMagnitude").toBool();
+    }
+    s.endGroup();
+}
+
+void Renderer::setStatus(const QString& msg) {
+    if (statusMessage == msg) return;
+    statusMessage = msg;
+    emit statusMessageChanged();
+}
+
 void Renderer::loadMesh(const QString& filePath) {
     if (filePath.isEmpty()) return;
 
@@ -383,42 +455,60 @@ void Renderer::loadMesh(const QString& filePath) {
         stdPath = stdPath.substr(7);
     }
 
-    RenderMesh loaded = loadMeshFile(stdPath);
+    RenderMesh loaded;
+    try {
+        loaded = loadMeshFile(stdPath);
+    } catch (const std::exception& e) {
+        setStatus(QString("Failed to load %1: %2").arg(QString::fromStdString(stdPath)).arg(e.what()));
+        return;
+    } catch (...) {
+        setStatus(QString("Failed to load %1: unknown error").arg(QString::fromStdString(stdPath)));
+        return;
+    }
+
     if (loaded.vertices.empty()) {
+        setStatus(QString("Could not load %1: unsupported format or empty file")
+                      .arg(QString::fromStdString(stdPath)));
         std::cerr << "Engine aborted mapping out invalid/empty file path target: " << stdPath << std::endl;
         return;
     }
 
-    // Thread-safe handoff of the CPU geometry data
+    // Thread-safe handoff of the CPU geometry data. Move the full mesh into the
+    // queue (no deep copy) — the render thread will take it under this same
+    // mutex and upload it. The GUI thread keeps the full copy here until the
+    // next load.
     {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
-        dynamicMeshQueue = loaded;
+        dynamicMeshQueue = std::move(loaded);
     }
 
-    // Cache the source mesh so scalar-field queries (getAvailableScalars,
-    // setActiveScalarFieldStd) operate on real data rather than an empty struct.
-    cachedMeshSource = loaded;
+    // Cache the source mesh needed for field switching / legend lookups and the
+    // vector-glyph rebuild in renderFrame(). We COPY (not move) out of
+    // dynamicMeshQueue so the render thread's takeQueuedMesh() still receives the
+    // full geometry for GPU upload. Moving the arrays out of dynamicMeshQueue
+    // left it empty, which skipped the upload entirely and blanked the viewport.
+    cachedMeshSource = dynamicMeshQueue;
 
     // NOTE: meshChanged is an atomic flag consumed by the render thread in
     // consumeMeshChanged(); set it so the queued mesh gets uploaded.
     meshManager.meshChanged = true;
 
-    worldMinX = loaded.bounds.minX; worldMaxX = loaded.bounds.maxX;
-    worldMinY = loaded.bounds.minY; worldMaxY = loaded.bounds.maxY;
-    worldMinZ = loaded.bounds.minZ; worldMaxZ = loaded.bounds.maxZ;
+    worldMinX = dynamicMeshQueue.bounds.minX; worldMaxX = dynamicMeshQueue.bounds.maxX;
+    worldMinY = dynamicMeshQueue.bounds.minY; worldMaxY = dynamicMeshQueue.bounds.maxY;
+    worldMinZ = dynamicMeshQueue.bounds.minZ; worldMaxZ = dynamicMeshQueue.bounds.maxZ;
     gridPlaneY = worldMinY; // ground the grid at the mesh's lowest point
 
-    worldCenterX = loaded.bounds.centerX;
-    worldCenterY = loaded.bounds.centerY;
-    worldCenterZ = loaded.bounds.centerZ;
-    worldRadius  = loaded.bounds.worldRadius;
+    worldCenterX = dynamicMeshQueue.bounds.centerX;
+    worldCenterY = dynamicMeshQueue.bounds.centerY;
+    worldCenterZ = dynamicMeshQueue.bounds.centerZ;
+    worldRadius  = dynamicMeshQueue.bounds.worldRadius;
 
     QFileInfo fileInfo(QString::fromStdString(stdPath));
     currentMeshName = fileInfo.fileName().toStdString();
-    triangleCount = static_cast<int>(loaded.indices.size() / 3);
-    pointCount = static_cast<int>(loaded.vertices.size() / 3);
-    meshDataType = loaded.datasetType;
-    meshFormat = loaded.fileFormat;
+    triangleCount = static_cast<int>(dynamicMeshQueue.indices.size() / 3);
+    pointCount = static_cast<int>(dynamicMeshQueue.vertices.size() / 3);
+    meshDataType = dynamicMeshQueue.datasetType;
+    meshFormat = dynamicMeshQueue.fileFormat;
 
     hasMeshLoaded = true;
 
@@ -427,8 +517,8 @@ void Renderer::loadMesh(const QString& filePath) {
     setShowVectors(false);
     setVectorUseColormap(false);
     setClipEnabled(false); // disable clipping on a fresh mesh
-    if (!loaded.pointVectors.empty()) {
-        cachedMeshSource.vectorName = loaded.availableVectorNames.front();
+    if (!dynamicMeshQueue.pointVectors.empty()) {
+        cachedMeshSource.vectorName = dynamicMeshQueue.availableVectorNames.front();
     } else {
         cachedMeshSource.vectorName.clear();
     }
@@ -439,13 +529,13 @@ void Renderer::loadMesh(const QString& filePath) {
     }
     vectorGlyphDirty = true; // force glyph buffer rebuild for the new geometry
 
-    if (!loaded.scalars.empty()) {
+    if (!dynamicMeshQueue.scalars.empty()) {
         meshHasScalars = true;
         setShowScalarColorbar(true);
-        activeScalarName = loaded.scalarName;
-        float minVal = loaded.scalars[0];
-        float maxVal = loaded.scalars[0];
-        for (float val : loaded.scalars) {
+        activeScalarName = dynamicMeshQueue.scalarName;
+        float minVal = dynamicMeshQueue.scalars[0];
+        float maxVal = dynamicMeshQueue.scalars[0];
+        for (float val : dynamicMeshQueue.scalars) {
             if (val < minVal) minVal = val;
             if (val > maxVal) maxVal = val;
         }
@@ -475,6 +565,8 @@ void Renderer::loadMesh(const QString& filePath) {
 
     emit meshLoadStateChanged();
     emit meshDataUpdated();
+    setStatus("");
+    saveStateToSettings();
 }
 
 void Renderer::resetCamera() {
@@ -602,6 +694,45 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
     }
     config.filePath = targetPath;
 
+    const bool captureTransparent = config.transparentBackground && (config.format == ExportFormat::PNG);
+
+    // Supersample: render the scene into a temporary higher-resolution FBO so
+    // the export is sharper than the on-screen viewport. Scale is a small
+    // integer multiplier (1 = device resolution, matching the live view).
+    if (fbo && screenshotScale > 1) {
+        int baseW = fbo->width();
+        int baseH = fbo->height();
+        int sw = baseW * screenshotScale;
+        int sh = baseH * screenshotScale;
+        // Bound the transient FBO/CPU allocation so a high-res + HiDPI + 4x
+        // capture can't spike hundreds of MB at once.
+        const int kMaxDim = 8192;
+        if (sw > kMaxDim) sw = kMaxDim;
+        if (sh > kMaxDim) sh = kMaxDim;
+        QOpenGLFramebufferObjectFormat fmt;
+        fmt.setAttachment(QOpenGLFramebufferObject::Depth);
+        fmt.setInternalTextureFormat(GL_RGBA8);
+        fmt.setSamples(0);
+        QOpenGLFramebufferObject superFbo(QSize(sw, sh), fmt);
+        if (superFbo.isValid()) {
+            // Temporarily resize the renderer so renderFrame() targets the
+            // supersampled FBO with correct viewport + colorbar layout.
+            int savedW = width, savedH = height;
+            float savedDpr = devicePixelRatio;
+            width = sw;
+            height = sh;
+            devicePixelRatio = 1.0f;
+            superFbo.bind();
+            glViewport(0, 0, sw, sh);
+            renderFrame();
+            QQuickOpenGLUtils::resetOpenGLState();
+            fbo = &superFbo;
+            devicePixelRatio = savedDpr;
+            width = savedW;
+            height = savedH;
+        }
+    }
+
     GLuint boundFbo = 0;
     int deviceW = 0;
     int deviceH = 0;
@@ -614,10 +745,6 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
         deviceW = static_cast<int>(width * devicePixelRatio);
         deviceH = static_cast<int>(height * devicePixelRatio);
     }
-    // Alpha is only meaningful for PNG exports; for JPEG/BMP we capture 3
-    // channels so the byte layout matches saveToFile (which also drops alpha
-    // for non-PNG). This keeps capture and save in lockstep.
-    const bool captureTransparent = config.transparentBackground && (config.format == ExportFormat::PNG);
     std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(boundFbo, deviceW, deviceH, captureTransparent);
 
     bool success = ScreenshotExporter::saveToFile(config.filePath, pixels, deviceW, deviceH, config);
@@ -642,6 +769,12 @@ QStringList Renderer::getColormapNames() const {
 }
 
 QString Renderer::getColormapPreviewUri(int index) const {
+    // Cache the rasterized gradient per colormap index — the QML swatch can
+    // request this repeatedly (every colorbar refresh), and re-rasterizing a
+    // 128x16 PNG to a base64 data URI each call is pure waste.
+    auto it = m_colormapPreviewCache.find(index);
+    if (it != m_colormapPreviewCache.end()) return it->second;
+
     const int w = 128, h = 16;
     QImage img(w, h, QImage::Format_RGB888);
     ColormapType type = static_cast<ColormapType>(index);
@@ -657,7 +790,9 @@ QString Renderer::getColormapPreviewUri(int index) const {
     QBuffer buf(&ba);
     buf.open(QIODevice::WriteOnly);
     img.save(&buf, "PNG");
-    return QString("data:image/png;base64,") + QString::fromLatin1(ba.toBase64());
+    QString uri = QString("data:image/png;base64,") + QString::fromLatin1(ba.toBase64());
+    m_colormapPreviewCache[index] = uri;
+    return uri;
 }
 
 QVariantList Renderer::getColormapStops() const {
@@ -723,7 +858,9 @@ void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
         scalarMin = mn; scalarMax = mx;
         filterMin = mn; filterMax = mx;
     }
-    meshManager.meshChanged = true; // trigger GPU re-upload of the scalar buffer
+    // Trigger a SCALAR-ONLY re-upload (sbo) on the render thread. Do NOT set
+    // meshManager.meshChanged — that would re-upload every vertex/normal buffer.
+    scalarDirty = true;
     emit meshDataUpdated();
     emit meshLoadStateChanged();
 }
@@ -947,6 +1084,7 @@ void Renderer::renderFrame() {
         glUniform1i(glyphUseColormapLoc, vectorUseColormap ? 1 : 0);
         glUniform1f(glyphMagMinLoc, vectorGlyph.magMin);
         glUniform1f(glyphMagMaxLoc, vectorGlyph.magMax);
+        glUniform1f(glyphScaleByMagLoc, vectorScaleByMagnitude ? 1.0f : 0.0f);
         if (vectorUseColormap && colormap.vectorTexture() != 0) {
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_1D, colormap.vectorTexture());

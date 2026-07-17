@@ -241,6 +241,8 @@ ApplicationWindow {
                         LightSlider { label: "Head El"; value: backendRenderer ? backendRenderer.lightHeadElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightHeadElevation = v }
                         LightSlider { label: "Ambient"; value: backendRenderer ? backendRenderer.matAmbient : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.matAmbient = v }
                         LightSlider { label: "Diffuse"; value: backendRenderer ? backendRenderer.matDiffuse : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.matDiffuse = v }
+                        LightSlider { label: "Specular";  value: backendRenderer ? backendRenderer.matSpecular : 0;  from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.matSpecular = v }
+                        LightSlider { label: "Shininess"; value: backendRenderer ? backendRenderer.matShininess : 0; from: 1; to: 100;  step: 1;    onSet: v => backendRenderer.matShininess = v }
                     }
 
                     // Slicing & Clipping Controls
@@ -421,6 +423,7 @@ ApplicationWindow {
                         Text { text: "Options"; color: "#888"; font.pixelSize: 10 }
                         CheckBox { text: "Transparent (PNG)"; checked: backendRenderer ? backendRenderer.screenshotTransparent : false; onToggled: backendRenderer.screenshotTransparent = checked }
                         LightSlider { label: "JPEG Q"; value: backendRenderer ? backendRenderer.screenshotQuality : 95; from: 1; to: 100; step: 1; onSet: v => backendRenderer.screenshotQuality = v }
+                        LightSlider { label: "Supersample"; value: backendRenderer ? backendRenderer.screenshotScale : 1; from: 1; to: 3; step: 1; onSet: v => backendRenderer.screenshotScale = v }
                     }
 
                     // Vectors Panel
@@ -438,6 +441,7 @@ ApplicationWindow {
                         }
                         Text { text: "Arrow scale"; color: "#888"; font.pixelSize: 10 }
                         LightSlider { label: "Scale"; value: backendRenderer ? backendRenderer.vectorScale : 1.0; from: 0.01; to: 5.0; step: 0.01; onSet: v => backendRenderer.vectorScale = v }
+                        CheckBox { text: "Scale arrow length by magnitude"; checked: backendRenderer ? backendRenderer.vectorScaleByMagnitude : false; onToggled: backendRenderer.vectorScaleByMagnitude = checked }
                         Text { text: "Stride (skip every N)"; color: "#888"; font.pixelSize: 10 }
                         LightSlider { label: "Stride"; value: backendRenderer ? backendRenderer.vectorStride : 1; from: 1; to: 20; step: 1; onSet: v => backendRenderer.vectorStride = v }
                         Row { spacing: 6
@@ -685,10 +689,13 @@ ApplicationWindow {
             anchors.fill: parent
             onDropped: (drop) => {
                 if (drop.hasUrls) {
-                    // Fixes cross-platform file path resolution for Win/Mac/Linux
-                    let urlStr = drop.urls[0].toString();
-                    let cleanPath = urlStr.startsWith("file://") ? urlToPath(urlStr) : urlStr;
-                    backendRenderer.loadMesh(cleanPath);
+                    // Load every dropped mesh (first one becomes the active view);
+                    // loadMesh() already surfaces any parse/format errors as a toast.
+                    for (let i = 0; i < drop.urls.length; ++i) {
+                        let urlStr = drop.urls[i].toString();
+                        let cleanPath = urlStr.startsWith("file://") ? urlToPath(urlStr) : urlStr;
+                        backendRenderer.loadMesh(cleanPath);
+                    }
                     drop.acceptProposedAction();
                 }
             }
@@ -714,11 +721,9 @@ ApplicationWindow {
         onAccepted: {
             let urlStr = selectedFile.toString();
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
-            if (backendRenderer && backendRenderer.screenshotTransparent) {
-                backendRenderer.requestScreenshot(cleanPath);
-            } else {
-                captureRoot.grabToImage(function(grabResult) { grabResult.saveToFile(cleanPath); });
-            }
+            // All formats now route through the GL FBO capture so the on-screen
+            // image (mesh + baked colorbar legends) matches the export exactly.
+            backendRenderer.requestScreenshot(cleanPath);
         }
     }
 
@@ -773,6 +778,27 @@ ApplicationWindow {
     // screenshots (including transparent PNG). The previous QML overlay legends
     // were removed to avoid duplicate legends and to keep the live view in sync
     // with the captured image.
+
+    // Status / error toast (surfaces load + parse failures from C++)
+    Rectangle {
+        id: statusToast
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 28
+        width: statusToastText.width + 28
+        height: statusToastText.height + 14
+        radius: 6
+        color: "#cc2222"
+        visible: backendRenderer ? backendRenderer.statusMessage !== "" : false
+        Text {
+            id: statusToastText
+            anchors.centerIn: parent
+            text: backendRenderer ? backendRenderer.statusMessage : ""
+            color: "#ffffff"
+            font.pixelSize: 12
+            padding: 7
+        }
+    }
 
     } // captureRoot
 

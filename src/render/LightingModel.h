@@ -34,7 +34,7 @@ public:
     float matAmbient = 0.08f;
     float matDiffuse = 0.75f;
     float matSpecular = 0.15f;
-    float matShininess = 0.5f;
+    float matShininess = 16.0f;
 
     // Computes the five kit light directions in WORLD space given the camera
     // basis. Lights live in the camera frame and are rotated into world space,

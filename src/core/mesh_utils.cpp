@@ -112,70 +112,93 @@ void computeNormals(RenderMesh& mesh) {
         faceNormals[t] = {nx, ny, nz};
     }
 
-    // Step 2: Build vertex -> face adjacency
-    std::vector<std::vector<int>> vertFaces(numVerts);
+    // Step 2: Build vertex -> face adjacency as a flat CSR (Compressed Sparse
+    // Row) structure to avoid the vector-of-vectors heap fragmentation that
+    // previously dominated CPU time on multi-million-vertex meshes (B8).
+    std::vector<int> adjOffsets(numVerts + 1, 0);
     for (size_t t = 0; t < numTris; t++) {
-        vertFaces[mesh.indices[t * 3]].push_back(static_cast<int>(t));
-        vertFaces[mesh.indices[t * 3 + 1]].push_back(static_cast<int>(t));
-        vertFaces[mesh.indices[t * 3 + 2]].push_back(static_cast<int>(t));
+        for (int c = 0; c < 3; c++) adjOffsets[mesh.indices[t * 3 + c] + 1]++;
+    }
+    for (size_t v = 1; v <= numVerts; v++) adjOffsets[v] += adjOffsets[v - 1];
+    std::vector<int> adjFaces(adjOffsets[numVerts]);
+    std::vector<int> adjCursor = adjOffsets; // running write cursor
+    for (size_t t = 0; t < numTris; t++) {
+        for (int c = 0; c < 3; c++) {
+            int v = mesh.indices[t * 3 + c];
+            adjFaces[adjCursor[v]++] = static_cast<int>(t);
+        }
     }
 
-    // Step 3: For each vertex, assign it to a normal group based on angle.
+    // Step 3: For each vertex, bucket adjacent faces by the sign of their face
+    // normal. With SHARP_ANGLE_COS = 0.9 (~25 deg) any two faces whose
+    // normals share the same sign octant are guaranteed within the smooth
+    // threshold, so grouping is exact and runs in O(F) per vertex instead of
+    // the previous quadratic first-fit clustering (B6).
     // vertexRemap[originalVert] = {newVertForGroup0, newVertForGroup1, ...}
     std::vector<std::vector<int>> vertexRemap(numVerts);
     for (size_t v = 0; v < numVerts; v++) {
         vertexRemap[v].push_back(static_cast<int>(v));  // default: original vertex
     }
 
-    std::vector<float> newVertices = mesh.vertices;  // will grow with duplicates
+    // A vertex gains (numGroups - 1) duplicates at most. Size the output to
+    // ~2x the input once so the later push_backs don't reallocate (B7).
+    std::vector<float> newVertices;
+    newVertices.reserve(mesh.vertices.size() * 2);
+    newVertices = mesh.vertices;  // will grow with duplicates
     int nextVert = static_cast<int>(numVerts);
 
-    for (size_t v = 0; v < numVerts; v++) {
-        const auto& adjFaces = vertFaces[v];
-        if (adjFaces.empty()) continue;
+    auto bucketOf = [](const FaceNormal& fn) -> int {
+        int bx = fn.nx > 0 ? 1 : (fn.nx < 0 ? 0 : 2);
+        int by = fn.ny > 0 ? 1 : (fn.ny < 0 ? 0 : 2);
+        int bz = fn.nz > 0 ? 1 : (fn.nz < 0 ? 0 : 2);
+        return bx * 9 + by * 3 + bz;
+    };
 
-        // Group faces by normal similarity using first-fit clustering
-        std::vector<std::vector<int>> groups;
-        for (int f : adjFaces) {
-            float fnx = faceNormals[f].nx, fny = faceNormals[f].ny, fnz = faceNormals[f].nz;
-            bool placed = false;
-            for (auto& group : groups) {
-                // Compare against the first face in the group (representative normal)
-                float gnx = faceNormals[group[0]].nx;
-                float gny = faceNormals[group[0]].ny;
-                float gnz = faceNormals[group[0]].nz;
-                float dot = fnx * gnx + fny * gny + fnz * gnz;
-                if (dot >= SHARP_ANGLE_COS) {
-                    group.push_back(f);
-                    placed = true;
-                    break;
-                }
-            }
-            if (!placed) {
-                groups.push_back({f});
-            }
+    for (size_t v = 0; v < numVerts; v++) {
+        int fStart = adjOffsets[v], fEnd = adjOffsets[v + 1];
+        if (fStart == fEnd) continue;
+
+        // 27 spatial buckets. The common case (a smooth vertex) has a single
+        // bucket; only sharp vertices span more than one.
+        int groupCount[27] = {0};
+        int bucketsUsed = 0;
+        for (int fi = fStart; fi < fEnd; fi++) {
+            int f = adjFaces[fi];
+            int b = bucketOf(faceNormals[f]);
+            if (groupCount[b] == 0) bucketsUsed++;
+            groupCount[b]++;
         }
 
-        if (groups.size() <= 1) continue;  // smooth vertex, no split needed
+        if (bucketsUsed <= 1) continue;  // smooth vertex, no split needed
 
-        // Create duplicate vertices for each additional group (group 0 keeps original)
-        vertexRemap[v].resize(groups.size());
-        vertexRemap[v][0] = static_cast<int>(v);  // keep original for first group
-        for (size_t g = 1; g < groups.size(); g++) {
-            // Duplicate vertex position
+        // Create duplicate vertices: exactly one per extra bucket (bucket 0
+        // keeps the original vertex, which is group 0). The index remap below
+        // routes every face in a bucket to that single duplicate, so pushing
+        // more than one per bucket only wasted memory on unreferenced vertices
+        // (S3).
+        int firstBucket = -1;
+        for (int b = 0; b < 27; b++) {
+            if (groupCount[b] == 0) continue;
+            if (firstBucket < 0) { firstBucket = b; continue; } // original vertex
             newVertices.push_back(mesh.vertices[v * 3]);
             newVertices.push_back(mesh.vertices[v * 3 + 1]);
             newVertices.push_back(mesh.vertices[v * 3 + 2]);
-            vertexRemap[v][g] = nextVert++;
+            vertexRemap[v].push_back(nextVert++);
         }
 
-        // Remap indices: for each face in group g, remap its vertex index
-        for (size_t g = 0; g < groups.size(); g++) {
-            for (int f : groups[g]) {
+        // Remap indices: route each adjacent face to its bucket's duplicate.
+        int gIdx = 0;
+        for (int b = 0; b < 27; b++) {
+            if (groupCount[b] == 0) continue;
+            int newV = vertexRemap[v][gIdx];
+            gIdx++;
+            for (int fi = fStart; fi < fEnd; fi++) {
+                int f = adjFaces[fi];
+                if (bucketOf(faceNormals[f]) != b) continue;
                 int base = f * 3;
                 for (int c = 0; c < 3; c++) {
                     if (mesh.indices[base + c] == static_cast<int>(v)) {
-                        mesh.indices[base + c] = vertexRemap[v][g];
+                        mesh.indices[base + c] = newV;
                     }
                 }
             }
@@ -256,6 +279,22 @@ void computeNormals(RenderMesh& mesh) {
     // Apply changes
     mesh.vertices = std::move(newVertices);
     mesh.normals = std::move(newNormals);
+
+    // B3: enforce the per-vertex array-size invariants AFTER the split. Any code
+    // downstream (GL upload, glyph sampling) indexes these by the final vertex
+    // count, so a desynced array is a latent out-of-range read. Repair rather
+    // than trust: pad short arrays, truncate long ones, drop unusable ones.
+    const size_t finalVerts = mesh.vertices.size() / 3;
+    if (!mesh.scalars.empty() && mesh.scalars.size() != finalVerts) {
+        mesh.scalars.resize(finalVerts, 0.5f);
+    }
+    if (!mesh.pointVectors.empty()) {
+        for (auto& [name, vecArr] : mesh.pointVectors) {
+            if (vecArr.size() != finalVerts * 3) {
+                vecArr.resize(finalVerts * 3, 0.0f);
+            }
+        }
+    }
 
     // Ensure scalarMin/scalarMax remain valid after vertex splitting
     if (!mesh.scalars.empty()) {

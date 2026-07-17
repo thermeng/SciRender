@@ -4,6 +4,25 @@
 #include <cmath>
 #include <unordered_map>
 #include <algorithm>
+#include <string>
+
+namespace {
+// LOD vertex-clustering decimation averages every vertex inside a coarse spatial
+// cell into a single point. That is only safe for a densely-sampled volumetric
+// lattice, where neighbouring grid points genuinely belong to the same surface.
+// For surface meshes (STL) and non-volumetric VTK datasets (POLYDATA, isolated
+// unstructured surfaces) the same clustering merges topologically unrelated
+// vertices across disconnected shells / thin features, producing the reported
+// "overlapping vertices / spurious new surfaces" artifact while the camera moves.
+//
+// So we only allow decimation for the regular volumetric grid dataset types.
+bool datasetSupportsDecimation(const RenderMesh& in) {
+    const std::string& t = in.datasetType;
+    return t == "STRUCTURED_GRID" ||
+           t == "STRUCTURED_POINTS" ||
+           t == "RECTILINEAR_GRID";
+}
+} // namespace
 
 void MeshGLManager::destroyMesh(Mesh& mesh) {
     glDeleteVertexArrays(1, &mesh.vao);
@@ -30,7 +49,18 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
     glEnableVertexAttribArray(0);
 
     glBindBuffer(GL_ARRAY_BUFFER, mesh.nbo);
-    glBufferData(GL_ARRAY_BUFFER, renderMesh.normals.size() * sizeof(float), renderMesh.normals.data(), GL_STATIC_DRAW);
+    // B4: never upload an empty normal buffer. If normals are missing (should not
+    // happen once computeNormals runs, but keep this robust) attribute 1 would
+    // otherwise point at a zero-sized/garbage buffer => undefined shading. Fall
+    // back to a per-vertex (0,0,1) so lighting is at least deterministic.
+    const size_t vertCount = renderMesh.vertices.size() / 3;
+    if (renderMesh.normals.size() == renderMesh.vertices.size() && !renderMesh.normals.empty()) {
+        glBufferData(GL_ARRAY_BUFFER, renderMesh.normals.size() * sizeof(float), renderMesh.normals.data(), GL_STATIC_DRAW);
+    } else {
+        std::vector<float> fallback(vertCount * 3, 0.0f);
+        for (size_t i = 0; i < vertCount; ++i) fallback[i * 3 + 2] = 1.0f;
+        glBufferData(GL_ARRAY_BUFFER, fallback.size() * sizeof(float), fallback.data(), GL_STATIC_DRAW);
+    }
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
 
@@ -83,9 +113,11 @@ RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
     };
 
     std::unordered_map<uint64_t, int> cellToNew;
+    cellToNew.reserve(static_cast<size_t>(nv) + 1); // one cluster per vertex worst-case; avoid rehashing
     std::vector<int> remap(nv, -1);
     std::vector<double> sx, sy, sz, nx, ny, nz, sc, cnt;
     const bool hasS = !in.scalars.empty();
+    const bool hasN = !in.normals.empty();
 
     for (size_t i = 0; i < nv; ++i) {
         const uint64_t k = keyFor(i);
@@ -104,9 +136,11 @@ RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
         sx[newIdx] += in.vertices[3 * i + 0];
         sy[newIdx] += in.vertices[3 * i + 1];
         sz[newIdx] += in.vertices[3 * i + 2];
-        nx[newIdx] += in.normals[3 * i + 0];
-        ny[newIdx] += in.normals[3 * i + 1];
-        nz[newIdx] += in.normals[3 * i + 2];
+        if (hasN) {
+            nx[newIdx] += in.normals[3 * i + 0];
+            ny[newIdx] += in.normals[3 * i + 1];
+            nz[newIdx] += in.normals[3 * i + 2];
+        }
         if (hasS) sc[newIdx] += in.scalars[i];
         cnt[newIdx] += 1.0;
     }
@@ -152,10 +186,14 @@ void MeshGLManager::upload(const RenderMesh& renderMesh) {
     buildMeshGL(renderMesh, newFull);
 
     // LOD: a coarsely decimated mesh, used only while the camera is moving.
-    RenderMesh decimated = decimate(renderMesh);
-    bool lodWorthwhile = !decimated.indices.empty() &&
-                         decimated.indices.size() < renderMesh.indices.size() / 2;
-    if (lodWorthwhile) buildMeshGL(decimated, newDec);
+    // Only volumetric grid datasets are eligible — see datasetSupportsDecimation()
+    // for why surface/STL and non-volumetric VTK meshes must NOT be clustered.
+    if (datasetSupportsDecimation(renderMesh)) {
+        RenderMesh decimated = decimate(renderMesh);
+        bool lodWorthwhile = !decimated.indices.empty() &&
+                             decimated.indices.size() < renderMesh.indices.size() / 2;
+        if (lodWorthwhile) buildMeshGL(decimated, newDec);
+    }
 
     // WIPE OUT OLD OPENGL HANDLES BEFORE GENERATING NEW ONES
     // Guarded by the mutex so it cannot race with clear() on the UI thread.
@@ -172,6 +210,32 @@ void MeshGLManager::upload(const RenderMesh& renderMesh) {
     }
 
     meshChanged = true;
+}
+
+void MeshGLManager::updateScalars(const std::vector<float>& scalars) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto reupload = [&](std::vector<Mesh>& meshes) {
+        for (auto& m : meshes) {
+            if (!scalars.empty()) {
+                if (m.sbo == 0) {
+                    glGenBuffers(1, &m.sbo);
+                    glBindVertexArray(m.vao);
+                    glBindBuffer(GL_ARRAY_BUFFER, m.sbo);
+                    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+                    glEnableVertexAttribArray(2);
+                    glBindVertexArray(0);
+                }
+                glBindBuffer(GL_ARRAY_BUFFER, m.sbo);
+                glBufferData(GL_ARRAY_BUFFER, scalars.size() * sizeof(float),
+                             scalars.data(), GL_STATIC_DRAW);
+            } else if (m.sbo != 0) {
+                glDeleteBuffers(1, &m.sbo);
+                m.sbo = 0;
+            }
+        }
+    };
+    reupload(meshes_);
+    reupload(decimatedMeshes_);
 }
 
 void MeshGLManager::clear() {

@@ -4,8 +4,81 @@
 #include <cstring>
 #include <cmath>
 #include <sstream>
+#include <unordered_map>
+#include <cstdint>
+#include <tuple>
 
 // ── STL Parser ──────────────────────────────────────────────────────────────
+
+// Quantize a coordinate into a signed fixed-point integer at a 1/4096-unit
+// tolerance (far finer than STL float precision). Clamped to ~25 bits of
+// magnitude so each axis value is bounded and the composite key below is stable.
+static inline int64_t quantizedCoord(double v) {
+    const int64_t q = 1 << 12; // 1/4096 unit tolerance — far finer than STL float precision
+    int64_t ix = static_cast<int64_t>(std::llround(v * static_cast<double>(q)));
+    const int64_t lim = (int64_t(1) << 25) - 1;
+    if (ix > lim) ix = lim; else if (ix < -lim) ix = -lim;
+    return ix;
+}
+
+// Collision-FREE position key. The previous XOR-of-products hash (B2) was not
+// injective: two genuinely distinct coordinates could fold onto the same key and
+// be merged into one vertex, collapsing distinct surface points. A tuple of the
+// three quantized axis values is exactly injective, so ONLY truly coincident
+// (within tolerance) vertices ever merge — the correct dedup semantics.
+using VertexKey = std::tuple<int64_t, int64_t, int64_t>;
+
+struct VertexKeyHash {
+    size_t operator()(const VertexKey& k) const noexcept {
+        // Hash the three bounded integers; collisions here only cost a bucket
+        // comparison — correctness comes from tuple equality, not the hash.
+        uint64_t h = static_cast<uint64_t>(std::get<0>(k)) * 73856093u;
+        h ^= static_cast<uint64_t>(std::get<1>(k)) * 19349663u + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+        h ^= static_cast<uint64_t>(std::get<2>(k)) * 83492791u + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+        return static_cast<size_t>(h);
+    }
+};
+
+static inline VertexKey vertexKey(float x, float y, float z) {
+    return VertexKey{
+        quantizedCoord(static_cast<double>(x)),
+        quantizedCoord(static_cast<double>(y)),
+        quantizedCoord(static_cast<double>(z))
+    };
+}
+
+// Returns true if the first up-to-512 bytes look like ASCII STL text: contain the
+// "solid" keyword AND have no non-printable (control) bytes beyond whitespace.
+static bool looksLikeAsciiSTL(const std::string& filePath) {
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open()) return false;
+
+    char buf[512];
+    file.read(buf, sizeof(buf));
+    std::streamsize n = file.gcount();
+    if (n == 0) return false;
+
+    bool hasSolid = false;
+    bool hasNonPrintable = false;
+    std::string word;
+    for (std::streamsize i = 0; i < n; ++i) {
+        unsigned char c = static_cast<unsigned char>(buf[i]);
+        if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
+            if (!word.empty()) {
+                if (mesh_utils::toUpper(word) == "SOLID") hasSolid = true;
+                word.clear();
+            }
+            continue;
+        }
+        // Reject anything that isn't a normal printable ASCII / text char.
+        if (c < 0x20 || c > 0x7E) { hasNonPrintable = true; break; }
+        word.push_back(static_cast<char>(c));
+    }
+    if (!word.empty() && mesh_utils::toUpper(word) == "SOLID") hasSolid = true;
+
+    // ASCII STL iff it mentions "solid" and contains no binary (control) bytes.
+    return hasSolid && !hasNonPrintable;
+}
 
 static bool isBinarySTL(const std::string& filePath) {
     std::ifstream file(filePath, std::ios::binary);
@@ -23,7 +96,14 @@ static bool isBinarySTL(const std::string& filePath) {
     // the strict-equality check below rejected them. Relax to >= so they still load.
     file.seekg(0, std::ios::end);
     auto fileSize = file.tellg();
-    return (fileSize >= static_cast<std::streamoff>(84 + triCount * 50));
+
+    // Decide by the explicit "solid" ASCII marker first; only fall back to the
+    // size gate when the file does NOT look like ASCII text. This prevents a
+    // mis-sized ASCII file from being parsed as garbage binary (the classic STL
+    // failure mode). An ASCII file whose first token happens to be "solid" is
+    // always treated as ASCII; everything else is binary only if its size matches.
+    if (looksLikeAsciiSTL(filePath)) return false;
+    return (fileSize >= static_cast<std::streamoff>(84 + static_cast<std::streamoff>(triCount) * 50));
 }
 
 static RenderMesh parseSTLAscii(const std::string& filePath) {
@@ -38,9 +118,8 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
 
     std::string line;
     float faceNormal[3] = { 0, 0, 0 };
-    // Store flat data first, then index
+    // Store flat vertex data first, then deduplicate into an indexed mesh.
     std::vector<float> flatVerts;  // 9 floats per triangle
-    std::vector<float> flatNorms;  // 9 floats per triangle (same normal for all 3 verts)
 
     while (std::getline(file, line)) {
         line = mesh_utils::trim(line);
@@ -54,18 +133,24 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
         if (kw == "FACET") {
             iss >> kw; // NORMAL
             iss >> faceNormal[0] >> faceNormal[1] >> faceNormal[2];
-            // If normal is zero/unknown, will be computed from geometry below
+            // Normals are recomputed geometrically by computeNormals() on the
+            // indexed mesh; the stored normal is not used for rendering.
         }
         else if (kw == "VERTEX") {
             float x, y, z;
-            iss >> x >> y >> z;
+            // Validate that all three floats parsed; a malformed token between
+            // vertices must not silently inject NaN/garbage into the vertex stream.
+            if (!(iss >> x >> y >> z)) {
+                std::cerr << "STL Parser: malformed VERTEX line, skipping" << std::endl;
+                continue;
+            }
+            if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+                std::cerr << "STL Parser: non-finite VERTEX coordinate, skipping" << std::endl;
+                continue;
+            }
             flatVerts.push_back(x);
             flatVerts.push_back(y);
             flatVerts.push_back(z);
-            // Per-face normal (same for all 3 vertices of this triangle)
-            flatNorms.push_back(faceNormal[0]);
-            flatNorms.push_back(faceNormal[1]);
-            flatNorms.push_back(faceNormal[2]);
         }
     }
     file.close();
@@ -75,47 +160,41 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
         return mesh;
     }
 
-    // Fix zero-normals: many STL files store (0,0,0) normals and rely on geometric computation
-    for (size_t i = 0; i < flatVerts.size(); i += 9) {
-        float nx = flatNorms[i], ny = flatNorms[i + 1], nz = flatNorms[i + 2];
-        float len = std::sqrt(nx * nx + ny * ny + nz * nz);
-        if (len < 1e-10f) {
-            // Compute normal from triangle edges: normalize(cross(v1 - v0, v2 - v0))
-            float v0x = flatVerts[i], v0y = flatVerts[i + 1], v0z = flatVerts[i + 2];
-            float v1x = flatVerts[i + 3], v1y = flatVerts[i + 4], v1z = flatVerts[i + 5];
-            float v2x = flatVerts[i + 6], v2y = flatVerts[i + 7], v2z = flatVerts[i + 8];
+    // Convert flat to indexed: deduplicate shared vertices via a position hash
+    // so the GPU receives an indexed mesh instead of 3x-expanded flat data.
+    // Normals are left empty on purpose so the renderer's computeNormals()
+    // computes correct geometry-based normals (sharp-edge split + smoothing)
+    // on the merged indexed layout.
+    std::unordered_map<VertexKey, int, VertexKeyHash> posToIndex;
 
-            float e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
-            float e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
+    mesh.vertices.reserve(flatVerts.size());
+    const size_t triCount = flatVerts.size() / 9;
+    mesh.indices.reserve(triCount * 3);
 
-            float cx = e1y * e2z - e1z * e2y;
-            float cy = e1z * e2x - e1x * e2z;
-            float cz = e1x * e2y - e1y * e2x;
-            float clen = std::sqrt(cx * cx + cy * cy + cz * cz);
-            if (clen > 1e-10f) {
-                cx /= clen; cy /= clen; cz /= clen;
+    for (size_t t = 0; t < triCount; ++t) {
+        for (int k = 0; k < 3; ++k) {
+            size_t base = t * 9 + k * 3;
+            float x = flatVerts[base + 0], y = flatVerts[base + 1], z = flatVerts[base + 2];
+            VertexKey key = vertexKey(x, y, z);
+            int idx;
+            auto it = posToIndex.find(key);
+            if (it != posToIndex.end()) {
+                idx = it->second;
+            } else {
+                idx = static_cast<int>(mesh.vertices.size() / 3);
+                mesh.vertices.push_back(x);
+                mesh.vertices.push_back(y);
+                mesh.vertices.push_back(z);
+                posToIndex[key] = idx;
             }
-            else {
-                cx = 0.0f; cy = 0.0f; cz = 1.0f; // Degenerate triangle fallback
-            }
-            // Store computed normal for all 3 vertices of this triangle
-            flatNorms[i] = cx; flatNorms[i + 1] = cy; flatNorms[i + 2] = cz;
-            flatNorms[i + 3] = cx; flatNorms[i + 4] = cy; flatNorms[i + 5] = cz;
-            flatNorms[i + 6] = cx; flatNorms[i + 7] = cy; flatNorms[i + 8] = cz;
+            mesh.indices.push_back(idx);
         }
-    }
-
-    // Convert flat to indexed: deduplicate vertices
-    mesh.vertices = flatVerts;  // For STL, we keep flat (each vertex is unique per face)
-    mesh.normals = flatNorms;
-    for (size_t i = 0; i < flatVerts.size() / 3; i++) {
-        mesh.indices.push_back(static_cast<int>(i));
     }
 
     mesh_utils::computeBounds(mesh);
 
-    std::cout << "STL Parser (ASCII): Loaded " << flatVerts.size() / 3 << " vertices, "
-        << flatVerts.size() / 9 << " triangles" << std::endl;
+    std::cout << "STL Parser (ASCII): Loaded " << triCount << " triangles, "
+        << mesh.vertices.size() / 3 << " unique vertices (deduped)" << std::endl;
     return mesh;
 }
 
@@ -140,54 +219,57 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
         return mesh;
     }
 
-    // Correct allocation matching: 3 coordinates per vertex, 3 vertices per triangle = 9 * triCount
-    mesh.vertices.reserve(triCount * 9);
-    mesh.normals.reserve(triCount * 9);
+    // Deduplicate shared vertices via a position hash so the GPU receives an
+    // indexed mesh instead of 3x-expanded flat data. Normals are left empty so
+    // the renderer's computeNormals() computes correct geometry-based normals.
+    std::unordered_map<VertexKey, int, VertexKeyHash> posToIndex;
+
+    mesh.vertices.reserve(triCount * 3);
     mesh.indices.reserve(triCount * 3);
 
     for (uint32_t i = 0; i < triCount; i++) {
         float n[3], v[3][3];
-        file.read(reinterpret_cast<char*>(n), 12);
-        file.read(reinterpret_cast<char*>(v), 36);
         uint16_t attr;
+        // Verify each 50-byte record was fully read. A truncated/corrupt file
+        // that stops mid-record must break rather than append partial floats as
+        // valid vertices (which would yield out-of-range indices downstream).
+        file.read(reinterpret_cast<char*>(n), 12);
+        if (file.gcount() != 12) break;
+        file.read(reinterpret_cast<char*>(v), 36);
+        if (file.gcount() != 36) break;
         file.read(reinterpret_cast<char*>(&attr), 2);
+        if (file.gcount() != 2) break;
 
-        // Check if normal is zero/unknown and compute from geometry if needed
-        float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-        if (len < 1e-10f) {
-            float e1x = v[1][0] - v[0][0], e1y = v[1][1] - v[0][1], e1z = v[1][2] - v[0][2];
-            float e2x = v[2][0] - v[0][0], e2y = v[2][1] - v[0][1], e2z = v[2][2] - v[0][2];
-            float cx = e1y * e2z - e1z * e2y;
-            float cy = e1z * e2x - e1x * e2z;
-            float cz = e1x * e2y - e1y * e2x;
-            float clen = std::sqrt(cx * cx + cy * cy + cz * cz);
-            if (clen > 1e-10f) {
-                n[0] = cx / clen; n[1] = cy / clen; n[2] = cz / clen;
-            }
-            else {
-                n[0] = 0.0f; n[1] = 0.0f; n[2] = 1.0f;
-            }
-        }
-
-        // 3 vertices and matching normals (flat layout alignment fix)
         for (int j = 0; j < 3; j++) {
-            // Push normal for EACH vertex to match structure
-            mesh.normals.push_back(n[0]);
-            mesh.normals.push_back(n[1]);
-            mesh.normals.push_back(n[2]);
-
-            mesh.vertices.push_back(v[j][0]);
-            mesh.vertices.push_back(v[j][1]);
-            mesh.vertices.push_back(v[j][2]);
-
-            mesh.indices.push_back(static_cast<int>(i * 3 + j));
+            float x = v[j][0], y = v[j][1], z = v[j][2];
+            if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+                std::cerr << "STL Parser: non-finite binary vertex, aborting" << std::endl;
+                mesh = RenderMesh{};
+                mesh.bounds = BoundingVolume{};
+                file.close();
+                return mesh;
+            }
+            VertexKey key = vertexKey(x, y, z);
+            int idx;
+            auto it = posToIndex.find(key);
+            if (it != posToIndex.end()) {
+                idx = it->second;
+            } else {
+                idx = static_cast<int>(mesh.vertices.size() / 3);
+                mesh.vertices.push_back(x);
+                mesh.vertices.push_back(y);
+                mesh.vertices.push_back(z);
+                posToIndex[key] = idx;
+            }
+            mesh.indices.push_back(idx);
         }
     }
     file.close();
 
     mesh_utils::computeBounds(mesh);
 
-    std::cout << "STL Parser (Binary): Loaded " << triCount << " triangles" << std::endl;
+    std::cout << "STL Parser (Binary): Loaded " << triCount << " triangles, "
+        << mesh.vertices.size() / 3 << " unique vertices (deduped)" << std::endl;
     return mesh;
 }
 
@@ -195,5 +277,13 @@ RenderMesh parseSTL(const std::string& filePath) {
     RenderMesh mesh = isBinarySTL(filePath) ? parseSTLBinary(filePath) : parseSTLAscii(filePath);
     mesh.datasetType = "STL";
     mesh.fileFormat = "STL";
+
+    // STL parsers leave normals empty (computed geometrically from the indexed
+    // layout). Ensure real normals exist before upload so the renderer/LOD
+    // decimate path can read them; computeNormals splits sharp edges and
+    // averages smooth regions for correct shading.
+    if (mesh.normals.empty() && !mesh.vertices.empty() && !mesh.indices.empty()) {
+        mesh_utils::computeNormals(mesh);
+    }
     return mesh;
 }

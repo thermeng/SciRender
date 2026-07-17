@@ -8,6 +8,7 @@ uniform mat4 uMVP;
 uniform float uScale;
 uniform float uMagMin;
 uniform float uMagMax;
+uniform float uScaleByMag; // 1.0 = scale arrow length by magnitude, 0.0 = uniform length
 
 out vec3 vNormal;
 out vec3 vWorldPos;
@@ -30,14 +31,18 @@ void main() {
     vec3 dir = mag > 1e-6 ? iDir / mag : vec3(0.0, 1.0, 0.0);
     mat3 R = alignToDir(dir);
 
-    // uniform-length arrows — scale the whole arrow by uScale (not magnitude)
-    vec3 local = R * (aPos * uScale);
+    // Normalize magnitude to [0,1] for length scaling and LUT lookup
+    float span = max(uMagMax - uMagMin, 1e-6);
+    vMag = clamp((mag - uMagMin) / span, 0.0, 1.0);
+
+    // When uScaleByMag is on, longer arrows for stronger vectors (kept in a
+    // sane [0.25, 1.5] range so tiny vectors stay visible). Otherwise the
+    // arrow length is uniform and only the color encodes magnitude.
+    float lengthScale = uScale * (1.0 + uScaleByMag * (vMag * 1.25 - 0.25));
+    vec3 local = R * (aPos * lengthScale);
     vec3 world = iOrigin + local;
 
     vWorldPos = world;
     vNormal = R * aNormal;
-    // normalize magnitude to [0,1] across the field for LUT lookup
-    float span = max(uMagMax - uMagMin, 1e-6);
-    vMag = clamp((mag - uMagMin) / span, 0.0, 1.0);
     gl_Position = uMVP * vec4(world, 1.0);
 }

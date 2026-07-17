@@ -31,6 +31,7 @@
 #include <atomic>
 #include <optional>
 #include <chrono>
+#include <map>
 
 #include "core/mesh_loader.h"
 #include "render/gizmo.h"
@@ -102,6 +103,8 @@ class Renderer : public QObject {
     Q_PROPERTY(bool showVectors READ getShowVectors WRITE setShowVectors NOTIFY viewChanged)
     Q_PROPERTY(float vectorScale READ getVectorScale WRITE setVectorScale NOTIFY viewChanged)
     Q_PROPERTY(int vectorStride READ getVectorStride WRITE setVectorStride NOTIFY viewChanged)
+    // scale arrow length by vector magnitude (in addition to color)
+    Q_PROPERTY(bool vectorScaleByMagnitude READ getVectorScaleByMagnitude WRITE setVectorScaleByMagnitude NOTIFY viewChanged)
     Q_PROPERTY(QColor vectorColor READ getVectorColorQml WRITE setVectorColorQml NOTIFY viewChanged)
     // active vector field (multi-field combo)
     Q_PROPERTY(QString vectorField READ getVectorField WRITE setActiveVectorField NOTIFY meshDataUpdated)
@@ -154,6 +157,10 @@ class Renderer : public QObject {
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
     Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
     Q_PROPERTY(int screenshotQuality READ getScreenshotQuality WRITE setScreenshotQuality NOTIFY viewChanged)
+    // supersampling multiplier for screenshot exports (1 = device res)
+    Q_PROPERTY(int screenshotScale READ getScreenshotScale WRITE setScreenshotScale NOTIFY viewChanged)
+    // user-facing status / error toast (surfaces load + parse failures)
+    Q_PROPERTY(QString statusMessage READ getStatusMessage NOTIFY statusMessageChanged)
 
     // on-screen perf HUD (FPS / frame ms / tris)
     Q_PROPERTY(bool showFps READ getShowFps WRITE setShowFps NOTIFY viewChanged)
@@ -273,6 +280,8 @@ public slots:
     QStringList getRecentFiles() const { return recentFiles; } // READ for recentFiles
     void loadRecentFromSettings(); // restore recent list at startup
     void saveRecentToSettings() const; // persist recent list on load
+    void saveStateToSettings() const;  // persist view/lighting/colormap/vector state
+    void restoreStateFromSettings();   // restore persisted state at startup
     Q_INVOKABLE void setActiveScalarField(const QString& fieldName);
 
     // Returns the list of colormap display names in ColormapType enum order,
@@ -296,6 +305,7 @@ signals:
     void screenshotCaptured(const QString& targetSavedPath);
     void screenshotRequested(const QString& targetPath);
     void fpsChanged(); // HUD text refresh
+    void statusMessageChanged(); // status/error toast refresh
 
 public:
     // VTK Camera inline Forwarders (QML-invokable so the UI can drive the camera)
@@ -330,6 +340,8 @@ public:
     // vector glyph accessors (uniform-length arrows)
     bool getShowVectors() const { return showVectors; }
     void setShowVectors(bool v) { if (showVectors != v) { showVectors = v; emit viewChanged(); } }
+    bool getVectorScaleByMagnitude() const { return vectorScaleByMagnitude; }
+    void setVectorScaleByMagnitude(bool v) { if (vectorScaleByMagnitude != v) { vectorScaleByMagnitude = v; emit viewChanged(); } }
     float getVectorScale() const { return vectorScale; }
     void setVectorScale(float v) { if (vectorScale != v) { vectorScale = v; emit viewChanged(); } }
     int getVectorStride() const { return vectorStride; }
@@ -347,6 +359,9 @@ public:
     void setScreenshotTransparent(bool v) { screenshotTransparent = v; }
     int getScreenshotQuality() const { return screenshotQuality; }
     void setScreenshotQuality(int v) { screenshotQuality = (v < 1 ? 1 : (v > 100 ? 100 : v)); }
+    int getScreenshotScale() const { return screenshotScale; }
+    void setScreenshotScale(int v) { int c = (v < 1 ? 1 : (v > 4 ? 4 : v)); if (screenshotScale != c) { screenshotScale = c; emit viewChanged(); } }
+    QString getStatusMessage() const { return statusMessage; }
     // default timestamped screenshot filename (wires up ScreenshotExporter::generateFilename)
     Q_INVOKABLE QString generateScreenshotFilename() const {
         return ScreenshotExporter::generateFilename(QString::fromStdString(currentMeshName), ExportFormat::PNG);
@@ -380,12 +395,21 @@ public:
     void setScalarRange(float min, float max) { scalarMin = min; scalarMax = max; }
     bool consumeMeshChanged() { return meshManager.meshChanged.exchange(false); }
 
+    // Render-thread accessors used by the FBO renderer to perform a scalar-only
+    // GPU re-upload without touching private members directly.
+    bool consumeScalarDirty() { return scalarDirty.exchange(false); }
+    bool hasGpuMeshes() const { return meshManager.hasMeshes(); }
+    const std::vector<float>& cachedScalars() const { return cachedMeshSource.scalars; }
+    void updateScalarsOnGPU(const std::vector<float>& scalars) { meshManager.updateScalars(scalars); }
+
     // Thread-safe extraction of the queued mesh produced on the UI thread by loadMesh().
-    // Copies the geometry out under the mesh queue mutex so the caller can safely
-    // perform GL upload on the render thread.
+    // MOVES the geometry out of the queue under the mutex (no deep copy) — the
+    // GUI thread keeps a full copy in cachedMeshSource for field switching, so
+    // the queue is only consumed once for the GPU upload (B13). After the move
+    // the queue is empty until the next loadMesh() repopulates it.
     void takeQueuedMesh(RenderMesh& out) {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
-        out = dynamicMeshQueue;
+        out = std::move(dynamicMeshQueue);
     }
 
     float getScalarMin() const { return scalarMin; }
@@ -452,6 +476,7 @@ public:
     bool clipEnabled = false;
 
 private:
+    void setStatus(const QString& msg); // update the status/error toast
     void drawGizmo();
     // Bakes the scalar + vector colorbar legends into the currently-bound FBO so
     // they are captured by screenshots (the QML colorbar overlay lives outside
@@ -525,6 +550,7 @@ private:
     GLint glyphMagMinLoc = -1;
     GLint glyphMagMaxLoc = -1;
     GLint glyphLutLoc = -1;
+    GLint glyphScaleByMagLoc = -1;
 
     double camDistance = 3.0;
     double nearPlane = 0.1;
@@ -578,6 +604,7 @@ private:
     int vectorStride = 1;
     float vectorColor[3] = { 0.2f, 0.6f, 1.0f };
     bool vectorUseColormap = false;
+    bool vectorScaleByMagnitude = false; // scale arrow length by magnitude
     std::atomic<bool> vectorGlyphDirty{false}; // GL glyph rebuild deferred to render thread
     int triangleCount = 0;
     int pointCount = 0;
@@ -587,6 +614,8 @@ private:
     // screenshot export options (UI-exposed)
     bool screenshotTransparent = false;
     int screenshotQuality = 95;
+    int screenshotScale = 1; // supersample multiplier for export
+    QString statusMessage;   // transient status/error toast text
 
     // on-screen perf HUD state
     bool showFps = false;
@@ -598,8 +627,18 @@ private:
     // recent files (most-recent first), persisted by main.cpp via QSettings
     QStringList recentFiles;
 
+    // Scalar-field switch signal: set on the GUI thread by
+    // setActiveScalarFieldStd and consumed by the render thread's synchronize()
+    // so it can re-upload ONLY the scalar buffer (sbo) instead of the whole
+    // mesh. Keeps all GL work on the render thread (no context on GUI thread).
+    std::atomic<bool> scalarDirty{false};
+
     RenderMesh dynamicMeshQueue;
     std::mutex meshQueueMutex;
+
+    // Caches the rasterized gradient preview per colormap index so the QML
+    // swatch doesn't re-rasterize a PNG data-URI on every colorbar refresh.
+    mutable std::map<int, QString> m_colormapPreviewCache;
 
     // --- extracted responsibility helpers -------------------------------------
     LightingModel lighting;       // 4-point light kit params, presets, dir math

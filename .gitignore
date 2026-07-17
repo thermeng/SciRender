@@ -90,3 +90,4 @@ CMakeLists.txt.user*
 
 # Ignore
 /.hermes/
+/.kilo/

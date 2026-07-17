@@ -59,13 +59,18 @@ uniform vec3 uFillColor;
 uniform vec3 uBackColor;
 uniform vec3 uHeadColor;
 
-// diffuse-only from fixed world-space lights; no specular term, so
-// the highlight never tracks the camera as it orbits.
+// Blinn-Phong diffuse + specular from fixed world-space lights. The specular
+// highlight tracks the camera as it orbits (half-vector uses the view dir).
 void lightContribution(vec3 rawLightDir, vec3 norm, float intensity,
-                       vec3 lightColor, inout vec3 diffuse) {
+                       vec3 lightColor, vec3 viewDir, inout vec3 diffuse, inout vec3 specular) {
     vec3 L = normalize(rawLightDir);
     float diff = max(dot(norm, L), 0.0);
     diffuse += lightColor * diff * intensity;
+
+    vec3 H = normalize(L + viewDir);
+    float specAngle = max(dot(norm, H), 0.0);
+    float spec = pow(specAngle, max(uMatShininess, 1.0));
+    specular += lightColor * spec * intensity;
 }
 
 void main() {
@@ -98,15 +103,17 @@ void main() {
     if (!gl_FrontFacing) {
         norm = -norm; // Ensures correct shading on interior walls exposed by cutting planes
     }
+    vec3 viewDir = normalize(uViewPos - vWorldPos);
 
     // 4. Lighting Accumulation (world-space, orbit-invariant)
     vec3 totalDiffuse = vec3(0.0);
+    vec3 totalSpecular = vec3(0.0);
 
-    lightContribution(uLightDir, norm, uKeyIntensity, uKeyColor, totalDiffuse);
-    lightContribution(uLightFill, norm, uFillIntensity, uFillColor, totalDiffuse);
-    lightContribution(uLightBack1, norm, uBackIntensity, uBackColor, totalDiffuse);
-    lightContribution(uLightBack2, norm, uBackIntensity, uBackColor, totalDiffuse);
-    lightContribution(uLightHead, norm, uHeadIntensity, uHeadColor, totalDiffuse);
+    lightContribution(uLightDir, norm, uKeyIntensity, uKeyColor, viewDir, totalDiffuse, totalSpecular);
+    lightContribution(uLightFill, norm, uFillIntensity, uFillColor, viewDir, totalDiffuse, totalSpecular);
+    lightContribution(uLightBack1, norm, uBackIntensity, uBackColor, viewDir, totalDiffuse, totalSpecular);
+    lightContribution(uLightBack2, norm, uBackIntensity, uBackColor, viewDir, totalDiffuse, totalSpecular);
+    lightContribution(uLightHead, norm, uHeadIntensity, uHeadColor, viewDir, totalDiffuse, totalSpecular);
 
     // 5. Color Mapping
     vec3 baseColor = uSurfaceColor;
@@ -118,7 +125,8 @@ void main() {
     // 6. Shading Combination
     vec3 ambientComponent = baseColor * uMatAmbient;
     vec3 diffuseComponent = baseColor * totalDiffuse * uMatDiffuse;
+    vec3 specularComponent = totalSpecular * uMatSpecular;
 
-    vec3 finalColor = ambientComponent + diffuseComponent;
+    vec3 finalColor = ambientComponent + diffuseComponent + specularComponent;
     FragColor = vec4(finalColor, 1.0);
 }

@@ -22,6 +22,11 @@ private:
     // context), but the GL upload must run in render() (context current).
     RenderMesh m_pendingMesh;
     bool m_uploadPending = false;
+    // Scalar-only re-upload: the field switched on the GUI thread, so the
+    // render thread re-buffers just the scalar attribute (sbo) — not the mesh.
+    std::vector<float> m_pendingScalars;
+    bool m_uploadScalarsPending = false;
+    bool m_dirty = true; // render only when something changed (idle = no GPU work)
     QString m_pendingScreenshot; // carried from GUI thread (synchronize) to render() where GL context is current
 };
 
@@ -49,6 +54,7 @@ protected:
 private:
     // Screenshot path forwarded from the GUI thread; consumed in synchronize().
     QString m_pendingScreenshot;
+    bool m_needsRender = true; // set by signal lambdas; copied into the renderer's dirty flag
     ::Renderer* m_scene = nullptr;
     QPoint m_lastMousePos;
     bool m_isRightClick = false;

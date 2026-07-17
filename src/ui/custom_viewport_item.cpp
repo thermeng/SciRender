@@ -48,25 +48,27 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
     // the FBO re-renders with the new geometry.
     if (m_scene) {
         connect(m_scene, &::Renderer::meshDataUpdated, this, [this]() {
+            m_needsRender = true;
             update();
         });
         connect(m_scene, &::Renderer::screenshotRequested, this, [this](const QString& path) {
             // Run on the GUI thread (QML side). We forward to the renderer which
             // performs the GL read inside its FBO render pass via synchronize().
             if (m_scene) m_pendingScreenshot = path;
+            m_needsRender = true;
             update();
         });
         // lighting changes never repainted before — connect once here (guarded by setRenderer's early return)
-        connect(m_scene, &::Renderer::lightingParametersChanged, this, [this]() { update(); });
-        connect(m_scene, &::Renderer::viewChanged, this, [this]() { update(); });
+        connect(m_scene, &::Renderer::lightingParametersChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_scene, &::Renderer::viewChanged, this, [this]() { m_needsRender = true; update(); });
         // colormap switch must repaint the GL mesh, not just the QML legend
-        connect(m_scene, &::Renderer::colormapChanged, this, [this]() { update(); });
+        connect(m_scene, &::Renderer::colormapChanged, this, [this]() { m_needsRender = true; update(); });
         // vector colormap (choice/reverse) must also repaint the GL glyphs
-        connect(m_scene, &::Renderer::vectorColormapChanged, this, [this]() { update(); });
+        connect(m_scene, &::Renderer::vectorColormapChanged, this, [this]() { m_needsRender = true; update(); });
         // wireframe/surface setters emit these but nothing repainted them before
-        connect(m_scene, &::Renderer::wireframeChanged, this, [this]() { update(); });
-        connect(m_scene, &::Renderer::gridVisibilityChanged, this, [this]() { update(); });
-        connect(m_scene, &::Renderer::surfaceVisibilityChanged, this, [this]() { update(); });
+        connect(m_scene, &::Renderer::wireframeChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_scene, &::Renderer::gridVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_scene, &::Renderer::surfaceVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
     }
 }
 
@@ -139,6 +141,20 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
     if (m_scene && m_scene->consumeMeshChanged()) {
         m_scene->takeQueuedMesh(m_pendingMesh);
         m_uploadPending = !m_pendingMesh.vertices.empty();
+        m_dirty = true;
+    }
+
+    // Scalar-only field switch: re-buffer just the sbo on the render thread
+    // (no GL context here). Consumed below in render() before draw.
+    if (m_scene && m_scene->consumeScalarDirty() && m_scene->hasGpuMeshes()) {
+        m_pendingScalars = m_scene->cachedScalars();
+        m_uploadScalarsPending = true;
+        m_dirty = true;
+    }
+    // A signal requested a repaint; fold it into the renderer's dirty flag.
+    if (vv && vv->m_needsRender) {
+        m_dirty = true;
+        vv->m_needsRender = false;
     }
 
     // Carry the screenshot request across to render() (GL context current there).
@@ -169,6 +185,15 @@ void ViewportFboRenderer::render() {
         m_initialized = true;
     }
 
+    // Render only when something changed. The scene graph calls render() every
+    // frame; skipping it when idle keeps the GPU (and fan) at rest instead of
+    // redrawing the same image continuously. Continuous updates are still needed
+    // while the turntable (autoRotate) or FPS HUD is on.
+    const bool continuous = (m_scene->getAutoRotate() || m_scene->getShowFps());
+    if (!m_dirty && !continuous && !m_uploadPending && m_pendingScreenshot.isEmpty()) {
+        return;
+    }
+
     // The FBO is already bound as the GL draw target by the scene graph; our
     // renderFrame() clears/draws into it. The SG composites this FBO texture
     // on top of the background and BELOW the QML overlays (colorbar, etc.).
@@ -177,6 +202,12 @@ void ViewportFboRenderer::render() {
     if (m_uploadPending) {
         m_scene->uploadMesh(m_pendingMesh);
         m_uploadPending = false;
+    }
+
+    // Scalar-only re-upload: refresh just the sbo for the existing GPU meshes.
+    if (m_uploadScalarsPending) {
+        m_scene->updateScalarsOnGPU(m_pendingScalars);
+        m_uploadScalarsPending = false;
     }
 
     m_scene->renderFrame();
@@ -193,4 +224,8 @@ void ViewportFboRenderer::render() {
 
     // Qt 6: restore default GL state so the scene graph is not surprised.
     QQuickOpenGLUtils::resetOpenGLState();
+
+    // Once we've drawn a fresh frame (and handled any capture), go idle until
+    // the next dirty/continuous trigger. Keeps a static view from re-rendering.
+    m_dirty = continuous;
 }

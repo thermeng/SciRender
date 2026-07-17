@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <unordered_map>
 
 // ── Endianness Utility Wrapper ──────────────────────────────────────────────
 
@@ -75,7 +76,8 @@ private:
     std::vector<int> rawCellData, cellTypes;
 
     // Intermediate storage cache specifically tracking split configurations
-    std::map<std::string, std::vector<float>> cellScalarsStorage;
+    std::unordered_map<std::string, std::vector<float>> cellScalarsStorage;
+    std::unordered_map<std::string, std::vector<float>> cellVectorsStorage; // CELL_DATA VECTORS, extrapolated to points
     std::vector<std::vector<int>> globalCellToVertices;
 
     bool getVTKLine(std::ifstream& f, std::string& outLine) {
@@ -205,6 +207,10 @@ private:
             for (int i = 0; i < sizeOfPolysBlock; ++i) file >> polyData[i];
             clearTrailingLine(file);
         }
+        // POLYGONS/STRIPS are their own topology source: start from a clean
+        // index list so they never concatenate onto a preceding CELLS block
+        // (each block is authoritative for the final `mesh.indices`).
+        mesh.indices.clear();
         globalCellToVertices = triangulatePolygons(polyData, numPolys);
         numCells = numPolys;
     }
@@ -220,6 +226,8 @@ private:
             for (int i = 0; i < sizeOfStripsBlock; ++i) file >> stripData[i];
             clearTrailingLine(file);
         }
+        // See parsePolygonsBlock: own topology stream, clear first.
+        mesh.indices.clear();
         globalCellToVertices = triangulateTriangleStrips(stripData, numStrips);
         numCells = numStrips;
     }
@@ -235,7 +243,13 @@ private:
             mesh.scalarName = scalarName;
         }
 
-        std::string lutLine; getVTKLine(file, lutLine);
+        // The `LOOKUP_TABLE default` line exists ONLY in ASCII datasets. In
+        // BINARY mode the next 4 bytes belong to the scalar data itself, so
+        // reading a "line" here would consume the first float and corrupt the
+        // entire field. Guard the read on !isBinary.
+        if (!isBinary) {
+            std::string lutLine; getVTKLine(file, lutLine);
+        }
 
         int activeElementCount = readingPointData ? numPoints : numCells;
         if (activeElementCount == 0 && attributeTargetCount > 0) {
@@ -321,13 +335,16 @@ private:
             clearTrailingLine(file);
         }
 
-        // POINT_DATA VECTORS only; cell vectors are rare, skip+warn
+        // POINT_DATA VECTORS map directly to vertices. CELL_DATA VECTORS are
+        // extrapolated to vertices (averaged per incident cell) in finalize.
         if (readingPointData) {
             if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
             mesh.attributes->pointVectors[vecName] = std::move(readVecs);
             std::cerr << "VTK: parsed POINT VECTORS '" << vecName << "' (" << activeElementCount << " vectors)" << std::endl;
         } else {
-            std::cerr << "VTK Parser Warning: CELL_DATA VECTORS not supported yet; skipping '" << vecName << "'" << std::endl;
+            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            cellVectorsStorage[vecName] = std::move(readVecs);
+            std::cerr << "VTK: parsed CELL VECTORS '" << vecName << "' (" << activeElementCount << " vectors, extrapolated to points)" << std::endl;
         }
     }
 
@@ -447,27 +464,32 @@ private:
 
         const bool is3D = (dX > 1 && dY > 1 && dZ > 1);
         if (is3D) {
-            // Bottom (z = 0, outward -Z)
+            // All six faces are wound CCW as seen from OUTSIDE the box (i.e. the
+            // triangle (a,b,c) of each addQuad has its geometric normal pointing
+            // along the face's outward direction). This makes the surface robust
+            // to GL_CULL_FACE ever being enabled (S1).
+
+            // Bottom (z = 0, outward -Z): CCW seen from -Z
             for (int y = 0; y < cy; ++y)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, y, 0), idx(x, y + 1, 0), idx(x + 1, y + 1, 0), idx(x + 1, y, 0));
-            // Top (z = dZ-1, outward +Z)
+            // Top (z = dZ-1, outward +Z): CCW seen from +Z
             for (int y = 0; y < cy; ++y)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, y, dZ - 1), idx(x + 1, y, dZ - 1), idx(x + 1, y + 1, dZ - 1), idx(x, y + 1, dZ - 1));
-            // Left (x = 0, outward -X)
+            // Left (x = 0, outward -X): CCW seen from -X
             for (int z = 0; z < cz; ++z)
                 for (int y = 0; y < cy; ++y)
                     addQuad(idx(0, y, z), idx(0, y, z + 1), idx(0, y + 1, z + 1), idx(0, y + 1, z));
-            // Right (x = dX-1, outward +X)
+            // Right (x = dX-1, outward +X): CCW seen from +X
             for (int z = 0; z < cz; ++z)
                 for (int y = 0; y < cy; ++y)
                     addQuad(idx(dX - 1, y, z), idx(dX - 1, y + 1, z), idx(dX - 1, y + 1, z + 1), idx(dX - 1, y, z + 1));
-            // Back (y = 0, outward -Y)
+            // Back (y = 0, outward -Y): CCW seen from -Y
             for (int z = 0; z < cz; ++z)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
-            // Front (y = dY-1, outward +Y)
+            // Front (y = dY-1, outward +Y): CCW seen from +Y
             for (int z = 0; z < cz; ++z)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, dY - 1, z), idx(x, dY - 1, z + 1), idx(x + 1, dY - 1, z + 1), idx(x + 1, dY - 1, z));
@@ -647,8 +669,9 @@ private:
             return;
         }
 
-        // 1. Process cell data onto the compact vertex layout first
-        extrapolateCellDataToPoints();
+        // 1. Process cell data onto the compact vertex layout first (merged
+        //    scalar+vector extrapolation in a single cell-to-vertex pass).
+        extrapolateCellDataToPointsMerged();
 
         // 2. Keep the mesh INDEXED (shared vertices). Previously the mesh was fully
         //    "unrolled" into a non-indexed layout (one copy of every vertex per
@@ -728,6 +751,130 @@ private:
             }
 
             mesh.attributes->pointScalars[name] = std::move(pointAlloc);
+        }
+    }
+
+    void extrapolateCellVectorsToPoints() {
+        if (cellVectorsStorage.empty() || globalCellToVertices.empty()) return;
+
+        int vCount = mesh.vertices.size() / 3;
+        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+
+        for (const auto& [name, rawCellVecs] : cellVectorsStorage) {
+            std::vector<float> pointAlloc(static_cast<size_t>(vCount) * 3, 0.0f);
+            std::vector<float> contributionCounts(vCount, 0.0f);
+
+            for (size_t c = 0; c < globalCellToVertices.size(); ++c) {
+                if (c >= rawCellVecs.size() / 3) break;
+                float vx = rawCellVecs[c * 3 + 0];
+                float vy = rawCellVecs[c * 3 + 1];
+                float vz = rawCellVecs[c * 3 + 2];
+
+                for (int vIdx : globalCellToVertices[c]) {
+                    if (vIdx >= 0 && vIdx < vCount) {
+                        pointAlloc[static_cast<size_t>(vIdx) * 3 + 0] += vx;
+                        pointAlloc[static_cast<size_t>(vIdx) * 3 + 1] += vy;
+                        pointAlloc[static_cast<size_t>(vIdx) * 3 + 2] += vz;
+                        contributionCounts[vIdx] += 1.0f;
+                    }
+                }
+            }
+
+            for (int i = 0; i < vCount; ++i) {
+                if (contributionCounts[i] > 0.0f) {
+                    float inv = 1.0f / contributionCounts[i];
+                    pointAlloc[static_cast<size_t>(i) * 3 + 0] *= inv;
+                    pointAlloc[static_cast<size_t>(i) * 3 + 1] *= inv;
+                    pointAlloc[static_cast<size_t>(i) * 3 + 2] *= inv;
+                }
+            }
+
+            mesh.attributes->pointVectors[name] = std::move(pointAlloc);
+        }
+    }
+
+    // Merge the cell-scalar and cell-vector extrapolation into a SINGLE pass over
+    // the cell-to-vertex incidence (built once during triangulation) instead of
+    // iterating globalCellToVertices twice. This replaces the two separate
+    // extrapolate* calls, halving the O(cells * verts) work for unstructured grids.
+    void extrapolateCellDataToPointsMerged() {
+        if (globalCellToVertices.empty()) return;
+        if (cellScalarsStorage.empty() && cellVectorsStorage.empty()) return;
+
+        int vCount = mesh.vertices.size() / 3;
+        if (vCount == 0) return;
+        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+
+        // Per-field accumulation buffers, allocated once for the whole pass.
+        struct FieldAcc {
+            bool isVector = false;
+            std::vector<float> sum;      // scalars: per-vertex; vectors: per-vertex*3
+        };
+        std::vector<FieldAcc> accs;
+        accs.reserve(cellScalarsStorage.size() + cellVectorsStorage.size());
+
+        for (const auto& [name, raw] : cellScalarsStorage) {
+            accs.push_back(FieldAcc{ false, std::vector<float>(vCount, 0.0f) });
+        }
+        size_t scalarAccCount = accs.size();
+        for (const auto& [name, raw] : cellVectorsStorage) {
+            accs.push_back(FieldAcc{ true, std::vector<float>(static_cast<size_t>(vCount) * 3, 0.0f) });
+        }
+        std::vector<float> contributionCounts(vCount, 0.0f);
+
+        // Single traversal of the incidence structure built during triangulation.
+        for (size_t c = 0; c < globalCellToVertices.size(); ++c) {
+            // Accumulate scalar fields for this cell.
+            size_t si = 0;
+            for (auto it = cellScalarsStorage.begin(); it != cellScalarsStorage.end(); ++it, ++si) {
+                if (c >= it->second.size()) continue;
+                float val = it->second[c];
+                for (int vIdx : globalCellToVertices[c]) {
+                    if (vIdx >= 0 && vIdx < vCount) accs[si].sum[vIdx] += val;
+                }
+            }
+            // Accumulate vector fields for this cell.
+            size_t vi = scalarAccCount;
+            for (auto it = cellVectorsStorage.begin(); it != cellVectorsStorage.end(); ++it, ++vi) {
+                if (c >= it->second.size() / 3) continue;
+                float vx = it->second[c * 3 + 0];
+                float vy = it->second[c * 3 + 1];
+                float vz = it->second[c * 3 + 2];
+                for (int vIdx : globalCellToVertices[c]) {
+                    if (vIdx >= 0 && vIdx < vCount) {
+                        accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 0] += vx;
+                        accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 1] += vy;
+                        accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 2] += vz;
+                    }
+                }
+            }
+            // One contribution per cell per vertex.
+            for (int vIdx : globalCellToVertices[c]) {
+                if (vIdx >= 0 && vIdx < vCount) contributionCounts[vIdx] += 1.0f;
+            }
+        }
+
+        // Normalize and store.
+        size_t si = 0;
+        for (auto it = cellScalarsStorage.begin(); it != cellScalarsStorage.end(); ++it, ++si) {
+            std::vector<float>& sum = accs[si].sum;
+            for (int i = 0; i < vCount; ++i) {
+                if (contributionCounts[i] > 0.0f) sum[i] /= contributionCounts[i];
+            }
+            mesh.attributes->pointScalars[it->first] = std::move(sum);
+        }
+        size_t vi = scalarAccCount;
+        for (auto it = cellVectorsStorage.begin(); it != cellVectorsStorage.end(); ++it, ++vi) {
+            std::vector<float>& sum = accs[vi].sum;
+            for (int i = 0; i < vCount; ++i) {
+                if (contributionCounts[i] > 0.0f) {
+                    float inv = 1.0f / contributionCounts[i];
+                    sum[static_cast<size_t>(i) * 3 + 0] *= inv;
+                    sum[static_cast<size_t>(i) * 3 + 1] *= inv;
+                    sum[static_cast<size_t>(i) * 3 + 2] *= inv;
+                }
+            }
+            mesh.attributes->pointVectors[it->first] = std::move(sum);
         }
     }
 
