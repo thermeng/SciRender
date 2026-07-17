@@ -59,23 +59,32 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride) {
 
     int numPts = static_cast<int>(mesh.vertices.size() / 3);
     stride = std::max(1, stride);
-    // track min/max magnitude across the (strided) sample for LUT normalization
+    // Track min/max magnitude across the FULL field (every point), not just the
+    // strided render sample. magMin/magMax also drive the vector colorbar legend
+    // (renderer.cpp), so using only the subsampled subset made glyph colors and
+    // the legend scale disagree when vectorStride > 1.
     float mMin = std::numeric_limits<float>::max();
     float mMax = -std::numeric_limits<float>::max();
+    for (int i = 0; i < numPts; ++i) {
+        float dx = vecArr[i * 3 + 0], dy = vecArr[i * 3 + 1], dz = vecArr[i * 3 + 2];
+        float m = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (!std::isfinite(m)) continue;
+        if (m < mMin) mMin = m;
+        if (m > mMax) mMax = m;
+    }
     std::vector<float> inst;
     for (int i = 0; i < numPts; i += stride) {
         float dx = vecArr[i * 3 + 0], dy = vecArr[i * 3 + 1], dz = vecArr[i * 3 + 2];
         // skip near-zero vectors so the cloud isn't cluttered with dots
         if (dx * dx + dy * dy + dz * dz < 1e-12f) continue;
-        float m = std::sqrt(dx * dx + dy * dy + dz * dz);
-        if (m < mMin) mMin = m;
-        if (m > mMax) mMax = m;
         inst.push_back(mesh.vertices[i * 3 + 0]);
         inst.push_back(mesh.vertices[i * 3 + 1]);
         inst.push_back(mesh.vertices[i * 3 + 2]);
         inst.push_back(dx); inst.push_back(dy); inst.push_back(dz);
     }
     if (inst.empty()) return;
+    // All-zero field: keep a sane [0,0] range instead of (max,-max) clamp artifacts.
+    if (mMin > mMax) { mMin = 0.0f; mMax = 0.0f; }
     magMin = mMin;
     magMax = mMax;
 

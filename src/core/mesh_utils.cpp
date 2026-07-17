@@ -23,17 +23,23 @@ std::string toUpper(const std::string& s) {
 
 // ── Byte-swap helpers (VTK binary is big-endian) ────────────────────────────
 
-void byteSwap(float* val) {
+template<typename T>
+static inline void swapBytes(T* val) {
     char* bytes = reinterpret_cast<char*>(val);
-    std::swap(bytes[0], bytes[3]);
-    std::swap(bytes[1], bytes[2]);
+    std::size_t n = sizeof(T);
+    for (std::size_t i = 0; i < n / 2; ++i) {
+        std::swap(bytes[i], bytes[n - 1 - i]);
+    }
 }
 
-void byteSwap(int* val) {
-    char* bytes = reinterpret_cast<char*>(val);
-    std::swap(bytes[0], bytes[3]);
-    std::swap(bytes[1], bytes[2]);
-}
+void byteSwap(float* val)     { swapBytes(val); }
+void byteSwap(double* val)    { swapBytes(val); }
+void byteSwap(int* val)       { swapBytes(val); }
+void byteSwap(int16_t* val)   { swapBytes(val); }
+void byteSwap(uint16_t* val)  { swapBytes(val); }
+void byteSwap(uint8_t* val)   { swapBytes(val); }
+void byteSwap(int64_t* val)   { swapBytes(val); }
+void byteSwap(uint64_t* val)  { swapBytes(val); }
 
 bool isLittleEndian() {
     int test = 1;

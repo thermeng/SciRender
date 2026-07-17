@@ -81,7 +81,13 @@ namespace mesh_utils {
     // Endianness handling helpers
     bool isLittleEndian();
     void byteSwap(float* val);
+    void byteSwap(double* val);
     void byteSwap(int* val);
+    void byteSwap(int16_t* val);
+    void byteSwap(uint16_t* val);
+    void byteSwap(uint8_t* val);
+    void byteSwap(int64_t* val);
+    void byteSwap(uint64_t* val);
 
     // Geometry & bounding math computations
     // Computes center, extent, and worldRadius from a flat vertex array
