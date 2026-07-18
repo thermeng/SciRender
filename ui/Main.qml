@@ -1,4 +1,4 @@
-﻿import QtQuick
+import QtQuick
 import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -17,18 +17,18 @@ ApplicationWindow {
 
     // keyboard shortcuts via Shortcut (window-level, no focus juggling).
     // ApplicationWindow is a QQuickWindow and has no Keys handler / focus property.
-    Shortcut { sequence: "R";          onActivated: if (backendRenderer) backendRenderer.resetCamera() }
-    Shortcut { sequence: "W";          onActivated: if (backendRenderer) backendRenderer.isWireframe = !backendRenderer.isWireframe }
-    Shortcut { sequence: "G";          onActivated: if (backendRenderer) backendRenderer.isGridVisible = !backendRenderer.isGridVisible }
-    Shortcut { sequence: "S";          onActivated: if (backendRenderer) { screenshotSaveDialog.currentFile = backendRenderer.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
-    Shortcut { sequence: "Left";       onActivated: if (backendRenderer) backendRenderer.azimuth(-5) }
-    Shortcut { sequence: "Right";      onActivated: if (backendRenderer) backendRenderer.azimuth(5) }
-    Shortcut { sequence: "Up";         onActivated: if (backendRenderer) backendRenderer.elevation(5) }
-    Shortcut { sequence: "Down";       onActivated: if (backendRenderer) backendRenderer.elevation(-5) }
-    Shortcut { sequence: "Ctrl+=";     onActivated: if (backendRenderer) backendRenderer.dolly(1.1) }
-    Shortcut { sequence: "Ctrl+-";     onActivated: if (backendRenderer) backendRenderer.dolly(0.9) }
+    Shortcut { sequence: "R";          onActivated: if (backendSettings) backendSettings.resetCamera() }
+    Shortcut { sequence: "W";          onActivated: if (backendSettings) backendSettings.isWireframe = !backendSettings.isWireframe }
+    Shortcut { sequence: "G";          onActivated: if (backendSettings) backendSettings.isGridVisible = !backendSettings.isGridVisible }
+    Shortcut { sequence: "S";          onActivated: if (backendSettings) { screenshotSaveDialog.currentFile = backendSettings.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
+    Shortcut { sequence: "Left";       onActivated: if (backendSettings) backendSettings.azimuth(-5) }
+    Shortcut { sequence: "Right";      onActivated: if (backendSettings) backendSettings.azimuth(5) }
+    Shortcut { sequence: "Up";         onActivated: if (backendSettings) backendSettings.elevation(5) }
+    Shortcut { sequence: "Down";       onActivated: if (backendSettings) backendSettings.elevation(-5) }
+    Shortcut { sequence: "Ctrl+=";     onActivated: if (backendSettings) backendSettings.dolly(1.1) }
+    Shortcut { sequence: "Ctrl+-";     onActivated: if (backendSettings) backendSettings.dolly(0.9) }
 
-    // High-Performance Raw OpenGL Output Subwindow Area � wrapped in captureRoot so the
+    // High-Performance Raw OpenGL Output Subwindow Area ? wrapped in captureRoot so the
     // screenshot grabs viewport + legend overlays WITHOUT the left rail chrome (Option B).
     Rectangle {
         id: rail
@@ -50,8 +50,8 @@ ApplicationWindow {
         color: "#262626"
         z: 20
 
-        Component.onCompleted: if(backendRenderer) backendRenderer.setSidebarWidth(width)
-        onWidthChanged: if(backendRenderer) backendRenderer.setSidebarWidth(width)
+        Component.onCompleted: if(backendSettings) backendSettings.setSidebarWidth(width)
+        onWidthChanged: if(backendSettings) backendSettings.setSidebarWidth(width)
 
         function toggleSection(n) {
             if (activeSection === n && expanded) {
@@ -218,31 +218,31 @@ ApplicationWindow {
                     spacing: 4
                     Item { height: 8 }
 
-                    // Lighting Controls � Light Kit
+                    // Lighting Controls ? Light Kit
                     Column {
                         visible: rail.activeSection === 0
                         spacing: 4
                         width: parent.width
-                        Button { text: "Reset"; onClicked: backendRenderer.resetLighting() }
-                        CheckBox { text: "Light Markers"; checked: backendRenderer ? backendRenderer.showLightMarkers : false; onToggled: backendRenderer.showLightMarkers = checked }
+                        Button { text: "Reset"; onClicked: backendSettings.resetLighting() }
+                        CheckBox { text: "Light Markers"; checked: backendSettings ? backendSettings.showLightMarkers : false; onToggled: backendSettings.showLightMarkers = checked }
                         Item { height: 4 }
-                        LightSlider { label: "Int (Key)"; value: backendRenderer ? backendRenderer.lightKeyIntensity : 0; from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.lightKeyIntensity = v }
-                        LightSlider { label: "Warm";      value: backendRenderer ? backendRenderer.lightWarm : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.lightWarm = v }
-                        LightSlider { label: "K:F";       value: backendRenderer ? backendRenderer.lightKF : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendRenderer.lightKF = v }
-                        LightSlider { label: "K:B";       value: backendRenderer ? backendRenderer.lightKB : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendRenderer.lightKB = v }
-                        LightSlider { label: "K:H";       value: backendRenderer ? backendRenderer.lightKH : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendRenderer.lightKH = v }
-                        LightSlider { label: "Key Az";  value: backendRenderer ? backendRenderer.lightKeyAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightKeyAzimuth = v }
-                        LightSlider { label: "Key El";  value: backendRenderer ? backendRenderer.lightKeyElevation : 0;   from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightKeyElevation = v }
-                        LightSlider { label: "Fill Az"; value: backendRenderer ? backendRenderer.lightFillAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightFillAzimuth = v }
-                        LightSlider { label: "Fill El"; value: backendRenderer ? backendRenderer.lightFillElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightFillElevation = v }
-                        LightSlider { label: "Back Az"; value: backendRenderer ? backendRenderer.lightBackAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightBackAzimuth = v }
-                        LightSlider { label: "Back El"; value: backendRenderer ? backendRenderer.lightBackElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightBackElevation = v }
-                        LightSlider { label: "Head Az"; value: backendRenderer ? backendRenderer.lightHeadAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendRenderer.lightHeadAzimuth = v }
-                        LightSlider { label: "Head El"; value: backendRenderer ? backendRenderer.lightHeadElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendRenderer.lightHeadElevation = v }
-                        LightSlider { label: "Ambient"; value: backendRenderer ? backendRenderer.matAmbient : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.matAmbient = v }
-                        LightSlider { label: "Diffuse"; value: backendRenderer ? backendRenderer.matDiffuse : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.matDiffuse = v }
-                        LightSlider { label: "Specular";  value: backendRenderer ? backendRenderer.matSpecular : 0;  from: 0; to: 1;    step: 0.01; onSet: v => backendRenderer.matSpecular = v }
-                        LightSlider { label: "Shininess"; value: backendRenderer ? backendRenderer.matShininess : 0; from: 1; to: 100;  step: 1;    onSet: v => backendRenderer.matShininess = v }
+                        LightSlider { label: "Int (Key)"; value: backendSettings ? backendSettings.lightKeyIntensity : 0; from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.lightKeyIntensity = v }
+                        LightSlider { label: "Warm";      value: backendSettings ? backendSettings.lightWarm : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.lightWarm = v }
+                        LightSlider { label: "K:F";       value: backendSettings ? backendSettings.lightKF : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendSettings.lightKF = v }
+                        LightSlider { label: "K:B";       value: backendSettings ? backendSettings.lightKB : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendSettings.lightKB = v }
+                        LightSlider { label: "K:H";       value: backendSettings ? backendSettings.lightKH : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendSettings.lightKH = v }
+                        LightSlider { label: "Key Az";  value: backendSettings ? backendSettings.lightKeyAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendSettings.lightKeyAzimuth = v }
+                        LightSlider { label: "Key El";  value: backendSettings ? backendSettings.lightKeyElevation : 0;   from: -90;  to: 90;  step: 1; onSet: v => backendSettings.lightKeyElevation = v }
+                        LightSlider { label: "Fill Az"; value: backendSettings ? backendSettings.lightFillAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendSettings.lightFillAzimuth = v }
+                        LightSlider { label: "Fill El"; value: backendSettings ? backendSettings.lightFillElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendSettings.lightFillElevation = v }
+                        LightSlider { label: "Back Az"; value: backendSettings ? backendSettings.lightBackAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendSettings.lightBackAzimuth = v }
+                        LightSlider { label: "Back El"; value: backendSettings ? backendSettings.lightBackElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendSettings.lightBackElevation = v }
+                        LightSlider { label: "Head Az"; value: backendSettings ? backendSettings.lightHeadAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendSettings.lightHeadAzimuth = v }
+                        LightSlider { label: "Head El"; value: backendSettings ? backendSettings.lightHeadElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendSettings.lightHeadElevation = v }
+                        LightSlider { label: "Ambient"; value: backendSettings ? backendSettings.matAmbient : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.matAmbient = v }
+                        LightSlider { label: "Diffuse"; value: backendSettings ? backendSettings.matDiffuse : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.matDiffuse = v }
+                        LightSlider { label: "Specular";  value: backendSettings ? backendSettings.matSpecular : 0;  from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.matSpecular = v }
+                        LightSlider { label: "Shininess"; value: backendSettings ? backendSettings.matShininess : 0; from: 1; to: 100;  step: 1;    onSet: v => backendSettings.matShininess = v }
                     }
 
                     // Slicing & Clipping Controls
@@ -250,16 +250,16 @@ ApplicationWindow {
                         visible: rail.activeSection === 1
                         spacing: 4
                         width: parent.width
-                        CheckBox { text: "Enable Clipping"; checked: backendRenderer ? backendRenderer.clipEnabled : false; onToggled: backendRenderer.clipEnabled = checked }
+                        CheckBox { text: "Enable Clipping"; checked: backendSettings ? backendSettings.clipEnabled : false; onToggled: backendSettings.clipEnabled = checked }
                         Text { text: "Cut planes (world units)"; color: "#888"; font.pixelSize: 10 }
-                        ClipSlider { label: "Slice X"; value: backendRenderer ? backendRenderer.sliceHeightX : 0; from: backendRenderer ? backendRenderer.worldMinX : 0; to: backendRenderer ? backendRenderer.worldMaxX : 1; onSet: v => backendRenderer.sliceHeightX = v }
-                        ClipSlider { label: "Slice Y"; value: backendRenderer ? backendRenderer.sliceHeightY : 0; from: backendRenderer ? backendRenderer.worldMinY : 0; to: backendRenderer ? backendRenderer.worldMaxY : 1; onSet: v => backendRenderer.sliceHeightY = v }
-                        ClipSlider { label: "Slice Z"; value: backendRenderer ? backendRenderer.sliceHeightZ : 0; from: backendRenderer ? backendRenderer.worldMinZ : 0; to: backendRenderer ? backendRenderer.worldMaxZ : 1; onSet: v => backendRenderer.sliceHeightZ = v }
+                        ClipSlider { label: "Slice X"; value: backendSettings ? backendSettings.sliceHeightX : 0; from: backendSettings ? backendSettings.worldMinX : 0; to: backendSettings ? backendSettings.worldMaxX : 1; onSet: v => backendSettings.sliceHeightX = v }
+                        ClipSlider { label: "Slice Y"; value: backendSettings ? backendSettings.sliceHeightY : 0; from: backendSettings ? backendSettings.worldMinY : 0; to: backendSettings ? backendSettings.worldMaxY : 1; onSet: v => backendSettings.sliceHeightY = v }
+                        ClipSlider { label: "Slice Z"; value: backendSettings ? backendSettings.sliceHeightZ : 0; from: backendSettings ? backendSettings.worldMinZ : 0; to: backendSettings ? backendSettings.worldMaxZ : 1; onSet: v => backendSettings.sliceHeightZ = v }
                         Text { text: "Keep side"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 8
-                            CheckBox { text: "Inv X"; checked: backendRenderer ? backendRenderer.invertX : false; onToggled: backendRenderer.invertX = checked }
-                            CheckBox { text: "Inv Y"; checked: backendRenderer ? backendRenderer.invertY : false; onToggled: backendRenderer.invertY = checked }
-                            CheckBox { text: "Inv Z"; checked: backendRenderer ? backendRenderer.invertZ : false; onToggled: backendRenderer.invertZ = checked }
+                            CheckBox { text: "Inv X"; checked: backendSettings ? backendSettings.invertX : false; onToggled: backendSettings.invertX = checked }
+                            CheckBox { text: "Inv Y"; checked: backendSettings ? backendSettings.invertY : false; onToggled: backendSettings.invertY = checked }
+                            CheckBox { text: "Inv Z"; checked: backendSettings ? backendSettings.invertZ : false; onToggled: backendSettings.invertZ = checked }
                         }
                     }
 
@@ -272,40 +272,40 @@ ApplicationWindow {
                         property real rollPrev: 0
                         Text { text: "Orthographic view"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
-                            Button { text: "+X"; width: 48; onClicked: backendRenderer.snapToOrthoView(0) }
-                            Button { text: "-X"; width: 48; onClicked: backendRenderer.snapToOrthoView(1) }
-                            Button { text: "+Y"; width: 48; onClicked: backendRenderer.snapToOrthoView(2) }
+                            Button { text: "+X"; width: 48; onClicked: backendSettings.snapToOrthoView(0) }
+                            Button { text: "-X"; width: 48; onClicked: backendSettings.snapToOrthoView(1) }
+                            Button { text: "+Y"; width: 48; onClicked: backendSettings.snapToOrthoView(2) }
                         }
                         Row { spacing: 6
-                            Button { text: "-Y"; width: 48; onClicked: backendRenderer.snapToOrthoView(3) }
-                            Button { text: "+Z"; width: 48; onClicked: backendRenderer.snapToOrthoView(4) }
-                            Button { text: "-Z"; width: 48; onClicked: backendRenderer.snapToOrthoView(5) }
+                            Button { text: "-Y"; width: 48; onClicked: backendSettings.snapToOrthoView(3) }
+                            Button { text: "+Z"; width: 48; onClicked: backendSettings.snapToOrthoView(4) }
+                            Button { text: "-Z"; width: 48; onClicked: backendSettings.snapToOrthoView(5) }
                         }
                         Text { text: "Quick axis snap"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
-                            Button { text: "X"; width: 48; onClicked: backendRenderer.snapToAxisView(0, false) }
-                            Button { text: "Y"; width: 48; onClicked: backendRenderer.snapToAxisView(1, false) }
-                            Button { text: "Z"; width: 48; onClicked: backendRenderer.snapToAxisView(2, false) }
+                            Button { text: "X"; width: 48; onClicked: backendSettings.snapToAxisView(0, false) }
+                            Button { text: "Y"; width: 48; onClicked: backendSettings.snapToAxisView(1, false) }
+                            Button { text: "Z"; width: 48; onClicked: backendSettings.snapToAxisView(2, false) }
                         }
                         Text { text: "Display"; color: "#888"; font.pixelSize: 10 }
-                        CheckBox { text: "Wireframe"; checked: backendRenderer ? backendRenderer.isWireframe : false; onToggled: backendRenderer.isWireframe = checked }
-                        CheckBox { text: "Grid";      checked: backendRenderer ? backendRenderer.isGridVisible : false; onToggled: backendRenderer.isGridVisible = checked }
-                        CheckBox { text: "Surface";   checked: backendRenderer ? backendRenderer.isSurfaceVisible : false; onToggled: backendRenderer.isSurfaceVisible = checked }
-                        CheckBox { text: "Auto-Rotate"; checked: backendRenderer ? backendRenderer.autoRotate : false; onToggled: backendRenderer.autoRotate = checked }
-                        CheckBox { text: "Level of Detail"; checked: backendRenderer ? backendRenderer.useLod : true; onToggled: backendRenderer.useLod = checked }
+                        CheckBox { text: "Wireframe"; checked: backendSettings ? backendSettings.isWireframe : false; onToggled: backendSettings.isWireframe = checked }
+                        CheckBox { text: "Grid";      checked: backendSettings ? backendSettings.isGridVisible : false; onToggled: backendSettings.isGridVisible = checked }
+                        CheckBox { text: "Surface";   checked: backendSettings ? backendSettings.isSurfaceVisible : false; onToggled: backendSettings.isSurfaceVisible = checked }
+                        CheckBox { text: "Auto-Rotate"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
+                        CheckBox { text: "Level of Detail"; checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
                         Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
-                            Button { text: "Reset Cam"; width: 92; onClicked: backendRenderer.resetCamera() }
+                            Button { text: "Reset Cam"; width: 92; onClicked: backendSettings.resetCamera() }
                         }
                         Button { text: "Background Color"; width: parent.width; onClicked: bgDialog.open() }
                         Text { text: "Camera roll"; color: "#888"; font.pixelSize: 10 }
                         LightSlider {
                             label: "Roll"; value: 0; from: -180; to: 180; step: 1
-                            onSet: v => { backendRenderer.roll(v - viewCol.rollPrev); viewCol.rollPrev = v; }
+                            onSet: v => { backendSettings.roll(v - viewCol.rollPrev); viewCol.rollPrev = v; }
                         }
                         Text { text: "Overlays"; color: "#888"; font.pixelSize: 10 }
-                        CheckBox { text: "Gizmo"; checked: backendRenderer ? backendRenderer.isGizmoVisible : true; onToggled: backendRenderer.isGizmoVisible = checked }
-                        CheckBox { text: "FPS HUD"; checked: backendRenderer ? backendRenderer.showFps : false; onToggled: backendRenderer.showFps = checked }
+                        CheckBox { text: "Gizmo"; checked: backendSettings ? backendSettings.isGizmoVisible : true; onToggled: backendSettings.isGizmoVisible = checked }
+                        CheckBox { text: "FPS HUD"; checked: backendSettings ? backendSettings.showFps : false; onToggled: backendSettings.showFps = checked }
                         Text { text: "Colors"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Button { text: "Wireframe Color"; width: 100; onClicked: meshColorDialog.open() }
@@ -322,10 +322,10 @@ ApplicationWindow {
                         ComboBox {
                             id: scalarCombo
                             width: parent.width
-                            enabled: backendRenderer ? backendRenderer.meshHasScalars : false
-                            model: backendRenderer ? backendRenderer.availableScalars : []
-                            currentIndex: backendRenderer ? backendRenderer.availableScalars.indexOf(backendRenderer.activeScalarName) : -1
-                            onActivated: index => backendRenderer.setActiveScalarField(model[index])
+                            enabled: backendSettings ? backendSettings.meshHasScalars : false
+                            model: backendSettings ? backendSettings.availableScalars : []
+                            currentIndex: backendSettings ? backendSettings.availableScalars.indexOf(backendSettings.activeScalarName) : -1
+                            onActivated: index => backendSettings.setActiveScalarField(model[index])
                         }
                         Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
                         ComboBox {
@@ -333,16 +333,16 @@ ApplicationWindow {
                             width: parent.width
                             height: 34
                             property var entries: {
-                                var names = backendRenderer.getColormapNames();
+                                var names = backendSettings.getColormapNames();
                                 var e = [];
                                 for (var i = 0; i < names.length; ++i)
-                                    e.push({ name: names[i], uri: backendRenderer.getColormapPreviewUri(i) });
+                                    e.push({ name: names[i], uri: backendSettings.getColormapPreviewUri(i) });
                                 return e;
                             }
                             model: entries
                             textRole: "name"
-                            currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
-                            onActivated: index => backendRenderer.colormapChoice = index
+                            currentIndex: backendSettings ? backendSettings.colormapChoice : 0
+                            onActivated: index => backendSettings.colormapChoice = index
                             indicator: Item {}
                             leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
                             background: Rectangle { color: "#2b2b2b"; border.color: "#444"; radius: 3 }
@@ -395,22 +395,22 @@ ApplicationWindow {
                                 highlighted: colormapCombo.highlightedIndex === index
                             }
                         }
-                        CheckBox { text: "Reverse palette"; checked: backendRenderer ? backendRenderer.colormapReversed : false; onToggled: backendRenderer.colormapReversed = checked }
-                        CheckBox { text: "Show colorbar"; checked: backendRenderer ? backendRenderer.showScalarColorbar : true; onToggled: backendRenderer.showScalarColorbar = checked }
+                        CheckBox { text: "Reverse palette"; checked: backendSettings ? backendSettings.colormapReversed : false; onToggled: backendSettings.colormapReversed = checked }
+                        CheckBox { text: "Show colorbar"; checked: backendSettings ? backendSettings.showScalarColorbar : true; onToggled: backendSettings.showScalarColorbar = checked }
                         Row {
                             spacing: 8
                             Text { text: "Colorbar ticks"; color: "#888"; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
                             SpinBox {
                                 id: colorbarTicksSpin
                                 from: 2; to: 20; stepSize: 1
-                                value: backendRenderer ? backendRenderer.colorbarTicks : 6
-                                onValueChanged: backendRenderer.colorbarTicks = value
+                                value: backendSettings ? backendSettings.colorbarTicks : 6
+                                onValueChanged: backendSettings.colorbarTicks = value
                                 width: 64
                             }
                         }
                         Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
-                        ClipSlider { label: "Min"; value: backendRenderer ? backendRenderer.filterMin : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMin = v }
-                        ClipSlider { label: "Max"; value: backendRenderer ? backendRenderer.filterMax : 0; from: backendRenderer ? backendRenderer.dataScalarMinQml : 0; to: backendRenderer ? backendRenderer.dataScalarMaxQml : 1; onSet: v => backendRenderer.filterMax = v }
+                        ClipSlider { label: "Min"; value: backendSettings ? backendSettings.filterMin : 0; from: backendSettings ? backendSettings.dataScalarMinQml : 0; to: backendSettings ? backendSettings.dataScalarMaxQml : 1; onSet: v => backendSettings.filterMin = v }
+                        ClipSlider { label: "Max"; value: backendSettings ? backendSettings.filterMax : 0; from: backendSettings ? backendSettings.dataScalarMinQml : 0; to: backendSettings ? backendSettings.dataScalarMaxQml : 1; onSet: v => backendSettings.filterMax = v }
                     }
 
                     // Screenshot Controls
@@ -418,11 +418,11 @@ ApplicationWindow {
                         visible: rail.activeSection === 5
                         spacing: 4
                         width: parent.width
-                        Button { text: "Save Screenshot"; width: parent.width; onClicked: { screenshotSaveDialog.currentFile = backendRenderer.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
+                        Button { text: "Save Screenshot"; width: parent.width; onClicked: { screenshotSaveDialog.currentFile = backendSettings.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
                         Text { text: "Options"; color: "#888"; font.pixelSize: 10 }
-                        CheckBox { text: "Transparent (PNG)"; checked: backendRenderer ? backendRenderer.screenshotTransparent : false; onToggled: backendRenderer.screenshotTransparent = checked }
-                        LightSlider { label: "JPEG Q"; value: backendRenderer ? backendRenderer.screenshotQuality : 95; from: 1; to: 100; step: 1; onSet: v => backendRenderer.screenshotQuality = v }
-                        LightSlider { label: "Supersample"; value: backendRenderer ? backendRenderer.screenshotScale : 1; from: 1; to: 3; step: 1; onSet: v => backendRenderer.screenshotScale = v }
+                        CheckBox { text: "Transparent (PNG)"; checked: backendSettings ? backendSettings.screenshotTransparent : false; onToggled: backendSettings.screenshotTransparent = checked }
+                        LightSlider { label: "JPEG Q"; value: backendSettings ? backendSettings.screenshotQuality : 95; from: 1; to: 100; step: 1; onSet: v => backendSettings.screenshotQuality = v }
+                        LightSlider { label: "Supersample"; value: backendSettings ? backendSettings.screenshotScale : 1; from: 1; to: 3; step: 1; onSet: v => backendSettings.screenshotScale = v }
                     }
 
                     // Vectors Panel
@@ -430,39 +430,39 @@ ApplicationWindow {
                         visible: rail.activeSection === 4
                         spacing: 4
                         width: parent.width
-                        CheckBox { text: "Show vectors"; checked: backendRenderer ? backendRenderer.showVectors : false; onToggled: backendRenderer.showVectors = checked }
+                        CheckBox { text: "Show vectors"; checked: backendSettings ? backendSettings.showVectors : false; onToggled: backendSettings.showVectors = checked }
                         Text { text: "Field"; color: "#888"; font.pixelSize: 10 }
                         ComboBox {
                             width: parent.width
-                            model: backendRenderer ? backendRenderer.availableVectors : []
-                            currentIndex: backendRenderer ? Math.max(0, backendRenderer.availableVectors.indexOf(backendRenderer.vectorField)) : 0
-                            onActivated: backendRenderer.setActiveVectorField(currentText)
+                            model: backendSettings ? backendSettings.availableVectors : []
+                            currentIndex: backendSettings ? Math.max(0, backendSettings.availableVectors.indexOf(backendSettings.vectorField)) : 0
+                            onActivated: backendSettings.setActiveVectorField(currentText)
                         }
                         Text { text: "Arrow scale"; color: "#888"; font.pixelSize: 10 }
-                        LightSlider { label: "Scale"; value: backendRenderer ? backendRenderer.vectorScale : 1.0; from: 0.01; to: 5.0; step: 0.01; onSet: v => backendRenderer.vectorScale = v }
-                        CheckBox { text: "Scale arrow length by magnitude"; checked: backendRenderer ? backendRenderer.vectorScaleByMagnitude : false; onToggled: backendRenderer.vectorScaleByMagnitude = checked }
+                        LightSlider { label: "Scale"; value: backendSettings ? backendSettings.vectorScale : 1.0; from: 0.01; to: 5.0; step: 0.01; onSet: v => backendSettings.vectorScale = v }
+                        CheckBox { text: "Scale arrow length by magnitude"; checked: backendSettings ? backendSettings.vectorScaleByMagnitude : false; onToggled: backendSettings.vectorScaleByMagnitude = checked }
                         Text { text: "Stride (skip every N)"; color: "#888"; font.pixelSize: 10 }
-                        LightSlider { label: "Stride"; value: backendRenderer ? backendRenderer.vectorStride : 1; from: 1; to: 20; step: 1; onSet: v => backendRenderer.vectorStride = v }
+                        LightSlider { label: "Stride"; value: backendSettings ? backendSettings.vectorStride : 1; from: 1; to: 20; step: 1; onSet: v => backendSettings.vectorStride = v }
                         Row { spacing: 6
                             Button { text: "Vector Color"; width: 100; onClicked: vectorColorDialog.open() }
                         }
                         Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
-                        CheckBox { text: "Color by magnitude"; checked: backendRenderer ? backendRenderer.vectorUseColormap : false; onToggled: backendRenderer.vectorUseColormap = checked }
+                        CheckBox { text: "Color by magnitude"; checked: backendSettings ? backendSettings.vectorUseColormap : false; onToggled: backendSettings.vectorUseColormap = checked }
                         ComboBox {
                             id: vectorColormapCombo
                             width: parent.width
-                            enabled: backendRenderer ? backendRenderer.vectorUseColormap : false
+                            enabled: backendSettings ? backendSettings.vectorUseColormap : false
                             property var entries: {
-                                var names = backendRenderer.getColormapNames();
+                                var names = backendSettings.getColormapNames();
                                 var e = [];
                                 for (var i = 0; i < names.length; ++i)
-                                    e.push({ name: names[i], uri: backendRenderer.getColormapPreviewUri(i) });
+                                    e.push({ name: names[i], uri: backendSettings.getColormapPreviewUri(i) });
                                 return e;
                             }
                             model: entries
                             textRole: "name"
-                            currentIndex: backendRenderer ? backendRenderer.vectorColormapChoice : 0
-                            onActivated: index => backendRenderer.vectorColormapChoice = index
+                            currentIndex: backendSettings ? backendSettings.vectorColormapChoice : 0
+                            onActivated: index => backendSettings.vectorColormapChoice = index
                             height: 34
                             indicator: Item {}
                             leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
@@ -504,7 +504,7 @@ ApplicationWindow {
                                 highlighted: vectorColormapCombo.highlightedIndex === index
                             }
                         }
-                        CheckBox { text: "Reverse palette"; enabled: backendRenderer ? backendRenderer.vectorUseColormap : false; checked: backendRenderer ? backendRenderer.vectorColormapReversed : false; onToggled: backendRenderer.vectorColormapReversed = checked }
+                        CheckBox { text: "Reverse palette"; enabled: backendSettings ? backendSettings.vectorUseColormap : false; checked: backendSettings ? backendSettings.vectorColormapReversed : false; onToggled: backendSettings.vectorColormapReversed = checked }
                     }
 
                     Column {
@@ -514,20 +514,20 @@ ApplicationWindow {
                         Text { text: "Source"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Text { text: "Type"; color: "#888"; font.pixelSize: 11; width: 64 }
-                            Text { text: backendRenderer ? backendRenderer.meshDataType : "�"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.meshDataType : "?"; color: "#ddd"; font.pixelSize: 11 }
                         }
                         Row { spacing: 6
                             Text { text: "Format"; color: "#888"; font.pixelSize: 11; width: 64 }
-                            Text { text: backendRenderer ? backendRenderer.meshFormat : "�"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.meshFormat : "?"; color: "#ddd"; font.pixelSize: 11 }
                         }
                         Text { text: "Geometry"; color: "#888"; font.pixelSize: 10 }
                         Row { spacing: 6
                             Text { text: "Triangles"; color: "#888"; font.pixelSize: 11; width: 64 }
-                            Text { text: backendRenderer ? backendRenderer.triangleCount : 0; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.triangleCount : 0; color: "#ddd"; font.pixelSize: 11 }
                         }
                         Row { spacing: 6
                             Text { text: "Points"; color: "#888"; font.pixelSize: 11; width: 64 }
-                            Text { text: backendRenderer ? backendRenderer.pointCount : 0; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.pointCount : 0; color: "#ddd"; font.pixelSize: 11 }
                         }
                         Text { text: "Bounding box"; color: "#888"; font.pixelSize: 10 }
                         GridLayout {
@@ -539,17 +539,17 @@ ApplicationWindow {
                             Text { text: "Y"; color: "#aaa"; font.pixelSize: 10 }
                             Text { text: "Z"; color: "#aaa"; font.pixelSize: 10 }
                             Text { text: "Min"; color: "#888"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? backendRenderer.worldMinX.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? backendRenderer.worldMinY.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? backendRenderer.worldMinZ.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.worldMinX.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.worldMinY.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.worldMinZ.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: "Max"; color: "#888"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? backendRenderer.worldMaxX.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? backendRenderer.worldMaxY.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? backendRenderer.worldMaxZ.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.worldMaxX.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.worldMaxY.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? backendSettings.worldMaxZ.toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                             Text { text: "Delta"; color: "#888"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? (backendRenderer.worldMaxX - backendRenderer.worldMinX).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? (backendRenderer.worldMaxY - backendRenderer.worldMinY).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
-                            Text { text: backendRenderer ? (backendRenderer.worldMaxZ - backendRenderer.worldMinZ).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? (backendSettings.worldMaxX - backendSettings.worldMinX).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? (backendSettings.worldMaxY - backendSettings.worldMinY).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
+                            Text { text: backendSettings ? (backendSettings.worldMaxZ - backendSettings.worldMinZ).toFixed(3) : "0"; color: "#ddd"; font.pixelSize: 11 }
                         }
                     }
                 }
@@ -558,23 +558,23 @@ ApplicationWindow {
 
         ColorDialog {
             id: bgDialog
-            selectedColor: backendRenderer ? backendRenderer.bgColor : "#000000"
-            onAccepted: backendRenderer.bgColor = selectedColor
+            selectedColor: backendSettings ? backendSettings.bgColor : "#000000"
+            onAccepted: backendSettings.bgColor = selectedColor
         }
         ColorDialog {
             id: meshColorDialog
-            selectedColor: backendRenderer ? backendRenderer.meshColor : "#66e666"
-            onAccepted: backendRenderer.meshColor = selectedColor
+            selectedColor: backendSettings ? backendSettings.meshColor : "#66e666"
+            onAccepted: backendSettings.meshColor = selectedColor
         }
         ColorDialog {
             id: surfaceColorDialog
-            selectedColor: backendRenderer ? backendRenderer.surfaceColor : "#ffffff"
-            onAccepted: backendRenderer.surfaceColor = selectedColor
+            selectedColor: backendSettings ? backendSettings.surfaceColor : "#ffffff"
+            onAccepted: backendSettings.surfaceColor = selectedColor
         }
         ColorDialog {
             id: vectorColorDialog
-            selectedColor: backendRenderer ? backendRenderer.vectorColor : "#3399ff"
-            onAccepted: backendRenderer.vectorColor = selectedColor
+            selectedColor: backendSettings ? backendSettings.vectorColor : "#3399ff"
+            onAccepted: backendSettings.vectorColor = selectedColor
         }
 
         // ---- Help: About ----
@@ -607,7 +607,7 @@ ApplicationWindow {
                     width: parent.width - 36; wrapMode: Text.WordWrap
                 }
                 Text {
-                    text: "Build: MinGW 64-bit · Qt 6.11"
+                    text: "Build: MinGW 64-bit � Qt 6.11"
                     font.pixelSize: 10; color: "#777777"
                 }
             }
@@ -633,8 +633,8 @@ ApplicationWindow {
                     ["W", "Toggle wireframe"],
                     ["G", "Toggle grid"],
                     ["S", "Save screenshot"],
-                    ["← / →", "Orbit (azimuth)"],
-                    ["↑ / ↓", "Elevation"],
+                    ["? / ?", "Orbit (azimuth)"],
+                    ["? / ?", "Elevation"],
                     ["Ctrl + =", "Zoom in"],
                     ["Ctrl + -", "Zoom out"]
                 ]
@@ -683,7 +683,7 @@ ApplicationWindow {
         ViewportVisualizer {
             id: openGLViewport
             anchors.fill: parent
-            renderer: backendRenderer // Links instance reference directly to C++ target
+            settings: backendSettings // Links instance reference directly to C++ target
 
         // Drop zone overlay for dragging raw STL/VTK files directly into the viewport
         DropArea {
@@ -695,7 +695,7 @@ ApplicationWindow {
                     for (let i = 0; i < drop.urls.length; ++i) {
                         let urlStr = drop.urls[i].toString();
                         let cleanPath = urlStr.startsWith("file://") ? urlToPath(urlStr) : urlStr;
-                        backendRenderer.loadMesh(cleanPath);
+                        backendSettings.loadMesh(cleanPath);
                     }
                     drop.acceptProposedAction();
                 }
@@ -710,7 +710,7 @@ ApplicationWindow {
         onAccepted: {
             let urlStr = selectedFile.toString();
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
-            backendRenderer.loadMesh(cleanPath);
+            backendSettings.loadMesh(cleanPath);
         }
     }
 
@@ -724,22 +724,22 @@ ApplicationWindow {
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
             // All formats now route through the GL FBO capture so the on-screen
             // image (mesh + baked colorbar legends) matches the export exactly.
-            backendRenderer.requestScreenshot(cleanPath);
+            backendSettings.requestScreenshot(cleanPath);
         }
     }
 
-    // turntable � ~30fps azimuth nudge while autoRotate is on
+    // turntable ? ~30fps azimuth nudge while autoRotate is on
     Timer {
         interval: 33
-        running: backendRenderer ? backendRenderer.autoRotate : false
+        running: backendSettings ? backendSettings.autoRotate : false
         repeat: true
-        onTriggered: if (backendRenderer) backendRenderer.azimuth(0.6)
+        onTriggered: if (backendSettings) backendSettings.azimuth(0.6)
     }
 
     // FPS HUD needs continuous frames; drive repaints only while shown
     Timer {
         interval: 16
-        running: backendRenderer ? backendRenderer.showFps : false
+        running: backendSettings ? backendSettings.showFps : false
         repeat: true
         onTriggered: openGLViewport.update()
     }
@@ -754,25 +754,25 @@ ApplicationWindow {
         height: hudText.height + 8
         color: "#000000aa"
         radius: 4
-        visible: backendRenderer ? backendRenderer.showFps : false
+        visible: backendSettings ? backendSettings.showFps : false
         Text {
             id: hudText
             anchors.centerIn: parent
-            text: backendRenderer ? backendRenderer.fpsText : ""
+            text: backendSettings ? backendSettings.fpsText : ""
             color: "#7CFC00"
             font.pixelSize: 12
             font.family: "Consolas, Menlo, monospace"
         }
     }
 
-    // ── Floating View & Display quick-bar ─────────────────────────────────────
+    // -- Floating View & Display quick-bar -------------------------------------
     // Persistent, always-accessible display controls overlaid on the top-right of
     // the viewport. Independent of the left rail, so switching rail sections never
-    // hides these. Collapses to a tiny handle (state persisted via backendRenderer).
-    property bool quickBarCollapsed: backendRenderer ? backendRenderer.quickBarCollapsed : false
-    onQuickBarCollapsedChanged: { if (backendRenderer) backendRenderer.quickBarCollapsed = quickBarCollapsed }
+    // hides these. Collapses to a tiny handle (state persisted via backendSettings).
+    property bool quickBarCollapsed: backendSettings ? backendSettings.quickBarCollapsed : false
+    onQuickBarCollapsedChanged: { if (backendSettings) backendSettings.quickBarCollapsed = quickBarCollapsed }
 
-    // Collapsed handle — shown when the bar is collapsed.
+    // Collapsed handle � shown when the bar is collapsed.
     ToolButton {
         id: quickBarHandle
         anchors.top: parent.top
@@ -780,7 +780,7 @@ ApplicationWindow {
         anchors.margins: 8
         width: 30; height: 30
         z: 15
-        text: "\u{25A6}" // ▦ display/panel glyph
+        text: "\u{25A6}" // ? display/panel glyph
         font.pixelSize: 15
         visible: captureRoot.quickBarCollapsed
         hoverEnabled: true
@@ -795,7 +795,7 @@ ApplicationWindow {
         id: quickBar
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.topMargin: (backendRenderer && backendRenderer.showFps) ? (hudText.height + 16) : 8
+        anchors.topMargin: (backendSettings && backendSettings.showFps) ? (hudText.height + 16) : 8
         anchors.rightMargin: 8
         width: quickBarRow.implicitWidth + 16
         height: quickBarRow.implicitHeight + 12
@@ -803,7 +803,7 @@ ApplicationWindow {
         radius: 6
         border.color: "#555"
         z: 15
-        visible: backendRenderer ? (backendRenderer.hasMeshLoaded && !captureRoot.quickBarCollapsed) : false
+        visible: backendSettings ? (backendSettings.hasMeshLoaded && !captureRoot.quickBarCollapsed) : false
         clip: true
 
         RowLayout {
@@ -827,48 +827,48 @@ ApplicationWindow {
                 }
             }
 
-            // ── Display toggles ──
+            // -- Display toggles --
             QBButton {
                 text: "W"; ToolTip.text: "Wireframe"; ToolTip.visible: hovered
                 Accessible.name: "Wireframe"
-                active: backendRenderer ? backendRenderer.isWireframe : false
-                onClicked: backendRenderer.isWireframe = !backendRenderer.isWireframe
+                active: backendSettings ? backendSettings.isWireframe : false
+                onClicked: backendSettings.isWireframe = !backendSettings.isWireframe
             }
             QBButton {
                 text: "G"; ToolTip.text: "Grid"; ToolTip.visible: hovered
                 Accessible.name: "Grid"
-                active: backendRenderer ? backendRenderer.isGridVisible : false
-                onClicked: backendRenderer.isGridVisible = !backendRenderer.isGridVisible
+                active: backendSettings ? backendSettings.isGridVisible : false
+                onClicked: backendSettings.isGridVisible = !backendSettings.isGridVisible
             }
             QBButton {
                 text: "S"; ToolTip.text: "Surface"; ToolTip.visible: hovered
                 Accessible.name: "Surface"
-                active: backendRenderer ? backendRenderer.isSurfaceVisible : false
-                onClicked: backendRenderer.isSurfaceVisible = !backendRenderer.isSurfaceVisible
+                active: backendSettings ? backendSettings.isSurfaceVisible : false
+                onClicked: backendSettings.isSurfaceVisible = !backendSettings.isSurfaceVisible
             }
 
             Rectangle { width: 1; height: 22; color: "#555" }
 
-            // ── Orthographic view snaps ──
-            QBButton { text: "+X"; ToolTip.text: "Ortho +X"; ToolTip.visible: hovered; Accessible.name: "Ortho +X"; onClicked: backendRenderer.snapToOrthoView(0) }
-            QBButton { text: "\u2212X"; ToolTip.text: "Ortho -X"; ToolTip.visible: hovered; Accessible.name: "Ortho -X"; onClicked: backendRenderer.snapToOrthoView(1) }
-            QBButton { text: "+Y"; ToolTip.text: "Ortho +Y"; ToolTip.visible: hovered; Accessible.name: "Ortho +Y"; onClicked: backendRenderer.snapToOrthoView(2) }
-            QBButton { text: "\u2212Y"; ToolTip.text: "Ortho -Y"; ToolTip.visible: hovered; Accessible.name: "Ortho -Y"; onClicked: backendRenderer.snapToOrthoView(3) }
-            QBButton { text: "+Z"; ToolTip.text: "Ortho +Z"; ToolTip.visible: hovered; Accessible.name: "Ortho +Z"; onClicked: backendRenderer.snapToOrthoView(4) }
-            QBButton { text: "\u2212Z"; ToolTip.text: "Ortho -Z"; ToolTip.visible: hovered; Accessible.name: "Ortho -Z"; onClicked: backendRenderer.snapToOrthoView(5) }
+            // -- Orthographic view snaps --
+            QBButton { text: "+X"; ToolTip.text: "Ortho +X"; ToolTip.visible: hovered; Accessible.name: "Ortho +X"; onClicked: backendSettings.snapToOrthoView(0) }
+            QBButton { text: "\u2212X"; ToolTip.text: "Ortho -X"; ToolTip.visible: hovered; Accessible.name: "Ortho -X"; onClicked: backendSettings.snapToOrthoView(1) }
+            QBButton { text: "+Y"; ToolTip.text: "Ortho +Y"; ToolTip.visible: hovered; Accessible.name: "Ortho +Y"; onClicked: backendSettings.snapToOrthoView(2) }
+            QBButton { text: "\u2212Y"; ToolTip.text: "Ortho -Y"; ToolTip.visible: hovered; Accessible.name: "Ortho -Y"; onClicked: backendSettings.snapToOrthoView(3) }
+            QBButton { text: "+Z"; ToolTip.text: "Ortho +Z"; ToolTip.visible: hovered; Accessible.name: "Ortho +Z"; onClicked: backendSettings.snapToOrthoView(4) }
+            QBButton { text: "\u2212Z"; ToolTip.text: "Ortho -Z"; ToolTip.visible: hovered; Accessible.name: "Ortho -Z"; onClicked: backendSettings.snapToOrthoView(5) }
 
             Rectangle { width: 1; height: 22; color: "#555" }
 
-            // ── Reset camera ──
+            // -- Reset camera --
             QBButton {
-                text: "\u21BB"; // ↻
+                text: "\u21BB"; // ?
                 ToolTip.text: "Reset Camera"; ToolTip.visible: hovered
                 Accessible.name: "Reset Camera"
-                onClicked: backendRenderer.resetCamera()
+                onClicked: backendSettings.resetCamera()
             }
-            // ── Collapse ──
+            // -- Collapse --
             QBButton {
-                text: "\u00D7" // ×
+                text: "\u00D7" // �
                 ToolTip.text: "Collapse quick-bar"; ToolTip.visible: hovered
                 Accessible.name: "Collapse quick-bar"
                 onClicked: captureRoot.quickBarCollapsed = true
@@ -882,7 +882,7 @@ ApplicationWindow {
         color: "#888888"
         font.pixelSize: 16
         anchors.centerIn: parent
-        visible: backendRenderer ? !backendRenderer.hasMeshLoaded : true
+        visible: backendSettings ? !backendSettings.hasMeshLoaded : true
     }
 
     // NOTE: The colorbar legends (scalar + vector magnitude) are now baked into
@@ -901,11 +901,11 @@ ApplicationWindow {
         height: statusToastText.height + 14
         radius: 6
         color: "#cc2222"
-        visible: backendRenderer ? backendRenderer.statusMessage !== "" : false
+        visible: backendSettings ? backendSettings.statusMessage !== "" : false
         Text {
             id: statusToastText
             anchors.centerIn: parent
-            text: backendRenderer ? backendRenderer.statusMessage : ""
+            text: backendSettings ? backendSettings.statusMessage : ""
             color: "#ffffff"
             font.pixelSize: 12
             padding: 7
@@ -921,22 +921,22 @@ ApplicationWindow {
             MenuItem { text: "Open Mesh..."; onTriggered: fileDialog.open() }
             Menu {
                 title: "Open Recent"
-                enabled: backendRenderer ? backendRenderer.recentFiles.length > 0 : false
+                enabled: backendSettings ? backendSettings.recentFiles.length > 0 : false
                 // rebuild the submenu from recentFiles each open
                 onAboutToShow: {
                     // QQuickMenu has no clearMenuItems(); remove all current items
                     while (count > 0) { let it = itemAt(0); removeItem(it); it.destroy(); }
-                    const list = backendRenderer ? backendRenderer.recentFiles : [];
+                    const list = backendSettings ? backendSettings.recentFiles : [];
                     for (let i = 0; i < list.length; ++i) {
                         const p = list[i];
                         const item = recentItem.createObject(this, { "text": p });
-                        item.triggered.connect(() => backendRenderer.openRecent(p));
+                        item.triggered.connect(() => backendSettings.openRecent(p));
                         addItem(item);
                     }
                 }
                 Component { id: recentItem; MenuItem {} }
             }
-            MenuItem { text: "Clear"; onTriggered: backendRenderer.clearMeshes() }
+            MenuItem { text: "Clear"; onTriggered: backendSettings.clearMeshes() }
             MenuSeparator {}
             MenuItem { text: "Exit"; onTriggered: Qt.quit() }
         }
@@ -945,7 +945,7 @@ ApplicationWindow {
             MenuItem { text: "Lighting"; onTriggered: rail.toggleSection(0) }
             MenuItem { text: "Slicing & Clipping"; onTriggered: rail.toggleSection(1) }
             MenuSeparator {}
-            MenuItem { text: "Reset Camera"; onTriggered: backendRenderer.resetCamera() }
+            MenuItem { text: "Reset Camera"; onTriggered: backendSettings.resetCamera() }
         }
         Menu {
             title: "Help"
@@ -966,11 +966,11 @@ ApplicationWindow {
             anchors.leftMargin: 8
             color: "#bbbbbb"
             font.pixelSize: 11
-            text: (backendRenderer && backendRenderer.hasMeshLoaded)
-                ? "Mesh: " + backendRenderer.currentMeshName
-                  + "   |   Type: " + backendRenderer.meshDataType
-                  + "   |   Points: " + backendRenderer.pointCount
-                  + "   |   Triangles: " + backendRenderer.triangleCount
+            text: (backendSettings && backendSettings.hasMeshLoaded)
+                ? "Mesh: " + backendSettings.currentMeshName
+                  + "   |   Type: " + backendSettings.meshDataType
+                  + "   |   Points: " + backendSettings.pointCount
+                  + "   |   Triangles: " + backendSettings.triangleCount
                 : "No mesh loaded | drag a .stl / .vtk file, or use File > Open Mesh"
         }
     }

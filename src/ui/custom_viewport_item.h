@@ -5,6 +5,7 @@
 #include <QPoint>
 #include <QString>
 #include "render/renderer.h"
+#include "render/render_settings.h"
 
 class ViewportFboRenderer : public QQuickFramebufferObject::Renderer {
 public:
@@ -32,18 +33,18 @@ private:
 
 class ViewportVisualizer : public QQuickFramebufferObject {
     Q_OBJECT
-    Q_PROPERTY(::Renderer* renderer READ renderer WRITE setRenderer NOTIFY rendererChanged)
+    Q_PROPERTY(::RenderSettings* settings READ settings WRITE setSettings NOTIFY settingsChanged)
 
 public:
     explicit ViewportVisualizer(QQuickItem* parent = nullptr);
 
-    ::Renderer* renderer() const;
-    void setRenderer(::Renderer* r);
+    ::RenderSettings* settings() const;
+    void setSettings(::RenderSettings* s);
 
     QQuickFramebufferObject::Renderer* createRenderer() const override;
 
 signals:
-    void rendererChanged();
+    void settingsChanged();
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -55,7 +56,7 @@ private:
     // Screenshot path forwarded from the GUI thread; consumed in synchronize().
     QString m_pendingScreenshot;
     bool m_needsRender = true; // set by signal lambdas; copied into the renderer's dirty flag
-    ::Renderer* m_scene = nullptr;
+    ::RenderSettings* m_settings = nullptr;
     QPoint m_lastMousePos;
     bool m_isRightClick = false;
     friend class ViewportFboRenderer;

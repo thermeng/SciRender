@@ -22,7 +22,6 @@
 #include <QPainter>
 #include <QFont>
 
-// Qt Core & UI Utilities replacing Win32 APIs
 #include <QDir>
 #include <QQuickOpenGLUtils>
 #include <QFileInfo>
@@ -43,36 +42,24 @@ static bool compileShader(GLuint shader, const char* source, const char* type) {
     return true;
 }
 
-Renderer::Renderer(QObject* parent)
-    : QObject(parent), width(800), height(600), hasMeshLoaded(false) {
-
-    // Default system initialization parameters
-    meshColor[0] = 0.4f; meshColor[1] = 0.9f; meshColor[2] = 0.4f;
-    surfaceColor[0] = 1.0f; surfaceColor[1] = 1.0f; surfaceColor[2] = 1.0f;
-    bgColor[0] = 0.12f; bgColor[1] = 0.12f; bgColor[2] = 0.12f;
-
-    worldCenterX = 0.0; worldCenterY = 0.0; worldCenterZ = 0.0;
-    worldRadius = 1.0;
-
-    // LOD debounce: when the camera stops moving, this fires once and forces a
-    // final repaint with the full-resolution mesh.
-    m_lodTimer = new QTimer(this);
-    m_lodTimer->setSingleShot(true);
-    m_lodTimer->setInterval(140);
-    connect(m_lodTimer, &QTimer::timeout, this, &Renderer::onLodTimer);
-
-    loadRecentFromSettings();
+Renderer::Renderer()
+    : m_state() {
+    // Default system initialization parameters (mirror RenderSettings defaults;
+    // the first synchronize() overwrites these with the GUI snapshot).
+    m_state.meshColor[0] = 0.4f; m_state.meshColor[1] = 0.9f; m_state.meshColor[2] = 0.4f;
+    m_state.surfaceColor[0] = 1.0f; m_state.surfaceColor[1] = 1.0f; m_state.surfaceColor[2] = 1.0f;
+    m_state.bgColor[0] = 0.12f; m_state.bgColor[1] = 0.12f; m_state.bgColor[2] = 0.12f;
+    m_state.worldCenterX = 0.0; m_state.worldCenterY = 0.0; m_state.worldCenterZ = 0.0;
+    m_state.worldRadius = 1.0;
 }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wattributes"
 Renderer::~Renderer() {
-    m_destroying = true; // suppress signal emissions during teardown
-    clearMeshes();
+    m_destroying = true;
     // GL deletes must only run with a current context. The Renderer lives on the
-    // GUI thread and is torn down after the scene graph, so no GL context is
-    // current here � calling glDelete* would emit GL errors and leak nothing
-    // recoverable. Skip them; the driver reclaims the resources with the context.
+    // render thread and is torn down after the scene graph, so no GL context is
+    // current here -> skip them; the driver reclaims the resources with the context.
     if (QOpenGLContext::currentContext()) {
         if (shaderProgram) glDeleteProgram(shaderProgram);
         if (gridProgram) glDeleteProgram(gridProgram);
@@ -267,7 +254,7 @@ void Renderer::initGrid() {
     gridFalloffLoc = glGetUniformLocation(gridProgram, "uFalloff");
     gridPlaneYLoc  = glGetUniformLocation(gridProgram, "uPlaneY");
 
-    const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f,  1.0f, 1.0f };
+    const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f, 1.0f, 1.0f };
     glGenVertexArrays(1, &gridVAO);
     glGenBuffers(1, &gridVBO);
     glBindVertexArray(gridVAO);
@@ -279,11 +266,9 @@ void Renderer::initGrid() {
 }
 
 void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
-    if (!showGrid || gridProgram == 0) return;
+    if (!m_state.showGrid || gridProgram == 0) return;
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    // Force filled: the wireframe pass may have left GL_POLYGON_MODE as GL_LINE,
-    // which would rasterize the fullscreen grid quad as just its edges (grid vanishes).
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     glUseProgram(gridProgram);
 
@@ -293,14 +278,12 @@ void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
     glUniformMatrix4fv(gridInvProjLoc, 1, GL_FALSE, glm::value_ptr(invProj));
     glUniformMatrix4fv(gridViewLoc, 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(gridProjLoc, 1, GL_FALSE, glm::value_ptr(proj));
-    glUniform3f(gridCamPosLoc, (float)camera.position.x, (float)camera.position.y, (float)camera.position.z);
-    // Pick a grid-line color that contrasts with the background so it never
-    // blends into it when the user changes the background color.
-    float bgLum = 0.299f * bgColor[0] + 0.587f * bgColor[1] + 0.114f * bgColor[2];
+    glUniform3f(gridCamPosLoc, (float)m_state.camera.position.x, (float)m_state.camera.position.y, (float)m_state.camera.position.z);
+    float bgLum = 0.299f * m_state.bgColor[0] + 0.587f * m_state.bgColor[1] + 0.114f * m_state.bgColor[2];
     glm::vec3 gridCol = (bgLum > 0.5f) ? glm::vec3(0.18f, 0.18f, 0.20f)
                                         : glm::vec3(0.78f, 0.78f, 0.82f);
     glUniform3f(gridColorLoc, gridCol.r, gridCol.g, gridCol.b);
-    glUniform3f(gridBgLoc, bgColor[0], bgColor[1], bgColor[2]);
+    glUniform3f(gridBgLoc, m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2]);
     glUniform1f(gridFalloffLoc, 0.02f);
     glUniform1f(gridPlaneYLoc, static_cast<float>(gridPlaneY));
 
@@ -312,12 +295,6 @@ void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
     glUseProgram(0);
 }
 
-void Renderer::toggleGrid(bool visible) {
-    if (showGrid == visible) return;
-    showGrid = visible;
-    emit gridVisibilityChanged();
-}
-
 void Renderer::initGizmo() {
     gizmo.init();
     colorbarOverlay.init();
@@ -325,285 +302,60 @@ void Renderer::initGizmo() {
 
 void Renderer::uploadMesh(const RenderMesh& renderMesh) {
     meshManager.upload(renderMesh);
-    // (re)build instanced vector arrow glyphs from the freshly uploaded mesh
-    // (full geometry + pointVectors), NOT the stripped cachedMeshSource.
-    vectorGlyph.rebuild(renderMesh, vectorStride);
-    emit vectorColormapChanged(); // refresh vector colorbar range
+    m_lastUploadedMesh = renderMesh;
+    vectorGlyph.rebuild(renderMesh, m_state.vectorStride);
+}
+
+void Renderer::queueMesh(const RenderMesh& renderMesh) {
+    std::lock_guard<std::mutex> lock(meshQueueMutex);
+    dynamicMeshQueue = renderMesh;
+    meshManager.meshChanged = true;
+}
+
+void Renderer::takeQueuedMesh(RenderMesh& out) {
+    std::lock_guard<std::mutex> lock(meshQueueMutex);
+    out = std::move(dynamicMeshQueue);
 }
 
 void Renderer::markCameraMoving() {
     cameraMoving = true;
-    if (m_lodTimer) m_lodTimer->start(); // (re)arm: fires 140ms after motion stops
+    m_lastMotion = std::chrono::steady_clock::now();
 }
 
 void Renderer::onLodTimer() {
     cameraMoving = false;
-    emit viewChanged(); // one last repaint, now with the full mesh
 }
 
 void Renderer::computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head) {
-    lighting.computeDirections(camera.position, camera.focalPoint, camera.viewUp,
-                              key, fill, back1, back2, head);
+    m_state.lighting.computeDirections(m_state.camera.position, m_state.camera.focalPoint, m_state.camera.viewUp,
+                               key, fill, back1, back2, head);
 }
 
-void Renderer::clearMeshes() {
-    meshManager.clear();
-    if (QOpenGLContext::currentContext()) vectorGlyph.shutdown();
-    else vectorGlyph = VectorGlyphSet{}; // no GL ctx on GUI teardown: just drop handles
-
-    hasMeshLoaded = false;
-    meshHasScalars = false;
-    triangleCount = 0;
-    pointCount = 0;
-    meshDataType = "";
-    meshFormat = "";
-    currentMeshName = "";
-    if (!m_destroying) emit meshLoadStateChanged();
+void Renderer::applyLightingPreset(int preset) {
+    m_state.lighting.applyPreset(preset);
 }
 
-void Renderer::openRecent(const QString& filePath) {
-    if (filePath.isEmpty()) return;
-    loadMesh(filePath);
-}
-
-void Renderer::loadRecentFromSettings() {
-    QSettings s;
-    recentFiles = s.value("recentFiles").toStringList();
-    recentFiles.removeAll(""); // guard against stale empty entries
-}
-
-void Renderer::saveRecentToSettings() const {
-    QSettings s;
-    s.setValue("recentFiles", recentFiles);
-}
-
-void Renderer::saveStateToSettings() const {
-    QSettings s;
-    s.beginGroup("state");
-    // camera
-    s.setValue("camDistance", camera.distance);
-    s.setValue("camFocal", QVariantList{ camera.focalPoint.x, camera.focalPoint.y, camera.focalPoint.z });
-    s.setValue("camPos", QVariantList{ camera.position.x, camera.position.y, camera.position.z });
-    s.setValue("camUp", QVariantList{ camera.viewUp.x, camera.viewUp.y, camera.viewUp.z });
-    s.setValue("bgColor", QVariantList{ bgColor[0], bgColor[1], bgColor[2] });
-    // lighting
-    s.setValue("matSpecular", lighting.matSpecular);
-    s.setValue("matShininess", lighting.matShininess);
-    s.setValue("lightKeyIntensity", lighting.lightKeyIntensity);
-    s.setValue("lightWarm", lighting.lightWarm);
-    s.setValue("lightKitEnabled", lighting.lightKitEnabled);
-    // colormap
-    s.setValue("colormapChoice", colormap.scalarChoice());
-    s.setValue("colormapReversed", colormap.scalarReversed());
-    // vectors
-    s.setValue("vectorScale", vectorScale);
-    s.setValue("vectorScaleByMagnitude", vectorScaleByMagnitude);
-    // UI: floating viewport quick-bar collapse state
-    s.setValue("quickBarCollapsed", quickBarCollapsed);
-    s.endGroup();
-}
-
-void Renderer::restoreStateFromSettings() {
-    QSettings s;
-    if (!s.childGroups().contains("state")) return;
-    s.beginGroup("state");
-    auto readVec3 = [&](const QString& key, glm::dvec3& out) {
-        QVariantList v = s.value(key).toList();
-        if (v.size() == 3) out = glm::dvec3(v[0].toDouble(), v[1].toDouble(), v[2].toDouble());
-    };
-    auto readFColor = [&](const QString& key, float* c) {
-        QVariantList v = s.value(key).toList();
-        if (v.size() == 3) { c[0] = v[0].toFloat(); c[1] = v[1].toFloat(); c[2] = v[2].toFloat(); }
-    };
-
-    if (s.contains("camDistance")) {
-        camera.distance = s.value("camDistance").toDouble();
-        readVec3("camFocal", camera.focalPoint);
-        readVec3("camPos", camera.position);
-        readVec3("camUp", camera.viewUp);
-        camera.maxDistance = std::max(1000.0, camera.distance * 50.0);
-        camera.orthogonalizeViewUp();
-    }
-    readFColor("bgColor", bgColor);
-    if (s.contains("matSpecular")) {
-        lighting.matSpecular = s.value("matSpecular").toFloat();
-        lighting.matShininess = s.value("matShininess").toFloat();
-        lighting.lightKeyIntensity = s.value("lightKeyIntensity").toFloat();
-        lighting.lightWarm = s.value("lightWarm").toFloat();
-        lighting.lightKitEnabled = s.value("lightKitEnabled").toBool();
-    }
-    if (s.contains("colormapChoice")) {
-        colormap.setScalarChoice(s.value("colormapChoice").toInt());
-        colormap.setScalarReversed(s.value("colormapReversed").toBool());
-    }
-    if (s.contains("vectorScale")) {
-        vectorScale = s.value("vectorScale").toFloat();
-        vectorScaleByMagnitude = s.value("vectorScaleByMagnitude").toBool();
-    }
-    if (s.contains("quickBarCollapsed")) {
-        quickBarCollapsed = s.value("quickBarCollapsed").toBool();
-    }
-    s.endGroup();
-}
-
-void Renderer::setStatus(const QString& msg) {
-    if (statusMessage == msg) return;
-    statusMessage = msg;
-    emit statusMessageChanged();
-}
-
-void Renderer::loadMesh(const QString& filePath) {
-    if (filePath.isEmpty()) return;
-
-    std::string stdPath = filePath.toStdString();
-    if (stdPath.rfind("file:///", 0) == 0) {
-        stdPath = stdPath.substr(8);
-    } else if (stdPath.rfind("file://", 0) == 0) {
-        stdPath = stdPath.substr(7);
-    }
-
-    RenderMesh loaded;
-    try {
-        loaded = loadMeshFile(stdPath);
-    } catch (const std::exception& e) {
-        setStatus(QString("Failed to load %1: %2").arg(QString::fromStdString(stdPath)).arg(e.what()));
-        return;
-    } catch (...) {
-        setStatus(QString("Failed to load %1: unknown error").arg(QString::fromStdString(stdPath)));
-        return;
-    }
-
-    if (loaded.vertices.empty()) {
-        setStatus(QString("Could not load %1: unsupported format or empty file")
-                      .arg(QString::fromStdString(stdPath)));
-        std::cerr << "Engine aborted mapping out invalid/empty file path target: " << stdPath << std::endl;
-        return;
-    }
-
-    // Thread-safe handoff of the CPU geometry data. Move the full mesh into the
-    // queue (no deep copy) — the render thread will take it under this same
-    // mutex and upload it. The GUI thread keeps the full copy here until the
-    // next load.
-    {
-        std::lock_guard<std::mutex> lock(meshQueueMutex);
-        dynamicMeshQueue = std::move(loaded);
-        // Copy (not move) the source under the lock so field switches that
-        // also take this mutex see a consistent snapshot.
-        cachedMeshSource = dynamicMeshQueue;
-    }
-
-
-    // NOTE: meshChanged is an atomic flag consumed by the render thread in
-    // consumeMeshChanged(); set it so the queued mesh gets uploaded.
-    meshManager.meshChanged = true;
-
-    worldMinX = dynamicMeshQueue.bounds.minX; worldMaxX = dynamicMeshQueue.bounds.maxX;
-    worldMinY = dynamicMeshQueue.bounds.minY; worldMaxY = dynamicMeshQueue.bounds.maxY;
-    worldMinZ = dynamicMeshQueue.bounds.minZ; worldMaxZ = dynamicMeshQueue.bounds.maxZ;
-    gridPlaneY = worldMinY; // ground the grid at the mesh's lowest point
-
-    worldCenterX = dynamicMeshQueue.bounds.centerX;
-    worldCenterY = dynamicMeshQueue.bounds.centerY;
-    worldCenterZ = dynamicMeshQueue.bounds.centerZ;
-    worldRadius  = dynamicMeshQueue.bounds.worldRadius;
-
-    QFileInfo fileInfo(QString::fromStdString(stdPath));
-    currentMeshName = fileInfo.fileName().toStdString();
-    triangleCount = static_cast<int>(dynamicMeshQueue.indices.size() / 3);
-    // Report the topological point count (deduped, pre-normal-split) so the UI
-    // matches what ParaView shows. computeNormals() duplicates vertices at sharp
-    // edges only for shading, which would otherwise inflate the "Points" value.
-    pointCount = dynamicMeshQueue.sourcePointCount >= 0
-        ? dynamicMeshQueue.sourcePointCount
-        : static_cast<int>(dynamicMeshQueue.vertices.size() / 3);
-    meshDataType = dynamicMeshQueue.datasetType;
-    meshFormat = dynamicMeshQueue.fileFormat;
-
-    hasMeshLoaded = true;
-
-    // Reset per-mesh vector state so a newly loaded mesh doesn't inherit the
-    // previous mesh's vector field / toggles / magnitude range.
-    setShowVectors(false);
-    setVectorUseColormap(false);
-    setClipEnabled(false); // disable clipping on a fresh mesh
-    if (!dynamicMeshQueue.pointVectors.empty()) {
-        cachedMeshSource.vectorName = dynamicMeshQueue.availableVectorNames.front();
-    } else {
-        cachedMeshSource.vectorName.clear();
-    }
-    if (vectorGlyph.magMin != 0.0f || vectorGlyph.magMax != 1.0f) {
-        vectorGlyph.magMin = 0.0f;
-        vectorGlyph.magMax = 1.0f;
-        emit vectorColormapChanged();
-    }
-    vectorGlyphDirty = true; // force glyph buffer rebuild for the new geometry
-
-    if (!dynamicMeshQueue.scalars.empty()) {
-        meshHasScalars = true;
-        setShowScalarColorbar(true);
-        activeScalarName = dynamicMeshQueue.scalarName;
-        float minVal = dynamicMeshQueue.scalars[0];
-        float maxVal = dynamicMeshQueue.scalars[0];
-        for (float val : dynamicMeshQueue.scalars) {
-            if (val < minVal) minVal = val;
-            if (val > maxVal) maxVal = val;
-        }
-        // Guard a uniform field so the shader never divides by zero
-        // (uScalarMax - uScalarMin == 0). The VTK parser already does this
-        // for its own range, but we recompute here and must keep the guard.
-        if (maxVal - minVal < 1e-6f) maxVal = minVal + 1.0f;
-        dataScalarMin = minVal;
-        dataScalarMax = maxVal;
-        scalarMin = dataScalarMin;
-        scalarMax = dataScalarMax;
-        filterMin = dataScalarMin;
-        filterMax = dataScalarMax;
-    } else {
-        meshHasScalars = false;
-        setShowScalarColorbar(false);
-        dataScalarMin = 0.0f;
-        dataScalarMax = 1.0f;
-    }
-
-    resetCamera();
-
-    {
-        QString absPath = QFileInfo(QString::fromStdString(stdPath)).absoluteFilePath();
-        recentFiles.removeAll(absPath);
-        recentFiles.prepend(absPath);
-        while (recentFiles.size() > 8) recentFiles.removeLast();
-        emit meshLoadStateChanged();
-        saveRecentToSettings();
-    }
-
-    emit meshLoadStateChanged();
-    emit meshDataUpdated();
-    setStatus("");
-    saveStateToSettings();
+void Renderer::resetLighting() {
+    m_state.lighting.reset();
 }
 
 void Renderer::resetCamera() {
-    camera.focalPoint = glm::dvec3(worldCenterX, worldCenterY, worldCenterZ);
+    Camera& camera = m_state.camera;
+    camera.focalPoint = glm::dvec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
 
-    // Fit the whole bounding box in view. worldRadius is only half the largest
-    // single axis, which under-frames elongated/cubic meshes in some viewports
-    // (the mesh spills past the edges). Use the full box diagonal so any mesh
-    // shape/orientation is fully contained, and pad for the 45� FOV + aspect.
-    const double dx = worldMaxX - worldMinX;
-    const double dy = worldMaxY - worldMinY;
-    const double dz = worldMaxZ - worldMinZ;
+    const double dx = m_state.worldMaxX - m_state.worldMinX;
+    const double dy = m_state.worldMaxY - m_state.worldMinY;
+    const double dz = m_state.worldMaxZ - m_state.worldMinZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     const double fitRadius = diag * 0.5;
 
-    // Account for the narrower of (horizontal, vertical) due to aspect ratio so
-    // the mesh never clips at the short edge of a non-square viewport.
     const double aspect = (height > 0) ? (static_cast<double>(width) / static_cast<double>(height)) : 1.0;
     const double fov = glm::radians(45.0);
     const double vFov = fov;
     const double hFov = 2.0 * std::atan(std::tan(fov * 0.5) * aspect);
     const double effFov = std::min(vFov, hFov);
     double dist = fitRadius / std::tan(effFov * 0.5);
-    dist *= 1.3; // margin so it isn't edge-to-edge
+    dist *= 1.3;
 
     camera.distance = dist;
     if (camera.distance < 1.0) camera.distance = 1.0;
@@ -613,8 +365,15 @@ void Renderer::resetCamera() {
     camera.position = camera.focalPoint + glm::dvec3(0.0, 0.0, camera.distance);
     camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
     camera.orthogonalizeViewUp();
-    emit viewChanged();
-    emit meshDataUpdated();
+}
+
+void Renderer::snapToOrthoView(int axis) {
+    m_state.camera.snapToOrthoView(axis);
+}
+
+void Renderer::snapToAxisView(int axis, bool flip) {
+    int preset = flip ? (axis * 2 + 1) : (axis * 2);
+    m_state.camera.snapToOrthoView(preset);
 }
 
 void Renderer::resizeViewport(int w, int h) {
@@ -622,76 +381,28 @@ void Renderer::resizeViewport(int w, int h) {
     height = h;
 }
 
-void Renderer::setColormapChoice(int choice) {
-    if (colormap.scalarChoice() == choice) return;
-    colormap.setScalarChoice(choice);
-    emit colormapChanged();
+void Renderer::clearGpuMeshes() {
+    meshManager.clear();
+    vectorGlyph = VectorGlyphSet{};
+    m_lastUploadedMesh = RenderMesh{};
+    m_state.hasMeshLoaded = false;
 }
 
-void Renderer::setColormapReversed(bool reversed) {
-    if (colormap.scalarReversed() == reversed) return;
-    colormap.setScalarReversed(reversed);
-    emit colormapChanged();
+bool Renderer::consumeScalarDirty() {
+    return scalarDirty.exchange(false);
 }
 
-void Renderer::setVectorColormapReversed(bool reversed) {
-    if (colormap.vectorReversed() == reversed) return;
-    colormap.setVectorReversed(reversed);
-    emit vectorColormapChanged();
-}
-
-void Renderer::applyLightingPreset(int preset) {
-    lighting.applyPreset(preset);
-    emit lightingParametersChanged();
-}
-
-void Renderer::resetLighting() {
-    lighting.reset();
-    emit lightingParametersChanged();
-}
-
-void Renderer::setWireframe(bool enabled) {
-    if (showWireframe == enabled) return;
-    showWireframe = enabled;
-    emit wireframeChanged();
-}
-
-void Renderer::setUseLod(bool enabled) {
-    if (useLod == enabled) return;
-    useLod = enabled;
-    cameraMoving = false;
-    if (m_lodTimer) m_lodTimer->stop();
-    emit viewChanged();
-}
-
-void Renderer::toggleSurface(bool visible) {
-    if (showSurface == visible) return;
-    showSurface = visible;
-    emit surfaceVisibilityChanged();
-}
-
-void Renderer::snapToOrthoView(int axis) {
-    camera.snapToOrthoView(axis);
-    emit viewChanged();
-}
-
-void Renderer::snapToAxisView(int axis, bool flip) {
-    int preset = flip ? (axis * 2 + 1) : (axis * 2);
-    camera.snapToOrthoView(preset);
-    emit viewChanged();
-}
-
-void Renderer::requestScreenshot(const QString& path) {
-    if (path.isEmpty()) return;
-    emit screenshotRequested(path);
+void Renderer::updateScalarsOnGPU(const std::vector<float>& scalars) {
+    m_pendingScalarSrc = scalars;
+    meshManager.updateScalars(scalars);
 }
 
 bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferObject* fbo) {
     if (path.isEmpty()) return false;
 
     ExportConfig config;
-    config.transparentBackground = screenshotTransparent;
-    config.quality = screenshotQuality;
+    config.transparentBackground = m_state.screenshotTransparent;
+    config.quality = m_state.screenshotQuality;
     config.format = ExportFormat::PNG;
 
     QString targetPath = path;
@@ -709,16 +420,11 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
 
     const bool captureTransparent = config.transparentBackground && (config.format == ExportFormat::PNG);
 
-    // Supersample: render the scene into a temporary higher-resolution FBO so
-    // the export is sharper than the on-screen viewport. Scale is a small
-    // integer multiplier (1 = device resolution, matching the live view).
-    if (fbo && screenshotScale > 1) {
+    if (fbo && m_state.screenshotScale > 1) {
         int baseW = fbo->width();
         int baseH = fbo->height();
-        int sw = baseW * screenshotScale;
-        int sh = baseH * screenshotScale;
-        // Bound the transient FBO/CPU allocation so a high-res + HiDPI + 4x
-        // capture can't spike hundreds of MB at once.
+        int sw = baseW * m_state.screenshotScale;
+        int sh = baseH * m_state.screenshotScale;
         const int kMaxDim = 8192;
         if (sw > kMaxDim) sw = kMaxDim;
         if (sh > kMaxDim) sh = kMaxDim;
@@ -728,9 +434,6 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
         fmt.setSamples(0);
         QOpenGLFramebufferObject superFbo(QSize(sw, sh), fmt);
         if (superFbo.isValid()) {
-            // Temporarily resize the renderer so renderFrame() targets the
-            // supersampled FBO with correct viewport + colorbar layout.
-            // RAII guard restores the state even if renderFrame() throws.
             int savedW = width, savedH = height;
             float savedDpr = devicePixelRatio;
             auto restoreState = [&]() {
@@ -763,183 +466,26 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
     std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(boundFbo, deviceW, deviceH, captureTransparent);
 
     bool success = ScreenshotExporter::saveToFile(config.filePath, pixels, deviceW, deviceH, config);
-    if (success) emit screenshotCaptured(targetPath);
     return success;
-}
-
-QStringList Renderer::getAvailableScalars() const {
-    QStringList list;
-    for (const auto& name : cachedMeshSource.availableScalarNames) {
-        list.append(QString::fromStdString(name));
-    }
-    return list;
-}
-
-QStringList Renderer::getColormapNames() const {
-    QStringList list;
-    for (int i = 0; i < static_cast<int>(ColormapType::Count); ++i) {
-        list.append(QString::fromUtf8(Colormaps::getName(static_cast<ColormapType>(i))));
-    }
-    return list;
-}
-
-QString Renderer::getColormapPreviewUri(int index) const {
-    // Cache the rasterized gradient (name overlaid) per colormap index — the QML
-    // swatch can request this repeatedly (every colorbar refresh), and
-    // re-rasterizing + re-encoding a PNG to a base64 data URI each call is pure waste.
-    auto it = m_colormapPreviewCache.find(index);
-    if (it != m_colormapPreviewCache.end()) return it->second;
-
-    const int w = 100, h = 32;
-    
-    QImage img(w, h, QImage::Format_RGB888);
-    ColormapType type = static_cast<ColormapType>(index);
-    for (int x = 0; x < w; ++x) {
-        float t = static_cast<float>(x) / static_cast<float>(w - 1);
-        glm::vec3 c = Colormaps::evaluate(t, type);
-        int r = static_cast<int>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
-        int g = static_cast<int>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
-        int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
-        for (int y = 0; y < h; ++y) img.setPixel(x, y, qRgb(r, g, b));
-    }
-
-    // Overlay the colormap name centered over the gradient (shadow + white text)
-    // so each combo entry reads as a self-labeled, richer palette tile.
-    {
-        QPainter p(&img);
-        p.setRenderHint(QPainter::TextAntialiasing, true);
-        QFont f("Sans", 4, QFont::Bold);
-        f.setStyleStrategy(QFont::PreferAntialias);
-        p.setFont(f);
-        QRect r(0, 0, w, h);
-        QString name = QString::fromUtf8(Colormaps::getName(type));
-        // shadow
-        p.setPen(Qt::black);
-        p.drawText(r.translated(1, 1), Qt::AlignCenter, name);
-        // main text
-        p.setPen(Qt::white);
-        p.drawText(r, Qt::AlignCenter, name);
-    }
-
-    QByteArray ba;
-    QBuffer buf(&ba);
-    buf.open(QIODevice::WriteOnly);
-    img.save(&buf, "PNG");
-    QString uri = QString("data:image/png;base64,") + QString::fromLatin1(ba.toBase64());
-    m_colormapPreviewCache[index] = uri;
-    return uri;
-}
-
-QVariantList Renderer::getColormapStops() const {
-    QVariantList out;
-    const int steps = 16;
-    int choice = colormap.scalarChoice();
-    bool reversed = colormap.scalarReversed();
-    for (int i = 0; i <= steps; ++i) {
-        float t = static_cast<float>(i) / static_cast<float>(steps);
-        float s = reversed ? (1.0f - t) : t;
-        glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(choice));
-        QVariantList stop;
-        stop << t << c.r << c.g << c.b;
-        out.append(QVariant(stop));
-    }
-    return out;
-}
-
-QVariantList Renderer::getVectorColormapStops() const {
-    QVariantList out;
-    const int steps = 16;
-    int choice = colormap.vectorChoice();
-    bool reversed = colormap.vectorReversed();
-    for (int i = 0; i <= steps; ++i) {
-        float t = static_cast<float>(i) / static_cast<float>(steps);
-        float s = reversed ? (1.0f - t) : t;
-        glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(choice));
-        QVariantList stop;
-        stop << t << c.r << c.g << c.b;
-        out.append(QVariant(stop));
-    }
-    return out;
-}
-
-std::vector<std::string> Renderer::getAvailableScalarNames() const {
-    std::vector<std::string> list;
-    for (const auto& name : cachedMeshSource.availableScalarNames) {
-        list.push_back(name);
-    }
-    return list;
-}
-
-void Renderer::setActiveScalarField(const QString& fieldName) {
-    setActiveScalarFieldStd(fieldName.toStdString());
-}
-
-void Renderer::setActiveScalarFieldStd(const std::string& fieldName) {
-    if (fieldName == activeScalarName) return;
-    if (!cachedMeshSource.attributes.has_value()) return;
-    auto it = cachedMeshSource.attributes->pointScalars.find(fieldName);
-    if (it == cachedMeshSource.attributes->pointScalars.end()) return;
-
-    // Mutates cachedMeshSource/dynamicMeshQueue which the render thread reads
-    // (takeQueuedMesh/cachedScalars) — guard against a concurrent load.
-    {
-        std::lock_guard<std::mutex> lock(meshQueueMutex);
-        activeScalarName = fieldName;
-        cachedMeshSource.scalarName = fieldName;
-        cachedMeshSource.scalars = it->second;
-        dynamicMeshQueue.scalarName = fieldName;
-        dynamicMeshQueue.scalars = it->second;
-    }
-
-    if (!cachedMeshSource.scalars.empty()) {
-        float mn = cachedMeshSource.scalars[0], mx = cachedMeshSource.scalars[0];
-        for (float v : cachedMeshSource.scalars) { if (v < mn) mn = v; if (v > mx) mx = v; }
-        // Guard a uniform field so the shader never divides by zero.
-        if (mx - mn < 1e-6f) mx = mn + 1.0f;
-        dataScalarMin = mn; dataScalarMax = mx;
-        scalarMin = mn; scalarMax = mx;
-        filterMin = mn; filterMax = mx;
-    }
-    // Trigger a SCALAR-ONLY re-upload (sbo) on the render thread. Do NOT set
-    // meshManager.meshChanged — that would re-upload every vertex/normal buffer.
-    scalarDirty = true;
-    emit meshDataUpdated();
-    emit meshLoadStateChanged();
-}
-
-void Renderer::setActiveVectorField(const QString& fieldName) {
-    if (fieldName.isEmpty()) return;
-    // Ignore names not present in the mesh; otherwise VectorGlyphSet::rebuild
-    // silently no-ops and ALL glyphs disappear with no error surfaced.
-    if (cachedMeshSource.availableVectorNames.empty() ||
-        std::find(cachedMeshSource.availableVectorNames.begin(),
-                  cachedMeshSource.availableVectorNames.end(),
-                  fieldName.toStdString()) == cachedMeshSource.availableVectorNames.end()) {
-        setStatus(QString("Unknown vector field: %1").arg(fieldName));
-        return;
-    }
-    cachedMeshSource.vectorName = fieldName.toStdString();
-    vectorGlyphDirty = true; // GL rebuild deferred to render thread
-    emit meshDataUpdated();
 }
 
 void Renderer::drawGizmo() {
     glDisable(GL_DEPTH_TEST);
-    gizmo.draw(camera.getViewMatrix(), static_cast<float>(devicePixelRatio),
+    gizmo.draw(m_state.camera.getViewMatrix(), static_cast<float>(devicePixelRatio),
                static_cast<int>(height * devicePixelRatio));
-    if (lighting.lightKitEnabled && lighting.showLightMarkers) {
+    if (m_state.lighting.lightKitEnabled && m_state.lighting.showLightMarkers) {
         glm::vec3 kitDirs[5] = {
-            LightingModel::kitDirection(lighting.lightKeyAzimuth,  lighting.lightKeyElevation),
-            LightingModel::kitDirection(lighting.lightFillAzimuth, lighting.lightFillElevation),
-            LightingModel::kitDirection(lighting.lightBackAzimuth,  lighting.lightBackElevation),
-            LightingModel::kitDirection(lighting.lightBackAzimuth + 180.0f, -lighting.lightBackElevation),
-            LightingModel::kitDirection(lighting.lightHeadAzimuth,  lighting.lightHeadElevation),
+            LightingModel::kitDirection(m_state.lighting.lightKeyAzimuth,  m_state.lighting.lightKeyElevation),
+            LightingModel::kitDirection(m_state.lighting.lightFillAzimuth, m_state.lighting.lightFillElevation),
+            LightingModel::kitDirection(m_state.lighting.lightBackAzimuth,  m_state.lighting.lightBackElevation),
+            LightingModel::kitDirection(m_state.lighting.lightBackAzimuth + 180.0f, -m_state.lighting.lightBackElevation),
+            LightingModel::kitDirection(m_state.lighting.lightHeadAzimuth,  m_state.lighting.lightHeadElevation),
         };
         auto warmTint = [](float w) -> glm::vec3 {
             if (w < 0.5f) return glm::mix(glm::vec3(0.6f,0.7f,1.0f), glm::vec3(1.0f), w/0.5f);
             return glm::mix(glm::vec3(1.0f), glm::vec3(1.0f,0.85f,0.7f), (w-0.5f)/0.5f);
         };
-        glm::vec3 tint = warmTint(lighting.lightWarm);
+        glm::vec3 tint = warmTint(m_state.lighting.lightWarm);
         glm::vec3 cols[5] = { tint, tint * 0.9f, tint * 0.95f, tint * 0.95f, glm::vec3(1.0f, 1.0f, 1.0f) };
         gizmo.drawLights(kitDirs, cols, static_cast<float>(devicePixelRatio),
                          static_cast<int>(height * devicePixelRatio));
@@ -951,47 +497,53 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     if (deviceW <= 0 || deviceH <= 0) return;
     const float dpr = static_cast<float>(devicePixelRatio);
 
-    // The colorbar is a tiny fixed-size overlay; drawing it at the full
-    // supersampled screenshot resolution (up to 8192^2) would allocate a
-    // ~268 MB QImage per frame. Cap it to the on-screen (logical * dpr)
-    // size so the 3D content stays supersampled while the legend stays cheap.
     const int maxLegendW = static_cast<int>(width * dpr);
     const int maxLegendH = static_cast<int>(height * dpr);
     if (deviceW > maxLegendW) deviceW = maxLegendW;
     if (deviceH > maxLegendH) deviceH = maxLegendH;
     if (deviceW <= 0 || deviceH <= 0) return;
 
+    const auto stopsFor = [&](int choice, bool reversed) {
+        QVariantList out;
+        const int steps = 16;
+        for (int i = 0; i <= steps; ++i) {
+            float t = static_cast<float>(i) / static_cast<float>(steps);
+            float s = reversed ? (1.0f - t) : t;
+            glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(choice));
+            QVariantList stop;
+            stop << t << c.r << c.g << c.b;
+            out.append(QVariant(stop));
+        }
+        return out;
+    };
+
     // Scalar colorbar: bottom-right (corner 0).
-    if (hasMeshLoaded && meshHasScalars && showScalarColorbar) {
+    if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.showScalarColorbar) {
         ColorbarData data;
         data.visible = true;
-        data.title = QString::fromStdString(activeScalarName);
-        data.stops = getColormapStops();
-        // The gradient is drawn top->t=1 (max) -> bottom->t=0 (min), so the top
-        // tick label must be the MAX value. i=0 is the top of the bar.
-        const int tickCount = colorbarTicks;
-        const float range = dataScalarMax - dataScalarMin;
+        data.title = QString::fromStdString(m_state.activeScalarName);
+        data.stops = stopsFor(m_state.colormapChoice, m_state.colormapReversed);
+        const int tickCount = m_state.colorbarTicks;
+        const float range = m_state.dataScalarMax - m_state.dataScalarMin;
         for (int i = 0; i < tickCount; ++i) {
             const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float v = dataScalarMax - range * frac; // top = max, bottom = min
+            const float v = m_state.dataScalarMax - range * frac;
             data.tickLabels.append(QString::number(v, 'f', 3));
         }
         colorbarOverlay.draw(dpr, deviceW, deviceH, data, 0);
     }
 
     // Vector magnitude colorbar: top-right (corner 1).
-    if (showVectors && vectorUseColormap && hasMeshLoaded && !getAvailableVectors().isEmpty()) {
+    if (m_state.showVectors && m_state.vectorUseColormap && m_state.hasMeshLoaded) {
         ColorbarData data;
         data.visible = true;
-        data.title = getVectorField() + "\u{27A1}";
-        data.stops = getVectorColormapStops();
-        // Same orientation as the scalar bar: top of the gradient is the MAX
-        // magnitude, so the top label is magMax.
-        const int tickCount = colorbarTicks;
+        data.title = QString::fromStdString(m_state.vectorField) + QChar(0x27A1);
+        data.stops = stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed);
+        const int tickCount = m_state.colorbarTicks;
         const float range = vectorGlyph.magMax - vectorGlyph.magMin;
         for (int i = 0; i < tickCount; ++i) {
             const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float v = vectorGlyph.magMax - range * frac; // top = max, bottom = min
+            const float v = vectorGlyph.magMax - range * frac;
             data.tickLabels.append(QString::number(v, 'f', 3));
         }
         colorbarOverlay.draw(dpr, deviceW, deviceH, data, 1);
@@ -999,32 +551,35 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
 }
 
 void Renderer::renderFrame() {
-    // GL glyph rebuild must run on the render thread. Consume the flag once.
+    // LOD debounce: once 140 ms have elapsed since the last camera motion, clear
+    // the moving flag so the next frame uses the full-resolution mesh.
+    if (cameraMoving.load()) {
+        auto now = std::chrono::steady_clock::now();
+        auto dt = std::chrono::duration<double>(now - m_lastMotion).count();
+        if (dt >= 0.14) cameraMoving = false;
+    }
+
     if (vectorGlyphDirty.exchange(false)) {
-        vectorGlyph.rebuild(cachedMeshSource, vectorStride);
+        vectorGlyph.rebuild(m_lastUploadedMesh, m_state.vectorStride);
     }
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glDisable(GL_CULL_FACE);
 
-    // Opaque background normally; when exporting a transparent PNG, clear with
-    // zero alpha so the background stays transparent. The viewport FBO is
-    // allocated with an RGBA8 color attachment, so this alpha is actually retained.
-    const float clearAlpha = screenshotTransparent ? 0.0f : 1.0f;
-    glClearColor(bgColor[0], bgColor[1], bgColor[2], clearAlpha);
+    const float clearAlpha = m_state.screenshotTransparent ? 0.0f : 1.0f;
+    glClearColor(m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2], clearAlpha);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     int deviceW = static_cast<int>(width * devicePixelRatio);
     int deviceH = static_cast<int>(height * devicePixelRatio);
     glViewport(0, 0, deviceW, deviceH);
 
-    glm::mat4 view = camera.getViewMatrix();
+    glm::mat4 view = m_state.camera.getViewMatrix();
 
-    // Clip planes must track the current camera distance.
-    double camDist = camera.distance;
+    double camDist = m_state.camera.distance;
     nearPlane = std::max(0.01, camDist * 0.001);
-    farPlane  = std::max(farPlane, camDist + worldRadius + 250.0);
+    farPlane  = std::max(farPlane, camDist + m_state.worldRadius + 250.0);
 
     glm::mat4 proj = glm::perspective(
         glm::radians(45.0f),
@@ -1036,11 +591,15 @@ void Renderer::renderFrame() {
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = proj * view * model;
 
-    // Keep LUTs (scalar + vector) in sync every frame so palette/choice/reverse
-    // changes take effect even when the surface itself is hidden.
+    // Push the colormap choice/reversed snapshot into the GPU LUT manager.
+    colormap.setScalarChoice(m_state.colormapChoice);
+    colormap.setScalarReversed(m_state.colormapReversed);
+    colormap.setVectorChoice(m_state.vectorColormapChoice);
+    colormap.setVectorReversed(m_state.vectorColormapReversed);
     colormap.update();
 
-    if ((showSurface || showWireframe) && meshManager.hasMeshes() && shaderProgram != 0) {
+    const bool useLod = true; // LOD handled internally by snapshot propagation
+    if ((m_state.showSurface || m_state.showWireframe) && meshManager.hasMeshes() && shaderProgram != 0) {
         glUseProgram(shaderProgram);
 
         glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
@@ -1055,27 +614,27 @@ void Renderer::renderFrame() {
         glUniform3fv(lightBack2Loc, 1, glm::value_ptr(b2Dir));
         glUniform3fv(lightHeadLoc, 1, glm::value_ptr(hDir));
 
-        glm::vec3 camPos = glm::vec3(camera.position);
+        glm::vec3 camPos = glm::vec3(m_state.camera.position);
         glUniform3fv(viewPosLoc, 1, glm::value_ptr(camPos));
 
-        glUniform3fv(colorLoc, 1, meshColor);
-        glUniform3fv(surfaceColorLoc, 1, surfaceColor);
-        glUniform1f(matAmbientLoc, lighting.matAmbient);
-        glUniform1f(matDiffuseLoc, lighting.matDiffuse);
-        glUniform1f(matSpecularLoc, lighting.matSpecular);
-        glUniform1f(matShininessLoc, lighting.matShininess);
+        glUniform3fv(colorLoc, 1, m_state.meshColor);
+        glUniform3fv(surfaceColorLoc, 1, m_state.surfaceColor);
+        glUniform1f(matAmbientLoc, m_state.lighting.matAmbient);
+        glUniform1f(matDiffuseLoc, m_state.lighting.matDiffuse);
+        glUniform1f(matSpecularLoc, m_state.lighting.matSpecular);
+        glUniform1f(matShininessLoc, m_state.lighting.matShininess);
 
-        float keyI = lighting.lightKitEnabled ? lighting.lightKeyIntensity : 0.0f;
+        float keyI = m_state.lighting.lightKitEnabled ? m_state.lighting.lightKeyIntensity : 0.0f;
         glUniform1f(keyIntensityLoc,  keyI);
-        glUniform1f(fillIntensityLoc, lighting.lightKitEnabled ? keyI / lighting.lightKF : 0.0f);
-        glUniform1f(headIntensityLoc, lighting.lightKitEnabled ? keyI / lighting.lightKH : 0.0f);
-        glUniform1f(backIntensityLoc, lighting.lightKitEnabled ? keyI / lighting.lightKB : 0.0f);
+        glUniform1f(fillIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / m_state.lighting.lightKF : 0.0f);
+        glUniform1f(headIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / m_state.lighting.lightKH : 0.0f);
+        glUniform1f(backIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / m_state.lighting.lightKB : 0.0f);
 
         auto warmTint = [](float w) -> glm::vec3 {
             if (w < 0.5f) return glm::mix(glm::vec3(0.6f,0.7f,1.0f), glm::vec3(1.0f), w/0.5f);
             return glm::mix(glm::vec3(1.0f), glm::vec3(1.0f,0.85f,0.7f), (w-0.5f)/0.5f);
         };
-        glm::vec3 tint = warmTint(lighting.lightWarm);
+        glm::vec3 tint = warmTint(m_state.lighting.lightWarm);
         const float keyCol[3]  = { tint.r,       tint.g,       tint.b };
         const float fillCol[3] = { tint.r*0.90f, tint.g*0.92f, tint.b*1.00f };
         const float backCol[3] = { tint.r*0.95f, tint.g*0.95f, tint.b*0.98f };
@@ -1085,39 +644,39 @@ void Renderer::renderFrame() {
         glUniform3fv(backColorLoc, 1, backCol);
         glUniform3fv(headColorLoc, 1, headCol);
 
-        glUniform1f(sliceHeightXLoc, sliceHeightX);
-        glUniform1f(sliceHeightYLoc, sliceHeightY);
-        glUniform1f(sliceHeightZLoc, sliceHeightZ);
-        glUniform1i(invertXLoc, invertX ? 1 : 0);
-        glUniform1i(invertYLoc, invertY ? 1 : 0);
-        glUniform1i(invertZLoc, invertZ ? 1 : 0);
-        glUniform1f(filterMinLoc, filterMin);
-        glUniform1f(filterMaxLoc, filterMax);
-        glUniform1i(clipEnabledLoc, clipEnabled ? 1 : 0);
+        glUniform1f(sliceHeightXLoc, m_state.sliceHeightX);
+        glUniform1f(sliceHeightYLoc, m_state.sliceHeightY);
+        glUniform1f(sliceHeightZLoc, m_state.sliceHeightZ);
+        glUniform1i(invertXLoc, m_state.invertX ? 1 : 0);
+        glUniform1i(invertYLoc, m_state.invertY ? 1 : 0);
+        glUniform1i(invertZLoc, m_state.invertZ ? 1 : 0);
+        glUniform1f(filterMinLoc, m_state.filterMin);
+        glUniform1f(filterMaxLoc, m_state.filterMax);
+        glUniform1i(clipEnabledLoc, m_state.clipEnabled ? 1 : 0);
 
-        glUniform1f(scalarMinLoc, scalarMin);
-        glUniform1f(scalarMaxLoc, scalarMax);
-        glUniform1i(hasScalarsLoc, meshHasScalars ? 1 : 0);
+        glUniform1f(scalarMinLoc, m_state.scalarMin);
+        glUniform1f(scalarMaxLoc, m_state.scalarMax);
+        glUniform1i(hasScalarsLoc, m_state.meshHasScalars ? 1 : 0);
 
-        if (meshHasScalars && colormap.scalarTexture() != 0) {
+        if (m_state.meshHasScalars && colormap.scalarTexture() != 0) {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_1D, colormap.scalarTexture());
             glUniform1i(lutTextureLoc, 0);
         }
 
         std::vector<std::pair<GLuint, int>> drawList;
-        meshManager.snapshotDrawList(drawList, useLod, cameraMoving.load());
+        meshManager.snapshotDrawList(drawList, m_state.useLod, cameraMoving.load());
 
         for (const auto& e : drawList) {
             glBindVertexArray(e.first);
 
-            if (showSurface) {
+            if (m_state.showSurface) {
                 glUniform1i(wireframeLoc, 0);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                 glDrawElements(GL_TRIANGLES, e.second, GL_UNSIGNED_INT, 0);
             }
 
-            if (showWireframe) {
+            if (m_state.showWireframe) {
                 glUniform1i(wireframeLoc, 1);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
@@ -1131,22 +690,22 @@ void Renderer::renderFrame() {
         glUseProgram(0);
     }
 
-    if (showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
+    if (m_state.showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         glUseProgram(glyphProgram);
         glUniformMatrix4fv(glyphMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
-        glUniform1f(glyphScaleLoc, vectorScale);
+        glUniform1f(glyphScaleLoc, m_state.vectorScale);
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
         glUniform3fv(glyphLightDirLoc, 1, glm::value_ptr(kDir));
-        glm::vec3 camPos = glm::vec3(camera.position);
+        glm::vec3 camPos = glm::vec3(m_state.camera.position);
         glUniform3fv(glyphViewPosLoc, 1, glm::value_ptr(camPos));
-        glUniform3fv(glyphColorLoc, 1, vectorColor);
-        glUniform1i(glyphUseColormapLoc, vectorUseColormap ? 1 : 0);
+        glUniform3fv(glyphColorLoc, 1, m_state.vectorColor);
+        glUniform1i(glyphUseColormapLoc, m_state.vectorUseColormap ? 1 : 0);
         glUniform1f(glyphMagMinLoc, vectorGlyph.magMin);
         glUniform1f(glyphMagMaxLoc, vectorGlyph.magMax);
-        glUniform1f(glyphScaleByMagLoc, vectorScaleByMagnitude ? 1.0f : 0.0f);
-        if (vectorUseColormap && colormap.vectorTexture() != 0) {
+        glUniform1f(glyphScaleByMagLoc, m_state.vectorScaleByMagnitude ? 1.0f : 0.0f);
+        if (m_state.vectorUseColormap && colormap.vectorTexture() != 0) {
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_1D, colormap.vectorTexture());
             glUniform1i(glyphLutLoc, 1);
@@ -1158,38 +717,11 @@ void Renderer::renderFrame() {
         glUseProgram(0);
     }
 
-    // In transparent export mode, skip the procedural grid entirely so only the
-    // mesh (and gizmo) show over a transparent background.
-    if (!screenshotTransparent) drawGrid(view, proj);
+    if (!m_state.screenshotTransparent) drawGrid(view, proj);
 
-    if (showGizmo) drawGizmo();
+    if (m_state.showGizmo) drawGizmo();
 
-    // Draw the colorbar legends into the FBO so they appear in screenshots
-    // (including transparent PNG exports). Mirrors the QML overlay visibility.
     drawColorbarLegends(deviceW, deviceH);
-
-    if (showFps) {
-        auto now = std::chrono::steady_clock::now();
-        if (m_frameCount == 0) {
-            m_lastFrameTime = now;
-            m_frameCount = 1;
-        } else {
-            double dt = std::chrono::duration<double>(now - m_lastFrameTime).count();
-            m_frameCount++;
-            m_fpsAccum += dt;
-            if (m_fpsAccum >= 0.25) {
-                double fps = (m_frameCount - 1) / m_fpsAccum;
-                double ms = (m_fpsAccum / (m_frameCount - 1)) * 1000.0;
-                fpsText = QString("FPS: %1  | %2 ms/frame")
-                    .arg(fps, 0, 'f', 0)
-                    .arg(ms, 0, 'f', 1);
-                m_frameCount = 0;
-                m_fpsAccum = 0.0;
-                emit fpsChanged();
-            }
-            m_lastFrameTime = now;
-        }
-    }
 
     QQuickOpenGLUtils::resetOpenGLState();
 }

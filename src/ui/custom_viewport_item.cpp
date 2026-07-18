@@ -35,10 +35,10 @@ QQuickFramebufferObject::Renderer* ViewportVisualizer::createRenderer() const {
     return new ViewportFboRenderer();
 }
 
-void ViewportVisualizer::setRenderer(::Renderer* r) {
-    if (m_scene == r) return;
-    m_scene = r;
-    emit rendererChanged();
+void ViewportVisualizer::setSettings(::RenderSettings* s) {
+    if (m_settings == s) return;
+    m_settings = s;
+    emit settingsChanged();
 
     // The scene is now bound: make sure at least one FBO render is scheduled
     // (grid shows immediately even before any mesh is loaded).
@@ -46,33 +46,28 @@ void ViewportVisualizer::setRenderer(::Renderer* r) {
 
     // When a new mesh finishes loading, ask the scene graph for a repaint so
     // the FBO re-renders with the new geometry.
-    if (m_scene) {
-        connect(m_scene, &::Renderer::meshDataUpdated, this, [this]() {
+    if (m_settings) {
+        connect(m_settings, &::RenderSettings::meshDataUpdated, this, [this]() {
             m_needsRender = true;
             update();
         });
-        connect(m_scene, &::Renderer::screenshotRequested, this, [this](const QString& path) {
-            // Run on the GUI thread (QML side). We forward to the renderer which
-            // performs the GL read inside its FBO render pass via synchronize().
-            if (m_scene) m_pendingScreenshot = path;
+        connect(m_settings, &::RenderSettings::screenshotRequested, this, [this](const QString& path) {
+            // Forwarded from the GUI thread (QML side) to the render pass.
+            m_pendingScreenshot = path;
             m_needsRender = true;
             update();
         });
-        // lighting changes never repainted before — connect once here (guarded by setRenderer's early return)
-        connect(m_scene, &::Renderer::lightingParametersChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_scene, &::Renderer::viewChanged, this, [this]() { m_needsRender = true; update(); });
-        // colormap switch must repaint the GL mesh, not just the QML legend
-        connect(m_scene, &::Renderer::colormapChanged, this, [this]() { m_needsRender = true; update(); });
-        // vector colormap (choice/reverse) must also repaint the GL glyphs
-        connect(m_scene, &::Renderer::vectorColormapChanged, this, [this]() { m_needsRender = true; update(); });
-        // wireframe/surface setters emit these but nothing repainted them before
-        connect(m_scene, &::Renderer::wireframeChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_scene, &::Renderer::gridVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_scene, &::Renderer::surfaceVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::lightingParametersChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::viewChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::colormapChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::vectorColormapChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::wireframeChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::gridVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::surfaceVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
     }
 }
 
-::Renderer* ViewportVisualizer::renderer() const { return m_scene; }
+::RenderSettings* ViewportVisualizer::settings() const { return m_settings; }
 
 void ViewportVisualizer::mousePressEvent(QMouseEvent* event) {
     m_lastMousePos = event->pos();
@@ -81,17 +76,14 @@ void ViewportVisualizer::mousePressEvent(QMouseEvent* event) {
 }
 
 void ViewportVisualizer::mouseMoveEvent(QMouseEvent* event) {
-    if (!m_scene) return;
+    if (!m_settings) return;
     QPoint delta = event->pos() - m_lastMousePos;
     m_lastMousePos = event->pos();
     if (m_isRightClick) {
-        // Grab-style panning: pass raw deltas. pan() already negates X so the
-        // scene follows the cursor; vertical uses +up so dragging down moves the
-        // camera up (scene follows the cursor down) — consistent with horizontal.
-        m_scene->pan(delta.x(), delta.y());
+        m_settings->pan(delta.x(), delta.y());
     } else {
-        m_scene->azimuth(-delta.x() * 0.5);
-        m_scene->elevation(delta.y() * 0.5);
+        m_settings->azimuth(-delta.x() * 0.5);
+        m_settings->elevation(delta.y() * 0.5);
     }
     update();
     event->accept();
@@ -102,9 +94,9 @@ void ViewportVisualizer::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void ViewportVisualizer::wheelEvent(QWheelEvent* event) {
-    if (!m_scene) return;
-    double factor = (event->angleDelta().y() > 0) ? 1.1 : 0.9; // scroll up = zoom IN (smaller distance)
-    m_scene->dolly(factor);
+    if (!m_settings) return;
+    double factor = (event->angleDelta().y() > 0) ? 1.1 : 0.9;
+    m_settings->dolly(factor);
     update();
     event->accept();
 }
@@ -121,18 +113,24 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
     ViewportVisualizer* vv = qobject_cast<ViewportVisualizer*>(item);
     if (!vv) return;
 
-    // Hand the shared Renderer pointer over to the render thread.
-    m_scene = vv->renderer();
+    // Resolve the backend Renderer from the GUI-thread RenderSettings facade.
+    // This is the single point where the GUI thread's settings object touches
+    // the render thread: we pull a deep-copied RenderRenderState snapshot and
+    // hand the render thread the backend pointer. After this, render() reads
+    // ONLY the snapshot — no GUI-thread data is touched during drawing.
+    ::RenderSettings* settings = vv->settings();
+    ::Renderer* scene = settings ? settings->backend() : nullptr;
+    m_scene = scene;
 
-    // Forward the latest size in LOGICAL pixels; renderFrame() multiplies by
-    // devicePixelRatio exactly once to match the device-sized FBO. (Passing
-    // device px here double-applied the dpr and supersized glViewport.)
     if (m_scene) {
         const float dpr = static_cast<float>(item->window() ? item->window()->devicePixelRatio() : 1.0);
         m_scene->setDevicePixelRatio(dpr);
         m_scene->resizeViewport(
             static_cast<int>(item->width()),
             static_cast<int>(item->height()));
+
+        // Thread-safe deep copy of the GUI view/visual state into the backend.
+        m_scene->setState(settings->buildRenderState());
     }
 
     // Drain the queued mesh handoff. Only copy CPU data here (GUI thread,
@@ -194,7 +192,7 @@ void ViewportFboRenderer::render() {
     // frame; skipping it when idle keeps the GPU (and fan) at rest instead of
     // redrawing the same image continuously. Continuous updates are still needed
     // while the turntable (autoRotate) or FPS HUD is on.
-    const bool continuous = (m_scene->getAutoRotate() || m_scene->getShowFps());
+    const bool continuous = (m_scene->autoRotate() || m_scene->showFps());
     if (!m_dirty && !continuous && !m_uploadPending && m_pendingScreenshot.isEmpty()) {
         return;
     }

@@ -51,6 +51,8 @@ add_executable(SciRender
     src/core/stl_parser.cpp
     src/render/renderer.cpp
     src/render/renderer.h
+    src/render/render_settings.cpp
+    src/render/render_settings.h
     src/render/LightingModel.cpp
     src/render/LightingModel.h
     src/render/ColormapManager.cpp
