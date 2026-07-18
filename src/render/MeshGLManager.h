@@ -6,9 +6,8 @@
 #include <mutex>
 #include <atomic>
 
-struct RenderMesh;
+#include "core/mesh_loader.h"
 
-// GPU mesh handle bundle produced by buildMeshGL().
 struct Mesh {
     GLuint vao = 0;
     GLuint vbo = 0;
@@ -58,6 +57,18 @@ private:
     void destroyMesh(Mesh& mesh);
     // Coarse vertex-clustering decimation; empty result when not worthwhile.
     static RenderMesh decimate(const RenderMesh& in);
+
+    // Re-derives the per-vertex scalar array of the decimated LOD mesh by
+    // averaging the full-resolution scalars using the SAME clustering that
+    // decimate() used for the geometry. Returns an empty vector when the LOD
+    // mesh is absent or the geometry mismatch prevents a safe downsample.
+    std::vector<float> decimateScalars(const std::vector<float>& fullScalars) const;
+
+    // Cached source of truth for the full-resolution mesh. Needed so a scalar-
+    // only field switch can recompute the decimated LOD scalars without a full
+    // (expensive) re-upload of every vertex/normal/index buffer.
+    RenderMesh fullSource_;
+    bool hasFullSource_ = false;
 
     std::vector<Mesh> meshes_;
     std::vector<Mesh> decimatedMeshes_;

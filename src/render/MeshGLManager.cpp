@@ -294,6 +294,11 @@ RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
 void MeshGLManager::upload(const RenderMesh& renderMesh) {
     std::vector<Mesh> newFull, newDec;
 
+    // Cache the full-resolution source so a later scalar-only field switch can
+    // re-derive the decimated LOD scalars without re-uploading geometry.
+    fullSource_ = renderMesh;
+    hasFullSource_ = true;
+
     // Full-resolution mesh.
     buildMeshGL(renderMesh, newFull);
 
@@ -325,11 +330,89 @@ void MeshGLManager::upload(const RenderMesh& renderMesh) {
     meshChanged = true;
 }
 
+void MeshGLManager::clear() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto& m : meshes_) destroyMesh(m);
+        meshes_.clear();
+        for (auto& m : decimatedMeshes_) destroyMesh(m);
+        decimatedMeshes_.clear();
+        hasDecimated_ = false;
+        hasFullSource_ = false;
+    }
+}
+
+std::vector<float> MeshGLManager::decimateScalars(
+    const std::vector<float>& fullScalars) const {
+    if (!hasFullSource_ || !hasDecimated_ || decimatedMeshes_.empty())
+        return {};
+    const RenderMesh& in = fullSource_;
+    const size_t nv = in.vertices.size() / 3;
+    // The LOD mesh exists only when the geometry was decimated; the decimated
+    // vertex count is carried by the (single) decimated Mesh's index setup.
+    // Reuse the exact clustering from decimate() to average the full scalars
+    // into the same coarse vertices.
+    const double minX = in.bounds.minX, minY = in.bounds.minY, minZ = in.bounds.minZ;
+    const double dx = in.bounds.maxX - minX, dy = in.bounds.maxY - minY, dz = in.bounds.maxZ - minZ;
+    const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (diag < 1e-9) return {};
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
+    const double cell = diag / cellsPerAxis;
+
+    auto clampCell = [&](double v, int n) {
+        int i = static_cast<int>(std::floor(v / cell));
+        if (i < 0) i = 0; else if (i >= n) i = n - 1;
+        return i;
+    };
+    auto keyFor = [&](size_t i) -> uint64_t {
+        const int ci = clampCell(in.vertices[3 * i + 0] - minX, cellsPerAxis);
+        const int cj = clampCell(in.vertices[3 * i + 1] - minY, cellsPerAxis);
+        const int ck = clampCell(in.vertices[3 * i + 2] - minZ, cellsPerAxis);
+        return static_cast<uint64_t>(ci)
+             | (static_cast<uint64_t>(cj) << 20)
+             | (static_cast<uint64_t>(ck) << 40);
+    };
+
+    std::unordered_map<uint64_t, int> cellToNew;
+    cellToNew.reserve(nv + 1);
+    std::vector<int> remap(nv, -1);
+    std::vector<double> sc, cnt;
+
+    for (size_t i = 0; i < nv; ++i) {
+        const uint64_t k = keyFor(i);
+        auto it = cellToNew.find(k);
+        int newIdx;
+        if (it == cellToNew.end()) {
+            newIdx = static_cast<int>(cellToNew.size());
+            cellToNew[k] = newIdx;
+            sc.push_back(0.0); cnt.push_back(0.0);
+        } else {
+            newIdx = it->second;
+        }
+        remap[i] = newIdx;
+        if (i < fullScalars.size()) sc[newIdx] += static_cast<double>(fullScalars[i]);
+        cnt[newIdx] += 1.0;
+    }
+
+    const int newCount = static_cast<int>(cellToNew.size());
+    std::vector<float> out(static_cast<size_t>(newCount));
+    for (int i = 0; i < newCount; ++i) {
+        const double inv = cnt[i] > 0.0 ? 1.0 / cnt[i] : 0.0;
+        out[i] = static_cast<float>(sc[i] * inv);
+    }
+    return out;
+}
+
 void MeshGLManager::updateScalars(const std::vector<float>& scalars) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto reupload = [&](std::vector<Mesh>& meshes) {
+    // Decimated LOD scalars are derived by clustering, not a 1:1 copy.
+    const std::vector<float> decScalars =
+        !scalars.empty() ? decimateScalars(scalars) : std::vector<float>{};
+
+    auto reupload = [&](std::vector<Mesh>& meshes, const std::vector<float>& data) {
         for (auto& m : meshes) {
-            if (!scalars.empty()) {
+            if (!data.empty()) {
                 if (m.sbo == 0) {
                     glGenBuffers(1, &m.sbo);
                     glBindVertexArray(m.vao);
@@ -339,27 +422,16 @@ void MeshGLManager::updateScalars(const std::vector<float>& scalars) {
                     glBindVertexArray(0);
                 }
                 glBindBuffer(GL_ARRAY_BUFFER, m.sbo);
-                glBufferData(GL_ARRAY_BUFFER, scalars.size() * sizeof(float),
-                             scalars.data(), GL_STATIC_DRAW);
+                glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(float),
+                             data.data(), GL_STATIC_DRAW);
             } else if (m.sbo != 0) {
                 glDeleteBuffers(1, &m.sbo);
                 m.sbo = 0;
             }
         }
     };
-    reupload(meshes_);
-    reupload(decimatedMeshes_);
-}
-
-void MeshGLManager::clear() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& m : meshes_) destroyMesh(m);
-        meshes_.clear();
-        for (auto& m : decimatedMeshes_) destroyMesh(m);
-        decimatedMeshes_.clear();
-        hasDecimated_ = false;
-    }
+    reupload(meshes_, scalars);
+    reupload(decimatedMeshes_, decScalars);
 }
 
 void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
