@@ -320,10 +320,6 @@ void Renderer::markCameraMoving() {
     m_lastMotion = std::chrono::steady_clock::now();
 }
 
-void Renderer::onLodTimer() {
-    cameraMoving = false;
-}
-
 void Renderer::computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head) {
     m_state.lighting.computeDirections(m_state.camera.position, m_state.camera.focalPoint, m_state.camera.viewUp,
                                key, fill, back1, back2, head);

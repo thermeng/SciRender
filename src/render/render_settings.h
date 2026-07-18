@@ -202,7 +202,6 @@ public:
     void setLightWarm(float v) { lighting.lightWarm = v; markStateDirty(); emit lightingParametersChanged(); }
 
     QString getCurrentMeshNameQStr() const { return QString::fromStdString(currentMeshName); }
-    const std::string& getCurrentMeshName() const { return currentMeshName; }
 
     // ---- UI callable actions (slots invoked by QML) ----
 public slots:
@@ -254,9 +253,6 @@ public:
     Q_INVOKABLE void roll(double angle) { camera.roll(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); }
     Q_INVOKABLE void pan(double dx, double dy) { camera.pan(dx, dy); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); }
     Q_INVOKABLE void dolly(double factor) { camera.dolly(factor); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); }
-
-    void orthogonalizeViewUp() { camera.orthogonalizeViewUp(); }
-    glm::dvec3 directionOfProjection() const { return camera.directionOfProjection(); }
 
     float* getMeshColor() { return meshColor; }
     float* getSurfaceColor() { return surfaceColor; }
@@ -311,13 +307,8 @@ public:
     void setShowFps(bool v) { if (showFps != v) { showFps = v; markStateDirty(); emit viewChanged(); } }
     QString getFpsText() const { return fpsText; }
 
-    void setScalarRange(float min, float max) { scalarMin = min; scalarMax = max; }
-
     bool hasMeshScalars() const { return meshHasScalars; }
-    const std::string& getActiveScalarName() const { return activeScalarName; }
     Q_INVOKABLE QString getActiveScalarNameQml() const { return QString::fromStdString(activeScalarName); }
-
-    Q_INVOKABLE bool hasMeshScalarsQml() const { return meshHasScalars; }
     Q_INVOKABLE float getDataScalarMinQml() const { return dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return dataScalarMax; }
     int getColorbarTicks() const { return colorbarTicks; }
@@ -355,11 +346,6 @@ public:
     Q_INVOKABLE QVariantList getVectorColormapStops() const;
     float getVectorMagMin() const { return m_renderer.vectorMagMin(); }
     float getVectorMagMax() const { return m_renderer.vectorMagMax(); }
-
-    float getScalarMin() const { return scalarMin; }
-    float getScalarMax() const { return scalarMax; }
-    float getDataScalarMin() const { return dataScalarMin; }
-    float getDataScalarMax() const { return dataScalarMax; }
 
 private:
     void setStatus(const QString& msg);

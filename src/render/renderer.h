@@ -166,7 +166,6 @@ public:
     // Mark the camera as moving and (re)start the LOD debounce timer.
     void markCameraMoving();
     void markVectorGlyphDirty() { vectorGlyphDirty = true; }
-    void onLodTimer();
     void resizeViewport(int width, int height);
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
