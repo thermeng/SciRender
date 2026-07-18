@@ -10,6 +10,7 @@
 #include <QFutureWatcher>
 
 #include <memory>
+#include <atomic>
 
 #include "render/renderer.h"
 #include "core/mesh_loader.h"
@@ -123,9 +124,15 @@ public:
     // ---- backend access (render thread owns the Renderer) ----
     Renderer* backend() { return &m_renderer; }
 
-    // Build the immutable per-frame snapshot for the render thread. Called only
-    // from synchronize() on the GUI thread, then deep-copied into the Renderer.
-    RenderRenderState buildRenderState() const;
+    // Assembles the per-frame snapshot into m_renderSnapshot. Called only from
+    // publishRenderState() (GUI thread, exclusive access). Non-const: writes
+    // directly into the cached double-buffer member.
+    void buildRenderState();
+
+    // Double-buffered publish: re-assembles the snapshot ONLY when the GUI
+    // state is dirty, then hands the (already-built) buffer to the Renderer.
+    // Skips the ~75-field assembly entirely on idle frames.
+    void publishRenderState(::Renderer* scene);
 
     // ---- view state accessors ----
     bool isWireframe() const { return showWireframe; }
@@ -143,7 +150,7 @@ public:
     QString getMeshDataType() const { return QString::fromStdString(meshDataType); }
     QString getMeshFormat() const { return QString::fromStdString(meshFormat); }
     QColor getBgColorQml() const { return QColor::fromRgbF(bgColor[0], bgColor[1], bgColor[2]); }
-    void setBgColorQml(const QColor& c) { bgColor[0] = c.redF(); bgColor[1] = c.greenF(); bgColor[2] = c.blueF(); emit viewChanged(); }
+    void setBgColorQml(const QColor& c) { bgColor[0] = c.redF(); bgColor[1] = c.greenF(); bgColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
 
     int getColormapChoice() const { return colormapChoice; }
     void setColormapChoice(int choice);
@@ -156,43 +163,43 @@ public:
     void setQuickBarCollapsed(bool collapsed);
 
     float getLightKeyAzimuth() const { return lighting.lightKeyAzimuth; }
-    void setLightKeyAzimuth(float v) { lighting.lightKeyAzimuth = v; emit lightingParametersChanged(); }
+    void setLightKeyAzimuth(float v) { lighting.lightKeyAzimuth = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightKeyElevation() const { return lighting.lightKeyElevation; }
-    void setLightKeyElevation(float v) { lighting.lightKeyElevation = v; emit lightingParametersChanged(); }
+    void setLightKeyElevation(float v) { lighting.lightKeyElevation = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightFillAzimuth() const { return lighting.lightFillAzimuth; }
-    void setLightFillAzimuth(float v) { lighting.lightFillAzimuth = v; emit lightingParametersChanged(); }
+    void setLightFillAzimuth(float v) { lighting.lightFillAzimuth = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightFillElevation() const { return lighting.lightFillElevation; }
-    void setLightFillElevation(float v) { lighting.lightFillElevation = v; emit lightingParametersChanged(); }
+    void setLightFillElevation(float v) { lighting.lightFillElevation = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightBackAzimuth() const { return lighting.lightBackAzimuth; }
-    void setLightBackAzimuth(float v) { lighting.lightBackAzimuth = v; emit lightingParametersChanged(); }
+    void setLightBackAzimuth(float v) { lighting.lightBackAzimuth = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightBackElevation() const { return lighting.lightBackElevation; }
-    void setLightBackElevation(float v) { lighting.lightBackElevation = v; emit lightingParametersChanged(); }
+    void setLightBackElevation(float v) { lighting.lightBackElevation = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightHeadAzimuth() const { return lighting.lightHeadAzimuth; }
-    void setLightHeadAzimuth(float v) { lighting.lightHeadAzimuth = v; emit lightingParametersChanged(); }
+    void setLightHeadAzimuth(float v) { lighting.lightHeadAzimuth = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightHeadElevation() const { return lighting.lightHeadElevation; }
-    void setLightHeadElevation(float v) { lighting.lightHeadElevation = v; emit lightingParametersChanged(); }
+    void setLightHeadElevation(float v) { lighting.lightHeadElevation = v; markStateDirty(); emit lightingParametersChanged(); }
     float getMatAmbient() const { return lighting.matAmbient; }
-    void setMatAmbient(float v) { lighting.matAmbient = v; emit lightingParametersChanged(); }
+    void setMatAmbient(float v) { lighting.matAmbient = v; markStateDirty(); emit lightingParametersChanged(); }
     float getMatDiffuse() const { return lighting.matDiffuse; }
-    void setMatDiffuse(float v) { lighting.matDiffuse = v; emit lightingParametersChanged(); }
+    void setMatDiffuse(float v) { lighting.matDiffuse = v; markStateDirty(); emit lightingParametersChanged(); }
     float getMatSpecular() const { return lighting.matSpecular; }
-    void setMatSpecular(float v) { lighting.matSpecular = v; emit lightingParametersChanged(); }
+    void setMatSpecular(float v) { lighting.matSpecular = v; markStateDirty(); emit lightingParametersChanged(); }
     float getMatShininess() const { return lighting.matShininess; }
-    void setMatShininess(float v) { lighting.matShininess = v; emit lightingParametersChanged(); }
+    void setMatShininess(float v) { lighting.matShininess = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightKeyIntensity() const { return lighting.lightKeyIntensity; }
-    void setLightKeyIntensity(float v) { lighting.lightKeyIntensity = v; emit lightingParametersChanged(); }
+    void setLightKeyIntensity(float v) { lighting.lightKeyIntensity = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightKF() const { return lighting.lightKF; }
-    void setLightKF(float v) { lighting.lightKF = v; emit lightingParametersChanged(); }
+    void setLightKF(float v) { lighting.lightKF = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightKB() const { return lighting.lightKB; }
-    void setLightKB(float v) { lighting.lightKB = v; emit lightingParametersChanged(); }
+    void setLightKB(float v) { lighting.lightKB = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightKH() const { return lighting.lightKH; }
-    void setLightKH(float v) { lighting.lightKH = v; emit lightingParametersChanged(); }
+    void setLightKH(float v) { lighting.lightKH = v; markStateDirty(); emit lightingParametersChanged(); }
     bool getLightKitEnabled() const { return lighting.lightKitEnabled; }
-    void setLightKitEnabled(bool v) { lighting.lightKitEnabled = v; emit lightingParametersChanged(); }
+    void setLightKitEnabled(bool v) { lighting.lightKitEnabled = v; markStateDirty(); emit lightingParametersChanged(); }
     bool getShowLightMarkers() const { return lighting.showLightMarkers; }
-    void setShowLightMarkers(bool v) { lighting.showLightMarkers = v; emit lightingParametersChanged(); }
+    void setShowLightMarkers(bool v) { lighting.showLightMarkers = v; markStateDirty(); emit lightingParametersChanged(); }
     float getLightWarm() const { return lighting.lightWarm; }
-    void setLightWarm(float v) { lighting.lightWarm = v; emit lightingParametersChanged(); }
+    void setLightWarm(float v) { lighting.lightWarm = v; markStateDirty(); emit lightingParametersChanged(); }
 
     QString getCurrentMeshNameQStr() const { return QString::fromStdString(currentMeshName); }
     const std::string& getCurrentMeshName() const { return currentMeshName; }
@@ -240,11 +247,11 @@ signals:
 public:
     // VTK Camera forwarders (QML-invokable). Mutate the GUI-side Camera; the
     // next synchronize() copies it into the render-thread snapshot.
-    Q_INVOKABLE void azimuth(double angle) { camera.azimuth(angle); m_renderer.markCameraMoving(); emit viewChanged(); }
-    Q_INVOKABLE void elevation(double angle) { camera.elevation(angle); m_renderer.markCameraMoving(); emit viewChanged(); }
-    Q_INVOKABLE void roll(double angle) { camera.roll(angle); m_renderer.markCameraMoving(); emit viewChanged(); }
-    Q_INVOKABLE void pan(double dx, double dy) { camera.pan(dx, dy); m_renderer.markCameraMoving(); emit viewChanged(); }
-    Q_INVOKABLE void dolly(double factor) { camera.dolly(factor); m_renderer.markCameraMoving(); emit viewChanged(); }
+    Q_INVOKABLE void azimuth(double angle) { camera.azimuth(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); }
+    Q_INVOKABLE void elevation(double angle) { camera.elevation(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); }
+    Q_INVOKABLE void roll(double angle) { camera.roll(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); }
+    Q_INVOKABLE void pan(double dx, double dy) { camera.pan(dx, dy); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); }
+    Q_INVOKABLE void dolly(double factor) { camera.dolly(factor); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); }
 
     void orthogonalizeViewUp() { camera.orthogonalizeViewUp(); }
     glm::dvec3 directionOfProjection() const { return camera.directionOfProjection(); }
@@ -256,28 +263,28 @@ public:
     Q_INVOKABLE void setSidebarWidth(float w) { sidebarWidth = w; }
 
     bool isGizmoVisible() const { return showGizmo; }
-    void setGizmoVisible(bool v) { if (showGizmo != v) { showGizmo = v; emit viewChanged(); } }
+    void setGizmoVisible(bool v) { if (showGizmo != v) { showGizmo = v; markStateDirty(); emit viewChanged(); } }
     bool getAutoRotate() const { return autoRotate; }
-    void setAutoRotate(bool v) { if (autoRotate != v) { autoRotate = v; emit viewChanged(); } }
+    void setAutoRotate(bool v) { if (autoRotate != v) { autoRotate = v; markStateDirty(); emit viewChanged(); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
-    void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); emit viewChanged(); }
+    void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(surfaceColor[0], surfaceColor[1], surfaceColor[2]); }
-    void setSurfaceColorQml(const QColor& c) { surfaceColor[0] = c.redF(); surfaceColor[1] = c.greenF(); surfaceColor[2] = c.blueF(); emit viewChanged(); }
+    void setSurfaceColorQml(const QColor& c) { surfaceColor[0] = c.redF(); surfaceColor[1] = c.greenF(); surfaceColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
 
     bool getShowVectors() const { return showVectors; }
-    void setShowVectors(bool v) { if (showVectors != v) { showVectors = v; emit viewChanged(); } }
+    void setShowVectors(bool v) { if (showVectors != v) { showVectors = v; markStateDirty(); emit viewChanged(); } }
     bool getVectorScaleByMagnitude() const { return vectorScaleByMagnitude; }
-    void setVectorScaleByMagnitude(bool v) { if (vectorScaleByMagnitude != v) { vectorScaleByMagnitude = v; emit viewChanged(); } }
+    void setVectorScaleByMagnitude(bool v) { if (vectorScaleByMagnitude != v) { vectorScaleByMagnitude = v; markStateDirty(); emit viewChanged(); } }
     float getVectorScale() const { return vectorScale; }
-    void setVectorScale(float v) { if (vectorScale != v) { vectorScale = v; emit viewChanged(); } }
+    void setVectorScale(float v) { if (vectorScale != v) { vectorScale = v; markStateDirty(); emit viewChanged(); } }
     int getVectorStride() const { return vectorStride; }
-    void setVectorStride(int v) { int s = v < 1 ? 1 : v; if (vectorStride != s) { vectorStride = s; m_renderer.markCameraMoving(); emit viewChanged(); } }
+    void setVectorStride(int v) { int s = v < 1 ? 1 : v; if (vectorStride != s) { vectorStride = s; m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); } }
     QColor getVectorColorQml() const { return QColor::fromRgbF(vectorColor[0], vectorColor[1], vectorColor[2]); }
-    void setVectorColorQml(const QColor& c) { vectorColor[0] = c.redF(); vectorColor[1] = c.greenF(); vectorColor[2] = c.blueF(); emit viewChanged(); }
+    void setVectorColorQml(const QColor& c) { vectorColor[0] = c.redF(); vectorColor[1] = c.greenF(); vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     bool getVectorUseColormap() const { return vectorUseColormap; }
-    void setVectorUseColormap(bool v) { if (vectorUseColormap != v) { vectorUseColormap = v; emit viewChanged(); } }
+    void setVectorUseColormap(bool v) { if (vectorUseColormap != v) { vectorUseColormap = v; markStateDirty(); emit viewChanged(); } }
     int getVectorColormapChoice() const { return vectorColormapChoice; }
-    void setVectorColormapChoice(int c) { if (vectorColormapChoice != c) { vectorColormapChoice = c; emit viewChanged(); } }
+    void setVectorColormapChoice(int c) { if (vectorColormapChoice != c) { vectorColormapChoice = c; markStateDirty(); emit viewChanged(); } }
     QStringList getAvailableVectors() const { QStringList l; for (const auto& n : m_guiMeta.availableVectorNames) l.append(QString::fromStdString(n)); return l; }
     QString getVectorField() const { return QString::fromStdString(m_guiMeta.vectorName); }
     Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
@@ -286,7 +293,7 @@ public:
     int getScreenshotQuality() const { return screenshotQuality; }
     void setScreenshotQuality(int v) { screenshotQuality = (v < 1 ? 1 : (v > 100 ? 100 : v)); }
     int getScreenshotScale() const { return screenshotScale; }
-    void setScreenshotScale(int v) { int c = (v < 1 ? 1 : (v > 4 ? 4 : v)); if (screenshotScale != c) { screenshotScale = c; emit viewChanged(); } }
+    void setScreenshotScale(int v) { int c = (v < 1 ? 1 : (v > 4 ? 4 : v)); if (screenshotScale != c) { screenshotScale = c; markStateDirty(); emit viewChanged(); } }
     QString getStatusMessage() const { return statusMessage; }
     Q_INVOKABLE QString generateScreenshotFilename() const {
         return ScreenshotExporter::generateFilename(QString::fromStdString(currentMeshName), ExportFormat::PNG);
@@ -299,7 +306,7 @@ public:
     static constexpr int PRESET_SOFT = 2;
 
     bool getShowFps() const { return showFps; }
-    void setShowFps(bool v) { if (showFps != v) { showFps = v; emit viewChanged(); } }
+    void setShowFps(bool v) { if (showFps != v) { showFps = v; markStateDirty(); emit viewChanged(); } }
     QString getFpsText() const { return fpsText; }
 
     void setScalarRange(float min, float max) { scalarMin = min; scalarMax = max; }
@@ -312,28 +319,28 @@ public:
     Q_INVOKABLE float getDataScalarMinQml() const { return dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return dataScalarMax; }
     int getColorbarTicks() const { return colorbarTicks; }
-    void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (colorbarTicks != c) { colorbarTicks = c; emit colorbarChanged(); } }
+    void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (colorbarTicks != c) { colorbarTicks = c; markStateDirty(); emit colorbarChanged(); } }
     bool getShowScalarColorbar() const { return showScalarColorbar; }
-    void setShowScalarColorbar(bool v) { if (showScalarColorbar != v) { showScalarColorbar = v; emit viewChanged(); } }
+    void setShowScalarColorbar(bool v) { if (showScalarColorbar != v) { showScalarColorbar = v; markStateDirty(); emit viewChanged(); } }
 
     bool getClipEnabled() const { return clipEnabled; }
-    void setClipEnabled(bool v) { if (clipEnabled != v) { clipEnabled = v; emit viewChanged(); } }
+    void setClipEnabled(bool v) { if (clipEnabled != v) { clipEnabled = v; markStateDirty(); emit viewChanged(); } }
     float getSliceX() const { return sliceHeightX; }
-    void setSliceX(float v) { if (sliceHeightX != v) { sliceHeightX = v; emit viewChanged(); } }
+    void setSliceX(float v) { if (sliceHeightX != v) { sliceHeightX = v; markStateDirty(); emit viewChanged(); } }
     float getSliceY() const { return sliceHeightY; }
-    void setSliceY(float v) { if (sliceHeightY != v) { sliceHeightY = v; emit viewChanged(); } }
+    void setSliceY(float v) { if (sliceHeightY != v) { sliceHeightY = v; markStateDirty(); emit viewChanged(); } }
     float getSliceZ() const { return sliceHeightZ; }
-    void setSliceZ(float v) { if (sliceHeightZ != v) { sliceHeightZ = v; emit viewChanged(); } }
+    void setSliceZ(float v) { if (sliceHeightZ != v) { sliceHeightZ = v; markStateDirty(); emit viewChanged(); } }
     bool getInvertX() const { return invertX; }
-    void setInvertX(bool v) { if (invertX != v) { invertX = v; emit viewChanged(); } }
+    void setInvertX(bool v) { if (invertX != v) { invertX = v; markStateDirty(); emit viewChanged(); } }
     bool getInvertY() const { return invertY; }
-    void setInvertY(bool v) { if (invertY != v) { invertY = v; emit viewChanged(); } }
+    void setInvertY(bool v) { if (invertY != v) { invertY = v; markStateDirty(); emit viewChanged(); } }
     bool getInvertZ() const { return invertZ; }
-    void setInvertZ(bool v) { if (invertZ != v) { invertZ = v; emit viewChanged(); } }
+    void setInvertZ(bool v) { if (invertZ != v) { invertZ = v; markStateDirty(); emit viewChanged(); } }
     float getFilterMin() const { return filterMin; }
-    void setFilterMin(float v) { if (filterMin != v) { filterMin = v; emit viewChanged(); } }
+    void setFilterMin(float v) { if (filterMin != v) { filterMin = v; markStateDirty(); emit viewChanged(); } }
     float getFilterMax() const { return filterMax; }
-    void setFilterMax(float v) { if (filterMax != v) { filterMax = v; emit viewChanged(); } }
+    void setFilterMax(float v) { if (filterMax != v) { filterMax = v; markStateDirty(); emit viewChanged(); } }
 
     double getWorldMinX() const { return worldMinX; }
     double getWorldMaxX() const { return worldMaxX; }
@@ -355,6 +362,19 @@ public:
 private:
     void setStatus(const QString& msg);
     void recomputeScalarRange();
+
+    // Marks the render-state snapshot stale; the next publishRenderState()
+    // re-assembles it. Called from every GUI-state mutation (see emit sites).
+    void markStateDirty() { m_stateDirty = true; }
+
+    // ---- render-state double buffer ----
+    // m_uiState is the GUI-thread source of truth (the plain members below).
+    // m_renderSnapshot is the published copy handed to the render thread.
+    // Because synchronize() (GUI thread) and renderFrame() (render thread)
+    // never run concurrently on these buffers, we swap/rebuild without a
+    // runtime mutex — a pure structural copy only when m_stateDirty is set.
+    RenderRenderState m_renderSnapshot;
+    bool m_stateDirty = true;
 
     // ---- backend (render thread) ----
     Renderer m_renderer;
@@ -442,4 +462,12 @@ private:
     // destroyed on the GUI thread.
     QFutureWatcher<std::shared_ptr<const RenderMesh>> m_meshWatcher;
     std::string m_loadingPath; // normalized path for filename/recent-files in the continuation
+    // Monotonic generation counter: each loadMesh() increments it and stamps the
+    // async task. onMeshParsed() ignores results whose token != current, so a
+    // cancelled/superseded parse never misreports a load error or clobbers state.
+    uint64_t m_loadToken = 0;
+    // Generation stamp of the in-flight async parse. The worker writes its token
+    // on completion; onMeshParsed() compares it to m_loadToken to drop stale
+    // (cancelled/superseded) results.
+    std::shared_ptr<std::atomic<uint64_t>> m_taskToken;
 };

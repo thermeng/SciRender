@@ -31,8 +31,20 @@ RenderSettings::RenderSettings(QObject* parent)
 
 RenderSettings::~RenderSettings() = default;
 
-RenderRenderState RenderSettings::buildRenderState() const {
-    RenderRenderState s;
+void RenderSettings::publishRenderState(::Renderer* scene) {
+    // Double-buffered handoff (GUI thread, exclusive access during synchronize).
+    // Re-assemble the ~75-field snapshot ONLY when the GUI state changed; on
+    // idle frames we hand the previously-built buffer straight through, so the
+    // per-frame cost collapses to a single struct copy into the Renderer.
+    if (m_stateDirty) {
+        buildRenderState();
+        m_stateDirty = false;
+    }
+    if (scene) scene->setState(m_renderSnapshot); // Renderer deep-copies it
+}
+
+void RenderSettings::buildRenderState() {
+    RenderRenderState& s = m_renderSnapshot;
     s.camera = camera;
     s.showWireframe = showWireframe;
     s.showSurface = showSurface;
@@ -75,7 +87,6 @@ RenderRenderState RenderSettings::buildRenderState() const {
     s.screenshotQuality = screenshotQuality;
     s.screenshotScale = screenshotScale;
     s.hasMeshLoaded = hasMeshLoaded;
-    return s;
 }
 
 void RenderSettings::setStatus(const QString& msg) {
@@ -94,7 +105,7 @@ void RenderSettings::setUseLod(bool enabled) {
     if (useLod == enabled) return;
     useLod = enabled;
     m_renderer.markCameraMoving();
-    emit viewChanged();
+    markStateDirty(); emit viewChanged();
 }
 
 void RenderSettings::toggleGrid(bool visible) {
@@ -112,14 +123,14 @@ void RenderSettings::toggleSurface(bool visible) {
 void RenderSettings::snapToOrthoView(int axis) {
     camera.snapToOrthoView(axis);
     m_renderer.markCameraMoving();
-    emit viewChanged();
+    markStateDirty(); emit viewChanged();
 }
 
 void RenderSettings::snapToAxisView(int axis, bool flip) {
     int preset = flip ? (axis * 2 + 1) : (axis * 2);
     camera.snapToOrthoView(preset);
     m_renderer.markCameraMoving();
-    emit viewChanged();
+    markStateDirty(); emit viewChanged();
 }
 
 void RenderSettings::resetCamera() {
@@ -139,8 +150,7 @@ void RenderSettings::resetCamera() {
     camera.position = camera.focalPoint + glm::dvec3(0.0, 0.0, camera.distance);
     camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
     camera.orthogonalizeViewUp();
-    emit viewChanged();
-    emit meshDataUpdated();
+    markStateDirty(); emit viewChanged();
 }
 
 void RenderSettings::loadRecentFromSettings() {
@@ -230,9 +240,13 @@ void RenderSettings::loadMesh(const QString& filePath) {
     if (m_meshWatcher.isRunning()) {
         m_meshWatcher.cancel();
     }
+    const uint64_t token = ++m_loadToken;
+    auto taskToken = std::make_shared<std::atomic<uint64_t>>(token);
+    m_taskToken = taskToken;
     QFuture<std::shared_ptr<const RenderMesh>> f =
-        QtConcurrent::run([stdPath]() -> std::shared_ptr<const RenderMesh> {
+        QtConcurrent::run([stdPath, taskToken, token]() -> std::shared_ptr<const RenderMesh> {
             RenderMesh loaded = loadMeshFile(stdPath);
+            taskToken->store(token); // mark this task's generation on completion
             return std::make_shared<const RenderMesh>(std::move(loaded));
         });
     m_loadingPath = stdPath;
@@ -241,9 +255,14 @@ void RenderSettings::loadMesh(const QString& filePath) {
 }
 
 void RenderSettings::onMeshParsed() {
+    // Ignore results from a cancelled or superseded load. A newer loadMesh()
+    // increments m_loadToken; if this task's generation no longer matches, drop it
+    // so it cannot clobber state or report a false "could not load" error.
+    if (!m_taskToken || m_taskToken->load() != m_loadToken) return;
     std::shared_ptr<const RenderMesh> loaded = m_meshWatcher.result();
+    if (!loaded) return;
 
-    if (!loaded || loaded->vertices.empty()) {
+    if (loaded->vertices.empty()) {
         setStatus(QString("Could not load: unsupported format or empty file"));
         return;
     }
@@ -251,15 +270,17 @@ void RenderSettings::onMeshParsed() {
     // The single heavy CPU payload now lives in m_loadedMesh (shared, immutable).
     m_loadedMesh = loaded;
 
-    // Build a LIGHT GUI meta copy: keep attributes (for scalar/vector switching)
-    // and the active scalars array so field switches work without the heavy
-    // vertex/normal/index/vector payloads. Clear those heavy arrays so only ONE
-    // heavy copy (in m_loadedMesh) ever exists.
+    // Build a LIGHT GUI meta copy: keep only the cheap metadata (names, bounds,
+    // active scalar array) so field switches work without the heavy vertex/
+    // normal/index/vector payloads. The heavy geometry stays ONLY in m_loadedMesh
+    // (immutable, shared with the renderer); attributes (all scalar/vector field
+    // arrays) also stay ONLY in m_loadedMesh and are read from there on switch.
     m_guiMeta = *loaded;
     m_guiMeta.vertices.clear();   m_guiMeta.vertices.shrink_to_fit();
     m_guiMeta.normals.clear();    m_guiMeta.normals.shrink_to_fit();
     m_guiMeta.indices.clear();    m_guiMeta.indices.shrink_to_fit();
     m_guiMeta.pointVectorsData.clear(); m_guiMeta.pointVectorsData.shrink_to_fit();
+    m_guiMeta.attributes.reset();
 
     worldMinX = loaded->bounds.minX; worldMaxX = loaded->bounds.maxX;
     worldMinY = loaded->bounds.minY; worldMaxY = loaded->bounds.maxY;
@@ -288,7 +309,7 @@ void RenderSettings::onMeshParsed() {
     } else {
         m_guiMeta.vectorName.clear();
     }
-    emit vectorColormapChanged();
+    markStateDirty(); emit meshDataUpdated();
 
     if (!loaded->scalars.empty()) {
         meshHasScalars = true;
@@ -316,7 +337,7 @@ void RenderSettings::onMeshParsed() {
     }
 
     emit meshLoadStateChanged();
-    emit meshDataUpdated();
+    markStateDirty(); emit meshDataUpdated();
     setStatus("");
     saveStateToSettings();
 }
@@ -363,19 +384,26 @@ void RenderSettings::recomputeScalarRange() {
 
 void RenderSettings::setActiveScalarField(const QString& fieldName) {
     if (fieldName.toStdString() == activeScalarName) return;
-    if (!m_guiMeta.attributes.has_value()) return;
-    auto it = m_guiMeta.attributes->pointScalars.find(fieldName.toStdString());
-    if (it == m_guiMeta.attributes->pointScalars.end()) return;
+    if (!m_loadedMesh || !m_loadedMesh->attributes.has_value()) return;
+    auto it = m_loadedMesh->attributes->pointScalars.find(fieldName.toStdString());
+    if (it == m_loadedMesh->attributes->pointScalars.end()) return;
 
     activeScalarName = fieldName.toStdString();
     m_guiMeta.scalarName = activeScalarName;
-    m_guiMeta.scalars = it->second;
+
+    // Build the scalar payload ONCE as a shared_ptr (zero-copy across threads)
+    // and reuse it for both the GUI meta copy and the render-thread handoff,
+    // so the field is copied a single time rather than twice.
+    auto payload = std::make_shared<const std::vector<float>>(it->second);
+    m_guiMeta.scalars = *payload;
     recomputeScalarRange();
 
-    // Trigger a SCALAR-ONLY re-upload on the render thread.
-    m_renderer.markScalarDirty();
-    emit meshDataUpdated();
-    emit meshLoadStateChanged();
+    // Trigger a SCALAR-ONLY re-upload on the render thread (shared_ptr, no copy).
+    m_renderer.markScalarDirty(payload);
+    markStateDirty(); emit meshDataUpdated();
+    // NOTE: do NOT emit meshLoadStateChanged() here — load state
+    // (hasMeshLoaded / meshHasScalars) is unchanged; activeScalarName is
+    // already covered by meshDataUpdated (render_settings.h:80).
 }
 
 void RenderSettings::setActiveVectorField(const QString& fieldName) {
@@ -389,35 +417,35 @@ void RenderSettings::setActiveVectorField(const QString& fieldName) {
     }
     m_guiMeta.vectorName = fieldName.toStdString();
     m_renderer.markVectorGlyphDirty();
-    emit meshDataUpdated();
+    markStateDirty(); emit meshDataUpdated();
 }
 
 void RenderSettings::setColormapChoice(int choice) {
     if (colormapChoice == choice) return;
     colormapChoice = choice;
-    emit colormapChanged();
+    markStateDirty(); emit colormapChanged();
 }
 
 void RenderSettings::setColormapReversed(bool reversed) {
     if (colormapReversed == reversed) return;
     colormapReversed = reversed;
-    emit colormapChanged();
+    markStateDirty(); emit colormapChanged();
 }
 
 void RenderSettings::setVectorColormapReversed(bool reversed) {
     if (vectorColormapReversed == reversed) return;
     vectorColormapReversed = reversed;
-    emit vectorColormapChanged();
+    markStateDirty(); emit vectorColormapChanged();
 }
 
 void RenderSettings::applyLightingPreset(int preset) {
     lighting.applyPreset(preset);
-    emit lightingParametersChanged();
+    markStateDirty(); emit lightingParametersChanged();
 }
 
 void RenderSettings::resetLighting() {
     lighting.reset();
-    emit lightingParametersChanged();
+    markStateDirty(); emit lightingParametersChanged();
 }
 
 QStringList RenderSettings::getAvailableScalars() const {

@@ -261,6 +261,26 @@ void computeNormals(RenderMesh& mesh) {
         mesh.scalars = std::move(newScalars);
     }
 
+    // Sync the per-field point-scalar maps the same way: a duplicated vertex must
+    // carry the same scalar as its source, so field switches handed to the GPU
+    // (which is indexed by the final vertex count) stay in bounds and correct.
+    if (mesh.attributes.has_value() && !mesh.attributes->pointScalars.empty()) {
+        const size_t newVertCount = newVertices.size() / 3;
+        for (auto& [name, arr] : mesh.attributes->pointScalars) {
+            if (arr.empty()) continue;
+            std::vector<float> newArr(newVertCount, 0.5f);
+            for (size_t oldV = 0; oldV < numVerts; oldV++) {
+                float scalarVal = (oldV < arr.size()) ? arr[oldV] : 0.5f;
+                for (int newV : vertexRemap[oldV]) {
+                    if (static_cast<size_t>(newV) < newVertCount) {
+                        newArr[newV] = scalarVal;
+                    }
+                }
+            }
+            arr = std::move(newArr);
+        }
+    }
+
     // Sync per-point vectors the same way: a duplicated vertex must carry the
     // same vector as its source, otherwise glyph code indexed by vertex count
     // would read past the end of the (smaller) vector arrays and crash. The
