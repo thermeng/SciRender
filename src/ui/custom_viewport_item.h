@@ -4,6 +4,7 @@
 #include <QOpenGLFramebufferObject>
 #include <QPoint>
 #include <QString>
+#include <QElapsedTimer>
 #include "render/renderer.h"
 #include "render/render_settings.h"
 
@@ -29,6 +30,12 @@ private:
     bool m_uploadScalarsPending = false;
     bool m_dirty = true; // render only when something changed (idle = no GPU work)
     QString m_pendingScreenshot; // carried from GUI thread (synchronize) to render() where GL context is current
+
+    ::RenderSettings* m_settings = nullptr; // GUI-thread facade for FPS push-back
+    QElapsedTimer m_fpsClock;
+    double m_fpsLast = 0.0;
+    double m_fpsSmoothed = 0.0;
+    double m_fpsAccum = 0.0;
 };
 
 class ViewportVisualizer : public QQuickFramebufferObject {

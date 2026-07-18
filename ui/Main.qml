@@ -744,12 +744,12 @@ ApplicationWindow {
         onTriggered: openGLViewport.update()
     }
 
-    // Centered drop prompt context overlay
-    // on-screen perf HUD (top-right)
+    // on-screen perf HUD (bottom-left, below the gizmo triad)
     Rectangle {
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.margins: 0
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 8
+        anchors.bottomMargin: 138
         width: hudText.width + 16
         height: hudText.height + 8
         color: "#000000aa"

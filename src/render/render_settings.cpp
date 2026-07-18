@@ -89,6 +89,12 @@ void RenderSettings::buildRenderState() {
     s.hasMeshLoaded = hasMeshLoaded;
 }
 
+void RenderSettings::setFpsText(const QString& text) {
+    if (fpsText == text) return;
+    fpsText = text;
+    emit fpsChanged();
+}
+
 void RenderSettings::setStatus(const QString& msg) {
     if (statusMessage == msg) return;
     statusMessage = msg;

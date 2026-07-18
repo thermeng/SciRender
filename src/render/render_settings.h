@@ -224,6 +224,8 @@ public slots:
     void restoreStateFromSettings();
     Q_INVOKABLE void setActiveScalarField(const QString& fieldName);
 
+    Q_INVOKABLE void setFpsText(const QString& text);
+
     Q_INVOKABLE QStringList getColormapNames() const;
     Q_INVOKABLE QString getColormapPreviewUri(int index) const;
 

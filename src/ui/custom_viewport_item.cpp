@@ -8,6 +8,8 @@
 #include <QQuickOpenGLUtils>
 #include <QImage>
 #include <QStandardPaths>
+#include <QElapsedTimer>
+#include <cmath>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -121,6 +123,7 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
     ::RenderSettings* settings = vv->settings();
     ::Renderer* scene = settings ? settings->backend() : nullptr;
     m_scene = scene;
+    m_settings = settings;
 
     if (m_scene) {
         const float dpr = static_cast<float>(item->window() ? item->window()->devicePixelRatio() : 1.0);
@@ -223,4 +226,26 @@ void ViewportFboRenderer::render() {
     // Once we've drawn a fresh frame (and handled any capture), go idle until
     // the next dirty/continuous trigger. Keeps a static view from re-rendering.
     m_dirty = continuous;
+
+    // FPS measurement (render thread). Sample frame intervals and push a
+    // smoothed value to the GUI-thread settings so the HUD can display it.
+    if (m_scene->showFps()) {
+        const double now = m_fpsClock.elapsed() / 1000.0; // seconds
+        const double dt = now - m_fpsLast;
+        m_fpsLast = now;
+        if (dt > 0.0 && dt < 1.0) {
+            const double inst = 1.0 / dt;
+            m_fpsSmoothed = (m_fpsSmoothed <= 0.0) ? inst : (m_fpsSmoothed * 0.9 + inst * 0.1);
+            m_fpsAccum += dt;
+            if (m_fpsAccum >= 0.25) {
+                m_fpsAccum = 0.0;
+                const int fps = static_cast<int>(std::round(m_fpsSmoothed));
+                if (m_settings) {
+                    QMetaObject::invokeMethod(m_settings, "setFpsText",
+                                              Qt::QueuedConnection,
+                                              Q_ARG(QString, QString("FPS: %1").arg(fps)));
+                }
+            }
+        }
+    }
 }
