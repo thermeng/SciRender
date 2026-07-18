@@ -129,14 +129,15 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
             static_cast<int>(item->width()),
             static_cast<int>(item->height()));
 
-        // Thread-safe deep copy of the GUI view/visual state into the backend.
-        m_scene->setState(settings->buildRenderState());
+        // Double-buffered handoff of the GUI view/visual state into the backend
+        // (re-assembled only when dirty; idle frames skip the full copy).
+        settings->publishRenderState(m_scene);
     }
 
     // Scalar-only field switch: re-buffer just the sbo on the render thread
     // (no GL context here). Consumed below in render() before draw.
     if (m_scene && m_scene->consumeScalarDirty() && m_scene->hasGpuMeshes()) {
-        m_pendingScalars = m_scene->cachedScalars();
+        m_pendingScalars = m_scene->cachedScalars(); // shared_ptr copy (ref-count only)
         m_uploadScalarsPending = true;
         m_dirty = true;
     }
@@ -145,6 +146,16 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
     // Clear the visualizer copy so it is NOT re-copied on the next frame.
     m_pendingScreenshot = vv->m_pendingScreenshot;
     vv->m_pendingScreenshot.clear();
+
+    // A signal-driven repaint request (viewChanged, lighting, colormap, mesh
+    // update, screenshot, ...) sets m_needsRender on the visualizer. Propagate it
+    // into this renderer's dirty flag so render() actually redraws; otherwise the
+    // flag resets to false after the first frame and the viewport never refreshes
+    // on mouse/wheel interaction.
+    if (vv->m_needsRender) {
+        m_dirty = true;
+        vv->m_needsRender = false;
+    }
 }
 
 QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSize& size) {
