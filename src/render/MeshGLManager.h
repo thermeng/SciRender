@@ -34,10 +34,14 @@ public:
 
     // Re-uploads ONLY the per-vertex scalar buffer (sbo) for the already-built
     // meshes. Used when the active scalar field changes so we avoid re-uploading
-    // the (potentially huge) vertex/normal/index arrays. If the new scalar array
-    // is empty, the sbo is detached. Mutex-guarded to avoid racing clear()/
-    // snapshotDrawList on other threads.
-    void updateScalars(const std::vector<float>& scalars);
+    // the (potentially huge) vertex/normal/index arrays. The scalar payload is
+    // handed off as a shared_ptr (zero-copy, exactly like the mesh pipeline) —
+    // no deep vector copy on the GUI or render thread. On the GPU we orphan the
+    // previous sbo (glBufferData with nullptr) before filling it, so the driver
+    // can stream the new data into fresh memory instead of stalling on a
+    // reallocation. If the payload is null/empty, the sbo is detached.
+    // Mutex-guarded to avoid racing clear()/snapshotDrawList on other threads.
+    void updateScalars(std::shared_ptr<const std::vector<float>> scalars);
 
     // Frees all GPU handles and clears both mesh lists. Mutex-guarded.
     void clear();

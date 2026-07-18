@@ -607,7 +607,7 @@ ApplicationWindow {
                     width: parent.width - 36; wrapMode: Text.WordWrap
                 }
                 Text {
-                    text: "Build: MinGW 64-bit · Qt 6.11"
+                    text: "Build: MinGW 64-bit Â· Qt 6.11"
                     font.pixelSize: 10; color: "#777777"
                 }
             }
@@ -772,7 +772,7 @@ ApplicationWindow {
     property bool quickBarCollapsed: backendSettings ? backendSettings.quickBarCollapsed : false
     onQuickBarCollapsedChanged: { if (backendSettings) backendSettings.quickBarCollapsed = quickBarCollapsed }
 
-    // Collapsed handle — shown when the bar is collapsed.
+    // Collapsed handle â€” shown when the bar is collapsed.
     ToolButton {
         id: quickBarHandle
         anchors.top: parent.top
@@ -868,7 +868,7 @@ ApplicationWindow {
             }
             // -- Collapse --
             QBButton {
-                text: "\u00D7" // ×
+                text: "\u00D7" // Ã—
                 ToolTip.text: "Collapse quick-bar"; ToolTip.visible: hovered
                 Accessible.name: "Collapse quick-bar"
                 onClicked: captureRoot.quickBarCollapsed = true

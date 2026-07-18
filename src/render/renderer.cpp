@@ -389,8 +389,8 @@ bool Renderer::consumeScalarDirty() {
     return scalarDirty.exchange(false);
 }
 
-void Renderer::updateScalarsOnGPU(const std::vector<float>& scalars) {
-    m_pendingScalarSrc = scalars;
+void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars) {
+    m_pendingScalarSrc = scalars; // shared_ptr, no data copy
     meshManager.updateScalars(scalars);
 }
 

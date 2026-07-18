@@ -171,10 +171,18 @@ public:
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
 
-    // Scalar-only re-upload handoff.
+    // Scalar-only re-upload handoff. The payload is a shared_ptr (zero-copy).
+    // m_pendingScalarSrc is guarded by meshQueueMutex so the GUI-thread write
+    // and the render-thread read in cachedScalars() cannot race.
     bool consumeScalarDirty();
-    void markScalarDirty() { scalarDirty = true; }
-    void updateScalarsOnGPU(const std::vector<float>& scalars);
+    void markScalarDirty(std::shared_ptr<const std::vector<float>> src) {
+        {
+            std::lock_guard<std::mutex> lock(meshQueueMutex);
+            m_pendingScalarSrc = std::move(src);
+        }
+        scalarDirty = true;
+    }
+    void updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars);
 
     // Drop all GPU meshes (GUI-thread request, safe to call any time; real GL
     // teardown happens in meshManager with a current context on the render thread).
@@ -182,7 +190,12 @@ public:
 
     // Render-thread accessors used by ViewportFboRenderer.
     bool hasGpuMeshes() const { return meshManager.hasMeshes(); }
-    const std::vector<float>& cachedScalars() const { return m_pendingScalarSrc; }
+    // Returns the shared scalar payload (no copy); may be null if none queued.
+    // Guarded by meshQueueMutex to pair with markScalarDirty().
+    std::shared_ptr<const std::vector<float>> cachedScalars() const {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        return m_pendingScalarSrc;
+    }
 
     // Screenshot capture (render thread, GL context current).
     bool captureScreenshotToFile(const QString& path, QOpenGLFramebufferObject* fbo = nullptr);
@@ -297,8 +310,8 @@ private:
 
     std::shared_ptr<const RenderMesh> m_pendingMesh;        // handoff from GUI (shared, no copy)
     std::shared_ptr<const RenderMesh> m_lastUploadedMesh;   // kept for deferred vector-glyph rebuilds
-    std::mutex meshQueueMutex;
-    std::vector<float> m_pendingScalarSrc;
+    mutable std::mutex meshQueueMutex;
+    std::shared_ptr<const std::vector<float>> m_pendingScalarSrc; // scalar handoff (zero-copy)
 
     std::chrono::steady_clock::time_point m_lastMotion;
 

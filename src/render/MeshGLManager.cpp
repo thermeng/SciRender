@@ -407,11 +407,15 @@ std::vector<float> MeshGLManager::decimateScalars(
     return out;
 }
 
-void MeshGLManager::updateScalars(const std::vector<float>& scalars) {
+void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scalars) {
     std::lock_guard<std::mutex> lock(mutex_);
-    // Decimated LOD scalars are derived by clustering, not a 1:1 copy.
-    const std::vector<float> decScalars =
-        !scalars.empty() ? decimateScalars(scalars) : std::vector<float>{};
+    const std::vector<float>* src = scalars.get();
+    const bool hasData = src && !src->empty();
+
+    // Decimated LOD scalars are derived by clustering, not a 1:1 copy. This is
+    // the only unavoidable intermediate allocation (pre-existing behavior);
+    // the GUI/render thread no longer copies the full-resolution payload.
+    std::vector<float> decScalars = hasData ? decimateScalars(*src) : std::vector<float>{};
 
     auto reupload = [&](std::vector<Mesh>& meshes, const std::vector<float>& data) {
         for (auto& m : meshes) {
@@ -425,15 +429,19 @@ void MeshGLManager::updateScalars(const std::vector<float>& scalars) {
                     glBindVertexArray(0);
                 }
                 glBindBuffer(GL_ARRAY_BUFFER, m.sbo);
-                glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(float),
-                             data.data(), GL_STATIC_DRAW);
+                const size_t bytes = data.size() * sizeof(float);
+                // Orphan: discard the old backing store so the driver can
+                // pipeline a fresh allocation and avoid stalling on a live
+                // buffer. Then stream the new scalars in via glBufferSubData.
+                glBufferData(GL_ARRAY_BUFFER, bytes, nullptr, GL_STATIC_DRAW);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, data.data());
             } else if (m.sbo != 0) {
                 glDeleteBuffers(1, &m.sbo);
                 m.sbo = 0;
             }
         }
     };
-    reupload(meshes_, scalars);
+    reupload(meshes_, hasData ? *src : std::vector<float>{});
     reupload(decimatedMeshes_, decScalars);
 }
 

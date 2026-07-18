@@ -24,7 +24,8 @@ private:
     // so no CPU mesh buffer is kept here.
     // Scalar-only re-upload: the field switched on the GUI thread, so the
     // render thread re-buffers just the scalar attribute (sbo) — not the mesh.
-    std::vector<float> m_pendingScalars;
+    // Stored as a shared_ptr (zero-copy); only the ref-count is bumped.
+    std::shared_ptr<const std::vector<float>> m_pendingScalars;
     bool m_uploadScalarsPending = false;
     bool m_dirty = true; // render only when something changed (idle = no GPU work)
     QString m_pendingScreenshot; // carried from GUI thread (synchronize) to render() where GL context is current
