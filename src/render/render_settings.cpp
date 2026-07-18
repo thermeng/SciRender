@@ -98,6 +98,7 @@ void RenderSettings::setStatus(const QString& msg) {
 void RenderSettings::setWireframe(bool enabled) {
     if (showWireframe == enabled) return;
     showWireframe = enabled;
+    markStateDirty();
     emit wireframeChanged();
 }
 
@@ -111,12 +112,14 @@ void RenderSettings::setUseLod(bool enabled) {
 void RenderSettings::toggleGrid(bool visible) {
     if (showGrid == visible) return;
     showGrid = visible;
+    markStateDirty();
     emit gridVisibilityChanged();
 }
 
 void RenderSettings::toggleSurface(bool visible) {
     if (showSurface == visible) return;
     showSurface = visible;
+    markStateDirty();
     emit surfaceVisibilityChanged();
 }
 
@@ -359,6 +362,7 @@ void RenderSettings::clearMeshes() {
     m_guiMeta = RenderMesh{};
     hasMeshLoaded = false;
     meshHasScalars = false;
+    markStateDirty();
     triangleCount = 0;
     pointCount = 0;
     meshDataType = "";

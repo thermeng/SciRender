@@ -285,6 +285,8 @@ void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
     glUniform3f(gridColorLoc, gridCol.r, gridCol.g, gridCol.b);
     glUniform3f(gridBgLoc, m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2]);
     glUniform1f(gridFalloffLoc, 0.02f);
+    // Align ground plane to the loaded mesh's y-min; before load, keep y=0.
+    gridPlaneY = m_state.hasMeshLoaded ? m_state.worldMinY : 0.0;
     glUniform1f(gridPlaneYLoc, static_cast<float>(gridPlaneY));
 
     glBindVertexArray(gridVAO);
