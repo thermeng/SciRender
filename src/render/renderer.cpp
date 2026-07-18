@@ -300,21 +300,17 @@ void Renderer::initGizmo() {
     colorbarOverlay.init();
 }
 
-void Renderer::uploadMesh(const RenderMesh& renderMesh) {
+void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
+    if (!renderMesh) return;
     meshManager.upload(renderMesh);
     m_lastUploadedMesh = renderMesh;
-    vectorGlyph.rebuild(renderMesh, m_state.vectorStride);
+    vectorGlyph.rebuild(*renderMesh, m_state.vectorStride);
 }
 
-void Renderer::queueMesh(const RenderMesh& renderMesh) {
+void Renderer::setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     std::lock_guard<std::mutex> lock(meshQueueMutex);
-    dynamicMeshQueue = renderMesh;
+    m_pendingMesh = std::move(renderMesh);
     meshManager.meshChanged = true;
-}
-
-void Renderer::takeQueuedMesh(RenderMesh& out) {
-    std::lock_guard<std::mutex> lock(meshQueueMutex);
-    out = std::move(dynamicMeshQueue);
 }
 
 void Renderer::markCameraMoving() {
@@ -384,7 +380,8 @@ void Renderer::resizeViewport(int w, int h) {
 void Renderer::clearGpuMeshes() {
     meshManager.clear();
     vectorGlyph = VectorGlyphSet{};
-    m_lastUploadedMesh = RenderMesh{};
+    m_lastUploadedMesh.reset();
+    m_pendingMesh.reset();
     m_state.hasMeshLoaded = false;
 }
 
@@ -559,8 +556,18 @@ void Renderer::renderFrame() {
         if (dt >= 0.14) cameraMoving = false;
     }
 
+    // Consume a pending mesh handoff from the GUI thread (shared_ptr; no copy).
+    // Uploading here keeps all GL work inside render() with the context current.
+    {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        if (m_pendingMesh) {
+            uploadMesh(m_pendingMesh);
+            m_pendingMesh.reset();
+        }
+    }
+
     if (vectorGlyphDirty.exchange(false)) {
-        vectorGlyph.rebuild(m_lastUploadedMesh, m_state.vectorStride);
+        if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride);
     }
 
     glEnable(GL_DEPTH_TEST);

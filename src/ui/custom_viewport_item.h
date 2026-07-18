@@ -19,10 +19,9 @@ private:
     bool m_initialized = false;
     QSize m_fboSize;
     QOpenGLFramebufferObject* m_fbo = nullptr; // viewport FBO, used for screenshot capture
-    // CPU mesh handoff lives in synchronize() (GUI thread, no GL
-    // context), but the GL upload must run in render() (context current).
-    RenderMesh m_pendingMesh;
-    bool m_uploadPending = false;
+    // The mesh handoff now arrives as a shared_ptr stored on the Renderer
+    // (setPendingMesh) and is uploaded inside renderFrame() under the GL context,
+    // so no CPU mesh buffer is kept here.
     // Scalar-only re-upload: the field switched on the GUI thread, so the
     // render thread re-buffers just the scalar attribute (sbo) — not the mesh.
     std::vector<float> m_pendingScalars;

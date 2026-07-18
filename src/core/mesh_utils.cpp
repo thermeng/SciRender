@@ -263,30 +263,32 @@ void computeNormals(RenderMesh& mesh) {
 
     // Sync per-point vectors the same way: a duplicated vertex must carry the
     // same vector as its source, otherwise glyph code indexed by vertex count
-    // would read past the end of the (smaller) vector arrays and crash.
-    if (!mesh.pointVectors.empty()) {
-        size_t newVertCount = newVertices.size() / 3;
-        std::map<std::string, std::vector<float>> newPointVectors;
-        for (auto& [name, vecArr] : mesh.pointVectors) {
-            std::vector<float> newVec(newVertCount * 3, 0.0f);
-            for (size_t oldV = 0; oldV < numVerts; ++oldV) {
-                float vx = 0.0f, vy = 0.0f, vz = 0.0f;
-                if (oldV * 3 + 2 < vecArr.size()) {
-                    vx = vecArr[oldV * 3 + 0];
-                    vy = vecArr[oldV * 3 + 1];
-                    vz = vecArr[oldV * 3 + 2];
-                }
-                for (int newV : vertexRemap[oldV]) {
+    // would read past the end of the (smaller) vector arrays and crash. The
+    // vectors are stored as one contiguous vec3 buffer with per-field offsets;
+    // we remap each field's vec3 run by vertexRemap and resize to finalVerts.
+    if (!mesh.pointVectorsData.empty()) {
+        const size_t newVertCount = newVertices.size() / 3;
+        std::vector<glm::vec3> newPointVectorsData;
+        newPointVectorsData.reserve(newVertCount * mesh.pointVectorOffset.size());
+        std::unordered_map<std::string, size_t> newPointVectorOffset;
+        for (const auto& [name, offset] : mesh.pointVectorOffset) {
+            newPointVectorOffset[name] = newPointVectorsData.size();
+            for (size_t run = 0; run < numVerts; ++run) {
+                const size_t srcIdx = offset + run;
+                const glm::vec3 v = (srcIdx < mesh.pointVectorsData.size())
+                    ? mesh.pointVectorsData[srcIdx] : glm::vec3(0.0f);
+                // vertexRemap[run] lists every new vertex this source vertex
+                // maps to (itself + any sharp-edge duplicates); copy the source
+                // vector to each so glyph code indexed by vertex count stays valid.
+                for (int newV : vertexRemap[run]) {
                     if (static_cast<size_t>(newV) < newVertCount) {
-                        newVec[newV * 3 + 0] = vx;
-                        newVec[newV * 3 + 1] = vy;
-                        newVec[newV * 3 + 2] = vz;
+                        newPointVectorsData.emplace_back(v);
                     }
                 }
             }
-            newPointVectors[name] = std::move(newVec);
         }
-        mesh.pointVectors = std::move(newPointVectors);
+        mesh.pointVectorsData = std::move(newPointVectorsData);
+        mesh.pointVectorOffset = std::move(newPointVectorOffset);
     }
 
     // Apply changes
@@ -301,10 +303,11 @@ void computeNormals(RenderMesh& mesh) {
     if (!mesh.scalars.empty() && mesh.scalars.size() != finalVerts) {
         mesh.scalars.resize(finalVerts, 0.5f);
     }
-    if (!mesh.pointVectors.empty()) {
-        for (auto& [name, vecArr] : mesh.pointVectors) {
-            if (vecArr.size() != finalVerts * 3) {
-                vecArr.resize(finalVerts * 3, 0.0f);
+    if (!mesh.pointVectorsData.empty()) {
+        for (auto& [name, offset] : mesh.pointVectorOffset) {
+            const size_t end = offset + finalVerts;
+            if (mesh.pointVectorsData.size() < end) {
+                mesh.pointVectorsData.resize(end, glm::vec3(0.0f));
             }
         }
     }

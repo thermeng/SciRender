@@ -3,6 +3,8 @@
 #include "core/mesh_loader.h"
 #include "export/screenshot.h"
 
+#include <QtConcurrent/QtConcurrentRun>
+
 #include <algorithm>
 #include <iterator>
 #include <QFileInfo>
@@ -23,7 +25,8 @@ RenderSettings::RenderSettings(QObject* parent)
 
     loadRecentFromSettings();
 
-    connect(&m_renderer, &Renderer::screenshotCaptured, this, &RenderSettings::screenshotCaptured);
+    connect(&m_meshWatcher, &QFutureWatcher<std::shared_ptr<const RenderMesh>>::finished,
+            this, &RenderSettings::onMeshParsed);
 }
 
 RenderSettings::~RenderSettings() = default;
@@ -67,7 +70,7 @@ RenderRenderState RenderSettings::buildRenderState() const {
     std::copy(std::begin(vectorColor), std::end(vectorColor), s.vectorColor);
     s.vectorUseColormap = vectorUseColormap;
     s.vectorScaleByMagnitude = vectorScaleByMagnitude;
-    s.vectorField = cachedMeshSource.vectorName;
+    s.vectorField = m_guiMeta.vectorName;
     s.screenshotTransparent = screenshotTransparent;
     s.screenshotQuality = screenshotQuality;
     s.screenshotScale = screenshotScale;
@@ -220,58 +223,77 @@ void RenderSettings::loadMesh(const QString& filePath) {
     if (stdPath.rfind("file:///", 0) == 0) stdPath = stdPath.substr(8);
     else if (stdPath.rfind("file://", 0) == 0) stdPath = stdPath.substr(7);
 
-    RenderMesh loaded;
-    try {
-        loaded = loadMeshFile(stdPath);
-    } catch (const std::exception& e) {
-        setStatus(QString("Failed to load %1: %2").arg(QString::fromStdString(stdPath)).arg(e.what()));
-        return;
-    } catch (...) {
-        setStatus(QString("Failed to load %1: unknown error").arg(QString::fromStdString(stdPath)));
+    // Parse OFF the GUI thread so heavy VTK/STL files never block the UI.
+    // The parse produces a RenderMesh that we wrap in an immutable shared_ptr;
+    // no per-vertex array is copied on the GUI thread. The QFutureWatcher's
+    // finished() runs on the GUI thread and does the bookkeeping below.
+    if (m_meshWatcher.isRunning()) {
+        m_meshWatcher.cancel();
+    }
+    QFuture<std::shared_ptr<const RenderMesh>> f =
+        QtConcurrent::run([stdPath]() -> std::shared_ptr<const RenderMesh> {
+            RenderMesh loaded = loadMeshFile(stdPath);
+            return std::make_shared<const RenderMesh>(std::move(loaded));
+        });
+    m_loadingPath = stdPath;
+    m_meshWatcher.setFuture(f);
+    setStatus(QString("Loading %1…").arg(QString::fromStdString(stdPath)));
+}
+
+void RenderSettings::onMeshParsed() {
+    std::shared_ptr<const RenderMesh> loaded = m_meshWatcher.result();
+
+    if (!loaded || loaded->vertices.empty()) {
+        setStatus(QString("Could not load: unsupported format or empty file"));
         return;
     }
 
-    if (loaded.vertices.empty()) {
-        setStatus(QString("Could not load %1: unsupported format or empty file").arg(QString::fromStdString(stdPath)));
-        return;
-    }
+    // The single heavy CPU payload now lives in m_loadedMesh (shared, immutable).
+    m_loadedMesh = loaded;
 
-    cachedMeshSource = loaded; // GUI-thread source copy for field switching
-    m_renderer.queueMesh(loaded); // deep handoff to the render thread
+    // Build a LIGHT GUI meta copy: keep attributes (for scalar/vector switching)
+    // and the active scalars array so field switches work without the heavy
+    // vertex/normal/index/vector payloads. Clear those heavy arrays so only ONE
+    // heavy copy (in m_loadedMesh) ever exists.
+    m_guiMeta = *loaded;
+    m_guiMeta.vertices.clear();   m_guiMeta.vertices.shrink_to_fit();
+    m_guiMeta.normals.clear();    m_guiMeta.normals.shrink_to_fit();
+    m_guiMeta.indices.clear();    m_guiMeta.indices.shrink_to_fit();
+    m_guiMeta.pointVectorsData.clear(); m_guiMeta.pointVectorsData.shrink_to_fit();
 
-    worldMinX = loaded.bounds.minX; worldMaxX = loaded.bounds.maxX;
-    worldMinY = loaded.bounds.minY; worldMaxY = loaded.bounds.maxY;
-    worldMinZ = loaded.bounds.minZ; worldMaxZ = loaded.bounds.maxZ;
-    worldCenterX = loaded.bounds.centerX;
-    worldCenterY = loaded.bounds.centerY;
-    worldCenterZ = loaded.bounds.centerZ;
-    worldRadius  = loaded.bounds.worldRadius;
+    worldMinX = loaded->bounds.minX; worldMaxX = loaded->bounds.maxX;
+    worldMinY = loaded->bounds.minY; worldMaxY = loaded->bounds.maxY;
+    worldMinZ = loaded->bounds.minZ; worldMaxZ = loaded->bounds.maxZ;
+    worldCenterX = loaded->bounds.centerX;
+    worldCenterY = loaded->bounds.centerY;
+    worldCenterZ = loaded->bounds.centerZ;
+    worldRadius  = loaded->bounds.worldRadius;
 
-    QFileInfo fileInfo(QString::fromStdString(stdPath));
+    QFileInfo fileInfo(QString::fromStdString(m_loadingPath));
     currentMeshName = fileInfo.fileName().toStdString();
-    triangleCount = static_cast<int>(loaded.indices.size() / 3);
-    pointCount = loaded.sourcePointCount >= 0
-        ? loaded.sourcePointCount
-        : static_cast<int>(loaded.vertices.size() / 3);
-    meshDataType = loaded.datasetType;
-    meshFormat = loaded.fileFormat;
+    triangleCount = static_cast<int>(loaded->indices.size() / 3);
+    pointCount = loaded->sourcePointCount >= 0
+        ? loaded->sourcePointCount
+        : static_cast<int>(loaded->vertices.size() / 3);
+    meshDataType = loaded->datasetType;
+    meshFormat = loaded->fileFormat;
     hasMeshLoaded = true;
 
     // Reset per-mesh vector state.
     showVectors = false;
     vectorUseColormap = false;
     clipEnabled = false;
-    if (!loaded.pointVectors.empty()) {
-        cachedMeshSource.vectorName = loaded.availableVectorNames.front();
+    if (!loaded->pointVectorsData.empty()) {
+        m_guiMeta.vectorName = loaded->availableVectorNames.front();
     } else {
-        cachedMeshSource.vectorName.clear();
+        m_guiMeta.vectorName.clear();
     }
     emit vectorColormapChanged();
 
-    if (!loaded.scalars.empty()) {
+    if (!loaded->scalars.empty()) {
         meshHasScalars = true;
         showScalarColorbar = true;
-        activeScalarName = loaded.scalarName;
+        activeScalarName = loaded->scalarName;
         recomputeScalarRange();
     } else {
         meshHasScalars = false;
@@ -282,8 +304,11 @@ void RenderSettings::loadMesh(const QString& filePath) {
 
     resetCamera();
 
+    // Hand the immutable payload to the render thread (shared_ptr, no copy).
+    m_renderer.setPendingMesh(m_loadedMesh);
+
     {
-        QString absPath = QFileInfo(QString::fromStdString(stdPath)).absoluteFilePath();
+        QString absPath = QFileInfo(QString::fromStdString(m_loadingPath)).absoluteFilePath();
         recentFiles.removeAll(absPath);
         recentFiles.prepend(absPath);
         while (recentFiles.size() > 8) recentFiles.removeLast();
@@ -301,8 +326,16 @@ void RenderSettings::openRecent(const QString& filePath) {
     loadMesh(filePath);
 }
 
+void RenderSettings::setQuickBarCollapsed(bool collapsed) {
+    if (quickBarCollapsed == collapsed) return;
+    quickBarCollapsed = collapsed;
+    emit quickBarCollapsedChanged();
+}
+
 void RenderSettings::clearMeshes() {
     m_renderer.clearGpuMeshes();
+    m_loadedMesh.reset();
+    m_guiMeta = RenderMesh{};
     hasMeshLoaded = false;
     meshHasScalars = false;
     triangleCount = 0;
@@ -319,9 +352,9 @@ void RenderSettings::requestScreenshot(const QString& path) {
 }
 
 void RenderSettings::recomputeScalarRange() {
-    if (cachedMeshSource.scalars.empty()) return;
-    float mn = cachedMeshSource.scalars[0], mx = cachedMeshSource.scalars[0];
-    for (float v : cachedMeshSource.scalars) { if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (m_guiMeta.scalars.empty()) return;
+    float mn = m_guiMeta.scalars[0], mx = m_guiMeta.scalars[0];
+    for (float v : m_guiMeta.scalars) { if (v < mn) mn = v; if (v > mx) mx = v; }
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
     dataScalarMin = mn; dataScalarMax = mx;
     scalarMin = mn; scalarMax = mx;
@@ -330,13 +363,13 @@ void RenderSettings::recomputeScalarRange() {
 
 void RenderSettings::setActiveScalarField(const QString& fieldName) {
     if (fieldName.toStdString() == activeScalarName) return;
-    if (!cachedMeshSource.attributes.has_value()) return;
-    auto it = cachedMeshSource.attributes->pointScalars.find(fieldName.toStdString());
-    if (it == cachedMeshSource.attributes->pointScalars.end()) return;
+    if (!m_guiMeta.attributes.has_value()) return;
+    auto it = m_guiMeta.attributes->pointScalars.find(fieldName.toStdString());
+    if (it == m_guiMeta.attributes->pointScalars.end()) return;
 
     activeScalarName = fieldName.toStdString();
-    cachedMeshSource.scalarName = activeScalarName;
-    cachedMeshSource.scalars = it->second;
+    m_guiMeta.scalarName = activeScalarName;
+    m_guiMeta.scalars = it->second;
     recomputeScalarRange();
 
     // Trigger a SCALAR-ONLY re-upload on the render thread.
@@ -347,14 +380,14 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
 
 void RenderSettings::setActiveVectorField(const QString& fieldName) {
     if (fieldName.isEmpty()) return;
-    if (cachedMeshSource.availableVectorNames.empty() ||
-        std::find(cachedMeshSource.availableVectorNames.begin(),
-                  cachedMeshSource.availableVectorNames.end(),
-                  fieldName.toStdString()) == cachedMeshSource.availableVectorNames.end()) {
+    if (m_guiMeta.availableVectorNames.empty() ||
+        std::find(m_guiMeta.availableVectorNames.begin(),
+                  m_guiMeta.availableVectorNames.end(),
+                  fieldName.toStdString()) == m_guiMeta.availableVectorNames.end()) {
         setStatus(QString("Unknown vector field: %1").arg(fieldName));
         return;
     }
-    cachedMeshSource.vectorName = fieldName.toStdString();
+    m_guiMeta.vectorName = fieldName.toStdString();
     m_renderer.markVectorGlyphDirty();
     emit meshDataUpdated();
 }
@@ -389,7 +422,7 @@ void RenderSettings::resetLighting() {
 
 QStringList RenderSettings::getAvailableScalars() const {
     QStringList list;
-    for (const auto& name : cachedMeshSource.availableScalarNames)
+    for (const auto& name : m_guiMeta.availableScalarNames)
         list.append(QString::fromStdString(name));
     return list;
 }

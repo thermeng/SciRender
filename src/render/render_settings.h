@@ -7,6 +7,9 @@
 #include <QVariantList>
 #include <QColor>
 #include <QTimer>
+#include <QFutureWatcher>
+
+#include <memory>
 
 #include "render/renderer.h"
 #include "core/mesh_loader.h"
@@ -197,6 +200,7 @@ public:
     // ---- UI callable actions (slots invoked by QML) ----
 public slots:
     void loadMesh(const QString& filePath);
+    void onMeshParsed(); // GUI-thread continuation after async parse
     void openRecent(const QString& filePath);
     void clearMeshes();
     void resetCamera();
@@ -274,8 +278,8 @@ public:
     void setVectorUseColormap(bool v) { if (vectorUseColormap != v) { vectorUseColormap = v; emit viewChanged(); } }
     int getVectorColormapChoice() const { return vectorColormapChoice; }
     void setVectorColormapChoice(int c) { if (vectorColormapChoice != c) { vectorColormapChoice = c; emit viewChanged(); } }
-    QStringList getAvailableVectors() const { QStringList l; for (const auto& n : cachedMeshSource.availableVectorNames) l.append(QString::fromStdString(n)); return l; }
-    QString getVectorField() const { return QString::fromStdString(cachedMeshSource.vectorName); }
+    QStringList getAvailableVectors() const { QStringList l; for (const auto& n : m_guiMeta.availableVectorNames) l.append(QString::fromStdString(n)); return l; }
+    QString getVectorField() const { return QString::fromStdString(m_guiMeta.vectorName); }
     Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
     bool getScreenshotTransparent() const { return screenshotTransparent; }
     void setScreenshotTransparent(bool v) { screenshotTransparent = v; }
@@ -378,7 +382,8 @@ private:
     std::string meshDataType;
     std::string meshFormat;
     std::string activeScalarName;
-    RenderMesh cachedMeshSource;
+    std::shared_ptr<const RenderMesh> m_loadedMesh; // single heavy CPU payload (immutable)
+    RenderMesh m_guiMeta;                           // light copy: attributes + active scalars + names + metadata
 
     double worldCenterX = 0, worldCenterY = 0, worldCenterZ = 0;
     double worldRadius = 1.0;
@@ -429,5 +434,12 @@ private:
     bool quickBarCollapsed = false;
     QStringList recentFiles;
 
-    std::map<int, QString> m_colormapPreviewCache;
+    mutable std::map<int, QString> m_colormapPreviewCache;
+
+    // Async parse watcher (GUI thread). Parsing runs off the GUI thread via
+    // QtConcurrent::run; the finished result is delivered here and handed to the
+    // render thread as a shared_ptr (no copy). Parented to this object so it is
+    // destroyed on the GUI thread.
+    QFutureWatcher<std::shared_ptr<const RenderMesh>> m_meshWatcher;
+    std::string m_loadingPath; // normalized path for filename/recent-files in the continuation
 };

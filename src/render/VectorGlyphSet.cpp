@@ -48,14 +48,14 @@ void VectorGlyphSet::shutdown() {
 void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride) {
     teardownGL();
 
-    if (mesh.pointVectors.empty()) return;
+    if (mesh.pointVectorsData.empty()) return;
 
     const std::string& field = mesh.vectorName.empty()
         ? mesh.availableVectorNames.front()
         : mesh.vectorName;
-    auto it = mesh.pointVectors.find(field);
-    if (it == mesh.pointVectors.end()) return;
-    const auto& vecArr = it->second;
+    size_t count = 0;
+    const glm::vec3* data = mesh.vectorFieldData(field, count);
+    if (!data || count == 0) return;
 
     int numPts = static_cast<int>(mesh.vertices.size() / 3);
     stride = std::max(1, stride);
@@ -66,7 +66,7 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride) {
     float mMin = std::numeric_limits<float>::max();
     float mMax = -std::numeric_limits<float>::max();
     for (int i = 0; i < numPts; ++i) {
-        float dx = vecArr[i * 3 + 0], dy = vecArr[i * 3 + 1], dz = vecArr[i * 3 + 2];
+        float dx = data[i].x, dy = data[i].y, dz = data[i].z;
         float m = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (!std::isfinite(m)) continue;
         if (m < mMin) mMin = m;
@@ -74,7 +74,7 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride) {
     }
     std::vector<float> inst;
     for (int i = 0; i < numPts; i += stride) {
-        float dx = vecArr[i * 3 + 0], dy = vecArr[i * 3 + 1], dz = vecArr[i * 3 + 2];
+        float dx = data[i].x, dy = data[i].y, dz = data[i].z;
         // skip near-zero vectors so the cloud isn't cluttered with dots
         if (dx * dx + dy * dy + dz * dz < 1e-12f) continue;
         inst.push_back(mesh.vertices[i * 3 + 0]);

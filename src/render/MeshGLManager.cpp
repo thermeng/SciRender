@@ -291,25 +291,27 @@ RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
     return out;
 }
 
-void MeshGLManager::upload(const RenderMesh& renderMesh) {
+void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
     std::vector<Mesh> newFull, newDec;
+    if (!renderMesh) return;
 
     // Cache the full-resolution source so a later scalar-only field switch can
     // re-derive the decimated LOD scalars without re-uploading geometry.
-    fullSource_ = renderMesh;
+    // Stored as the shared_ptr (NO copy) — the single heavy CPU payload.
+    fullSource_ = std::move(renderMesh);
     hasFullSource_ = true;
 
     // Full-resolution mesh.
-    buildMeshGL(renderMesh, newFull);
+    buildMeshGL(*fullSource_, newFull);
 
     // LOD: a coarsely decimated mesh, used only while the camera is moving.
     // Eligible surface/STL/VTK meshes are additionally screened by
     // surfaceDecimationSafe() so disconnected/overlapping shells are never
     // clustered into spurious surfaces during camera motion.
-    if (datasetSupportsDecimation(renderMesh) && surfaceDecimationSafe(renderMesh)) {
-        RenderMesh decimated = decimate(renderMesh);
+    if (datasetSupportsDecimation(*fullSource_) && surfaceDecimationSafe(*fullSource_)) {
+        RenderMesh decimated = decimate(*fullSource_);
         bool lodWorthwhile = !decimated.indices.empty() &&
-                             decimated.indices.size() < renderMesh.indices.size() / 2;
+                             decimated.indices.size() < fullSource_->indices.size() / 2;
         if (lodWorthwhile) buildMeshGL(decimated, newDec);
     }
 
@@ -339,6 +341,7 @@ void MeshGLManager::clear() {
         decimatedMeshes_.clear();
         hasDecimated_ = false;
         hasFullSource_ = false;
+        fullSource_.reset();
     }
 }
 
@@ -346,7 +349,7 @@ std::vector<float> MeshGLManager::decimateScalars(
     const std::vector<float>& fullScalars) const {
     if (!hasFullSource_ || !hasDecimated_ || decimatedMeshes_.empty())
         return {};
-    const RenderMesh& in = fullSource_;
+    const RenderMesh& in = *fullSource_;
     const size_t nv = in.vertices.size() / 3;
     // The LOD mesh exists only when the geometry was decimated; the decimated
     // vertex count is carried by the (single) decimated Mesh's index setup.

@@ -155,15 +155,13 @@ public:
     bool showFps() const { return m_state.showFps; }
 
     // Uploads CPU geometry to the GPU. Safe to call on the render thread.
-    void uploadMesh(const RenderMesh& renderMesh);
+    void uploadMesh(std::shared_ptr<const RenderMesh> renderMesh);
     void drawGrid(const glm::mat4& view, const glm::mat4& proj);
 
-    // Queued mesh handoff (GUI -> render thread). queueMesh() is called on the
-    // GUI thread under the mutex; takeQueuedMesh() consumes it on the render
-    // thread (no copy aliasing across threads).
-    void queueMesh(const RenderMesh& renderMesh);
-    void takeQueuedMesh(RenderMesh& out);
-    bool consumeMeshChanged() const { return meshManager.meshChanged.load(); }
+    // Pending mesh handoff (GUI -> render thread). setPendingMesh() stores a
+    // shared_ptr (no copy) plus a dirty flag; renderFrame() consumes it and
+    // uploads on the render thread under the GL context.
+    void setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh);
 
     // Mark the camera as moving and (re)start the LOD debounce timer.
     void markCameraMoving();
@@ -297,8 +295,8 @@ private:
     // Scalar-field switch signal: set on the GUI thread and consumed here.
     std::atomic<bool> scalarDirty{false};
 
-    RenderMesh dynamicMeshQueue;
-    RenderMesh m_lastUploadedMesh; // kept for deferred vector-glyph rebuilds
+    std::shared_ptr<const RenderMesh> m_pendingMesh;        // handoff from GUI (shared, no copy)
+    std::shared_ptr<const RenderMesh> m_lastUploadedMesh;   // kept for deferred vector-glyph rebuilds
     std::mutex meshQueueMutex;
     std::vector<float> m_pendingScalarSrc;
 

@@ -1,10 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <optional>
+
+#include <glm/glm.hpp>
 
 // ── Bounding Volume (High-Precision Double Precision) ───────────────────────
 
@@ -51,11 +55,28 @@ struct RenderMesh {
     std::string scalarName = "";   // Name of active scalar field
     std::vector<std::string> availableScalarNames; // all point-scalar field names for the QML switcher
 
-    // VTK VECTORS — unrolled so it aligns with unrolled `vertices`
-    std::map<std::string, std::vector<float>> pointVectors; // interleaved [x,y,z] per unrolled vertex
-    std::vector<std::string> availableVectorNames;          // for a QML switcher
-    std::string vectorName = "";                            // active vector field name
-    bool meshHasVectors() const { return !pointVectors.empty(); }
+    // VTK VECTORS — stored as a single contiguous buffer of vec3 runs. All
+    // fields share the same per-vertex count (= vertices.size()/3). The offset
+    // (in vec3 units) of each field's run is recorded in pointVectorOffset.
+    // This replaces the old pointer-chasing std::map<std::string,vector<float>>.
+    std::vector<glm::vec3> pointVectorsData;                       // contiguous, stride 3
+    std::unordered_map<std::string, size_t> pointVectorOffset;     // vec3-offset per field name
+    std::vector<std::string> availableVectorNames;                // for a QML switcher
+    std::string vectorName = "";                                  // active vector field name
+    bool meshHasVectors() const { return !pointVectorsData.empty(); }
+
+    // Resolves a vector field's contiguous data. Returns the base pointer and
+    // the number of vec3 elements, or (nullptr, 0) when the field is unknown.
+    const glm::vec3* vectorFieldData(const std::string& name, size_t& count) const {
+        auto it = pointVectorOffset.find(name);
+        if (it == pointVectorOffset.end()) { count = 0; return nullptr; }
+        count = pointVectorsData.size() - it->second;
+        // A field always spans a full per-vertex count; clamp to that if the
+        // buffer holds trailing runs of other fields.
+        const size_t perVertex = vertices.empty() ? 0 : vertices.size() / 3;
+        if (perVertex != 0 && count > perVertex) count = perVertex;
+        return pointVectorsData.data() + it->second;
+    }
 
     // High-precision bounding volume (double for camera-relative precision)
     BoundingVolume bounds;

@@ -25,10 +25,12 @@ public:
     MeshGLManager() = default;
     ~MeshGLManager() = default;
 
-    // Builds GPU meshes from a CPU RenderMesh (full + optional decimated LOD),
-    // wiping the previous handles first. Guarded by the internal mutex so it
-    // cannot race with clear() on another thread.
-    void upload(const RenderMesh& renderMesh);
+    // Builds GPU meshes from a shared, immutable CPU RenderMesh (full +
+    // optional decimated LOD), wiping the previous handles first. The shared_ptr
+    // is stored (NOT copied) so only ONE heavy CPU copy of the geometry exists.
+    // Guarded by the internal mutex so it cannot race with clear() on another
+    // thread.
+    void upload(std::shared_ptr<const RenderMesh> renderMesh);
 
     // Re-uploads ONLY the per-vertex scalar buffer (sbo) for the already-built
     // meshes. Used when the active scalar field changes so we avoid re-uploading
@@ -66,8 +68,9 @@ private:
 
     // Cached source of truth for the full-resolution mesh. Needed so a scalar-
     // only field switch can recompute the decimated LOD scalars without a full
-    // (expensive) re-upload of every vertex/normal/index buffer.
-    RenderMesh fullSource_;
+    // (expensive) re-upload of every vertex/normal/index buffer. Stored as a
+    // shared_ptr (NOT a copy) so only one heavy CPU copy of the geometry exists.
+    std::shared_ptr<const RenderMesh> fullSource_;
     bool hasFullSource_ = false;
 
     std::vector<Mesh> meshes_;

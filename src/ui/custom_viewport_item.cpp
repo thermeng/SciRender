@@ -133,26 +133,12 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
         m_scene->setState(settings->buildRenderState());
     }
 
-    // Drain the queued mesh handoff. Only copy CPU data here (GUI thread,
-    // no GL context). The actual GL upload happens in render() where the
-    // context is current — calling uploadMesh (glGenBuffers etc.) here is UB.
-    if (m_scene && m_scene->consumeMeshChanged()) {
-        m_scene->takeQueuedMesh(m_pendingMesh);
-        m_uploadPending = !m_pendingMesh.vertices.empty();
-        m_dirty = true;
-    }
-
     // Scalar-only field switch: re-buffer just the sbo on the render thread
     // (no GL context here). Consumed below in render() before draw.
     if (m_scene && m_scene->consumeScalarDirty() && m_scene->hasGpuMeshes()) {
         m_pendingScalars = m_scene->cachedScalars();
         m_uploadScalarsPending = true;
         m_dirty = true;
-    }
-    // A signal requested a repaint; fold it into the renderer's dirty flag.
-    if (vv && vv->m_needsRender) {
-        m_dirty = true;
-        vv->m_needsRender = false;
     }
 
     // Carry the screenshot request across to render() (GL context current there).
@@ -193,18 +179,8 @@ void ViewportFboRenderer::render() {
     // redrawing the same image continuously. Continuous updates are still needed
     // while the turntable (autoRotate) or FPS HUD is on.
     const bool continuous = (m_scene->autoRotate() || m_scene->showFps());
-    if (!m_dirty && !continuous && !m_uploadPending && m_pendingScreenshot.isEmpty()) {
+    if (!m_dirty && !continuous && m_pendingScreenshot.isEmpty()) {
         return;
-    }
-
-    // The FBO is already bound as the GL draw target by the scene graph; our
-    // renderFrame() clears/draws into it. The SG composites this FBO texture
-    // on top of the background and BELOW the QML overlays (colorbar, etc.).
-    // Upload any pending mesh NOW — this is the render thread with the GL
-    // context current. (synchronize() only copied the CPU data.)
-    if (m_uploadPending) {
-        m_scene->uploadMesh(m_pendingMesh);
-        m_uploadPending = false;
     }
 
     // Scalar-only re-upload: refresh just the sbo for the existing GPU meshes.
@@ -212,6 +188,11 @@ void ViewportFboRenderer::render() {
         m_scene->updateScalarsOnGPU(m_pendingScalars);
         m_uploadScalarsPending = false;
     }
+
+    // The mesh payload is uploaded inside renderFrame() (which consumes the
+    // Renderer's pending shared_ptr under the GL context, set by
+    // RenderSettings on the GUI thread). Mesh arrivals also emit meshDataUpdated,
+    // which already flips this renderer's dirty flag via synchronize().
 
     m_scene->renderFrame();
 

@@ -1069,9 +1069,16 @@ private:
         //    normals in computeNormals(), which runs on the indexed layout and only
         //    splits normals at genuinely sharp edges.
         if (mesh.attributes.has_value()) {
-            // Align per-point vectors with the (shared) vertices for glyph rendering.
+            // Flatten per-point vectors into one contiguous vec3 buffer with a
+            // per-field offset (shared_ptr/zero-copy glyph pipeline expects this).
+            const size_t perVertex = mesh.vertices.size() / 3;
             for (const auto& [name, vecArr] : mesh.attributes->pointVectors) {
-                mesh.pointVectors[name] = vecArr;
+                if (vecArr.size() < perVertex * 3) continue; // skip unusable field
+                mesh.pointVectorOffset[name] = mesh.pointVectorsData.size();
+                for (size_t v = 0; v < perVertex; ++v) {
+                    mesh.pointVectorsData.emplace_back(
+                        vecArr[v * 3 + 0], vecArr[v * 3 + 1], vecArr[v * 3 + 2]);
+                }
             }
         }
 
