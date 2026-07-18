@@ -19,6 +19,8 @@
 #include <QImage>
 #include <QBuffer>
 #include <QTimer>
+#include <QPainter>
+#include <QFont>
 
 // Qt Core & UI Utilities replacing Win32 APIs
 #include <QDir>
@@ -396,6 +398,8 @@ void Renderer::saveStateToSettings() const {
     // vectors
     s.setValue("vectorScale", vectorScale);
     s.setValue("vectorScaleByMagnitude", vectorScaleByMagnitude);
+    // UI: floating viewport quick-bar collapse state
+    s.setValue("quickBarCollapsed", quickBarCollapsed);
     s.endGroup();
 }
 
@@ -435,6 +439,9 @@ void Renderer::restoreStateFromSettings() {
     if (s.contains("vectorScale")) {
         vectorScale = s.value("vectorScale").toFloat();
         vectorScaleByMagnitude = s.value("vectorScaleByMagnitude").toBool();
+    }
+    if (s.contains("quickBarCollapsed")) {
+        quickBarCollapsed = s.value("quickBarCollapsed").toBool();
     }
     s.endGroup();
 }
@@ -777,13 +784,14 @@ QStringList Renderer::getColormapNames() const {
 }
 
 QString Renderer::getColormapPreviewUri(int index) const {
-    // Cache the rasterized gradient per colormap index — the QML swatch can
-    // request this repeatedly (every colorbar refresh), and re-rasterizing a
-    // 128x16 PNG to a base64 data URI each call is pure waste.
+    // Cache the rasterized gradient (name overlaid) per colormap index — the QML
+    // swatch can request this repeatedly (every colorbar refresh), and
+    // re-rasterizing + re-encoding a PNG to a base64 data URI each call is pure waste.
     auto it = m_colormapPreviewCache.find(index);
     if (it != m_colormapPreviewCache.end()) return it->second;
 
-    const int w = 128, h = 16;
+    const int w = 100, h = 32;
+    
     QImage img(w, h, QImage::Format_RGB888);
     ColormapType type = static_cast<ColormapType>(index);
     for (int x = 0; x < w; ++x) {
@@ -794,6 +802,25 @@ QString Renderer::getColormapPreviewUri(int index) const {
         int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
         for (int y = 0; y < h; ++y) img.setPixel(x, y, qRgb(r, g, b));
     }
+
+    // Overlay the colormap name centered over the gradient (shadow + white text)
+    // so each combo entry reads as a self-labeled, richer palette tile.
+    {
+        QPainter p(&img);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+        QFont f("Sans", 4, QFont::Bold);
+        f.setStyleStrategy(QFont::PreferAntialias);
+        p.setFont(f);
+        QRect r(0, 0, w, h);
+        QString name = QString::fromUtf8(Colormaps::getName(type));
+        // shadow
+        p.setPen(Qt::black);
+        p.drawText(r.translated(1, 1), Qt::AlignCenter, name);
+        // main text
+        p.setPen(Qt::white);
+        p.drawText(r, Qt::AlignCenter, name);
+    }
+
     QByteArray ba;
     QBuffer buf(&ba);
     buf.open(QIODevice::WriteOnly);

@@ -164,6 +164,8 @@ class Renderer : public QObject {
 
     // on-screen perf HUD (FPS / frame ms / tris)
     Q_PROPERTY(bool showFps READ getShowFps WRITE setShowFps NOTIFY viewChanged)
+    // floating viewport quick-bar (View & Display quick controls) collapse state
+    Q_PROPERTY(bool quickBarCollapsed READ getQuickBarCollapsed WRITE setQuickBarCollapsed NOTIFY quickBarCollapsedChanged)
     Q_PROPERTY(QString fpsText READ getFpsText NOTIFY fpsChanged)
 
 public:
@@ -209,6 +211,14 @@ public:
     void setColormapReversed(bool reversed);
     bool getVectorColormapReversed() const { return colormap.vectorReversed(); }
     void setVectorColormapReversed(bool reversed);
+
+    // quick-bar collapse state (persisted, exposed to QML)
+    bool getQuickBarCollapsed() const { return quickBarCollapsed; }
+    void setQuickBarCollapsed(bool collapsed) {
+        if (quickBarCollapsed == collapsed) return;
+        quickBarCollapsed = collapsed;
+        emit quickBarCollapsedChanged();
+    }
 
     float getLightKeyAzimuth() const { return lighting.lightKeyAzimuth; }
     void setLightKeyAzimuth(float v) { lighting.lightKeyAzimuth = v; emit lightingParametersChanged(); }
@@ -302,6 +312,7 @@ signals:
     void colorbarChanged(); // colorbar tick count changed
     void vectorColormapChanged(); // vector magnitude LUT + range changed
     void viewChanged(); // view change -> viewport repaint
+    void quickBarCollapsedChanged(); // floating quick-bar collapse toggled
     void screenshotCaptured(const QString& targetSavedPath);
     void screenshotRequested(const QString& targetPath);
     void fpsChanged(); // HUD text refresh
@@ -623,6 +634,8 @@ private:
     std::chrono::steady_clock::time_point m_lastFrameTime;
     int m_frameCount = 0;
     double m_fpsAccum = 0.0; // seconds elapsed since last HUD update
+
+    bool quickBarCollapsed = false; // floating viewport quick-bar collapsed? (persisted)
 
     // recent files (most-recent first), persisted by main.cpp via QSettings
     QStringList recentFiles;

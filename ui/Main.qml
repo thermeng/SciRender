@@ -331,6 +331,7 @@ ApplicationWindow {
                         ComboBox {
                             id: colormapCombo
                             width: parent.width
+                            height: 34
                             property var entries: {
                                 var names = backendRenderer.getColormapNames();
                                 var e = [];
@@ -342,32 +343,37 @@ ApplicationWindow {
                             textRole: "name"
                             currentIndex: backendRenderer ? backendRenderer.colormapChoice : 0
                             onActivated: index => backendRenderer.colormapChoice = index
-                            contentItem: RowLayout {
-                                spacing: 8
+                            indicator: Item {}
+                            leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
+                            background: Rectangle { color: "#2b2b2b"; border.color: "#444"; radius: 3 }
+                            contentItem: Item {
+                                anchors.fill: parent
+                                clip: true
                                 Image {
                                     source: colormapCombo.entries[colormapCombo.currentIndex] ? colormapCombo.entries[colormapCombo.currentIndex].uri : ""
-                                    sourceSize.width: 128; sourceSize.height: 16
+                                    sourceSize.width: 250; sourceSize.height: 64
                                     fillMode: Image.Stretch
-                                    Layout.preferredWidth: 48; Layout.preferredHeight: 12
-                                    Layout.maximumHeight: 12
+                                    horizontalAlignment: Image.AlignLeft
                                     verticalAlignment: Image.AlignVCenter
+                                    anchors.fill: parent
+                                    anchors.margins: 2
                                 }
                                 Text {
-                                    text: colormapCombo.displayText
-                                    color: "#ddd"; font.pixelSize: 12
-                                    Layout.fillWidth: true; Layout.fillHeight: true
-                                    verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideRight
+                                    text: "\u25BC"
+                                    color: "#dddddd"
+                                    font.pixelSize: 9
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 8
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
                             }
                             popup: Popup {
                                 y: colormapCombo.height
                                 width: colormapCombo.width
-                                implicitHeight: contentItem.implicitHeight
                                 contentItem: ListView {
                                     clip: true
                                     implicitHeight: contentHeight
-                                    model: colormapCombo.popup.visible ? colormapCombo.delegateModel : null
+                                    model: colormapCombo.delegateModel
                                     currentIndex: colormapCombo.highlightedIndex
                                     ScrollBar.vertical: ScrollBar {}
                                 }
@@ -375,23 +381,16 @@ ApplicationWindow {
                             }
                             delegate: ItemDelegate {
                                 width: colormapCombo.width
-                                height: 24
-                                RowLayout {
-                                    spacing: 8
+                                height: 36
+                                padding: 2
+                                contentItem: Image {
+                                    source: modelData.uri
+                                    sourceSize.width: 280; sourceSize.height: 64
+                                    fillMode: Image.Stretch
+                                    horizontalAlignment: Image.AlignLeft
+                                    verticalAlignment: Image.AlignVCenter
                                     anchors.fill: parent
-                                    Image {
-                                        source: modelData.uri
-                                        sourceSize.width: 128; sourceSize.height: 16
-                                        fillMode: Image.Stretch
-                                        Layout.preferredWidth: 48; Layout.preferredHeight: 12
-                                        verticalAlignment: Image.AlignVCenter
-                                    }
-                                    Text {
-                                        text: modelData.name
-                                        color: "#ddd"; font.pixelSize: 12
-                                        Layout.fillWidth: true; verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
+                                    anchors.margins: 2
                                 }
                                 highlighted: colormapCombo.highlightedIndex === index
                             }
@@ -464,41 +463,43 @@ ApplicationWindow {
                             textRole: "name"
                             currentIndex: backendRenderer ? backendRenderer.vectorColormapChoice : 0
                             onActivated: index => backendRenderer.vectorColormapChoice = index
-                            contentItem: RowLayout {
-                                spacing: 8
+                            height: 34
+                            indicator: Item {}
+                            leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
+                            background: Rectangle { color: "#2b2b2b"; border.color: "#444"; radius: 3 }
+                            contentItem: Item {
+                                anchors.fill: parent
+                                clip: true
                                 Image {
                                     source: vectorColormapCombo.entries[vectorColormapCombo.currentIndex] ? vectorColormapCombo.entries[vectorColormapCombo.currentIndex].uri : ""
-                                    sourceSize.width: 128; sourceSize.height: 16
+                                    sourceSize.width: 280; sourceSize.height: 64
                                     fillMode: Image.Stretch
-                                    Layout.preferredWidth: 48; Layout.preferredHeight: 12
+                                    horizontalAlignment: Image.AlignLeft
                                     verticalAlignment: Image.AlignVCenter
+                                    anchors.fill: parent
+                                    anchors.margins: 4
                                 }
                                 Text {
-                                    text: vectorColormapCombo.displayText
-                                    color: "#ddd"; font.pixelSize: 12
-                                    Layout.fillWidth: true; verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideRight
+                                    text: "\u25BC"
+                                    color: "#dddddd"
+                                    font.pixelSize: 9
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 8
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
                             }
                             delegate: ItemDelegate {
                                 width: vectorColormapCombo.width
-                                height: 24
-                                RowLayout {
-                                    spacing: 8
+                                height: 32
+                                padding: 2
+                                contentItem: Image {
+                                    source: modelData.uri
+                                    sourceSize.width: 280; sourceSize.height: 64
+                                    fillMode: Image.Stretch
+                                    horizontalAlignment: Image.AlignLeft
+                                    verticalAlignment: Image.AlignVCenter
                                     anchors.fill: parent
-                                    Image {
-                                        source: modelData.uri
-                                        sourceSize.width: 128; sourceSize.height: 16
-                                        fillMode: Image.Stretch
-                                        Layout.preferredWidth: 48; Layout.preferredHeight: 12
-                                        verticalAlignment: Image.AlignVCenter
-                                    }
-                                    Text {
-                                        text: modelData.name
-                                        color: "#ddd"; font.pixelSize: 12
-                                        Layout.fillWidth: true; verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
+                                    anchors.margins: 4
                                 }
                                 highlighted: vectorColormapCombo.highlightedIndex === index
                             }
@@ -761,6 +762,117 @@ ApplicationWindow {
             color: "#7CFC00"
             font.pixelSize: 12
             font.family: "Consolas, Menlo, monospace"
+        }
+    }
+
+    // ── Floating View & Display quick-bar ─────────────────────────────────────
+    // Persistent, always-accessible display controls overlaid on the top-right of
+    // the viewport. Independent of the left rail, so switching rail sections never
+    // hides these. Collapses to a tiny handle (state persisted via backendRenderer).
+    property bool quickBarCollapsed: backendRenderer ? backendRenderer.quickBarCollapsed : false
+    onQuickBarCollapsedChanged: { if (backendRenderer) backendRenderer.quickBarCollapsed = quickBarCollapsed }
+
+    // Collapsed handle — shown when the bar is collapsed.
+    ToolButton {
+        id: quickBarHandle
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 8
+        width: 30; height: 30
+        z: 15
+        text: "\u{25A6}" // ▦ display/panel glyph
+        font.pixelSize: 15
+        visible: captureRoot.quickBarCollapsed
+        hoverEnabled: true
+        Accessible.role: Accessible.Button
+        Accessible.name: "Show display quick-bar"
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
+        background: Rectangle { color: quickBarHandle.hovered ? "#3a3a3a" : "#000000bb"; radius: 5; border.color: "#555" }
+        onClicked: captureRoot.quickBarCollapsed = false
+    }
+
+    Rectangle {
+        id: quickBar
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: (backendRenderer && backendRenderer.showFps) ? (hudText.height + 16) : 8
+        anchors.rightMargin: 8
+        width: quickBarRow.implicitWidth + 16
+        height: quickBarRow.implicitHeight + 12
+        color: "#000000bb"
+        radius: 6
+        border.color: "#555"
+        z: 15
+        visible: backendRenderer ? (backendRenderer.hasMeshLoaded && !captureRoot.quickBarCollapsed) : false
+        clip: true
+
+        RowLayout {
+            id: quickBarRow
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.margins: 6
+            spacing: 8
+
+            component QBButton : ToolButton {
+                id: qbBtn
+                property bool active: false
+                width: 30; height: 28
+                hoverEnabled: true
+                Accessible.role: Accessible.Button
+                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                background: Rectangle {
+                    color: qbBtn.active ? "#4a90d9" : (qbBtn.hovered ? "#3a3a3a" : "#2a2a2a")
+                    radius: 4; border.color: qbBtn.active ? "#6aa9e8" : "#444"
+                }
+            }
+
+            // ── Display toggles ──
+            QBButton {
+                text: "W"; ToolTip.text: "Wireframe"; ToolTip.visible: hovered
+                Accessible.name: "Wireframe"
+                active: backendRenderer ? backendRenderer.isWireframe : false
+                onClicked: backendRenderer.isWireframe = !backendRenderer.isWireframe
+            }
+            QBButton {
+                text: "G"; ToolTip.text: "Grid"; ToolTip.visible: hovered
+                Accessible.name: "Grid"
+                active: backendRenderer ? backendRenderer.isGridVisible : false
+                onClicked: backendRenderer.isGridVisible = !backendRenderer.isGridVisible
+            }
+            QBButton {
+                text: "S"; ToolTip.text: "Surface"; ToolTip.visible: hovered
+                Accessible.name: "Surface"
+                active: backendRenderer ? backendRenderer.isSurfaceVisible : false
+                onClicked: backendRenderer.isSurfaceVisible = !backendRenderer.isSurfaceVisible
+            }
+
+            Rectangle { width: 1; height: 22; color: "#555" }
+
+            // ── Orthographic view snaps ──
+            QBButton { text: "+X"; ToolTip.text: "Ortho +X"; ToolTip.visible: hovered; Accessible.name: "Ortho +X"; onClicked: backendRenderer.snapToOrthoView(0) }
+            QBButton { text: "\u2212X"; ToolTip.text: "Ortho -X"; ToolTip.visible: hovered; Accessible.name: "Ortho -X"; onClicked: backendRenderer.snapToOrthoView(1) }
+            QBButton { text: "+Y"; ToolTip.text: "Ortho +Y"; ToolTip.visible: hovered; Accessible.name: "Ortho +Y"; onClicked: backendRenderer.snapToOrthoView(2) }
+            QBButton { text: "\u2212Y"; ToolTip.text: "Ortho -Y"; ToolTip.visible: hovered; Accessible.name: "Ortho -Y"; onClicked: backendRenderer.snapToOrthoView(3) }
+            QBButton { text: "+Z"; ToolTip.text: "Ortho +Z"; ToolTip.visible: hovered; Accessible.name: "Ortho +Z"; onClicked: backendRenderer.snapToOrthoView(4) }
+            QBButton { text: "\u2212Z"; ToolTip.text: "Ortho -Z"; ToolTip.visible: hovered; Accessible.name: "Ortho -Z"; onClicked: backendRenderer.snapToOrthoView(5) }
+
+            Rectangle { width: 1; height: 22; color: "#555" }
+
+            // ── Reset camera ──
+            QBButton {
+                text: "\u21BB"; // ↻
+                ToolTip.text: "Reset Camera"; ToolTip.visible: hovered
+                Accessible.name: "Reset Camera"
+                onClicked: backendRenderer.resetCamera()
+            }
+            // ── Collapse ──
+            QBButton {
+                text: "\u00D7" // ×
+                ToolTip.text: "Collapse quick-bar"; ToolTip.visible: hovered
+                Accessible.name: "Collapse quick-bar"
+                onClicked: captureRoot.quickBarCollapsed = true
+            }
         }
     }
 
