@@ -8,6 +8,8 @@
 #include <QColor>
 #include <QTimer>
 #include <QFutureWatcher>
+#include <QDateTime>
+#include <QRegularExpression>
 
 #include <memory>
 #include <atomic>
@@ -111,8 +113,6 @@ class RenderSettings : public QObject {
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
     Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
-    Q_PROPERTY(int screenshotQuality READ getScreenshotQuality WRITE setScreenshotQuality NOTIFY viewChanged)
-    Q_PROPERTY(int screenshotScale READ getScreenshotScale WRITE setScreenshotScale NOTIFY viewChanged)
     Q_PROPERTY(QString statusMessage READ getStatusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool showFps READ getShowFps WRITE setShowFps NOTIFY viewChanged)
     Q_PROPERTY(bool quickBarCollapsed READ getQuickBarCollapsed WRITE setQuickBarCollapsed NOTIFY quickBarCollapsedChanged)
@@ -291,13 +291,12 @@ public:
     Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
     bool getScreenshotTransparent() const { return screenshotTransparent; }
     void setScreenshotTransparent(bool v) { screenshotTransparent = v; }
-    int getScreenshotQuality() const { return screenshotQuality; }
-    void setScreenshotQuality(int v) { screenshotQuality = (v < 1 ? 1 : (v > 100 ? 100 : v)); }
-    int getScreenshotScale() const { return screenshotScale; }
-    void setScreenshotScale(int v) { int c = (v < 1 ? 1 : (v > 4 ? 4 : v)); if (screenshotScale != c) { screenshotScale = c; markStateDirty(); emit viewChanged(); } }
     QString getStatusMessage() const { return statusMessage; }
     Q_INVOKABLE QString generateScreenshotFilename() const {
-        return ScreenshotExporter::generateFilename(QString::fromStdString(currentMeshName), ExportFormat::PNG);
+        QString base = currentMeshName.empty() ? "scene" : QString::fromStdString(currentMeshName);
+        base.replace(QRegularExpression("[^a-zA-Z0-9_]"), "_");
+        QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+        return QString("%1_%2.png").arg(base, timestamp);
     }
 
     Q_INVOKABLE void applyLightingPreset(int preset);
@@ -436,8 +435,6 @@ private:
     float filterMax = 1.0f;
 
     bool screenshotTransparent = false;
-    int screenshotQuality = 95;
-    int screenshotScale = 1;
     QString statusMessage;
 
     bool showFps = false;

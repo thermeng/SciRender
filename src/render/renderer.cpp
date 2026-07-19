@@ -1,7 +1,6 @@
 #include "render/renderer.h"
 #include "core/Colormaps.h"
 #include "core/Camera.h"
-#include "export/screenshot.h"
 #include "core/mesh_loader.h"
 #include <QOpenGLFramebufferObject>
 
@@ -9,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <memory>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -23,6 +23,8 @@
 #include <QFont>
 
 #include <QDir>
+#include <QDateTime>
+#include <QRegularExpression>
 #include <QQuickOpenGLUtils>
 #include <QFileInfo>
 #include <QOpenGLContext>
@@ -410,81 +412,55 @@ void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scal
     meshManager.updateScalars(scalars);
 }
 
-bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferObject* fbo) {
+bool Renderer::captureViewportToFile(const QString& path) {
     if (path.isEmpty()) return false;
-
-    ExportConfig config;
-    config.transparentBackground = m_state.screenshotTransparent;
-    config.quality = m_state.screenshotQuality;
-    config.format = ExportFormat::PNG;
-
-    QString targetPath = path;
-    if (targetPath.endsWith(".jpg", Qt::CaseInsensitive) || targetPath.endsWith(".jpeg", Qt::CaseInsensitive)) {
-        config.format = ExportFormat::JPEG;
-    } else if (targetPath.endsWith(".bmp", Qt::CaseInsensitive)) {
-        config.format = ExportFormat::BMP;
-    } else {
-        config.format = ExportFormat::PNG;
-        if (!targetPath.endsWith(".png", Qt::CaseInsensitive)) {
-            targetPath += ".png";
-        }
-    }
-    config.filePath = targetPath;
-
-    const bool captureTransparent = config.transparentBackground && (config.format == ExportFormat::PNG);
-
-    if (fbo && m_state.screenshotScale > 1) {
-        int baseW = fbo->width();
-        int baseH = fbo->height();
-        int sw = baseW * m_state.screenshotScale;
-        int sh = baseH * m_state.screenshotScale;
-        const int kMaxDim = 8192;
-        if (sw > kMaxDim) sw = kMaxDim;
-        if (sh > kMaxDim) sh = kMaxDim;
-        QOpenGLFramebufferObjectFormat fmt;
-        fmt.setAttachment(QOpenGLFramebufferObject::Depth);
-        fmt.setInternalTextureFormat(GL_RGBA8);
-        fmt.setSamples(4); // ponytail: MSAA on screenshot/export too; auto-resolves
-        QOpenGLFramebufferObject superFbo(QSize(sw, sh), fmt);
-        if (superFbo.isValid()) {
-            int savedW = width, savedH = height;
-            float savedDpr = devicePixelRatio;
-            auto restoreState = [&]() {
-                width = savedW; height = savedH; devicePixelRatio = savedDpr;
-            };
-            width = sw;
-            height = sh;
-            devicePixelRatio = 1.0f;
-            superFbo.bind();
-            glViewport(0, 0, sw, sh);
-            renderFrame();
-            QQuickOpenGLUtils::resetOpenGLState();
-            // ponytail: resolve MSAA -> single-sample before readback (glReadPixels on MSAA FBO is undefined)
-            QOpenGLFramebufferObjectFormat rf;
-            rf.setInternalTextureFormat(GL_RGBA8);
-            QOpenGLFramebufferObject resolveFbo(QSize(sw, sh), rf);
-            QOpenGLFramebufferObject::blitFramebuffer(&resolveFbo, &superFbo, GL_COLOR_BUFFER_BIT);
-            fbo = &resolveFbo;
-            restoreState();
-        }
+    if (!m_viewportFbo || !m_viewportFbo->isValid()) {
+        qWarning() << "Screenshot skipped: viewport FBO not available.";
+        return false;
     }
 
-    GLuint boundFbo = 0;
-    int deviceW = 0;
-    int deviceH = 0;
-    if (fbo) {
-        boundFbo = fbo->handle();
-        deviceW = fbo->width();
-        deviceH = fbo->height();
-    } else {
-        glGetIntegerv(GL_FRAMEBUFFER_BINDING, reinterpret_cast<GLint*>(&boundFbo));
-        deviceW = static_cast<int>(width * devicePixelRatio);
-        deviceH = static_cast<int>(height * devicePixelRatio);
-    }
-    std::vector<unsigned char> pixels = ScreenshotExporter::captureFBO(boundFbo, deviceW, deviceH, captureTransparent);
+    const bool isPng = path.endsWith(".png", Qt::CaseInsensitive);
+    const bool transparent = isPng && m_state.screenshotTransparent;
 
-    bool success = ScreenshotExporter::saveToFile(config.filePath, pixels, deviceW, deviceH, config);
-    return success;
+    // ponytail: MSAA FBOs cannot be read back with glReadPixels (undefined);
+    // resolve to a single-sample target first.
+    QOpenGLFramebufferObject* live = m_viewportFbo;
+    QOpenGLFramebufferObject* readFbo = live;
+    std::unique_ptr<QOpenGLFramebufferObject> resolveHolder;
+    if (live->format().samples() > 0) {
+        QOpenGLFramebufferObjectFormat rf;
+        rf.setInternalTextureFormat(GL_RGBA8);
+        resolveHolder = std::make_unique<QOpenGLFramebufferObject>(live->size(), rf);
+        QOpenGLFramebufferObject::blitFramebuffer(resolveHolder.get(), live, GL_COLOR_BUFFER_BIT);
+        readFbo = resolveHolder.get();
+    }
+
+    const int w = readFbo->width();
+    const int h = readFbo->height();
+    const int channels = transparent ? 4 : 3;
+    const GLenum fmt = transparent ? GL_RGBA : GL_RGB;
+    std::vector<unsigned char> raw(static_cast<size_t>(w) * h * channels);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, readFbo->handle());
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, fmt, GL_UNSIGNED_BYTE, raw.data());
+
+    // Flip vertically (GL origin is bottom-left).
+    std::vector<unsigned char> flipped(raw.size());
+    const size_t row = static_cast<size_t>(w) * channels;
+    for (int y = 0; y < h; ++y)
+        std::memcpy(flipped.data() + static_cast<size_t>(y) * row,
+                    raw.data() + static_cast<size_t>(h - 1 - y) * row, row);
+
+    QImage::Format qf = transparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
+    QImage img = QImage(flipped.data(), w, h, static_cast<int>(row), qf).copy();
+
+    const char* token = isPng ? "PNG"
+                               : (path.endsWith(".bmp", Qt::CaseInsensitive) ? "BMP" : "JPG");
+    const bool ok = img.save(path, token, -1);
+    if (!ok) qWarning() << "Screenshot save failed:" << path;
+    return ok;
 }
 
 void Renderer::drawGizmo() {

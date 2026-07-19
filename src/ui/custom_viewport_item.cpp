@@ -222,7 +222,12 @@ void ViewportFboRenderer::render() {
     // resetOpenGLState(): that call can unbind the FBO, after which glReadPixels
     // would read the wrong/empty buffer and produce a blank capture.
     if (!m_pendingScreenshot.isEmpty()) {
-        m_scene->captureScreenshotToFile(m_pendingScreenshot, m_fbo);
+        if (m_fbo) {
+            m_scene->setViewportFbo(m_fbo);
+            m_scene->captureViewportToFile(m_pendingScreenshot);
+        } else {
+            qWarning() << "Screenshot skipped: viewport FBO not yet created.";
+        }
         m_pendingScreenshot.clear();
     }
 

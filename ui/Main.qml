@@ -433,10 +433,7 @@ ApplicationWindow {
                         spacing: 4
                         width: parent.width
                         Button { text: "Save Screenshot"; width: parent.width; onClicked: { screenshotSaveDialog.currentFile = backendSettings.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
-                        Text { text: "Options"; color: "#888"; font.pixelSize: 10 }
                         CheckBox { text: "Transparent (PNG)"; checked: backendSettings ? backendSettings.screenshotTransparent : false; onToggled: backendSettings.screenshotTransparent = checked }
-                        LightSlider { label: "JPEG Q"; value: backendSettings ? backendSettings.screenshotQuality : 95; from: 1; to: 100; step: 1; onSet: v => backendSettings.screenshotQuality = v }
-                        LightSlider { label: "Supersample"; value: backendSettings ? backendSettings.screenshotScale : 1; from: 1; to: 3; step: 1; onSet: v => backendSettings.screenshotScale = v }
                     }
 
                     // Vectors Panel
@@ -557,7 +554,7 @@ ApplicationWindow {
                 }
             }
         }
-}
+    }
         ColorDialog {
             id: bgDialog
             selectedColor: backendSettings ? backendSettings.bgColor : "#000000"

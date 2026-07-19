@@ -1,7 +1,6 @@
 #include "render/render_settings.h"
 #include "core/Colormaps.h"
 #include "core/mesh_loader.h"
-#include "export/screenshot.h"
 
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -85,8 +84,6 @@ void RenderSettings::buildRenderState() {
     s.vectorMagTransform = vectorMagTransform;
     s.vectorField = m_guiMeta.vectorName;
     s.screenshotTransparent = screenshotTransparent;
-    s.screenshotQuality = screenshotQuality;
-    s.screenshotScale = screenshotScale;
     s.hasMeshLoaded = hasMeshLoaded;
 }
 

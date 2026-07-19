@@ -32,7 +32,9 @@ target_include_directories(glad PUBLIC "vendor/glad/include")
 add_library(glm INTERFACE)
 target_include_directories(glm INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vendor")
 
-# Note: STB has been omitted since ScreenshotExporter was refactored to use QImage natively!
+# Note: Screenshots capture the live GL viewport FBO directly via QImage
+# native writers (no STB, no ScreenshotExporter class). Format is inferred
+# from the file extension; PNG keeps alpha when Transparent is enabled.
 
 # ---------------------------------------------------------------------------
 # 3. Main Application Target Definition
@@ -67,8 +69,6 @@ add_executable(SciRender
     src/render/colorbar_overlay.h
     src/ui/custom_viewport_item.cpp
     src/ui/custom_viewport_item.h
-    src/export/screenshot.cpp
-    src/export/screenshot.h
 )
 
 # Inform your C++ files where GLSL shaders are housed

@@ -31,7 +31,6 @@
 #include "render/gizmo.h"
 #include "render/colorbar_overlay.h"
 #include "core/Camera.h"
-#include "export/screenshot.h"
 
 #include "render/LightingModel.h"
 #include "render/ColormapManager.h"
@@ -116,8 +115,6 @@ struct RenderRenderState {
 
     // Screenshot export options
     bool screenshotTransparent = false;
-    int screenshotQuality = 95;
-    int screenshotScale = 1;
 
     bool hasMeshLoaded = false;
 };
@@ -197,8 +194,10 @@ public:
         return m_pendingScalarSrc;
     }
 
-    // Screenshot capture (render thread, GL context current).
-    bool captureScreenshotToFile(const QString& path, QOpenGLFramebufferObject* fbo = nullptr);
+    // Screenshot capture (render thread, GL context current). The viewport FBO
+    // is supplied by the QQuickFramebufferObject renderer just before capture.
+    void setViewportFbo(QOpenGLFramebufferObject* fbo) { m_viewportFbo = fbo; }
+    bool captureViewportToFile(const QString& path);
 
     // Lighting presets resolve in pure data (no signals needed on backend).
     void applyLightingPreset(int preset);
@@ -319,6 +318,10 @@ private:
 
     // Deep-copied snapshot; the ONLY source of truth renderFrame() reads.
     RenderRenderState m_state;
+
+    // Viewport FBO handed in by the QQuickFramebufferObject renderer before a
+    // screenshot capture (so captureViewportToFile can read back the live view).
+    QOpenGLFramebufferObject* m_viewportFbo = nullptr;
 
     // --- extracted responsibility helpers -------------------------------------
     LightingModel lighting;       // 4-point light kit params, presets, dir math
