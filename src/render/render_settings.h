@@ -290,7 +290,7 @@ public:
     QString getVectorField() const { return QString::fromStdString(m_guiMeta.vectorName); }
     Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
     bool getScreenshotTransparent() const { return screenshotTransparent; }
-    void setScreenshotTransparent(bool v) { screenshotTransparent = v; }
+    void setScreenshotTransparent(bool v) { if (screenshotTransparent != v) { screenshotTransparent = v; markStateDirty(); } }
     QString getStatusMessage() const { return statusMessage; }
     Q_INVOKABLE QString generateScreenshotFilename() const {
         QString base = currentMeshName.empty() ? "scene" : QString::fromStdString(currentMeshName);
