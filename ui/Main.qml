@@ -751,12 +751,12 @@ ApplicationWindow {
         onTriggered: openGLViewport.update()
     }
 
-    // on-screen perf HUD (bottom-left, below the gizmo triad)
+    // on-screen perf HUD (bottom-left)
     Rectangle {
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.leftMargin: 8
-        anchors.bottomMargin: 138
+        anchors.bottomMargin: 8
         width: hudText.width + 16
         height: hudText.height + 8
         color: "#000000aa"
@@ -773,7 +773,7 @@ ApplicationWindow {
     }
 
     // -- Floating View & Display quick-bar -------------------------------------
-    // Persistent, always-accessible display controls overlaid on the top-right of
+    // Persistent, always-accessible display controls overlaid on the top-left of
     // the viewport. Independent of the left rail, so switching rail sections never
     // hides these. Collapses to a tiny handle (state persisted via backendSettings).
     property bool quickBarCollapsed: backendSettings ? backendSettings.quickBarCollapsed : false
@@ -783,7 +783,7 @@ ApplicationWindow {
     ToolButton {
         id: quickBarHandle
         anchors.top: parent.top
-        anchors.right: parent.right
+        anchors.left: parent.left
         anchors.margins: 8
         width: 30; height: 30
         z: 15
@@ -801,9 +801,9 @@ ApplicationWindow {
     Rectangle {
         id: quickBar
         anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.topMargin: (backendSettings && backendSettings.showFps) ? (hudText.height + 16) : 8
-        anchors.rightMargin: 8
+        anchors.left: parent.left
+        anchors.topMargin: 8
+        anchors.leftMargin: 8
         width: quickBarRow.implicitWidth + 16
         height: quickBarRow.implicitHeight + 12
         color: "#000000bb"
