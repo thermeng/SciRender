@@ -357,6 +357,16 @@ ApplicationWindow {
                             }
                             Text { text: backendSettings ? backendSettings.pointOpacity.toFixed(2) : "1.0"; color: "#999999"; font.pixelSize: 10; Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight }
                         }
+                        RowLayout {
+                            width: parent.width; spacing: 6
+                            Text { text: "Surf α"; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 34 }
+                            Slider {
+                                Layout.fillWidth: true; from: 0.1; to: 1.0; stepSize: 0.05
+                                value: backendSettings ? backendSettings.surfaceOpacity : 1.0
+                                onMoved: if (backendSettings) backendSettings.surfaceOpacity = value
+                            }
+                            Text { text: backendSettings ? backendSettings.surfaceOpacity.toFixed(2) : "1.0"; color: "#999999"; font.pixelSize: 10; Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight }
+                        }
                         CheckBox { text: "Color by scalar"; checked: backendSettings ? backendSettings.pointUseScalar : true; enabled: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.pointUseScalar = checked }
                         CheckBox { text: "Bounding Box"; checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
                         CheckBox { text: "Parallel (Ortho)"; checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }

@@ -63,6 +63,7 @@ struct RenderRenderState {
     bool showPoints = false; // ponytail: draw vertices as GL_POINTS
     bool pointUseScalar = true;  // ponytail: color points by scalar; else solid
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
+    float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool orthographic = false;    // ponytail: orthographic (parallel) projection
 
@@ -253,6 +254,7 @@ private:
     GLint isPointLoc = -1;    // ponytail: frag sphere-shading for point sprites
     GLint pointUseScalarLoc = -1;
     GLint pointOpacityLoc = -1;
+    GLint surfaceOpacityLoc = -1;
     double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
     GLint lightFillLoc = -1;
     GLint lightBack1Loc = -1;

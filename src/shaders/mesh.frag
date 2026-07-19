@@ -37,6 +37,7 @@ uniform sampler1D uColormapLUT;
 uniform bool uIsPoint;       // ponytail: point-sprite path -> shade as sphere
 uniform bool uPointUseScalar; // ponytail: color point by scalar; else solid
 uniform float uPointOpacity;  // ponytail: point sprite alpha
+uniform float uSurfaceOpacity; // ponytail: surface fill alpha
 
 // clipping is OFF unless the UI explicitly enables it. With the old
 // default (slice=0, invert=false) the shader discarded the whole mesh because
@@ -153,6 +154,6 @@ void main() {
         finalColor += baseColor * 0.15f;
         FragColor = vec4(finalColor, uPointOpacity);
     } else {
-        FragColor = vec4(finalColor, 1.0);
+        FragColor = vec4(finalColor, uSurfaceOpacity);
     }
 }

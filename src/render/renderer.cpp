@@ -167,6 +167,7 @@ void Renderer::initShaders() {
     isPointLoc = glGetUniformLocation(shaderProgram, "uIsPoint");
     pointUseScalarLoc = glGetUniformLocation(shaderProgram, "uPointUseScalar");
     pointOpacityLoc = glGetUniformLocation(shaderProgram, "uPointOpacity");
+    surfaceOpacityLoc = glGetUniformLocation(shaderProgram, "uSurfaceOpacity");
 
     lightFillLoc = glGetUniformLocation(shaderProgram, "uLightFill");
     lightBack1Loc = glGetUniformLocation(shaderProgram, "uLightBack1");
@@ -709,8 +710,11 @@ void Renderer::renderFrame() {
 
             if (m_state.showSurface) {
                 glUniform1i(wireframeLoc, 0);
+                glUniform1f(surfaceOpacityLoc, m_state.surfaceOpacity);
+                if (m_state.surfaceOpacity < 0.999f) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); }
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                 glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
+                if (m_state.surfaceOpacity < 0.999f) glDisable(GL_BLEND);
             }
 
             if (m_state.showWireframe) {

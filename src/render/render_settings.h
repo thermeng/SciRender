@@ -113,6 +113,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float pointSize READ getPointSize WRITE setPointSize NOTIFY viewChanged)
     Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
+    Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
     Q_PROPERTY(bool orthographic READ getOrthographic WRITE setOrthographic NOTIFY viewChanged)
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
@@ -279,6 +280,8 @@ public:
     void setPointUseScalar(bool v) { if (pointUseScalar != v) { pointUseScalar = v; markStateDirty(); emit viewChanged(); } }
     float getPointOpacity() const { return pointOpacity; }
     void setPointOpacity(float v) { if (pointOpacity != v) { pointOpacity = v; markStateDirty(); emit viewChanged(); } }
+    float getSurfaceOpacity() const { return surfaceOpacity; }
+    void setSurfaceOpacity(float v) { if (surfaceOpacity != v) { surfaceOpacity = v; markStateDirty(); emit viewChanged(); } }
     bool getShowBounds() const { return showBounds; }
     void setShowBounds(bool v) { if (showBounds != v) { showBounds = v; markStateDirty(); emit viewChanged(); } }
     bool getOrthographic() const { return orthographic; }
@@ -401,6 +404,7 @@ private:
     float pointSize = 4.0f;   // ponytail: point diameter in framebuffer px
     bool pointUseScalar = true;  // ponytail: color points by scalar (else solid)
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
+    float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool orthographic = false;    // ponytail: orthographic (parallel) projection
 
