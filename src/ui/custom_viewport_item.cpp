@@ -9,6 +9,7 @@
 #include <QImage>
 #include <QStandardPaths>
 #include <QElapsedTimer>
+#include <QTimer>
 #include <cmath>
 #include <vector>
 
@@ -93,6 +94,9 @@ void ViewportVisualizer::mouseMoveEvent(QMouseEvent* event) {
 
 void ViewportVisualizer::mouseReleaseEvent(QMouseEvent* event) {
     event->accept();
+    // Wake one frame after the LOD debounce window so cameraMoving clears and
+    // the full-res mesh is redrawn — nothing else repaints once motion stops.
+    QTimer::singleShot(160, this, [this]() { m_needsRender = true; update(); });
 }
 
 void ViewportVisualizer::wheelEvent(QWheelEvent* event) {
@@ -100,6 +104,7 @@ void ViewportVisualizer::wheelEvent(QWheelEvent* event) {
     double factor = (event->angleDelta().y() > 0) ? 1.1 : 0.9;
     m_settings->dolly(factor);
     update();
+    QTimer::singleShot(160, this, [this]() { m_needsRender = true; update(); });
     event->accept();
 }
 
