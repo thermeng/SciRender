@@ -120,6 +120,13 @@ void RenderSettings::setUseLod(bool enabled) {
     markStateDirty(); emit viewChanged();
 }
 
+void RenderSettings::setMsaaSamples(int n) {
+    n = qBound(0, n, 4); // ponytail: only 0/2/4 offered; clamp guards stray QML
+    if (msaaSamples == n) return;
+    msaaSamples = n;
+    markStateDirty(); emit viewChanged();
+}
+
 void RenderSettings::toggleGrid(bool visible) {
     if (showGrid == visible) return;
     showGrid = visible;

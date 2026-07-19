@@ -143,6 +143,19 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
         settings->publishRenderState(m_scene);
     }
 
+    // ponytail: MSAA sample-count change needs a fresh FBO (createFramebufferObject
+    // only runs on resize/init). The 1px width-nudge hack does NOT reliably force a
+    // recreate — the scene graph absorbs it and keeps the old multisample FBO. The
+    // correct API is invalidateFramebufferObject(): it makes the scene graph drop the
+    // current FBO and call createFramebufferObject() again on the next frame, where the
+    // new sample count is read. Runs once per change only.
+    if (m_settings) {
+        const int want = (m_settings->getMsaaSamples() > 0) ? qBound(0, m_settings->getMsaaSamples(), 4) : 0;
+        if (want != m_fboSamples) {
+            invalidateFramebufferObject();
+        }
+    }
+
     // Scalar-only field switch: re-buffer just the sbo on the render thread
     // (no GL context here). Consumed below in render() before draw.
     if (m_scene && m_scene->consumeScalarDirty() && m_scene->hasGpuMeshes()) {
@@ -172,7 +185,12 @@ QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSi
     QOpenGLFramebufferObjectFormat format;
     format.setAttachment(QOpenGLFramebufferObject::Depth);
     format.setInternalTextureFormat(GL_RGBA8); // RGBA color attachment so transparent PNG exports retain an alpha channel
-    format.setSamples(4); // ponytail: MSAA; Qt auto-resolves FBO to texture on unbind
+    // ponytail: MSAA was hardcoded 4x (every pixel paid 4x fragment + resolve).
+    // Now driven by backendSettings.msaaSamples (default 0 = off, best for the AMD iGPU).
+    const int samples = (m_settings && m_settings->getMsaaSamples() > 0)
+                            ? qBound(0, m_settings->getMsaaSamples(), 4) : 0;
+    format.setSamples(samples);
+    m_fboSamples = samples;
     m_fbo = new QOpenGLFramebufferObject(size, format);
     // A newly-allocated FBO is uninitialized; force the next render() to draw
     // into it even if no other change occurred, otherwise the scene graph

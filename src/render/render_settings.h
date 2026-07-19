@@ -37,6 +37,7 @@ class RenderSettings : public QObject {
 
     Q_PROPERTY(bool isWireframe READ isWireframe WRITE setWireframe NOTIFY wireframeChanged)
     Q_PROPERTY(bool useLod READ getUseLod WRITE setUseLod NOTIFY viewChanged)
+    Q_PROPERTY(int msaaSamples READ getMsaaSamples WRITE setMsaaSamples NOTIFY viewChanged)
     Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY surfaceVisibilityChanged)
     Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY gridVisibilityChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
@@ -147,6 +148,8 @@ public:
     void setWireframe(bool enabled);
     bool getUseLod() const { return useLod; }
     void setUseLod(bool enabled);
+    int getMsaaSamples() const { return msaaSamples; }
+    void setMsaaSamples(int n);
 
     bool isSurfaceVisible() const { return showSurface; }
     bool isGridVisible() const { return showGrid; }
@@ -406,6 +409,7 @@ private:
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
     bool showBounds = false;     // ponytail: AABB wireframe overlay
+    int msaaSamples = 0;         // ponytail: FBO MSAA (0=off, 2, 4); 0 default for iGPU
     bool orthographic = false;    // ponytail: orthographic (parallel) projection
 
     float meshColor[3] = { 0.4f, 0.9f, 0.4f };

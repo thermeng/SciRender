@@ -372,6 +372,16 @@ ApplicationWindow {
                         CheckBox { text: "Parallel (Ortho)"; checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
                         CheckBox { text: "Auto-Rotate"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                         CheckBox { text: "Level of Detail"; checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
+                        RowLayout {
+                            width: parent.width; spacing: 6
+                            Text { text: "MSAA"; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 50 }
+                            ComboBox {
+                                Layout.fillWidth: true
+                                model: ["Off", "2x", "4x"]
+                                currentIndex: backendSettings ? backendSettings.msaaSamples / 2 : 0
+                                onActivated: idx => { if (backendSettings) backendSettings.msaaSamples = idx * 2 }
+                            }
+                        }
 
                         // #3: overlays grouped
                         Text { text: "Overlays"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }

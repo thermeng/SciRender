@@ -32,6 +32,7 @@ private:
     QString m_pendingScreenshot; // carried from GUI thread (synchronize) to render() where GL context is current
 
     ::RenderSettings* m_settings = nullptr; // GUI-thread facade for FPS push-back
+    int m_fboSamples = 0; // last FBO sample count; mismatch vs settings => recreate
     QElapsedTimer m_fpsClock;
     double m_fpsLast = 0.0;
     double m_fpsSmoothed = 0.0;
