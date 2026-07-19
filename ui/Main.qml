@@ -98,6 +98,7 @@ ApplicationWindow {
             RailButton { text: "\u{27A1}";    ToolTip.text: "Vectors"; ToolTip.visible: hovered; active: rail.activeSection === 4; onClicked: rail.toggleSection(4) }
             RailButton { text: "\u{1F4F7}"; ToolTip.text: "Screenshot"; ToolTip.visible: hovered; active: rail.activeSection === 5; onClicked: rail.toggleSection(5) }
             RailButton { text: "\u{1F4CA}"; ToolTip.text: "Mesh Info"; ToolTip.visible: hovered; active: rail.activeSection === 6; onClicked: rail.toggleSection(6) }
+            RailButton { text: "?"; ToolTip.text: "Keyboard Shortcuts"; ToolTip.visible: hovered; onClicked: shortcutsDialog.open() }
         }
 
         // ---- Docked content panel (slides out to the right of the icon strip) ----
@@ -145,7 +146,7 @@ ApplicationWindow {
                 }
             }
 
-            component LightSlider : Row {
+            component LightSlider : RowLayout {
                 id: rootLightSlider
                 required property string label
                 required property real value
@@ -153,29 +154,31 @@ ApplicationWindow {
                 required property real to
                 required property real step
                 required property var onSet
+                width: parent ? parent.width : implicitWidth
                 spacing: 6
-                Text { text: rootLightSlider.label; color: "#cccccc"; font.pixelSize: 11; width: 64; elide: Text.ElideRight }
-                Slider { width: 96; from: rootLightSlider.from; to: rootLightSlider.to; stepSize: rootLightSlider.step; value: rootLightSlider.value; onMoved: rootLightSlider.onSet(value) }
-                Text { text: rootLightSlider.value.toFixed(1); color: "#999999"; font.pixelSize: 10; width: 28 }
+                Text { text: rootLightSlider.label; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 64; elide: Text.ElideRight }
+                Slider { Layout.fillWidth: true; from: rootLightSlider.from; to: rootLightSlider.to; stepSize: rootLightSlider.step; value: rootLightSlider.value; onMoved: rootLightSlider.onSet(value) }
+                Text { text: rootLightSlider.value.toFixed(1); color: "#999999"; font.pixelSize: 10; Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight }
             }
 
-            component ClipSlider : Row {
+            component ClipSlider : RowLayout {
                 id: rootClipSlider
                 required property string label
                 required property real value
                 required property real from
                 required property real to
                 required property var onSet
+                width: parent ? parent.width : implicitWidth
                 spacing: 6
-                Text { text: rootClipSlider.label; color: "#cccccc"; font.pixelSize: 11; width: 56; elide: Text.ElideRight }
+                Text { text: rootClipSlider.label; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 64; elide: Text.ElideRight }
                 Slider {
                     id: clipSlider
-                    width: 84; from: rootClipSlider.from; to: rootClipSlider.to; value: rootClipSlider.value
+                    Layout.fillWidth: true; from: rootClipSlider.from; to: rootClipSlider.to; value: rootClipSlider.value
                     onMoved: rootClipSlider.onSet(value)
                 }
                 TextField {
                     id: clipValueField
-                    width: 48
+                    Layout.preferredWidth: 48
                     font.pixelSize: 11
                     color: "#cccccc"
                     horizontalAlignment: Text.AlignRight
@@ -218,31 +221,56 @@ ApplicationWindow {
                     spacing: 4
                     Item { height: 8 }
 
-                    // Lighting Controls ? Light Kit
+                    // Lighting Controls — grouped light-kit editor
                     Column {
                         visible: rail.activeSection === 0
-                        spacing: 4
+                        spacing: 8
                         width: parent.width
                         Button { text: "Reset"; onClicked: backendSettings.resetLighting() }
                         CheckBox { text: "Light Markers"; checked: backendSettings ? backendSettings.showLightMarkers : false; onToggled: backendSettings.showLightMarkers = checked }
-                        Item { height: 4 }
-                        LightSlider { label: "Int (Key)"; value: backendSettings ? backendSettings.lightKeyIntensity : 0; from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.lightKeyIntensity = v }
-                        LightSlider { label: "Warm";      value: backendSettings ? backendSettings.lightWarm : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.lightWarm = v }
-                        LightSlider { label: "K:F";       value: backendSettings ? backendSettings.lightKF : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendSettings.lightKF = v }
-                        LightSlider { label: "K:B";       value: backendSettings ? backendSettings.lightKB : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendSettings.lightKB = v }
-                        LightSlider { label: "K:H";       value: backendSettings ? backendSettings.lightKH : 0;            from: 1; to: 15;   step: 0.1;  onSet: v => backendSettings.lightKH = v }
-                        LightSlider { label: "Key Az";  value: backendSettings ? backendSettings.lightKeyAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendSettings.lightKeyAzimuth = v }
-                        LightSlider { label: "Key El";  value: backendSettings ? backendSettings.lightKeyElevation : 0;   from: -90;  to: 90;  step: 1; onSet: v => backendSettings.lightKeyElevation = v }
-                        LightSlider { label: "Fill Az"; value: backendSettings ? backendSettings.lightFillAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendSettings.lightFillAzimuth = v }
-                        LightSlider { label: "Fill El"; value: backendSettings ? backendSettings.lightFillElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendSettings.lightFillElevation = v }
-                        LightSlider { label: "Back Az"; value: backendSettings ? backendSettings.lightBackAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendSettings.lightBackAzimuth = v }
-                        LightSlider { label: "Back El"; value: backendSettings ? backendSettings.lightBackElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendSettings.lightBackElevation = v }
-                        LightSlider { label: "Head Az"; value: backendSettings ? backendSettings.lightHeadAzimuth : 0;    from: -180; to: 180; step: 1; onSet: v => backendSettings.lightHeadAzimuth = v }
-                        LightSlider { label: "Head El"; value: backendSettings ? backendSettings.lightHeadElevation : 0;  from: -90;  to: 90;  step: 1; onSet: v => backendSettings.lightHeadElevation = v }
-                        LightSlider { label: "Ambient"; value: backendSettings ? backendSettings.matAmbient : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.matAmbient = v }
-                        LightSlider { label: "Diffuse"; value: backendSettings ? backendSettings.matDiffuse : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.matDiffuse = v }
-                        LightSlider { label: "Specular";  value: backendSettings ? backendSettings.matSpecular : 0;  from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.matSpecular = v }
-                        LightSlider { label: "Shininess"; value: backendSettings ? backendSettings.matShininess : 0; from: 1; to: 100;  step: 1;    onSet: v => backendSettings.matShininess = v }
+
+                        // -- Intensity & tone --
+                        Text { text: "Intensity & Tone"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        LightSlider { label: "Key Light"; value: backendSettings ? backendSettings.lightKeyIntensity : 0; from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.lightKeyIntensity = v }
+                        LightSlider { label: "Warmth";    value: backendSettings ? backendSettings.lightWarm : 0;          from: 0; to: 1;    step: 0.01; onSet: v => backendSettings.lightWarm = v }
+
+                        // -- Light balance (fill/back/head strength vs key) --
+                        Text { text: "Light Ratios"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        LightSlider { label: "Fill K/F"; value: backendSettings ? backendSettings.lightKF : 1; from: 1; to: 15; step: 0.1; onSet: v => backendSettings.lightKF = v }
+                        LightSlider { label: "Back K/B"; value: backendSettings ? backendSettings.lightKB : 1; from: 1; to: 15; step: 0.1; onSet: v => backendSettings.lightKB = v }
+                        LightSlider { label: "Head K/H"; value: backendSettings ? backendSettings.lightKH : 1; from: 1; to: 15; step: 0.1; onSet: v => backendSettings.lightKH = v }
+
+                        // -- Directions (one light at a time) --
+                        Text { text: "Direction"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        TabBar {
+                            id: lightTabs
+                            width: parent.width
+                            TabButton { text: "Key" }
+                            TabButton { text: "Fill" }
+                            TabButton { text: "Back" }
+                            TabButton { text: "Head" }
+                        }
+                        StackLayout {
+                            id: lightStack
+                            width: parent.width
+                            currentIndex: lightTabs.currentIndex
+                            property var az: ["lightKeyAzimuth", "lightFillAzimuth", "lightBackAzimuth", "lightHeadAzimuth"]
+                            property var el: ["lightKeyElevation", "lightFillElevation", "lightBackElevation", "lightHeadElevation"]
+                            Repeater {
+                                model: 4
+                                Column {
+                                    LightSlider { label: "Azimuth"; value: backendSettings ? backendSettings[lightStack.az[index]] : 0; from: -180; to: 180; step: 1; onSet: v => backendSettings[lightStack.az[index]] = v }
+                                    LightSlider { label: "Elevation"; value: backendSettings ? backendSettings[lightStack.el[index]] : 0; from: -90;  to: 90;  step: 1; onSet: v => backendSettings[lightStack.el[index]] = v }
+                                }
+                            }
+                        }
+
+                        // -- Material card --
+                        Text { text: "Material"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        LightSlider { label: "Ambient";   value: backendSettings ? backendSettings.matAmbient : 0;   from: 0; to: 1;   step: 0.01; onSet: v => backendSettings.matAmbient = v }
+                        LightSlider { label: "Diffuse";   value: backendSettings ? backendSettings.matDiffuse : 0;   from: 0; to: 1;   step: 0.01; onSet: v => backendSettings.matDiffuse = v }
+                        LightSlider { label: "Specular";  value: backendSettings ? backendSettings.matSpecular : 0;  from: 0; to: 1;   step: 0.01; onSet: v => backendSettings.matSpecular = v }
+                        LightSlider { label: "Shininess"; value: backendSettings ? backendSettings.matShininess : 0; from: 1; to: 100; step: 1;    onSet: v => backendSettings.matShininess = v }
                     }
 
                     // Slicing & Clipping Controls
@@ -794,7 +822,7 @@ ApplicationWindow {
         Accessible.role: Accessible.Button
         Accessible.name: "Show display quick-bar"
         HoverHandler { cursorShape: Qt.PointingHandCursor }
-        background: Rectangle { color: quickBarHandle.hovered ? "#3a3a3a" : "#000000bb"; radius: 5; border.color: "#555" }
+        background: Rectangle { color: quickBarHandle.hovered ? "#3a3a3a" : "#000000bb"; radius: 6; border.color: "#555" }
         onClicked: captureRoot.quickBarCollapsed = false
     }
 
@@ -884,12 +912,21 @@ ApplicationWindow {
     }
 
     // Centered drop prompt context overlay
-    Text {
-        text: "Drag & Drop a .stl / .vtk file, or use \"Open Mesh\""
-        color: "#888888"
-        font.pixelSize: 16
+    Rectangle {
         anchors.centerIn: parent
-        visible: backendSettings ? !backendSettings.hasMeshLoaded : true
+        width: dropPromptText.width + 36
+        height: dropPromptText.height + 20
+        radius: 8
+        color: "#00000099"
+        border.color: "#555"
+        visible: backendSettings ? !backendSettings.hasMeshLoaded : false
+        Text {
+            id: dropPromptText
+            anchors.centerIn: parent
+            text: "Drag & Drop a .stl / .vtk file, or use \"Open Mesh\""
+            color: "#dddddd"
+            font.pixelSize: 16
+        }
     }
 
     // NOTE: The colorbar legends (scalar + vector magnitude) are now baked into
@@ -904,10 +941,11 @@ ApplicationWindow {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 28
-        width: statusToastText.width + 28
+        width: Math.min(statusToastText.width + 28, windowRoot.width - 32)
         height: statusToastText.height + 14
         radius: 6
         color: "#cc2222"
+        z: 30
         visible: backendSettings ? backendSettings.statusMessage !== "" : false
         Text {
             id: statusToastText
@@ -916,6 +954,8 @@ ApplicationWindow {
             color: "#ffffff"
             font.pixelSize: 12
             padding: 7
+            wrapMode: Text.WordWrap
+            maximumLineCount: 3
         }
     }
 
