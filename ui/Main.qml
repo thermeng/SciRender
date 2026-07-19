@@ -507,7 +507,7 @@ ApplicationWindow {
                         visible: rail.activeSection === 6
                         spacing: 6
                         width: parent.width
-                        Text { text: "Source"; color: "#888"; font.pixelSize: 10 }
+                        Text { text: "Source"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         Row { spacing: 6
                             Text { text: "Type"; color: "#888"; font.pixelSize: 11; width: 64 }
                             Text { text: backendSettings ? backendSettings.meshDataType : "?"; color: "#ddd"; font.pixelSize: 11 }
@@ -516,7 +516,7 @@ ApplicationWindow {
                             Text { text: "Format"; color: "#888"; font.pixelSize: 11; width: 64 }
                             Text { text: backendSettings ? backendSettings.meshFormat : "?"; color: "#ddd"; font.pixelSize: 11 }
                         }
-                        Text { text: "Geometry"; color: "#888"; font.pixelSize: 10 }
+                        Text { text: "Geometry"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         Row { spacing: 6
                             Text { text: "Triangles"; color: "#888"; font.pixelSize: 11; width: 64 }
                             Text { text: backendSettings ? backendSettings.triangleCount : 0; color: "#ddd"; font.pixelSize: 11 }
@@ -525,7 +525,7 @@ ApplicationWindow {
                             Text { text: "Points"; color: "#888"; font.pixelSize: 11; width: 64 }
                             Text { text: backendSettings ? backendSettings.pointCount : 0; color: "#ddd"; font.pixelSize: 11 }
                         }
-                        Text { text: "Bounding box"; color: "#888"; font.pixelSize: 10 }
+                        Text { text: "Bounding box"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         GridLayout {
                             columns: 4
                             width: parent.width
