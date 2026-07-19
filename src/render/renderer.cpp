@@ -444,7 +444,7 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
         QOpenGLFramebufferObjectFormat fmt;
         fmt.setAttachment(QOpenGLFramebufferObject::Depth);
         fmt.setInternalTextureFormat(GL_RGBA8);
-        fmt.setSamples(0);
+        fmt.setSamples(4); // ponytail: MSAA on screenshot/export too; auto-resolves
         QOpenGLFramebufferObject superFbo(QSize(sw, sh), fmt);
         if (superFbo.isValid()) {
             int savedW = width, savedH = height;
@@ -459,7 +459,12 @@ bool Renderer::captureScreenshotToFile(const QString& path, QOpenGLFramebufferOb
             glViewport(0, 0, sw, sh);
             renderFrame();
             QQuickOpenGLUtils::resetOpenGLState();
-            fbo = &superFbo;
+            // ponytail: resolve MSAA -> single-sample before readback (glReadPixels on MSAA FBO is undefined)
+            QOpenGLFramebufferObjectFormat rf;
+            rf.setInternalTextureFormat(GL_RGBA8);
+            QOpenGLFramebufferObject resolveFbo(QSize(sw, sh), rf);
+            QOpenGLFramebufferObject::blitFramebuffer(&resolveFbo, &superFbo, GL_COLOR_BUFFER_BIT);
+            fbo = &resolveFbo;
             restoreState();
         }
     }

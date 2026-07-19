@@ -172,7 +172,7 @@ QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSi
     QOpenGLFramebufferObjectFormat format;
     format.setAttachment(QOpenGLFramebufferObject::Depth);
     format.setInternalTextureFormat(GL_RGBA8); // RGBA color attachment so transparent PNG exports retain an alpha channel
-    format.setSamples(0); // raw GL draw handles MSAA itself if needed
+    format.setSamples(4); // ponytail: MSAA; Qt auto-resolves FBO to texture on unbind
     m_fbo = new QOpenGLFramebufferObject(size, format);
     // A newly-allocated FBO is uninitialized; force the next render() to draw
     // into it even if no other change occurred, otherwise the scene graph
