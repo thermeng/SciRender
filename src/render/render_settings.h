@@ -279,7 +279,7 @@ public:
     float getVectorScale() const { return vectorScale; }
     void setVectorScale(float v) { if (vectorScale != v) { vectorScale = v; markStateDirty(); emit viewChanged(); } }
     int getVectorStride() const { return vectorStride; }
-    void setVectorStride(int v) { int s = v < 1 ? 1 : v; if (vectorStride != s) { vectorStride = s; m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(); } }
+    void setVectorStride(int v) { int s = v < 1 ? 1 : v; if (vectorStride != s) { vectorStride = s; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit viewChanged(); } }
     QColor getVectorColorQml() const { return QColor::fromRgbF(vectorColor[0], vectorColor[1], vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { vectorColor[0] = c.redF(); vectorColor[1] = c.greenF(); vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     bool getVectorUseColormap() const { return vectorUseColormap; }

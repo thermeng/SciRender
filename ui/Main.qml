@@ -436,92 +436,73 @@ ApplicationWindow {
                     // Vectors Panel
                     Column {
                         visible: rail.activeSection === 4
-                        spacing: 4
+                        spacing: 6
                         width: parent.width
+
                         CheckBox { text: "Show vectors"; checked: backendSettings ? backendSettings.showVectors : false; onToggled: backendSettings.showVectors = checked }
-                        Text { text: "Field"; color: "#888"; font.pixelSize: 10 }
-                        ComboBox {
+                        Column {
+                            enabled: backendSettings ? backendSettings.showVectors : false
+                            spacing: 6
                             width: parent.width
-                            model: backendSettings ? backendSettings.availableVectors : []
-                            currentIndex: backendSettings ? Math.max(0, backendSettings.availableVectors.indexOf(backendSettings.vectorField)) : 0
-                            onActivated: backendSettings.setActiveVectorField(currentText)
-                        }
-                        Text { text: "Arrow scale"; color: "#888"; font.pixelSize: 10 }
-                        LightSlider { label: "Scale"; value: backendSettings ? backendSettings.vectorScale : 1.0; from: 0.01; to: 5.0; step: 0.01; onSet: v => backendSettings.vectorScale = v }
-                        CheckBox { text: "Scale arrow length by magnitude"; checked: backendSettings ? backendSettings.vectorScaleByMagnitude : false; onToggled: backendSettings.vectorScaleByMagnitude = checked }
-                        Text { text: "Magnitude mapping"; color: "#888"; font.pixelSize: 10 }
-                        ComboBox {
-                            width: parent.width
-                            model: ["Linear", "Square root", "Logarithmic"]
-                            currentIndex: backendSettings ? backendSettings.vectorMagTransform : 0
-                            onActivated: index => backendSettings.vectorMagTransform = index
-                        }
-                        Text { text: "Stride (skip every N)"; color: "#888"; font.pixelSize: 10 }
-                        LightSlider { label: "Stride"; value: backendSettings ? backendSettings.vectorStride : 1; from: 1; to: 20; step: 1; onSet: v => backendSettings.vectorStride = v }
-                        Row { spacing: 6
-                            Button { text: "Vector Color"; width: 100; onClicked: vectorColorDialog.open() }
-                        }
-                        Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
-                        CheckBox { text: "Color by magnitude"; checked: backendSettings ? backendSettings.vectorUseColormap : false; onToggled: backendSettings.vectorUseColormap = checked }
-                        ComboBox {
-                            id: vectorColormapCombo
-                            width: parent.width
-                            enabled: backendSettings ? backendSettings.vectorUseColormap : false
-                            property var entries: {
-                                var names = backendSettings.getColormapNames();
-                                var e = [];
-                                for (var i = 0; i < names.length; ++i)
-                                    e.push({ name: names[i], uri: backendSettings.getColormapPreviewUri(i) });
-                                return e;
+
+                            // Field & Scale
+                            Text { text: "Field & Scale"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            ComboBox {
+                                width: parent.width
+                                model: backendSettings ? backendSettings.availableVectors : []
+                                currentIndex: backendSettings ? Math.max(0, backendSettings.availableVectors.indexOf(backendSettings.vectorField)) : 0
+                                onActivated: backendSettings.setActiveVectorField(currentText)
                             }
-                            model: entries
-                            textRole: "name"
-                            currentIndex: backendSettings ? backendSettings.vectorColormapChoice : 0
-                            onActivated: index => backendSettings.vectorColormapChoice = index
-                            height: 34
-                            indicator: Item {}
-                            leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
-                            background: Rectangle { color: "#2b2b2b"; border.color: "#444"; radius: 3 }
-                            contentItem: Item {
-                                anchors.fill: parent
-                                clip: true
-                                Image {
-                                    source: vectorColormapCombo.entries[vectorColormapCombo.currentIndex] ? vectorColormapCombo.entries[vectorColormapCombo.currentIndex].uri : ""
-                                    sourceSize.width: 280; sourceSize.height: 64
-                                    fillMode: Image.Stretch
-                                    horizontalAlignment: Image.AlignLeft
-                                    verticalAlignment: Image.AlignVCenter
-                                    anchors.fill: parent
-                                    anchors.margins: 4
-                                }
-                                Text {
-                                    text: "\u25BC"
-                                    color: "#dddddd"
-                                    font.pixelSize: 9
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 8
-                                    anchors.verticalCenter: parent.verticalCenter
+                            LightSlider { label: "Scale"; value: backendSettings ? backendSettings.vectorScale : 1.0; from: 0.01; to: 5.0; step: 0.01; onSet: v => backendSettings.vectorScale = v }
+                            CheckBox { text: "Scale by magnitude"; checked: backendSettings ? backendSettings.vectorScaleByMagnitude : false; onToggled: backendSettings.vectorScaleByMagnitude = checked }
+                            LightSlider { label: "Stride"; value: backendSettings ? backendSettings.vectorStride : 1; from: 1; to: 20; step: 1; onSet: v => backendSettings.vectorStride = v }
+
+                            // Magnitude
+                            Text { text: "Magnitude"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            ComboBox {
+                                width: parent.width
+                                model: ["Linear", "Square root", "Logarithmic"]
+                                currentIndex: backendSettings ? backendSettings.vectorMagTransform : 0
+                                onActivated: index => backendSettings.vectorMagTransform = index
+                            }
+
+                            // Color
+                            Text { text: "Color"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            SwatchButton { width: parent.width; text: "Vector"; swatch: backendSettings ? backendSettings.vectorColor : "#3399ff"; onClicked: vectorColorDialog.open() }
+                            CheckBox { text: "Color by magnitude"; checked: backendSettings ? backendSettings.vectorUseColormap : false; onToggled: backendSettings.vectorUseColormap = checked }
+                            // palette swatch grid (reuses scalar preview URIs)
+                            GridLayout {
+                                width: parent.width; columns: 2; rowSpacing: 4; columnSpacing: 4
+                                Repeater {
+                                    model: backendSettings ? backendSettings.getColormapNames().length : 0
+                                    Rectangle {
+                                        Layout.fillWidth: true; height: 24; radius: 3
+                                        property bool vactive: index === (backendSettings ? backendSettings.vectorColormapChoice : 0)
+                                        border.color: vactive ? "#4fc3f7" : "#444"; border.width: vactive ? 3 : 1
+                                        color: "#000"
+                                        Image {
+                                            source: backendSettings ? backendSettings.getColormapPreviewUri(index) : ""
+                                            sourceSize.width: 280; sourceSize.height: 64
+                                            fillMode: Image.Stretch
+                                            anchors.fill: parent; anchors.margins: 2
+                                        }
+                                        Text {
+                                            visible: vactive
+                                            text: "✓"
+                                            color: "#4fc3f7"
+                                            font.pixelSize: 14; font.bold: true
+                                            anchors.left: parent.left; anchors.top: parent.top
+                                            anchors.leftMargin: 3; anchors.topMargin: 1
+                                        }
+                                        MouseArea { anchors.fill: parent; onClicked: backendSettings.vectorColormapChoice = index }
+                                    }
                                 }
                             }
-                            delegate: ItemDelegate {
-                                width: vectorColormapCombo.width
-                                height: 32
-                                padding: 2
-                                contentItem: Image {
-                                    source: modelData.uri
-                                    sourceSize.width: 280; sourceSize.height: 64
-                                    fillMode: Image.Stretch
-                                    horizontalAlignment: Image.AlignLeft
-                                    verticalAlignment: Image.AlignVCenter
-                                    anchors.fill: parent
-                                    anchors.margins: 4
-                                }
-                                highlighted: vectorColormapCombo.highlightedIndex === index
-                            }
+                            CheckBox { text: "Reverse palette"; enabled: backendSettings ? backendSettings.vectorUseColormap : false; checked: backendSettings ? backendSettings.vectorColormapReversed : false; onToggled: backendSettings.vectorColormapReversed = checked }
                         }
-                        CheckBox { text: "Reverse palette"; enabled: backendSettings ? backendSettings.vectorUseColormap : false; checked: backendSettings ? backendSettings.vectorColormapReversed : false; onToggled: backendSettings.vectorColormapReversed = checked }
                     }
 
+                    // Info Panel
                     Column {
                         visible: rail.activeSection === 6
                         spacing: 6
