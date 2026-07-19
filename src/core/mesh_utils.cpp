@@ -281,35 +281,15 @@ void computeNormals(RenderMesh& mesh) {
         }
     }
 
-    // Sync per-point vectors the same way: a duplicated vertex must carry the
-    // same vector as its source, otherwise glyph code indexed by vertex count
-    // would read past the end of the (smaller) vector arrays and crash. The
-    // vectors are stored as one contiguous vec3 buffer with per-field offsets;
-    // we remap each field's vec3 run by vertexRemap and resize to finalVerts.
-    if (!mesh.pointVectorsData.empty()) {
-        const size_t newVertCount = newVertices.size() / 3;
-        std::vector<glm::vec3> newPointVectorsData;
-        newPointVectorsData.reserve(newVertCount * mesh.pointVectorOffset.size());
-        std::unordered_map<std::string, size_t> newPointVectorOffset;
-        for (const auto& [name, offset] : mesh.pointVectorOffset) {
-            newPointVectorOffset[name] = newPointVectorsData.size();
-            for (size_t run = 0; run < numVerts; ++run) {
-                const size_t srcIdx = offset + run;
-                const glm::vec3 v = (srcIdx < mesh.pointVectorsData.size())
-                    ? mesh.pointVectorsData[srcIdx] : glm::vec3(0.0f);
-                // vertexRemap[run] lists every new vertex this source vertex
-                // maps to (itself + any sharp-edge duplicates); copy the source
-                // vector to each so glyph code indexed by vertex count stays valid.
-                for (int newV : vertexRemap[run]) {
-                    if (static_cast<size_t>(newV) < newVertCount) {
-                        newPointVectorsData.emplace_back(v);
-                    }
-                }
-            }
-        }
-        mesh.pointVectorsData = std::move(newPointVectorsData);
-        mesh.pointVectorOffset = std::move(newPointVectorOffset);
-    }
+    // NOTE: per-point vectors are intentionally NOT remapped here. The glyph
+    // builder samples them by ORIGINAL point index (limit = min(verts/3,
+    // runCount)) and a split/duplicate vertex sits at its source's exact xyz,
+    // so leaving the vector run at the pre-split per-point count (one vec3 per
+    // original point) is both correct and complete — expanding to the split
+    // vertex count corrupts multi-field offsets and desyncs the buffer size
+    // from the documented pointVectorsData.size() == originalPointCount
+    // invariant. Scalars above are expanded because they are GPU-indexed by
+    // the final vertex count.
 
     // Apply changes
     mesh.vertices = std::move(newVertices);
@@ -323,14 +303,8 @@ void computeNormals(RenderMesh& mesh) {
     if (!mesh.scalars.empty() && mesh.scalars.size() != finalVerts) {
         mesh.scalars.resize(finalVerts, 0.5f);
     }
-    if (!mesh.pointVectorsData.empty()) {
-        for (auto& [name, offset] : mesh.pointVectorOffset) {
-            const size_t end = offset + finalVerts;
-            if (mesh.pointVectorsData.size() < end) {
-                mesh.pointVectorsData.resize(end, glm::vec3(0.0f));
-            }
-        }
-    }
+    // per-point vectors: left at the original per-point count (see note above);
+    // no vertex-count resize.
 
     // Ensure scalarMin/scalarMax remain valid after vertex splitting
     if (!mesh.scalars.empty()) {

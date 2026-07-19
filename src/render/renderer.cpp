@@ -202,24 +202,42 @@ void Renderer::initShaders() {
     if (!gvert.empty() && !gfrag.empty()) {
         GLuint gv = glCreateShader(GL_VERTEX_SHADER);
         GLuint gf = glCreateShader(GL_FRAGMENT_SHADER);
-        const char* gvs = gvert.c_str();
-        const char* gfs = gfrag.c_str();
-        glShaderSource(gv, 1, &gvs, nullptr); glCompileShader(gv);
-        glShaderSource(gf, 1, &gfs, nullptr); glCompileShader(gf);
-        glyphProgram = glCreateProgram();
-        glAttachShader(glyphProgram, gv); glAttachShader(glyphProgram, gf);
-        glLinkProgram(glyphProgram);
-        glDeleteShader(gv); glDeleteShader(gf);
-        glyphMvpLoc = glGetUniformLocation(glyphProgram, "uMVP");
-        glyphScaleLoc = glGetUniformLocation(glyphProgram, "uScale");
-        glyphLightDirLoc = glGetUniformLocation(glyphProgram, "uLightDir");
-        glyphViewPosLoc = glGetUniformLocation(glyphProgram, "uViewPos");
-        glyphColorLoc = glGetUniformLocation(glyphProgram, "uColor");
-        glyphUseColormapLoc = glGetUniformLocation(glyphProgram, "uUseColormap");
-        glyphMagMinLoc = glGetUniformLocation(glyphProgram, "uMagMin");
-        glyphMagMaxLoc = glGetUniformLocation(glyphProgram, "uMagMax");
-        glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
-        glyphScaleByMagLoc = glGetUniformLocation(glyphProgram, "uScaleByMag");
+        if (!compileShader(gv, gvert.c_str(), "GLYPH_VERT") || !compileShader(gf, gfrag.c_str(), "GLYPH_FRAG")) {
+            glDeleteShader(gv);
+            glDeleteShader(gf);
+            glyphProgram = 0;
+        } else {
+            glyphProgram = glCreateProgram();
+            glAttachShader(glyphProgram, gv); glAttachShader(glyphProgram, gf);
+            glLinkProgram(glyphProgram);
+
+            GLint glyphLinked = 0;
+            glGetProgramiv(glyphProgram, GL_LINK_STATUS, &glyphLinked);
+            if (!glyphLinked) {
+                char log[512];
+                glGetProgramInfoLog(glyphProgram, 512, nullptr, log);
+                printf("Glyph shader program linking error: %s\n", log);
+                glDeleteProgram(glyphProgram);
+                glyphProgram = 0;
+            }
+
+            glDeleteShader(gv); glDeleteShader(gf);
+        }
+
+        if (glyphProgram != 0) {
+            glyphMvpLoc = glGetUniformLocation(glyphProgram, "uMVP");
+            glyphScaleLoc = glGetUniformLocation(glyphProgram, "uScale");
+            glyphLightDirLoc = glGetUniformLocation(glyphProgram, "uLightDir");
+            glyphViewPosLoc = glGetUniformLocation(glyphProgram, "uViewPos");
+            glyphColorLoc = glGetUniformLocation(glyphProgram, "uColor");
+            glyphUseColormapLoc = glGetUniformLocation(glyphProgram, "uUseColormap");
+            glyphMagMinLoc = glGetUniformLocation(glyphProgram, "uMagMin");
+            glyphMagMaxLoc = glGetUniformLocation(glyphProgram, "uMagMax");
+            glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
+            glyphScaleByMagLoc = glGetUniformLocation(glyphProgram, "uScaleByMag");
+            glyphMeshExtentLoc = glGetUniformLocation(glyphProgram, "uMeshExtent");
+            glyphMagTransformLoc = glGetUniformLocation(glyphProgram, "uMagTransform");
+        }
     }
 }
 
@@ -306,7 +324,7 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     if (!renderMesh) return;
     meshManager.upload(renderMesh);
     m_lastUploadedMesh = renderMesh;
-    vectorGlyph.rebuild(*renderMesh, m_state.vectorStride);
+    vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform);
 }
 
 void Renderer::setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh) {
@@ -535,10 +553,28 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         data.title = QString::fromStdString(m_state.vectorField) + QChar(0x27A1);
         data.stops = stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed);
         const int tickCount = m_state.colorbarTicks;
-        const float range = vectorGlyph.magMax - vectorGlyph.magMin;
+        // The glyph shader maps color through txMag() (renderer state
+        // vectorMagTransform), so the LUT gradient is linear in TRANSFORMED
+        // magnitude. Tick labels must therefore invert the transform to show
+        // raw magnitudes that line up with the arrow colors.
+        auto txMag = [&](float m) -> float {
+            if (m_state.vectorMagTransform == 1) return std::sqrt(std::max(m, 0.0f));
+            if (m_state.vectorMagTransform == 2) return std::log(1.0f + std::max(m, 0.0f));
+            return m;
+        };
+        auto invTxMag = [&](float t) -> float {
+            if (m_state.vectorMagTransform == 1) return t * t;
+            if (m_state.vectorMagTransform == 2) return std::exp(t) - 1.0f;
+            return t;
+        };
+        const float tMin = txMag(vectorGlyph.magMin);
+        const float tMax = txMag(vectorGlyph.magMax);
+        const float tRange = tMax - tMin;
         for (int i = 0; i < tickCount; ++i) {
             const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float v = vectorGlyph.magMax - range * frac;
+            // frac = 0 is the top of the bar (max), frac = 1 the bottom (min).
+            const float t = tMax - tRange * frac;
+            const float v = invTxMag(t);
             data.tickLabels.append(QString::number(v, 'f', 3));
         }
         colorbarOverlay.draw(dpr, deviceW, deviceH, data, 1);
@@ -565,7 +601,7 @@ void Renderer::renderFrame() {
     }
 
     if (vectorGlyphDirty.exchange(false)) {
-        if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride);
+        if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform);
     }
 
     glEnable(GL_DEPTH_TEST);
@@ -710,6 +746,8 @@ void Renderer::renderFrame() {
         glUniform1f(glyphMagMinLoc, vectorGlyph.magMin);
         glUniform1f(glyphMagMaxLoc, vectorGlyph.magMax);
         glUniform1f(glyphScaleByMagLoc, m_state.vectorScaleByMagnitude ? 1.0f : 0.0f);
+        glUniform1f(glyphMeshExtentLoc, vectorGlyph.meshExtent);
+        glUniform1i(glyphMagTransformLoc, m_state.vectorMagTransform);
         if (m_state.vectorUseColormap && colormap.vectorTexture() != 0) {
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_1D, colormap.vectorTexture());

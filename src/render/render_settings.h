@@ -71,6 +71,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float vectorScale READ getVectorScale WRITE setVectorScale NOTIFY viewChanged)
     Q_PROPERTY(int vectorStride READ getVectorStride WRITE setVectorStride NOTIFY viewChanged)
     Q_PROPERTY(bool vectorScaleByMagnitude READ getVectorScaleByMagnitude WRITE setVectorScaleByMagnitude NOTIFY viewChanged)
+    Q_PROPERTY(int vectorMagTransform READ getVectorMagTransform WRITE setVectorMagTransform NOTIFY vectorColormapChanged)
     Q_PROPERTY(QColor vectorColor READ getVectorColorQml WRITE setVectorColorQml NOTIFY viewChanged)
     Q_PROPERTY(QString vectorField READ getVectorField WRITE setActiveVectorField NOTIFY meshDataUpdated)
     Q_PROPERTY(QStringList availableVectors READ getAvailableVectors NOTIFY meshDataUpdated)
@@ -273,6 +274,8 @@ public:
     void setShowVectors(bool v) { if (showVectors != v) { showVectors = v; markStateDirty(); emit viewChanged(); } }
     bool getVectorScaleByMagnitude() const { return vectorScaleByMagnitude; }
     void setVectorScaleByMagnitude(bool v) { if (vectorScaleByMagnitude != v) { vectorScaleByMagnitude = v; markStateDirty(); emit viewChanged(); } }
+    int getVectorMagTransform() const { return vectorMagTransform; }
+    void setVectorMagTransform(int v) { int t = (v < 0) ? 0 : (v > 2 ? 2 : v); if (vectorMagTransform != t) { vectorMagTransform = t; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit vectorColormapChanged(); } }
     float getVectorScale() const { return vectorScale; }
     void setVectorScale(float v) { if (vectorScale != v) { vectorScale = v; markStateDirty(); emit viewChanged(); } }
     int getVectorStride() const { return vectorStride; }
@@ -420,6 +423,7 @@ private:
     float vectorColor[3] = { 0.2f, 0.6f, 1.0f };
     bool vectorUseColormap = false;
     bool vectorScaleByMagnitude = false;
+    int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
 
     bool clipEnabled = false;
     float sliceHeightX = 0.0f;

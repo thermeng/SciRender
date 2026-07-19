@@ -14,7 +14,8 @@ out vec4 FragColor;
 void main() {
     vec3 n = normalize(vNormal);
     vec3 L = normalize(uLightDir);
-    float diff = max(dot(n, L), 0.0);
+    // Two-sided: light arrow from both faces so backfaces aren't black.
+    float diff = abs(dot(n, L));
     vec3 base = uUseColormap ? texture(uColormapLUT, vMag).rgb : uColor;
     vec3 col = base * (0.35 + 0.65 * diff);
     FragColor = vec4(col, 1.0);

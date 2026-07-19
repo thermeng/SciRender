@@ -82,6 +82,7 @@ void RenderSettings::buildRenderState() {
     std::copy(std::begin(vectorColor), std::end(vectorColor), s.vectorColor);
     s.vectorUseColormap = vectorUseColormap;
     s.vectorScaleByMagnitude = vectorScaleByMagnitude;
+    s.vectorMagTransform = vectorMagTransform;
     s.vectorField = m_guiMeta.vectorName;
     s.screenshotTransparent = screenshotTransparent;
     s.screenshotQuality = screenshotQuality;

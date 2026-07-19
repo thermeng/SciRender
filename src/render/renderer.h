@@ -111,6 +111,7 @@ struct RenderRenderState {
     float vectorColor[3] = { 0.2f, 0.6f, 1.0f };
     bool vectorUseColormap = false;
     bool vectorScaleByMagnitude = false;
+    int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
     std::string vectorField;
 
     // Screenshot export options
@@ -286,6 +287,8 @@ private:
     GLint glyphMagMaxLoc = -1;
     GLint glyphLutLoc = -1;
     GLint glyphScaleByMagLoc = -1;
+    GLint glyphMeshExtentLoc = -1;
+    GLint glyphMagTransformLoc = -1;
 
     double camDistance = 3.0;
     double nearPlane = 0.1;

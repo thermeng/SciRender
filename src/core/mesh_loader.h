@@ -63,6 +63,12 @@ struct RenderMesh {
     std::unordered_map<std::string, size_t> pointVectorOffset;     // vec3-offset per field name
     std::vector<std::string> availableVectorNames;                // for a QML switcher
     std::string vectorName = "";                                  // active vector field name
+    // Per-POINT vector count (== numPoints at parse time, BEFORE flat-shading
+    // splits vertices). Vectors are stored one vec3 per source point; the glyph
+    // builder and vectorFieldData must clamp runs to THIS count, not to the
+    // (larger, post-split) geometry vertex count, or a field over-reads into
+    // the next field's run / past the buffer end.
+    size_t pointVectorCount = 0;
     bool meshHasVectors() const { return !pointVectorsData.empty(); }
 
     // Resolves a vector field's contiguous data. Returns the base pointer and
@@ -71,10 +77,10 @@ struct RenderMesh {
         auto it = pointVectorOffset.find(name);
         if (it == pointVectorOffset.end()) { count = 0; return nullptr; }
         count = pointVectorsData.size() - it->second;
-        // A field always spans a full per-vertex count; clamp to that if the
-        // buffer holds trailing runs of other fields.
-        const size_t perVertex = vertices.empty() ? 0 : vertices.size() / 3;
-        if (perVertex != 0 && count > perVertex) count = perVertex;
+        // A field spans exactly pointVectorCount vec3 (one per source point);
+        // clamp to that rather than the split geometry vertex count so a field
+        // never reads into the next field's run or past the buffer.
+        if (pointVectorCount != 0 && count > pointVectorCount) count = pointVectorCount;
         return pointVectorsData.data() + it->second;
     }
 

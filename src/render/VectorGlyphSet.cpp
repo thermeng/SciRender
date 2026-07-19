@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <limits>
+#include <unordered_set>
 
 void buildUnitArrow(std::vector<float>& verts, std::vector<float>& norms, std::vector<unsigned int>& idx) {
     const int SEG = 8;
@@ -45,19 +46,34 @@ void VectorGlyphSet::shutdown() {
     teardownGL();
 }
 
-void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride) {
+void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName, int magTransform) {
     teardownGL();
+    (void)magTransform; // Range is stored raw; the shader applies txMag() itself.
 
     if (mesh.pointVectorsData.empty()) return;
 
-    const std::string& field = mesh.vectorName.empty()
-        ? mesh.availableVectorNames.front()
-        : mesh.vectorName;
+    // Field selection: prefer the requested field, then the mesh's active field,
+    // then the first available. Validate each candidate against the actual field
+    // table (vectorFieldData) rather than assuming presence, so an unknown name
+    // falls back to a valid field instead of silently rendering nothing.
     size_t count = 0;
-    const glm::vec3* data = mesh.vectorFieldData(field, count);
-    if (!data || count == 0) return;
+    const glm::vec3* data = nullptr;
+    auto tryField = [&](const std::string& name) -> bool {
+        if (name.empty()) return false;
+        size_t c = 0;
+        const glm::vec3* d = mesh.vectorFieldData(name, c);
+        if (d && c > 0) { data = d; count = c; return true; }
+        return false;
+    };
+    if (!tryField(fieldName) && !tryField(mesh.vectorName) &&
+        !(mesh.availableVectorNames.empty() ? false : tryField(mesh.availableVectorNames.front()))) {
+        return;
+    }
 
     int numPts = static_cast<int>(mesh.vertices.size() / 3);
+    // A field's run may be shorter than the vertex count for malformed/partial
+    // data; never read past the valid run (or past the vertex array).
+    const int limit = std::min(numPts, static_cast<int>(count));
     stride = std::max(1, stride);
     // Track min/max magnitude across the FULL field (every point), not just the
     // strided render sample. magMin/magMax also drive the vector colorbar legend
@@ -65,7 +81,7 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride) {
     // the legend scale disagree when vectorStride > 1.
     float mMin = std::numeric_limits<float>::max();
     float mMax = -std::numeric_limits<float>::max();
-    for (int i = 0; i < numPts; ++i) {
+    for (int i = 0; i < limit; ++i) {
         float dx = data[i].x, dy = data[i].y, dz = data[i].z;
         float m = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (!std::isfinite(m)) continue;
@@ -73,20 +89,49 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride) {
         if (m > mMax) mMax = m;
     }
     std::vector<float> inst;
-    for (int i = 0; i < numPts; i += stride) {
+    // Datasets often carry duplicate coincident point coordinates (distinct point
+    // indices at the same xyz). Without dedup the glyph builder emits one arrow
+    // per index, so stacked arrows appear at each shared location. Collapse
+    // instances that share a quantized origin to a single arrow. The quantum is
+    // relative to the mesh extent so it stays robust across tiny and huge meshes
+    // (an absolute quantum wrongly merges/splits points at extreme scales).
+    // Note: only the first vector seen at a shared location is kept.
+    const float extent = static_cast<float>(mesh.bounds.extent);
+    const float q = std::max(extent * 1e-5f, 1e-20f);
+    std::unordered_set<uint64_t> emitted;
+    auto originKey = [q](float x, float y, float z) {
+        int ix = static_cast<int>(std::round(x / q));
+        int iy = static_cast<int>(std::round(y / q));
+        int iz = static_cast<int>(std::round(z / q));
+        uint64_t h = 1469598103934665603ULL;
+        auto mix = [&](uint64_t v) { h ^= v; h *= 1099511628211ULL; };
+        mix(static_cast<uint64_t>(ix) + 0x80000000ULL);
+        mix(static_cast<uint64_t>(iy) + 0x80000000ULL);
+        mix(static_cast<uint64_t>(iz) + 0x80000000ULL);
+        return h;
+    };
+    for (int i = 0; i < limit; i += stride) {
         float dx = data[i].x, dy = data[i].y, dz = data[i].z;
         // skip near-zero vectors so the cloud isn't cluttered with dots
         if (dx * dx + dy * dy + dz * dz < 1e-12f) continue;
-        inst.push_back(mesh.vertices[i * 3 + 0]);
-        inst.push_back(mesh.vertices[i * 3 + 1]);
-        inst.push_back(mesh.vertices[i * 3 + 2]);
+        float ox = mesh.vertices[i * 3 + 0];
+        float oy = mesh.vertices[i * 3 + 1];
+        float oz = mesh.vertices[i * 3 + 2];
+        if (!emitted.insert(originKey(ox, oy, oz)).second) continue;
+        inst.push_back(ox);
+        inst.push_back(oy);
+        inst.push_back(oz);
         inst.push_back(dx); inst.push_back(dy); inst.push_back(dz);
     }
     if (inst.empty()) return;
     // All-zero field: keep a sane [0,0] range instead of (max,-max) clamp artifacts.
     if (mMin > mMax) { mMin = 0.0f; mMax = 0.0f; }
+    // Raw (untransformed) magnitude range. The shader applies the magnitude
+    // transform itself via txMag(); the colorbar legend (renderer.cpp) inverts
+    // the transform for tick labels.
     magMin = mMin;
     magMax = mMax;
+    meshExtent = static_cast<float>(mesh.bounds.extent);
 
     std::vector<float> av, an; std::vector<unsigned int> ai;
     buildUnitArrow(av, an, ai);

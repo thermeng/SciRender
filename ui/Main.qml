@@ -441,6 +441,13 @@ ApplicationWindow {
                         Text { text: "Arrow scale"; color: "#888"; font.pixelSize: 10 }
                         LightSlider { label: "Scale"; value: backendSettings ? backendSettings.vectorScale : 1.0; from: 0.01; to: 5.0; step: 0.01; onSet: v => backendSettings.vectorScale = v }
                         CheckBox { text: "Scale arrow length by magnitude"; checked: backendSettings ? backendSettings.vectorScaleByMagnitude : false; onToggled: backendSettings.vectorScaleByMagnitude = checked }
+                        Text { text: "Magnitude mapping"; color: "#888"; font.pixelSize: 10 }
+                        ComboBox {
+                            width: parent.width
+                            model: ["Linear", "Square root", "Logarithmic"]
+                            currentIndex: backendSettings ? backendSettings.vectorMagTransform : 0
+                            onActivated: index => backendSettings.vectorMagTransform = index
+                        }
                         Text { text: "Stride (skip every N)"; color: "#888"; font.pixelSize: 10 }
                         LightSlider { label: "Stride"; value: backendSettings ? backendSettings.vectorStride : 1; from: 1; to: 20; step: 1; onSet: v => backendSettings.vectorStride = v }
                         Row { spacing: 6

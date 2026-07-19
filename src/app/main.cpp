@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
     glFormat.setVersion(3, 3);
     glFormat.setProfile(QSurfaceFormat::CoreProfile);
     glFormat.setDepthBufferSize(24);
-    glFormat.setSamples(0);
+    glFormat.setSamples(4);
     QSurfaceFormat::setDefaultFormat(glFormat);
 
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);

@@ -978,6 +978,7 @@ private:
             // Flatten per-point vectors into one contiguous vec3 buffer with a
             // per-field offset (shared_ptr/zero-copy glyph pipeline expects this).
             const size_t perVertex = mesh.vertices.size() / 3;
+            mesh.pointVectorCount = perVertex; // per-POINT count, set BEFORE computeNormals splits
             for (const auto& [name, vecArr] : mesh.attributes->pointVectors) {
                 if (vecArr.size() < perVertex * 3) continue; // skip unusable field
                 mesh.pointVectorOffset[name] = mesh.pointVectorsData.size();
