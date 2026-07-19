@@ -37,7 +37,7 @@ ApplicationWindow {
         property int activeSection: -1   // 0=Lighting 1=Clip 2=View 3=Colormap
         readonly property string sectionTitle:
             activeSection === 0 ? "Lighting" :
-            activeSection === 1 ? "Slicing & Clipping" :
+            activeSection === 1 ? "Slicing" :
             activeSection === 2 ? "View & Display" :
             activeSection === 3 ? "Colormap" :
             activeSection === 4 ? "Vectors" :
@@ -92,13 +92,12 @@ ApplicationWindow {
 
             RailButton { text: "\u{1F4C2}"; ToolTip.text: "Open Mesh"; ToolTip.visible: hovered; onClicked: fileDialog.open() }
             RailButton { text: "\u{1F4A1}"; ToolTip.text: "Lighting"; ToolTip.visible: hovered; active: rail.activeSection === 0; onClicked: rail.toggleSection(0) }
-            RailButton { text: "\u2702";    ToolTip.text: "Slicing & Clipping"; ToolTip.visible: hovered; active: rail.activeSection === 1; onClicked: rail.toggleSection(1) }
+            RailButton { text: "\u{2702}"; ToolTip.text: "Slicing"; ToolTip.visible: hovered; active: rail.activeSection === 1; onClicked: rail.toggleSection(1) }
             RailButton { text: "\u{1F441}"; ToolTip.text: "View & Display"; ToolTip.visible: hovered; active: rail.activeSection === 2; onClicked: rail.toggleSection(2) }
             RailButton { text: "\u{1F3A8}"; ToolTip.text: "Colormap"; ToolTip.visible: hovered; active: rail.activeSection === 3; onClicked: rail.toggleSection(3) }
-            RailButton { text: "\u{27A1}";    ToolTip.text: "Vectors"; ToolTip.visible: hovered; active: rail.activeSection === 4; onClicked: rail.toggleSection(4) }
+            RailButton { text: "\u{27A1}"; ToolTip.text: "Vectors"; ToolTip.visible: hovered; active: rail.activeSection === 4; onClicked: rail.toggleSection(4) }
             RailButton { text: "\u{1F4F7}"; ToolTip.text: "Screenshot"; ToolTip.visible: hovered; active: rail.activeSection === 5; onClicked: rail.toggleSection(5) }
             RailButton { text: "\u{1F4CA}"; ToolTip.text: "Mesh Info"; ToolTip.visible: hovered; active: rail.activeSection === 6; onClicked: rail.toggleSection(6) }
-            RailButton { text: "?"; ToolTip.text: "Keyboard Shortcuts"; ToolTip.visible: hovered; onClicked: shortcutsDialog.open() }
         }
 
         // ---- Docked content panel (slides out to the right of the icon strip) ----
@@ -285,24 +284,31 @@ ApplicationWindow {
                         LightSlider { label: "Shininess"; value: backendSettings ? backendSettings.matShininess : 0; from: 1; to: 100; step: 1;    onSet: v => backendSettings.matShininess = v }
                     }
 
-                    // Slicing & Clipping Controls
+                    // Slicing Controls (clipEnabled = master on/off for the 3 axis slices)
                     Column {
                         visible: rail.activeSection === 1
-                        spacing: 4
+                        spacing: 6
                         width: parent.width
-                        CheckBox { text: "Enable Clipping"; checked: backendSettings ? backendSettings.clipEnabled : false; onToggled: backendSettings.clipEnabled = checked }
-                        Text { text: "Cut planes (world units)"; color: "#888"; font.pixelSize: 10 }
-                        ClipSlider { label: "Slice X"; value: backendSettings ? backendSettings.sliceHeightX : 0; from: backendSettings ? backendSettings.worldMinX : 0; to: backendSettings ? backendSettings.worldMaxX : 1; onSet: v => backendSettings.sliceHeightX = v }
-                        ClipSlider { label: "Slice Y"; value: backendSettings ? backendSettings.sliceHeightY : 0; from: backendSettings ? backendSettings.worldMinY : 0; to: backendSettings ? backendSettings.worldMaxY : 1; onSet: v => backendSettings.sliceHeightY = v }
-                        ClipSlider { label: "Slice Z"; value: backendSettings ? backendSettings.sliceHeightZ : 0; from: backendSettings ? backendSettings.worldMinZ : 0; to: backendSettings ? backendSettings.worldMaxZ : 1; onSet: v => backendSettings.sliceHeightZ = v }
-                        Text { text: "Keep side"; color: "#888"; font.pixelSize: 10 }
-                        Row { spacing: 8
-                            CheckBox { text: "Inv X"; checked: backendSettings ? backendSettings.invertX : false; onToggled: backendSettings.invertX = checked }
-                            CheckBox { text: "Inv Y"; checked: backendSettings ? backendSettings.invertY : false; onToggled: backendSettings.invertY = checked }
-                            CheckBox { text: "Inv Z"; checked: backendSettings ? backendSettings.invertZ : false; onToggled: backendSettings.invertZ = checked }
+                        Text { text: "Slicing"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        CheckBox { text: "Enable slicing"; checked: backendSettings ? backendSettings.clipEnabled : false; onToggled: backendSettings.clipEnabled = checked }
+                        Column {
+                            enabled: backendSettings ? backendSettings.clipEnabled : false
+                            spacing: 6
+                            width: parent.width
+                            Text { text: "Cut planes (world units)"; color: "#888"; font.pixelSize: 10 }
+                            ClipSlider { label: "Slice X"; value: backendSettings ? backendSettings.sliceHeightX : 0; from: backendSettings ? backendSettings.worldMinX : 0; to: backendSettings ? backendSettings.worldMaxX : 1; onSet: v => backendSettings.sliceHeightX = v }
+                            ClipSlider { label: "Slice Y"; value: backendSettings ? backendSettings.sliceHeightY : 0; from: backendSettings ? backendSettings.worldMinY : 0; to: backendSettings ? backendSettings.worldMaxY : 1; onSet: v => backendSettings.sliceHeightY = v }
+                            ClipSlider { label: "Slice Z"; value: backendSettings ? backendSettings.sliceHeightZ : 0; from: backendSettings ? backendSettings.worldMinZ : 0; to: backendSettings ? backendSettings.worldMaxZ : 1; onSet: v => backendSettings.sliceHeightZ = v }
+                            Text { text: "Keep side"; color: "#888"; font.pixelSize: 10 }
+                            Row { spacing: 8
+                                CheckBox { text: "Inv X"; checked: backendSettings ? backendSettings.invertX : false; onToggled: backendSettings.invertX = checked }
+                                CheckBox { text: "Inv Y"; checked: backendSettings ? backendSettings.invertY : false; onToggled: backendSettings.invertY = checked }
+                                CheckBox { text: "Inv Z"; checked: backendSettings ? backendSettings.invertZ : false; onToggled: backendSettings.invertZ = checked }
+                            }
                         }
                     }
 
+                    }
                     // View & Display Controls
                     Column {
                         id: viewCol
@@ -629,8 +635,8 @@ ApplicationWindow {
                     ["W", "Toggle wireframe"],
                     ["G", "Toggle grid"],
                     ["S", "Save screenshot"],
-                    ["? / ?", "Orbit (azimuth)"],
-                    ["? / ?", "Elevation"],
+                    ["Left/Right", "Orbit (azimuth)"],
+                    ["Up/Down", "Elevation"],
                     ["Ctrl + =", "Zoom in"],
                     ["Ctrl + -", "Zoom out"]
                 ]
@@ -658,7 +664,6 @@ ApplicationWindow {
                 }
             }
         }
-    }
 
     // Helper JavaScript function to strip out protocols securely across OS environments
     function urlToPath(urlStr) {
@@ -951,7 +956,7 @@ ApplicationWindow {
         Menu {
             title: "View"
             MenuItem { text: "Lighting"; onTriggered: rail.toggleSection(0) }
-            MenuItem { text: "Slicing & Clipping"; onTriggered: rail.toggleSection(1) }
+            MenuItem { text: "Slicing"; onTriggered: rail.toggleSection(1) }
             MenuSeparator {}
             MenuItem { text: "Reset Camera"; onTriggered: backendSettings.resetCamera() }
         }
