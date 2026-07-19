@@ -111,6 +111,9 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
     Q_PROPERTY(float pointSize READ getPointSize WRITE setPointSize NOTIFY viewChanged)
+    Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
+    Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
+    Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
@@ -271,6 +274,12 @@ public:
     void setShowPoints(bool v) { if (showPoints != v) { showPoints = v; markStateDirty(); emit viewChanged(); } }
     float getPointSize() const { return pointSize; }
     void setPointSize(float v) { if (pointSize != v) { pointSize = v; markStateDirty(); emit viewChanged(); } }
+    bool getPointUseScalar() const { return pointUseScalar; }
+    void setPointUseScalar(bool v) { if (pointUseScalar != v) { pointUseScalar = v; markStateDirty(); emit viewChanged(); } }
+    float getPointOpacity() const { return pointOpacity; }
+    void setPointOpacity(float v) { if (pointOpacity != v) { pointOpacity = v; markStateDirty(); emit viewChanged(); } }
+    bool getShowBounds() const { return showBounds; }
+    void setShowBounds(bool v) { if (showBounds != v) { showBounds = v; markStateDirty(); emit viewChanged(); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
     void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(surfaceColor[0], surfaceColor[1], surfaceColor[2]); }
@@ -387,6 +396,9 @@ private:
     bool useLod = true;
     bool showPoints = false;  // ponytail: user toggle for vertex point-cloud draw
     float pointSize = 4.0f;   // ponytail: point diameter in framebuffer px
+    bool pointUseScalar = true;  // ponytail: color points by scalar (else solid)
+    float pointOpacity = 1.0f;   // ponytail: point sprite alpha
+    bool showBounds = false;     // ponytail: AABB wireframe overlay
 
     float meshColor[3] = { 0.4f, 0.9f, 0.4f };
     float surfaceColor[3] = { 1.0f, 1.0f, 1.0f };

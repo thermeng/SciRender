@@ -346,6 +346,19 @@ ApplicationWindow {
                             }
                             Text { text: backendSettings ? backendSettings.pointSize.toFixed(1) : "4.0"; color: "#999999"; font.pixelSize: 10; Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight }
                         }
+                        RowLayout {
+                            width: parent.width; spacing: 6
+                            Text { text: "Opacity"; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 34 }
+                            Slider {
+                                Layout.fillWidth: true; from: 0.1; to: 1.0; stepSize: 0.05
+                                value: backendSettings ? backendSettings.pointOpacity : 1.0
+                                enabled: backendSettings ? backendSettings.showPoints : false
+                                onMoved: if (backendSettings) backendSettings.pointOpacity = value
+                            }
+                            Text { text: backendSettings ? backendSettings.pointOpacity.toFixed(2) : "1.0"; color: "#999999"; font.pixelSize: 10; Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight }
+                        }
+                        CheckBox { text: "Color by scalar"; checked: backendSettings ? backendSettings.pointUseScalar : true; enabled: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.pointUseScalar = checked }
+                        CheckBox { text: "Bounding Box"; checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
                         CheckBox { text: "Auto-Rotate"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                         CheckBox { text: "Level of Detail"; checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
 

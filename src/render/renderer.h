@@ -61,6 +61,9 @@ struct RenderRenderState {
     bool useLod = true;
     float pointSize = 4.0f; // ponytail: CPU-driven gl_PointSize for point clouds
     bool showPoints = false; // ponytail: draw vertices as GL_POINTS
+    bool pointUseScalar = true;  // ponytail: color points by scalar; else solid
+    float pointOpacity = 1.0f;   // ponytail: point sprite alpha
+    bool showBounds = false;     // ponytail: AABB wireframe overlay
 
     // Colors
     float meshColor[3] = { 0.4f, 0.9f, 0.4f };
@@ -244,8 +247,11 @@ private:
     GLint wireframeLoc = -1;
     GLint colorLoc = -1;
     GLint surfaceColorLoc = -1;
+    GLint meshColorLoc = -1;
     GLint pointSizeLoc = -1; // ponytail: CPU-driven gl_PointSize for point-cloud draw
     GLint isPointLoc = -1;    // ponytail: frag sphere-shading for point sprites
+    GLint pointUseScalarLoc = -1;
+    GLint pointOpacityLoc = -1;
     GLint lightFillLoc = -1;
     GLint lightBack1Loc = -1;
     GLint lightBack2Loc = -1;

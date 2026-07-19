@@ -162,8 +162,11 @@ void Renderer::initShaders() {
     wireframeLoc = glGetUniformLocation(shaderProgram, "uWireframe");
     colorLoc = glGetUniformLocation(shaderProgram, "uMeshColor");
     surfaceColorLoc = glGetUniformLocation(shaderProgram, "uSurfaceColor");
+    meshColorLoc = glGetUniformLocation(shaderProgram, "uMeshColor");
     pointSizeLoc = glGetUniformLocation(shaderProgram, "uPointSize");
     isPointLoc = glGetUniformLocation(shaderProgram, "uIsPoint");
+    pointUseScalarLoc = glGetUniformLocation(shaderProgram, "uPointUseScalar");
+    pointOpacityLoc = glGetUniformLocation(shaderProgram, "uPointOpacity");
 
     lightFillLoc = glGetUniformLocation(shaderProgram, "uLightFill");
     lightBack1Loc = glGetUniformLocation(shaderProgram, "uLightBack1");
@@ -715,16 +718,68 @@ void Renderer::renderFrame() {
             // ponytail: points overlay — works for STL + VTK + POLYDATA alike
             if (m_state.showPoints && drawVerts[di] > 0) {
                 glEnable(GL_PROGRAM_POINT_SIZE);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glUniform1f(pointSizeLoc, m_state.pointSize);
                 glUniform1i(isPointLoc, 1); // ponytail: frag carves sprite into sphere
+                glUniform1i(pointUseScalarLoc, m_state.pointUseScalar ? 1 : 0);
+                glUniform1f(pointOpacityLoc, m_state.pointOpacity);
                 glUniform1i(wireframeLoc, 0);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                 glDrawArrays(GL_POINTS, 0, drawVerts[di]);
+                glDisable(GL_BLEND);
                 glDisable(GL_PROGRAM_POINT_SIZE);
             }
         }
         glBindVertexArray(0);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+        // ponytail: AABB wireframe overlay (reuses mesh shader, wireframe color)
+        if (m_state.showBounds && shaderProgram != 0) {
+            static GLuint bboxVao = 0, bboxVbo = 0;
+            if (bboxVao == 0) {
+                // 12 edges of a unit cube centered at origin, coords -0.5..0.5
+                static const float c[24 * 3] = {
+                    -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,
+                     0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
+                     0.5f, 0.5f,-0.5f, -0.5f, 0.5f,-0.5f,
+                    -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
+                    -0.5f,-0.5f, 0.5f,  0.5f,-0.5f, 0.5f,
+                     0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f,
+                     0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
+                    -0.5f, 0.5f, 0.5f, -0.5f,-0.5f, 0.5f,
+                    -0.5f,-0.5f,-0.5f, -0.5f,-0.5f, 0.5f,
+                     0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f,
+                     0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
+                    -0.5f, 0.5f,-0.5f, -0.5f, 0.5f, 0.5f
+                };
+                glGenVertexArrays(1, &bboxVao);
+                glGenBuffers(1, &bboxVbo);
+                glBindVertexArray(bboxVao);
+                glBindBuffer(GL_ARRAY_BUFFER, bboxVbo);
+                glBufferData(GL_ARRAY_BUFFER, sizeof(c), c, GL_STATIC_DRAW);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+                glEnableVertexAttribArray(0);
+                glBindVertexArray(0);
+            }
+            glm::vec3 center(static_cast<float>(m_state.worldCenterX),
+                             static_cast<float>(m_state.worldCenterY),
+                             static_cast<float>(m_state.worldCenterZ));
+            glm::vec3 diag(static_cast<float>(m_state.worldMaxX - m_state.worldMinX),
+                           static_cast<float>(m_state.worldMaxY - m_state.worldMinY),
+                           static_cast<float>(m_state.worldMaxZ - m_state.worldMinZ));
+            glm::mat4 model = glm::translate(glm::mat4(1.0f), center)
+                            * glm::scale(glm::mat4(1.0f), diag);
+            glm::mat4 mvp = proj * view * model;
+            glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+            glUniform1i(wireframeLoc, 1);
+            glUniform1i(isPointLoc, 0);
+            glUniform3f(meshColorLoc, m_state.meshColor[0], m_state.meshColor[1], m_state.meshColor[2]);
+            glBindVertexArray(bboxVao);
+            glDrawArrays(GL_LINES, 0, 24);
+            glBindVertexArray(0);
+        }
+
         glUseProgram(0);
     }
 

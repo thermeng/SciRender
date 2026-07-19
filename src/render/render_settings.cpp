@@ -51,6 +51,9 @@ void RenderSettings::buildRenderState() {
     s.showGizmo = showGizmo;
     s.showPoints = showPoints;
     s.pointSize = pointSize;
+    s.pointUseScalar = pointUseScalar;
+    s.pointOpacity = pointOpacity;
+    s.showBounds = showBounds;
     s.autoRotate = autoRotate;
     s.showFps = showFps;
     s.useLod = useLod;

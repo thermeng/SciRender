@@ -35,6 +35,8 @@ uniform float uFilterMax;
 uniform sampler1D uColormapLUT;
 
 uniform bool uIsPoint;       // ponytail: point-sprite path -> shade as sphere
+uniform bool uPointUseScalar; // ponytail: color point by scalar; else solid
+uniform float uPointOpacity;  // ponytail: point sprite alpha
 
 // clipping is OFF unless the UI explicitly enables it. With the old
 // default (slice=0, invert=false) the shader discarded the whole mesh because
@@ -135,6 +137,10 @@ void main() {
         float t = clamp((vScalar - uScalarMin) / (uScalarMax - uScalarMin), 0.0, 1.0);
         baseColor = texture(uColormapLUT, t).rgb;
     }
+    // ponytail: points may ignore the scalar colormap and use a solid color
+    if (uIsPoint && !uPointUseScalar) {
+        baseColor = uSurfaceColor;
+    }
 
     // 6. Shading Combination
     vec3 ambientComponent = baseColor * uMatAmbient;
@@ -142,5 +148,11 @@ void main() {
     vec3 specularComponent = totalSpecular * uMatSpecular;
 
     vec3 finalColor = ambientComponent + diffuseComponent + specularComponent;
-    FragColor = vec4(finalColor, 1.0);
+    // ponytail: points get a slight emissive boost so spheres read as "lit"
+    if (uIsPoint) {
+        finalColor += baseColor * 0.15f;
+        FragColor = vec4(finalColor, uPointOpacity);
+    } else {
+        FragColor = vec4(finalColor, 1.0);
+    }
 }
