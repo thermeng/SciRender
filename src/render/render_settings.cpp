@@ -54,6 +54,7 @@ void RenderSettings::buildRenderState() {
     s.pointUseScalar = pointUseScalar;
     s.pointOpacity = pointOpacity;
     s.showBounds = showBounds;
+    s.orthographic = orthographic;
     s.autoRotate = autoRotate;
     s.showFps = showFps;
     s.useLod = useLod;

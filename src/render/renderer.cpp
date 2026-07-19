@@ -608,12 +608,19 @@ void Renderer::renderFrame() {
     nearPlane = std::max(0.01, camDist * 0.001);
     farPlane  = std::max(farPlane, camDist + m_state.worldRadius + 250.0);
 
-    glm::mat4 proj = glm::perspective(
-        glm::radians(45.0f),
-        static_cast<float>(deviceW) / static_cast<float>(deviceH),
-        static_cast<float>(nearPlane),
-        static_cast<float>(farPlane)
-        );
+    glm::mat4 proj = m_state.orthographic
+        ? [&]() { // ponytail: ortho frustum tracks camera.distance so dolly() zooms it
+            if (m_orthoRefDist <= 0.0) m_orthoRefDist = m_state.camera.distance;
+            float half = static_cast<float>(m_state.worldRadius * (m_state.camera.distance / m_orthoRefDist));
+            return glm::ortho(-half, half, -half, half,
+                              static_cast<float>(nearPlane), static_cast<float>(farPlane));
+          }()
+        : glm::perspective(
+            glm::radians(45.0f),
+            static_cast<float>(deviceW) / static_cast<float>(deviceH),
+            static_cast<float>(nearPlane),
+            static_cast<float>(farPlane)
+            );
 
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = proj * view * model;

@@ -114,6 +114,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
+    Q_PROPERTY(bool orthographic READ getOrthographic WRITE setOrthographic NOTIFY viewChanged)
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
@@ -280,6 +281,8 @@ public:
     void setPointOpacity(float v) { if (pointOpacity != v) { pointOpacity = v; markStateDirty(); emit viewChanged(); } }
     bool getShowBounds() const { return showBounds; }
     void setShowBounds(bool v) { if (showBounds != v) { showBounds = v; markStateDirty(); emit viewChanged(); } }
+    bool getOrthographic() const { return orthographic; }
+    void setOrthographic(bool v) { if (orthographic != v) { orthographic = v; markStateDirty(); emit viewChanged(); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
     void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(surfaceColor[0], surfaceColor[1], surfaceColor[2]); }
@@ -399,6 +402,7 @@ private:
     bool pointUseScalar = true;  // ponytail: color points by scalar (else solid)
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
     bool showBounds = false;     // ponytail: AABB wireframe overlay
+    bool orthographic = false;    // ponytail: orthographic (parallel) projection
 
     float meshColor[3] = { 0.4f, 0.9f, 0.4f };
     float surfaceColor[3] = { 1.0f, 1.0f, 1.0f };

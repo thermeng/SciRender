@@ -359,6 +359,7 @@ ApplicationWindow {
                         }
                         CheckBox { text: "Color by scalar"; checked: backendSettings ? backendSettings.pointUseScalar : true; enabled: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.pointUseScalar = checked }
                         CheckBox { text: "Bounding Box"; checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
+                        CheckBox { text: "Parallel (Ortho)"; checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
                         CheckBox { text: "Auto-Rotate"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                         CheckBox { text: "Level of Detail"; checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
 
