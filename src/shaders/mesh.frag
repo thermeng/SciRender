@@ -34,6 +34,8 @@ uniform float uFilterMax;
 
 uniform sampler1D uColormapLUT;
 
+uniform bool uIsPoint;       // ponytail: point-sprite path -> shade as sphere
+
 // clipping is OFF unless the UI explicitly enables it. With the old
 // default (slice=0, invert=false) the shader discarded the whole mesh because
 // vWorldPos.x>0 was true for almost every vertex -> blank viewport.
@@ -91,6 +93,16 @@ void main() {
         discard;
     }
 
+    // ponytail: point sprites carved into shaded spheres via gl_PointCoord.
+    // Build a camera-facing hemisphere normal; fed into the `norm` below.
+    vec3 sphereNormal = vNormal;
+    if (uIsPoint) {
+        vec2 pc = gl_PointCoord * 2.0 - 1.0;
+        float r2 = dot(pc, pc);
+        if (r2 > 1.0) discard;
+        sphereNormal = vec3(pc, sqrt(1.0 - r2));
+    }
+
     // 2. Early optimization check: Skip lighting loops entirely if wireframe mode is true
     if (uWireframe) {
         FragColor = vec4(uMeshColor, 1.0);
@@ -101,7 +113,7 @@ void main() {
     // vNormal is the world-space normal; uViewPos is the camera position in
     // world space. Lighting is computed in world space so the lights remain
     // fixed in the world as the camera orbits the mesh.
-    vec3 norm = normalize(vNormal);
+    vec3 norm = normalize(sphereNormal);
     if (!gl_FrontFacing) {
         norm = -norm; // Ensures correct shading on interior walls exposed by cutting planes
     }

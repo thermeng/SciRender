@@ -162,6 +162,8 @@ void Renderer::initShaders() {
     wireframeLoc = glGetUniformLocation(shaderProgram, "uWireframe");
     colorLoc = glGetUniformLocation(shaderProgram, "uMeshColor");
     surfaceColorLoc = glGetUniformLocation(shaderProgram, "uSurfaceColor");
+    pointSizeLoc = glGetUniformLocation(shaderProgram, "uPointSize");
+    isPointLoc = glGetUniformLocation(shaderProgram, "uIsPoint");
 
     lightFillLoc = glGetUniformLocation(shaderProgram, "uLightFill");
     lightBack1Loc = glGetUniformLocation(shaderProgram, "uLightBack1");
@@ -621,7 +623,7 @@ void Renderer::renderFrame() {
     colormap.update();
 
     const bool useLod = true; // LOD handled internally by snapshot propagation
-    if ((m_state.showSurface || m_state.showWireframe) && meshManager.hasMeshes() && shaderProgram != 0) {
+    if (meshManager.hasMeshes() && shaderProgram != 0) { // ponytail: also admits point clouds (no surface/wireframe flag)
         glUseProgram(shaderProgram);
 
         glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
@@ -687,15 +689,18 @@ void Renderer::renderFrame() {
         }
 
         std::vector<std::pair<GLuint, int>> drawList;
-        meshManager.snapshotDrawList(drawList, m_state.useLod, cameraMoving.load());
+        std::vector<int> drawMode;
+        std::vector<int> drawVerts;
+        meshManager.snapshotDrawList(drawList, m_state.useLod, cameraMoving.load(), drawMode, drawVerts);
 
-        for (const auto& e : drawList) {
-            glBindVertexArray(e.first);
+        for (size_t di = 0; di < drawList.size(); ++di) {
+            glBindVertexArray(drawList[di].first);
+            glUniform1i(isPointLoc, 0); // ponytail: reset; point block re-enables
 
             if (m_state.showSurface) {
                 glUniform1i(wireframeLoc, 0);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                glDrawElements(GL_TRIANGLES, e.second, GL_UNSIGNED_INT, 0);
+                glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
             }
 
             if (m_state.showWireframe) {
@@ -703,8 +708,19 @@ void Renderer::renderFrame() {
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
                 glPolygonOffset(-1.0f, -1.0f);
-                glDrawElements(GL_TRIANGLES, e.second, GL_UNSIGNED_INT, 0);
+                glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
                 glDisable(GL_POLYGON_OFFSET_LINE);
+            }
+
+            // ponytail: points overlay — works for STL + VTK + POLYDATA alike
+            if (m_state.showPoints && drawVerts[di] > 0) {
+                glEnable(GL_PROGRAM_POINT_SIZE);
+                glUniform1f(pointSizeLoc, m_state.pointSize);
+                glUniform1i(isPointLoc, 1); // ponytail: frag carves sprite into sphere
+                glUniform1i(wireframeLoc, 0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glDrawArrays(GL_POINTS, 0, drawVerts[di]);
+                glDisable(GL_PROGRAM_POINT_SIZE);
             }
         }
         glBindVertexArray(0);

@@ -334,6 +334,18 @@ ApplicationWindow {
                         CheckBox { text: "Wireframe"; checked: backendSettings ? backendSettings.isWireframe : false; onToggled: backendSettings.isWireframe = checked }
                         CheckBox { text: "Grid";      checked: backendSettings ? backendSettings.isGridVisible : false; onToggled: backendSettings.isGridVisible = checked }
                         CheckBox { text: "Surface";   checked: backendSettings ? backendSettings.isSurfaceVisible : false; onToggled: backendSettings.isSurfaceVisible = checked }
+                        CheckBox { text: "Points";    checked: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.showPoints = checked }
+                        RowLayout {
+                            width: parent.width; spacing: 6
+                            Text { text: "Size"; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 34 }
+                            Slider {
+                                Layout.fillWidth: true; from: 1; to: 20; stepSize: 0.5
+                                value: backendSettings ? backendSettings.pointSize : 4
+                                enabled: backendSettings ? backendSettings.showPoints : false
+                                onMoved: if (backendSettings) backendSettings.pointSize = value
+                            }
+                            Text { text: backendSettings ? backendSettings.pointSize.toFixed(1) : "4.0"; color: "#999999"; font.pixelSize: 10; Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight }
+                        }
                         CheckBox { text: "Auto-Rotate"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                         CheckBox { text: "Level of Detail"; checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
 

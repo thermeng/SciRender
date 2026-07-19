@@ -94,6 +94,11 @@ struct RenderMesh {
     std::string datasetType = ""; // VTK DATASET token (e.g. STRUCTURED_GRID) or "STL"
     std::string fileFormat  = ""; // "VTK" or "STL"
 
+    // ponytail: true when the dataset is fundamentally a point set (POLYDATA
+    // with only POINTS, or a STRUCTURED_POINTS grid) so the renderer draws
+    // GL_POINTS instead of requiring triangle topology.
+    bool renderAsPoints = false;
+
     // True/topological point count of the source geometry — the number of
     // distinct vertices (after position dedup for STL). This is what tools like
     // ParaView report. It must be captured BEFORE computeNormals() splits sharp

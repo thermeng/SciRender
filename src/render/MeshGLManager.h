@@ -15,6 +15,7 @@ struct Mesh {
     GLuint ebo = 0;
     GLuint sbo = 0;
     int indexCount = 0;
+    int vertexCount = 0; // # vertices; draw count for point-cloud meshes
 };
 
 // Owns the full-resolution and decimated (LOD) GPU meshes plus the meshChanged
@@ -46,11 +47,16 @@ public:
     // Frees all GPU handles and clears both mesh lists. Mutex-guarded.
     void clear();
 
-    // Snapshots the draw-list (vao + indexCount) under the mutex so the caller
-    // can iterate without the vector being mutated mid-draw. `useLod` +
-    // `cameraMoving` select the decimated set while the camera is in motion.
+    // Snapshots the draw-list under the mutex so the caller can iterate without
+    // the vector being mutated mid-draw. `useLod` + `cameraMoving` select the
+    // decimated set while the camera is in motion. Each entry is (vao, drawCount)
+    // where drawCount is the index count for triangle meshes or the vertex count
+    // for point meshes; `outMode` carries 0=indexed / 1=points per entry;
+    // `outVerts` carries the raw vertex count per entry for GL_POINTS draws.
     void snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
-                          bool useLod, bool cameraMoving) const;
+                          bool useLod, bool cameraMoving,
+                          std::vector<int>& outMode,
+                          std::vector<int>& outVerts) const;
 
     bool hasMeshes() const { return !meshes_.empty(); }
     bool hasDecimated() const { return hasDecimated_; }

@@ -147,6 +147,7 @@ void MeshGLManager::destroyMesh(Mesh& mesh) {
 void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out) {
     Mesh mesh;
     mesh.indexCount = static_cast<int>(renderMesh.indices.size());
+    mesh.vertexCount = static_cast<int>(renderMesh.vertices.size() / 3);
 
     glGenVertexArrays(1, &mesh.vao);
     glGenBuffers(1, &mesh.vbo);
@@ -446,10 +447,18 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
 }
 
 void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
-                                      bool useLod, bool cameraMoving) const {
+                                      bool useLod, bool cameraMoving,
+                                      std::vector<int>& outMode,
+                                      std::vector<int>& outVerts) const {
     std::lock_guard<std::mutex> lock(mutex_);
     const std::vector<Mesh>& src =
         (useLod && cameraMoving && hasDecimated_) ? decimatedMeshes_ : meshes_;
     out.reserve(src.size());
-    for (const auto& m : src) out.push_back({m.vao, m.indexCount});
+    outMode.reserve(src.size());
+    outVerts.reserve(src.size());
+    for (const auto& m : src) {
+        out.push_back({m.vao, m.indexCount});
+        outMode.push_back(0);          // triangles handled by indexCount path
+        outVerts.push_back(m.vertexCount);
+    }
 }

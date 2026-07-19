@@ -109,6 +109,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
 
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
+    Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
+    Q_PROPERTY(float pointSize READ getPointSize WRITE setPointSize NOTIFY viewChanged)
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
@@ -265,6 +267,10 @@ public:
     void setGizmoVisible(bool v) { if (showGizmo != v) { showGizmo = v; markStateDirty(); emit viewChanged(); } }
     bool getAutoRotate() const { return autoRotate; }
     void setAutoRotate(bool v) { if (autoRotate != v) { autoRotate = v; markStateDirty(); emit viewChanged(); } }
+    bool getShowPoints() const { return showPoints; }
+    void setShowPoints(bool v) { if (showPoints != v) { showPoints = v; markStateDirty(); emit viewChanged(); } }
+    float getPointSize() const { return pointSize; }
+    void setPointSize(float v) { if (pointSize != v) { pointSize = v; markStateDirty(); emit viewChanged(); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
     void setMeshColorQml(const QColor& c) { meshColor[0] = c.redF(); meshColor[1] = c.greenF(); meshColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(surfaceColor[0], surfaceColor[1], surfaceColor[2]); }
@@ -379,6 +385,8 @@ private:
     bool showGizmo = true;
     bool autoRotate = false;
     bool useLod = true;
+    bool showPoints = false;  // ponytail: user toggle for vertex point-cloud draw
+    float pointSize = 4.0f;   // ponytail: point diameter in framebuffer px
 
     float meshColor[3] = { 0.4f, 0.9f, 0.4f };
     float surfaceColor[3] = { 1.0f, 1.0f, 1.0f };

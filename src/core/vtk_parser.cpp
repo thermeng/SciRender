@@ -619,8 +619,8 @@ private:
 
     void buildTopology() {
         if (datasetType == "STRUCTURED_POINTS") {
-            generateStructuredPointsGeometry();
-            globalCellToVertices = generateStructuredGridIndices(dimX, dimY, dimZ);
+            // ponytail: draw as points — keep POINTS coordinates, build no triangle topology
+            mesh.renderAsPoints = true;
         }
         else if (datasetType == "RECTILINEAR_GRID" && !rectX.empty() && !rectY.empty() && !rectZ.empty()) {
             generateRectilinearGridGeometry();
@@ -640,6 +640,7 @@ private:
         else if (datasetType == "POLYDATA") {
             if (mesh.indices.empty() && !mesh.vertices.empty()) {
                 std::cerr << "VTK Parser Warning: POLYDATA has points but no VERTICES/LINES/POLYGONS/TRIANGLE_STRIPS; rendering points only." << std::endl;
+                mesh.renderAsPoints = true; // ponytail: mark as point cloud
             }
         }
     }
@@ -952,8 +953,8 @@ private:
             return;
         }
 
-        if (mesh.indices.empty() && datasetType != "POLYDATA") {
-            std::cerr << "VTK Parser Error: topology produced no triangles (missing/invalid CELLS/POLYGONS/DIMENSIONS). Mesh will not render." << std::endl;
+        if (mesh.indices.empty() && datasetType != "POLYDATA" && !mesh.renderAsPoints) {
+            std::cerr << "VTK Parser Error: topology produced no triangles and not a point set; mesh will not render." << std::endl;
             return;
         }
 

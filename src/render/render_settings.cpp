@@ -49,6 +49,8 @@ void RenderSettings::buildRenderState() {
     s.showSurface = showSurface;
     s.showGrid = showGrid;
     s.showGizmo = showGizmo;
+    s.showPoints = showPoints;
+    s.pointSize = pointSize;
     s.autoRotate = autoRotate;
     s.showFps = showFps;
     s.useLod = useLod;
