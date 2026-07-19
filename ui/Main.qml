@@ -170,6 +170,8 @@ ApplicationWindow {
                 required property var onSet
                 width: parent ? parent.width : implicitWidth
                 spacing: 6
+                // ponytail: force inner thumb to track the written value (binding timing safe)
+                onValueChanged: if (clipSlider) clipSlider.value = value
                 Text { text: rootClipSlider.label; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 64; elide: Text.ElideRight }
                 Slider {
                     id: clipSlider
@@ -362,7 +364,9 @@ ApplicationWindow {
                         visible: rail.activeSection === 3
                         spacing: 6
                         width: parent.width
-                        Text { text: "Scalar field"; color: "#888"; font.pixelSize: 10 }
+
+                        // Field
+                        Text { text: "Field"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         ComboBox {
                             id: scalarCombo
                             width: parent.width
@@ -371,88 +375,48 @@ ApplicationWindow {
                             currentIndex: backendSettings ? backendSettings.availableScalars.indexOf(backendSettings.activeScalarName) : -1
                             onActivated: index => backendSettings.setActiveScalarField(model[index])
                         }
-                        Text { text: "Colormap"; color: "#888"; font.pixelSize: 10 }
-                        ComboBox {
-                            id: colormapCombo
-                            width: parent.width
-                            height: 34
-                            property var entries: {
-                                var names = backendSettings.getColormapNames();
-                                var e = [];
-                                for (var i = 0; i < names.length; ++i)
-                                    e.push({ name: names[i], uri: backendSettings.getColormapPreviewUri(i) });
-                                return e;
-                            }
-                            model: entries
-                            textRole: "name"
-                            currentIndex: backendSettings ? backendSettings.colormapChoice : 0
-                            onActivated: index => backendSettings.colormapChoice = index
-                            indicator: Item {}
-                            leftPadding: 0; rightPadding: 0; topPadding: 0; bottomPadding: 0
-                            background: Rectangle { color: "#2b2b2b"; border.color: "#444"; radius: 3 }
-                            contentItem: Item {
-                                anchors.fill: parent
-                                clip: true
-                                Image {
-                                    source: colormapCombo.entries[colormapCombo.currentIndex] ? colormapCombo.entries[colormapCombo.currentIndex].uri : ""
-                                    sourceSize.width: 250; sourceSize.height: 64
-                                    fillMode: Image.Stretch
-                                    horizontalAlignment: Image.AlignLeft
-                                    verticalAlignment: Image.AlignVCenter
-                                    anchors.fill: parent
-                                    anchors.margins: 2
+
+                        // Palette — swatch grid, replaces the bespoke preview ComboBox
+                        Text { text: "Palette"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        GridLayout {
+                            width: parent.width; columns: 2; rowSpacing: 4; columnSpacing: 4
+                            Repeater {
+                                model: backendSettings ? backendSettings.getColormapNames().length : 0
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 24; radius: 3
+                                    property bool active: index === (backendSettings ? backendSettings.colormapChoice : 0)
+                                    border.color: active ? "#4fc3f7" : "#444"; border.width: active ? 3 : 1
+                                    color: "#000"
+                                    Image {
+                                        source: backendSettings ? backendSettings.getColormapPreviewUri(index) : ""
+                                        sourceSize.width: 280; sourceSize.height: 64
+                                        fillMode: Image.Stretch
+                                        anchors.fill: parent; anchors.margins: 2
+                                    }
+                                    Text {
+                                        visible: active
+                                        text: "✓"
+                                        color: "#4fc3f7"
+                                        font.pixelSize: 14; font.bold: true
+                                        anchors.left: parent.left; anchors.top: parent.top
+                                        anchors.leftMargin: 3; anchors.topMargin: 1
+                                    }
+                                    MouseArea { anchors.fill: parent; onClicked: backendSettings.colormapChoice = index }
                                 }
-                                Text {
-                                    text: "\u25BC"
-                                    color: "#dddddd"
-                                    font.pixelSize: 9
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 8
-                                    anchors.verticalCenter: parent.verticalCenter
-                                }
-                            }
-                            popup: Popup {
-                                y: colormapCombo.height
-                                width: colormapCombo.width
-                                contentItem: ListView {
-                                    clip: true
-                                    implicitHeight: contentHeight
-                                    model: colormapCombo.delegateModel
-                                    currentIndex: colormapCombo.highlightedIndex
-                                    ScrollBar.vertical: ScrollBar {}
-                                }
-                                background: Rectangle { color: "#232323"; border.color: "#444" }
-                            }
-                            delegate: ItemDelegate {
-                                width: colormapCombo.width
-                                height: 36
-                                padding: 2
-                                contentItem: Image {
-                                    source: modelData.uri
-                                    sourceSize.width: 280; sourceSize.height: 64
-                                    fillMode: Image.Stretch
-                                    horizontalAlignment: Image.AlignLeft
-                                    verticalAlignment: Image.AlignVCenter
-                                    anchors.fill: parent
-                                    anchors.margins: 2
-                                }
-                                highlighted: colormapCombo.highlightedIndex === index
                             }
                         }
                         CheckBox { text: "Reverse palette"; checked: backendSettings ? backendSettings.colormapReversed : false; onToggled: backendSettings.colormapReversed = checked }
                         CheckBox { text: "Show colorbar"; checked: backendSettings ? backendSettings.showScalarColorbar : true; onToggled: backendSettings.showScalarColorbar = checked }
-                        Row {
-                            spacing: 8
-                            Text { text: "Colorbar ticks"; color: "#888"; font.pixelSize: 10; verticalAlignment: Text.AlignVCenter }
-                            SpinBox {
-                                id: colorbarTicksSpin
-                                from: 2; to: 20; stepSize: 1
-                                value: backendSettings ? backendSettings.colorbarTicks : 6
-                                onValueChanged: backendSettings.colorbarTicks = value
-                                width: 64
-                            }
+
+                        // Colorbar
+                        Text { text: "Colorbar"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        RowLayout { width: parent.width; spacing: 8
+                            Text { text: "Ticks"; color: "#ccc"; font.pixelSize: 11; verticalAlignment: Text.AlignVCenter }
+                            SpinBox { id: colorbarTicksSpin; Layout.fillWidth: true; from: 2; to: 20; stepSize: 1; value: backendSettings ? backendSettings.colorbarTicks : 6; onValueChanged: backendSettings.colorbarTicks = value }
                         }
-                        Text { text: "Scalar filter"; color: "#888"; font.pixelSize: 10 }
+
+                        // Filter
+                        Text { text: "Filter"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         ClipSlider { label: "Min"; value: backendSettings ? backendSettings.filterMin : 0; from: backendSettings ? backendSettings.dataScalarMinQml : 0; to: backendSettings ? backendSettings.dataScalarMaxQml : 1; onSet: v => backendSettings.filterMin = v }
                         ClipSlider { label: "Max"; value: backendSettings ? backendSettings.filterMax : 0; from: backendSettings ? backendSettings.dataScalarMinQml : 0; to: backendSettings ? backendSettings.dataScalarMaxQml : 1; onSet: v => backendSettings.filterMax = v }
                     }

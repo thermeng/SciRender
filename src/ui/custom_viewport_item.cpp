@@ -67,6 +67,7 @@ void ViewportVisualizer::setSettings(::RenderSettings* s) {
         connect(m_settings, &::RenderSettings::wireframeChanged, this, [this]() { m_needsRender = true; update(); });
         connect(m_settings, &::RenderSettings::gridVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
         connect(m_settings, &::RenderSettings::surfaceVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::colorbarChanged, this, [this]() { m_needsRender = true; update(); });
     }
 }
 

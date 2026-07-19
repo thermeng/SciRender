@@ -390,7 +390,8 @@ void RenderSettings::recomputeScalarRange() {
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
     dataScalarMin = mn; dataScalarMax = mx;
     scalarMin = mn; scalarMax = mx;
-    filterMin = mn; filterMax = mx;
+    // ponytail: pin filter to full range on load so Max thumb sits at slider max (unfiltered)
+    filterMin = dataScalarMin; filterMax = dataScalarMax;
 }
 
 void RenderSettings::setActiveScalarField(const QString& fieldName) {
@@ -491,7 +492,8 @@ QString RenderSettings::getColormapPreviewUri(int index) const {
     {
         QPainter p(&img);
         p.setRenderHint(QPainter::TextAntialiasing, true);
-        QFont f("Sans", 4, QFont::Bold);
+        QFont f("Sans", 10, QFont::Bold);
+        f.setStretch(QFont::Condensed);
         f.setStyleStrategy(QFont::PreferAntialias);
         p.setFont(f);
         QRect r(0, 0, w, h);
