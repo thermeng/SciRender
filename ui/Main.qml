@@ -202,6 +202,16 @@ ApplicationWindow {
                 }
             }
 
+            component SwatchButton : Button {
+                id: rootSwatch
+                required property color swatch
+                contentItem: Row {
+                    spacing: 6
+                    Rectangle { width: 14; height: 14; radius: 3; border.color: "#888"; color: rootSwatch.swatch; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: rootSwatch.text; color: "#ddd"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                }
+            }
+
             Flickable {
                 anchors.top: panelHeader.bottom
                 anchors.left: parent.left
@@ -298,47 +308,56 @@ ApplicationWindow {
                         spacing: 4
                         width: parent.width
                         property real rollPrev: 0
-                        Text { text: "Orthographic view"; color: "#888"; font.pixelSize: 10 }
-                        Row { spacing: 6
-                            Button { text: "+X"; width: 48; onClicked: backendSettings.snapToOrthoView(0) }
-                            Button { text: "-X"; width: 48; onClicked: backendSettings.snapToOrthoView(1) }
-                            Button { text: "+Y"; width: 48; onClicked: backendSettings.snapToOrthoView(2) }
+
+                        // #1+#2: unified 3-col nav cube (ortho faces + axis snaps), flex-width
+                        Text { text: "Camera Views"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        GridLayout {
+                            width: parent.width; columns: 3; rowSpacing: 4; columnSpacing: 4
+                            Button { text: "+X"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(0) }
+                            Button { text: "+Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(2) }
+                            Button { text: "+Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(4) }
+                            Button { text: "-X"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(1) }
+                            Button { text: "-Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(3) }
+                            Button { text: "-Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(5) }
+                            Button { text: "X"; Layout.fillWidth: true; onClicked: backendSettings.snapToAxisView(0, false) }
+                            Button { text: "Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToAxisView(1, false) }
+                            Button { text: "Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToAxisView(2, false) }
                         }
-                        Row { spacing: 6
-                            Button { text: "-Y"; width: 48; onClicked: backendSettings.snapToOrthoView(3) }
-                            Button { text: "+Z"; width: 48; onClicked: backendSettings.snapToOrthoView(4) }
-                            Button { text: "-Z"; width: 48; onClicked: backendSettings.snapToOrthoView(5) }
-                        }
-                        Text { text: "Quick axis snap"; color: "#888"; font.pixelSize: 10 }
-                        Row { spacing: 6
-                            Button { text: "X"; width: 48; onClicked: backendSettings.snapToAxisView(0, false) }
-                            Button { text: "Y"; width: 48; onClicked: backendSettings.snapToAxisView(1, false) }
-                            Button { text: "Z"; width: 48; onClicked: backendSettings.snapToAxisView(2, false) }
-                        }
-                        Text { text: "Display"; color: "#888"; font.pixelSize: 10 }
+
+                        // #3: display toggles grouped
+                        Text { text: "Display"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         CheckBox { text: "Wireframe"; checked: backendSettings ? backendSettings.isWireframe : false; onToggled: backendSettings.isWireframe = checked }
                         CheckBox { text: "Grid";      checked: backendSettings ? backendSettings.isGridVisible : false; onToggled: backendSettings.isGridVisible = checked }
                         CheckBox { text: "Surface";   checked: backendSettings ? backendSettings.isSurfaceVisible : false; onToggled: backendSettings.isSurfaceVisible = checked }
                         CheckBox { text: "Auto-Rotate"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                         CheckBox { text: "Level of Detail"; checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
-                        Text { text: "Scene"; color: "#888"; font.pixelSize: 10 }
-                        Row { spacing: 6
-                            Button { text: "Reset Cam"; width: 92; onClicked: backendSettings.resetCamera() }
-                        }
-                        Button { text: "Background Color"; width: parent.width; onClicked: bgDialog.open() }
-                        Text { text: "Camera roll"; color: "#888"; font.pixelSize: 10 }
-                        LightSlider {
-                            label: "Roll"; value: 0; from: -180; to: 180; step: 1
-                            onSet: v => { backendSettings.roll(v - viewCol.rollPrev); viewCol.rollPrev = v; }
-                        }
-                        Text { text: "Overlays"; color: "#888"; font.pixelSize: 10 }
+
+                        // #3: overlays grouped
+                        Text { text: "Overlays"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         CheckBox { text: "Gizmo"; checked: backendSettings ? backendSettings.isGizmoVisible : true; onToggled: backendSettings.isGizmoVisible = checked }
                         CheckBox { text: "FPS HUD"; checked: backendSettings ? backendSettings.showFps : false; onToggled: backendSettings.showFps = checked }
-                        Text { text: "Colors"; color: "#888"; font.pixelSize: 10 }
-                        Row { spacing: 6
-                            Button { text: "Wireframe Color"; width: 100; onClicked: meshColorDialog.open() }
-                            Button { text: "Surface Color"; width: 100; onClicked: surfaceColorDialog.open() }
+
+                        // #5: roll with reset-to-0
+                        Text { text: "Camera Roll"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        RowLayout {
+                            width: parent.width; spacing: 6
+                            LightSlider {
+                                id: rollSlider
+                                Layout.fillWidth: true
+                                label: "Roll"; value: 0; from: -180; to: 180; step: 1
+                                onSet: v => { backendSettings.roll(v - viewCol.rollPrev); viewCol.rollPrev = v; }
+                            }
+                            Button { text: "0"; implicitWidth: 28; onClicked: { backendSettings.roll(-viewCol.rollPrev); viewCol.rollPrev = 0; rollSlider.value = 0; } }
                         }
+
+                        // #4: color swatch buttons (chip preview)
+                        Text { text: "Colors"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        SwatchButton { width: parent.width; text: "Wireframe"; swatch: backendSettings ? backendSettings.meshColor : "#66e666"; onClicked: meshColorDialog.open() }
+                        SwatchButton { width: parent.width; text: "Surface";   swatch: backendSettings ? backendSettings.surfaceColor : "#ffffff"; onClicked: surfaceColorDialog.open() }
+                        SwatchButton { width: parent.width; text: "Background"; swatch: backendSettings ? backendSettings.bgColor : "#000000"; onClicked: bgDialog.open() }
+
+                        Text { text: "Scene"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        Button { text: "Reset Camera"; width: parent.width; onClicked: backendSettings.resetCamera() }
                     }
 
                     // Colormap Selector Panel
