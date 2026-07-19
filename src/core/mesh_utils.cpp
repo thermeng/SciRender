@@ -261,33 +261,35 @@ void computeNormals(RenderMesh& mesh) {
         mesh.scalars = std::move(newScalars);
     }
 
-    // Sync per-point vectors the same way: a duplicated vertex must carry the
-    // same vector as its source, otherwise glyph code indexed by vertex count
-    // would read past the end of the (smaller) vector arrays and crash.
-    if (!mesh.pointVectors.empty()) {
-        size_t newVertCount = newVertices.size() / 3;
-        std::map<std::string, std::vector<float>> newPointVectors;
-        for (auto& [name, vecArr] : mesh.pointVectors) {
-            std::vector<float> newVec(newVertCount * 3, 0.0f);
-            for (size_t oldV = 0; oldV < numVerts; ++oldV) {
-                float vx = 0.0f, vy = 0.0f, vz = 0.0f;
-                if (oldV * 3 + 2 < vecArr.size()) {
-                    vx = vecArr[oldV * 3 + 0];
-                    vy = vecArr[oldV * 3 + 1];
-                    vz = vecArr[oldV * 3 + 2];
-                }
+    // Sync the per-field point-scalar maps the same way: a duplicated vertex must
+    // carry the same scalar as its source, so field switches handed to the GPU
+    // (which is indexed by the final vertex count) stay in bounds and correct.
+    if (mesh.attributes.has_value() && !mesh.attributes->pointScalars.empty()) {
+        const size_t newVertCount = newVertices.size() / 3;
+        for (auto& [name, arr] : mesh.attributes->pointScalars) {
+            if (arr.empty()) continue;
+            std::vector<float> newArr(newVertCount, 0.5f);
+            for (size_t oldV = 0; oldV < numVerts; oldV++) {
+                float scalarVal = (oldV < arr.size()) ? arr[oldV] : 0.5f;
                 for (int newV : vertexRemap[oldV]) {
                     if (static_cast<size_t>(newV) < newVertCount) {
-                        newVec[newV * 3 + 0] = vx;
-                        newVec[newV * 3 + 1] = vy;
-                        newVec[newV * 3 + 2] = vz;
+                        newArr[newV] = scalarVal;
                     }
                 }
             }
-            newPointVectors[name] = std::move(newVec);
+            arr = std::move(newArr);
         }
-        mesh.pointVectors = std::move(newPointVectors);
     }
+
+    // NOTE: per-point vectors are intentionally NOT remapped here. The glyph
+    // builder samples them by ORIGINAL point index (limit = min(verts/3,
+    // runCount)) and a split/duplicate vertex sits at its source's exact xyz,
+    // so leaving the vector run at the pre-split per-point count (one vec3 per
+    // original point) is both correct and complete — expanding to the split
+    // vertex count corrupts multi-field offsets and desyncs the buffer size
+    // from the documented pointVectorsData.size() == originalPointCount
+    // invariant. Scalars above are expanded because they are GPU-indexed by
+    // the final vertex count.
 
     // Apply changes
     mesh.vertices = std::move(newVertices);
@@ -301,13 +303,8 @@ void computeNormals(RenderMesh& mesh) {
     if (!mesh.scalars.empty() && mesh.scalars.size() != finalVerts) {
         mesh.scalars.resize(finalVerts, 0.5f);
     }
-    if (!mesh.pointVectors.empty()) {
-        for (auto& [name, vecArr] : mesh.pointVectors) {
-            if (vecArr.size() != finalVerts * 3) {
-                vecArr.resize(finalVerts * 3, 0.0f);
-            }
-        }
-    }
+    // per-point vectors: left at the original per-point count (see note above);
+    // no vertex-count resize.
 
     // Ensure scalarMin/scalarMax remain valid after vertex splitting
     if (!mesh.scalars.empty()) {

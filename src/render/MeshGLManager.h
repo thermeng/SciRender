@@ -6,9 +6,8 @@
 #include <mutex>
 #include <atomic>
 
-struct RenderMesh;
+#include "core/mesh_loader.h"
 
-// GPU mesh handle bundle produced by buildMeshGL().
 struct Mesh {
     GLuint vao = 0;
     GLuint vbo = 0;
@@ -26,17 +25,23 @@ public:
     MeshGLManager() = default;
     ~MeshGLManager() = default;
 
-    // Builds GPU meshes from a CPU RenderMesh (full + optional decimated LOD),
-    // wiping the previous handles first. Guarded by the internal mutex so it
-    // cannot race with clear() on another thread.
-    void upload(const RenderMesh& renderMesh);
+    // Builds GPU meshes from a shared, immutable CPU RenderMesh (full +
+    // optional decimated LOD), wiping the previous handles first. The shared_ptr
+    // is stored (NOT copied) so only ONE heavy CPU copy of the geometry exists.
+    // Guarded by the internal mutex so it cannot race with clear() on another
+    // thread.
+    void upload(std::shared_ptr<const RenderMesh> renderMesh);
 
     // Re-uploads ONLY the per-vertex scalar buffer (sbo) for the already-built
     // meshes. Used when the active scalar field changes so we avoid re-uploading
-    // the (potentially huge) vertex/normal/index arrays. If the new scalar array
-    // is empty, the sbo is detached. Mutex-guarded to avoid racing clear()/
-    // snapshotDrawList on other threads.
-    void updateScalars(const std::vector<float>& scalars);
+    // the (potentially huge) vertex/normal/index arrays. The scalar payload is
+    // handed off as a shared_ptr (zero-copy, exactly like the mesh pipeline) —
+    // no deep vector copy on the GUI or render thread. On the GPU we orphan the
+    // previous sbo (glBufferData with nullptr) before filling it, so the driver
+    // can stream the new data into fresh memory instead of stalling on a
+    // reallocation. If the payload is null/empty, the sbo is detached.
+    // Mutex-guarded to avoid racing clear()/snapshotDrawList on other threads.
+    void updateScalars(std::shared_ptr<const std::vector<float>> scalars);
 
     // Frees all GPU handles and clears both mesh lists. Mutex-guarded.
     void clear();
@@ -58,6 +63,19 @@ private:
     void destroyMesh(Mesh& mesh);
     // Coarse vertex-clustering decimation; empty result when not worthwhile.
     static RenderMesh decimate(const RenderMesh& in);
+
+    // Re-derives the per-vertex scalar array of the decimated LOD mesh by
+    // averaging the full-resolution scalars using the SAME clustering that
+    // decimate() used for the geometry. Returns an empty vector when the LOD
+    // mesh is absent or the geometry mismatch prevents a safe downsample.
+    std::vector<float> decimateScalars(const std::vector<float>& fullScalars) const;
+
+    // Cached source of truth for the full-resolution mesh. Needed so a scalar-
+    // only field switch can recompute the decimated LOD scalars without a full
+    // (expensive) re-upload of every vertex/normal/index buffer. Stored as a
+    // shared_ptr (NOT a copy) so only one heavy CPU copy of the geometry exists.
+    std::shared_ptr<const RenderMesh> fullSource_;
+    bool hasFullSource_ = false;
 
     std::vector<Mesh> meshes_;
     std::vector<Mesh> decimatedMeshes_;

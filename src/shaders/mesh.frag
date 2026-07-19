@@ -75,15 +75,17 @@ void lightContribution(vec3 rawLightDir, vec3 norm, float intensity,
 
 void main() {
     // 1. Unified Slicing & Isolation Filtering
-    // Evaluates all clipping and scalar isolation states together to optimize branch prediction
+    // Clipping planes are gated by uClipEnabled; the scalar isolation filter is
+    // independent so its min/max sliders work without enabling clipping.
     bool clipped = false;
     if (uClipEnabled) {
         bool clipX = (uInvertX == 1) ? (vWorldPos.x < uSliceHeightX) : (vWorldPos.x > uSliceHeightX);
         bool clipY = (uInvertY == 1) ? (vWorldPos.y < uSliceHeightY) : (vWorldPos.y > uSliceHeightY);
         bool clipZ = (uInvertZ == 1) ? (vWorldPos.z < uSliceHeightZ) : (vWorldPos.z > uSliceHeightZ);
-        bool filterScalar = uHasScalars && (vScalar < uFilterMin || vScalar > uFilterMax);
-        clipped = clipX || clipY || clipZ || filterScalar;
+        clipped = clipX || clipY || clipZ;
     }
+    bool filterScalar = uHasScalars && (vScalar < uFilterMin || vScalar > uFilterMax);
+    clipped = clipped || filterScalar;
 
     if (clipped) {
         discard;

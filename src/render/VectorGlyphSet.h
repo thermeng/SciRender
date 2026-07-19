@@ -31,12 +31,20 @@ public:
     float magMin = 0.0f;
     float magMax = 1.0f;
 
+    // Mesh bounding extent, used by the shader to auto-scale arrow length.
+    float meshExtent = 1.0f;
+
     bool empty() const { return instanceCount == 0; }
 
     // Rebuilds the GPU glyph set from the active vector field of `mesh`.
-    // `stride` subsamples points. Updates magMin/magMagMax. No-op (teardown
-    // only) when the mesh has no vector data.
-    void rebuild(const RenderMesh& mesh, int stride);
+    // `stride` subsamples points. `fieldName`, when non-empty, overrides the
+    // mesh's own active field (the GUI may switch fields without mutating the
+    // immutable shared RenderMesh). Updates magMin/magMax. No-op (teardown
+    // only) when the mesh has no vector data. `magTransform` (0 linear, 1 sqrt,
+    // 2 log) is accepted for API symmetry with the shader/colorbar; the stored
+    // magMin/magMax remain RAW (untransformed) and the shader (txMag) and the
+    // colorbar legend apply/invert the transform themselves.
+    void rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName = "", int magTransform = 0);
 
     // Deletes GL handles. Call only with a current GL context.
     void shutdown();

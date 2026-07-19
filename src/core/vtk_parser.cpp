@@ -10,14 +10,16 @@
 #include <map>
 #include <unordered_map>
 
-// ── Endianness Utility Wrapper ──────────────────────────────────────────────
-// (Byte-swap is centralized in mesh_utils::byteSwap; see readBinaryArray below.)
 
-// ── Binary Read Helper ──────────────────────────────────────────────────────
-// Reads `count` elements of type T, byte-swaps on little-endian hosts, and
-// validates the byte count. On a short read, returns false (caller decides how
-// to recover, e.g. drop the field / abort parsing) instead of letting a
-// truncated block silently desync every following attribute.
+void alignStream4(std::ifstream& f, size_t bytesRead) {
+    std::streamoff pad = (static_cast<std::streamoff>(4) - (static_cast<std::streamoff>(bytesRead) & 3)) & 3;
+    if (pad) {
+        std::streampos p = f.tellg();
+        if (p == std::streampos(-1)) return;
+        f.seekg(p + pad);
+    }
+}
+
 template<typename T>
 static bool readBinaryArray(std::ifstream& f, size_t count, std::vector<T>& out) {
     out.resize(count);
@@ -28,19 +30,12 @@ static bool readBinaryArray(std::ifstream& f, size_t count, std::vector<T>& out)
     if (mesh_utils::isLittleEndian()) {
         for (size_t i = 0; i < count; ++i) mesh_utils::byteSwap(&out[i]);
     }
+    // Every VTK binary data array is 4-byte aligned on disk; pad the stream so
+    // the next array starts on a 4-byte boundary regardless of T's element size.
+    // Centralizing this here fixes alignment for SHORT/UNSIGNED_CHAR and
+    // multi-component fields, which previously hardcoded sizeof(float).
+    alignStream4(f, count * sizeof(T));
     return true;
-}
-
-// VTK legacy binary: every binary data block is written aligned to a 4-byte
-// boundary. After reading a block we must advance the file position to the
-// next multiple of 4; otherwise any block whose byte size is not a multiple of
-// 4 shifts every subsequent block and corrupts the file. (File is opened in
-// binary mode, so seeking is safe.)
-void alignStream4(std::ifstream& f) {
-    std::streampos p = f.tellg();
-    if (p == std::streampos(-1)) return;
-    std::streamoff pad = (static_cast<std::streamoff>(4) - (static_cast<std::streamoff>(p) & 3)) & 3;
-    if (pad) f.seekg(p + pad);
 }
 
 // ── Parser Context ──────────────────────────────────────────────────────────
@@ -95,9 +90,6 @@ private:
     int attributeTargetCount = 0;
 
     std::vector<float> rectX, rectY, rectZ;
-    // VTK legacy binary indices/types are strictly 32-bit big-endian. Use a
-    // fixed-width type so the byte count read from a binary stream is correct
-    // on every platform (a platform-int read would corrupt 64-bit builds).
     std::vector<int32_t> rawCellData, cellTypes;
 
     // Intermediate storage cache specifically tracking split configurations
@@ -131,8 +123,11 @@ private:
         else if (token == "CELLS") { parseCellsBlock(iss, file); }
         else if (token == "CELL_TYPES") { parseCellTypesBlock(iss, file); }
         else if (token == "POLYGONS") { parsePolygonsBlock(iss, file); }
+        else if (token == "VERTICES") { parseVerticesBlock(iss, file); }
+        else if (token == "LINES") { parseLinesBlock(iss, file); }
         else if (token == "TRIANGLE_STRIPS") { parseTriangleStripsBlock(iss, file); }
         else if (token == "SCALARS") { parseScalarsBlock(iss, file); }
+        else if (token == "NORMALS") { parseNormalsBlock(iss, file); }
         else if (token == "VECTORS") { parseVectorsBlock(iss, file); }
     }
 
@@ -161,7 +156,6 @@ private:
                     return;
                 }
             }
-            alignStream4(file);
         }
         else {
             for (int i = 0; i < count; ++i) file >> axisCoords[i];
@@ -171,10 +165,7 @@ private:
     void parsePointsBlock(std::istringstream& iss, std::ifstream& file) {
         long long parsedPoints = 0;
         iss >> parsedPoints;
-        // VTK requires the POINTS count to agree with the structured-grid
-        // DIMENSIONS product. If they disagree, the POINTS line is authoritative
-        // (it is what the geometry block actually contains); warn and prefer it
-        // so vertex sizing is correct.
+     
         if (datasetType == "STRUCTURED_POINTS" || datasetType == "STRUCTURED_GRID" ||
             datasetType == "RECTILINEAR_GRID") {
             const long long expected = static_cast<long long>(dimX) *
@@ -189,7 +180,7 @@ private:
         if (parsedPoints <= 0 || parsedPoints > 2000000000LL) {
             std::cerr << "VTK Parser Warning: invalid POINTS count (" << parsedPoints
                       << "); skipping POINTS block." << std::endl;
-            // Drain the rest of the line so the stream stays aligned.
+            
             clearTrailingLine(file);
             mesh.vertices.clear();
             numPoints = 0;
@@ -231,7 +222,6 @@ private:
                     }
                 }
             }
-            alignStream4(file);
         }
         else {
             for (int i = 0; i < numPoints * 3; ++i) {
@@ -254,7 +244,6 @@ private:
                 rawCellData.clear();
                 return;
             }
-            alignStream4(file);
         }
         else {
             for (int i = 0; i < cellSize; ++i) file >> rawCellData[i];
@@ -272,7 +261,6 @@ private:
                 return;
             }
             for (int i = 0; i < numCells; ++i) cellTypes[i] = rawTypes[i];
-            alignStream4(file);
         }
         else {
             for (int i = 0; i < numCells; ++i) file >> cellTypes[i];
@@ -289,18 +277,54 @@ private:
                 polyData.clear();
                 return;
             }
-            alignStream4(file);
         }
         else {
             for (int i = 0; i < sizeOfPolysBlock; ++i) file >> polyData[i];
             clearTrailingLine(file);
         }
-        // POLYGONS/STRIPS are their own topology source: start from a clean
-        // index list so they never concatenate onto a preceding CELLS block
-        // (each block is authoritative for the final `mesh.indices`).
         mesh.indices.clear();
         globalCellToVertices = triangulatePolygons(polyData, numPolys);
         numCells = numPolys;
+    }
+
+    void parseVerticesBlock(std::istringstream& iss, std::ifstream& file) {
+        int numVerts = 0, sizeOfVertsBlock = 0; iss >> numVerts >> sizeOfVertsBlock;
+        std::vector<int32_t> vertData(sizeOfVertsBlock);
+        if (isBinary) {
+            if (!readBinaryArray(file, sizeOfVertsBlock, vertData)) {
+                std::cerr << "VTK Parser Warning: short read on binary VERTICES." << std::endl;
+                vertData.clear();
+                return;
+            }
+        }
+        else {
+            for (int i = 0; i < sizeOfVertsBlock; ++i) file >> vertData[i];
+            clearTrailingLine(file);
+        }
+        mesh.indices.clear();
+        globalCellToVertices = triangulatePolygons(vertData, numVerts);
+        numCells = numVerts;
+    }
+
+
+    void parseLinesBlock(std::istringstream& iss, std::ifstream& file) {
+        int numLines = 0, sizeOfLinesBlock = 0; iss >> numLines >> sizeOfLinesBlock;
+        std::vector<int32_t> lineData(sizeOfLinesBlock);
+        if (isBinary) {
+            if (!readBinaryArray(file, sizeOfLinesBlock, lineData)) {
+                std::cerr << "VTK Parser Warning: short read on binary LINES." << std::endl;
+                lineData.clear();
+                return;
+            }
+        }
+        else {
+            for (int i = 0; i < sizeOfLinesBlock; ++i) file >> lineData[i];
+            clearTrailingLine(file);
+        }
+        // LINES is its own topology source (see parsePolygonsBlock).
+        mesh.indices.clear();
+        globalCellToVertices = triangulateLines(lineData, numLines);
+        numCells = numLines;
     }
 
     void parseTriangleStripsBlock(std::istringstream& iss, std::ifstream& file) {
@@ -312,13 +336,11 @@ private:
                 stripData.clear();
                 return;
             }
-            alignStream4(file);
         }
         else {
             for (int i = 0; i < sizeOfStripsBlock; ++i) file >> stripData[i];
             clearTrailingLine(file);
         }
-        // See parsePolygonsBlock: own topology stream, clear first.
         mesh.indices.clear();
         globalCellToVertices = triangulateTriangleStrips(stripData, numStrips);
         numCells = numStrips;
@@ -327,19 +349,14 @@ private:
     void parseScalarsBlock(std::istringstream& iss, std::ifstream& file) {
         std::string scalarName, dataType; int numComponents = 1;
         iss >> scalarName >> dataType;
-        if (iss >> numComponents) {}
+        iss >> numComponents;
         if (numComponents < 1) numComponents = 1;
         dataType = mesh_utils::toUpper(dataType);
 
-        // In the VTK legacy format the `LOOKUP_TABLE default` line is present in
-        // BOTH ASCII and BINARY datasets: it is an ASCII text line that precedes
-        // the binary scalar data. Skipping it in binary mode (as an earlier
-        // revision did) made the binary scalar read begin at the
-        // "LOOKUP_TABLE default\n" text bytes, yielding garbage/huge values in
-        // the color field. Always consume the line (it may also name a custom
-        // table; we only support the default table here).
+    
         {
-            std::string lutLine; getVTKLine(file, lutLine);
+            std::string lutLine; 
+            getVTKLine(file, lutLine);
         }
 
         int activeElementCount = readingPointData ? numPoints : numCells;
@@ -347,43 +364,39 @@ private:
             activeElementCount = attributeTargetCount;
         }
 
-        // Pick the active scalar from the FIRST POINT_DATA scalar so a CELL_DATA
-        // block listed earlier cannot shadow a valid point field (which would
-        // leave mesh.scalars empty). finalizeMeshData also guards this.
+
         if (readingPointData && numComponents == 1 && mesh.scalarName.empty()) {
             mesh.scalarName = scalarName;
         }
 
-        // Only a 1-component scalar can be used as the per-vertex color field.
-        // A multi-component array would be uploaded as a 1-float-per-vertex
-        // attribute and read misaligned (noisy colors). We still consume the
-        // binary bytes (with alignment) so the stream stays in sync, then skip
-        // the field rather than silently mis-sizing it.
         if (numComponents != 1) {
             std::cerr << "VTK Parser Warning: SCALARS '" << scalarName
                       << "' has " << numComponents << " components; only 1-component "
                       << "scalars are colorable, skipping." << std::endl;
+            const size_t total = static_cast<size_t>(activeElementCount) * static_cast<size_t>(numComponents);
             if (isBinary) {
-                size_t total = static_cast<size_t>(activeElementCount) * static_cast<size_t>(numComponents);
                 if (!consumeBinaryScalars(file, dataType, total)) {
                     std::cerr << "VTK Parser Warning: short read consuming multi-component SCALARS '" << scalarName << "'." << std::endl;
                 }
-                alignStream4(file);
+                // 4-byte alignment is handled inside readBinaryArray.
+            } else {
+                for (size_t i = 0; i < total; ++i) {
+                    float v;
+                    if (!(file >> v)) {
+                        std::cerr << "VTK Parser Warning: short read consuming multi-component ASCII SCALARS '" << scalarName << "'." << std::endl;
+                        break;
+                    }
+                }
+                clearTrailingLine(file);
             }
             return;
         }
 
         std::vector<float> readScalars(activeElementCount);
 
-        // Tracks whether the binary read succeeded with the exact byte count.
-        // If it under-reads, we must NOT leave a partial buffer behind — doing
-        // so desynchronizes the stream and corrupts every following attribute
-        // block (the "noisy colors" symptom on binary files).
+      
         bool binaryReadOk = true;
-        // A corrupt/mis-typed block may yield NaN/inf; never upload those as
-        // colors/lighting inputs. Drop the field (leave it empty) so the shader
-        // does not receive non-finite scalars, while keeping the byte stream in
-        // sync so downstream blocks still parse.
+      
         bool badField = false;
 
         if (isBinary) {
@@ -432,10 +445,8 @@ private:
                 if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
                 if (readingPointData) mesh.attributes->pointScalars[scalarName]; // ensure key exists, empty
                 else { mesh.attributes->cellScalars[scalarName]; cellScalarsStorage[scalarName]; }
-                alignStream4(file);
                 return;
             }
-            alignStream4(file);
         }
         else {
             for (size_t i = 0; i < readScalars.size(); ++i) {
@@ -450,14 +461,10 @@ private:
             clearTrailingLine(file);
         }
 
-        // FIX: Ensure the optional `attributes` struct is instantiated before insertion
         if (!mesh.attributes.has_value()) {
             mesh.attributes = DatasetAttributes();
         }
 
-        // A non-finite value was found — drop the field entirely so the shader
-        // never receives NaN/inf, but keep the attributes key present (empty) so
-        // downstream field-name bookkeeping stays consistent.
         if (badField) {
             if (readingPointData) mesh.attributes->pointScalars[scalarName]; // ensure key exists, empty
             else { mesh.attributes->cellScalars[scalarName]; cellScalarsStorage[scalarName]; }
@@ -473,9 +480,6 @@ private:
         }
     }
 
-    // Consume (and discard) `count` binary scalar values of the declared type so
-    // the file position stays aligned for subsequent blocks. Used for
-    // multi-component SCALARS that we intentionally skip for coloring.
     bool consumeBinaryScalars(std::ifstream& file, const std::string& dataType, size_t count) {
         if (count == 0) return true;
         if (dataType == "DOUBLE") {
@@ -494,6 +498,52 @@ private:
         // Unknown type: best-effort skip is impossible without a known size;
         // report failure so the caller can stop parsing this file.
         return false;
+    }
+
+    // POLYDATA NORMALS: a 3-component per-point attribute (same layout as
+    // VECTORS). Store it directly in mesh.normals so the renderer uses the
+    // author-provided normals instead of angle-based vertex splitting (which
+    // would otherwise duplicate vertices and inflate the point count).
+    void parseNormalsBlock(std::istringstream& iss, std::ifstream& file) {
+        std::string normName, dataType;
+        iss >> normName >> dataType;
+        dataType = mesh_utils::toUpper(dataType);
+
+        int activeElementCount = readingPointData ? numPoints : numCells;
+        if (activeElementCount == 0 && attributeTargetCount > 0) {
+            activeElementCount = attributeTargetCount;
+        }
+
+        std::vector<float> readNorms(static_cast<size_t>(activeElementCount) * 3);
+
+        if (isBinary) {
+            bool ok = true;
+            if (dataType == "DOUBLE") {
+                std::vector<double> tmp(readNorms.size());
+                if (!readBinaryArray(file, tmp.size(), tmp)) ok = false;
+                else for (size_t i = 0; i < tmp.size(); ++i) readNorms[i] = static_cast<float>(tmp[i]);
+            } else { // FLOAT
+                if (!readBinaryArray(file, readNorms.size(), readNorms)) ok = false;
+            }
+            if (!ok) {
+                std::cerr << "VTK Parser Warning: short read on binary NORMALS '" << normName
+                          << "'; skipping field to avoid stream desync." << std::endl;
+                return;
+            }
+        } else {
+            for (size_t i = 0; i < readNorms.size(); ++i) {
+                if (!(file >> readNorms[i])) {
+                    std::cerr << "VTK Parser Warning: non-finite ASCII NORMALS '" << normName
+                              << "'; dropping field." << std::endl;
+                    readNorms.clear();
+                    break;
+                }
+            }
+            clearTrailingLine(file);
+        }
+
+        if (readNorms.empty()) return;
+        mesh.normals = std::move(readNorms);
     }
 
     void parseVectorsBlock(std::istringstream& iss, std::ifstream& file) {
@@ -522,7 +572,6 @@ private:
             if (!vecReadOk) {
                 std::cerr << "VTK Parser Warning: short read on binary VECTORS '" << vecName
                           << "'; skipping field to avoid stream desync." << std::endl;
-                alignStream4(file);
                 return;
             }
             for (float v : readVecs) {
@@ -533,7 +582,6 @@ private:
                     break;
                 }
             }
-            alignStream4(file);
         } else {
             for (size_t i = 0; i < readVecs.size(); ++i) {
                 if (!(file >> readVecs[i]) || !std::isfinite(readVecs[i])) {
@@ -546,10 +594,6 @@ private:
             clearTrailingLine(file);
         }
 
-        // POINT_DATA VECTORS map directly to vertices. CELL_DATA VECTORS are
-        // extrapolated to vertices (averaged per incident cell) in finalize.
-        // A non-finite vector component invalidates the whole field — drop it
-        // so glyph/lighting math never receives NaN/inf.
         if (readVecs.empty()) {
             if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
             if (readingPointData) mesh.attributes->pointVectors[vecName]; // ensure key exists, empty
@@ -591,6 +635,11 @@ private:
             if (!mesh.vertices.empty()) {
                 globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
                 numCells = static_cast<int>(globalCellToVertices.size());
+            }
+        }
+        else if (datasetType == "POLYDATA") {
+            if (mesh.indices.empty() && !mesh.vertices.empty()) {
+                std::cerr << "VTK Parser Warning: POLYDATA has points but no VERTICES/LINES/POLYGONS/TRIANGLE_STRIPS; rendering points only." << std::endl;
             }
         }
     }
@@ -661,13 +710,6 @@ private:
         return cellToVertices;
     }
 
-    // Build a renderable SURFACE for a STRUCTURED_GRID (curvilinear) dataset.
-    // A curvilinear grid is a deformed lattice whose point positions are given
-    // explicitly (POINTS block); its topology is still a regular DIMENSIONS grid.
-    // Rendering the full volumetric tessellation is wasteful and hides interior
-    // faces, so we emit the 6 boundary faces for a 3D grid (or the single planar
-    // layer for a 2D grid). Point indexing follows VTK: idx = x + y*dX + z*dX*dY
-    // (x fastest), matching the order the POINTS block is written in.
     std::vector<std::vector<uint32_t>> generateStructuredGridSurface(int dX, int dY, int dZ) {
         std::vector<std::vector<uint32_t>> cellToVertices;
         auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
@@ -738,8 +780,7 @@ private:
         for (int p = 0; p < numPolys; ++p) {
             if (idx >= static_cast<int>(rawPolygonData.size())) break;
             int nPoints = rawPolygonData[idx++];
-            // Guard against a malformed/truncated polygon claiming more points
-            // than the buffer holds — reading past the end is UB / a crash.
+         
             if (nPoints < 0 || idx + nPoints > static_cast<int>(rawPolygonData.size())) break;
 
             for (int i = 0; i < nPoints; ++i) {
@@ -774,6 +815,28 @@ private:
                 uint32_t i2 = rawStripData[idx + i + 2];
                 if (i % 2 == 0) mesh.indices.insert(mesh.indices.end(), { i0, i1, i2 });
                 else mesh.indices.insert(mesh.indices.end(), { i0, i2, i1 });
+            }
+            idx += nPoints;
+        }
+        return cellToVertices;
+    }
+
+    std::vector<std::vector<uint32_t>> triangulateLines(const std::vector<int32_t>& rawLineData, int numLines) {
+        int idx = 0;
+        std::vector<std::vector<uint32_t>> cellToVertices(numLines);
+        for (int l = 0; l < numLines; ++l) {
+            if (idx >= static_cast<int>(rawLineData.size())) break;
+            int nPoints = rawLineData[idx++];
+            if (nPoints < 0 || idx + nPoints > static_cast<int>(rawLineData.size())) break;
+
+            for (int i = 0; i < nPoints; ++i) {
+                cellToVertices[l].push_back(static_cast<uint32_t>(rawLineData[idx + i]));
+            }
+
+            for (int i = 0; i + 1 < nPoints; ++i) {
+                uint32_t a = rawLineData[idx + i];
+                uint32_t b = rawLineData[idx + i + 1];
+                mesh.indices.insert(mesh.indices.end(), { a, b });
             }
             idx += nPoints;
         }
@@ -888,18 +951,12 @@ private:
             std::cerr << "VTK Parser Error: Empty data sequence." << std::endl;
             return;
         }
-        // vertices present but no triangles => blank viewport with no error.
-        // Surface it instead of silently handing an empty draw call to the GPU.
-        if (mesh.indices.empty()) {
+
+        if (mesh.indices.empty() && datasetType != "POLYDATA") {
             std::cerr << "VTK Parser Error: topology produced no triangles (missing/invalid CELLS/POLYGONS/DIMENSIONS). Mesh will not render." << std::endl;
             return;
         }
 
-        // Bounds-safety: an out-of-range index (from a malformed/truncated CELLS/
-        // POLYGONS/STRIPS block, or a POINTS/CELLS count mismatch) would be an
-        // out-of-bounds read in the GL vertex fetch (mesh.indices -> vertices)
-        // and either render garbage or crash the driver. Drop the whole index
-        // buffer so we hand the renderer a clean, drawable (empty) mesh instead.
         {
             const uint32_t vCount = static_cast<uint32_t>(mesh.vertices.size() / 3);
             bool badIndex = false;
@@ -914,36 +971,27 @@ private:
             }
         }
 
-        // 1. Process cell data onto the compact vertex layout first (merged
-        //    scalar+vector extrapolation in a single cell-to-vertex pass).
         extrapolateCellDataToPointsMerged();
 
-        // 2. Keep the mesh INDEXED (shared vertices). Previously the mesh was fully
-        //    "unrolled" into a non-indexed layout (one copy of every vertex per
-        //    triangle). For a 50^3 volume that is 4.2M triangles -> 12.7M vertices,
-        //    and every scalar/vector attribute was duplicated the same way, blowing
-        //    RAM to ~1.4 GB. Flat shading is instead obtained via angle-based
-        //    normals in computeNormals(), which runs on the indexed layout and only
-        //    splits normals at genuinely sharp edges.
+       
         if (mesh.attributes.has_value()) {
-            // Align per-point vectors with the (shared) vertices for glyph rendering.
+            // Flatten per-point vectors into one contiguous vec3 buffer with a
+            // per-field offset (shared_ptr/zero-copy glyph pipeline expects this).
+            const size_t perVertex = mesh.vertices.size() / 3;
+            mesh.pointVectorCount = perVertex; // per-POINT count, set BEFORE computeNormals splits
             for (const auto& [name, vecArr] : mesh.attributes->pointVectors) {
-                mesh.pointVectors[name] = vecArr;
+                if (vecArr.size() < perVertex * 3) continue; // skip unusable field
+                mesh.pointVectorOffset[name] = mesh.pointVectorsData.size();
+                for (size_t v = 0; v < perVertex; ++v) {
+                    mesh.pointVectorsData.emplace_back(
+                        vecArr[v * 3 + 0], vecArr[v * 3 + 1], vecArr[v * 3 + 2]);
+                }
             }
         }
 
         bool hasAttributes = mesh.attributes.has_value();
 
-        // 3. Extract the active array directly for your GPU-bound flat vector representation.
-        // Only 1-component point scalars are usable as the per-vertex color field;
-        // a multi-component (e.g. SCALARS name float 3) array would be uploaded
-        // as a 1-float-per-vertex attribute and read misaligned. Guard it.
-        // 3. Extract the active array directly for your GPU-bound flat vector representation.
-        // Only 1-component point scalars are usable as the per-vertex color field.
-        // The active name may have been set from a CELL_DATA block (which is stored
-        // under cellScalars, not pointScalars), so fall back to the first available
-        // point scalar if the named one isn't in pointScalars. This keeps coloring
-        // correct regardless of section order in the file.
+        
         if (hasAttributes && !mesh.attributes->pointScalars.empty()) {
             if (mesh.scalarName.empty() || !mesh.attributes->pointScalars.count(mesh.scalarName)) {
                 mesh.scalarName = mesh.attributes->pointScalars.begin()->first;
@@ -976,94 +1024,16 @@ private:
             mesh.vectorName = mesh.availableVectorNames.front();
         }
 
-        // 4. Calculate ranges and bounds safely on the new layout footprint
         calculateScalarRanges();
         mesh_utils::computeBounds(mesh);
+
+        mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
 
         if (mesh.normals.empty() && !mesh.indices.empty()) {
             mesh_utils::computeNormals(mesh);
         }
     }
 
-    void extrapolateCellDataToPoints() {
-        if (cellScalarsStorage.empty() || globalCellToVertices.empty()) return;
-
-        int vCount = mesh.vertices.size() / 3;
-
-        // FIX: Safeguard optional initialization
-        if (!mesh.attributes.has_value()) {
-            mesh.attributes = DatasetAttributes();
-        }
-
-        for (const auto& [name, rawCellDataVec] : cellScalarsStorage) {
-            std::vector<float> pointAlloc(vCount, 0.0f);
-            std::vector<float> contributionCounts(vCount, 0.0f);
-
-            for (size_t c = 0; c < globalCellToVertices.size(); ++c) {
-                if (c >= rawCellDataVec.size()) break;
-                float val = rawCellDataVec[c];
-
-                for (int vIdx : globalCellToVertices[c]) {
-                    if (vIdx >= 0 && vIdx < vCount) {
-                        pointAlloc[vIdx] += val;
-                        contributionCounts[vIdx] += 1.0f;
-                    }
-                }
-            }
-
-            for (int i = 0; i < vCount; ++i) {
-                if (contributionCounts[i] > 0.0f) {
-                    pointAlloc[i] /= contributionCounts[i];
-                }
-            }
-
-            mesh.attributes->pointScalars[name] = std::move(pointAlloc);
-        }
-    }
-
-    void extrapolateCellVectorsToPoints() {
-        if (cellVectorsStorage.empty() || globalCellToVertices.empty()) return;
-
-        int vCount = mesh.vertices.size() / 3;
-        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
-
-        for (const auto& [name, rawCellVecs] : cellVectorsStorage) {
-            std::vector<float> pointAlloc(static_cast<size_t>(vCount) * 3, 0.0f);
-            std::vector<float> contributionCounts(vCount, 0.0f);
-
-            for (size_t c = 0; c < globalCellToVertices.size(); ++c) {
-                if (c >= rawCellVecs.size() / 3) break;
-                float vx = rawCellVecs[c * 3 + 0];
-                float vy = rawCellVecs[c * 3 + 1];
-                float vz = rawCellVecs[c * 3 + 2];
-
-                for (int vIdx : globalCellToVertices[c]) {
-                    if (vIdx >= 0 && vIdx < vCount) {
-                        pointAlloc[static_cast<size_t>(vIdx) * 3 + 0] += vx;
-                        pointAlloc[static_cast<size_t>(vIdx) * 3 + 1] += vy;
-                        pointAlloc[static_cast<size_t>(vIdx) * 3 + 2] += vz;
-                        contributionCounts[vIdx] += 1.0f;
-                    }
-                }
-            }
-
-            for (int i = 0; i < vCount; ++i) {
-                if (contributionCounts[i] > 0.0f) {
-                    float inv = 1.0f / contributionCounts[i];
-                    pointAlloc[static_cast<size_t>(i) * 3 + 0] *= inv;
-                    pointAlloc[static_cast<size_t>(i) * 3 + 1] *= inv;
-                    pointAlloc[static_cast<size_t>(i) * 3 + 2] *= inv;
-                }
-            }
-
-            mesh.attributes->pointVectors[name] = std::move(pointAlloc);
-        }
-    }
-
-    // Merge the cell-scalar and cell-vector extrapolation into a SINGLE pass over
-    // the cell-to-vertex incidence (built once during triangulation) instead of
-    // iterating globalCellToVertices twice. This replaces the two separate
-    // extrapolate* calls, halving the O(cells * verts) work for unstructured grids.
     void extrapolateCellDataToPointsMerged() {
         if (globalCellToVertices.empty()) return;
         if (cellScalarsStorage.empty() && cellVectorsStorage.empty()) return;
@@ -1072,11 +1042,9 @@ private:
         if (vCount == 0) return;
         if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
 
-        // Per-field accumulation buffers. Use a name->index map rather than
-        // relying on identical unordered_map iteration order across separate
-        // loops — std::unordered_map order is not guaranteed stable.
+
         struct FieldAcc {
-            std::vector<float> sum;      // scalars: per-vertex; vectors: per-vertex*3
+            std::vector<float> sum;      
         };
         std::vector<FieldAcc> accs;
         accs.reserve(cellScalarsStorage.size() + cellVectorsStorage.size());
@@ -1093,7 +1061,7 @@ private:
         }
         std::vector<float> contributionCounts(vCount, 0.0f);
 
-        // Single traversal of the incidence structure built during triangulation.
+     
         for (size_t c = 0; c < globalCellToVertices.size(); ++c) {
             // Accumulate scalar fields for this cell.
             for (const auto& [name, raw] : cellScalarsStorage) {
@@ -1164,19 +1132,15 @@ private:
                 if (val > maxVal) maxVal = val;
             }
 
-            // Store exactly where renderer.cpp expects them
             mesh.attributes->scalarMin = minVal;
             mesh.attributes->scalarMax = maxVal;
 
-            // Prevent zero-division errors if the dataset is completely uniform
             if (std::abs(mesh.attributes->scalarMax - mesh.attributes->scalarMin) < 1e-6f) {
                 mesh.attributes->scalarMax = mesh.attributes->scalarMin + 1.0f;
             }
         }
     }
 };
-
-// ── Entry Interface ─────────────────────────────────────────────────────────
 
 RenderMesh parseVTK(const std::string& filePath) {
     VTKParserContext parser(filePath);

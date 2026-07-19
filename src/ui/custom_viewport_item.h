@@ -4,7 +4,9 @@
 #include <QOpenGLFramebufferObject>
 #include <QPoint>
 #include <QString>
+#include <QElapsedTimer>
 #include "render/renderer.h"
+#include "render/render_settings.h"
 
 class ViewportFboRenderer : public QQuickFramebufferObject::Renderer {
 public:
@@ -18,32 +20,38 @@ private:
     bool m_initialized = false;
     QSize m_fboSize;
     QOpenGLFramebufferObject* m_fbo = nullptr; // viewport FBO, used for screenshot capture
-    // CPU mesh handoff lives in synchronize() (GUI thread, no GL
-    // context), but the GL upload must run in render() (context current).
-    RenderMesh m_pendingMesh;
-    bool m_uploadPending = false;
+    // The mesh handoff now arrives as a shared_ptr stored on the Renderer
+    // (setPendingMesh) and is uploaded inside renderFrame() under the GL context,
+    // so no CPU mesh buffer is kept here.
     // Scalar-only re-upload: the field switched on the GUI thread, so the
     // render thread re-buffers just the scalar attribute (sbo) — not the mesh.
-    std::vector<float> m_pendingScalars;
+    // Stored as a shared_ptr (zero-copy); only the ref-count is bumped.
+    std::shared_ptr<const std::vector<float>> m_pendingScalars;
     bool m_uploadScalarsPending = false;
     bool m_dirty = true; // render only when something changed (idle = no GPU work)
     QString m_pendingScreenshot; // carried from GUI thread (synchronize) to render() where GL context is current
+
+    ::RenderSettings* m_settings = nullptr; // GUI-thread facade for FPS push-back
+    QElapsedTimer m_fpsClock;
+    double m_fpsLast = 0.0;
+    double m_fpsSmoothed = 0.0;
+    double m_fpsAccum = 0.0;
 };
 
 class ViewportVisualizer : public QQuickFramebufferObject {
     Q_OBJECT
-    Q_PROPERTY(::Renderer* renderer READ renderer WRITE setRenderer NOTIFY rendererChanged)
+    Q_PROPERTY(::RenderSettings* settings READ settings WRITE setSettings NOTIFY settingsChanged)
 
 public:
     explicit ViewportVisualizer(QQuickItem* parent = nullptr);
 
-    ::Renderer* renderer() const;
-    void setRenderer(::Renderer* r);
+    ::RenderSettings* settings() const;
+    void setSettings(::RenderSettings* s);
 
     QQuickFramebufferObject::Renderer* createRenderer() const override;
 
 signals:
-    void rendererChanged();
+    void settingsChanged();
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -55,7 +63,7 @@ private:
     // Screenshot path forwarded from the GUI thread; consumed in synchronize().
     QString m_pendingScreenshot;
     bool m_needsRender = true; // set by signal lambdas; copied into the renderer's dirty flag
-    ::Renderer* m_scene = nullptr;
+    ::RenderSettings* m_settings = nullptr;
     QPoint m_lastMousePos;
     bool m_isRightClick = false;
     friend class ViewportFboRenderer;
