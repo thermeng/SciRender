@@ -308,7 +308,7 @@ ApplicationWindow {
                         }
                     }
 
-                    }
+                    //}
                     // View & Display Controls
                     Column {
                         id: viewCol
@@ -557,7 +557,7 @@ ApplicationWindow {
                 }
             }
         }
-
+}
         ColorDialog {
             id: bgDialog
             selectedColor: backendSettings ? backendSettings.bgColor : "#000000"
