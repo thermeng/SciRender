@@ -312,16 +312,13 @@ ApplicationWindow {
                         // #1+#2: unified 3-col nav cube (ortho faces + axis snaps), flex-width
                         Text { text: "Camera Views"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         GridLayout {
-                            width: parent.width; columns: 3; rowSpacing: 4; columnSpacing: 4
+                            width: parent.width; columns: 2; rowSpacing: 4; columnSpacing: 4
                             Button { text: "+X"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(0) }
-                            Button { text: "+Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(2) }
-                            Button { text: "+Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(4) }
                             Button { text: "-X"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(1) }
+                            Button { text: "+Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(2) }
                             Button { text: "-Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(3) }
+                            Button { text: "+Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(4) }
                             Button { text: "-Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(5) }
-                            Button { text: "X"; Layout.fillWidth: true; onClicked: backendSettings.snapToAxisView(0, false) }
-                            Button { text: "Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToAxisView(1, false) }
-                            Button { text: "Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToAxisView(2, false) }
                         }
 
                         // #3: display toggles grouped
