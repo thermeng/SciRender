@@ -14,6 +14,12 @@
 
 </p>
 
+<p align="center">
+  <img src="./demo/Lights.webp" width="35%" style="margin-right: 25px;" />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="./demo/Vectors.webp" width="35%" style="margin-left: 25px;" />
+</p>
+
 Qt 6 + OpenGL scientific mesh rendering toolkit. Loads VTK
 `STRUCTURED_GRID` (curvilinear), `RECTILINEAR_GRID`, `STRUCTURED_POINTS`,
 `POLYDATA`, `UNSTRUCTURED_GRID` and STL files, maps scalar point
