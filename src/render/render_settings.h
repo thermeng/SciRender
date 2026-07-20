@@ -122,6 +122,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
     Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
+    Q_PROPERTY(int cullMode READ getCullMode WRITE setCullMode NOTIFY viewChanged) // 0=off 1=back 2=front
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
     Q_PROPERTY(bool showQualityOverlay READ getShowQualityOverlay WRITE setShowQualityOverlay NOTIFY viewChanged)
     Q_PROPERTY(bool showCellEdges READ getShowCellEdges WRITE setShowCellEdges NOTIFY viewChanged)
@@ -301,6 +302,8 @@ public:
     void setPointOpacity(float v) { if (pointOpacity != v) { pointOpacity = v; markStateDirty(); emit viewChanged(); } }
     float getSurfaceOpacity() const { return surfaceOpacity; }
     void setSurfaceOpacity(float v) { if (surfaceOpacity != v) { surfaceOpacity = v; markStateDirty(); emit viewChanged(); } }
+    int getCullMode() const { return cullMode; }
+    void setCullMode(int v) { if (cullMode != v) { cullMode = v; markStateDirty(); emit viewChanged(); } }
     bool getShowBounds() const { return showBounds; }
     void setShowBounds(bool v) { if (showBounds != v) { showBounds = v; markStateDirty(); emit viewChanged(); } }
     bool getShowQualityOverlay() const { return showQualityOverlay; }
@@ -429,6 +432,7 @@ private:
     bool pointUseScalar = true;  // ponytail: color points by scalar (else solid)
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
+    int cullMode = 0;              // ponytail: 0=off by default — winding is untrusted input; two-sided shader makes cull a no-op visually
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
     bool showCellEdges = false;      // ponytail: ParaView-style per-cell boundary edges (quads w/o diagonal)

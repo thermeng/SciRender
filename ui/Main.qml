@@ -338,6 +338,7 @@ ApplicationWindow {
                             CheckBox { text: "Points";     checked: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.showPoints = checked }
                             CheckBox { text: "BBox";       checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
                             CheckBox { text: "Defects";    checked: backendSettings ? backendSettings.showQualityOverlay : false; onToggled: backendSettings.showQualityOverlay = checked }
+                            CheckBox { text: "Cell edges"; checked: backendSettings ? backendSettings.showCellEdges : false; onToggled: backendSettings.showCellEdges = checked }
                             CheckBox { text: "Ortho";      checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
                             CheckBox { text: "Auto-Rot";   checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                             CheckBox { text: "LOD";        checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
@@ -996,6 +997,25 @@ ApplicationWindow {
             title: "View"
             MenuItem { text: "Lighting"; onTriggered: rail.toggleSection(0) }
             MenuItem { text: "Slicing"; onTriggered: rail.toggleSection(1) }
+            MenuSeparator {}
+            MenuItem {
+                text: "Culling: Off"
+                checkable: true
+                checked: backendSettings ? backendSettings.cullMode === 0 : true
+                onTriggered: if (backendSettings) backendSettings.cullMode = 0
+            }
+            MenuItem {
+                text: "Culling: Back faces"
+                checkable: true
+                checked: backendSettings ? backendSettings.cullMode === 1 : false
+                onTriggered: if (backendSettings) backendSettings.cullMode = 1
+            }
+            MenuItem {
+                text: "Culling: Front faces"
+                checkable: true
+                checked: backendSettings ? backendSettings.cullMode === 2 : false
+                onTriggered: if (backendSettings) backendSettings.cullMode = 2
+            }
             MenuSeparator {}
             MenuItem { text: "Reset Camera"; onTriggered: backendSettings.resetCamera() }
         }
