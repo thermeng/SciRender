@@ -51,6 +51,8 @@ add_executable(SciRender
     src/core/mesh_utils.cpp
     src/core/vtk_parser.cpp
     src/core/stl_parser.cpp
+    src/core/obj_parser.cpp
+    src/core/obj_parser.h
     src/render/renderer.cpp
     src/render/renderer.h
     src/render/render_settings.cpp
