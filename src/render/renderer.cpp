@@ -613,7 +613,8 @@ void Renderer::renderFrame() {
         ? [&]() { // ponytail: ortho frustum tracks camera.distance so dolly() zooms it
             if (m_orthoRefDist <= 0.0) m_orthoRefDist = m_state.camera.distance;
             float half = static_cast<float>(m_state.worldRadius * (m_state.camera.distance / m_orthoRefDist));
-            return glm::ortho(-half, half, -half, half,
+            float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
+            return glm::ortho(-half * aspect, half * aspect, -half, half,
                               static_cast<float>(nearPlane), static_cast<float>(farPlane));
           }()
         : glm::perspective(
