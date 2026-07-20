@@ -641,7 +641,13 @@ private:
 
     void buildTopology() {
         if (datasetType == "STRUCTURED_POINTS") {
-            // ponytail: draw as points — keep POINTS coordinates, build no triangle topology
+            // ponytail: regular lattice — build the 6-face surface so it renders
+            // as a mesh; keep the point geometry + renderAsPoints so showPoints
+            // can also draw it as a cloud.
+            generateStructuredPointsGeometry();
+            globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+            numCells = static_cast<int>(globalCellToVertices.size());
+            mesh.supportsCellGrid = true;
             mesh.renderAsPoints = true;
         }
         else if (datasetType == "RECTILINEAR_GRID" && !rectX.empty() && !rectY.empty() && !rectZ.empty()) {
@@ -1027,7 +1033,6 @@ private:
 
         bool hasAttributes = mesh.attributes.has_value();
 
-        
         if (hasAttributes && !mesh.attributes->pointScalars.empty()) {
             if (mesh.scalarName.empty() || !mesh.attributes->pointScalars.count(mesh.scalarName)) {
                 mesh.scalarName = mesh.attributes->pointScalars.begin()->first;

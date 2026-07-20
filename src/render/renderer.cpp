@@ -381,6 +381,9 @@ void Renderer::resetCamera() {
     dist *= 1.3;
 
     camera.distance = dist;
+    // ponytail: keep ortho zoom baseline in sync with the fit distance so
+    // dolly-zoom tracks correctly after a reset (m_orthoRefDist is seeded once).
+    m_orthoRefDist = camera.distance;
     if (camera.distance < 1.0) camera.distance = 1.0;
     camera.maxDistance = std::max(1000.0, camera.distance * 50.0);
     nearPlane = std::max(0.01, camera.distance * 0.01);
