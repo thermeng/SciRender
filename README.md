@@ -74,11 +74,13 @@ full detail when motion stops. It is used only when all of the following hold:
 | Path | Purpose |
 |------|---------|
 | `src/app/` | Qt/QML application entry point (`main.cpp`) |
-| `src/ui/` | Custom QML viewport item |
-| `src/core/` | VTK/STL parsers, mesh loading, camera, colormap definitions |
+| `src/core/` | VTK/STL parsers, mesh loading, mesh-quality analysis, camera, colormap definitions |
 | `src/render/` | OpenGL renderer, lighting, mesh/LOD upload, vector glyphs, colorbar, axis triad |
-| `src/export/` | Screenshot / image export |
 | `src/shaders/` | GLSL vertex/fragment shaders |
+| `src/ui/` | Custom QML viewport item |
+| `tests/` | Standalone parser regression harness (`parse_regression.cpp` + `run_tests.{bat,sh}`) |
+| `samples/` | VTK/STL fixture files used by the regression harness |
+| `assets/` | Application icon |
 | `vendor/` | GLAD, GLM |
 
 ## License
