@@ -65,7 +65,12 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float lightWarm READ getLightWarm WRITE setLightWarm NOTIFY lightingParametersChanged)
     Q_PROPERTY(int triangleCount READ getTriangleCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int pointCount READ getPointCount NOTIFY meshLoadStateChanged)
-    Q_PROPERTY(QString meshDataType READ getMeshDataType NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(int degenerateFaces READ getDegenerateFaces NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(int openEdges READ getOpenEdges NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(int nonManifoldEdges READ getNonManifoldEdges NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(int nonManifoldVerts READ getNonManifoldVerts NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(bool watertight READ getWatertight NOTIFY meshLoadStateChanged)
+
     Q_PROPERTY(QString meshFormat READ getMeshFormat NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
@@ -116,6 +121,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
     Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
+    Q_PROPERTY(bool showQualityOverlay READ getShowQualityOverlay WRITE setShowQualityOverlay NOTIFY viewChanged)
     Q_PROPERTY(bool orthographic READ getOrthographic WRITE setOrthographic NOTIFY viewChanged)
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
@@ -158,6 +164,11 @@ public:
     bool getHasMeshLoaded() const { return hasMeshLoaded; }
     int getTriangleCount() const { return triangleCount; }
     int getPointCount() const { return pointCount; }
+    int getDegenerateFaces() const { return degenerateFaces; }
+    int getOpenEdges() const { return openEdges; }
+    int getNonManifoldEdges() const { return nonManifoldEdges; }
+    int getNonManifoldVerts() const { return nonManifoldVerts; }
+    bool getWatertight() const { return watertight; }
     QString getMeshDataType() const { return QString::fromStdString(meshDataType); }
     QString getMeshFormat() const { return QString::fromStdString(meshFormat); }
     QColor getBgColorQml() const { return QColor::fromRgbF(bgColor[0], bgColor[1], bgColor[2]); }
@@ -287,6 +298,8 @@ public:
     void setSurfaceOpacity(float v) { if (surfaceOpacity != v) { surfaceOpacity = v; markStateDirty(); emit viewChanged(); } }
     bool getShowBounds() const { return showBounds; }
     void setShowBounds(bool v) { if (showBounds != v) { showBounds = v; markStateDirty(); emit viewChanged(); } }
+    bool getShowQualityOverlay() const { return showQualityOverlay; }
+    void setShowQualityOverlay(bool v) { if (showQualityOverlay != v) { showQualityOverlay = v; markStateDirty(); emit viewChanged(); } }
     bool getOrthographic() const { return orthographic; }
     void setOrthographic(bool v) { if (orthographic != v) { orthographic = v; markStateDirty(); emit viewChanged(); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
@@ -409,6 +422,11 @@ private:
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
     bool showBounds = false;     // ponytail: AABB wireframe overlay
+    bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
+    // ponytail: overlay geometry (xyz floats); populated at load, empty when clean
+    std::vector<float> qualityDegenerateTris;
+    std::vector<float> qualityOpenEdges;
+    std::vector<float> qualityNonManifoldEdges;
     int msaaSamples = 0;         // ponytail: FBO MSAA (0=off, 2, 4); 0 default for iGPU
     bool orthographic = false;    // ponytail: orthographic (parallel) projection
 
@@ -420,6 +438,11 @@ private:
     bool meshHasScalars = false;
     int triangleCount = 0;
     int pointCount = 0;
+    int degenerateFaces = 0;
+    int openEdges = 0;
+    int nonManifoldEdges = 0;
+    int nonManifoldVerts = 0;
+    bool watertight = false;
     std::string currentMeshName;
     std::string meshDataType;
     std::string meshFormat;

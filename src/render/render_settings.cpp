@@ -1,6 +1,7 @@
 #include "render/render_settings.h"
 #include "core/Colormaps.h"
 #include "core/mesh_loader.h"
+#include "core/mesh_quality.h"
 
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -55,29 +56,40 @@ void RenderSettings::buildRenderState() {
     s.pointOpacity = pointOpacity;
     s.surfaceOpacity = surfaceOpacity;
     s.showBounds = showBounds;
+    s.showQualityOverlay = showQualityOverlay;
+    s.qualityDegenerateTris = qualityDegenerateTris;
+    s.qualityOpenEdges = qualityOpenEdges;
+    s.qualityNonManifoldEdges = qualityNonManifoldEdges;
     s.orthographic = orthographic;
+
     s.autoRotate = autoRotate;
     s.showFps = showFps;
     s.useLod = useLod;
+
     std::copy(std::begin(meshColor), std::end(meshColor), s.meshColor);
     std::copy(std::begin(surfaceColor), std::end(surfaceColor), s.surfaceColor);
     std::copy(std::begin(bgColor), std::end(bgColor), s.bgColor);
+
     s.worldCenterX = worldCenterX; s.worldCenterY = worldCenterY; s.worldCenterZ = worldCenterZ;
     s.worldRadius = worldRadius;
     s.worldMinX = worldMinX; s.worldMaxX = worldMaxX;
     s.worldMinY = worldMinY; s.worldMaxY = worldMaxY;
     s.worldMinZ = worldMinZ; s.worldMaxZ = worldMaxZ;
+
     s.lighting = lighting;
+
     s.colormapChoice = colormapChoice;
     s.colormapReversed = colormapReversed;
     s.vectorColormapChoice = vectorColormapChoice;
     s.vectorColormapReversed = vectorColormapReversed;
     s.meshHasScalars = meshHasScalars;
     s.scalarMin = scalarMin; s.scalarMax = scalarMax;
+
     s.dataScalarMin = dataScalarMin; s.dataScalarMax = dataScalarMax;
     s.filterMin = filterMin; s.filterMax = filterMax;
     s.showScalarColorbar = showScalarColorbar;
     s.colorbarTicks = colorbarTicks;
+
     s.activeScalarName = activeScalarName;
     s.clipEnabled = clipEnabled;
     s.sliceHeightX = sliceHeightX; s.sliceHeightY = sliceHeightY; s.sliceHeightZ = sliceHeightZ;
@@ -297,6 +309,18 @@ void RenderSettings::onMeshParsed() {
     // (immutable, shared with the renderer); attributes (all scalar/vector field
     // arrays) also stay ONLY in m_loadedMesh and are read from there on switch.
     m_guiMeta = *loaded;
+    {
+        MeshQuality mq = analyzeMeshQuality(*loaded);
+        degenerateFaces  = mq.degenerateFaces;
+        openEdges        = mq.openEdges;
+        nonManifoldEdges = mq.nonManifoldEdges;
+        nonManifoldVerts = mq.nonManifoldVerts;
+        watertight       = mq.watertight;
+        qualityDegenerateTris  = std::move(mq.degenerateTriVerts);
+        qualityOpenEdges        = std::move(mq.openEdgeVerts);
+        qualityNonManifoldEdges = std::move(mq.nonManifoldEdgeVerts);
+    }
+
     m_guiMeta.vertices.clear();   m_guiMeta.vertices.shrink_to_fit();
     m_guiMeta.normals.clear();    m_guiMeta.normals.shrink_to_fit();
     m_guiMeta.indices.clear();    m_guiMeta.indices.shrink_to_fit();
@@ -383,6 +407,8 @@ void RenderSettings::clearMeshes() {
     markStateDirty();
     triangleCount = 0;
     pointCount = 0;
+    degenerateFaces = 0; openEdges = 0; nonManifoldEdges = 0; nonManifoldVerts = 0; watertight = false;
+    qualityDegenerateTris.clear(); qualityOpenEdges.clear(); qualityNonManifoldEdges.clear();
     meshDataType = "";
     meshFormat = "";
     currentMeshName = "";

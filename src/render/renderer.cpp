@@ -791,8 +791,52 @@ void Renderer::renderFrame() {
             glBindVertexArray(0);
         }
 
+        // ponytail: mesh-quality highlight overlay — degenerate faces (red fill)
+        // + open edges (amber) + non-manifold edges (magenta), drawn ON TOP of
+        // the mesh. Depth test + cull are disabled so interior defects (coplanar
+        // with the surface) are not z-rejected and hidden.
+        if (m_state.showQualityOverlay && shaderProgram != 0) {
+            // ponytail: save state; restore to prev (mesh pass leaves cull OFF,
+            // gizmo text quads rely on that — don't hard-enable cull here).
+            GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+            GLboolean cullWas  = glIsEnabled(GL_CULL_FACE);
+            glDisable(GL_DEPTH_TEST);
+            glDisable(GL_CULL_FACE);
+            auto drawList = [&](const std::vector<float>& verts, int mode, const float col[3]) {
+                if (verts.empty()) return;
+                GLuint vao = 0, vbo = 0;
+                glGenVertexArrays(1, &vao); glGenBuffers(1, &vbo);
+                glBindVertexArray(vao);
+                glBindBuffer(GL_ARRAY_BUFFER, vbo);
+                glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+                glEnableVertexAttribArray(0);
+                glBindVertexArray(0);
+                glm::mat4 mvp = proj * view * glm::mat4(1.0f);
+                glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+                glUniform1i(wireframeLoc, (mode == GL_LINES) ? 1 : 0);
+                glUniform1i(isPointLoc, 0);
+                glUniform3f(meshColorLoc, col[0], col[1], col[2]);
+                glBindVertexArray(vao);
+                glDrawArrays(mode, 0, static_cast<GLsizei>(verts.size() / 3));
+                glBindVertexArray(0);
+                glDeleteBuffers(1, &vbo); glDeleteVertexArrays(1, &vao);
+            };
+            const float red[3]     = {1.0f, 0.2f, 0.2f};    // ponytail: degenerate = deleted geometry
+            const float amber[3]   = {1.0f, 0.6f, 0.1f};    // ponytail: open edge = boundary (expected on clips)
+            const float magenta[3] = {1.0f, 0.2f, 1.0f};    // ponytail: non-manifold = topology error
+            // ponytail: degenerate tris have ~zero area, so a FILL paints nothing.
+            // Draw their 3 edges as red lines instead (visible + consistent with the
+            // other two edge-based defect classes).
+            drawList(m_state.qualityOpenEdges, GL_LINES, amber);
+            drawList(m_state.qualityNonManifoldEdges, GL_LINES, magenta);
+            drawList(m_state.qualityDegenerateTris, GL_LINES, red);
+            if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+            if (cullWas)  glEnable(GL_CULL_FACE);  else glDisable(GL_CULL_FACE);
+        }
+
         glUseProgram(0);
-    }
+
 
     if (m_state.showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -830,4 +874,5 @@ void Renderer::renderFrame() {
     drawColorbarLegends(deviceW, deviceH);
 
     QQuickOpenGLUtils::resetOpenGLState();
+}
 }

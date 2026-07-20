@@ -65,6 +65,11 @@ struct RenderRenderState {
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
     bool showBounds = false;     // ponytail: AABB wireframe overlay
+    bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
+    // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
+    std::vector<float> qualityDegenerateTris;
+    std::vector<float> qualityOpenEdges;
+    std::vector<float> qualityNonManifoldEdges;
     bool orthographic = false;    // ponytail: orthographic (parallel) projection
 
     // Colors

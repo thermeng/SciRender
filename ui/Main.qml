@@ -369,6 +369,7 @@ ApplicationWindow {
                         }
                         CheckBox { text: "Color by scalar"; checked: backendSettings ? backendSettings.pointUseScalar : true; enabled: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.pointUseScalar = checked }
                         CheckBox { text: "Bounding Box"; checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
+                        CheckBox { text: "Highlight Defects"; checked: backendSettings ? backendSettings.showQualityOverlay : false; onToggled: backendSettings.showQualityOverlay = checked }
                         CheckBox { text: "Parallel (Ortho)"; checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
                         CheckBox { text: "Auto-Rotate"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                         CheckBox { text: "Level of Detail"; checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
@@ -573,6 +574,27 @@ ApplicationWindow {
                         Row { spacing: 6
                             Text { text: "Points"; color: "#888"; font.pixelSize: 11; width: 64 }
                             Text { text: backendSettings ? backendSettings.pointCount : 0; color: "#ddd"; font.pixelSize: 11 }
+                        }
+                        Text { text: "Quality"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        Row { spacing: 6
+                            Text { text: "Degenerate"; color: "#888"; font.pixelSize: 11; width: 96 }
+                            Text { text: backendSettings ? backendSettings.degenerateFaces : 0; color: backendSettings && backendSettings.degenerateFaces > 0 ? "#ff6666" : "#ddd"; font.pixelSize: 11 }
+                        }
+                        Row { spacing: 6
+                            Text { text: "Open edges"; color: "#888"; font.pixelSize: 11; width: 96 }
+                            Text { text: backendSettings ? backendSettings.openEdges : 0; color: backendSettings && backendSettings.openEdges > 0 ? "#ffaa44" : "#ddd"; font.pixelSize: 11 }
+                        }
+                        Row { spacing: 6
+                            Text { text: "Non-manifold E"; color: "#888"; font.pixelSize: 11; width: 96 }
+                            Text { text: backendSettings ? backendSettings.nonManifoldEdges : 0; color: backendSettings && backendSettings.nonManifoldEdges > 0 ? "#ff44ff" : "#ddd"; font.pixelSize: 11 }
+                        }
+                        Row { spacing: 6
+                            Text { text: "Non-manifold V"; color: "#888"; font.pixelSize: 11; width: 96 }
+                            Text { text: backendSettings ? backendSettings.nonManifoldVerts : 0; color: backendSettings && backendSettings.nonManifoldVerts > 0 ? "#ff44ff" : "#ddd"; font.pixelSize: 11 }
+                        }
+                        Row { spacing: 6
+                            Text { text: "Watertight"; color: "#888"; font.pixelSize: 11; width: 96 }
+                            Text { text: backendSettings ? (backendSettings.watertight ? "yes" : "no") : "?"; color: backendSettings && backendSettings.watertight ? "#66dd66" : "#ff6666"; font.pixelSize: 11 }
                         }
                         Text { text: "Bounding box"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         GridLayout {
