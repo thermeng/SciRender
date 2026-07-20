@@ -6,6 +6,8 @@
 #include <QQuickWindow>
 #include <QDebug> // Required for logging output streams
 #include <QTimer>
+#include <QFile>
+#include <QIcon>
 
 #include "render/renderer.h"
 #include "render/render_settings.h"
@@ -36,6 +38,15 @@ int main(int argc, char *argv[]) {
     qDebug() << "[LAUNCH DIAGNOSTIC 3/6] Engine fallback UI style forced to 'Fusion'.";
 
     QGuiApplication app(argc, argv);
+
+    // Window icon. The .exe already embeds it on Windows via assets/app_icon.rc;
+    // this also covers the running window and non-Windows builds.
+    {
+        const QString exeIcon = QCoreApplication::applicationDirPath() + "/app_icon.ico";
+        QIcon icon(QFile::exists(exeIcon) ? exeIcon
+                                          : QStringLiteral(APP_ICON_SRC));
+        if (!icon.isNull()) app.setWindowIcon(icon);
+    }
 
     // Stable QSettings scope so recent files / view state persist cross-platform.
     QCoreApplication::setOrganizationName("SciRender");

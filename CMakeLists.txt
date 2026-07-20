@@ -69,11 +69,13 @@ add_executable(SciRender
     src/render/colorbar_overlay.h
     src/ui/custom_viewport_item.cpp
     src/ui/custom_viewport_item.h
+    assets/app_icon.rc          # Windows .exe + window icon
 )
 
 # Inform your C++ files where GLSL shaders are housed
 target_compile_definitions(SciRender PRIVATE
     SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/shaders"
+    APP_ICON_SRC="${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.ico"
 )
 
 # Set base root compilation includes relative to 'src'
