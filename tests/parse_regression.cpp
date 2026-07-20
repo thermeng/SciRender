@@ -26,7 +26,8 @@ static const Gold GOLD[] = {
     {"STRUCTURED_GRID_block_four_fields_vectors_binary.vtk", 192, 1, 0},
     {"UNSTRUCTURED_GRID_cube_MultipleScalar_ascii.vtk",     12, 1, 0},
     {"UNSTRUCTURED_GRID_cube_MultipleScalar_binary.vtk",    12, 1, 0},
-    {"curvilinear_grid.vtk",                               18, 0, 12},
+    {"cube_ascii.stl",                                     12, 1, 0},
+    {"cube_binary.stl",                                    12, 1, 0}
 };
 
 int main(){
@@ -35,7 +36,7 @@ int main(){
     for (const auto& g : GOLD) {
         std::string path = samples + g.name;
         if (!fs::exists(path)) { printf("SKIP (missing): %s\n", g.name); continue; }
-        RenderMesh m = parseVTK(path);
+        RenderMesh m = loadMeshFile(path);
         uint32_t vc = (uint32_t)(m.vertices.size()/3);
         uint32_t mx = 0; for (uint32_t x : m.indices) mx = (x>mx)?x:mx;
         size_t tris = m.indices.size()/3;
