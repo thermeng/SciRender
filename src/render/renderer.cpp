@@ -712,10 +712,26 @@ void Renderer::renderFrame() {
             if (m_state.showSurface) {
                 glUniform1i(wireframeLoc, 0);
                 glUniform1f(surfaceOpacityLoc, m_state.surfaceOpacity);
-                if (m_state.surfaceOpacity < 0.999f) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); }
+                // ponytail: user cullMode toggle (0=off, 1=back, 2=front). Cull only
+                // when opaque — culling + alpha blend gives wrong results.
+                const bool opaque = m_state.surfaceOpacity >= 0.999f;
+                const bool cull = m_state.cullMode != 0 && opaque;
+                if (cull) { glEnable(GL_CULL_FACE); glCullFace(m_state.cullMode == 2 ? GL_FRONT : GL_BACK); }
+                else glDisable(GL_CULL_FACE);
+                if (!opaque) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); }
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                // ponytail: push the FILL surface slightly back in depth so the
+                // coincident cell-edge GL_LINES (drawn later) win the depth test
+                // without z-fighting. Polygon offset is a no-op for GL_LINES, so
+                // offsetting the lines themselves (the old -2,-2) did nothing and
+                // the lines interleaved with the surface. FILL offset only affects
+                // triangles, leaving the wireframe GL_LINE pass untouched.
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(1.0f, 1.0f);
                 glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
-                if (m_state.surfaceOpacity < 0.999f) glDisable(GL_BLEND);
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                if (cull) glDisable(GL_CULL_FACE);
+                if (!opaque) glDisable(GL_BLEND);
             }
 
             if (m_state.showWireframe) {
@@ -754,6 +770,10 @@ void Renderer::renderFrame() {
         if (m_state.showCellEdges && shaderProgram != 0) {
             auto ce = meshManager.getCellEdgeLine();
             if (ce.first != 0 && ce.second > 0) {
+                glEnable(GL_DEPTH_TEST);
+                // ponytail: surface is pushed back via GL_POLYGON_OFFSET_FILL in
+                // the fill pass, so these lines (at true depth) win cleanly.
+                // A polygon offset here would be a no-op for GL_LINES.
                 glLineWidth(m_state.lineWidth); // ponytail: share wireframe thickness
                 glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
                 glUniform1i(wireframeLoc, 1);
@@ -763,6 +783,8 @@ void Renderer::renderFrame() {
                 glDrawArrays(GL_LINES, 0, ce.second);
                 glBindVertexArray(0);
                 glLineWidth(1.0f);
+                // depth test left enabled (it was on for the surface pass above);
+                // no GL_LINES polygon offset to clear.
             }
         }
 
