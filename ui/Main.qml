@@ -315,15 +315,15 @@ ApplicationWindow {
                     }
 
                     //}
-                    // View & Display Controls (compacted)
+                    // View & Display Controls (grouped by function)
                     Column {
                         id: viewCol
                         visible: rail.activeSection === 2
-                        spacing: 6
+                        spacing: 8
                         width: parent.width
                         property real rollPrev: 0
 
-                        Text { text: "Camera Views"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        Text { text: "Camera"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         GridLayout {
                             width: parent.width; columns: 3; rowSpacing: 4; columnSpacing: 4
                             Button { text: "+X"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(0) }
@@ -332,26 +332,35 @@ ApplicationWindow {
                             Button { text: "-Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(3) }
                             Button { text: "+Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(4) }
                             Button { text: "-Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(5) }
+                            CheckBox { text: "Ortho";    checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
+                            CheckBox { text: "Auto-Rot"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
+                            CheckBox { text: "LOD";      checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
                         }
+                        RowLayout {
+                            width: parent.width; spacing: 6
+                            LightSlider {
+                                id: rollSlider
+                                Layout.fillWidth: true
+                                label: "Roll"; value: 0; from: -180; to: 180; step: 1
+                                onSet: v => { backendSettings.roll(v - viewCol.rollPrev); viewCol.rollPrev = v; }
+                            }
+                            Button { text: "0"; implicitWidth: 28; onClicked: { backendSettings.roll(-viewCol.rollPrev); viewCol.rollPrev = 0; rollSlider.value = 0; } }
+                        }
+                        Button { text: "Reset Camera"; width: parent.width; onClicked: backendSettings.resetCamera() }
 
                         Text { text: "Display"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         GridLayout {
                             width: parent.width; columns: 2; rowSpacing: 3; columnSpacing: 8
                             CheckBox { text: "Wireframe";  checked: backendSettings ? backendSettings.isWireframe : false; onToggled: backendSettings.isWireframe = checked }
-                            CheckBox { text: "Grid";       checked: backendSettings ? backendSettings.isGridVisible : false; onToggled: backendSettings.isGridVisible = checked }
                             CheckBox { text: "Surface";    checked: backendSettings ? backendSettings.isSurfaceVisible : false; onToggled: backendSettings.isSurfaceVisible = checked }
                             CheckBox { text: "Points";     checked: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.showPoints = checked }
+                            CheckBox { text: "Cell edges"; enabled: backendSettings ? backendSettings.supportsCellGrid : false; checked: backendSettings ? backendSettings.showCellEdges : false; onToggled: backendSettings.showCellEdges = checked }
+                            CheckBox { text: "Grid";       checked: backendSettings ? backendSettings.isGridVisible : false; onToggled: backendSettings.isGridVisible = checked }
                             CheckBox { text: "BBox";       checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
                             CheckBox { text: "Defects";    checked: backendSettings ? backendSettings.showQualityOverlay : false; onToggled: backendSettings.showQualityOverlay = checked }
-                            CheckBox { text: "Cell edges"; enabled: backendSettings ? backendSettings.supportsCellGrid : false; checked: backendSettings ? backendSettings.showCellEdges : false; onToggled: backendSettings.showCellEdges = checked }
-                            CheckBox { text: "Ortho";      checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
-                            CheckBox { text: "Auto-Rot";   checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
-                            CheckBox { text: "LOD";        checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
                         }
-                        // wireframe line width (gated)
                         LightSlider { label: "Line"; value: backendSettings ? backendSettings.lineWidth : 1; from: 1; to: 10; step: 0.5; enabled: backendSettings ? backendSettings.isWireframe : false; onSet: v => { if (backendSettings) backendSettings.lineWidth = v } }
                         LightSlider { label: "Cell"; value: backendSettings ? backendSettings.cellEdgeLineWidth : 1; from: 1; to: 10; step: 0.5; enabled: backendSettings ? backendSettings.showCellEdges : false; onSet: v => { if (backendSettings) backendSettings.cellEdgeLineWidth = v } }
-                        // points sub-controls (gated on showPoints)
                         Column {
                             visible: backendSettings ? backendSettings.showPoints : false
                             spacing: 4; width: parent.width
@@ -359,6 +368,8 @@ ApplicationWindow {
                             LightSlider { label: "Opac";  value: backendSettings ? backendSettings.pointOpacity : 1; from: 0.1; to: 1; step: 0.05; decimals: 2; onSet: v => { if (backendSettings) backendSettings.pointOpacity = v } }
                             CheckBox { text: "Color by scalar"; checked: backendSettings ? backendSettings.pointUseScalar : true; onToggled: backendSettings.pointUseScalar = checked }
                         }
+
+                        Text { text: "Appearance"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         LightSlider { label: "Surf α"; value: backendSettings ? backendSettings.surfaceOpacity : 1; from: 0.1; to: 1; step: 0.05; decimals: 2; onSet: v => { if (backendSettings) backendSettings.surfaceOpacity = v } }
                         RowLayout {
                             width: parent.width; spacing: 6
@@ -373,24 +384,10 @@ ApplicationWindow {
                             CheckBox { text: "FPS HUD";   checked: backendSettings ? backendSettings.showFps : false; onToggled: backendSettings.showFps = checked }
                         }
 
-                        Text { text: "Camera Roll"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
-                        RowLayout {
-                            width: parent.width; spacing: 6
-                            LightSlider {
-                                id: rollSlider
-                                Layout.fillWidth: true
-                                label: "Roll"; value: 0; from: -180; to: 180; step: 1
-                                onSet: v => { backendSettings.roll(v - viewCol.rollPrev); viewCol.rollPrev = v; }
-                            }
-                            Button { text: "0"; implicitWidth: 28; onClicked: { backendSettings.roll(-viewCol.rollPrev); viewCol.rollPrev = 0; rollSlider.value = 0; } }
-                        }
-
                         Text { text: "Colors"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         SwatchButton { width: parent.width; text: "Wireframe";  swatch: backendSettings ? backendSettings.meshColor : "#66e666"; onClicked: meshColorDialog.open() }
                         SwatchButton { width: parent.width; text: "Surface";    swatch: backendSettings ? backendSettings.surfaceColor : "#ffffff"; onClicked: surfaceColorDialog.open() }
                         SwatchButton { width: parent.width; text: "Background"; swatch: backendSettings ? backendSettings.bgColor : "#000000"; onClicked: bgDialog.open() }
-
-                        Button { text: "Reset Camera"; width: parent.width; onClicked: backendSettings.resetCamera() }
                     }
 
                     // Colormap Selector Panel
