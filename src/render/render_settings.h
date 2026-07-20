@@ -126,6 +126,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
     Q_PROPERTY(bool showQualityOverlay READ getShowQualityOverlay WRITE setShowQualityOverlay NOTIFY viewChanged)
     Q_PROPERTY(bool showCellEdges READ getShowCellEdges WRITE setShowCellEdges NOTIFY viewChanged)
+    Q_PROPERTY(bool supportsCellGrid READ getSupportsCellGrid NOTIFY meshDataUpdated)
     Q_PROPERTY(bool orthographic READ getOrthographic WRITE setOrthographic NOTIFY viewChanged)
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
@@ -310,6 +311,7 @@ public:
     void setShowQualityOverlay(bool v) { if (showQualityOverlay != v) { showQualityOverlay = v; markStateDirty(); emit viewChanged(); } }
     bool getShowCellEdges() const { return showCellEdges; }
     void setShowCellEdges(bool v) { if (showCellEdges != v) { showCellEdges = v; markStateDirty(); emit viewChanged(); } }
+    bool getSupportsCellGrid() const { return supportsCellGrid; }
     bool getOrthographic() const { return orthographic; }
     void setOrthographic(bool v) { if (orthographic != v) { orthographic = v; markStateDirty(); emit viewChanged(); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
@@ -436,6 +438,7 @@ private:
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
     bool showCellEdges = false;      // ponytail: ParaView-style per-cell boundary edges (quads w/o diagonal)
+    bool supportsCellGrid = false;    // ponytail: mesh is a grid (cell edges meaningful)
     // ponytail: overlay geometry (xyz floats); populated at load, empty when clean
     std::vector<float> qualityDegenerateTris;
     std::vector<float> qualityOpenEdges;

@@ -191,6 +191,11 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
         }
     }
 
+    // Hand the raw per-corner positions (9 floats/tri) to the mesh-quality
+    // analyzer; it welds these at trimesh's 1e-8 tolerance. The rendered indexed
+    // mesh keeps the looser 1/4096 dedup, so the two stay separate on purpose.
+    mesh.flatVerts = std::move(flatVerts);
+
     mesh_utils::computeBounds(mesh);
 
     // Record the topological point count (deduped, pre-normal-split) so the UI
@@ -248,6 +253,8 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
 
         for (int j = 0; j < 3; j++) {
             float x = v[j][0], y = v[j][1], z = v[j][2];
+            // capture raw corner BEFORE the 1/4096 dedup (mesh-quality welds at 1e-8)
+            mesh.flatVerts.insert(mesh.flatVerts.end(), { x, y, z });
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
                 std::cerr << "STL Parser: non-finite binary vertex, aborting" << std::endl;
                 mesh = RenderMesh{};
@@ -270,6 +277,7 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
             mesh.indices.push_back(idx);
         }
     }
+
     file.close();
 
     mesh_utils::computeBounds(mesh);

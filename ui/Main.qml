@@ -338,7 +338,7 @@ ApplicationWindow {
                             CheckBox { text: "Points";     checked: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.showPoints = checked }
                             CheckBox { text: "BBox";       checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
                             CheckBox { text: "Defects";    checked: backendSettings ? backendSettings.showQualityOverlay : false; onToggled: backendSettings.showQualityOverlay = checked }
-                            CheckBox { text: "Cell edges"; checked: backendSettings ? backendSettings.showCellEdges : false; onToggled: backendSettings.showCellEdges = checked }
+                            CheckBox { text: "Cell edges"; enabled: backendSettings ? backendSettings.supportsCellGrid : false; checked: backendSettings ? backendSettings.showCellEdges : false; onToggled: backendSettings.showCellEdges = checked }
                             CheckBox { text: "Ortho";      checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
                             CheckBox { text: "Auto-Rot";   checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                             CheckBox { text: "LOD";        checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }

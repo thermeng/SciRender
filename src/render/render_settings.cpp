@@ -56,6 +56,7 @@ void RenderSettings::buildRenderState() {
     s.pointUseScalar = pointUseScalar;
     s.pointOpacity = pointOpacity;
     s.surfaceOpacity = surfaceOpacity;
+    s.cullMode = cullMode;
     s.showBounds = showBounds;
     s.showQualityOverlay = showQualityOverlay;
     s.showCellEdges = showCellEdges;
@@ -345,6 +346,7 @@ void RenderSettings::onMeshParsed() {
         : static_cast<int>(loaded->vertices.size() / 3);
     meshDataType = loaded->datasetType;
     meshFormat = loaded->fileFormat;
+    supportsCellGrid = loaded->supportsCellGrid;
     hasMeshLoaded = true;
 
     // Reset per-mesh vector state.
