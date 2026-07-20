@@ -350,6 +350,7 @@ ApplicationWindow {
                         }
                         // wireframe line width (gated)
                         LightSlider { label: "Line"; value: backendSettings ? backendSettings.lineWidth : 1; from: 1; to: 10; step: 0.5; enabled: backendSettings ? backendSettings.isWireframe : false; onSet: v => { if (backendSettings) backendSettings.lineWidth = v } }
+                        LightSlider { label: "Cell"; value: backendSettings ? backendSettings.cellEdgeLineWidth : 1; from: 1; to: 10; step: 0.5; enabled: backendSettings ? backendSettings.showCellEdges : false; onSet: v => { if (backendSettings) backendSettings.cellEdgeLineWidth = v } }
                         // points sub-controls (gated on showPoints)
                         Column {
                             visible: backendSettings ? backendSettings.showPoints : false
@@ -438,6 +439,7 @@ ApplicationWindow {
                                 }
                             }
                         }
+                        CheckBox { text: "Color by scalar"; checked: backendSettings ? backendSettings.meshUseScalarColor : false; onToggled: backendSettings.meshUseScalarColor = checked }
                         CheckBox { text: "Reverse palette"; checked: backendSettings ? backendSettings.colormapReversed : false; onToggled: backendSettings.colormapReversed = checked }
                         CheckBox { text: "Show colorbar"; checked: backendSettings ? backendSettings.showScalarColorbar : true; onToggled: backendSettings.showScalarColorbar = checked }
 

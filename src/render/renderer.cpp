@@ -521,7 +521,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     };
 
     // Scalar colorbar: bottom-right (corner 0).
-    if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.showScalarColorbar) {
+    if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar) {
         ColorbarData data;
         data.visible = true;
         data.title = QString::fromStdString(m_state.activeScalarName);
@@ -698,9 +698,10 @@ void Renderer::renderFrame() {
 
         glUniform1f(scalarMinLoc, m_state.scalarMin);
         glUniform1f(scalarMaxLoc, m_state.scalarMax);
-        glUniform1i(hasScalarsLoc, m_state.meshHasScalars ? 1 : 0);
+        // ponytail: coloring OFF on load; user enables via "Color by scalar"
+        glUniform1i(hasScalarsLoc, (m_state.meshHasScalars && m_state.meshUseScalarColor) ? 1 : 0);
 
-        if (m_state.meshHasScalars && colormap.scalarTexture() != 0) {
+        if (m_state.meshHasScalars && m_state.meshUseScalarColor && colormap.scalarTexture() != 0) {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_1D, colormap.scalarTexture());
             glUniform1i(lutTextureLoc, 0);
@@ -780,7 +781,7 @@ void Renderer::renderFrame() {
                 // ponytail: surface is pushed back via GL_POLYGON_OFFSET_FILL in
                 // the fill pass, so these lines (at true depth) win cleanly.
                 // A polygon offset here would be a no-op for GL_LINES.
-                glLineWidth(m_state.lineWidth); // ponytail: share wireframe thickness
+                glLineWidth(m_state.cellEdgeLineWidth); // ponytail: own thickness, not wireframe's
                 glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
                 glUniform1i(wireframeLoc, 1);
                 glUniform1i(isPointLoc, 0);

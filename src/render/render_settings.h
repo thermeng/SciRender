@@ -76,6 +76,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
     Q_PROPERTY(bool showScalarColorbar READ getShowScalarColorbar WRITE setShowScalarColorbar NOTIFY viewChanged)
+    Q_PROPERTY(bool meshUseScalarColor READ getMeshUseScalarColor WRITE setMeshUseScalarColor NOTIFY viewChanged)
     Q_PROPERTY(bool showVectors READ getShowVectors WRITE setShowVectors NOTIFY viewChanged)
     Q_PROPERTY(float vectorScale READ getVectorScale WRITE setVectorScale NOTIFY viewChanged)
     Q_PROPERTY(int vectorStride READ getVectorStride WRITE setVectorStride NOTIFY viewChanged)
@@ -122,6 +123,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
     Q_PROPERTY(float pointSize READ getPointSize WRITE setPointSize NOTIFY viewChanged)
     Q_PROPERTY(float lineWidth READ getLineWidth WRITE setLineWidth NOTIFY viewChanged)
+    Q_PROPERTY(float cellEdgeLineWidth READ getCellEdgeLineWidth WRITE setCellEdgeLineWidth NOTIFY viewChanged)
     Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
     Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
@@ -300,6 +302,8 @@ public:
     void setPointSize(float v) { if (pointSize != v) { pointSize = v; markStateDirty(); emit viewChanged(); } }
     float getLineWidth() const { return lineWidth; }
     void setLineWidth(float v) { if (lineWidth != v) { lineWidth = v; markStateDirty(); emit viewChanged(); } }
+    float getCellEdgeLineWidth() const { return cellEdgeLineWidth; }
+    void setCellEdgeLineWidth(float v) { if (cellEdgeLineWidth != v) { cellEdgeLineWidth = v; markStateDirty(); emit viewChanged(); } }
     bool getPointUseScalar() const { return pointUseScalar; }
     void setPointUseScalar(bool v) { if (pointUseScalar != v) { pointUseScalar = v; markStateDirty(); emit viewChanged(); } }
     float getPointOpacity() const { return pointOpacity; }
@@ -369,6 +373,8 @@ public:
     void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (colorbarTicks != c) { colorbarTicks = c; markStateDirty(); emit colorbarChanged(); } }
     bool getShowScalarColorbar() const { return showScalarColorbar; }
     void setShowScalarColorbar(bool v) { if (showScalarColorbar != v) { showScalarColorbar = v; markStateDirty(); emit viewChanged(); } }
+    bool getMeshUseScalarColor() const { return meshUseScalarColor; }
+    void setMeshUseScalarColor(bool v) { if (meshUseScalarColor != v) { meshUseScalarColor = v; markStateDirty(); emit viewChanged(); } }
 
     bool getClipEnabled() const { return clipEnabled; }
     void setClipEnabled(bool v) { if (clipEnabled != v) { clipEnabled = v; markStateDirty(); emit viewChanged(); } }
@@ -440,6 +446,7 @@ private:
     bool showPoints = false;  // ponytail: user toggle for vertex point-cloud draw
     float pointSize = 4.0f;   // ponytail: point diameter in framebuffer px
     float lineWidth = 1.0f;   // ponytail: wireframe line width in px
+    float cellEdgeLineWidth = 1.0f; // ponytail: separate thickness for cell-edge overlay
     bool pointUseScalar = true;  // ponytail: color points by scalar (else solid)
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
@@ -461,6 +468,7 @@ private:
 
     bool hasMeshLoaded = false;
     bool meshHasScalars = false;
+    bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
     int triangleCount = 0;
     int pointCount = 0;
     int degenerateFaces = 0;

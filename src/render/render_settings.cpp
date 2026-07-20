@@ -53,6 +53,7 @@ void RenderSettings::buildRenderState() {
     s.showPoints = showPoints;
     s.pointSize = pointSize;
     s.lineWidth = lineWidth;
+    s.cellEdgeLineWidth = cellEdgeLineWidth;
     s.pointUseScalar = pointUseScalar;
     s.pointOpacity = pointOpacity;
     s.surfaceOpacity = surfaceOpacity;
@@ -91,6 +92,7 @@ void RenderSettings::buildRenderState() {
     s.dataScalarMin = dataScalarMin; s.dataScalarMax = dataScalarMax;
     s.filterMin = filterMin; s.filterMax = filterMax;
     s.showScalarColorbar = showScalarColorbar;
+    s.meshUseScalarColor = meshUseScalarColor;
     s.colorbarTicks = colorbarTicks;
 
     s.activeScalarName = activeScalarName;
@@ -216,6 +218,7 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("lightKitEnabled", lighting.lightKitEnabled);
     s.setValue("colormapChoice", colormapChoice);
     s.setValue("colormapReversed", colormapReversed);
+    s.setValue("meshUseScalarColor", meshUseScalarColor);
     s.setValue("vectorScale", vectorScale);
     s.setValue("vectorScaleByMagnitude", vectorScaleByMagnitude);
     s.setValue("quickBarCollapsed", quickBarCollapsed);
@@ -249,6 +252,9 @@ void RenderSettings::restoreStateFromSettings() {
         lighting.lightKeyIntensity = s.value("lightKeyIntensity").toFloat();
         lighting.lightWarm = s.value("lightWarm").toFloat();
         lighting.lightKitEnabled = s.value("lightKitEnabled").toBool();
+    }
+    if (s.contains("meshUseScalarColor")) {
+        meshUseScalarColor = s.value("meshUseScalarColor").toBool();
     }
     if (s.contains("colormapChoice")) {
         colormapChoice = s.value("colormapChoice").toInt();
@@ -364,11 +370,13 @@ void RenderSettings::onMeshParsed() {
 
     if (!loaded->scalars.empty()) {
         meshHasScalars = true;
+        meshUseScalarColor = false;          // ponytail: don't color on load
         showScalarColorbar = true;
         activeScalarName = loaded->scalarName;
         recomputeScalarRange();
     } else {
         meshHasScalars = false;
+        meshUseScalarColor = false;
         showScalarColorbar = false;
         dataScalarMin = 0.0f;
         dataScalarMax = 1.0f;

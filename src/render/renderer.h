@@ -61,6 +61,7 @@ struct RenderRenderState {
     bool useLod = true;
     float pointSize = 4.0f; // ponytail: CPU-driven gl_PointSize for point clouds
     float lineWidth = 1.0f; // ponytail: wireframe glLineWidth in px
+    float cellEdgeLineWidth = 1.0f; // ponytail: separate thickness for cell-edge overlay
     bool showPoints = false; // ponytail: draw vertices as GL_POINTS
     bool pointUseScalar = true;  // ponytail: color points by scalar; else solid
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
@@ -106,6 +107,7 @@ struct RenderRenderState {
     float filterMin = 0.0f;
     float filterMax = 1.0f;
     bool showScalarColorbar = true;
+    bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
     int colorbarTicks = 6;
     std::string activeScalarName;
 
