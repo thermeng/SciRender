@@ -19,5 +19,8 @@ RenderMesh loadMeshFile(const std::string& filePath) {
     if (ext == "VTK") {
         return parseVTK(filePath);
     }
-    throw std::runtime_error("unsupported file extension '" + ext + "' (expected .stl or .vtk)");
+    if (ext == "OBJ") {
+        return parseOBJ(filePath);
+    }
+    throw std::runtime_error("unsupported file extension '" + ext + "' (expected .stl, .vtk or .obj)");
 }

@@ -156,6 +156,10 @@ RenderMesh parseVTK(const std::string& filePath);
 // Parses ASCII and Binary STL formats
 RenderMesh parseSTL(const std::string& filePath);
 
+// ── OBJ Parser Definition ───────────────────────────────────────────────────
+// Parses Wavefront OBJ (.obj) — text `v` vertices + `f` faces.
+RenderMesh parseOBJ(const std::string& filePath);
+
 // ── Extension-based Dispatcher ──────────────────────────────────────────────
 // Inspects the file extension (.vtk, .stl) and routes to the correct parser
 RenderMesh loadMeshFile(const std::string& filePath);
