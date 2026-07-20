@@ -50,6 +50,7 @@ struct RenderMesh {
     // Core GPU arrays (float for GPU upload)
     std::vector<float> vertices;   // x,y,z interleaved
     std::vector<uint32_t> indices; // Triangle indices (32-bit, matches GL_UNSIGNED_INT)
+    std::vector<float> cellEdges;   // ponytail: per-cell boundary edges as xyz line verts (no triangle diagonal)
     std::vector<float> normals;    // nx,ny,nz interleaved
     std::vector<float> scalars;    // Active scalar field (per-vertex, optional)
     std::string scalarName = "";   // Name of active scalar field
@@ -98,6 +99,12 @@ struct RenderMesh {
     // with only POINTS, or a STRUCTURED_POINTS grid) so the renderer draws
     // GL_POINTS instead of requiring triangle topology.
     bool renderAsPoints = false;
+
+    // Raw per-face corner positions (9 floats per triangle), captured BEFORE
+    // the parser's position dedup. The mesh-quality analyzer welds these at
+    // trimesh's 1e-8 tolerance to match script.py; the rendered indexed mesh
+    // uses the (looser 1/4096) dedup for shading, so the two must stay separate.
+    std::vector<float> flatVerts;
 
     // True/topological point count of the source geometry — the number of
     // distinct vertices (after position dedup for STL). This is what tools like

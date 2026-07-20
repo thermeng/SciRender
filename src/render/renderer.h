@@ -67,6 +67,7 @@ struct RenderRenderState {
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
+    bool showCellEdges = false;      // ponytail: ParaView-style per-cell boundary edges
     // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
     std::vector<float> qualityDegenerateTris;
     std::vector<float> qualityOpenEdges;

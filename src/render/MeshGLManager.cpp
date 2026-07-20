@@ -142,6 +142,7 @@ void MeshGLManager::destroyMesh(Mesh& mesh) {
     glDeleteBuffers(1, &mesh.nbo);
     glDeleteBuffers(1, &mesh.ebo);
     if (mesh.sbo) glDeleteBuffers(1, &mesh.sbo);
+    if (mesh.lineVao) { glDeleteVertexArrays(1, &mesh.lineVao); glDeleteBuffers(1, &mesh.lineVbo); }
 }
 
 void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out) {
@@ -189,6 +190,19 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, renderMesh.indices.size() * sizeof(unsigned int), renderMesh.indices.data(), GL_STATIC_DRAW);
+
+    // ponytail: per-cell boundary edges (cellEdges) -> dedicated line VBO
+    if (!renderMesh.cellEdges.empty()) {
+        glGenVertexArrays(1, &mesh.lineVao);
+        glGenBuffers(1, &mesh.lineVbo);
+        glBindVertexArray(mesh.lineVao);
+        glBindBuffer(GL_ARRAY_BUFFER, mesh.lineVbo);
+        glBufferData(GL_ARRAY_BUFFER, renderMesh.cellEdges.size() * sizeof(float), renderMesh.cellEdges.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+        mesh.lineCount = static_cast<int>(renderMesh.cellEdges.size() / 3);
+    }
 
     glBindVertexArray(0);
     out.push_back(mesh);

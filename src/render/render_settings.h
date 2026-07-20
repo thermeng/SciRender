@@ -72,6 +72,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool watertight READ getWatertight NOTIFY meshLoadStateChanged)
 
     Q_PROPERTY(QString meshFormat READ getMeshFormat NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(QString meshDataType READ getMeshDataType NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
     Q_PROPERTY(bool showScalarColorbar READ getShowScalarColorbar WRITE setShowScalarColorbar NOTIFY viewChanged)
@@ -123,6 +124,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
     Q_PROPERTY(bool showQualityOverlay READ getShowQualityOverlay WRITE setShowQualityOverlay NOTIFY viewChanged)
+    Q_PROPERTY(bool showCellEdges READ getShowCellEdges WRITE setShowCellEdges NOTIFY viewChanged)
     Q_PROPERTY(bool orthographic READ getOrthographic WRITE setOrthographic NOTIFY viewChanged)
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
@@ -303,6 +305,8 @@ public:
     void setShowBounds(bool v) { if (showBounds != v) { showBounds = v; markStateDirty(); emit viewChanged(); } }
     bool getShowQualityOverlay() const { return showQualityOverlay; }
     void setShowQualityOverlay(bool v) { if (showQualityOverlay != v) { showQualityOverlay = v; markStateDirty(); emit viewChanged(); } }
+    bool getShowCellEdges() const { return showCellEdges; }
+    void setShowCellEdges(bool v) { if (showCellEdges != v) { showCellEdges = v; markStateDirty(); emit viewChanged(); } }
     bool getOrthographic() const { return orthographic; }
     void setOrthographic(bool v) { if (orthographic != v) { orthographic = v; markStateDirty(); emit viewChanged(); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(meshColor[0], meshColor[1], meshColor[2]); }
@@ -427,6 +431,7 @@ private:
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
+    bool showCellEdges = false;      // ponytail: ParaView-style per-cell boundary edges (quads w/o diagonal)
     // ponytail: overlay geometry (xyz floats); populated at load, empty when clean
     std::vector<float> qualityDegenerateTris;
     std::vector<float> qualityOpenEdges;

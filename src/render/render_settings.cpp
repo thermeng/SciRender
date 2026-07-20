@@ -58,6 +58,7 @@ void RenderSettings::buildRenderState() {
     s.surfaceOpacity = surfaceOpacity;
     s.showBounds = showBounds;
     s.showQualityOverlay = showQualityOverlay;
+    s.showCellEdges = showCellEdges;
     s.qualityDegenerateTris = qualityDegenerateTris;
     s.qualityOpenEdges = qualityOpenEdges;
     s.qualityNonManifoldEdges = qualityNonManifoldEdges;

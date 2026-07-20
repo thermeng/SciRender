@@ -70,6 +70,25 @@ public:
         buildTopology();
         finalizeMeshData();
 
+        // ponytail: ParaView-style cell boundaries — emit each cell's cyclic
+        // edges (v0-v1, v1-v2, ... vN-1-v0). Quads => 4 edges, no diagonal;
+        // triangles => 3 (same as wireframe). Driven by globalCellToVertices so
+        // every dataset type (structured/rectilinear/unstructured/polydata) is covered.
+        for (const auto& cell : globalCellToVertices) {
+            const size_t n = cell.size();
+            if (n < 2) continue;
+            for (size_t k = 0; k < n; ++k) {
+                const uint32_t a = cell[k];
+                const uint32_t b = cell[(k + 1) % n];
+                mesh.cellEdges.push_back(mesh.vertices[3 * a + 0]);
+                mesh.cellEdges.push_back(mesh.vertices[3 * a + 1]);
+                mesh.cellEdges.push_back(mesh.vertices[3 * a + 2]);
+                mesh.cellEdges.push_back(mesh.vertices[3 * b + 0]);
+                mesh.cellEdges.push_back(mesh.vertices[3 * b + 1]);
+                mesh.cellEdges.push_back(mesh.vertices[3 * b + 2]);
+            }
+        }
+
         mesh.datasetType = datasetType.empty() ? "UNKNOWN" : datasetType;
         mesh.fileFormat = "VTK";
         return mesh;
@@ -1029,6 +1048,16 @@ private:
         mesh_utils::computeBounds(mesh);
 
         mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
+
+        // Reconstruct raw per-corner positions (9 floats/tri) for the
+        // mesh-quality analyzer, which welds these at trimesh's 1e-8 tolerance.
+        // The rendered indexed mesh keeps the parser's dedup; the two stay
+        // separate on purpose.
+        mesh.flatVerts.reserve(mesh.indices.size() * 3);
+        for (uint32_t i : mesh.indices) {
+            const float* p = &mesh.vertices[i * 3];
+            mesh.flatVerts.insert(mesh.flatVerts.end(), { p[0], p[1], p[2] });
+        }
 
         if (mesh.normals.empty() && !mesh.indices.empty()) {
             mesh_utils::computeNormals(mesh);

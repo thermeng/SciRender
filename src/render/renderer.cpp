@@ -748,6 +748,24 @@ void Renderer::renderFrame() {
         glBindVertexArray(0);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+        // ponytail: ParaView-style cell edges — true per-cell boundaries (quads
+        // without the triangle diagonal). Drawn from the per-mesh line VBO built
+        // at load from globalCellToVertices. Reuses mesh shader + wireframe color.
+        if (m_state.showCellEdges && shaderProgram != 0) {
+            auto ce = meshManager.getCellEdgeLine();
+            if (ce.first != 0 && ce.second > 0) {
+                glLineWidth(m_state.lineWidth); // ponytail: share wireframe thickness
+                glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+                glUniform1i(wireframeLoc, 1);
+                glUniform1i(isPointLoc, 0);
+                glUniform3f(meshColorLoc, m_state.meshColor[0], m_state.meshColor[1], m_state.meshColor[2]);
+                glBindVertexArray(ce.first);
+                glDrawArrays(GL_LINES, 0, ce.second);
+                glBindVertexArray(0);
+                glLineWidth(1.0f);
+            }
+        }
+
         // ponytail: AABB wireframe overlay (reuses mesh shader, wireframe color)
         if (m_state.showBounds && shaderProgram != 0) {
             static GLuint bboxVao = 0, bboxVbo = 0;

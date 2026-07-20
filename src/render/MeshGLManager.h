@@ -14,8 +14,11 @@ struct Mesh {
     GLuint nbo = 0;
     GLuint ebo = 0;
     GLuint sbo = 0;
+    GLuint lineVao = 0; // ponytail: per-cell boundary edges (cellEdges)
+    GLuint lineVbo = 0;
     int indexCount = 0;
     int vertexCount = 0; // # vertices; draw count for point-cloud meshes
+    int lineCount = 0;   // # xyz verts in lineVao (0 if no cell edges)
 };
 
 // Owns the full-resolution and decimated (LOD) GPU meshes plus the meshChanged
@@ -60,6 +63,13 @@ public:
 
     bool hasMeshes() const { return !meshes_.empty(); }
     bool hasDecimated() const { return hasDecimated_; }
+
+    // ponytail: returns the primary full mesh's cell-edge line VBO + vertex count
+    // (0 count when no cell edges). Used by the renderer's "Cell edges" overlay.
+    std::pair<GLuint, int> getCellEdgeLine() const {
+        if (meshes_.empty()) return {0, 0};
+        return {meshes_.front().lineVao, meshes_.front().lineCount};
+    }
 
     // GPU-upload-due flag, set by the loader and consumed by the render thread.
     std::atomic<bool> meshChanged{true};
