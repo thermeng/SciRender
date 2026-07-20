@@ -16,7 +16,16 @@
 
 #include "render/renderer.h"
 #include "core/mesh_loader.h"
+#include "core/mesh_quality.h"
 #include "core/Camera.h"
+
+// ponytail: bundles parse + quality so both run on the worker thread; the GUI
+// callback only publishes. Quality analysis is pure CPU (reads flatVerts), no
+// GL context, so it is safe off-thread.
+struct MeshLoadResult {
+    std::shared_ptr<const RenderMesh> mesh;
+    MeshQuality quality;
+};
 
 // ---------------------------------------------------------------------------
 // RenderSettings — the GUI-THREAD facade.
@@ -540,7 +549,7 @@ private:
     // QtConcurrent::run; the finished result is delivered here and handed to the
     // render thread as a shared_ptr (no copy). Parented to this object so it is
     // destroyed on the GUI thread.
-    QFutureWatcher<std::shared_ptr<const RenderMesh>> m_meshWatcher;
+    QFutureWatcher<MeshLoadResult> m_meshWatcher;
     std::string m_loadingPath; // normalized path for filename/recent-files in the continuation
     // Monotonic generation counter: each loadMesh() increments it and stamps the
     // async task. onMeshParsed() ignores results whose token != current, so a

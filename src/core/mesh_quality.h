@@ -2,7 +2,6 @@
 #include "core/mesh_loader.h"   // public RenderMesh only; no parser internals (SRP)
 #include <cstdint>
 #include <cmath>
-#include <unordered_map>
 #include <vector>
 #include <algorithm>
 
@@ -27,43 +26,45 @@ inline MeshQuality analyzeMeshQuality(const RenderMesh& mesh) {
 
     // -------------------------------------------------------------------------
     // 1. Quantize & Weld Vertices (Trimesh tol.merge = 1e-8)
+    //    ponytail: sort-based weld — same technique as the edge pass below.
+    //    Drops the unordered_map + custom hash; one contiguous sort beats
+    //    per-corner hash + node allocation on large meshes. Exact (x,y,z)
+    //    triple equality, no bit-packing (winding/ids must stay faithful).
     // -------------------------------------------------------------------------
     auto quant = [](float f) -> int64_t {
         return static_cast<int64_t>(std::llround(static_cast<double>(f) * 1e8));
     };
 
-    struct QKey {
+    struct QCorner {
         int64_t x, y, z;
-        bool operator==(const QKey& o) const { return x == o.x && y == o.y && z == o.z; }
+        uint32_t c; // original corner index
     };
-
-    // Fast xor-shift mixer hash for 64-bit quantized keys
-    struct QKeyHash {
-        size_t operator()(const QKey& k) const {
-            uint64_t hx = static_cast<uint64_t>(k.x) * 0x9e3779b97f4a7c15ULL;
-            uint64_t hy = static_cast<uint64_t>(k.y) * 0xbf58476d1ce4e5b9ULL;
-            uint64_t hz = static_cast<uint64_t>(k.z) * 0x94d049bb133111ebULL;
-            return static_cast<size_t>(hx ^ (hy >> 16) ^ (hz << 8));
-        }
-    };
-
-    std::unordered_map<QKey, uint32_t, QKeyHash> keyToWelded;
-    keyToWelded.reserve(nt * 3);
+    std::vector<QCorner> corners;
+    corners.reserve(nt * 3);
+    for (size_t i = 0; i < nt * 3; ++i) {
+        const float* p = &fv[i * 3];
+        corners.push_back({ quant(p[0]), quant(p[1]), quant(p[2]), static_cast<uint32_t>(i) });
+    }
+    std::sort(corners.begin(), corners.end(),
+              [](const QCorner& a, const QCorner& b) {
+                  if (a.x != b.x) return a.x < b.x;
+                  if (a.y != b.y) return a.y < b.y;
+                  return a.z < b.z;
+              });
 
     std::vector<uint32_t> weld(nt * 3);
     std::vector<uint32_t> weldedCorner;
     weldedCorner.reserve(nt * 3);
-
-    for (size_t i = 0; i < nt * 3; ++i) {
-        const float* p = &fv[i * 3];
-        QKey k{ quant(p[0]), quant(p[1]), quant(p[2]) };
-        auto it = keyToWelded.find(k);
-        if (it == keyToWelded.end()) {
-            uint32_t newIdx = static_cast<uint32_t>(weldedCorner.size());
-            it = keyToWelded.emplace(k, newIdx).first;
-            weldedCorner.push_back(static_cast<uint32_t>(i));
+    uint32_t cur = 0;
+    for (size_t j = 0; j < corners.size(); ++j) {
+        if (j == 0 ||
+            corners[j].x != corners[j-1].x ||
+            corners[j].y != corners[j-1].y ||
+            corners[j].z != corners[j-1].z) {
+            cur = static_cast<uint32_t>(weldedCorner.size());
+            weldedCorner.push_back(corners[j].c);
         }
-        weld[i] = it->second;
+        weld[corners[j].c] = cur;
     }
     const uint32_t nv = static_cast<uint32_t>(weldedCorner.size());
 

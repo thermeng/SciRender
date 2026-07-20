@@ -332,9 +332,12 @@ ApplicationWindow {
                             Button { text: "-Y"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(3) }
                             Button { text: "+Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(4) }
                             Button { text: "-Z"; Layout.fillWidth: true; onClicked: backendSettings.snapToOrthoView(5) }
-                            CheckBox { text: "Ortho";    checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
-                            CheckBox { text: "Auto-Rot"; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
-                            CheckBox { text: "LOD";      checked: backendSettings ? backendSettings.useLod : true; onToggled: backendSettings.useLod = checked }
+                        }
+                        // ponytail: tight pair, renamed
+                        Column {
+                            width: parent.width; spacing: 2
+                            CheckBox { text: "Parallel View"; width: parent.width; checked: backendSettings ? backendSettings.orthographic : false; onToggled: backendSettings.orthographic = checked }
+                            CheckBox { text: "Auto-Rotate";   width: parent.width; checked: backendSettings ? backendSettings.autoRotate : false; onToggled: backendSettings.autoRotate = checked }
                         }
                         RowLayout {
                             width: parent.width; spacing: 6
@@ -349,18 +352,22 @@ ApplicationWindow {
                         Button { text: "Reset Camera"; width: parent.width; onClicked: backendSettings.resetCamera() }
 
                         Text { text: "Display"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        // ponytail: [Checkbox] --- [Slider] inline rows; single 2-col grid so sliders align
+                        GridLayout {
+                            width: parent.width; columns: 2; rowSpacing: 4; columnSpacing: 8
+                            CheckBox { text: "Wireframe"; Layout.preferredWidth: 90; checked: backendSettings ? backendSettings.isWireframe : false; onToggled: backendSettings.isWireframe = checked }
+                            Slider { Layout.fillWidth: true; from: 1; to: 10; stepSize: 0.5; value: backendSettings ? backendSettings.lineWidth : 1; enabled: backendSettings ? backendSettings.isWireframe : false; onMoved: { if (backendSettings) backendSettings.lineWidth = value } }
+                            CheckBox { text: "Cell Edge"; Layout.preferredWidth: 90; enabled: backendSettings ? backendSettings.supportsCellGrid : false; checked: backendSettings ? backendSettings.showCellEdges : false; onToggled: backendSettings.showCellEdges = checked }
+                            Slider { Layout.fillWidth: true; from: 1; to: 10; stepSize: 0.5; value: backendSettings ? backendSettings.cellEdgeLineWidth : 1; enabled: backendSettings ? backendSettings.showCellEdges : false; onMoved: { if (backendSettings) backendSettings.cellEdgeLineWidth = value } }
+                        }
                         GridLayout {
                             width: parent.width; columns: 2; rowSpacing: 3; columnSpacing: 8
-                            CheckBox { text: "Wireframe";  checked: backendSettings ? backendSettings.isWireframe : false; onToggled: backendSettings.isWireframe = checked }
                             CheckBox { text: "Surface";    checked: backendSettings ? backendSettings.isSurfaceVisible : false; onToggled: backendSettings.isSurfaceVisible = checked }
                             CheckBox { text: "Points";     checked: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.showPoints = checked }
-                            CheckBox { text: "Cell edges"; enabled: backendSettings ? backendSettings.supportsCellGrid : false; checked: backendSettings ? backendSettings.showCellEdges : false; onToggled: backendSettings.showCellEdges = checked }
-                            CheckBox { text: "Grid";       checked: backendSettings ? backendSettings.isGridVisible : false; onToggled: backendSettings.isGridVisible = checked }
-                            CheckBox { text: "BBox";       checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
+                            CheckBox { text: "Reference";       checked: backendSettings ? backendSettings.isGridVisible : false; onToggled: backendSettings.isGridVisible = checked }
+                            CheckBox { text: "Bounding Box";       checked: backendSettings ? backendSettings.showBounds : false; onToggled: backendSettings.showBounds = checked }
                             CheckBox { text: "Defects";    checked: backendSettings ? backendSettings.showQualityOverlay : false; onToggled: backendSettings.showQualityOverlay = checked }
                         }
-                        LightSlider { label: "Line"; value: backendSettings ? backendSettings.lineWidth : 1; from: 1; to: 10; step: 0.5; enabled: backendSettings ? backendSettings.isWireframe : false; onSet: v => { if (backendSettings) backendSettings.lineWidth = v } }
-                        LightSlider { label: "Cell"; value: backendSettings ? backendSettings.cellEdgeLineWidth : 1; from: 1; to: 10; step: 0.5; enabled: backendSettings ? backendSettings.showCellEdges : false; onSet: v => { if (backendSettings) backendSettings.cellEdgeLineWidth = v } }
                         Column {
                             visible: backendSettings ? backendSettings.showPoints : false
                             spacing: 4; width: parent.width
@@ -369,8 +376,11 @@ ApplicationWindow {
                             CheckBox { text: "Color by scalar"; checked: backendSettings ? backendSettings.pointUseScalar : true; onToggled: backendSettings.pointUseScalar = checked }
                         }
 
+                        Text { text: "Transparency"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        LightSlider { label: "Surface"; value: backendSettings ? backendSettings.surfaceOpacity : 1; from: 0.1; to: 1; step: 0.05; decimals: 2; onSet: v => { if (backendSettings) backendSettings.surfaceOpacity = v } }
+                        LightSlider { label: "Point";  value: backendSettings ? backendSettings.pointOpacity : 1; from: 0.1; to: 1; step: 0.05; decimals: 2; onSet: v => { if (backendSettings) backendSettings.pointOpacity = v } }
+
                         Text { text: "Appearance"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
-                        LightSlider { label: "Surf α"; value: backendSettings ? backendSettings.surfaceOpacity : 1; from: 0.1; to: 1; step: 0.05; decimals: 2; onSet: v => { if (backendSettings) backendSettings.surfaceOpacity = v } }
                         RowLayout {
                             width: parent.width; spacing: 6
                             Text { text: "MSAA"; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 50 }
@@ -880,8 +890,8 @@ ApplicationWindow {
                 onClicked: backendSettings.isWireframe = !backendSettings.isWireframe
             }
             QBButton {
-                text: "G"; ToolTip.text: "Grid"; ToolTip.visible: hovered
-                Accessible.name: "Grid"
+                text: "G"; ToolTip.text: "Ground"; ToolTip.visible: hovered
+                Accessible.name: "Ground"
                 active: backendSettings ? backendSettings.isGridVisible : false
                 onClicked: backendSettings.isGridVisible = !backendSettings.isGridVisible
             }
@@ -896,11 +906,11 @@ ApplicationWindow {
 
             // -- Orthographic view snaps --
             QBButton { text: "+X"; ToolTip.text: "Ortho +X"; ToolTip.visible: hovered; Accessible.name: "Ortho +X"; onClicked: backendSettings.snapToOrthoView(0) }
-            QBButton { text: "\u2212X"; ToolTip.text: "Ortho -X"; ToolTip.visible: hovered; Accessible.name: "Ortho -X"; onClicked: backendSettings.snapToOrthoView(1) }
+            QBButton { text: "-X"; ToolTip.text: "Ortho -X"; ToolTip.visible: hovered; Accessible.name: "Ortho -X"; onClicked: backendSettings.snapToOrthoView(1) }
             QBButton { text: "+Y"; ToolTip.text: "Ortho +Y"; ToolTip.visible: hovered; Accessible.name: "Ortho +Y"; onClicked: backendSettings.snapToOrthoView(2) }
-            QBButton { text: "\u2212Y"; ToolTip.text: "Ortho -Y"; ToolTip.visible: hovered; Accessible.name: "Ortho -Y"; onClicked: backendSettings.snapToOrthoView(3) }
+            QBButton { text: "-Y"; ToolTip.text: "Ortho -Y"; ToolTip.visible: hovered; Accessible.name: "Ortho -Y"; onClicked: backendSettings.snapToOrthoView(3) }
             QBButton { text: "+Z"; ToolTip.text: "Ortho +Z"; ToolTip.visible: hovered; Accessible.name: "Ortho +Z"; onClicked: backendSettings.snapToOrthoView(4) }
-            QBButton { text: "\u2212Z"; ToolTip.text: "Ortho -Z"; ToolTip.visible: hovered; Accessible.name: "Ortho -Z"; onClicked: backendSettings.snapToOrthoView(5) }
+            QBButton { text: "-Z"; ToolTip.text: "Ortho -Z"; ToolTip.visible: hovered; Accessible.name: "Ortho -Z"; onClicked: backendSettings.snapToOrthoView(5) }
 
             Rectangle { width: 1; height: 22; color: "#555" }
 
@@ -1022,6 +1032,12 @@ ApplicationWindow {
             }
             MenuSeparator {}
             MenuItem { text: "Reset Camera"; onTriggered: backendSettings.resetCamera() }
+            MenuItem {
+                text: "Level of detail (LOD)"
+                checkable: true
+                checked: backendSettings ? backendSettings.useLod : true
+                onTriggered: if (backendSettings) backendSettings.useLod = !backendSettings.useLod
+            }
         }
         Menu {
             title: "Help"

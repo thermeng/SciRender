@@ -25,7 +25,7 @@ RenderSettings::RenderSettings(QObject* parent)
 
     loadRecentFromSettings();
 
-    connect(&m_meshWatcher, &QFutureWatcher<std::shared_ptr<const RenderMesh>>::finished,
+    connect(&m_meshWatcher, &QFutureWatcher<MeshLoadResult>::finished,
             this, &RenderSettings::onMeshParsed);
 }
 
@@ -286,11 +286,16 @@ void RenderSettings::loadMesh(const QString& filePath) {
     const uint64_t token = ++m_loadToken;
     auto taskToken = std::make_shared<std::atomic<uint64_t>>(token);
     m_taskToken = taskToken;
-    QFuture<std::shared_ptr<const RenderMesh>> f =
-        QtConcurrent::run([stdPath, taskToken, token]() -> std::shared_ptr<const RenderMesh> {
+    QFuture<MeshLoadResult> f =
+        QtConcurrent::run([stdPath, taskToken, token]() -> MeshLoadResult {
             RenderMesh loaded = loadMeshFile(stdPath);
             taskToken->store(token); // mark this task's generation on completion
-            return std::make_shared<const RenderMesh>(std::move(loaded));
+            MeshLoadResult res;
+            res.mesh = std::make_shared<const RenderMesh>(std::move(loaded));
+            // ponytail: analyze off-thread so the heavy weld/sort/traversal never
+            // blocks the GUI thread. flatVerts is stable on the shared mesh.
+            res.quality = analyzeMeshQuality(*res.mesh);
+            return res;
         });
     m_loadingPath = stdPath;
     m_meshWatcher.setFuture(f);
@@ -302,7 +307,8 @@ void RenderSettings::onMeshParsed() {
     // increments m_loadToken; if this task's generation no longer matches, drop it
     // so it cannot clobber state or report a false "could not load" error.
     if (!m_taskToken || m_taskToken->load() != m_loadToken) return;
-    std::shared_ptr<const RenderMesh> loaded = m_meshWatcher.result();
+    MeshLoadResult res = m_meshWatcher.result();
+    std::shared_ptr<const RenderMesh> loaded = res.mesh;
     if (!loaded) return;
 
     if (loaded->vertices.empty()) {
@@ -320,15 +326,15 @@ void RenderSettings::onMeshParsed() {
     // arrays) also stay ONLY in m_loadedMesh and are read from there on switch.
     m_guiMeta = *loaded;
     {
-        MeshQuality mq = analyzeMeshQuality(*loaded);
+        const MeshQuality& mq = res.quality;
         degenerateFaces  = mq.degenerateFaces;
         openEdges        = mq.openEdges;
         nonManifoldEdges = mq.nonManifoldEdges;
         nonManifoldVerts = mq.nonManifoldVerts;
         watertight       = mq.watertight;
-        qualityDegenerateTris  = std::move(mq.degenerateTriVerts);
-        qualityOpenEdges        = std::move(mq.openEdgeVerts);
-        qualityNonManifoldEdges = std::move(mq.nonManifoldEdgeVerts);
+        qualityDegenerateTris  = mq.degenerateTriVerts;
+        qualityOpenEdges        = mq.openEdgeVerts;
+        qualityNonManifoldEdges = mq.nonManifoldEdgeVerts;
     }
 
     m_guiMeta.vertices.clear();   m_guiMeta.vertices.shrink_to_fit();
