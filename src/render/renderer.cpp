@@ -192,6 +192,9 @@ void Renderer::initShaders() {
     sliceHeightXLoc = glGetUniformLocation(shaderProgram, "uSliceHeightX");
     sliceHeightYLoc = glGetUniformLocation(shaderProgram, "uSliceHeightY");
     sliceHeightZLoc = glGetUniformLocation(shaderProgram, "uSliceHeightZ");
+    sliceEnabledXLoc = glGetUniformLocation(shaderProgram, "uSliceEnabledX");
+    sliceEnabledYLoc = glGetUniformLocation(shaderProgram, "uSliceEnabledY");
+    sliceEnabledZLoc = glGetUniformLocation(shaderProgram, "uSliceEnabledZ");
     invertXLoc = glGetUniformLocation(shaderProgram, "uInvertX");
     invertYLoc = glGetUniformLocation(shaderProgram, "uInvertY");
     invertZLoc = glGetUniformLocation(shaderProgram, "uInvertZ");
@@ -686,6 +689,9 @@ void Renderer::renderFrame() {
         glUniform1i(invertXLoc, m_state.invertX ? 1 : 0);
         glUniform1i(invertYLoc, m_state.invertY ? 1 : 0);
         glUniform1i(invertZLoc, m_state.invertZ ? 1 : 0);
+        glUniform1i(sliceEnabledXLoc, m_state.sliceEnabledX ? 1 : 0);
+        glUniform1i(sliceEnabledYLoc, m_state.sliceEnabledY ? 1 : 0);
+        glUniform1i(sliceEnabledZLoc, m_state.sliceEnabledZ ? 1 : 0);
         glUniform1f(filterMinLoc, m_state.filterMin);
         glUniform1f(filterMaxLoc, m_state.filterMax);
         glUniform1i(clipEnabledLoc, m_state.clipEnabled ? 1 : 0);
@@ -790,6 +796,8 @@ void Renderer::renderFrame() {
 
         // ponytail: AABB wireframe overlay (reuses mesh shader, wireframe color)
         if (m_state.showBounds && shaderProgram != 0) {
+            // ponytail: AABB is a reference box, not mesh — never clip it.
+            glUniform1i(sliceEnabledXLoc, 0); glUniform1i(sliceEnabledYLoc, 0); glUniform1i(sliceEnabledZLoc, 0);
             static GLuint bboxVao = 0, bboxVbo = 0;
             if (bboxVao == 0) {
                 // 12 edges of a unit cube centered at origin, coords -0.5..0.5
@@ -832,6 +840,10 @@ void Renderer::renderFrame() {
             glBindVertexArray(bboxVao);
             glDrawArrays(GL_LINES, 0, 24);
             glBindVertexArray(0);
+            // restore for any later shared-program pass this frame
+            glUniform1i(sliceEnabledXLoc, m_state.sliceEnabledX ? 1 : 0);
+            glUniform1i(sliceEnabledYLoc, m_state.sliceEnabledY ? 1 : 0);
+            glUniform1i(sliceEnabledZLoc, m_state.sliceEnabledZ ? 1 : 0);
         }
 
         // ponytail: mesh-quality highlight overlay — degenerate faces (red fill)
@@ -839,6 +851,8 @@ void Renderer::renderFrame() {
         // the mesh. Depth test + cull are disabled so interior defects (coplanar
         // with the surface) are not z-rejected and hidden.
         if (m_state.showQualityOverlay && shaderProgram != 0) {
+            // ponytail: quality edges are diagnostics, not mesh — never clip.
+            glUniform1i(sliceEnabledXLoc, 0); glUniform1i(sliceEnabledYLoc, 0); glUniform1i(sliceEnabledZLoc, 0);
             // ponytail: save state; restore to prev (mesh pass leaves cull OFF,
             // gizmo text quads rely on that — don't hard-enable cull here).
             GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);

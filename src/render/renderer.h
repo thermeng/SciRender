@@ -114,6 +114,9 @@ struct RenderRenderState {
     float sliceHeightX = 0.0f;
     float sliceHeightY = 0.0f;
     float sliceHeightZ = 0.0f;
+    bool sliceEnabledX = false;
+    bool sliceEnabledY = false;
+    bool sliceEnabledZ = false;
     bool invertX = false;
     bool invertY = false;
     bool invertZ = false;
@@ -285,6 +288,9 @@ private:
     GLint sliceHeightXLoc = -1;
     GLint sliceHeightYLoc = -1;
     GLint sliceHeightZLoc = -1;
+    GLint sliceEnabledXLoc = -1;
+    GLint sliceEnabledYLoc = -1;
+    GLint sliceEnabledZLoc = -1;
     GLint invertXLoc = -1;
     GLint invertYLoc = -1;
     GLint invertZLoc = -1;

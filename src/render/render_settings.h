@@ -109,6 +109,9 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float sliceHeightX READ getSliceX WRITE setSliceX NOTIFY viewChanged)
     Q_PROPERTY(float sliceHeightY READ getSliceY WRITE setSliceY NOTIFY viewChanged)
     Q_PROPERTY(float sliceHeightZ READ getSliceZ WRITE setSliceZ NOTIFY viewChanged)
+    Q_PROPERTY(bool sliceEnabledX READ getSliceEnabledX WRITE setSliceEnabledX NOTIFY viewChanged)
+    Q_PROPERTY(bool sliceEnabledY READ getSliceEnabledY WRITE setSliceEnabledY NOTIFY viewChanged)
+    Q_PROPERTY(bool sliceEnabledZ READ getSliceEnabledZ WRITE setSliceEnabledZ NOTIFY viewChanged)
     Q_PROPERTY(bool invertX READ getInvertX WRITE setInvertX NOTIFY viewChanged)
     Q_PROPERTY(bool invertY READ getInvertY WRITE setInvertY NOTIFY viewChanged)
     Q_PROPERTY(bool invertZ READ getInvertZ WRITE setInvertZ NOTIFY viewChanged)
@@ -375,6 +378,12 @@ public:
     void setSliceY(float v) { if (sliceHeightY != v) { sliceHeightY = v; markStateDirty(); emit viewChanged(); } }
     float getSliceZ() const { return sliceHeightZ; }
     void setSliceZ(float v) { if (sliceHeightZ != v) { sliceHeightZ = v; markStateDirty(); emit viewChanged(); } }
+    bool getSliceEnabledX() const { return sliceEnabledX; }
+    void setSliceEnabledX(bool v) { if (sliceEnabledX != v) { sliceEnabledX = v; markStateDirty(); emit viewChanged(); } }
+    bool getSliceEnabledY() const { return sliceEnabledY; }
+    void setSliceEnabledY(bool v) { if (sliceEnabledY != v) { sliceEnabledY = v; markStateDirty(); emit viewChanged(); } }
+    bool getSliceEnabledZ() const { return sliceEnabledZ; }
+    void setSliceEnabledZ(bool v) { if (sliceEnabledZ != v) { sliceEnabledZ = v; markStateDirty(); emit viewChanged(); } }
     bool getInvertX() const { return invertX; }
     void setInvertX(bool v) { if (invertX != v) { invertX = v; markStateDirty(); emit viewChanged(); } }
     bool getInvertY() const { return invertY; }
@@ -499,6 +508,9 @@ private:
     float sliceHeightX = 0.0f;
     float sliceHeightY = 0.0f;
     float sliceHeightZ = 0.0f;
+    bool sliceEnabledX = false;
+    bool sliceEnabledY = false;
+    bool sliceEnabledZ = false;
     bool invertX = false;
     bool invertY = false;
     bool invertZ = false;

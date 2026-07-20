@@ -296,6 +296,11 @@ ApplicationWindow {
                             enabled: backendSettings ? backendSettings.clipEnabled : false
                             spacing: 6
                             width: parent.width
+                            Row { spacing: 8
+                                CheckBox { text: "X"; checked: backendSettings ? backendSettings.sliceEnabledX : false; onToggled: backendSettings.sliceEnabledX = checked }
+                                CheckBox { text: "Y"; checked: backendSettings ? backendSettings.sliceEnabledY : false; onToggled: backendSettings.sliceEnabledY = checked }
+                                CheckBox { text: "Z"; checked: backendSettings ? backendSettings.sliceEnabledZ : false; onToggled: backendSettings.sliceEnabledZ = checked }
+                            }
                             Text { text: "Cut planes (world units)"; color: "#888"; font.pixelSize: 10 }
                             ClipSlider { label: "Slice X"; value: backendSettings ? backendSettings.sliceHeightX : 0; from: backendSettings ? backendSettings.worldMinX : 0; to: backendSettings ? backendSettings.worldMaxX : 1; onSet: v => backendSettings.sliceHeightX = v }
                             ClipSlider { label: "Slice Y"; value: backendSettings ? backendSettings.sliceHeightY : 0; from: backendSettings ? backendSettings.worldMinY : 0; to: backendSettings ? backendSettings.worldMaxY : 1; onSet: v => backendSettings.sliceHeightY = v }

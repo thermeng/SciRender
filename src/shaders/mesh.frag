@@ -23,6 +23,9 @@ uniform bool uHasScalars;    // true only when mesh has per-vertex scalar data
 uniform float uSliceHeightX; // Slices along X-axis
 uniform float uSliceHeightY; // Slices along Y-axis
 uniform float uSliceHeightZ; // Slices along Z-axis
+uniform bool uSliceEnabledX; // per-axis enable
+uniform bool uSliceEnabledY;
+uniform bool uSliceEnabledZ;
 
 // ?? NEW UNIFORMS FOR INVERSION ??
 uniform int uInvertX; // 0 = Keep Left,   1 = Keep Right
@@ -84,9 +87,9 @@ void main() {
     // independent so its min/max sliders work without enabling clipping.
     bool clipped = false;
     if (uClipEnabled) {
-        bool clipX = (uInvertX == 1) ? (vWorldPos.x < uSliceHeightX) : (vWorldPos.x > uSliceHeightX);
-        bool clipY = (uInvertY == 1) ? (vWorldPos.y < uSliceHeightY) : (vWorldPos.y > uSliceHeightY);
-        bool clipZ = (uInvertZ == 1) ? (vWorldPos.z < uSliceHeightZ) : (vWorldPos.z > uSliceHeightZ);
+        bool clipX = uSliceEnabledX && ((uInvertX == 1) ? (vWorldPos.x < uSliceHeightX) : (vWorldPos.x > uSliceHeightX));
+        bool clipY = uSliceEnabledY && ((uInvertY == 1) ? (vWorldPos.y < uSliceHeightY) : (vWorldPos.y > uSliceHeightY));
+        bool clipZ = uSliceEnabledZ && ((uInvertZ == 1) ? (vWorldPos.z < uSliceHeightZ) : (vWorldPos.z > uSliceHeightZ));
         clipped = clipX || clipY || clipZ;
     }
     bool filterScalar = uHasScalars && (vScalar < uFilterMin || vScalar > uFilterMax);

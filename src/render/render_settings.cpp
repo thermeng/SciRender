@@ -96,6 +96,7 @@ void RenderSettings::buildRenderState() {
     s.activeScalarName = activeScalarName;
     s.clipEnabled = clipEnabled;
     s.sliceHeightX = sliceHeightX; s.sliceHeightY = sliceHeightY; s.sliceHeightZ = sliceHeightZ;
+    s.sliceEnabledX = sliceEnabledX; s.sliceEnabledY = sliceEnabledY; s.sliceEnabledZ = sliceEnabledZ;
     s.invertX = invertX; s.invertY = invertY; s.invertZ = invertZ;
     s.showVectors = showVectors;
     s.vectorScale = vectorScale;
@@ -353,6 +354,7 @@ void RenderSettings::onMeshParsed() {
     showVectors = false;
     vectorUseColormap = false;
     clipEnabled = false;
+    sliceEnabledX = sliceEnabledY = sliceEnabledZ = false;
     if (!loaded->pointVectorsData.empty()) {
         m_guiMeta.vectorName = loaded->availableVectorNames.front();
     } else {
