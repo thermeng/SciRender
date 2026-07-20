@@ -720,11 +720,13 @@ void Renderer::renderFrame() {
 
             if (m_state.showWireframe) {
                 glUniform1i(wireframeLoc, 1);
+                glLineWidth(m_state.lineWidth); // ponytail: clamped to driver GL_ALIASED_LINE_WIDTH_RANGE
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
                 glPolygonOffset(-1.0f, -1.0f);
                 glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
                 glDisable(GL_POLYGON_OFFSET_LINE);
+                glLineWidth(1.0f);
             }
 
             // ponytail: points overlay — works for STL + VTK + POLYDATA alike

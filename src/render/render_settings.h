@@ -117,6 +117,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
     Q_PROPERTY(float pointSize READ getPointSize WRITE setPointSize NOTIFY viewChanged)
+    Q_PROPERTY(float lineWidth READ getLineWidth WRITE setLineWidth NOTIFY viewChanged)
     Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
     Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
@@ -290,6 +291,8 @@ public:
     void setShowPoints(bool v) { if (showPoints != v) { showPoints = v; markStateDirty(); emit viewChanged(); } }
     float getPointSize() const { return pointSize; }
     void setPointSize(float v) { if (pointSize != v) { pointSize = v; markStateDirty(); emit viewChanged(); } }
+    float getLineWidth() const { return lineWidth; }
+    void setLineWidth(float v) { if (lineWidth != v) { lineWidth = v; markStateDirty(); emit viewChanged(); } }
     bool getPointUseScalar() const { return pointUseScalar; }
     void setPointUseScalar(bool v) { if (pointUseScalar != v) { pointUseScalar = v; markStateDirty(); emit viewChanged(); } }
     float getPointOpacity() const { return pointOpacity; }
@@ -418,6 +421,7 @@ private:
     bool useLod = true;
     bool showPoints = false;  // ponytail: user toggle for vertex point-cloud draw
     float pointSize = 4.0f;   // ponytail: point diameter in framebuffer px
+    float lineWidth = 1.0f;   // ponytail: wireframe line width in px
     bool pointUseScalar = true;  // ponytail: color points by scalar (else solid)
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha

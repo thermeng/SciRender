@@ -60,6 +60,7 @@ struct RenderRenderState {
     bool showFps = false;
     bool useLod = true;
     float pointSize = 4.0f; // ponytail: CPU-driven gl_PointSize for point clouds
+    float lineWidth = 1.0f; // ponytail: wireframe glLineWidth in px
     bool showPoints = false; // ponytail: draw vertices as GL_POINTS
     bool pointUseScalar = true;  // ponytail: color points by scalar; else solid
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha

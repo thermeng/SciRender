@@ -332,6 +332,17 @@ ApplicationWindow {
                         // #3: display toggles grouped
                         Text { text: "Display"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                         CheckBox { text: "Wireframe"; checked: backendSettings ? backendSettings.isWireframe : false; onToggled: backendSettings.isWireframe = checked }
+                        RowLayout {
+                            width: parent.width; spacing: 6
+                            Text { text: "Line"; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 34 }
+                            Slider {
+                                Layout.fillWidth: true; from: 1; to: 10; stepSize: 0.5
+                                value: backendSettings ? backendSettings.lineWidth : 1
+                                enabled: backendSettings ? backendSettings.isWireframe : false
+                                onMoved: if (backendSettings) backendSettings.lineWidth = value
+                            }
+                            Text { text: backendSettings ? backendSettings.lineWidth.toFixed(1) : "1.0"; color: "#999999"; font.pixelSize: 10; Layout.preferredWidth: 30; horizontalAlignment: Text.AlignRight }
+                        }
                         CheckBox { text: "Grid";      checked: backendSettings ? backendSettings.isGridVisible : false; onToggled: backendSettings.isGridVisible = checked }
                         CheckBox { text: "Surface";   checked: backendSettings ? backendSettings.isSurfaceVisible : false; onToggled: backendSettings.isSurfaceVisible = checked }
                         CheckBox { text: "Points";    checked: backendSettings ? backendSettings.showPoints : false; onToggled: backendSettings.showPoints = checked }

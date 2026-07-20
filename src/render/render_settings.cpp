@@ -52,6 +52,7 @@ void RenderSettings::buildRenderState() {
     s.showGizmo = showGizmo;
     s.showPoints = showPoints;
     s.pointSize = pointSize;
+    s.lineWidth = lineWidth;
     s.pointUseScalar = pointUseScalar;
     s.pointOpacity = pointOpacity;
     s.surfaceOpacity = surfaceOpacity;
