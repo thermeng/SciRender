@@ -72,23 +72,24 @@ public:
 
         // ponytail: ParaView-style cell boundaries — emit each cell's cyclic
         // edges (v0-v1, v1-v2, ... vN-1-v0). Quads => 4 edges, no diagonal;
-        // triangles => 3 (same as wireframe). Driven by globalCellToVertices so
-        // every dataset type (structured/rectilinear/unstructured/polydata) is covered.
-        for (const auto& cell : globalCellToVertices) {
-            const size_t n = cell.size();
-            if (n < 2) continue;
-            for (size_t k = 0; k < n; ++k) {
-                const uint32_t a = cell[k];
-                const uint32_t b = cell[(k + 1) % n];
-                mesh.cellEdges.push_back(mesh.vertices[3 * a + 0]);
-                mesh.cellEdges.push_back(mesh.vertices[3 * a + 1]);
-                mesh.cellEdges.push_back(mesh.vertices[3 * a + 2]);
-                mesh.cellEdges.push_back(mesh.vertices[3 * b + 0]);
-                mesh.cellEdges.push_back(mesh.vertices[3 * b + 1]);
-                mesh.cellEdges.push_back(mesh.vertices[3 * b + 2]);
+        // triangles => 3 (same as wireframe). Gated to grid datasets only
+        // (supportsCellGrid); POLYDATA/STL get no quad cell grid.
+        if (mesh.supportsCellGrid) {
+            for (const auto& cell : globalCellToVertices) {
+                const size_t n = cell.size();
+                if (n < 2) continue;
+                for (size_t k = 0; k < n; ++k) {
+                    const uint32_t a = cell[k];
+                    const uint32_t b = cell[(k + 1) % n];
+                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 0]);
+                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 1]);
+                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 2]);
+                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 0]);
+                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 1]);
+                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 2]);
+                }
             }
         }
-
         mesh.datasetType = datasetType.empty() ? "UNKNOWN" : datasetType;
         mesh.fileFormat = "VTK";
         return mesh;
@@ -362,7 +363,9 @@ private:
         }
         mesh.indices.clear();
         globalCellToVertices = triangulateTriangleStrips(stripData, numStrips);
-        numCells = numStrips;
+        // ponytail: cells are now per-triangle (see triangulateTriangleStrips),
+        // so numCells tracks the real cell count, not the raw strip count.
+        numCells = static_cast<int>(globalCellToVertices.size());
     }
 
     void parseScalarsBlock(std::istringstream& iss, std::ifstream& file) {
@@ -643,10 +646,13 @@ private:
         }
         else if (datasetType == "RECTILINEAR_GRID" && !rectX.empty() && !rectY.empty() && !rectZ.empty()) {
             generateRectilinearGridGeometry();
-            globalCellToVertices = generateStructuredGridIndices(dimX, dimY, dimZ);
+            globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+            numCells = static_cast<int>(globalCellToVertices.size());
+            mesh.supportsCellGrid = true;
         }
         else if (datasetType == "UNSTRUCTURED_GRID" && !rawCellData.empty()) {
             globalCellToVertices = triangulateUnstructuredCells(rawCellData, cellTypes, numCells);
+            mesh.supportsCellGrid = true;
         }
         else if (datasetType == "STRUCTURED_GRID") {
             // Curvilinear grid: point positions come from the POINTS block (parsed
@@ -654,6 +660,7 @@ private:
             if (!mesh.vertices.empty()) {
                 globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
                 numCells = static_cast<int>(globalCellToVertices.size());
+                mesh.supportsCellGrid = true;
             }
         }
         else if (datasetType == "POLYDATA") {
@@ -717,10 +724,13 @@ private:
                     uint32_t i7 = x + (y + 1) * dX + (z + 1) * dX * dY;
 
                     mesh.indices.insert(mesh.indices.end(), {
-                        i0, i2, i1, i0, i3, i2, i4, i5, i6, i4, i6, i7,
-                        i0, i1, i5, i0, i5, i4, i2, i3, i7, i2, i7, i6,
-                        i0, i4, i7, i0, i7, i3, i1, i2, i6, i1, i6, i5
-                        });
+                        i0, i2, i1, i0, i3, i2,        // bottom  z=0  (-Z)
+                        i4, i5, i6, i4, i6, i7,        // top     z=1  (+Z)
+                        i0, i4, i7, i0, i7, i3,        // x=0     (-X)
+                        i1, i2, i6, i1, i6, i5,        // x=1     (+X)
+                        i0, i1, i5, i0, i5, i4,        // y=0     (-Y)
+                        i3, i7, i6, i3, i6, i2         // y=1     (+Y)
+                    });
 
                     cellToVertices[cellIdx] = { i0, i1, i2, i3, i4, i5, i6, i7 };
                     cellIdx++;
@@ -818,21 +828,27 @@ private:
     }
 
     std::vector<std::vector<uint32_t>> triangulateTriangleStrips(const std::vector<int32_t>& rawStripData, int numStrips) {
+        // ponytail: a triangle strip is a BAND of triangles, not one polygon.
+        // Store each triangle as its own 3-vertex cell so the cyclic cell-edge
+        // emitter draws true per-triangle boundaries (3 edges, no diagonal,
+        // no spurious wrap edge). The old code kept the whole strip as a single
+        // "cell", which the emitter wrapped with a long v_{N-1}->v0 edge
+        // across the entire strip — garbage on strip meshes (e.g. lung.vtk).
+        std::vector<std::vector<uint32_t>> cellToVertices;
+        cellToVertices.reserve(numStrips > 0 ? numStrips * 3 : 0);
         int idx = 0;
-        std::vector<std::vector<uint32_t>> cellToVertices(numStrips);
         for (int s = 0; s < numStrips; ++s) {
             if (idx >= static_cast<int>(rawStripData.size())) break;
             int nPoints = rawStripData[idx++];
             if (nPoints < 0 || idx + nPoints > static_cast<int>(rawStripData.size())) break;
 
-            for (int i = 0; i < nPoints; ++i) {
-                cellToVertices[s].push_back(static_cast<uint32_t>(rawStripData[idx + i]));
-            }
-
             for (int i = 0; i < nPoints - 2; ++i) {
                 uint32_t i0 = rawStripData[idx + i];
                 uint32_t i1 = rawStripData[idx + i + 1];
                 uint32_t i2 = rawStripData[idx + i + 2];
+                // triangle as a cell (winding only affects the cyclic edge
+                // order; all 3 edges are emitted either way)
+                cellToVertices.push_back({ i0, i1, i2 });
                 if (i % 2 == 0) mesh.indices.insert(mesh.indices.end(), { i0, i1, i2 });
                 else mesh.indices.insert(mesh.indices.end(), { i0, i2, i1 });
             }
