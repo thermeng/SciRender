@@ -73,51 +73,63 @@ inline MeshQuality analyzeMeshQuality(const RenderMesh& mesh) {
         out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
     };
 
-    // -------------------------------------------------------------------------
-    // 2. Classify Degenerate & Zero-Length Faces
-    // -------------------------------------------------------------------------
     std::vector<char> isDegen(nt, 0);
 
     for (size_t t = 0; t < nt; ++t) {
         uint32_t a = weld[t * 3], b = weld[t * 3 + 1], c = weld[t * 3 + 2];
-
         if (a == b || b == c || c == a) {
             isDegen[t] = 1;
             q.degenerateFaces++;
-            q.zeroLengthEdges++;
         } else {
+            // area-based degeneracy (sliver) — no collapsed corner, so NOT a zero-length edge
             float pa[3], pb[3], pc[3];
             cornerPos(weldedCorner[a], pa);
             cornerPos(weldedCorner[b], pb);
             cornerPos(weldedCorner[c], pc);
-
-            double e1x = pb[0] - pa[0], e1y = pb[1] - pa[1], e1z = pb[2] - pa[2];
-            double e2x = pc[0] - pa[0], e2y = pc[1] - pa[1], e2z = pc[2] - pa[2];
-
-            double cx = e1y * e2z - e1z * e2y;
-            double cy = e1z * e2x - e1x * e2z;
-            double cz = e1x * e2y - e1y * e2x;
-            double area2 = 0.25 * (cx * cx + cy * cy + cz * cz);
-
+            double e1x = pb[0]-pa[0], e1y = pb[1]-pa[1], e1z = pb[2]-pa[2];
+            double e2x = pc[0]-pa[0], e2y = pc[1]-pa[1], e2z = pc[2]-pa[2];
+            double cx = e1y*e2z - e1z*e2y;
+            double cy = e1z*e2x - e1x*e2z;
+            double cz = e1x*e2y - e1y*e2x;
+            double area2 = 0.25 * (cx*cx + cy*cy + cz*cz);
             if (area2 < 1e-16) {
                 isDegen[t] = 1;
                 q.degenerateFaces++;
             }
         }
-
-        if (isDegen[t]) {
-            float pa[3], pb[3], pc[3];
-            cornerPos(weldedCorner[a], pa);
-            cornerPos(weldedCorner[b], pb);
-            cornerPos(weldedCorner[c], pc);
-
-            q.degenerateTriVerts.insert(q.degenerateTriVerts.end(), {
-                pa[0],pa[1],pa[2], pb[0],pb[1],pb[2],
-                pb[0],pb[1],pb[2], pc[0],pc[1],pc[2],
-                pc[0],pc[1],pc[2], pa[0],pa[1],pa[2]
-            });
-        }
     }
+
+    // ponytail: build degenerate overlay AFTER classification, and only then
+    // collect surviving tris/edges — degenerates must not enter the link graph
+    // (they would self-link a vertex and falsely flag nonManifoldVerts).
+    // Also tally DISTINCT zero-length edges (both welded endpoints identical)
+    // so zeroLengthEdges matches script.py's edge-unit metric, not a fake 0.
+    std::vector<std::pair<uint32_t,uint32_t>> zlePairs;
+    for (size_t t = 0; t < nt; ++t) {
+        if (!isDegen[t]) continue;
+        uint32_t a = weld[t * 3], b = weld[t * 3 + 1], c = weld[t * 3 + 2];
+        float pa[3], pb[3], pc[3];
+        cornerPos(weldedCorner[a], pa);
+        cornerPos(weldedCorner[b], pb);
+        cornerPos(weldedCorner[c], pc);
+        // zero-length edge = a pair of welded corners that coincide
+        auto addZLE = [&](uint32_t x, uint32_t y) {
+            if (x == y) {
+                uint32_t lo = x < y ? x : y, hi = x < y ? y : x;
+                zlePairs.push_back({lo, hi});
+            }
+        };
+        addZLE(a, b); addZLE(b, c); addZLE(c, a);
+        q.degenerateTriVerts.insert(q.degenerateTriVerts.end(), {
+            pa[0],pa[1],pa[2], pb[0],pb[1],pb[2],
+            pb[0],pb[1],pb[2], pc[0],pc[1],pc[2],
+            pc[0],pc[1],pc[2], pa[0],pa[1],pa[2]
+        });
+    }
+    // distinct zero-length edges (a shared one counts once, like script.py)
+    std::sort(zlePairs.begin(), zlePairs.end());
+    zlePairs.erase(std::unique(zlePairs.begin(), zlePairs.end()), zlePairs.end());
+    q.zeroLengthEdges = static_cast<int>(zlePairs.size());
 
     // -------------------------------------------------------------------------
     // 3. Flat Cache-Friendly Edge Sorting (Replaces std::unordered_map)
