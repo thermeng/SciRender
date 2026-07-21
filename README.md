@@ -20,7 +20,7 @@
   <img src="./demo/Vectors.webp" width="35%" style="margin-left: 25px;" />
 </p>
 
-Qt 6 + OpenGL scientific mesh rendering toolkit. Loads VTK
+Qt 6 + OpenGL scientific rendering application. Loads VTK
 `STRUCTURED_GRID` (curvilinear), `RECTILINEAR_GRID`, `STRUCTURED_POINTS`,
 `POLYDATA`, `UNSTRUCTURED_GRID`, STL & OBJ files, maps scalar
 data to surface colormaps, and draws instanced vector-field arrow glyphs.
