@@ -16,11 +16,10 @@
 
 Qt 6 + OpenGL scientific mesh rendering toolkit. Loads VTK
 `STRUCTURED_GRID` (curvilinear), `RECTILINEAR_GRID`, `STRUCTURED_POINTS`,
-`POLYDATA`, `UNSTRUCTURED_GRID` and STL files, maps scalar point
+`POLYDATA`, `UNSTRUCTURED_GRID`, STL & OBJ files, maps scalar
 data to surface colormaps, and draws instanced vector-field arrow glyphs.
-A camera-relative Light Kit, axis triad, clipping/slicing planes, LOD
-and screenshot export round out the feature set, all driven from a QML
-control panel.
+A Lighting system, axis triad, clipping, Level-of-Detail (LOD)
+and screenshot export, all driven from a QML control panel.
 
 ## Build
 
@@ -42,17 +41,16 @@ the program can run from the build directory.
   `STRUCTURED_POINTS`, `POLYDATA`, `UNSTRUCTURED_GRID` and STL
 - Scalar surface coloring with colormaps; per-dataset **surface** tessellation
   for curvilinear grids (boundary shell, not the full volume)
-- Vector field arrow glyphs (instanced, uniform-length)
+- Vector field arrow glyphs with user-controllable density and scaling
 - **Colorbar legend:** clean gradient bar with a user-controllable number of
   tick labels (`colorbarTicks`, 2–20) spread across the live data range;
   applies to both the scalar and vector-magnitude bars
-- Clipping/slicing planes; clipping auto-resets to disabled on each new mesh load
-- Camera-relative Light Kit: key/fill/back/head lights that track the view,
+- **Lighting system:** key/fill/back/head lights that track the view,
   key intensity + K-ratios, kit-wide warm tint
 - Axis triad + light-direction markers in a corner overlay
+- FPS Head up Display (HUD)
 - Screenshot export (PNG/JPEG/BMP), optional transparency
-- QML side panel: lighting, slicing/clipping, colormap, presets, recent files
-- **Robust mesh loading:** exact STL vertex dedup, and level-of-detail (LOD)
+- **Robust mesh loading:** exact vertex dedup, and level-of-detail (LOD)
   that is safe for multi-shell surfaces while orbiting
 
 ### Level of Detail (LOD)
@@ -85,4 +83,4 @@ full detail when motion stops. It is used only when all of the following hold:
 
 ## License
 
-No license
+MIT license
