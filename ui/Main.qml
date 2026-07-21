@@ -653,12 +653,12 @@ ApplicationWindow {
                     font.bold: true; font.pixelSize: 18; color: "#dddddd"
                 }
                 Text {
-                    text: "A Qt 6 + OpenGL scientific mesh rendering toolkit for VTK and STL datasets."
+                    text: "A Qt 6 + OpenGL scientific mesh rendering for VTK/STL/OBJ datasets."
                     font.pixelSize: 12; color: "#bbbbbb"
                     width: parent.width - 36; wrapMode: Text.WordWrap
                 }
                 Text {
-                    text: "GPU shaders, instanced vector glyphs, light kit, slicing/clipping, and colormaps."
+                    text: "GPU shaders, instanced vector glyphs, lighting, slicing, colormaps & much more."
                     font.pixelSize: 11; color: "#999999"
                     width: parent.width - 36; wrapMode: Text.WordWrap
                 }
@@ -740,7 +740,7 @@ ApplicationWindow {
             anchors.fill: parent
             settings: backendSettings // Links instance reference directly to C++ target
 
-        // Drop zone overlay for dragging raw STL/VTK files directly into the viewport
+        // Drop zone overlay for dragging raw files directly into the viewport
         DropArea {
             anchors.fill: parent
             onDropped: (drop) => {
@@ -761,7 +761,7 @@ ApplicationWindow {
     FileDialog {
         id: fileDialog
         title: "Load Mesh"
-        nameFilters: ["Mesh files (*.stl *.vtk)", "All files (*)"]
+        nameFilters: ["Mesh files (*.stl *.vtk *.obj)", "All files (*)"]
         onAccepted: {
             let urlStr = selectedFile.toString();
             let cleanPath = urlStr.startsWith("file://") ? windowRoot.urlToPath(urlStr) : urlStr;
@@ -943,7 +943,7 @@ ApplicationWindow {
         Text {
             id: dropPromptText
             anchors.centerIn: parent
-            text: "Drag & Drop a .stl / .vtk file, or use \"Open Mesh\""
+            text: "Drag & Drop a .stl / .vtk / .obj file, or use \"Open Mesh\""
             color: "#dddddd"
             font.pixelSize: 16
         }
@@ -1063,7 +1063,7 @@ ApplicationWindow {
                   + "   |   Type: " + backendSettings.meshDataType
                   + "   |   Points: " + backendSettings.pointCount
                   + "   |   Triangles: " + backendSettings.triangleCount
-                : "No mesh loaded | drag a .stl / .vtk file, or use File > Open Mesh"
+                : "No mesh loaded | drag a .stl / .vtk / .obj file, or use File > Open Mesh"
         }
     }
 }
