@@ -37,7 +37,6 @@ public:
 
     // QML legend helpers (sample the active palette into [t,r,g,b] stops).
     // `reversed` is folded in so the legend matches the uploaded texture.
-    std::string scalarStop(int steps, int index) const; // replaced by QVariantList at call site
     int scalarChoiceForStops() const { return scalarChoice_; }
     bool scalarReversedForStops() const { return scalarReversed_; }
     int vectorChoiceForStops() const { return vectorChoice_; }
