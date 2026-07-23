@@ -55,8 +55,9 @@ add_executable(SciRender
     src/core/obj_parser.h
     src/render/renderer.cpp
     src/render/renderer.h
-    src/render/render_settings.cpp
-    src/render/render_settings.h
+     src/render/render_settings.cpp
+     src/render/render_settings.h
+     src/render/render_config.h
     src/render/LightingModel.cpp
     src/render/LightingModel.h
     src/render/ColormapManager.cpp
@@ -127,4 +128,23 @@ add_custom_command(TARGET SciRender POST_BUILD
             "$<TARGET_FILE_DIR:SciRender>/shaders"
     COMMENT "--- Synchronizing runtime GLSL shader files ---"
 )
+
+# ---------------------------------------------------------------------------
+# 6. Parser Regression Tests (no Qt/GL dependency)
+# ---------------------------------------------------------------------------
+enable_testing()
+
+add_executable(parse_regression
+    tests/parse_regression.cpp
+    src/core/mesh_loader.cpp
+    src/core/mesh_utils.cpp
+    src/core/vtk_parser.cpp
+    src/core/stl_parser.cpp
+    src/core/obj_parser.cpp
+)
+target_include_directories(parse_regression PRIVATE src vendor)
+target_compile_features(parse_regression PRIVATE cxx_std_20)
+target_compile_definitions(parse_regression PRIVATE GLM_FORCE_SWIZZLE=0)
+
+add_test(NAME parse_regression COMMAND parse_regression)
 

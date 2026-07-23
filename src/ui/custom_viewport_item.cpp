@@ -1,10 +1,13 @@
 ﻿#include <glad/glad.h>
 #include "custom_viewport_item.h"
+#include "render/render_config.h"
 #include <QQuickWindow>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QOpenGLContext>
 #include <QDebug>
+#include <QFile>
+#include <QTextStream>
 #include <QQuickOpenGLUtils>
 #include <QImage>
 #include <QStandardPaths>
@@ -55,19 +58,14 @@ void ViewportVisualizer::setSettings(::RenderSettings* s) {
             update();
         });
         connect(m_settings, &::RenderSettings::screenshotRequested, this, [this](const QString& path) {
-            // Forwarded from the GUI thread (QML side) to the render pass.
             m_pendingScreenshot = path;
             m_needsRender = true;
             update();
         });
-        connect(m_settings, &::RenderSettings::lightingParametersChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_settings, &::RenderSettings::viewChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_settings, &::RenderSettings::colormapChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_settings, &::RenderSettings::vectorColormapChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_settings, &::RenderSettings::wireframeChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_settings, &::RenderSettings::gridVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_settings, &::RenderSettings::surfaceVisibilityChanged, this, [this]() { m_needsRender = true; update(); });
-        connect(m_settings, &::RenderSettings::colorbarChanged, this, [this]() { m_needsRender = true; update(); });
+        connect(m_settings, &::RenderSettings::viewChanged, this, [this](ChangeFlags) {
+            m_needsRender = true;
+            update();
+        });
     }
 }
 
@@ -86,8 +84,8 @@ void ViewportVisualizer::mouseMoveEvent(QMouseEvent* event) {
     if (m_isRightClick) {
         m_settings->pan(delta.x(), delta.y());
     } else {
-        m_settings->azimuth(-delta.x() * 0.5);
-        m_settings->elevation(delta.y() * 0.5);
+        m_settings->azimuth(-delta.x() * RenderConfig::defaults().mouseSensitivity);
+        m_settings->elevation(delta.y() * RenderConfig::defaults().mouseSensitivity);
     }
     update();
     event->accept();
@@ -97,7 +95,7 @@ void ViewportVisualizer::mouseReleaseEvent(QMouseEvent* event) {
     event->accept();
     // Wake one frame after the LOD debounce window so cameraMoving clears and
     // the full-res mesh is redrawn — nothing else repaints once motion stops.
-    QTimer::singleShot(160, this, [this]() { m_needsRender = true; update(); });
+    QTimer::singleShot(RenderConfig::defaults().postMotionRedrawMs, this, [this]() { m_needsRender = true; update(); });
 }
 
 void ViewportVisualizer::wheelEvent(QWheelEvent* event) {
@@ -105,7 +103,7 @@ void ViewportVisualizer::wheelEvent(QWheelEvent* event) {
     double factor = (event->angleDelta().y() > 0) ? 1.1 : 0.9;
     m_settings->dolly(factor);
     update();
-    QTimer::singleShot(160, this, [this]() { m_needsRender = true; update(); });
+    QTimer::singleShot(RenderConfig::defaults().postMotionRedrawMs, this, [this]() { m_needsRender = true; update(); });
     event->accept();
 }
 
@@ -206,8 +204,27 @@ void ViewportFboRenderer::render() {
     if (!m_initialized) {
         // GLAD must resolve against THIS context (the FBO render context).
         m_scene->initGLAD();
-        m_scene->initShaders();
-        m_scene->initGrid();
+
+        // Load shader sources from Qt's resource system here (the Renderer
+        // itself is Qt-free and accepts sources via dependency injection).
+        auto loadShader = [](const QString& rscPath) -> std::string {
+            QFile file(rscPath);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                qCritical() << "Required shader asset missing:" << rscPath;
+                return "";
+            }
+            return QTextStream(&file).readAll().toStdString();
+        };
+        ShaderSources sources;
+        sources.meshVert  = loadShader(":/SciRenderUI/src/shaders/mesh.vert");
+        sources.meshFrag  = loadShader(":/SciRenderUI/src/shaders/mesh.frag");
+        sources.gridVert  = loadShader(":/SciRenderUI/src/shaders/grid.vert");
+        sources.gridFrag  = loadShader(":/SciRenderUI/src/shaders/grid.frag");
+        sources.glyphVert = loadShader(":/SciRenderUI/src/shaders/glyph.vert");
+        sources.glyphFrag = loadShader(":/SciRenderUI/src/shaders/glyph.frag");
+
+        m_scene->initShaders(sources);
+        m_scene->initGrid(sources);
         m_scene->initGizmo();
         m_initialized = true;
     }

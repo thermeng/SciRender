@@ -1,4 +1,5 @@
 #include "render/renderer.h"
+#include "render/render_config.h"
 #include "core/Colormaps.h"
 #include "core/Camera.h"
 #include "core/mesh_loader.h"
@@ -67,6 +68,8 @@ Renderer::~Renderer() {
         if (gridProgram) glDeleteProgram(gridProgram);
         if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
         if (gridVBO) glDeleteBuffers(1, &gridVBO);
+        if (bboxVao) glDeleteVertexArrays(1, &bboxVao);
+        if (bboxVbo) glDeleteBuffers(1, &bboxVbo);
         colormap.shutdown();
         vectorGlyph.shutdown();
         gizmo.shutdown();
@@ -107,19 +110,9 @@ std::string Renderer::readShaderFile(const std::string& filePath) {
     return buffer.str();
 }
 
-void Renderer::initShaders() {
-    auto loadEmbeddedShader = [](const QString& rscPath) -> std::string {
-        QFile file(rscPath);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            qCritical() << "Fatal Error: Required engine shader asset missing at path:" << rscPath;
-            return "";
-        }
-        QTextStream stream(&file);
-        return stream.readAll().toStdString();
-    };
-
-    std::string vertSrcStr = loadEmbeddedShader(":/SciRenderUI/src/shaders/mesh.vert");
-    std::string fragSrcStr = loadEmbeddedShader(":/SciRenderUI/src/shaders/mesh.frag");
+void Renderer::initShaders(const ShaderSources& sources) {
+    const std::string& vertSrcStr = sources.meshVert;
+    const std::string& fragSrcStr = sources.meshFrag;
 
     if (vertSrcStr.empty() || fragSrcStr.empty()) {
         qFatal("Shader compilation aborted due to unreadable file streams.");
@@ -208,8 +201,8 @@ void Renderer::initShaders() {
     lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
 
     // instanced vector glyph program
-    std::string gvert = loadEmbeddedShader(":/SciRenderUI/src/shaders/glyph.vert");
-    std::string gfrag = loadEmbeddedShader(":/SciRenderUI/src/shaders/glyph.frag");
+    const std::string& gvert = sources.glyphVert;
+    const std::string& gfrag = sources.glyphFrag;
     if (!gvert.empty() && !gfrag.empty()) {
         GLuint gv = glCreateShader(GL_VERTEX_SHADER);
         GLuint gf = glCreateShader(GL_FRAGMENT_SHADER);
@@ -252,14 +245,9 @@ void Renderer::initShaders() {
     }
 }
 
-void Renderer::initGrid() {
-    auto load = [](const QString& p) -> std::string {
-        QFile f(p);
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) { qCritical() << "grid shader missing" << p; return ""; }
-        return QTextStream(&f).readAll().toStdString();
-    };
-    std::string vs = load(":/SciRenderUI/src/shaders/grid.vert");
-    std::string fs = load(":/SciRenderUI/src/shaders/grid.frag");
+void Renderer::initGrid(const ShaderSources& sources) {
+    const std::string& vs = sources.gridVert;
+    const std::string& fs = sources.gridFrag;
     if (vs.empty() || fs.empty()) return;
 
     GLuint v = glCreateShader(GL_VERTEX_SHADER);
@@ -378,7 +366,7 @@ void Renderer::resetCamera() {
     const double hFov = 2.0 * std::atan(std::tan(fov * 0.5) * aspect);
     const double effFov = std::min(vFov, hFov);
     double dist = fitRadius / std::tan(effFov * 0.5);
-    dist *= 1.3;
+    dist *= RenderConfig::defaults().cameraFitMultiplier;
 
     camera.distance = dist;
     // ponytail: keep ortho zoom baseline in sync with the fit distance so
@@ -413,6 +401,8 @@ void Renderer::clearGpuMeshes() {
     m_lastUploadedMesh.reset();
     m_pendingMesh.reset();
     m_state.hasMeshLoaded = false;
+    if (bboxVao) { glDeleteVertexArrays(1, &bboxVao); bboxVao = 0; }
+    if (bboxVbo) { glDeleteBuffers(1, &bboxVbo); bboxVbo = 0; }
 }
 
 bool Renderer::consumeScalarDirty() {
@@ -580,7 +570,7 @@ void Renderer::renderFrame() {
     if (cameraMoving.load()) {
         auto now = std::chrono::steady_clock::now();
         auto dt = std::chrono::duration<double>(now - m_lastMotion).count();
-        if (dt >= 0.14) cameraMoving = false;
+        if (dt >= RenderConfig::defaults().lodDebounceSeconds) cameraMoving = false;
     }
 
     // Consume a pending mesh handoff from the GUI thread (shared_ptr; no copy).
@@ -802,7 +792,6 @@ void Renderer::renderFrame() {
         if (m_state.showBounds && shaderProgram != 0) {
             // ponytail: AABB is a reference box, not mesh — never clip it.
             glUniform1i(sliceEnabledXLoc, 0); glUniform1i(sliceEnabledYLoc, 0); glUniform1i(sliceEnabledZLoc, 0);
-            static GLuint bboxVao = 0, bboxVbo = 0;
             if (bboxVao == 0) {
                 // 12 edges of a unit cube centered at origin, coords -0.5..0.5
                 static const float c[24 * 3] = {
