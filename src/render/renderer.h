@@ -171,9 +171,8 @@ public:
 
     // Core Initialization & Graphics Lifecycle Routines (render thread).
     void initGLAD();
-    void initShaders(const ShaderSources& sources);
+     void initShaders(const ShaderSources& sources);
     void initGrid(const ShaderSources& sources);
-    void initGrid();
     void initGizmo();
     void renderFrame();
 
@@ -369,7 +368,6 @@ private:
     QOpenGLFramebufferObject* m_viewportFbo = nullptr;
 
     // --- extracted responsibility helpers -------------------------------------
-    LightingModel lighting;       // 4-point light kit params, presets, dir math
     ColormapManager colormap;     // scalar + vector LUT textures & choices
     VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
     MeshGLManager meshManager;     // full + decimated GPU meshes & upload
