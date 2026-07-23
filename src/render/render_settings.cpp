@@ -1,4 +1,5 @@
 #include "render/render_settings.h"
+#include "render/render_config.h"
 #include "core/Colormaps.h"
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
@@ -128,7 +129,7 @@ void RenderSettings::setWireframe(bool enabled) {
     if (showWireframe == enabled) return;
     showWireframe = enabled;
     markStateDirty();
-    emit wireframeChanged();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::setUseLod(bool enabled) {
@@ -149,14 +150,14 @@ void RenderSettings::toggleGrid(bool visible) {
     if (showGrid == visible) return;
     showGrid = visible;
     markStateDirty();
-    emit gridVisibilityChanged();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::toggleSurface(bool visible) {
     if (showSurface == visible) return;
     showSurface = visible;
     markStateDirty();
-    emit surfaceVisibilityChanged();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::snapToOrthoView(int axis) {
@@ -183,7 +184,7 @@ void RenderSettings::resetCamera() {
     const double fov = glm::radians(45.0);
     const double effFov = fov;
     double dist = fitRadius / std::tan(effFov * 0.5);
-    dist *= 1.3;
+    dist *= RenderConfig::defaults().cameraFitMultiplier;
     camera.distance = dist < 1.0 ? 1.0 : dist;
     camera.maxDistance = std::max(1000.0, camera.distance * 50.0);
     camera.position = camera.focalPoint + glm::dvec3(0.0, 0.0, camera.distance);
@@ -492,29 +493,29 @@ void RenderSettings::setActiveVectorField(const QString& fieldName) {
 void RenderSettings::setColormapChoice(int choice) {
     if (colormapChoice == choice) return;
     colormapChoice = choice;
-    markStateDirty(); emit colormapChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 
 void RenderSettings::setColormapReversed(bool reversed) {
     if (colormapReversed == reversed) return;
     colormapReversed = reversed;
-    markStateDirty(); emit colormapChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 
 void RenderSettings::setVectorColormapReversed(bool reversed) {
     if (vectorColormapReversed == reversed) return;
     vectorColormapReversed = reversed;
-    markStateDirty(); emit vectorColormapChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 
 void RenderSettings::applyLightingPreset(int preset) {
     lighting.applyPreset(preset);
-    markStateDirty(); emit lightingParametersChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Lighting);
 }
 
 void RenderSettings::resetLighting() {
     lighting.reset();
-    markStateDirty(); emit lightingParametersChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Lighting);
 }
 
 QStringList RenderSettings::getAvailableScalars() const {

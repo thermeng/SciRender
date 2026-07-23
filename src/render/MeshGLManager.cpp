@@ -1,4 +1,5 @@
 #include "render/MeshGLManager.h"
+#include "render/render_config.h"
 #include "core/mesh_loader.h"
 
 #include <cmath>
@@ -116,7 +117,7 @@ bool surfaceDecimationSafe(const RenderMesh& in) {
     const double dz = in.bounds.maxZ - in.bounds.minZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     if (diag < 1e-9) return false;
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
     cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
     const double cell = diag / cellsPerAxis;
 
@@ -212,7 +213,7 @@ RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
     RenderMesh out;
     const size_t nv = in.vertices.size() / 3;
     // Small meshes gain nothing from LOD and risk degeneracy — skip them.
-    if (nv < 4000 || in.indices.size() < 3) return out;
+    if (nv < RenderConfig::defaults().lodMinVertices || in.indices.size() < 3) return out;
 
     const double minX = in.bounds.minX, minY = in.bounds.minY, minZ = in.bounds.minZ;
     const double dx = in.bounds.maxX - minX, dy = in.bounds.maxY - minY, dz = in.bounds.maxZ - minZ;
@@ -221,7 +222,7 @@ RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
 
     // Cells per axis chosen so the cluster count is a coarse fraction of the
     // vertices (~half the "one cell per vertex" resolution => ~1/8th vertices).
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
     cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
     const double cell = diag / cellsPerAxis;
 
@@ -374,7 +375,7 @@ std::vector<float> MeshGLManager::decimateScalars(
     const double dx = in.bounds.maxX - minX, dy = in.bounds.maxY - minY, dz = in.bounds.maxZ - minZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     if (diag < 1e-9) return {};
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
     cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
     const double cell = diag / cellsPerAxis;
 

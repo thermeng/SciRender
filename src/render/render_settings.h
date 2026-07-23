@@ -19,6 +19,21 @@
 #include "core/mesh_quality.h"
 #include "core/Camera.h"
 
+// Change flags carried by the consolidated viewChanged signal so receivers
+// can distinguish which domain changed (e.g. lighting vs. colormap) without
+// subscribing to a dozen fine-grained signals.
+enum class ChangeFlag {
+    Camera      = 1 << 0,
+    Lighting    = 1 << 1,
+    Colormap    = 1 << 2,
+    Display     = 1 << 3,
+    Slicing     = 1 << 4,
+    Vectors     = 1 << 5,
+    All         = 0xFF,
+};
+Q_DECLARE_FLAGS(ChangeFlags, ChangeFlag)
+Q_DECLARE_OPERATORS_FOR_FLAGS(ChangeFlags)
+
 // ponytail: bundles parse + quality so both run on the worker thread; the GUI
 // callback only publishes. Quality analysis is pure CPU (reads flatVerts), no
 // GL context, so it is safe off-thread.
@@ -44,34 +59,34 @@ struct MeshLoadResult {
 class RenderSettings : public QObject {
     Q_OBJECT
 
-    Q_PROPERTY(bool isWireframe READ isWireframe WRITE setWireframe NOTIFY wireframeChanged)
+    Q_PROPERTY(bool isWireframe READ isWireframe WRITE setWireframe NOTIFY viewChanged)
     Q_PROPERTY(bool useLod READ getUseLod WRITE setUseLod NOTIFY viewChanged)
     Q_PROPERTY(int msaaSamples READ getMsaaSamples WRITE setMsaaSamples NOTIFY viewChanged)
-    Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY surfaceVisibilityChanged)
-    Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY gridVisibilityChanged)
+    Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY viewChanged)
+    Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY viewChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
     Q_PROPERTY(bool meshHasScalars READ hasMeshScalars NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString currentMeshName READ getCurrentMeshNameQStr NOTIFY meshLoadStateChanged)
 
-    Q_PROPERTY(float lightKeyAzimuth READ getLightKeyAzimuth WRITE setLightKeyAzimuth NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightKeyElevation READ getLightKeyElevation WRITE setLightKeyElevation NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightFillAzimuth READ getLightFillAzimuth WRITE setLightFillAzimuth NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightFillElevation READ getLightFillElevation WRITE setLightFillElevation NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightBackAzimuth READ getLightBackAzimuth WRITE setLightBackAzimuth NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightBackElevation READ getLightBackElevation WRITE setLightBackElevation NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightHeadAzimuth READ getLightHeadAzimuth WRITE setLightHeadAzimuth NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightHeadElevation READ getLightHeadElevation WRITE setLightHeadElevation NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float matAmbient READ getMatAmbient WRITE setMatAmbient NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float matDiffuse READ getMatDiffuse WRITE setMatDiffuse NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float matSpecular READ getMatSpecular WRITE setMatSpecular NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float matShininess READ getMatShininess WRITE setMatShininess NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightKeyIntensity READ getLightKeyIntensity WRITE setLightKeyIntensity NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightKF READ getLightKF WRITE setLightKF NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightKB READ getLightKB WRITE setLightKB NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightKH READ getLightKH WRITE setLightKH NOTIFY lightingParametersChanged)
-    Q_PROPERTY(bool lightKitEnabled READ getLightKitEnabled WRITE setLightKitEnabled NOTIFY lightingParametersChanged)
-    Q_PROPERTY(bool showLightMarkers READ getShowLightMarkers WRITE setShowLightMarkers NOTIFY lightingParametersChanged)
-    Q_PROPERTY(float lightWarm READ getLightWarm WRITE setLightWarm NOTIFY lightingParametersChanged)
+    Q_PROPERTY(float lightKeyAzimuth READ getLightKeyAzimuth WRITE setLightKeyAzimuth NOTIFY viewChanged)
+    Q_PROPERTY(float lightKeyElevation READ getLightKeyElevation WRITE setLightKeyElevation NOTIFY viewChanged)
+    Q_PROPERTY(float lightFillAzimuth READ getLightFillAzimuth WRITE setLightFillAzimuth NOTIFY viewChanged)
+    Q_PROPERTY(float lightFillElevation READ getLightFillElevation WRITE setLightFillElevation NOTIFY viewChanged)
+    Q_PROPERTY(float lightBackAzimuth READ getLightBackAzimuth WRITE setLightBackAzimuth NOTIFY viewChanged)
+    Q_PROPERTY(float lightBackElevation READ getLightBackElevation WRITE setLightBackElevation NOTIFY viewChanged)
+    Q_PROPERTY(float lightHeadAzimuth READ getLightHeadAzimuth WRITE setLightHeadAzimuth NOTIFY viewChanged)
+    Q_PROPERTY(float lightHeadElevation READ getLightHeadElevation WRITE setLightHeadElevation NOTIFY viewChanged)
+    Q_PROPERTY(float matAmbient READ getMatAmbient WRITE setMatAmbient NOTIFY viewChanged)
+    Q_PROPERTY(float matDiffuse READ getMatDiffuse WRITE setMatDiffuse NOTIFY viewChanged)
+    Q_PROPERTY(float matSpecular READ getMatSpecular WRITE setMatSpecular NOTIFY viewChanged)
+    Q_PROPERTY(float matShininess READ getMatShininess WRITE setMatShininess NOTIFY viewChanged)
+    Q_PROPERTY(float lightKeyIntensity READ getLightKeyIntensity WRITE setLightKeyIntensity NOTIFY viewChanged)
+    Q_PROPERTY(float lightKF READ getLightKF WRITE setLightKF NOTIFY viewChanged)
+    Q_PROPERTY(float lightKB READ getLightKB WRITE setLightKB NOTIFY viewChanged)
+    Q_PROPERTY(float lightKH READ getLightKH WRITE setLightKH NOTIFY viewChanged)
+    Q_PROPERTY(bool lightKitEnabled READ getLightKitEnabled WRITE setLightKitEnabled NOTIFY viewChanged)
+    Q_PROPERTY(bool showLightMarkers READ getShowLightMarkers WRITE setShowLightMarkers NOTIFY viewChanged)
+    Q_PROPERTY(float lightWarm READ getLightWarm WRITE setLightWarm NOTIFY viewChanged)
     Q_PROPERTY(int triangleCount READ getTriangleCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int pointCount READ getPointCount NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int degenerateFaces READ getDegenerateFaces NOTIFY meshLoadStateChanged)
@@ -90,22 +105,22 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float vectorScale READ getVectorScale WRITE setVectorScale NOTIFY viewChanged)
     Q_PROPERTY(int vectorStride READ getVectorStride WRITE setVectorStride NOTIFY viewChanged)
     Q_PROPERTY(bool vectorScaleByMagnitude READ getVectorScaleByMagnitude WRITE setVectorScaleByMagnitude NOTIFY viewChanged)
-    Q_PROPERTY(int vectorMagTransform READ getVectorMagTransform WRITE setVectorMagTransform NOTIFY vectorColormapChanged)
+    Q_PROPERTY(int vectorMagTransform READ getVectorMagTransform WRITE setVectorMagTransform NOTIFY viewChanged)
     Q_PROPERTY(QColor vectorColor READ getVectorColorQml WRITE setVectorColorQml NOTIFY viewChanged)
     Q_PROPERTY(QString vectorField READ getVectorField WRITE setActiveVectorField NOTIFY meshDataUpdated)
     Q_PROPERTY(QStringList availableVectors READ getAvailableVectors NOTIFY meshDataUpdated)
     Q_PROPERTY(bool vectorUseColormap READ getVectorUseColormap WRITE setVectorUseColormap NOTIFY viewChanged)
     Q_PROPERTY(int vectorColormapChoice READ getVectorColormapChoice WRITE setVectorColormapChoice NOTIFY viewChanged)
-    Q_PROPERTY(bool vectorColormapReversed READ getVectorColormapReversed WRITE setVectorColormapReversed NOTIFY vectorColormapChanged)
+    Q_PROPERTY(bool vectorColormapReversed READ getVectorColormapReversed WRITE setVectorColormapReversed NOTIFY viewChanged)
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
-    Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY colormapChanged)
-    Q_PROPERTY(bool colormapReversed READ getColormapReversed WRITE setColormapReversed NOTIFY colormapChanged)
-    Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY colormapChanged)
-    Q_PROPERTY(QVariantList vectorColormapStops READ getVectorColormapStops NOTIFY vectorColormapChanged)
-    Q_PROPERTY(float vectorMagMin READ getVectorMagMin NOTIFY vectorColormapChanged)
-    Q_PROPERTY(float vectorMagMax READ getVectorMagMax NOTIFY vectorColormapChanged)
+    Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY viewChanged)
+    Q_PROPERTY(bool colormapReversed READ getColormapReversed WRITE setColormapReversed NOTIFY viewChanged)
+    Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY viewChanged)
+    Q_PROPERTY(QVariantList vectorColormapStops READ getVectorColormapStops NOTIFY viewChanged)
+    Q_PROPERTY(float vectorMagMin READ getVectorMagMin NOTIFY viewChanged)
+    Q_PROPERTY(float vectorMagMax READ getVectorMagMax NOTIFY viewChanged)
     Q_PROPERTY(double worldMinX READ getWorldMinX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMaxX READ getWorldMaxX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMinY READ getWorldMinY NOTIFY meshLoadStateChanged)
@@ -204,43 +219,43 @@ public:
     void setQuickBarCollapsed(bool collapsed);
 
     float getLightKeyAzimuth() const { return lighting.lightKeyAzimuth; }
-    void setLightKeyAzimuth(float v) { lighting.lightKeyAzimuth = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightKeyAzimuth(float v) { lighting.lightKeyAzimuth = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightKeyElevation() const { return lighting.lightKeyElevation; }
-    void setLightKeyElevation(float v) { lighting.lightKeyElevation = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightKeyElevation(float v) { lighting.lightKeyElevation = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightFillAzimuth() const { return lighting.lightFillAzimuth; }
-    void setLightFillAzimuth(float v) { lighting.lightFillAzimuth = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightFillAzimuth(float v) { lighting.lightFillAzimuth = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightFillElevation() const { return lighting.lightFillElevation; }
-    void setLightFillElevation(float v) { lighting.lightFillElevation = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightFillElevation(float v) { lighting.lightFillElevation = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightBackAzimuth() const { return lighting.lightBackAzimuth; }
-    void setLightBackAzimuth(float v) { lighting.lightBackAzimuth = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightBackAzimuth(float v) { lighting.lightBackAzimuth = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightBackElevation() const { return lighting.lightBackElevation; }
-    void setLightBackElevation(float v) { lighting.lightBackElevation = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightBackElevation(float v) { lighting.lightBackElevation = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightHeadAzimuth() const { return lighting.lightHeadAzimuth; }
-    void setLightHeadAzimuth(float v) { lighting.lightHeadAzimuth = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightHeadAzimuth(float v) { lighting.lightHeadAzimuth = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightHeadElevation() const { return lighting.lightHeadElevation; }
-    void setLightHeadElevation(float v) { lighting.lightHeadElevation = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightHeadElevation(float v) { lighting.lightHeadElevation = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getMatAmbient() const { return lighting.matAmbient; }
-    void setMatAmbient(float v) { lighting.matAmbient = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setMatAmbient(float v) { lighting.matAmbient = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getMatDiffuse() const { return lighting.matDiffuse; }
-    void setMatDiffuse(float v) { lighting.matDiffuse = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setMatDiffuse(float v) { lighting.matDiffuse = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getMatSpecular() const { return lighting.matSpecular; }
-    void setMatSpecular(float v) { lighting.matSpecular = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setMatSpecular(float v) { lighting.matSpecular = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getMatShininess() const { return lighting.matShininess; }
-    void setMatShininess(float v) { lighting.matShininess = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setMatShininess(float v) { lighting.matShininess = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightKeyIntensity() const { return lighting.lightKeyIntensity; }
-    void setLightKeyIntensity(float v) { lighting.lightKeyIntensity = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightKeyIntensity(float v) { lighting.lightKeyIntensity = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightKF() const { return lighting.lightKF; }
-    void setLightKF(float v) { lighting.lightKF = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightKF(float v) { lighting.lightKF = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightKB() const { return lighting.lightKB; }
-    void setLightKB(float v) { lighting.lightKB = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightKB(float v) { lighting.lightKB = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightKH() const { return lighting.lightKH; }
-    void setLightKH(float v) { lighting.lightKH = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightKH(float v) { lighting.lightKH = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     bool getLightKitEnabled() const { return lighting.lightKitEnabled; }
-    void setLightKitEnabled(bool v) { lighting.lightKitEnabled = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightKitEnabled(bool v) { lighting.lightKitEnabled = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     bool getShowLightMarkers() const { return lighting.showLightMarkers; }
-    void setShowLightMarkers(bool v) { lighting.showLightMarkers = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setShowLightMarkers(bool v) { lighting.showLightMarkers = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightWarm() const { return lighting.lightWarm; }
-    void setLightWarm(float v) { lighting.lightWarm = v; markStateDirty(); emit lightingParametersChanged(); }
+    void setLightWarm(float v) { lighting.lightWarm = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
 
     QString getCurrentMeshNameQStr() const { return QString::fromStdString(currentMeshName); }
 
@@ -270,16 +285,9 @@ public slots:
     Q_INVOKABLE QString getColormapPreviewUri(int index) const;
 
 signals:
-    void wireframeChanged();
-    void surfaceVisibilityChanged();
-    void gridVisibilityChanged();
+    void viewChanged(ChangeFlags flags = ChangeFlag::All);
     void meshLoadStateChanged();
     void meshDataUpdated();
-    void lightingParametersChanged();
-    void colormapChanged();
-    void colorbarChanged();
-    void vectorColormapChanged();
-    void viewChanged();
     void quickBarCollapsedChanged();
     void screenshotCaptured(const QString& targetSavedPath);
     void screenshotRequested(const QString& targetPath);
@@ -340,7 +348,7 @@ public:
     bool getVectorScaleByMagnitude() const { return vectorScaleByMagnitude; }
     void setVectorScaleByMagnitude(bool v) { if (vectorScaleByMagnitude != v) { vectorScaleByMagnitude = v; markStateDirty(); emit viewChanged(); } }
     int getVectorMagTransform() const { return vectorMagTransform; }
-    void setVectorMagTransform(int v) { int t = (v < 0) ? 0 : (v > 2 ? 2 : v); if (vectorMagTransform != t) { vectorMagTransform = t; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit vectorColormapChanged(); } }
+    void setVectorMagTransform(int v) { int t = (v < 0) ? 0 : (v > 2 ? 2 : v); if (vectorMagTransform != t) { vectorMagTransform = t; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
     float getVectorScale() const { return vectorScale; }
     void setVectorScale(float v) { if (vectorScale != v) { vectorScale = v; markStateDirty(); emit viewChanged(); } }
     int getVectorStride() const { return vectorStride; }
@@ -379,7 +387,7 @@ public:
     Q_INVOKABLE float getDataScalarMinQml() const { return dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return dataScalarMax; }
     int getColorbarTicks() const { return colorbarTicks; }
-    void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (colorbarTicks != c) { colorbarTicks = c; markStateDirty(); emit colorbarChanged(); } }
+    void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (colorbarTicks != c) { colorbarTicks = c; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     bool getShowScalarColorbar() const { return showScalarColorbar; }
     void setShowScalarColorbar(bool v) { if (showScalarColorbar != v) { showScalarColorbar = v; markStateDirty(); emit viewChanged(); } }
     bool getMeshUseScalarColor() const { return meshUseScalarColor; }

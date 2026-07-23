@@ -39,6 +39,17 @@
 
 class QOpenGLFramebufferObject;
 
+// Shader source bundle — loaded by the caller (which has Qt resource access)
+// and passed to Renderer::initShaders() so the Renderer stays Qt-free.
+struct ShaderSources {
+    std::string meshVert;
+    std::string meshFrag;
+    std::string gridVert;
+    std::string gridFrag;
+    std::string glyphVert;
+    std::string glyphFrag;
+};
+
 // ---------------------------------------------------------------------------
 // RenderRenderState
 //
@@ -160,7 +171,8 @@ public:
 
     // Core Initialization & Graphics Lifecycle Routines (render thread).
     void initGLAD();
-    void initShaders();
+    void initShaders(const ShaderSources& sources);
+    void initGrid(const ShaderSources& sources);
     void initGrid();
     void initGizmo();
     void renderFrame();
@@ -322,6 +334,9 @@ private:
     double camDistance = 3.0;
     double nearPlane = 0.1;
     double farPlane = 100.0;
+
+    // Bounding box overlay GL handles (owned, cleaned up in destructor).
+    GLuint bboxVao = 0, bboxVbo = 0;
     std::atomic<bool> cameraMoving{false};
 
     // grid (procedural ray-cast ground plane)
