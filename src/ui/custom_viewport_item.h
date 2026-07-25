@@ -19,7 +19,12 @@ private:
     ::Renderer* m_scene = nullptr;
     bool m_initialized = false;
     QSize m_fboSize;
-    QOpenGLFramebufferObject* m_fbo = nullptr; // viewport FBO, used for screenshot capture
+    // Lifetime: Qt's QQuickFramebufferObject owns the FBO returned by
+    // createFramebufferObject() and destroys it when the renderer is torn
+    // down or the FBO is recreated (e.g. on resize / MSAA change). This raw
+    // pointer is only dereferenced on the render thread inside render() before
+    // resetOpenGLState(), so it is always valid within that window.
+    QOpenGLFramebufferObject* m_fbo = nullptr;
     // The mesh handoff now arrives as a shared_ptr stored on the Renderer
     // (setPendingMesh) and is uploaded inside renderFrame() under the GL context,
     // so no CPU mesh buffer is kept here.

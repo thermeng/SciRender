@@ -9,6 +9,7 @@
 #include <glad/glad.h>
 #include <QString>
 #include <QVariantList>
+#include <QImage>
 
 struct ColorbarData {
     QString title;          // header text (e.g. active scalar name)
@@ -32,15 +33,28 @@ public:
     void draw(float dpr, int deviceW, int deviceH,
               const ColorbarData& data, int corner);
 
+    void markDirty() { imageCacheValid_ = false; textureCacheValid_ = false; }
+
 private:
     void uploadAndDraw(const QImage& img, int deviceW, int deviceH);
 
     GLuint program_ = 0;
     GLuint vao_ = 0, vbo_ = 0;
     GLuint tex_ = 0;
-    GLint mvpLoc_ = -1, texLoc_ = -1;
+    GLint samplerLoc_ = -1;
 
     bool buildProgram();
     QImage buildImage(float dpr, int deviceW, int deviceH,
                       const ColorbarData& data, int corner) const;
+
+    // Image cache: avoids rebuilding the QImage every frame when the
+    // colormap choice, reversed flag, tick count, scalar range, title,
+    // or viewport dimensions haven't changed.
+    QImage cachedImage_;
+    bool imageCacheValid_ = false;
+    bool textureCacheValid_ = false;
+    ColorbarData cachedData_;
+    float cachedDpr_ = 0.0f;
+    int cachedW_ = 0, cachedH_ = 0;
+    int cachedCorner_ = -1;
 };

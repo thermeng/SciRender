@@ -9,8 +9,8 @@ for %%P in ("C:\Qt\Tools\mingw1310_64\bin\g++.exe" "C:\Qt\Tools\mingw_64\bin\g++
 if not defined GPP ( echo ERROR: g++.exe not found in known Qt MinGW dirs & pause & exit /b 1 )
 set INC=-I.. -I..\src -I..\vendor
 cd /d %~dp0
-%GPP% -std=c++17 -O0 -g -static ..\src\core\vtk_parser.cpp ..\src\core\mesh_utils.cpp ^
-  ..\src\core\stl_parser.cpp ..\src\core\mesh_loader.cpp parse_regression.cpp ^
+%GPP% -std=c++20 -O0 -g -static ..\src\core\vtk_parser.cpp ..\src\core\mesh_utils.cpp ^
+  ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp parse_regression.cpp ^
   -o parse_regression.exe %INC%
 if errorlevel 1 ( echo [run_tests] COMPILE FAILED & pause & exit /b 1 )
 parse_regression.exe > last_run.log 2>&1

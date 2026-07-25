@@ -94,8 +94,7 @@ bool ColorbarOverlay::init() {
 bool ColorbarOverlay::buildProgram() {
     program_ = link(vsSrc, fsSrc);
     if (!program_) return false;
-    mvpLoc_ = glGetUniformLocation(program_, "uTex"); // only sampler used
-    texLoc_ = glGetUniformLocation(program_, "uTex");
+    samplerLoc_ = glGetUniformLocation(program_, "uTex");
     return true;
 }
 
@@ -106,6 +105,10 @@ void ColorbarOverlay::shutdown() {
     if (tex_) glDeleteTextures(1, &tex_);
     if (program_) glDeleteProgram(program_);
     vao_ = vbo_ = tex_ = program_ = 0;
+    samplerLoc_ = -1;
+    imageCacheValid_ = false;
+    textureCacheValid_ = false;
+    cachedImage_ = QImage();
 }
 
 QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
@@ -130,7 +133,7 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
 
     // Title font/metrics -> dynamic title height and width.
     QFont titleFont;
-    titleFont.setPointSizeF(10 * dpr);
+    titleFont.setPixelSize(static_cast<int>(12 * dpr));
     const QFontMetrics titleFm(titleFont);
     const int titleH   = titleFm.height();
     const int titleW   = titleFm.horizontalAdvance(data.title);
@@ -138,7 +141,7 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
 
     // Tick label font/metrics -> dynamic width from the longest label.
     QFont tickFont;
-    tickFont.setPointSizeF(9 * dpr);
+    tickFont.setPixelSize(static_cast<int>(10 * dpr));
     const QFontMetrics tickFm(tickFont);
     int maxLabelW = 0;
     for (const QVariant& lbl : data.tickLabels) {
@@ -151,7 +154,8 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
     const int labelW = maxLabelW;
     const int labelBlockW = barW + spacing + labelW;
     const int blockW = qMax(labelBlockW, titleW);
-    const int blockH = titleH + titleGap + barH;
+    const int tickPad = static_cast<int>(tickFm.height() * 0.5f);
+    const int blockH = titleH + titleGap + barH + 2 * tickPad;
 
     int x, y;
     if (corner == 0) {
@@ -171,7 +175,7 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
     p.drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, data.title);
 
     const int barX = x;
-    const int barY = y + titleH + titleGap;
+    const int barY = y + titleH + titleGap + tickPad;
 
     // ---- Gradient bar: smooth vertical fill from the stops ----
     // Stops are [t, r, g, b] with t ascending 0..1, and the legend top is t=1
@@ -236,6 +240,7 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    textureCacheValid_ = true;
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -247,7 +252,7 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glViewport(0, 0, deviceW, deviceH);
 
     glUseProgram(program_);
-    glUniform1i(texLoc_, 0);
+    glUniform1i(samplerLoc_, 0);
     glBindVertexArray(vao_);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
@@ -260,6 +265,50 @@ void ColorbarOverlay::draw(float dpr, int deviceW, int deviceH,
     if (!isInitialized() || deviceW <= 0 || deviceH <= 0) return;
     if (!data.visible) return;
 
-    QImage img = buildImage(dpr, deviceW, deviceH, data, corner);
-    uploadAndDraw(img, deviceW, deviceH);
+    // Cache check: only rebuild the QImage when the visual parameters have
+    // changed (colormap stops, title, tick labels, dpr, viewport size, corner).
+    const bool paramsChanged =
+        !imageCacheValid_ ||
+        cachedDpr_ != dpr ||
+        cachedW_ != deviceW ||
+        cachedH_ != deviceH ||
+        cachedCorner_ != corner ||
+        cachedData_.title != data.title ||
+        cachedData_.stops != data.stops ||
+        cachedData_.tickLabels != data.tickLabels ||
+        cachedData_.visible != data.visible;
+
+    if (paramsChanged) {
+        cachedImage_ = buildImage(dpr, deviceW, deviceH, data, corner);
+        cachedData_ = data;
+        cachedDpr_ = dpr;
+        cachedW_ = deviceW;
+        cachedH_ = deviceH;
+        cachedCorner_ = corner;
+        imageCacheValid_ = true;
+        textureCacheValid_ = false; // force texture re-upload with new image
+    }
+
+    // Only re-upload the texture when the image changed; the quad is still
+    // drawn every frame so the colorbar remains composited in the FBO.
+    if (!textureCacheValid_) {
+        uploadAndDraw(cachedImage_, deviceW, deviceH);
+    } else {
+        // Texture already current — but rebind unconditionally so an earlier
+        // GL pass (mesh, gizmo, UI) cannot leave a different texture on unit 0.
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex_);
+        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glViewport(0, 0, deviceW, deviceH);
+        glUseProgram(program_);
+        glUniform1i(samplerLoc_, 0);
+        glBindVertexArray(vao_);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glUseProgram(0);
+    }
 }

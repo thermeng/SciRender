@@ -179,6 +179,7 @@ void ViewportFboRenderer::synchronize(QQuickFramebufferObject* item) {
 }
 
 QOpenGLFramebufferObject* ViewportFboRenderer::createFramebufferObject(const QSize& size) {
+    m_fbo = nullptr; // guard: clear stale pointer before Qt destroys the old FBO
     m_fboSize = size;
     QOpenGLFramebufferObjectFormat format;
     format.setAttachment(QOpenGLFramebufferObject::Depth);
