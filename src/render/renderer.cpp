@@ -142,6 +142,11 @@ void Renderer::initShaders(const ShaderSources& sources) {
         char log[512];
         glGetProgramInfoLog(shaderProgram, 512, nullptr, log);
         printf("Shader program linking error: %s\n", log);
+        glDeleteProgram(shaderProgram);
+        shaderProgram = 0;
+        glDeleteShader(vert);
+        glDeleteShader(frag);
+        return;
     }
 
     glDeleteShader(vert);
@@ -149,13 +154,11 @@ void Renderer::initShaders(const ShaderSources& sources) {
 
     mvpLoc = glGetUniformLocation(shaderProgram, "uMVP");
     modelLoc = glGetUniformLocation(shaderProgram, "uModel");
-    viewLoc = glGetUniformLocation(shaderProgram, "uView");
     lightDirLoc = glGetUniformLocation(shaderProgram, "uLightDir");
     viewPosLoc = glGetUniformLocation(shaderProgram, "uViewPos");
     wireframeLoc = glGetUniformLocation(shaderProgram, "uWireframe");
-    colorLoc = glGetUniformLocation(shaderProgram, "uMeshColor");
-    surfaceColorLoc = glGetUniformLocation(shaderProgram, "uSurfaceColor");
     meshColorLoc = glGetUniformLocation(shaderProgram, "uMeshColor");
+    surfaceColorLoc = glGetUniformLocation(shaderProgram, "uSurfaceColor");
     pointSizeLoc = glGetUniformLocation(shaderProgram, "uPointSize");
     isPointLoc = glGetUniformLocation(shaderProgram, "uIsPoint");
     pointUseScalarLoc = glGetUniformLocation(shaderProgram, "uPointUseScalar");
@@ -260,6 +263,15 @@ void Renderer::initGrid(const ShaderSources& sources) {
     glAttachShader(gridProgram, f);
     glLinkProgram(gridProgram);
     glDeleteShader(v); glDeleteShader(f);
+    GLint gridLinked = 0;
+    glGetProgramiv(gridProgram, GL_LINK_STATUS, &gridLinked);
+    if (!gridLinked) {
+        char log[512];
+        glGetProgramInfoLog(gridProgram, 512, nullptr, log);
+        printf("Grid shader program linking error: %s\n", log);
+        glDeleteProgram(gridProgram);
+        gridProgram = 0;
+    }
 
     gridInvViewLoc = glGetUniformLocation(gridProgram, "uInvView");
     gridInvProjLoc = glGetUniformLocation(gridProgram, "uInvProj");
@@ -603,7 +615,7 @@ void Renderer::renderFrame() {
 
     double camDist = m_state.camera.distance;
     nearPlane = std::max(0.01, camDist * 0.001);
-    farPlane  = std::max(farPlane, camDist + m_state.worldRadius + 250.0);
+    farPlane  = camDist + m_state.worldRadius + 250.0;
 
     glm::mat4 proj = m_state.orthographic
         ? [&]() { // ponytail: ortho frustum tracks camera.distance so dolly() zooms it
@@ -630,13 +642,12 @@ void Renderer::renderFrame() {
     colormap.setVectorReversed(m_state.vectorColormapReversed);
     colormap.update();
 
-    const bool useLod = true; // LOD handled internally by snapshot propagation
+    const bool useLod = m_state.useLod;
     if (meshManager.hasMeshes() && shaderProgram != 0) { // ponytail: also admits point clouds (no surface/wireframe flag)
         glUseProgram(shaderProgram);
 
         glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
@@ -649,7 +660,7 @@ void Renderer::renderFrame() {
         glm::vec3 camPos = glm::vec3(m_state.camera.position);
         glUniform3fv(viewPosLoc, 1, glm::value_ptr(camPos));
 
-        glUniform3fv(colorLoc, 1, m_state.meshColor);
+        glUniform3fv(meshColorLoc, 1, m_state.meshColor);
         glUniform3fv(surfaceColorLoc, 1, m_state.surfaceColor);
         glUniform1f(matAmbientLoc, m_state.lighting.matAmbient);
         glUniform1f(matDiffuseLoc, m_state.lighting.matDiffuse);
@@ -658,9 +669,12 @@ void Renderer::renderFrame() {
 
         float keyI = m_state.lighting.lightKitEnabled ? m_state.lighting.lightKeyIntensity : 0.0f;
         glUniform1f(keyIntensityLoc,  keyI);
-        glUniform1f(fillIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / m_state.lighting.lightKF : 0.0f);
-        glUniform1f(headIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / m_state.lighting.lightKH : 0.0f);
-        glUniform1f(backIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / m_state.lighting.lightKB : 0.0f);
+        float kf = std::max(m_state.lighting.lightKF, 0.001f);
+        float kh = std::max(m_state.lighting.lightKH, 0.001f);
+        float kb = std::max(m_state.lighting.lightKB, 0.001f);
+        glUniform1f(fillIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / kf : 0.0f);
+        glUniform1f(headIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
+        glUniform1f(backIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / kb : 0.0f);
 
         auto warmTint = [](float w) -> glm::vec3 {
             if (w < 0.5f) return glm::mix(glm::vec3(0.6f,0.7f,1.0f), glm::vec3(1.0f), w/0.5f);
@@ -844,6 +858,10 @@ void Renderer::renderFrame() {
         // the mesh. Depth test + cull are disabled so interior defects (coplanar
         // with the surface) are not z-rejected and hidden.
         if (m_state.showQualityOverlay && shaderProgram != 0) {
+            // ponytail: save/restore slice-enabled uniforms (BBox pattern).
+            GLint prevSliceX = m_state.sliceEnabledX ? 1 : 0;
+            GLint prevSliceY = m_state.sliceEnabledY ? 1 : 0;
+            GLint prevSliceZ = m_state.sliceEnabledZ ? 1 : 0;
             // ponytail: quality edges are diagnostics, not mesh — never clip.
             glUniform1i(sliceEnabledXLoc, 0); glUniform1i(sliceEnabledYLoc, 0); glUniform1i(sliceEnabledZLoc, 0);
             // ponytail: save state; restore to prev (mesh pass leaves cull OFF,
@@ -883,10 +901,12 @@ void Renderer::renderFrame() {
             drawList(m_state.qualityDegenerateTris, GL_LINES, red);
             if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
             if (cullWas)  glEnable(GL_CULL_FACE);  else glDisable(GL_CULL_FACE);
+            glUniform1i(sliceEnabledXLoc, prevSliceX);
+            glUniform1i(sliceEnabledYLoc, prevSliceY);
+            glUniform1i(sliceEnabledZLoc, prevSliceZ);
         }
 
         glUseProgram(0);
-
 
     if (m_state.showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

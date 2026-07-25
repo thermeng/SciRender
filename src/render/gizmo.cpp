@@ -200,15 +200,15 @@ bool Gizmo::init() {
     glEnableVertexAttribArray(textPosLoc);
     glBindVertexArray(0);
 
-    // light-marker disc VBO (5 lights * 6 verts * vec5 = px.xy + rgb)
+    // light-marker disc VBO (5 lights * 6 verts * vec6 = px.xy + z + rgb)
     glGenVertexArrays(1, &lightMarkVAO);
     glGenBuffers(1, &lightMarkVBO);
     glBindVertexArray(lightMarkVAO);
     glBindBuffer(GL_ARRAY_BUFFER, lightMarkVBO);
-    glBufferData(GL_ARRAY_BUFFER, 5 * 6 * 5 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    glVertexAttribPointer(linePosLoc, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glBufferData(GL_ARRAY_BUFFER, 5 * 6 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(linePosLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(linePosLoc);
-    glVertexAttribPointer(lineColLoc, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(2 * sizeof(float)));
+    glVertexAttribPointer(lineColLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(lineColLoc);
     glBindVertexArray(0);
 
@@ -364,7 +364,7 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     // px space [0..foot]x[0..foot] -> clip; markers are constant kit-local dirs.
     const glm::mat4 pxMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
     const float r = 6.0f; // disc radius in px
-    float quad[6][5];     // 2 triangles; per-vertex (x,y,r,g,b)
+    float quad[6][6];     // 2 triangles; per-vertex (x,y,0.0,r,g,b)
 
     glUseProgram(lineProgram);
     glUniformMatrix4fv(lineMvpLoc, 1, GL_FALSE, glm::value_ptr(pxMVP));
@@ -373,13 +373,13 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     for (int i = 0; i < 5; ++i) {
         float cx = (dirs[i].x * 0.5f + 0.5f) * foot;
         float cy = (dirs[i].y * 0.5f + 0.5f) * foot;
-        const float q[6][5] = {
-            { cx - r, cy - r, cols[i].r, cols[i].g, cols[i].b },
-            { cx + r, cy - r, cols[i].r, cols[i].g, cols[i].b },
-            { cx - r, cy + r, cols[i].r, cols[i].g, cols[i].b },
-            { cx + r, cy - r, cols[i].r, cols[i].g, cols[i].b },
-            { cx + r, cy + r, cols[i].r, cols[i].g, cols[i].b },
-            { cx - r, cy + r, cols[i].r, cols[i].g, cols[i].b },
+        const float q[6][6] = {
+            { cx - r, cy - r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
+            { cx + r, cy - r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
+            { cx - r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
+            { cx + r, cy - r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
+            { cx + r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
+            { cx - r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
         };
         std::memcpy(quad, q, sizeof(q));
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);

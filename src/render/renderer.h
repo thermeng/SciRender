@@ -267,11 +267,9 @@ private:
     // Shader uniform cache registry
     GLint mvpLoc = -1;
     GLint modelLoc = -1;
-    GLint viewLoc = -1;
     GLint lightDirLoc = -1;
     GLint viewPosLoc = -1;
     GLint wireframeLoc = -1;
-    GLint colorLoc = -1;
     GLint surfaceColorLoc = -1;
     GLint meshColorLoc = -1;
     GLint pointSizeLoc = -1; // ponytail: CPU-driven gl_PointSize for point-cloud draw
@@ -363,8 +361,10 @@ private:
     // Deep-copied snapshot; the ONLY source of truth renderFrame() reads.
     RenderRenderState m_state;
 
-    // Viewport FBO handed in by the QQuickFramebufferObject renderer before a
-    // screenshot capture (so captureViewportToFile can read back the live view).
+    // Lifetime: transient pointer to the Qt-owned viewport FBO, set only
+    // during screenshot capture via setViewportFbo(). Not dereferenced
+    // outside captureViewportToFile() on the render thread. Null-checked
+    // before use (see renderer.cpp:419).
     QOpenGLFramebufferObject* m_viewportFbo = nullptr;
 
     // --- extracted responsibility helpers -------------------------------------
