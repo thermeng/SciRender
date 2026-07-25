@@ -1,8 +1,10 @@
 #version 330 core
-// procedural infinite ground grid via screen-space ray cast to y=0.
-// Grid lines are drawn in world space with fwidth() AA so line width stays
-// constant regardless of distance. Depth is written manually so the grid
-// occludes/is-occluded by meshes correctly. Fades to background at the horizon.
+
+#extension GL_ARB_conservative_depth : enable
+#ifdef GL_ARB_conservative_depth
+layout(depth_unchanged) out float gl_FragDepth;
+#endif
+
 in vec3 vNear;
 in vec3 vFar;
 
@@ -10,42 +12,57 @@ uniform mat4  uView;
 uniform mat4  uProj;
 uniform vec3  uCamPos;
 uniform vec3  uColor;
-uniform vec3  uBg;
-uniform float uFalloff; // exp(-dist*falloff) horizon fade rate
-uniform float uPlaneY;  // ground-plane height (mesh y-min), default 0
+uniform float uFalloff; // exp(-dist * falloff) horizon fade rate
+uniform float uPlaneY;  // ground-plane height
 
 out vec4 fragColor;
 
-// AA line factor for a grid of given world-space scale.
+// AA line factor with sub-pixel moiré suppression
 float gridFactor(vec2 coord, float scale) {
     vec2 c = coord / scale;
     vec2 d = fwidth(c);
-    vec2 g = abs(fract(c - 0.5) - 0.5) / d;
+    
+    // Clamp derivative to prevent division-by-zero artifacts
+    vec2 drawWidth = clamp(d, 0.0001, 0.5);
+    vec2 g = abs(fract(c - 0.5) - 0.5) / drawWidth;
     float line = min(g.x, g.y);
-    return 1.0 - min(line, 1.0);
+    
+    // Smoothly fade out lines when they become smaller than 1 screen pixel
+    float maxDerivative = max(d.x, d.y);
+    float subpixelFade = 1.0 - smoothstep(0.2, 1.0, maxDerivative);
+    
+    return (1.0 - min(line, 1.0)) * subpixelFade;
 }
 
 void main() {
     vec3 rayDir = normalize(vFar - vNear);
-    if (abs(rayDir.y) < 1e-5) discard;       // looking along the plane: no hit
-    float t = (uPlaneY - vNear.y) / rayDir.y;
-    if (t < 0.0) discard;                    // plane behind the camera
-    vec3 worldPos = vNear + t * rayDir;
+    
+    // Raycast directly from camera position to plane y = uPlaneY
+    float t = (uPlaneY - uCamPos.y) / rayDir.y;
 
+    // Discard rays pointing away, parallel, or beyond reasonable bounds
+    if (t <= 0.0 || isnan(t) || isinf(t) || t > 1e6) {
+        discard;
+    }
+
+    vec3 worldPos = uCamPos + t * rayDir;
+
+    // Exponential horizon fade
     float dist = length(worldPos - uCamPos);
     float fade = exp(-dist * uFalloff);
 
+    // Compute grid pattern
     float minor = gridFactor(worldPos.xz, 1.0);
     float major = gridFactor(worldPos.xz, 10.0);
-    float g = max(minor * 0.5, major);
+    float g = max(minor * 0.4, major);
+
     float alpha = g * fade;
-    if (alpha < 0.01) discard;
+    if (alpha < 0.005) discard;
 
-    vec3 col = mix(uBg, uColor, g);
-    fragColor = vec4(col, alpha);
+    fragColor = vec4(uColor, alpha);
 
-    // write true depth so the grid sits correctly in the depth buffer.
-    // clip.z/clip.w is NDC in [-1,1]; gl_FragDepth needs window depth [0,1].
+    // Calculate clip depth safely
     vec4 clip = uProj * uView * vec4(worldPos, 1.0);
-    gl_FragDepth = 0.5 * (clip.z / clip.w) + 0.5;
+    float ndcDepth = clip.z / clip.w;
+    gl_FragDepth = clamp(0.5 * ndcDepth + 0.5, 0.0, 1.0);
 }
