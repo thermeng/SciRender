@@ -1,9 +1,6 @@
-#version 330 core
+#version 460 core
 
-#extension GL_ARB_conservative_depth : enable
-#ifdef GL_ARB_conservative_depth
 layout(depth_unchanged) out float gl_FragDepth;
-#endif
 
 in vec3 vNear;
 in vec3 vFar;

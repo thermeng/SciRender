@@ -11,13 +11,12 @@ void ColormapManager::uploadLUT(GLuint& tex, int choice, bool reversed) const {
         pd.push_back(static_cast<unsigned char>(rgb.g * 255.0f));
         pd.push_back(static_cast<unsigned char>(rgb.b * 255.0f));
     }
-    if (tex == 0) glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_1D, tex);
-    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, pd.data());
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glBindTexture(GL_TEXTURE_1D, 0);
+    if (tex == 0) glCreateTextures(GL_TEXTURE_1D, 1, &tex);
+    glTextureStorage1D(tex, 1, GL_RGB8, 256);
+    glTextureSubImage1D(tex, 0, 0, 256, GL_RGB, GL_UNSIGNED_BYTE, pd.data());
+    glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
 
 void ColormapManager::update() {

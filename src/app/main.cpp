@@ -17,21 +17,21 @@ int main(int argc, char *argv[]) {
     // Checkpoint 1: Application initialization entry point reached
     qDebug() << "[LAUNCH DIAGNOSTIC 1/6] Main entry executed. Allocating resources...";
 
-    // 1. Force a real DESKTOP OpenGL 3.3 context. Our shaders are
-    //    "#version 330 core" (desktop GL). On Windows, the default QSG
-    //    "OpenGL" path resolves to ANGLE -> an OpenGL ES 3.0 context, which
-    //    rejects #version 330 and silently yields blank FBO output.
+    // Force a real DESKTOP OpenGL 4.6 context. Our shaders will be
+    // "#version 460 core" (desktop GL). On Windows, the default QSG
+    // "OpenGL" path resolves to ANGLE -> an OpenGL ES 3.0 context, which
+    // rejects #version 460 and silently yields blank FBO output.
     QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
     QSurfaceFormat glFormat;
     glFormat.setRenderableType(QSurfaceFormat::OpenGL);
-    glFormat.setVersion(3, 3);
+    glFormat.setVersion(4, 6);
     glFormat.setProfile(QSurfaceFormat::CoreProfile);
     glFormat.setDepthBufferSize(24);
     glFormat.setSamples(4);
     QSurfaceFormat::setDefaultFormat(glFormat);
 
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
-    qDebug() << "[LAUNCH DIAGNOSTIC 2/6] Graphics API bound to desktop OpenGL 3.3 Core.";
+    qDebug() << "[LAUNCH DIAGNOSTIC 2/6] Graphics API bound to desktop OpenGL 4.6 Core.";
 
     // 2. Override default styling rules to prevent customizable control runtime crashes
     QQuickStyle::setStyle("Fusion");

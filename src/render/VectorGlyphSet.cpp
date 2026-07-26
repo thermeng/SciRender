@@ -136,37 +136,41 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     std::vector<float> av, an; std::vector<unsigned int> ai;
     buildUnitArrow(av, an, ai);
 
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-    glGenBuffers(1, &nbo);
-    glGenBuffers(1, &ebo);
-    glGenBuffers(1, &instVBO);
+    glCreateVertexArrays(1, &vao);
+    glCreateBuffers(1, &vbo);
+    glCreateBuffers(1, &nbo);
+    glCreateBuffers(1, &ebo);
+    glCreateBuffers(1, &instVBO);
 
-    glBindVertexArray(vao);
+    glEnableVertexArrayAttrib(vao, 0);
+    glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao, 0, 0);
+    glNamedBufferData(vbo, av.size() * sizeof(float), av.data(), GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(vao, 0, vbo, 0, 3 * sizeof(float));
 
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, av.size() * sizeof(float), av.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+    glEnableVertexArrayAttrib(vao, 1);
+    glVertexArrayAttribFormat(vao, 1, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao, 1, 1);
+    glNamedBufferData(nbo, an.size() * sizeof(float), an.data(), GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(vao, 1, nbo, 0, 3 * sizeof(float));
 
-    glBindBuffer(GL_ARRAY_BUFFER, nbo);
-    glBufferData(GL_ARRAY_BUFFER, an.size() * sizeof(float), an.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1);
+    glNamedBufferData(ebo, ai.size() * sizeof(unsigned int), ai.data(), GL_STATIC_DRAW);
+    glVertexArrayElementBuffer(vao, ebo);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ai.size() * sizeof(unsigned int), ai.data(), GL_STATIC_DRAW);
+    glEnableVertexArrayAttrib(vao, 2);
+    glVertexArrayAttribFormat(vao, 2, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao, 2, 2);
+    glVertexArrayVertexBuffer(vao, 2, instVBO, 0, 6 * sizeof(float));
+    glVertexArrayVertexAttribDivisorEXT(vao, 2, 1);
 
-    glBindBuffer(GL_ARRAY_BUFFER, instVBO);
-    glBufferData(GL_ARRAY_BUFFER, inst.size() * sizeof(float), inst.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(2);
-    glVertexAttribDivisor(2, 1);
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(3);
-    glVertexAttribDivisor(3, 1);
+    glEnableVertexArrayAttrib(vao, 3);
+    glVertexArrayAttribFormat(vao, 3, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao, 3, 3);
+    glVertexArrayVertexBuffer(vao, 3, instVBO, 3 * sizeof(float), 6 * sizeof(float));
+    glVertexArrayVertexAttribDivisorEXT(vao, 3, 1);
 
-    glBindVertexArray(0);
+    glNamedBufferData(instVBO, inst.size() * sizeof(float), inst.data(), GL_STATIC_DRAW);
+
     glyphIndexCount = static_cast<int>(ai.size());
     instanceCount = static_cast<int>(inst.size() / 6);
 }

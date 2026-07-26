@@ -14,7 +14,7 @@
 // Shaders
 // ----------------------------------------------------------------------------
 static const char* lineVS = R"(
-#version 330 core
+#version 460 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
 uniform mat4 uMVP;
@@ -25,14 +25,14 @@ void main() {
 }
 )";
 static const char* lineFS = R"(
-#version 330 core
+#version 460 core
 in vec3 vColor;
 out vec4 frag;
 void main() { frag = vec4(vColor, 1.0); }
 )";
 
 static const char* textVS = R"(
-#version 330 core
+#version 460 core
 layout(location = 0) in vec4 aPos;   // xy = local px (in 0..viewport px space), zw = uv
 uniform mat4 uMVP;
 out vec2 vUV;
@@ -42,7 +42,7 @@ void main() {
 }
 )";
 static const char* textFS = R"(
-#version 330 core
+#version 460 core
 in vec2 vUV;
 uniform sampler2D uTex;
 uniform vec3 uColor;
@@ -132,15 +132,12 @@ bool Gizmo::buildAtlas() {
         }
     }
 
-    glGenTextures(1, &glyphTex);
-    glBindTexture(GL_TEXTURE_2D, glyphTex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, glyphAtlasW, glyphAtlasH, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    glCreateTextures(GL_TEXTURE_2D, 1, &glyphTex);
+    glTextureSubImage2D(glyphTex, 0, 0, 0, glyphAtlasW, glyphAtlasH, GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
+    glTextureParameteri(glyphTex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(glyphTex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(glyphTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(glyphTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     return glyphTex != 0;
 }
 
@@ -179,38 +176,37 @@ bool Gizmo::init() {
         0.0f, 0.0f, 0.0f,  0.3f, 0.5f, 1.0f,   // Z base
         0.0f, 0.0f, 1.0f,  0.3f, 0.5f, 1.0f,   // Z tip (blue)
     };
-    glGenVertexArrays(1, &lineVAO);
-    glGenBuffers(1, &lineVBO);
-    glBindVertexArray(lineVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(lines), lines, GL_STATIC_DRAW);
-    glVertexAttribPointer(linePosLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(linePosLoc);
-    glVertexAttribPointer(lineColLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(lineColLoc);
-    glBindVertexArray(0);
+    glCreateVertexArrays(1, &lineVAO);
+    glCreateBuffers(1, &lineVBO);
+    glEnableVertexArrayAttrib(lineVAO, linePosLoc);
+    glVertexArrayAttribFormat(lineVAO, linePosLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float));
+    glVertexArrayAttribBinding(lineVAO, linePosLoc, 0);
+    glEnableVertexArrayAttrib(lineVAO, lineColLoc);
+    glVertexArrayAttribFormat(lineVAO, lineColLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float));
+    glVertexArrayAttribBinding(lineVAO, lineColLoc, 0);
+    glNamedBufferData(lineVBO, sizeof(lines), lines, GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(lineVAO, 0, lineVBO, 0, 6 * sizeof(float));
 
     // Text quad VBO: 3 chars * 6 verts * vec4(px.xy, uv.zw). Allocated dynamic.
-    glGenVertexArrays(1, &textVAO);
-    glGenBuffers(1, &textVBO);
-    glBindVertexArray(textVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, textVBO);
-    glBufferData(GL_ARRAY_BUFFER, 3 * 6 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    glVertexAttribPointer(textPosLoc, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(textPosLoc);
-    glBindVertexArray(0);
+    glCreateVertexArrays(1, &textVAO);
+    glCreateBuffers(1, &textVBO);
+    glEnableVertexArrayAttrib(textVAO, textPosLoc);
+    glVertexArrayAttribFormat(textVAO, textPosLoc, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+    glVertexArrayAttribBinding(textVAO, textPosLoc, 0);
+    glNamedBufferData(textVBO, 3 * 6 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glVertexArrayVertexBuffer(textVAO, 0, textVBO, 0, 4 * sizeof(float));
 
     // light-marker disc VBO (5 lights * 6 verts * vec6 = px.xy + z + rgb)
-    glGenVertexArrays(1, &lightMarkVAO);
-    glGenBuffers(1, &lightMarkVBO);
-    glBindVertexArray(lightMarkVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, lightMarkVBO);
-    glBufferData(GL_ARRAY_BUFFER, 5 * 6 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    glVertexAttribPointer(linePosLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(linePosLoc);
-    glVertexAttribPointer(lineColLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(lineColLoc);
-    glBindVertexArray(0);
+    glCreateVertexArrays(1, &lightMarkVAO);
+    glCreateBuffers(1, &lightMarkVBO);
+    glEnableVertexArrayAttrib(lightMarkVAO, linePosLoc);
+    glVertexArrayAttribFormat(lightMarkVAO, linePosLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float));
+    glVertexArrayAttribBinding(lightMarkVAO, linePosLoc, 0);
+    glEnableVertexArrayAttrib(lightMarkVAO, lineColLoc);
+    glVertexArrayAttribFormat(lightMarkVAO, lineColLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float));
+    glVertexArrayAttribBinding(lightMarkVAO, lineColLoc, 0);
+    glNamedBufferData(lightMarkVBO, 5 * 6 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glVertexArrayVertexBuffer(lightMarkVAO, 0, lightMarkVBO, 0, 6 * sizeof(float));
 
     return true;
 }
@@ -320,17 +316,14 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     glUseProgram(textProgram);
     glUniformMatrix4fv(textMvpLoc, 1, GL_FALSE, glm::value_ptr(textMVP));
     glUniform1i(textTexLoc, 0);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, glyphTex);
+    glBindTextureUnit(0, glyphTex);
     glBindVertexArray(textVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, textVBO);
     for (int i = 0; i < 3; ++i) {
-        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quads[i]), quads[i]);
+        glNamedBufferSubData(textVBO, 0, sizeof(quads[i]), quads[i]);
         glUniform3fv(textColorLoc, 1, colors[i]);
         glDrawArrays(GL_TRIANGLES, 0, 6);
     }
     glBindVertexArray(0);
-    glBindTexture(GL_TEXTURE_2D, 0);
     glUseProgram(0);
 
     // ---- State handover: restore everything we touched ----
@@ -369,7 +362,6 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     glUseProgram(lineProgram);
     glUniformMatrix4fv(lineMvpLoc, 1, GL_FALSE, glm::value_ptr(pxMVP));
     glBindVertexArray(lightMarkVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, lightMarkVBO);
     for (int i = 0; i < 5; ++i) {
         float cx = (dirs[i].x * 0.5f + 0.5f) * foot;
         float cy = (dirs[i].y * 0.5f + 0.5f) * foot;
@@ -382,7 +374,7 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
             { cx - r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
         };
         std::memcpy(quad, q, sizeof(q));
-        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
+        glNamedBufferSubData(lightMarkVBO, 0, sizeof(quad), quad);
         glDrawArrays(GL_TRIANGLES, 0, 6);
     }
     glBindVertexArray(0);
