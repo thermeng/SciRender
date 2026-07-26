@@ -1,0 +1,91 @@
+#version 460 core
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) buffer InPos {
+    vec3 inPos[];
+};
+layout(std430, binding = 1) buffer InNorm {
+    vec3 inNorm[];
+};
+layout(std430, binding = 2) buffer InScalar {
+    float inScalar[];
+};
+layout(std430, binding = 3) buffer InIndex {
+    uint inIndex[];
+};
+
+layout(std430, binding = 4) buffer OutPos {
+    vec3 outPos[];
+};
+layout(std430, binding = 5) buffer OutNorm {
+    vec3 outNorm[];
+};
+layout(std430, binding = 6) buffer OutScalar {
+    float outScalar[];
+};
+layout(std430, binding = 7) buffer OutIndex {
+    uint outIndex[];
+};
+layout(std430, binding = 8) buffer Remap {
+    uint remap[];
+};
+
+layout(std430, binding = 9) buffer CellData {
+    uint cells[];
+};
+
+layout(std140) uniform LODParams {
+    ivec3 cellsPerAxis;
+    vec3 boundsMin;
+    vec3 boundsMax;
+    int vertexCount;
+    int triangleCount;
+    int hasNormals;
+    int hasScalars;
+};
+
+layout(std430, binding = 10) buffer Counters {
+    uint outVertCount;
+    uint outTriCount;
+};
+
+float atomicAddFloat(inout uint addr, float value) {
+    uint old = atomicAdd(addr, 0u);
+    uint newVal;
+    do {
+        float cur = uintBitsToFloat(old);
+        float sum = cur + value;
+        newVal = floatBitsToUint(sum);
+        uint prev = atomicCompSwap(addr, old, newVal);
+        if (prev == old) break;
+        old = prev;
+    } while (true);
+    return uintBitsToFloat(newVal);
+}
+
+void main() {
+    uint vid = gl_GlobalInvocationID.x;
+    if (vid >= uint(vertexCount)) return;
+
+    vec3 p = inPos[vid];
+    vec3 range = boundsMax - boundsMin;
+    vec3 cellCoord = (p - boundsMin) / range * vec3(cellsPerAxis);
+    ivec3 cell = ivec3(clamp(floor(cellCoord), ivec3(0), cellsPerAxis - 1));
+
+    int flatCell = cell.x + cell.y * cellsPerAxis.x + cell.z * cellsPerAxis.x * cellsPerAxis.y;
+    int stride = cellsPerAxis.x * cellsPerAxis.y * cellsPerAxis.z;
+
+    atomicAdd(cells[flatCell * 10u], 1u);
+    atomicAddFloat(cells[flatCell * 10u + 1u], p.x);
+    atomicAddFloat(cells[flatCell * 10u + 2u], p.y);
+    atomicAddFloat(cells[flatCell * 10u + 3u], p.z);
+
+    if (hasNormals != 0) {
+        atomicAddFloat(cells[flatCell * 10u + 4u], inNorm[vid].x);
+        atomicAddFloat(cells[flatCell * 10u + 5u], inNorm[vid].y);
+        atomicAddFloat(cells[flatCell * 10u + 6u], inNorm[vid].z);
+    }
+    if (hasScalars != 0) {
+        atomicAddFloat(cells[flatCell * 10u + 7u], inScalar[vid]);
+    }
+}

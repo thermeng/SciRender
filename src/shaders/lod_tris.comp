@@ -1,0 +1,53 @@
+#version 460 core
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 3) buffer InIndex {
+    uint inIndex[];
+};
+layout(std430, binding = 7) buffer OutIndex {
+    uint outIndex[];
+};
+layout(std430, binding = 8) buffer Remap {
+    uint remap[];
+};
+
+layout(std430, binding = 9) buffer CellData {
+    uint cells[];
+};
+
+layout(std140) uniform LODParams {
+    ivec3 cellsPerAxis;
+    vec3 boundsMin;
+    vec3 boundsMax;
+    int vertexCount;
+    int triangleCount;
+    int hasNormals;
+    int hasScalars;
+};
+
+layout(std430, binding = 10) buffer Counters {
+    uint outVertCount;
+    uint outTriCount;
+};
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= uint(triangleCount)) return;
+
+    uint a = inIndex[tid * 3u];
+    uint b = inIndex[tid * 3u + 1u];
+    uint c = inIndex[tid * 3u + 2u];
+
+    int totalCells = cellsPerAxis.x * cellsPerAxis.y * cellsPerAxis.z;
+
+    uint na = remap[a];
+    uint nb = remap[b];
+    uint nc = remap[c];
+
+    if (na == nb || nb == nc || na == nc) return;
+
+    uint base = atomicAdd(outTriCount, 3u);
+    outIndex[base] = na;
+    outIndex[base + 1u] = nb;
+    outIndex[base + 2u] = nc;
+}

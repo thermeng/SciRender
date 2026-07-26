@@ -6,7 +6,7 @@
 // PNG exports), instead of living only as a QML overlay outside the GL surface.
 
 #include <glm/glm.hpp>
-#include <glad/glad.h>
+#include <glad/gl.h>
 #include <QString>
 #include <QVariantList>
 #include <QImage>

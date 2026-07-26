@@ -1,6 +1,6 @@
 #pragma once
 
-#include <glad/glad.h>
+#include <glad/gl.h>
 
 #include <vector>
 #include <mutex>
@@ -14,11 +14,11 @@ struct Mesh {
     GLuint nbo = 0;
     GLuint ebo = 0;
     GLuint sbo = 0;
-    GLuint lineVao = 0; // ponytail: per-cell boundary edges (cellEdges)
+    GLuint lineVao = 0;
     GLuint lineVbo = 0;
     int indexCount = 0;
-    int vertexCount = 0; // # vertices; draw count for point-cloud meshes
-    int lineCount = 0;   // # xyz verts in lineVao (0 if no cell edges)
+    int vertexCount = 0;
+    int lineCount = 0;
 };
 
 // Owns the full-resolution and decimated (LOD) GPU meshes plus the meshChanged
@@ -63,12 +63,28 @@ public:
 
     bool hasMeshes() const { return !meshes_.empty(); }
     bool hasDecimated() const { return hasDecimated_; }
+    bool hasFullSource() const { return hasFullSource_; }
+
+    const RenderMesh* getFullSource() const { return fullSource_.get(); }
 
     // ponytail: returns the primary full mesh's cell-edge line VBO + vertex count
     // (0 count when no cell edges). Used by the renderer's "Cell edges" overlay.
     std::pair<GLuint, int> getCellEdgeLine() const {
         if (meshes_.empty()) return {0, 0};
         return {meshes_.front().lineVao, meshes_.front().lineCount};
+    }
+
+    // GPU compute shader LOD helpers
+    void initLodCompute();
+    void cleanupLodCompute();
+    bool dispatchLodCompute(const RenderMesh& mesh, Mesh& outMesh);
+
+    // Replace the first decimated mesh with a new one (used after compute LOD).
+    void replaceDecimatedMesh(int index, Mesh newMesh) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (index < 0 || index >= static_cast<int>(decimatedMeshes_.size())) return;
+        destroyMesh(decimatedMeshes_[index]);
+        decimatedMeshes_[index] = std::move(newMesh);
     }
 
     // GPU-upload-due flag, set by the loader and consumed by the render thread.
@@ -96,5 +112,16 @@ private:
     std::vector<Mesh> meshes_;
     std::vector<Mesh> decimatedMeshes_;
     bool hasDecimated_ = false;
-    mutable std::mutex mutex_; // guards GPU-handle teardown/uploads across threads
+    mutable std::mutex mutex_;
+
+    // Compute shader LOD (GPU-side vertex clustering)
+    GLuint lodProgramAccum = 0;
+    GLuint lodProgramOutput = 0;
+    GLuint lodProgramTris = 0;
+    GLuint lodCellSsbo = 0;
+    GLuint lodRemapSsbo = 0;
+    GLuint lodParamsUbo = 0;
+    GLuint lodCounterSsbo = 0;
+    int lodCellsPerAxis = 0;
+    bool lodGpuDecimationReady = false;
 };

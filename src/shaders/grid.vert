@@ -1,4 +1,4 @@
-#version 330 core
+#version 460 core
 // full-screen quad proxy; NDC position flows straight to gl_Position.
 // near/far world points are reconstructed via inverse view/proj so the fragment
 // shader can cast a ray to the ground plane at height uPlaneY.

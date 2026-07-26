@@ -13,7 +13,7 @@
 // strictly on the QSG render thread and must never be touched from the GUI
 // thread. All view/visual state arrives via a deep-copied RenderRenderState
 // produced on the GUI thread by RenderSettings::buildRenderState().
-#include <glad/glad.h>
+#include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -150,6 +150,33 @@ struct RenderRenderState {
     bool hasMeshLoaded = false;
 };
 
+// CPU-side UBO layout matching the std140 MeshUBO block in mesh.vert/frag.
+// Members are padded to 16 bytes per std140 rules by using glm::vec4.
+struct MeshUBOData {
+    glm::mat4 mvp;
+    glm::mat4 model;
+    glm::vec4 viewPos_ps;       // xyz = viewPos, w = pointSize
+    glm::vec4 meshColor_wire;   // xyz = meshColor, w = wireframe(0/1)
+    glm::vec4 surfaceColor_sop; // xyz = surfaceColor, w = surfaceOpacity
+    glm::vec4 point_clip;       // x = isPoint, y = pointUseScalar, z = pointOpacity, w = clipEnabled
+    glm::vec4 lightDir;
+    glm::vec4 lightFill;
+    glm::vec4 lightBack1;
+    glm::vec4 lightBack2;
+    glm::vec4 lightHead;
+    glm::vec4 keyColor;
+    glm::vec4 fillColor;
+    glm::vec4 backColor;
+    glm::vec4 headColor;
+    glm::vec4 scalars;          // x = scalarMin, y = scalarMax, z = hasScalars(0/1), w = 0
+    glm::vec4 sliceY;           // x = sliceHeightX, y = sliceHeightY, z = sliceHeightZ, w = 0
+    glm::vec4 sliceEn;          // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
+    glm::vec4 invert;           // x = invertX, y = invertY, z = invertZ, w = 0
+    glm::vec4 filter;           // x = filterMin, y = filterMax, z = 0, w = 0
+    glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular, w = matShininess
+    glm::vec4 intensities;      // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
+};
+
 // ---------------------------------------------------------------------------
 // Renderer — PURE C++ backend.
 //
@@ -263,55 +290,11 @@ private:
 
     GLuint shaderProgram = 0;
     GLuint vao = 0, vbo = 0, ebo = 0;
-
-    // Shader uniform cache registry
-    GLint mvpLoc = -1;
-    GLint modelLoc = -1;
-    GLint lightDirLoc = -1;
-    GLint viewPosLoc = -1;
-    GLint wireframeLoc = -1;
-    GLint surfaceColorLoc = -1;
-    GLint meshColorLoc = -1;
-    GLint pointSizeLoc = -1; // ponytail: CPU-driven gl_PointSize for point-cloud draw
-    GLint isPointLoc = -1;    // ponytail: frag sphere-shading for point sprites
-    GLint pointUseScalarLoc = -1;
-    GLint pointOpacityLoc = -1;
-    GLint surfaceOpacityLoc = -1;
-    double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
-    GLint lightFillLoc = -1;
-    GLint lightBack1Loc = -1;
-    GLint lightBack2Loc = -1;
-    GLint lightHeadLoc = -1;
-    GLint matAmbientLoc = -1;
-    GLint matDiffuseLoc = -1;
-    GLint matSpecularLoc = -1;
-    GLint matShininessLoc = -1;
-    GLint keyIntensityLoc = -1;
-    GLint fillIntensityLoc = -1;
-    GLint headIntensityLoc = -1;
-    GLint backIntensityLoc = -1;
-
-    GLint keyColorLoc = -1;
-    GLint fillColorLoc = -1;
-    GLint backColorLoc = -1;
-    GLint headColorLoc = -1;
-
-    GLint sliceHeightXLoc = -1;
-    GLint sliceHeightYLoc = -1;
-    GLint sliceHeightZLoc = -1;
-    GLint sliceEnabledXLoc = -1;
-    GLint sliceEnabledYLoc = -1;
-    GLint sliceEnabledZLoc = -1;
-    GLint invertXLoc = -1;
-    GLint invertYLoc = -1;
-    GLint invertZLoc = -1;
-    GLint filterMinLoc = -1;
-    GLint filterMaxLoc = -1;
-    GLint clipEnabledLoc = -1;
-    GLint scalarMinLoc = -1;
-    GLint scalarMaxLoc = -1;
-    GLint hasScalarsLoc = -1;
+    GLuint meshUbo = 0;
+    GLuint meshUboIndex = GL_INVALID_INDEX;
     GLint lutTextureLoc = -1;
+
+    double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
 
     // glyph program + uniform cache
     GLuint glyphProgram = 0;

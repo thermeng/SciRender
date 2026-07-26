@@ -85,13 +85,8 @@ void Renderer::initGLAD() {
         return;
     }
 
-    GLADloadproc loader = [](const char* name) -> void* {
-        QOpenGLContext* ctx = QOpenGLContext::currentContext();
-        return ctx ? reinterpret_cast<void*>(ctx->getProcAddress(name)) : nullptr;
-    };
-
-    if (!gladLoadGLLoader(loader)) {
-        qFatal("Fatal: GLAD failed to map target core OpenGL function addresses using Qt resolver hook.");
+    if (!gladLoaderLoadGL()) {
+        qFatal("Fatal: GLAD failed to load core OpenGL functions.");
     }
 
     qDebug() << "[GL DIAGNOSTIC] VERSION:" << (const char*)glGetString(GL_VERSION)
@@ -152,55 +147,9 @@ void Renderer::initShaders(const ShaderSources& sources) {
     glDeleteShader(vert);
     glDeleteShader(frag);
 
-    mvpLoc = glGetUniformLocation(shaderProgram, "uMVP");
-    modelLoc = glGetUniformLocation(shaderProgram, "uModel");
-    lightDirLoc = glGetUniformLocation(shaderProgram, "uLightDir");
-    viewPosLoc = glGetUniformLocation(shaderProgram, "uViewPos");
-    wireframeLoc = glGetUniformLocation(shaderProgram, "uWireframe");
-    meshColorLoc = glGetUniformLocation(shaderProgram, "uMeshColor");
-    surfaceColorLoc = glGetUniformLocation(shaderProgram, "uSurfaceColor");
-    pointSizeLoc = glGetUniformLocation(shaderProgram, "uPointSize");
-    isPointLoc = glGetUniformLocation(shaderProgram, "uIsPoint");
-    pointUseScalarLoc = glGetUniformLocation(shaderProgram, "uPointUseScalar");
-    pointOpacityLoc = glGetUniformLocation(shaderProgram, "uPointOpacity");
-    surfaceOpacityLoc = glGetUniformLocation(shaderProgram, "uSurfaceOpacity");
+    meshUboIndex = glGetUniformBlockIndex(shaderProgram, "MeshUBO");
+    glUniformBlockBinding(shaderProgram, meshUboIndex, 0);
 
-    lightFillLoc = glGetUniformLocation(shaderProgram, "uLightFill");
-    lightBack1Loc = glGetUniformLocation(shaderProgram, "uLightBack1");
-    lightBack2Loc = glGetUniformLocation(shaderProgram, "uLightBack2");
-    lightHeadLoc = glGetUniformLocation(shaderProgram, "uLightHead");
-
-    matAmbientLoc = glGetUniformLocation(shaderProgram, "uMatAmbient");
-    matDiffuseLoc = glGetUniformLocation(shaderProgram, "uMatDiffuse");
-    matSpecularLoc = glGetUniformLocation(shaderProgram, "uMatSpecular");
-    matShininessLoc = glGetUniformLocation(shaderProgram, "uMatShininess");
-
-    keyIntensityLoc = glGetUniformLocation(shaderProgram, "uKeyIntensity");
-    fillIntensityLoc = glGetUniformLocation(shaderProgram, "uFillIntensity");
-    headIntensityLoc = glGetUniformLocation(shaderProgram, "uHeadIntensity");
-    backIntensityLoc = glGetUniformLocation(shaderProgram, "uBackIntensity");
-
-    keyColorLoc = glGetUniformLocation(shaderProgram, "uKeyColor");
-    fillColorLoc = glGetUniformLocation(shaderProgram, "uFillColor");
-    backColorLoc = glGetUniformLocation(shaderProgram, "uBackColor");
-    headColorLoc = glGetUniformLocation(shaderProgram, "uHeadColor");
-
-    sliceHeightXLoc = glGetUniformLocation(shaderProgram, "uSliceHeightX");
-    sliceHeightYLoc = glGetUniformLocation(shaderProgram, "uSliceHeightY");
-    sliceHeightZLoc = glGetUniformLocation(shaderProgram, "uSliceHeightZ");
-    sliceEnabledXLoc = glGetUniformLocation(shaderProgram, "uSliceEnabledX");
-    sliceEnabledYLoc = glGetUniformLocation(shaderProgram, "uSliceEnabledY");
-    sliceEnabledZLoc = glGetUniformLocation(shaderProgram, "uSliceEnabledZ");
-    invertXLoc = glGetUniformLocation(shaderProgram, "uInvertX");
-    invertYLoc = glGetUniformLocation(shaderProgram, "uInvertY");
-    invertZLoc = glGetUniformLocation(shaderProgram, "uInvertZ");
-    filterMinLoc = glGetUniformLocation(shaderProgram, "uFilterMin");
-    filterMaxLoc = glGetUniformLocation(shaderProgram, "uFilterMax");
-    clipEnabledLoc = glGetUniformLocation(shaderProgram, "uClipEnabled");
-
-    scalarMinLoc = glGetUniformLocation(shaderProgram, "uScalarMin");
-    scalarMaxLoc = glGetUniformLocation(shaderProgram, "uScalarMax");
-    hasScalarsLoc = glGetUniformLocation(shaderProgram, "uHasScalars");
     lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
 
     // instanced vector glyph program
@@ -284,14 +233,13 @@ void Renderer::initGrid(const ShaderSources& sources) {
     gridPlaneYLoc  = glGetUniformLocation(gridProgram, "uPlaneY");
 
     const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f, 1.0f, 1.0f };
-    glGenVertexArrays(1, &gridVAO);
-    glGenBuffers(1, &gridVBO);
-    glBindVertexArray(gridVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
+    glCreateVertexArrays(1, &gridVAO);
+    glCreateBuffers(1, &gridVBO);
+    glEnableVertexArrayAttrib(gridVAO, 0);
+    glVertexArrayAttribFormat(gridVAO, 0, 2, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(gridVAO, 0, 0);
+    glNamedBufferData(gridVBO, sizeof(q), q, GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(gridVAO, 0, gridVBO, 0, 2 * sizeof(float));
 }
 
 void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
@@ -643,75 +591,61 @@ void Renderer::renderFrame() {
     colormap.update();
 
     const bool useLod = m_state.useLod;
-    if (meshManager.hasMeshes() && shaderProgram != 0) { // ponytail: also admits point clouds (no surface/wireframe flag)
+    if (meshManager.hasMeshes() && shaderProgram != 0) {
         glUseProgram(shaderProgram);
 
-        glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-
+        if (meshUbo == 0) {
+            glCreateBuffers(1, &meshUbo);
+            glNamedBufferData(meshUbo, sizeof(MeshUBOData), nullptr, GL_DYNAMIC_DRAW);
+            if (meshUboIndex != GL_INVALID_INDEX)
+                glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
+        }
+        MeshUBOData ubo{};
+        ubo.mvp = mvp;
+        ubo.model = model;
+        ubo.viewPos_ps = glm::vec4(glm::vec3(m_state.camera.position), m_state.pointSize);
+        ubo.meshColor_wire = glm::vec4(m_state.meshColor[0], m_state.meshColor[1], m_state.meshColor[2], 0.0f);
+        ubo.surfaceColor_sop = glm::vec4(m_state.surfaceColor[0], m_state.surfaceColor[1], m_state.surfaceColor[2], m_state.surfaceOpacity);
+        ubo.point_clip = glm::vec4(0.0f, m_state.pointUseScalar ? 1.0f : 0.0f, m_state.pointOpacity, m_state.clipEnabled ? 1.0f : 0.0f);
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-        glUniform3fv(lightDirLoc, 1, glm::value_ptr(kDir));
-        glUniform3fv(lightFillLoc, 1, glm::value_ptr(fDir));
-        glUniform3fv(lightBack1Loc, 1, glm::value_ptr(b1Dir));
-        glUniform3fv(lightBack2Loc, 1, glm::value_ptr(b2Dir));
-        glUniform3fv(lightHeadLoc, 1, glm::value_ptr(hDir));
-
-        glm::vec3 camPos = glm::vec3(m_state.camera.position);
-        glUniform3fv(viewPosLoc, 1, glm::value_ptr(camPos));
-
-        glUniform3fv(meshColorLoc, 1, m_state.meshColor);
-        glUniform3fv(surfaceColorLoc, 1, m_state.surfaceColor);
-        glUniform1f(matAmbientLoc, m_state.lighting.matAmbient);
-        glUniform1f(matDiffuseLoc, m_state.lighting.matDiffuse);
-        glUniform1f(matSpecularLoc, m_state.lighting.matSpecular);
-        glUniform1f(matShininessLoc, m_state.lighting.matShininess);
-
-        float keyI = m_state.lighting.lightKitEnabled ? m_state.lighting.lightKeyIntensity : 0.0f;
-        glUniform1f(keyIntensityLoc,  keyI);
-        float kf = std::max(m_state.lighting.lightKF, 0.001f);
-        float kh = std::max(m_state.lighting.lightKH, 0.001f);
-        float kb = std::max(m_state.lighting.lightKB, 0.001f);
-        glUniform1f(fillIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / kf : 0.0f);
-        glUniform1f(headIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
-        glUniform1f(backIntensityLoc, m_state.lighting.lightKitEnabled ? keyI / kb : 0.0f);
-
+        ubo.lightDir = glm::vec4(kDir, 0.0f);
+        ubo.lightFill = glm::vec4(fDir, 0.0f);
+        ubo.lightBack1 = glm::vec4(b1Dir, 0.0f);
+        ubo.lightBack2 = glm::vec4(b2Dir, 0.0f);
+        ubo.lightHead = glm::vec4(hDir, 0.0f);
         auto warmTint = [](float w) -> glm::vec3 {
             if (w < 0.5f) return glm::mix(glm::vec3(0.6f,0.7f,1.0f), glm::vec3(1.0f), w/0.5f);
             return glm::mix(glm::vec3(1.0f), glm::vec3(1.0f,0.85f,0.7f), (w-0.5f)/0.5f);
         };
         glm::vec3 tint = warmTint(m_state.lighting.lightWarm);
-        const float keyCol[3]  = { tint.r,       tint.g,       tint.b };
-        const float fillCol[3] = { tint.r*0.90f, tint.g*0.92f, tint.b*1.00f };
-        const float backCol[3] = { tint.r*0.95f, tint.g*0.95f, tint.b*0.98f };
-        const float headCol[3] = { 1.0f, 1.0f, 1.0f };
-        glUniform3fv(keyColorLoc, 1, keyCol);
-        glUniform3fv(fillColorLoc, 1, fillCol);
-        glUniform3fv(backColorLoc, 1, backCol);
-        glUniform3fv(headColorLoc, 1, headCol);
-
-        glUniform1f(sliceHeightXLoc, m_state.sliceHeightX);
-        glUniform1f(sliceHeightYLoc, m_state.sliceHeightY);
-        glUniform1f(sliceHeightZLoc, m_state.sliceHeightZ);
-        glUniform1i(invertXLoc, m_state.invertX ? 1 : 0);
-        glUniform1i(invertYLoc, m_state.invertY ? 1 : 0);
-        glUniform1i(invertZLoc, m_state.invertZ ? 1 : 0);
-        glUniform1i(sliceEnabledXLoc, m_state.sliceEnabledX ? 1 : 0);
-        glUniform1i(sliceEnabledYLoc, m_state.sliceEnabledY ? 1 : 0);
-        glUniform1i(sliceEnabledZLoc, m_state.sliceEnabledZ ? 1 : 0);
-        glUniform1f(filterMinLoc, m_state.filterMin);
-        glUniform1f(filterMaxLoc, m_state.filterMax);
-        glUniform1i(clipEnabledLoc, m_state.clipEnabled ? 1 : 0);
-
-        glUniform1f(scalarMinLoc, m_state.scalarMin);
-        glUniform1f(scalarMaxLoc, m_state.scalarMax);
-        // ponytail: coloring OFF on load; user enables via "Color by scalar"
-        glUniform1i(hasScalarsLoc, (m_state.meshHasScalars && m_state.meshUseScalarColor) ? 1 : 0);
+        ubo.keyColor = glm::vec4(tint, 0.0f);
+        ubo.fillColor = glm::vec4(tint * glm::vec3(0.90f, 0.92f, 1.00f), 0.0f);
+        ubo.backColor = glm::vec4(tint * glm::vec3(0.95f, 0.95f, 0.98f), 0.0f);
+        ubo.headColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+        ubo.scalars = glm::vec4(m_state.scalarMin, m_state.scalarMax, (m_state.meshHasScalars && m_state.meshUseScalarColor) ? 1.0f : 0.0f, 0.0f);
+        ubo.sliceY = glm::vec4(m_state.sliceHeightX, m_state.sliceHeightY, m_state.sliceHeightZ, 0.0f);
+        ubo.sliceEn = glm::vec4(m_state.sliceEnabledX ? 1.0f : 0.0f, m_state.sliceEnabledY ? 1.0f : 0.0f, m_state.sliceEnabledZ ? 1.0f : 0.0f, 0.0f);
+        ubo.invert = glm::vec4(m_state.invertX ? 1.0f : 0.0f, m_state.invertY ? 1.0f : 0.0f, m_state.invertZ ? 1.0f : 0.0f, 0.0f);
+        ubo.filter = glm::vec4(m_state.filterMin, m_state.filterMax, 0.0f, 0.0f);
+        float keyI = m_state.lighting.lightKitEnabled ? m_state.lighting.lightKeyIntensity : 0.0f;
+        float kf = std::max(m_state.lighting.lightKF, 0.001f);
+        float kh = std::max(m_state.lighting.lightKH, 0.001f);
+        float kb = std::max(m_state.lighting.lightKB, 0.001f);
+        ubo.intensities = glm::vec4(keyI, m_state.lighting.lightKitEnabled ? keyI / kf : 0.0f, m_state.lighting.lightKitEnabled ? keyI / kb : 0.0f, m_state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
+        ubo.material = glm::vec4(m_state.lighting.matAmbient, m_state.lighting.matDiffuse, m_state.lighting.matSpecular, m_state.lighting.matShininess);
+        glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
 
         if (m_state.meshHasScalars && m_state.meshUseScalarColor && colormap.scalarTexture() != 0) {
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_1D, colormap.scalarTexture());
+            glBindTextureUnit(0, colormap.scalarTexture());
             glUniform1i(lutTextureLoc, 0);
+        }
+
+        if (useLod && cameraMoving.load() && meshManager.hasDecimated() && meshManager.hasFullSource()) {
+            Mesh newDec;
+            if (meshManager.dispatchLodCompute(*meshManager.getFullSource(), newDec)) {
+                meshManager.replaceDecimatedMesh(0, newDec);
+            }
         }
 
         std::vector<std::pair<GLuint, int>> drawList;
@@ -721,11 +655,8 @@ void Renderer::renderFrame() {
 
         for (size_t di = 0; di < drawList.size(); ++di) {
             glBindVertexArray(drawList[di].first);
-            glUniform1i(isPointLoc, 0); // ponytail: reset; point block re-enables
 
             if (m_state.showSurface) {
-                glUniform1i(wireframeLoc, 0);
-                glUniform1f(surfaceOpacityLoc, m_state.surfaceOpacity);
                 // ponytail: user cullMode toggle (0=off, 1=back, 2=front). Cull only
                 // when opaque — culling + alpha blend gives wrong results.
                 const bool opaque = m_state.surfaceOpacity >= 0.999f;
@@ -749,7 +680,6 @@ void Renderer::renderFrame() {
             }
 
             if (m_state.showWireframe) {
-                glUniform1i(wireframeLoc, 1);
                 glLineWidth(m_state.lineWidth); // ponytail: clamped to driver GL_ALIASED_LINE_WIDTH_RANGE
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
@@ -761,18 +691,11 @@ void Renderer::renderFrame() {
 
             // ponytail: points overlay — works for STL + VTK + POLYDATA alike
             if (m_state.showPoints && drawVerts[di] > 0) {
-                glEnable(GL_PROGRAM_POINT_SIZE);
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glUniform1f(pointSizeLoc, m_state.pointSize);
-                glUniform1i(isPointLoc, 1); // ponytail: frag carves sprite into sphere
-                glUniform1i(pointUseScalarLoc, m_state.pointUseScalar ? 1 : 0);
-                glUniform1f(pointOpacityLoc, m_state.pointOpacity);
-                glUniform1i(wireframeLoc, 0);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                 glDrawArrays(GL_POINTS, 0, drawVerts[di]);
                 glDisable(GL_BLEND);
-                glDisable(GL_PROGRAM_POINT_SIZE);
             }
         }
         glBindVertexArray(0);
@@ -789,10 +712,6 @@ void Renderer::renderFrame() {
                 // the fill pass, so these lines (at true depth) win cleanly.
                 // A polygon offset here would be a no-op for GL_LINES.
                 glLineWidth(m_state.cellEdgeLineWidth); // ponytail: own thickness, not wireframe's
-                glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
-                glUniform1i(wireframeLoc, 1);
-                glUniform1i(isPointLoc, 0);
-                glUniform3f(meshColorLoc, m_state.meshColor[0], m_state.meshColor[1], m_state.meshColor[2]);
                 glBindVertexArray(ce.first);
                 glDrawArrays(GL_LINES, 0, ce.second);
                 glBindVertexArray(0);
@@ -804,8 +723,6 @@ void Renderer::renderFrame() {
 
         // ponytail: AABB wireframe overlay (reuses mesh shader, wireframe color)
         if (m_state.showBounds && shaderProgram != 0) {
-            // ponytail: AABB is a reference box, not mesh — never clip it.
-            glUniform1i(sliceEnabledXLoc, 0); glUniform1i(sliceEnabledYLoc, 0); glUniform1i(sliceEnabledZLoc, 0);
             if (bboxVao == 0) {
                 // 12 edges of a unit cube centered at origin, coords -0.5..0.5
                 static const float c[24 * 3] = {
@@ -822,14 +739,13 @@ void Renderer::renderFrame() {
                      0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
                     -0.5f, 0.5f,-0.5f, -0.5f, 0.5f, 0.5f
                 };
-                glGenVertexArrays(1, &bboxVao);
-                glGenBuffers(1, &bboxVbo);
-                glBindVertexArray(bboxVao);
-                glBindBuffer(GL_ARRAY_BUFFER, bboxVbo);
-                glBufferData(GL_ARRAY_BUFFER, sizeof(c), c, GL_STATIC_DRAW);
-                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-                glEnableVertexAttribArray(0);
-                glBindVertexArray(0);
+                glCreateVertexArrays(1, &bboxVao);
+                glCreateBuffers(1, &bboxVbo);
+                glEnableVertexArrayAttrib(bboxVao, 0);
+                glVertexArrayAttribFormat(bboxVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+                glVertexArrayAttribBinding(bboxVao, 0, 0);
+                glNamedBufferData(bboxVbo, sizeof(c), c, GL_STATIC_DRAW);
+                glVertexArrayVertexBuffer(bboxVao, 0, bboxVbo, 0, 0);
             }
             glm::vec3 center(static_cast<float>(m_state.worldCenterX),
                              static_cast<float>(m_state.worldCenterY),
@@ -840,17 +756,9 @@ void Renderer::renderFrame() {
             glm::mat4 model = glm::translate(glm::mat4(1.0f), center)
                             * glm::scale(glm::mat4(1.0f), diag);
             glm::mat4 mvp = proj * view * model;
-            glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
-            glUniform1i(wireframeLoc, 1);
-            glUniform1i(isPointLoc, 0);
-            glUniform3f(meshColorLoc, m_state.meshColor[0], m_state.meshColor[1], m_state.meshColor[2]);
             glBindVertexArray(bboxVao);
             glDrawArrays(GL_LINES, 0, 24);
             glBindVertexArray(0);
-            // restore for any later shared-program pass this frame
-            glUniform1i(sliceEnabledXLoc, m_state.sliceEnabledX ? 1 : 0);
-            glUniform1i(sliceEnabledYLoc, m_state.sliceEnabledY ? 1 : 0);
-            glUniform1i(sliceEnabledZLoc, m_state.sliceEnabledZ ? 1 : 0);
         }
 
         // ponytail: mesh-quality highlight overlay — degenerate faces (red fill)
@@ -858,14 +766,6 @@ void Renderer::renderFrame() {
         // the mesh. Depth test + cull are disabled so interior defects (coplanar
         // with the surface) are not z-rejected and hidden.
         if (m_state.showQualityOverlay && shaderProgram != 0) {
-            // ponytail: save/restore slice-enabled uniforms (BBox pattern).
-            GLint prevSliceX = m_state.sliceEnabledX ? 1 : 0;
-            GLint prevSliceY = m_state.sliceEnabledY ? 1 : 0;
-            GLint prevSliceZ = m_state.sliceEnabledZ ? 1 : 0;
-            // ponytail: quality edges are diagnostics, not mesh — never clip.
-            glUniform1i(sliceEnabledXLoc, 0); glUniform1i(sliceEnabledYLoc, 0); glUniform1i(sliceEnabledZLoc, 0);
-            // ponytail: save state; restore to prev (mesh pass leaves cull OFF,
-            // gizmo text quads rely on that — don't hard-enable cull here).
             GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
             GLboolean cullWas  = glIsEnabled(GL_CULL_FACE);
             glDisable(GL_DEPTH_TEST);
@@ -873,18 +773,13 @@ void Renderer::renderFrame() {
             auto drawList = [&](const std::vector<float>& verts, int mode, const float col[3]) {
                 if (verts.empty()) return;
                 GLuint vao = 0, vbo = 0;
-                glGenVertexArrays(1, &vao); glGenBuffers(1, &vbo);
-                glBindVertexArray(vao);
-                glBindBuffer(GL_ARRAY_BUFFER, vbo);
-                glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
-                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-                glEnableVertexAttribArray(0);
-                glBindVertexArray(0);
+                glCreateVertexArrays(1, &vao); glCreateBuffers(1, &vbo);
+                glEnableVertexArrayAttrib(vao, 0);
+                glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+                glVertexArrayAttribBinding(vao, 0, 0);
+                glNamedBufferData(vbo, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+                glVertexArrayVertexBuffer(vao, 0, vbo, 0, 0);
                 glm::mat4 mvp = proj * view * glm::mat4(1.0f);
-                glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
-                glUniform1i(wireframeLoc, (mode == GL_LINES) ? 1 : 0);
-                glUniform1i(isPointLoc, 0);
-                glUniform3f(meshColorLoc, col[0], col[1], col[2]);
                 glBindVertexArray(vao);
                 glDrawArrays(mode, 0, static_cast<GLsizei>(verts.size() / 3));
                 glBindVertexArray(0);
@@ -901,9 +796,6 @@ void Renderer::renderFrame() {
             drawList(m_state.qualityDegenerateTris, GL_LINES, red);
             if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
             if (cullWas)  glEnable(GL_CULL_FACE);  else glDisable(GL_CULL_FACE);
-            glUniform1i(sliceEnabledXLoc, prevSliceX);
-            glUniform1i(sliceEnabledYLoc, prevSliceY);
-            glUniform1i(sliceEnabledZLoc, prevSliceZ);
         }
 
         glUseProgram(0);
@@ -926,10 +818,8 @@ void Renderer::renderFrame() {
         glUniform1f(glyphMeshExtentLoc, vectorGlyph.meshExtent);
         glUniform1i(glyphMagTransformLoc, m_state.vectorMagTransform);
         if (m_state.vectorUseColormap && colormap.vectorTexture() != 0) {
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_1D, colormap.vectorTexture());
+            glBindTextureUnit(1, colormap.vectorTexture());
             glUniform1i(glyphLutLoc, 1);
-            glActiveTexture(GL_TEXTURE0);
         }
         glBindVertexArray(vectorGlyph.vao);
         glDrawElementsInstanced(GL_TRIANGLES, vectorGlyph.glyphIndexCount, GL_UNSIGNED_INT, 0, vectorGlyph.instanceCount);

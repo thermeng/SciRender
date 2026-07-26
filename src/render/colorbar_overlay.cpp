@@ -10,7 +10,7 @@
 namespace {
 
 const char* vsSrc = R"(
-#version 330 core
+#version 460 core
 layout(location = 0) in vec2 aPos;   // clip-space xy
 layout(location = 1) in vec2 aUV;   // texture uv
 out vec2 vUV;
@@ -21,7 +21,7 @@ void main() {
 )";
 
 const char* fsSrc = R"(
-#version 330 core
+#version 460 core
 in vec2 vUV;
 uniform sampler2D uTex;
 out vec4 frag;
@@ -76,18 +76,22 @@ bool ColorbarOverlay::init() {
         { 1, -1, 1, 0},
         { 1,  1, 1, 1},
     };
-    glGenVertexArrays(1, &vao_);
-    glGenBuffers(1, &vbo_);
-    glBindVertexArray(vao_);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glBindVertexArray(0);
+    glCreateVertexArrays(1, &vao_);
+    glCreateBuffers(1, &vbo_);
+    glEnableVertexArrayAttrib(vao_, 0);
+    glVertexArrayAttribFormat(vao_, 0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+    glVertexArrayAttribBinding(vao_, 0, 0);
+    glEnableVertexArrayAttrib(vao_, 1);
+    glVertexArrayAttribFormat(vao_, 1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+    glVertexArrayAttribBinding(vao_, 1, 0);
+    glNamedBufferData(vbo_, sizeof(verts), verts, GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(vao_, 0, vbo_, 0, 4 * sizeof(float));
 
-    glGenTextures(1, &tex_);
+    glCreateTextures(GL_TEXTURE_2D, 1, &tex_);
+    glTextureParameteri(tex_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(tex_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(tex_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(tex_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     return true;
 }
 
@@ -232,14 +236,8 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     // so the on-screen/window-space layout (top = max) is preserved in the PNG.
     gl = gl.flipped(Qt::Vertical);
 
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, tex_);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gl.width(), gl.height(), 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTextureUnit(0, tex_);
+    glTextureSubImage2D(tex_, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
     textureCacheValid_ = true;
 
     glDisable(GL_DEPTH_TEST);
@@ -256,7 +254,6 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glBindVertexArray(vao_);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
-    glBindTexture(GL_TEXTURE_2D, 0);
     glUseProgram(0);
 }
 
@@ -294,10 +291,7 @@ void ColorbarOverlay::draw(float dpr, int deviceW, int deviceH,
     if (!textureCacheValid_) {
         uploadAndDraw(cachedImage_, deviceW, deviceH);
     } else {
-        // Texture already current — but rebind unconditionally so an earlier
-        // GL pass (mesh, gizmo, UI) cannot leave a different texture on unit 0.
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex_);
+        glBindTextureUnit(0, tex_);
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -308,7 +302,6 @@ void ColorbarOverlay::draw(float dpr, int deviceW, int deviceH,
         glBindVertexArray(vao_);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
-        glBindTexture(GL_TEXTURE_2D, 0);
         glUseProgram(0);
     }
 }

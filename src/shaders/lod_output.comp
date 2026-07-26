@@ -1,0 +1,62 @@
+#version 460 core
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 4) buffer OutPos {
+    vec3 outPos[];
+};
+layout(std430, binding = 5) buffer OutNorm {
+    vec3 outNorm[];
+};
+layout(std430, binding = 6) buffer OutScalar {
+    float outScalar[];
+};
+layout(std430, binding = 8) buffer Remap {
+    uint remap[];
+};
+
+layout(std430, binding = 9) buffer CellData {
+    uint cells[];
+};
+
+layout(std140) uniform LODParams {
+    ivec3 cellsPerAxis;
+    vec3 boundsMin;
+    vec3 boundsMax;
+    int vertexCount;
+    int triangleCount;
+    int hasNormals;
+    int hasScalars;
+};
+
+layout(std430, binding = 10) buffer Counters {
+    uint outVertCount;
+    uint outTriCount;
+};
+
+void main() {
+    uint flatCell = gl_GlobalInvocationID.x;
+    int totalCells = cellsPerAxis.x * cellsPerAxis.y * cellsPerAxis.z;
+    if (flatCell >= uint(totalCells)) return;
+    if (cells[flatCell * 10u] == 0u) return;
+
+    uint outIdx = atomicAdd(outVertCount, 1u);
+    cells[flatCell * 10u + 8u] = outIdx;
+
+    float inv = 1.0f / float(cells[flatCell * 10u]);
+    outPos[outIdx] = vec3(
+        uintBitsToFloat(cells[flatCell * 10u + 1u]) * inv,
+        uintBitsToFloat(cells[flatCell * 10u + 2u]) * inv,
+        uintBitsToFloat(cells[flatCell * 10u + 3u]) * inv
+    );
+
+    vec3 n = vec3(
+        uintBitsToFloat(cells[flatCell * 10u + 4u]) * inv,
+        uintBitsToFloat(cells[flatCell * 10u + 5u]) * inv,
+        uintBitsToFloat(cells[flatCell * 10u + 6u]) * inv
+    );
+    float nl = length(n);
+    if (nl > 1e-12f) n = n / nl;
+    outNorm[outIdx] = n;
+
+    outScalar[outIdx] = uintBitsToFloat(cells[flatCell * 10u + 7u]) * inv;
+}

@@ -25,7 +25,7 @@ qt_policy(SET QTP0004 NEW)
 # ---------------------------------------------------------------------------
 
 # GLAD
-add_library(glad STATIC "vendor/glad/glad.c")
+add_library(glad STATIC "vendor/glad/src/gl.c")
 target_include_directories(glad PUBLIC "vendor/glad/include")
 
 # GLM (Header-Only Math)
@@ -116,6 +116,9 @@ qt_add_qml_module(SciRender
         src/shaders/grid.frag
         src/shaders/glyph.vert
         src/shaders/glyph.frag
+        src/shaders/lod.comp
+        src/shaders/lod_output.comp
+        src/shaders/lod_tris.comp
 )
 
 # ---------------------------------------------------------------------------
