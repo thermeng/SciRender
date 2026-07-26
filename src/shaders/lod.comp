@@ -34,7 +34,7 @@ layout(std430, binding = 9) buffer CellData {
     uint cells[];
 };
 
-layout(std140) uniform LODParams {
+layout(std140, binding = 9) buffer LODParams {
     ivec3 cellsPerAxis;
     vec3 boundsMin;
     vec3 boundsMax;
