@@ -181,18 +181,14 @@ void Renderer::initShaders(const ShaderSources& sources) {
         }
 
         if (glyphProgram != 0) {
-            glyphMvpLoc = glGetUniformLocation(glyphProgram, "uMVP");
-            glyphScaleLoc = glGetUniformLocation(glyphProgram, "uScale");
-            glyphLightDirLoc = glGetUniformLocation(glyphProgram, "uLightDir");
-            glyphViewPosLoc = glGetUniformLocation(glyphProgram, "uViewPos");
-            glyphColorLoc = glGetUniformLocation(glyphProgram, "uColor");
-            glyphUseColormapLoc = glGetUniformLocation(glyphProgram, "uUseColormap");
-            glyphMagMinLoc = glGetUniformLocation(glyphProgram, "uMagMin");
-            glyphMagMaxLoc = glGetUniformLocation(glyphProgram, "uMagMax");
             glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
-            glyphScaleByMagLoc = glGetUniformLocation(glyphProgram, "uScaleByMag");
-            glyphMeshExtentLoc = glGetUniformLocation(glyphProgram, "uMeshExtent");
-            glyphMagTransformLoc = glGetUniformLocation(glyphProgram, "uMagTransform");
+            glyphUboIndex = glGetUniformBlockIndex(glyphProgram, "GlyphUBO");
+            if (glyphUboIndex != GL_INVALID_INDEX) {
+                glUniformBlockBinding(glyphProgram, glyphUboIndex, 1);
+                glCreateBuffers(1, &glyphUbo);
+                glNamedBufferData(glyphUbo, sizeof(GlyphUBOData), nullptr, GL_DYNAMIC_DRAW);
+                glBindBufferBase(GL_UNIFORM_BUFFER, 1, glyphUbo);
+            }
         }
     }
 }
@@ -222,16 +218,6 @@ void Renderer::initGrid(const ShaderSources& sources) {
         gridProgram = 0;
     }
 
-    gridInvViewLoc = glGetUniformLocation(gridProgram, "uInvView");
-    gridInvProjLoc = glGetUniformLocation(gridProgram, "uInvProj");
-    gridViewLoc    = glGetUniformLocation(gridProgram, "uView");
-    gridProjLoc    = glGetUniformLocation(gridProgram, "uProj");
-    gridCamPosLoc  = glGetUniformLocation(gridProgram, "uCamPos");
-    gridColorLoc   = glGetUniformLocation(gridProgram, "uColor");
-    gridBgLoc      = glGetUniformLocation(gridProgram, "uBg");
-    gridFalloffLoc = glGetUniformLocation(gridProgram, "uFalloff");
-    gridPlaneYLoc  = glGetUniformLocation(gridProgram, "uPlaneY");
-
     const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f, 1.0f, 1.0f };
     glCreateVertexArrays(1, &gridVAO);
     glCreateBuffers(1, &gridVBO);
@@ -242,6 +228,32 @@ void Renderer::initGrid(const ShaderSources& sources) {
     glVertexArrayVertexBuffer(gridVAO, 0, gridVBO, 0, 2 * sizeof(float));
 }
 
+void Renderer::updateGridUbo(const glm::mat4& view, const glm::mat4& proj) {
+    if (gridProgram == 0) return;
+    if (gridUbo == 0) {
+        gridUboIndex = glGetUniformBlockIndex(gridProgram, "GridUBO");
+        if (gridUboIndex != GL_INVALID_INDEX) {
+            glUniformBlockBinding(gridProgram, gridUboIndex, 2);
+            glCreateBuffers(1, &gridUbo);
+            glNamedBufferData(gridUbo, sizeof(GridUBOData), nullptr, GL_DYNAMIC_DRAW);
+            glBindBufferBase(GL_UNIFORM_BUFFER, 2, gridUbo);
+        }
+    }
+    if (gridUbo == 0) return;
+    GridUBOData ubo{};
+    ubo.invView = glm::inverse(view);
+    ubo.invProj = glm::inverse(proj);
+    ubo.view = view;
+    ubo.proj = proj;
+    ubo.camPos_colorR = glm::vec4(glm::vec3(m_state.camera.position), 0.0f);
+    float bgLum = 0.299f * m_state.bgColor[0] + 0.587f * m_state.bgColor[1] + 0.114f * m_state.bgColor[2];
+    glm::vec3 gridCol = (bgLum > 0.5f) ? glm::vec3(0.18f, 0.18f, 0.20f) : glm::vec3(0.78f, 0.78f, 0.82f);
+    ubo.colorBG_falloff = glm::vec4(gridCol.r, gridCol.g, gridCol.b, 0.02f);
+    gridPlaneY = m_state.hasMeshLoaded ? m_state.worldMinY : 0.0;
+    ubo.planeY_pad = glm::vec4(static_cast<float>(gridPlaneY), 0.0f, 0.0f, 0.0f);
+    glNamedBufferSubData(gridUbo, 0, sizeof(GridUBOData), &ubo);
+}
+
 void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
     if (!m_state.showGrid || gridProgram == 0) return;
     glEnable(GL_BLEND);
@@ -249,22 +261,7 @@ void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     glUseProgram(gridProgram);
 
-    glm::mat4 invView = glm::inverse(view);
-    glm::mat4 invProj = glm::inverse(proj);
-    glUniformMatrix4fv(gridInvViewLoc, 1, GL_FALSE, glm::value_ptr(invView));
-    glUniformMatrix4fv(gridInvProjLoc, 1, GL_FALSE, glm::value_ptr(invProj));
-    glUniformMatrix4fv(gridViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(gridProjLoc, 1, GL_FALSE, glm::value_ptr(proj));
-    glUniform3f(gridCamPosLoc, (float)m_state.camera.position.x, (float)m_state.camera.position.y, (float)m_state.camera.position.z);
-    float bgLum = 0.299f * m_state.bgColor[0] + 0.587f * m_state.bgColor[1] + 0.114f * m_state.bgColor[2];
-    glm::vec3 gridCol = (bgLum > 0.5f) ? glm::vec3(0.18f, 0.18f, 0.20f)
-                                        : glm::vec3(0.78f, 0.78f, 0.82f);
-    glUniform3f(gridColorLoc, gridCol.r, gridCol.g, gridCol.b);
-    glUniform3f(gridBgLoc, m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2]);
-    glUniform1f(gridFalloffLoc, 0.02f);
-    // Align ground plane to the loaded mesh's y-min; before load, keep y=0.
-    gridPlaneY = m_state.hasMeshLoaded ? m_state.worldMinY : 0.0;
-    glUniform1f(gridPlaneYLoc, static_cast<float>(gridPlaneY));
+    updateGridUbo(view, proj);
 
     glBindVertexArray(gridVAO);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -803,20 +800,21 @@ void Renderer::renderFrame() {
     if (m_state.showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         glUseProgram(glyphProgram);
-        glUniformMatrix4fv(glyphMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
-        glUniform1f(glyphScaleLoc, m_state.vectorScale);
+        if (glyphUbo == 0 && glyphUboIndex != GL_INVALID_INDEX) {
+            glCreateBuffers(1, &glyphUbo);
+            glNamedBufferData(glyphUbo, sizeof(GlyphUBOData), nullptr, GL_DYNAMIC_DRAW);
+            glBindBufferBase(GL_UNIFORM_BUFFER, 1, glyphUbo);
+        }
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-        glUniform3fv(glyphLightDirLoc, 1, glm::value_ptr(kDir));
         glm::vec3 camPos = glm::vec3(m_state.camera.position);
-        glUniform3fv(glyphViewPosLoc, 1, glm::value_ptr(camPos));
-        glUniform3fv(glyphColorLoc, 1, m_state.vectorColor);
-        glUniform1i(glyphUseColormapLoc, m_state.vectorUseColormap ? 1 : 0);
-        glUniform1f(glyphMagMinLoc, vectorGlyph.magMin);
-        glUniform1f(glyphMagMaxLoc, vectorGlyph.magMax);
-        glUniform1f(glyphScaleByMagLoc, m_state.vectorScaleByMagnitude ? 1.0f : 0.0f);
-        glUniform1f(glyphMeshExtentLoc, vectorGlyph.meshExtent);
-        glUniform1i(glyphMagTransformLoc, m_state.vectorMagTransform);
+        GlyphUBOData ubo{};
+        ubo.mvp = mvp;
+        ubo.scale_magMin_magMax_scaleByMag = glm::vec4(m_state.vectorScale, vectorGlyph.magMin, vectorGlyph.magMax, m_state.vectorScaleByMagnitude ? 1.0f : 0.0f);
+        ubo.meshExtent_magTransform_viewPosY_colorR = glm::vec4(vectorGlyph.meshExtent, float(m_state.vectorMagTransform), camPos.y, m_state.vectorColor[0]);
+        ubo.lightDir_colorGB = glm::vec4(kDir, m_state.vectorColor[1]);
+        ubo.colorB_useColormap = glm::vec4(m_state.vectorColor[2], m_state.vectorUseColormap ? 1.0f : 0.0f, 0.0f, 0.0f);
+        glNamedBufferSubData(glyphUbo, 0, sizeof(GlyphUBOData), &ubo);
         if (m_state.vectorUseColormap && colormap.vectorTexture() != 0) {
             glBindTextureUnit(1, colormap.vectorTexture());
             glUniform1i(glyphLutLoc, 1);

@@ -177,6 +177,26 @@ struct MeshUBOData {
     glm::vec4 intensities;      // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
 };
 
+// CPU-side UBO layout matching the std140 GridUBO block in grid.vert/frag.
+struct GridUBOData {
+    glm::mat4 invView;
+    glm::mat4 invProj;
+    glm::mat4 view;
+    glm::mat4 proj;
+    glm::vec4 camPos_colorR;    // xyz = camPos, w = colorR
+    glm::vec4 colorBG_falloff;  // xyz = colorG+B, w = falloff
+    glm::vec4 planeY_pad;       // x = planeY, yzw = pad
+};
+
+// CPU-side UBO layout matching the std140 GlyphUBO block in glyph.vert/frag.
+struct GlyphUBOData {
+    glm::mat4 mvp;
+    glm::vec4 scale_magMin_magMax_scaleByMag; // x=scale, y=magMin, z=magMax, w=scaleByMag
+    glm::vec4 meshExtent_magTransform_viewPosY_colorR; // x=meshExtent, y=magTransform, z=viewPos.y, w=colorR
+    glm::vec4 lightDir_colorGB; // xyz=lightDir, w=colorG
+    glm::vec4 colorB_useColormap; // x=colorB, y=useColormap(0/1), zw=pad
+};
+
 // ---------------------------------------------------------------------------
 // Renderer — PURE C++ backend.
 //
@@ -198,8 +218,9 @@ public:
 
     // Core Initialization & Graphics Lifecycle Routines (render thread).
     void initGLAD();
-     void initShaders(const ShaderSources& sources);
+    void initShaders(const ShaderSources& sources);
     void initGrid(const ShaderSources& sources);
+    void updateGridUbo(const glm::mat4& view, const glm::mat4& proj);
     void initGizmo();
     void renderFrame();
 
@@ -292,24 +313,17 @@ private:
     GLuint vao = 0, vbo = 0, ebo = 0;
     GLuint meshUbo = 0;
     GLuint meshUboIndex = GL_INVALID_INDEX;
+    GLuint gridUbo = 0;
+    GLuint gridUboIndex = GL_INVALID_INDEX;
+    GLuint glyphUbo = 0;
+    GLuint glyphUboIndex = GL_INVALID_INDEX;
     GLint lutTextureLoc = -1;
 
     double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
 
-    // glyph program + uniform cache
+    // glyph program
     GLuint glyphProgram = 0;
-    GLint glyphMvpLoc = -1;
-    GLint glyphScaleLoc = -1;
-    GLint glyphLightDirLoc = -1;
-    GLint glyphViewPosLoc = -1;
-    GLint glyphColorLoc = -1;
-    GLint glyphUseColormapLoc = -1;
-    GLint glyphMagMinLoc = -1;
-    GLint glyphMagMaxLoc = -1;
     GLint glyphLutLoc = -1;
-    GLint glyphScaleByMagLoc = -1;
-    GLint glyphMeshExtentLoc = -1;
-    GLint glyphMagTransformLoc = -1;
 
     double camDistance = 3.0;
     double nearPlane = 0.1;
@@ -323,9 +337,6 @@ private:
     GLuint gridVAO = 0, gridVBO = 0;
     GLuint gridProgram = 0;
     double gridPlaneY = 0.0;
-    GLint gridInvViewLoc = -1, gridInvProjLoc = -1;
-    GLint gridViewLoc = -1, gridProjLoc = -1;
-    GLint gridCamPosLoc = -1, gridColorLoc = -1, gridBgLoc = -1, gridFalloffLoc = -1, gridPlaneYLoc = -1;
 
     std::atomic<bool> vectorGlyphDirty{false};
 
