@@ -49,5 +49,5 @@ void main() {
 
     vec4 clip = uProj * uView * vec4(worldPos, 1.0);
     float ndcDepth = clip.z / clip.w;
-    gl_FragDepth = clamp(0.5 * ndcDepth + 0.5, 0.0, 1.0);
+    gl_FragDepth = clamp(ndcDepth, 0.0, 1.0);
 }

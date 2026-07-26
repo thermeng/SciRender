@@ -332,6 +332,8 @@ private:
     // Bounding box overlay GL handles (owned, cleaned up in destructor).
     GLuint bboxVao = 0, bboxVbo = 0;
     std::atomic<bool> cameraMoving{false};
+    std::atomic<bool> gpuDecimationDirty{false};
+    bool m_wasCameraMoving = false;
 
     // grid (procedural ray-cast ground plane)
     GLuint gridVAO = 0, gridVBO = 0;

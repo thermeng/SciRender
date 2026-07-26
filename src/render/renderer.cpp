@@ -530,6 +530,14 @@ void Renderer::renderFrame() {
         if (dt >= RenderConfig::defaults().lodDebounceSeconds) cameraMoving = false;
     }
 
+    // Compute LOD throttle: only re-dispatch once per camera-motion burst.
+    // Without this, every frame during a 140 ms camera-moving window would
+    // run the full 3-pass compute pipeline plus read-back, causing driver stalls.
+    if (cameraMoving.load() && !m_wasCameraMoving) {
+        gpuDecimationDirty = true;
+    }
+    m_wasCameraMoving = cameraMoving.load();
+
     // Consume a pending mesh handoff from the GUI thread (shared_ptr; no copy).
     // Uploading here keeps all GL work inside render() with the context current.
     {
@@ -562,20 +570,42 @@ void Renderer::renderFrame() {
     nearPlane = std::max(0.01, camDist * 0.001);
     farPlane  = camDist + m_state.worldRadius + 250.0;
 
+    // Clip control: switch post-projection NDC to Vulkan-style [0,1] depth so the
+    // grid shader can skip manual gl_FragDepth remap and gain 24-bit extra precision.
+    glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+
     glm::mat4 proj = m_state.orthographic
-        ? [&]() { // ponytail: ortho frustum tracks camera.distance so dolly() zooms it
-            if (m_orthoRefDist <= 0.0) m_orthoRefDist = m_state.camera.distance;
+        ? [&]() {
             float half = static_cast<float>(m_state.worldRadius * (m_state.camera.distance / m_orthoRefDist));
             float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
-            return glm::ortho(-half * aspect, half * aspect, -half, half,
-                              static_cast<float>(nearPlane), static_cast<float>(farPlane));
+            float n = static_cast<float>(nearPlane);
+            float f = static_cast<float>(farPlane);
+            const float r = half * aspect;
+            const float t = half;
+            glm::mat4 p(1.0f);
+            p[0][0] = 2.0f / (r + r);
+            p[1][1] = 2.0f / (t + t);
+            p[2][2] = -1.0f / (f - n);
+            p[2][3] = -n / (f - n);
+            p[3][3] = 1.0f;
+            return p;
           }()
-        : glm::perspective(
-            glm::radians(45.0f),
-            static_cast<float>(deviceW) / static_cast<float>(deviceH),
-            static_cast<float>(nearPlane),
-            static_cast<float>(farPlane)
-            );
+        : [&]() {
+            float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
+            float n = static_cast<float>(nearPlane);
+            float f = static_cast<float>(farPlane);
+            float fov = glm::radians(45.0f);
+            float tanHalf = std::tan(fov * 0.5f);
+            float r = 1.0f / (aspect * tanHalf);
+            float t = 1.0f / tanHalf;
+            glm::mat4 p(1.0f);
+            p[0][0] = r;
+            p[1][1] = t;
+            p[2][2] = f / (n - f);
+            p[2][3] = n * f / (n - f);
+            p[3][2] = -1.0f;
+            return p;
+          }();
 
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = proj * view * model;
@@ -638,11 +668,12 @@ void Renderer::renderFrame() {
             glUniform1i(lutTextureLoc, 0);
         }
 
-        if (useLod && cameraMoving.load() && meshManager.hasDecimated() && meshManager.hasFullSource()) {
+        if (useLod && gpuDecimationDirty.load() && meshManager.hasDecimated() && meshManager.hasFullSource()) {
             Mesh newDec;
             if (meshManager.dispatchLodCompute(*meshManager.getFullSource(), newDec)) {
                 meshManager.replaceDecimatedMesh(0, newDec);
             }
+            gpuDecimationDirty = false;
         }
 
         std::vector<std::pair<GLuint, int>> drawList;
