@@ -60,10 +60,10 @@ Renderer::Renderer()
 #pragma GCC diagnostic ignored "-Wattributes"
 Renderer::~Renderer() {
     m_destroying = true;
-    // GL deletes must only run with a current context. The Renderer lives on the
-    // render thread and is torn down after the scene graph, so no GL context is
-    // current here -> skip them; the driver reclaims the resources with the context.
     if (QOpenGLContext::currentContext()) {
+        if (meshUbo) glDeleteBuffers(1, &meshUbo);
+        if (gridUbo) glDeleteBuffers(1, &gridUbo);
+        if (glyphUbo) glDeleteBuffers(1, &glyphUbo);
         if (shaderProgram) glDeleteProgram(shaderProgram);
         if (gridProgram) glDeleteProgram(gridProgram);
         if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
@@ -576,7 +576,9 @@ void Renderer::renderFrame() {
 
     glm::mat4 proj = m_state.orthographic
         ? [&]() {
-            float half = static_cast<float>(m_state.worldRadius * (m_state.camera.distance / m_orthoRefDist));
+            if (m_orthoRefDist <= 0.0) m_orthoRefDist = std::max(m_state.camera.distance, 1e-6);
+            float d = static_cast<float>(m_state.camera.distance / m_orthoRefDist);
+            float half = static_cast<float>(m_state.worldRadius * d);
             float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
             float n = static_cast<float>(nearPlane);
             float f = static_cast<float>(farPlane);
@@ -602,8 +604,8 @@ void Renderer::renderFrame() {
             p[0][0] = r;
             p[1][1] = t;
             p[2][2] = f / (n - f);
-            p[2][3] = n * f / (n - f);
-            p[3][2] = -1.0f;
+            p[2][3] = -1.0f;
+            p[3][2] = n * f / (n - f);
             return p;
           }();
 
@@ -672,6 +674,8 @@ void Renderer::renderFrame() {
             Mesh newDec;
             if (meshManager.dispatchLodCompute(*meshManager.getFullSource(), newDec)) {
                 meshManager.replaceDecimatedMesh(0, newDec);
+            } else {
+                qWarning() << "[LOD] GPU compute decimation failed, using CPU fallback";
             }
             gpuDecimationDirty = false;
         }

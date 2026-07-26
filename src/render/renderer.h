@@ -37,7 +37,7 @@
 #include "render/VectorGlyphSet.h"
 #include "render/MeshGLManager.h"
 
-class QOpenGLFramebufferObject;
+#include <QOpenGLFramebufferObject>
 
 // Shader source bundle — loaded by the caller (which has Qt resource access)
 // and passed to Renderer::initShaders() so the Renderer stays Qt-free.
@@ -310,7 +310,6 @@ private:
     ColorbarOverlay colorbarOverlay;
 
     GLuint shaderProgram = 0;
-    GLuint vao = 0, vbo = 0, ebo = 0;
     GLuint meshUbo = 0;
     GLuint meshUboIndex = GL_INVALID_INDEX;
     GLuint gridUbo = 0;
