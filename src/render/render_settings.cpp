@@ -381,6 +381,7 @@ void RenderSettings::onMeshParsed() {
         showScalarColorbar = true;
         activeScalarName = loaded->scalarName;
         recomputeScalarRange();
+        filterMin = dataScalarMin; filterMax = dataScalarMax;
     } else {
         meshHasScalars = false;
         meshUseScalarColor = false;
@@ -448,8 +449,6 @@ void RenderSettings::recomputeScalarRange() {
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
     dataScalarMin = mn; dataScalarMax = mx;
     scalarMin = mn; scalarMax = mx;
-    // ponytail: pin filter to full range on load so Max thumb sits at slider max (unfiltered)
-    filterMin = dataScalarMin; filterMax = dataScalarMax;
 }
 
 void RenderSettings::setActiveScalarField(const QString& fieldName) {
@@ -467,6 +466,8 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     auto payload = std::make_shared<const std::vector<float>>(it->second);
     m_guiMeta.scalars = *payload;
     recomputeScalarRange();
+    filterMin = dataScalarMin; filterMax = dataScalarMax;
+    emit meshLoadStateChanged();
 
     // Trigger a SCALAR-ONLY re-upload on the render thread (shared_ptr, no copy).
     m_renderer.markScalarDirty(payload);
