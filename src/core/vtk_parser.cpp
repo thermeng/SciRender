@@ -92,6 +92,11 @@ public:
         }
         mesh.datasetType = datasetType.empty() ? "UNKNOWN" : datasetType;
         mesh.fileFormat = "VTK";
+        if (datasetType == "STRUCTURED_POINTS" || datasetType == "STRUCTURED_GRID" || datasetType == "RECTILINEAR_GRID") {
+            mesh.gridDimX = dimX;
+            mesh.gridDimY = dimY;
+            mesh.gridDimZ = dimZ;
+        }
         return mesh;
     }
 
