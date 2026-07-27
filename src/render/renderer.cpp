@@ -71,6 +71,12 @@ Renderer::~Renderer() {
         if (bboxProgram) glDeleteProgram(bboxProgram);
         if (bboxVao) glDeleteVertexArrays(1, &bboxVao);
         if (bboxVbo) glDeleteBuffers(1, &bboxVbo);
+        if (qualityOpenEdgesVao) glDeleteVertexArrays(1, &qualityOpenEdgesVao);
+        if (qualityOpenEdgesVbo) glDeleteBuffers(1, &qualityOpenEdgesVbo);
+        if (qualityNonManifoldVao) glDeleteVertexArrays(1, &qualityNonManifoldVao);
+        if (qualityNonManifoldVbo) glDeleteBuffers(1, &qualityNonManifoldVbo);
+        if (qualityDegenerateVao) glDeleteVertexArrays(1, &qualityDegenerateVao);
+        if (qualityDegenerateVbo) glDeleteBuffers(1, &qualityDegenerateVbo);
         colormap.shutdown();
         vectorGlyph.shutdown();
         gizmo.shutdown();
@@ -389,6 +395,13 @@ void Renderer::clearGpuMeshes() {
     m_lastUploadedMesh.reset();
     m_pendingMesh.reset();
     m_state.hasMeshLoaded = false;
+    qualityOverlayDirty = true;
+    if (qualityOpenEdgesVao) { glDeleteVertexArrays(1, &qualityOpenEdgesVao); qualityOpenEdgesVao = 0; }
+    if (qualityOpenEdgesVbo) { glDeleteBuffers(1, &qualityOpenEdgesVbo); qualityOpenEdgesVbo = 0; }
+    if (qualityNonManifoldVao) { glDeleteVertexArrays(1, &qualityNonManifoldVao); qualityNonManifoldVao = 0; }
+    if (qualityNonManifoldVbo) { glDeleteBuffers(1, &qualityNonManifoldVbo); qualityNonManifoldVbo = 0; }
+    if (qualityDegenerateVao) { glDeleteVertexArrays(1, &qualityDegenerateVao); qualityDegenerateVao = 0; }
+    if (qualityDegenerateVbo) { glDeleteBuffers(1, &qualityDegenerateVbo); qualityDegenerateVbo = 0; }
 }
 
 bool Renderer::consumeScalarDirty() {
@@ -608,6 +621,25 @@ void Renderer::drawBoundingBox(const glm::mat4& view, const glm::mat4& proj) {
     glUseProgram(0);
 }
 
+void Renderer::buildQualityOverlayVAOs() {
+    auto buildOne = [&](GLuint& vao, GLuint& vbo, const std::vector<float>& verts) {
+        if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }
+        if (vbo) { glDeleteBuffers(1, &vbo); vbo = 0; }
+        if (verts.empty()) return;
+        glCreateVertexArrays(1, &vao);
+        glCreateBuffers(1, &vbo);
+        glEnableVertexArrayAttrib(vao, 0);
+        glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(vao, 0, 0);
+        glNamedBufferData(vbo, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+        glVertexArrayVertexBuffer(vao, 0, vbo, 0, 3 * sizeof(float));
+    };
+    buildOne(qualityOpenEdgesVao, qualityOpenEdgesVbo, m_state.qualityOpenEdges);
+    buildOne(qualityNonManifoldVao, qualityNonManifoldVbo, m_state.qualityNonManifoldEdges);
+    buildOne(qualityDegenerateVao, qualityDegenerateVbo, m_state.qualityDegenerateTris);
+    qualityOverlayDirty = false;
+}
+
 void Renderer::renderFrame() {
     // LOD debounce: once 140 ms have elapsed since the last camera motion, clear
     // the moving flag so the next frame uses the full-resolution mesh.
@@ -632,6 +664,7 @@ void Renderer::renderFrame() {
         if (m_pendingMesh) {
             uploadMesh(m_pendingMesh);
             m_pendingMesh.reset();
+            qualityOverlayDirty = true;
         }
     }
 
@@ -857,30 +890,16 @@ void Renderer::renderFrame() {
             GLboolean cullWas  = glIsEnabled(GL_CULL_FACE);
             glDisable(GL_DEPTH_TEST);
             glDisable(GL_CULL_FACE);
-            auto drawList = [&](const std::vector<float>& verts, int mode, const float col[3]) {
-                if (verts.empty()) return;
-                GLuint vao = 0, vbo = 0;
-                glCreateVertexArrays(1, &vao); glCreateBuffers(1, &vbo);
-                glEnableVertexArrayAttrib(vao, 0);
-                glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-                glVertexArrayAttribBinding(vao, 0, 0);
-                glNamedBufferData(vbo, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
-                glVertexArrayVertexBuffer(vao, 0, vbo, 0, 0);
-                glm::mat4 mvp = proj * view * glm::mat4(1.0f);
+            if (qualityOverlayDirty) buildQualityOverlayVAOs();
+            auto drawCached = [&](GLuint vao, GLsizei count) {
+                if (vao == 0 || count <= 0) return;
                 glBindVertexArray(vao);
-                glDrawArrays(mode, 0, static_cast<GLsizei>(verts.size() / 3));
+                glDrawArrays(GL_LINES, 0, count);
                 glBindVertexArray(0);
-                glDeleteBuffers(1, &vbo); glDeleteVertexArrays(1, &vao);
             };
-            const float red[3]     = {1.0f, 0.2f, 0.2f};    // ponytail: degenerate = deleted geometry
-            const float amber[3]   = {1.0f, 0.6f, 0.1f};    // ponytail: open edge = boundary (expected on clips)
-            const float magenta[3] = {1.0f, 0.2f, 1.0f};    // ponytail: non-manifold = topology error
-            // ponytail: degenerate tris have ~zero area, so a FILL paints nothing.
-            // Draw their 3 edges as red lines instead (visible + consistent with the
-            // other two edge-based defect classes).
-            drawList(m_state.qualityOpenEdges, GL_LINES, amber);
-            drawList(m_state.qualityNonManifoldEdges, GL_LINES, magenta);
-            drawList(m_state.qualityDegenerateTris, GL_LINES, red);
+            drawCached(qualityOpenEdgesVao, static_cast<GLsizei>(m_state.qualityOpenEdges.size() / 3));
+            drawCached(qualityNonManifoldVao, static_cast<GLsizei>(m_state.qualityNonManifoldEdges.size() / 3));
+            drawCached(qualityDegenerateVao, static_cast<GLsizei>(m_state.qualityDegenerateTris.size() / 3));
             if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
             if (cullWas)  glEnable(GL_CULL_FACE);  else glDisable(GL_CULL_FACE);
         }
