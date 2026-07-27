@@ -329,7 +329,7 @@ private:
     double farPlane = 100.0;
 
     // Bounding box overlay GL handles (owned, cleaned up in destructor).
-    GLuint bboxVao = 0, bboxVbo = 0;
+    GLuint bboxVao = 0, bboxVbo = 0, bboxNbo = 0;
     std::atomic<bool> cameraMoving{false};
     std::atomic<bool> gpuDecimationDirty{false};
     bool m_wasCameraMoving = false;
