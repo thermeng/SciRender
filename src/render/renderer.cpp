@@ -423,9 +423,9 @@ bool Renderer::captureViewportToFile(const QString& path) {
 }
 
 void Renderer::drawGizmo() {
+    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
     glDisable(GL_DEPTH_TEST);
-    gizmo.draw(m_state.camera.getViewMatrix(), static_cast<float>(devicePixelRatio),
-               static_cast<int>(height * devicePixelRatio));
+    gizmo.draw(m_state.camera.getViewMatrix(), static_cast<float>(devicePixelRatio));
     if (m_state.lighting.lightKitEnabled && m_state.lighting.showLightMarkers) {
         glm::vec3 kitDirs[5] = {
             LightingModel::kitDirection(m_state.lighting.lightKeyAzimuth,  m_state.lighting.lightKeyElevation),
@@ -440,10 +440,9 @@ void Renderer::drawGizmo() {
         };
         glm::vec3 tint = warmTint(m_state.lighting.lightWarm);
         glm::vec3 cols[5] = { tint, tint * 0.9f, tint * 0.95f, tint * 0.95f, glm::vec3(1.0f, 1.0f, 1.0f) };
-        gizmo.drawLights(kitDirs, cols, static_cast<float>(devicePixelRatio),
-                         static_cast<int>(height * devicePixelRatio));
+        gizmo.drawLights(kitDirs, cols, static_cast<float>(devicePixelRatio));
     }
-    glEnable(GL_DEPTH_TEST);
+    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
 }
 
 void Renderer::drawColorbarLegends(int deviceW, int deviceH) {

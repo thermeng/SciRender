@@ -79,10 +79,10 @@ bool ColorbarOverlay::init() {
     glCreateVertexArrays(1, &vao_);
     glCreateBuffers(1, &vbo_);
     glEnableVertexArrayAttrib(vao_, 0);
-    glVertexArrayAttribFormat(vao_, 0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+    glVertexArrayAttribFormat(vao_, 0, 2, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(vao_, 0, 0);
     glEnableVertexArrayAttrib(vao_, 1);
-    glVertexArrayAttribFormat(vao_, 1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+    glVertexArrayAttribFormat(vao_, 1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float));
     glVertexArrayAttribBinding(vao_, 1, 0);
     glNamedBufferData(vbo_, sizeof(verts), verts, GL_STATIC_DRAW);
     glVertexArrayVertexBuffer(vao_, 0, vbo_, 0, 4 * sizeof(float));
@@ -237,6 +237,7 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     gl = gl.flipped(Qt::Vertical);
 
     glBindTextureUnit(0, tex_);
+    glTextureStorage2D(tex_, 1, GL_RGBA8, gl.width(), gl.height());
     glTextureSubImage2D(tex_, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
     textureCacheValid_ = true;
 

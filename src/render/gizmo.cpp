@@ -133,6 +133,7 @@ bool Gizmo::buildAtlas() {
     }
 
     glCreateTextures(GL_TEXTURE_2D, 1, &glyphTex);
+    glTextureStorage2D(glyphTex, 1, GL_RGBA8, glyphAtlasW, glyphAtlasH);
     glTextureSubImage2D(glyphTex, 0, 0, 0, glyphAtlasW, glyphAtlasH, GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
     glTextureParameteri(glyphTex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTextureParameteri(glyphTex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -179,10 +180,10 @@ bool Gizmo::init() {
     glCreateVertexArrays(1, &lineVAO);
     glCreateBuffers(1, &lineVBO);
     glEnableVertexArrayAttrib(lineVAO, linePosLoc);
-    glVertexArrayAttribFormat(lineVAO, linePosLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float));
+    glVertexArrayAttribFormat(lineVAO, linePosLoc, 3, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(lineVAO, linePosLoc, 0);
     glEnableVertexArrayAttrib(lineVAO, lineColLoc);
-    glVertexArrayAttribFormat(lineVAO, lineColLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float));
+    glVertexArrayAttribFormat(lineVAO, lineColLoc, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
     glVertexArrayAttribBinding(lineVAO, lineColLoc, 0);
     glNamedBufferData(lineVBO, sizeof(lines), lines, GL_STATIC_DRAW);
     glVertexArrayVertexBuffer(lineVAO, 0, lineVBO, 0, 6 * sizeof(float));
@@ -191,7 +192,7 @@ bool Gizmo::init() {
     glCreateVertexArrays(1, &textVAO);
     glCreateBuffers(1, &textVBO);
     glEnableVertexArrayAttrib(textVAO, textPosLoc);
-    glVertexArrayAttribFormat(textVAO, textPosLoc, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+    glVertexArrayAttribFormat(textVAO, textPosLoc, 4, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(textVAO, textPosLoc, 0);
     glNamedBufferData(textVBO, 3 * 6 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
     glVertexArrayVertexBuffer(textVAO, 0, textVBO, 0, 4 * sizeof(float));
@@ -200,10 +201,10 @@ bool Gizmo::init() {
     glCreateVertexArrays(1, &lightMarkVAO);
     glCreateBuffers(1, &lightMarkVBO);
     glEnableVertexArrayAttrib(lightMarkVAO, linePosLoc);
-    glVertexArrayAttribFormat(lightMarkVAO, linePosLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float));
+    glVertexArrayAttribFormat(lightMarkVAO, linePosLoc, 3, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(lightMarkVAO, linePosLoc, 0);
     glEnableVertexArrayAttrib(lightMarkVAO, lineColLoc);
-    glVertexArrayAttribFormat(lightMarkVAO, lineColLoc, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float));
+    glVertexArrayAttribFormat(lightMarkVAO, lineColLoc, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
     glVertexArrayAttribBinding(lightMarkVAO, lineColLoc, 0);
     glNamedBufferData(lightMarkVBO, 5 * 6 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
     glVertexArrayVertexBuffer(lightMarkVAO, 0, lightMarkVBO, 0, 6 * sizeof(float));
@@ -227,7 +228,7 @@ void Gizmo::shutdown() {
     lineProgram = textProgram = 0;
 }
 
-void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
+void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     if (!isInitialized()) return;
 
     // Preserve engine state we mutate (viewport + depth test + blend + poly mode + bindings).
@@ -237,9 +238,12 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     GLboolean blendWas = glIsEnabled(GL_BLEND);
     GLint polyMode[2];
     glGetIntegerv(GL_POLYGON_MODE, polyMode);
+    GLenum prevClipOrigin;
+    GLenum prevClipDepthMode;
+    glGetIntegerv(GL_CLIP_ORIGIN, (GLint*)&prevClipOrigin);
+    glGetIntegerv(GL_CLIP_DEPTH_MODE, (GLint*)&prevClipDepthMode);
 
     // 2. Isolated corner viewport footprint (scaled by dpr so it stays constant on HiDPI).
-    const int foot = 120;
     const int margin = 10;
     const int s = static_cast<int>(foot * dpr);
     const int m = static_cast<int>(margin * dpr);
@@ -258,6 +262,8 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     // the compositing layer, so the gizmo matches (unflipped) to stay attached.
     const glm::mat4 gizmoProj = glm::ortho(-1.55f, 1.55f, -1.55f, 1.55f, -10.0f, 10.0f);
     const glm::mat4 lineMVP = gizmoProj * gizmoView;
+
+    glClipControl(prevClipOrigin, GL_NEGATIVE_ONE_TO_ONE);
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -327,28 +333,36 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int fbHeight) {
     glUseProgram(0);
 
     // ---- State handover: restore everything we touched ----
+    glClipControl(prevClipOrigin, prevClipDepthMode);
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-    glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(polyMode[0]));
+    glPolygonMode(GL_FRONT, static_cast<GLenum>(polyMode[0]));
+    glPolygonMode(GL_BACK, static_cast<GLenum>(polyMode[1]));
     glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
 }
 
-void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float dpr, int fbHeight, int foot) {
+void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float dpr, int foot) {
     if (!isInitialized()) return;
 
-    // Preserve engine state we mutate (viewport + depth test + blend + poly mode + bindings).
+    // Preserve engine state we mutate (viewport + depth test + blend + poly mode + bindings + clip control).
     GLint prevVP[4];
     glGetIntegerv(GL_VIEWPORT, prevVP);
+    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean blendWas = glIsEnabled(GL_BLEND);
+    GLint polyMode[2];
+    glGetIntegerv(GL_POLYGON_MODE, polyMode);
+    GLenum prevClipOrigin;
+    GLenum prevClipDepthMode;
+    glGetIntegerv(GL_CLIP_ORIGIN, (GLint*)&prevClipOrigin);
+    glGetIntegerv(GL_CLIP_DEPTH_MODE, (GLint*)&prevClipDepthMode);
 
     const int m = static_cast<int>(10 * dpr);
     const int s = static_cast<int>(foot * dpr);
     const int y0 = m;
     glViewport(m, y0, s, s);
 
-    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-    GLboolean blendWas = glIsEnabled(GL_BLEND);
-    GLint polyMode[2];
-    glGetIntegerv(GL_POLYGON_MODE, polyMode);
+    glClipControl(prevClipOrigin, GL_NEGATIVE_ONE_TO_ONE);
+
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -381,8 +395,10 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     glUseProgram(0);
 
     // ---- State handover: restore everything we touched ----
+    glClipControl(prevClipOrigin, prevClipDepthMode);
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-    glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(polyMode[0]));
+    glPolygonMode(GL_FRONT, static_cast<GLenum>(polyMode[0]));
+    glPolygonMode(GL_BACK, static_cast<GLenum>(polyMode[1]));
     glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
 }
