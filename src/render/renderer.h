@@ -48,6 +48,8 @@ struct ShaderSources {
     std::string gridFrag;
     std::string glyphVert;
     std::string glyphFrag;
+    std::string bboxVert;
+    std::string bboxFrag;
 };
 
 // ---------------------------------------------------------------------------
@@ -297,6 +299,7 @@ public:
 private:
     void drawGizmo();
     void drawColorbarLegends(int deviceW, int deviceH);
+    void drawBoundingBox(const glm::mat4& view, const glm::mat4& proj);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     std::string readShaderFile(const std::string& filePath);
 
@@ -324,12 +327,17 @@ private:
     GLuint glyphProgram = 0;
     GLint glyphLutLoc = -1;
 
+    // bbox overlay program
+    GLuint bboxProgram = 0;
+    GLint bboxMvpLoc = -1;
+    GLint bboxColorLoc = -1;
+    GLuint bboxVao = 0;
+    GLuint bboxVbo = 0;
+
     double camDistance = 3.0;
     double nearPlane = 0.1;
     double farPlane = 100.0;
 
-    // Bounding box overlay GL handles (owned, cleaned up in destructor).
-    GLuint bboxVao = 0, bboxVbo = 0, bboxNbo = 0;
     std::atomic<bool> cameraMoving{false};
     std::atomic<bool> gpuDecimationDirty{false};
     bool m_wasCameraMoving = false;
