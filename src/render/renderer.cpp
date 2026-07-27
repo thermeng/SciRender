@@ -1,5 +1,6 @@
 #include "render/renderer.h"
 #include "render/render_config.h"
+#include "render/StreamlineSet.h"
 #include "core/Colormaps.h"
 #include "core/Camera.h"
 #include "core/mesh_loader.h"
@@ -79,6 +80,7 @@ Renderer::~Renderer() {
         if (qualityDegenerateVbo) glDeleteBuffers(1, &qualityDegenerateVbo);
         colormap.shutdown();
         vectorGlyph.shutdown();
+        streamlineSet.shutdown();
         gizmo.shutdown();
         colorbarOverlay.shutdown();
     }
@@ -228,6 +230,72 @@ void Renderer::initShaders(const ShaderSources& sources) {
             }
         }
     }
+
+    // streamline line-list program
+    const std::string& svert = sources.streamlineVert;
+    const std::string& sfrag = sources.streamlineFrag;
+    if (!svert.empty() && !sfrag.empty()) {
+        GLuint sv = glCreateShader(GL_VERTEX_SHADER);
+        GLuint sf = glCreateShader(GL_FRAGMENT_SHADER);
+        if (!compileShader(sv, svert.c_str(), "STREAMLINE_VERT") || !compileShader(sf, sfrag.c_str(), "STREAMLINE_FRAG")) {
+            glDeleteShader(sv); glDeleteShader(sf);
+            streamlineProgram = 0;
+        } else {
+            streamlineProgram = glCreateProgram();
+            glAttachShader(streamlineProgram, sv); glAttachShader(streamlineProgram, sf);
+            glLinkProgram(streamlineProgram);
+
+            GLint linked = 0;
+            glGetProgramiv(streamlineProgram, GL_LINK_STATUS, &linked);
+            if (!linked) {
+                char log[512];
+                glGetProgramInfoLog(streamlineProgram, 512, nullptr, log);
+                printf("Streamline shader program linking error: %s\n", log);
+                glDeleteProgram(streamlineProgram);
+                streamlineProgram = 0;
+            }
+            glDeleteShader(sv); glDeleteShader(sf);
+            if (streamlineProgram != 0) {
+                streamlineLutLoc = glGetUniformLocation(streamlineProgram, "uColormapLUT");
+                if (streamlineUbo == 0) {
+                    glCreateBuffers(1, &streamlineUbo);
+                    glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
+                }
+            }
+        }
+    }
+
+    // seed point program
+    const std::string& sdvert = sources.seedVert;
+    const std::string& sdfrag = sources.seedFrag;
+    if (!sdvert.empty() && !sdfrag.empty()) {
+        GLuint sdv = glCreateShader(GL_VERTEX_SHADER);
+        GLuint sdf = glCreateShader(GL_FRAGMENT_SHADER);
+        if (!compileShader(sdv, sdvert.c_str(), "SEED_VERT") || !compileShader(sdf, sdfrag.c_str(), "SEED_FRAG")) {
+            glDeleteShader(sdv); glDeleteShader(sdf);
+            seedProgram = 0;
+        } else {
+            seedProgram = glCreateProgram();
+            glAttachShader(seedProgram, sdv); glAttachShader(seedProgram, sdf);
+            glLinkProgram(seedProgram);
+
+            GLint linked = 0;
+            glGetProgramiv(seedProgram, GL_LINK_STATUS, &linked);
+            if (!linked) {
+                char log[512];
+                glGetProgramInfoLog(seedProgram, 512, nullptr, log);
+                printf("Seed shader program linking error: %s\n", log);
+                glDeleteProgram(seedProgram);
+                seedProgram = 0;
+            }
+            glDeleteShader(sdv); glDeleteShader(sdf);
+            if (seedProgram != 0) {
+                seedMvpLoc = glGetUniformLocation(seedProgram, "uMVP");
+                seedColorLoc = glGetUniformLocation(seedProgram, "uColor");
+                seedPointSizeLoc = glGetUniformLocation(seedProgram, "uPointSize");
+            }
+        }
+    }
 }
 
 void Renderer::initGrid(const ShaderSources& sources) {
@@ -318,6 +386,7 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     meshManager.upload(renderMesh);
     m_lastUploadedMesh = renderMesh;
     vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform);
+    streamlineSet.rebuild(*renderMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize);
 }
 
 void Renderer::setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh) {
@@ -672,6 +741,10 @@ void Renderer::renderFrame() {
         if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform);
     }
 
+    if (streamlineDirty.exchange(false)) {
+        if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize);
+    }
+
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glDisable(GL_CULL_FACE);
@@ -932,6 +1005,75 @@ void Renderer::renderFrame() {
         }
         glBindVertexArray(vectorGlyph.vao);
         glDrawElementsInstanced(GL_TRIANGLES, vectorGlyph.glyphIndexCount, GL_UNSIGNED_INT, 0, vectorGlyph.instanceCount);
+        glBindVertexArray(0);
+        glUseProgram(0);
+    }
+
+    if (m_state.showStreamlines && !streamlineSet.empty() && streamlineProgram != 0) {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glUseProgram(streamlineProgram);
+        if (streamlineUbo == 0) {
+            glCreateBuffers(1, &streamlineUbo);
+            glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
+        }
+        glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
+        computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
+        glm::vec3 camPos = glm::vec3(m_state.camera.position);
+        StreamlineUBOData ubo{};
+        ubo.mvp = mvp;
+        ubo.model = glm::mat4(1.0f);
+        ubo.viewPos = glm::vec4(camPos, 0.0f);
+        ubo.lightDir = glm::vec4(kDir, 0.0f);
+        static float timeAccum = 0.0f;
+        timeAccum += 0.016f;
+        ubo.time_opacity = glm::vec4(timeAccum, 1.0f, 0.0f, 0.0f);
+        ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
+        ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
+        glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
+        if (m_state.streamlineUseColormap && colormap.vectorTexture() != 0) {
+            glBindTextureUnit(1, colormap.vectorTexture());
+            glUniform1i(streamlineLutLoc, 1);
+        }
+        glBindVertexArray(streamlineSet.vao);
+        glDrawArrays(GL_TRIANGLES, 0, streamlineSet.lineCount);
+        glBindVertexArray(0);
+        glUseProgram(0);
+    }
+
+    if (m_state.showSeeds && !streamlineSet.seedsEmpty() && seedProgram != 0) {
+        glUseProgram(seedProgram);
+        glm::vec4 seedColor(1.0f, 0.2f, 0.2f, 1.0f);
+        glUniformMatrix4fv(seedMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniform4fv(seedColorLoc, 1, glm::value_ptr(seedColor));
+        glUniform1f(seedPointSizeLoc, 6.0f);
+        glBindVertexArray(streamlineSet.seedVao);
+        glDrawArrays(GL_POINTS, 0, streamlineSet.seedCount);
+        glBindVertexArray(0);
+        glUseProgram(0);
+    }
+
+    if (m_state.showStreamlineArrows && streamlineSet.arrowCount > 0 && streamlineProgram != 0) {
+        glUseProgram(streamlineProgram);
+        if (streamlineUbo != 0) {
+            glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
+            computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
+            glm::vec3 camPos = glm::vec3(m_state.camera.position);
+            StreamlineUBOData ubo{};
+            ubo.mvp = mvp;
+            ubo.model = glm::mat4(1.0f);
+            ubo.viewPos = glm::vec4(camPos, 0.0f);
+            ubo.lightDir = glm::vec4(kDir, 0.0f);
+            static float timeAccum = 0.0f;
+            timeAccum += 0.016f;
+            ubo.time_opacity = glm::vec4(timeAccum, 1.0f, 0.0f, 0.0f);
+            ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], 0.0f);
+            ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
+            glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
+            glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
+        }
+        glBindVertexArray(streamlineSet.arrowVao);
+        glDrawArrays(GL_TRIANGLES, 0, streamlineSet.arrowCount);
         glBindVertexArray(0);
         glUseProgram(0);
     }

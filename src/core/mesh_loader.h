@@ -104,6 +104,10 @@ struct RenderMesh {
     // for structured/rectilinear/unstructured grids; false for POLYDATA/STL.
     bool supportsCellGrid = false;
 
+    // Structured grid dimensions (set for STRUCTURED_GRID / RECTILINEAR_GRID /
+    // IMAGEDATA). Zero for unstructured/polydata meshes.
+    int gridDimX = 0, gridDimY = 0, gridDimZ = 0;
+
     // Raw per-face corner positions (9 floats per triangle), captured BEFORE
     // the parser's position dedup. The mesh-quality analyzer welds these at
     // trimesh's 1e-8 tolerance to match script.py; the rendered indexed mesh

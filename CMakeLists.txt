@@ -65,6 +65,8 @@ add_executable(SciRender
     src/render/ColormapManager.h
     src/render/VectorGlyphSet.cpp
     src/render/VectorGlyphSet.h
+    src/render/StreamlineSet.cpp
+    src/render/StreamlineSet.h
     src/render/MeshGLManager.cpp
     src/render/MeshGLManager.h
     src/render/gizmo.cpp
@@ -119,6 +121,10 @@ qt_add_qml_module(SciRender
         src/shaders/glyph.frag
         src/shaders/bbox.vert
         src/shaders/bbox.frag
+        src/shaders/streamline.vert
+        src/shaders/streamline.frag
+        src/shaders/seed.vert
+        src/shaders/seed.frag
         src/shaders/lod.comp
         src/shaders/lod_output.comp
         src/shaders/lod_tris.comp
