@@ -21,14 +21,15 @@ public:
     // Draws the triad into a fixed bottom-left corner viewport.
     //  mainView : the scene's full view matrix (used only for its rotation part)
     //  dpr      : device-pixel-ratio so the overlay footprint stays constant on HiDPI
-    void draw(const glm::mat4& mainView, float dpr, int fbHeight);
+    //  foot     : viewport size in pixels (default 120)
+    void draw(const glm::mat4& mainView, float dpr, int foot = 120);
 
     // draws Light Kit direction markers in the corner viewport.
-    //  dirs[]  : kit-local unit directions (constant per light, so markers stay put
-    //           while the world-axis triad rotates — visually proving the lights
-    //           track the camera).
+    //  dirs[]  : kit-local unit directions
     //  cols[]  : RGB tint per light.
-    void drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float dpr, int fbHeight, int foot = 120);
+    //  dpr     : device-pixel-ratio
+    //  foot    : viewport size in pixels (default 120)
+    void drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float dpr, int foot = 120);
 
     bool isInitialized() const { return lineProgram != 0 && textProgram != 0; }
 
