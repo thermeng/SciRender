@@ -70,6 +70,7 @@ Renderer::~Renderer() {
         if (gridVBO) glDeleteBuffers(1, &gridVBO);
         if (bboxVao) glDeleteVertexArrays(1, &bboxVao);
         if (bboxVbo) glDeleteBuffers(1, &bboxVbo);
+        if (bboxNbo) glDeleteBuffers(1, &bboxNbo);
         colormap.shutdown();
         vectorGlyph.shutdown();
         gizmo.shutdown();
@@ -358,8 +359,9 @@ void Renderer::clearGpuMeshes() {
     m_lastUploadedMesh.reset();
     m_pendingMesh.reset();
     m_state.hasMeshLoaded = false;
-    if (bboxVao) { glDeleteVertexArrays(1, &bboxVao); bboxVao = 0; }
-    if (bboxVbo) { glDeleteBuffers(1, &bboxVbo); bboxVbo = 0; }
+        if (bboxVao) { glDeleteVertexArrays(1, &bboxVao); bboxVao = 0; }
+        if (bboxVbo) { glDeleteBuffers(1, &bboxVbo); bboxVbo = 0; }
+        if (bboxNbo) { glDeleteBuffers(1, &bboxNbo); bboxNbo = 0; }
 }
 
 bool Renderer::consumeScalarDirty() {
@@ -715,9 +717,13 @@ void Renderer::renderFrame() {
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
                 glPolygonOffset(-1.0f, -1.0f);
+                ubo.meshColor_wire.w = 1.0f;
+                glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
                 glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
                 glDisable(GL_POLYGON_OFFSET_LINE);
                 glLineWidth(1.0f);
+                ubo.meshColor_wire.w = 0.0f;
+                glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
             }
 
             // ponytail: points overlay — works for STL + VTK + POLYDATA alike
@@ -725,7 +731,11 @@ void Renderer::renderFrame() {
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                ubo.point_clip.x = 1.0f;
+                glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
                 glDrawArrays(GL_POINTS, 0, drawVerts[di]);
+                ubo.point_clip.x = 0.0f;
+                glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
                 glDisable(GL_BLEND);
             }
         }
@@ -777,6 +787,20 @@ void Renderer::renderFrame() {
                 glVertexArrayAttribBinding(bboxVao, 0, 0);
                 glNamedBufferData(bboxVbo, sizeof(c), c, GL_STATIC_DRAW);
                 glVertexArrayVertexBuffer(bboxVao, 0, bboxVbo, 0, 0);
+                static const float n[24 * 3] = {
+                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
+                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
+                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
+                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
+                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
+                    0,0,1, 0,0,1, 0,0,1, 0,0,1
+                };
+                glCreateBuffers(1, &bboxNbo);
+                glEnableVertexArrayAttrib(bboxVao, 1);
+                glVertexArrayAttribFormat(bboxVao, 1, 3, GL_FLOAT, GL_FALSE, 0);
+                glVertexArrayAttribBinding(bboxVao, 1, 1);
+                glNamedBufferData(bboxNbo, sizeof(n), n, GL_STATIC_DRAW);
+                glVertexArrayVertexBuffer(bboxVao, 1, bboxNbo, 0, 0);
             }
             glm::vec3 center(static_cast<float>(m_state.worldCenterX),
                              static_cast<float>(m_state.worldCenterY),
@@ -784,12 +808,18 @@ void Renderer::renderFrame() {
             glm::vec3 diag(static_cast<float>(m_state.worldMaxX - m_state.worldMinX),
                            static_cast<float>(m_state.worldMaxY - m_state.worldMinY),
                            static_cast<float>(m_state.worldMaxZ - m_state.worldMinZ));
-            glm::mat4 model = glm::translate(glm::mat4(1.0f), center)
-                            * glm::scale(glm::mat4(1.0f), diag);
-            glm::mat4 mvp = proj * view * model;
+            glm::mat4 bboxModel = glm::translate(glm::mat4(1.0f), center)
+                                * glm::scale(glm::mat4(1.0f), diag);
+            glm::mat4 bboxMVP = proj * view * bboxModel;
+            MeshUBOData bboxUbo = ubo;
+            bboxUbo.mvp = bboxMVP;
+            bboxUbo.model = bboxModel;
+            bboxUbo.meshColor_wire.w = 1.0f;
+            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &bboxUbo);
             glBindVertexArray(bboxVao);
             glDrawArrays(GL_LINES, 0, 24);
             glBindVertexArray(0);
+            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
         }
 
         // ponytail: mesh-quality highlight overlay — degenerate faces (red fill)
