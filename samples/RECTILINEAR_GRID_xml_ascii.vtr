@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <VTKFile type="RectilinearGrid" version="0.1" byte_order="LittleEndian">
-  <RectilinearGrid>
+  <RectilinearGrid WholeExtent="0 1 0 1 0 1">
     <Piece Extent="0 1 0 1 0 1">
       <Coordinates>
         <DataArray type="Float32" format="ascii">
