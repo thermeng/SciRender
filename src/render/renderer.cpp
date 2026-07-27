@@ -819,9 +819,9 @@ void Renderer::renderFrame() {
         if (meshUbo == 0) {
             glCreateBuffers(1, &meshUbo);
             glNamedBufferData(meshUbo, sizeof(MeshUBOData), nullptr, GL_DYNAMIC_DRAW);
-            if (meshUboIndex != GL_INVALID_INDEX)
-                glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
         }
+        if (meshUboIndex != GL_INVALID_INDEX)
+            glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
         MeshUBOData ubo{};
         ubo.mvp = mvp;
         ubo.model = model;
