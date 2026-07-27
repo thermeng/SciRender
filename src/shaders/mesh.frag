@@ -34,7 +34,7 @@ uniform sampler1D uColormapLUT;
 out vec4 FragColor;
 
 // Material properties
-vec3  uMatAmbient()    { return uMaterial.xyz; }
+vec3  uMatAmbient()    { return vec3(uMaterial.x); }
 float uMatDiffuse()    { return uMaterial.y; }
 float uMatSpecular()   { return uMaterial.z; }
 float uMatShininess()  { return uMaterial.w; }
