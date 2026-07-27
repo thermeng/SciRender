@@ -1,6 +1,7 @@
 #version 460 core
 
-layout(depth_unchanged) out float gl_FragDepth;
+//layout(depth_unchanged) out float gl_FragDepth;
+layout(depth_any) out float gl_FragDepth;
 
 in vec3 vNear;
 in vec3 vFar;

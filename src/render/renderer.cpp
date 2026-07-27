@@ -68,9 +68,9 @@ Renderer::~Renderer() {
         if (gridProgram) glDeleteProgram(gridProgram);
         if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
         if (gridVBO) glDeleteBuffers(1, &gridVBO);
+        if (bboxProgram) glDeleteProgram(bboxProgram);
         if (bboxVao) glDeleteVertexArrays(1, &bboxVao);
         if (bboxVbo) glDeleteBuffers(1, &bboxVbo);
-        if (bboxNbo) glDeleteBuffers(1, &bboxNbo);
         colormap.shutdown();
         vectorGlyph.shutdown();
         gizmo.shutdown();
@@ -189,6 +189,36 @@ void Renderer::initShaders(const ShaderSources& sources) {
                 glCreateBuffers(1, &glyphUbo);
                 glNamedBufferData(glyphUbo, sizeof(GlyphUBOData), nullptr, GL_DYNAMIC_DRAW);
                 glBindBufferBase(GL_UNIFORM_BUFFER, 1, glyphUbo);
+            }
+        }
+    }
+
+    // bbox overlay program
+    const std::string& bvert = sources.bboxVert;
+    const std::string& bfrag = sources.bboxFrag;
+    if (!bvert.empty() && !bfrag.empty()) {
+        GLuint bv = glCreateShader(GL_VERTEX_SHADER);
+        GLuint bf = glCreateShader(GL_FRAGMENT_SHADER);
+        if (!compileShader(bv, bvert.c_str(), "BBOX_VERT") || !compileShader(bf, bfrag.c_str(), "BBOX_FRAG")) {
+            glDeleteShader(bv); glDeleteShader(bf);
+            bboxProgram = 0;
+        } else {
+            bboxProgram = glCreateProgram();
+            glAttachShader(bboxProgram, bv); glAttachShader(bboxProgram, bf);
+            glLinkProgram(bboxProgram);
+            GLint bboxLinked = 0;
+            glGetProgramiv(bboxProgram, GL_LINK_STATUS, &bboxLinked);
+            if (!bboxLinked) {
+                char log[512];
+                glGetProgramInfoLog(bboxProgram, 512, nullptr, log);
+                printf("BBox shader program linking error: %s\n", log);
+                glDeleteProgram(bboxProgram);
+                bboxProgram = 0;
+            }
+            glDeleteShader(bv); glDeleteShader(bf);
+            if (bboxProgram != 0) {
+                bboxMvpLoc = glGetUniformLocation(bboxProgram, "uMVP");
+                bboxColorLoc = glGetUniformLocation(bboxProgram, "uColor");
             }
         }
     }
@@ -359,9 +389,6 @@ void Renderer::clearGpuMeshes() {
     m_lastUploadedMesh.reset();
     m_pendingMesh.reset();
     m_state.hasMeshLoaded = false;
-        if (bboxVao) { glDeleteVertexArrays(1, &bboxVao); bboxVao = 0; }
-        if (bboxVbo) { glDeleteBuffers(1, &bboxVbo); bboxVbo = 0; }
-        if (bboxNbo) { glDeleteBuffers(1, &bboxNbo); bboxNbo = 0; }
 }
 
 bool Renderer::consumeScalarDirty() {
@@ -520,6 +547,65 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         }
         colorbarOverlay.draw(dpr, deviceW, deviceH, data, 1);
     }
+}
+
+void Renderer::drawBoundingBox(const glm::mat4& view, const glm::mat4& proj) {
+    if (!m_state.showBounds || bboxProgram == 0) return;
+    if (!meshManager.hasMeshes()) return;
+
+    // 12 edges of a unit cube centered at origin, coords -0.5..0.5
+    static const float c[24 * 3] = {
+        -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,
+         0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
+         0.5f, 0.5f,-0.5f, -0.5f, 0.5f,-0.5f,
+        -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
+        -0.5f,-0.5f, 0.5f,  0.5f,-0.5f, 0.5f,
+         0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f,
+         0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
+        -0.5f, 0.5f, 0.5f, -0.5f,-0.5f, 0.5f,
+        -0.5f,-0.5f,-0.5f, -0.5f,-0.5f, 0.5f,
+         0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f,
+         0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
+        -0.5f, 0.5f,-0.5f, -0.5f, 0.5f, 0.5f
+    };
+    if (bboxVao == 0) {
+        glCreateVertexArrays(1, &bboxVao);
+        glCreateBuffers(1, &bboxVbo);
+        glEnableVertexArrayAttrib(bboxVao, 0);
+        glVertexArrayAttribFormat(bboxVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(bboxVao, 0, 0);
+        glNamedBufferData(bboxVbo, sizeof(c), c, GL_STATIC_DRAW);
+        glVertexArrayVertexBuffer(bboxVao, 0, bboxVbo, 0, 3 * sizeof(float));
+    }
+
+    glm::vec3 center(static_cast<float>(m_state.worldCenterX),
+                     static_cast<float>(m_state.worldCenterY),
+                     static_cast<float>(m_state.worldCenterZ));
+    glm::vec3 diag(static_cast<float>(m_state.worldMaxX - m_state.worldMinX),
+                   static_cast<float>(m_state.worldMaxY - m_state.worldMinY),
+                   static_cast<float>(m_state.worldMaxZ - m_state.worldMinZ));
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), center) *
+                      glm::scale(glm::mat4(1.0f), diag);
+    glm::mat4 mvp = proj * view * model;
+
+    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glLineWidth(1.0f);
+
+    glUseProgram(bboxProgram);
+    glUniformMatrix4fv(bboxMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+    glUniform4f(bboxColorLoc,
+                m_state.meshColor[0],
+                m_state.meshColor[1],
+                m_state.meshColor[2],
+                1.0f);
+
+    glBindVertexArray(bboxVao);
+    glDrawArrays(GL_LINES, 0, 24);
+    glBindVertexArray(0);
+
+    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    glUseProgram(0);
 }
 
 void Renderer::renderFrame() {
@@ -762,66 +848,6 @@ void Renderer::renderFrame() {
             }
         }
 
-        // ponytail: AABB wireframe overlay (reuses mesh shader, wireframe color)
-        if (m_state.showBounds && shaderProgram != 0) {
-            if (bboxVao == 0) {
-                // 12 edges of a unit cube centered at origin, coords -0.5..0.5
-                static const float c[24 * 3] = {
-                    -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,
-                     0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
-                     0.5f, 0.5f,-0.5f, -0.5f, 0.5f,-0.5f,
-                    -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
-                    -0.5f,-0.5f, 0.5f,  0.5f,-0.5f, 0.5f,
-                     0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f,
-                     0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
-                    -0.5f, 0.5f, 0.5f, -0.5f,-0.5f, 0.5f,
-                    -0.5f,-0.5f,-0.5f, -0.5f,-0.5f, 0.5f,
-                     0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f,
-                     0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
-                    -0.5f, 0.5f,-0.5f, -0.5f, 0.5f, 0.5f
-                };
-                glCreateVertexArrays(1, &bboxVao);
-                glCreateBuffers(1, &bboxVbo);
-                glEnableVertexArrayAttrib(bboxVao, 0);
-                glVertexArrayAttribFormat(bboxVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-                glVertexArrayAttribBinding(bboxVao, 0, 0);
-                glNamedBufferData(bboxVbo, sizeof(c), c, GL_STATIC_DRAW);
-                glVertexArrayVertexBuffer(bboxVao, 0, bboxVbo, 0, 0);
-                static const float n[24 * 3] = {
-                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
-                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
-                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
-                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
-                    0,0,1, 0,0,1, 0,0,1, 0,0,1,
-                    0,0,1, 0,0,1, 0,0,1, 0,0,1
-                };
-                glCreateBuffers(1, &bboxNbo);
-                glEnableVertexArrayAttrib(bboxVao, 1);
-                glVertexArrayAttribFormat(bboxVao, 1, 3, GL_FLOAT, GL_FALSE, 0);
-                glVertexArrayAttribBinding(bboxVao, 1, 1);
-                glNamedBufferData(bboxNbo, sizeof(n), n, GL_STATIC_DRAW);
-                glVertexArrayVertexBuffer(bboxVao, 1, bboxNbo, 0, 0);
-            }
-            glm::vec3 center(static_cast<float>(m_state.worldCenterX),
-                             static_cast<float>(m_state.worldCenterY),
-                             static_cast<float>(m_state.worldCenterZ));
-            glm::vec3 diag(static_cast<float>(m_state.worldMaxX - m_state.worldMinX),
-                           static_cast<float>(m_state.worldMaxY - m_state.worldMinY),
-                           static_cast<float>(m_state.worldMaxZ - m_state.worldMinZ));
-            glm::mat4 bboxModel = glm::translate(glm::mat4(1.0f), center)
-                                * glm::scale(glm::mat4(1.0f), diag);
-            glm::mat4 bboxMVP = proj * view * bboxModel;
-            MeshUBOData bboxUbo = ubo;
-            bboxUbo.mvp = bboxMVP;
-            bboxUbo.model = bboxModel;
-            bboxUbo.meshColor_wire.w = 1.0f;
-            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &bboxUbo);
-            glBindVertexArray(bboxVao);
-            glDrawArrays(GL_LINES, 0, 24);
-            glBindVertexArray(0);
-            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-        }
-
         // ponytail: mesh-quality highlight overlay — degenerate faces (red fill)
         // + open edges (amber) + non-manifold edges (magenta), drawn ON TOP of
         // the mesh. Depth test + cull are disabled so interior defects (coplanar
@@ -861,6 +887,8 @@ void Renderer::renderFrame() {
 
         glUseProgram(0);
 
+    drawBoundingBox(view, proj);
+
     if (m_state.showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         glUseProgram(glyphProgram);
@@ -898,3 +926,4 @@ void Renderer::renderFrame() {
     QQuickOpenGLUtils::resetOpenGLState();
 }
 }
+
