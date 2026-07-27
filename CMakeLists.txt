@@ -116,6 +116,8 @@ qt_add_qml_module(SciRender
         src/shaders/grid.frag
         src/shaders/glyph.vert
         src/shaders/glyph.frag
+        src/shaders/bbox.vert
+        src/shaders/bbox.frag
         src/shaders/lod.comp
         src/shaders/lod_output.comp
         src/shaders/lod_tris.comp
