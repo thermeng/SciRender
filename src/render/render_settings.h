@@ -143,6 +143,20 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float filterMin READ getFilterMin WRITE setFilterMin NOTIFY viewChanged)
     Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
 
+    Q_PROPERTY(bool showStreamlines READ getShowStreamlines WRITE setShowStreamlines NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineSeedCount READ getStreamlineSeedCount WRITE setStreamlineSeedCount NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineStepSize READ getStreamlineStepSize WRITE setStreamlineStepSize NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineMaxSteps READ getStreamlineMaxSteps WRITE setStreamlineMaxSteps NOTIFY viewChanged)
+    Q_PROPERTY(bool streamlineUseColormap READ getStreamlineUseColormap WRITE setStreamlineUseColormap NOTIFY viewChanged)
+    Q_PROPERTY(QColor streamlineColor READ getStreamlineColorQml WRITE setStreamlineColorQml NOTIFY viewChanged)
+    Q_PROPERTY(QString seedMode READ getSeedMode WRITE setSeedMode NOTIFY viewChanged)
+    Q_PROPERTY(double seedPlanePos READ getSeedPlanePos WRITE setSeedPlanePos NOTIFY viewChanged)
+    Q_PROPERTY(double seedJitter READ getSeedJitter WRITE setSeedJitter NOTIFY viewChanged)
+    Q_PROPERTY(bool showSeeds READ getShowSeeds WRITE setShowSeeds NOTIFY viewChanged)
+    Q_PROPERTY(bool showStreamlineArrows READ getShowStreamlineArrows WRITE setShowStreamlineArrows NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineArrowSpacing READ getStreamlineArrowSpacing WRITE setStreamlineArrowSpacing NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineArrowSize READ getStreamlineArrowSize WRITE setStreamlineArrowSize NOTIFY viewChanged)
+
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
     Q_PROPERTY(float pointSize READ getPointSize WRITE setPointSize NOTIFY viewChanged)
@@ -355,6 +369,32 @@ public:
     void setVectorStride(int v) { int s = v < 1 ? 1 : v; if (vectorStride != s) { vectorStride = s; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit viewChanged(); } }
     QColor getVectorColorQml() const { return QColor::fromRgbF(vectorColor[0], vectorColor[1], vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { vectorColor[0] = c.redF(); vectorColor[1] = c.greenF(); vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
+    bool getShowStreamlines() const { return showStreamlines; }
+    void setShowStreamlines(bool v) { if (showStreamlines != v) { showStreamlines = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    int getStreamlineSeedCount() const { return streamlineSeedCount; }
+    void setStreamlineSeedCount(int v) { if (streamlineSeedCount != v) { streamlineSeedCount = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    double getStreamlineStepSize() const { return streamlineStepSize; }
+    void setStreamlineStepSize(double v) { if (streamlineStepSize != v) { streamlineStepSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    int getStreamlineMaxSteps() const { return streamlineMaxSteps; }
+    void setStreamlineMaxSteps(int v) { if (streamlineMaxSteps != v) { streamlineMaxSteps = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    bool getStreamlineUseColormap() const { return streamlineUseColormap; }
+    void setStreamlineUseColormap(bool v) { if (streamlineUseColormap != v) { streamlineUseColormap = v; markStateDirty(); emit viewChanged(); } }
+    QColor getStreamlineColorQml() const { return QColor::fromRgbF(streamlineColor[0], streamlineColor[1], streamlineColor[2]); }
+    void setStreamlineColorQml(const QColor& c) { streamlineColor[0] = c.redF(); streamlineColor[1] = c.greenF(); streamlineColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
+    QString getSeedMode() const { return QString::fromStdString(seedMode); }
+    void setSeedMode(const QString& v) { if (seedMode != v.toStdString()) { seedMode = v.toStdString(); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    double getSeedPlanePos() const { return seedPlanePos; }
+    void setSeedPlanePos(double v) { if (seedPlanePos != v) { seedPlanePos = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    double getSeedJitter() const { return seedJitter; }
+    void setSeedJitter(double v) { if (seedJitter != v) { seedJitter = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    bool getShowSeeds() const { return showSeeds; }
+    void setShowSeeds(bool v) { if (showSeeds != v) { showSeeds = v; markStateDirty(); emit viewChanged(); } }
+    bool getShowStreamlineArrows() const { return showStreamlineArrows; }
+    void setShowStreamlineArrows(bool v) { if (showStreamlineArrows != v) { showStreamlineArrows = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    int getStreamlineArrowSpacing() const { return streamlineArrowSpacing; }
+    void setStreamlineArrowSpacing(int v) { if (streamlineArrowSpacing != v) { streamlineArrowSpacing = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    double getStreamlineArrowSize() const { return streamlineArrowSize; }
+    void setStreamlineArrowSize(double v) { if (streamlineArrowSize != v) { streamlineArrowSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
     bool getVectorUseColormap() const { return vectorUseColormap; }
     void setVectorUseColormap(bool v) { if (vectorUseColormap != v) { vectorUseColormap = v; markStateDirty(); emit viewChanged(); } }
     int getVectorColormapChoice() const { return vectorColormapChoice; }
@@ -528,6 +568,21 @@ private:
     bool vectorUseColormap = false;
     bool vectorScaleByMagnitude = false;
     int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
+
+    bool showStreamlines = false;
+    int streamlineSeedCount = 25;
+    float streamlineStepSize = 0.02f;
+    int streamlineMaxSteps = 100;
+    bool streamlineUseColormap = false;
+    float streamlineColor[3] = { 0.2f, 0.6f, 1.0f };
+
+    std::string seedMode = "Volume";
+    double seedPlanePos = 0.5;
+    double seedJitter = 0.0;
+    bool showSeeds = false;
+    bool showStreamlineArrows = false;
+    int streamlineArrowSpacing = 4;
+    float streamlineArrowSize = 0.05f;
 
     bool clipEnabled = false;
     float sliceHeightX = 0.0f;

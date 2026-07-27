@@ -109,6 +109,19 @@ void RenderSettings::buildRenderState() {
     s.vectorScaleByMagnitude = vectorScaleByMagnitude;
     s.vectorMagTransform = vectorMagTransform;
     s.vectorField = m_guiMeta.vectorName;
+    s.showStreamlines = showStreamlines;
+    s.streamlineSeedCount = streamlineSeedCount;
+    s.streamlineStepSize = streamlineStepSize;
+    s.streamlineMaxSteps = streamlineMaxSteps;
+    s.streamlineUseColormap = streamlineUseColormap;
+    std::copy(std::begin(streamlineColor), std::end(streamlineColor), s.streamlineColor);
+    s.seedMode = seedMode;
+    s.seedPlanePos = seedPlanePos;
+    s.seedJitter = seedJitter;
+    s.showSeeds = showSeeds;
+    s.showStreamlineArrows = showStreamlineArrows;
+    s.streamlineArrowSpacing = streamlineArrowSpacing;
+    s.streamlineArrowSize = streamlineArrowSize;
     s.screenshotTransparent = screenshotTransparent;
     s.hasMeshLoaded = hasMeshLoaded;
 }
@@ -381,7 +394,7 @@ void RenderSettings::onMeshParsed() {
         showScalarColorbar = true;
         activeScalarName = loaded->scalarName;
         recomputeScalarRange();
-        filterMin = dataScalarMin; filterMax = dataScalarMax;
+        setFilterMin(dataScalarMin); setFilterMax(dataScalarMax);
     } else {
         meshHasScalars = false;
         meshUseScalarColor = false;
@@ -466,7 +479,7 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     auto payload = std::make_shared<const std::vector<float>>(it->second);
     m_guiMeta.scalars = *payload;
     recomputeScalarRange();
-    filterMin = dataScalarMin; filterMax = dataScalarMax;
+    setFilterMin(dataScalarMin); setFilterMax(dataScalarMax);
     emit meshLoadStateChanged();
 
     // Trigger a SCALAR-ONLY re-upload on the render thread (shared_ptr, no copy).
@@ -488,6 +501,7 @@ void RenderSettings::setActiveVectorField(const QString& fieldName) {
     }
     m_guiMeta.vectorName = fieldName.toStdString();
     m_renderer.markVectorGlyphDirty();
+    m_renderer.markStreamlineDirty();
     markStateDirty(); emit meshDataUpdated();
 }
 

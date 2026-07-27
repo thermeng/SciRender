@@ -225,6 +225,10 @@ void ViewportFboRenderer::render() {
         sources.glyphFrag = loadShader(":/SciRenderUI/src/shaders/glyph.frag");
         sources.bboxVert  = loadShader(":/SciRenderUI/src/shaders/bbox.vert");
         sources.bboxFrag  = loadShader(":/SciRenderUI/src/shaders/bbox.frag");
+        sources.streamlineVert  = loadShader(":/SciRenderUI/src/shaders/streamline.vert");
+        sources.streamlineFrag  = loadShader(":/SciRenderUI/src/shaders/streamline.frag");
+        sources.seedVert        = loadShader(":/SciRenderUI/src/shaders/seed.vert");
+        sources.seedFrag        = loadShader(":/SciRenderUI/src/shaders/seed.frag");
 
         m_scene->initShaders(sources);
         m_scene->initGrid(sources);

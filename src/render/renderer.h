@@ -35,6 +35,7 @@
 #include "render/LightingModel.h"
 #include "render/ColormapManager.h"
 #include "render/VectorGlyphSet.h"
+#include "render/StreamlineSet.h"
 #include "render/MeshGLManager.h"
 
 #include <QOpenGLFramebufferObject>
@@ -50,6 +51,10 @@ struct ShaderSources {
     std::string glyphFrag;
     std::string bboxVert;
     std::string bboxFrag;
+    std::string streamlineVert;
+    std::string streamlineFrag;
+    std::string seedVert;
+    std::string seedFrag;
 };
 
 // ---------------------------------------------------------------------------
@@ -146,6 +151,22 @@ struct RenderRenderState {
     int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
     std::string vectorField;
 
+    // Streamlines
+    bool showStreamlines = false;
+    int streamlineSeedCount = 50;
+    float streamlineStepSize = 0.02f;
+    int streamlineMaxSteps = 100;
+    bool streamlineUseColormap = false;
+    float streamlineColor[3] = { 0.2f, 0.6f, 1.0f };
+
+    std::string seedMode = "Volume";
+    double seedPlanePos = 0.5;
+    double seedJitter = 0.0;
+    bool showSeeds = false;
+    bool showStreamlineArrows = false;
+    int streamlineArrowSpacing = 5;
+    float streamlineArrowSize = 0.05f;
+
     // Screenshot export options
     bool screenshotTransparent = false;
 
@@ -199,6 +220,17 @@ struct GlyphUBOData {
     glm::vec4 colorB_useColormap; // x=colorB, y=useColormap(0/1), zw=pad
 };
 
+// CPU-side UBO layout matching the std140 StreamlineUBO block in streamline.vert/frag.
+struct StreamlineUBOData {
+    glm::mat4 mvp;
+    glm::mat4 model;
+    glm::vec4 viewPos;           // xyz = viewPos
+    glm::vec4 lightDir;          // xyz = lightDir
+    glm::vec4 time_opacity;      // x = uTime, y = opacity, zw = pad
+    glm::vec4 color_useColormap; // xyz = color, w = useColormap(0/1)
+    glm::vec4 magRange;          // x = magMin, y = magMax, zw = pad
+};
+
 // ---------------------------------------------------------------------------
 // Renderer — PURE C++ backend.
 //
@@ -245,6 +277,7 @@ public:
     // Mark the camera as moving and (re)start the LOD debounce timer.
     void markCameraMoving();
     void markVectorGlyphDirty() { vectorGlyphDirty = true; }
+    void markStreamlineDirty() { streamlineDirty = true; }
     void resizeViewport(int width, int height);
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
@@ -296,6 +329,10 @@ public:
     float vectorMagMin() const { return vectorGlyph.magMin; }
     float vectorMagMax() const { return vectorGlyph.magMax; }
 
+    // Streamline magnitude range (rebuilt by StreamlineSet).
+    float streamlineMagMin() const { return streamlineSet.magMin; }
+    float streamlineMagMax() const { return streamlineSet.magMax; }
+
 private:
     void drawGizmo();
     void drawColorbarLegends(int deviceW, int deviceH);
@@ -335,6 +372,17 @@ private:
     GLuint bboxVao = 0;
     GLuint bboxVbo = 0;
 
+    // streamline program
+    GLuint streamlineProgram = 0;
+    GLuint streamlineUbo = 0;
+    GLint streamlineLutLoc = -1;
+
+    // seed point program
+    GLuint seedProgram = 0;
+    GLint seedMvpLoc = -1;
+    GLint seedColorLoc = -1;
+    GLint seedPointSizeLoc = -1;
+
     // quality overlay cached VAOs/VBOs (one per defect class)
     GLuint qualityOpenEdgesVao = 0, qualityOpenEdgesVbo = 0;
     GLuint qualityNonManifoldVao = 0, qualityNonManifoldVbo = 0;
@@ -355,6 +403,7 @@ private:
     double gridPlaneY = 0.0;
 
     std::atomic<bool> vectorGlyphDirty{false};
+    std::atomic<bool> streamlineDirty{false};
 
     bool m_destroying = false;
 
@@ -380,5 +429,6 @@ private:
     // --- extracted responsibility helpers -------------------------------------
     ColormapManager colormap;     // scalar + vector LUT textures & choices
     VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
+    StreamlineSet streamlineSet;  // GL_LINES streamline GPU resources + mag range
     MeshGLManager meshManager;     // full + decimated GPU meshes & upload
 };
