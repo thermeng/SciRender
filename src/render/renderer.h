@@ -300,6 +300,7 @@ private:
     void drawGizmo();
     void drawColorbarLegends(int deviceW, int deviceH);
     void drawBoundingBox(const glm::mat4& view, const glm::mat4& proj);
+    void buildQualityOverlayVAOs(); // ponytail: rebuild cached defect VAOs/VBOs
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     std::string readShaderFile(const std::string& filePath);
 
@@ -333,6 +334,12 @@ private:
     GLint bboxColorLoc = -1;
     GLuint bboxVao = 0;
     GLuint bboxVbo = 0;
+
+    // quality overlay cached VAOs/VBOs (one per defect class)
+    GLuint qualityOpenEdgesVao = 0, qualityOpenEdgesVbo = 0;
+    GLuint qualityNonManifoldVao = 0, qualityNonManifoldVbo = 0;
+    GLuint qualityDegenerateVao = 0, qualityDegenerateVbo = 0;
+    bool qualityOverlayDirty = true;
 
     double camDistance = 3.0;
     double nearPlane = 0.1;
