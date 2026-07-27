@@ -619,6 +619,24 @@ public:
 
         mesh.datasetType = datasetType;
         mesh.fileFormat = "VTKXML";
+        if (datasetType == "STRUCTUREDGRID" || datasetType == "IMAGEDATA" || datasetType == "RECTILINEARGRID") {
+            int dX = 0, dY = 0, dZ = 0;
+            if (datasetType == "RECTILINEARGRID") {
+                dX = static_cast<int>(rectX.size());
+                dY = static_cast<int>(rectY.size());
+                dZ = static_cast<int>(rectZ.size());
+            } else {
+                dX = wholeExtent[1] - wholeExtent[0] + 1;
+                dY = wholeExtent[3] - wholeExtent[2] + 1;
+                dZ = wholeExtent[5] - wholeExtent[4] + 1;
+            }
+            if (dX <= 0) dX = 1;
+            if (dY <= 0) dY = 1;
+            if (dZ <= 0) dZ = 1;
+            mesh.gridDimX = dX;
+            mesh.gridDimY = dY;
+            mesh.gridDimZ = dZ;
+        }
         return mesh;
     }
 
