@@ -544,6 +544,43 @@ ApplicationWindow {
                             }
                             CheckBox { text: "Reverse palette"; enabled: backendSettings ? backendSettings.vectorUseColormap : false; checked: backendSettings ? backendSettings.vectorColormapReversed : false; onToggled: backendSettings.vectorColormapReversed = checked }
                         }
+
+                        CheckBox { text: "Show streamlines"; checked: backendSettings ? backendSettings.showStreamlines : false; onToggled: backendSettings.showStreamlines = checked }
+                        Column {
+                            enabled: backendSettings ? backendSettings.showStreamlines : false
+                            spacing: 6
+                            width: parent.width
+
+                            Text { text: "Streamline"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            SpinBox { id: streamlineSeedSpin; width: parent.width; from: 1; to: 500; stepSize: 1; value: backendSettings ? backendSettings.streamlineSeedCount : 25; onValueChanged: backendSettings.streamlineSeedCount = value }
+                            LightSlider { label: "Step size"; value: backendSettings ? backendSettings.streamlineStepSize : 0.02; from: 0.005; to: 0.1; step: 0.001; onSet: v => backendSettings.streamlineStepSize = v }
+                            SpinBox { id: streamlineMaxStepsSpin; width: parent.width; from: 10; to: 500; stepSize: 1; value: backendSettings ? backendSettings.streamlineMaxSteps : 100; onValueChanged: backendSettings.streamlineMaxSteps = value }
+                            CheckBox { text: "Color by magnitude"; checked: backendSettings ? backendSettings.streamlineUseColormap : false; onToggled: backendSettings.streamlineUseColormap = checked }
+                            SwatchButton { width: parent.width; text: "Streamline"; swatch: backendSettings ? backendSettings.streamlineColor : "#3399ff"; onClicked: streamlineColorDialog.open() }
+
+                            Text { text: "Seeding"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            ComboBox {
+                                width: parent.width
+                                model: ["Volume", "Surface", "Plane XY", "Plane XZ", "Plane YZ"]
+                                currentIndex: {
+                                    const modes = ["Volume", "Surface", "PlaneXY", "PlaneXZ", "PlaneYZ"];
+                                    const cur = backendSettings ? backendSettings.seedMode : "Volume";
+                                    const idx = modes.indexOf(cur);
+                                    idx >= 0 ? idx : 0;
+                                }
+                                onActivated: {
+                                    const modes = ["Volume", "Surface", "PlaneXY", "PlaneXZ", "PlaneYZ"];
+                                    backendSettings.seedMode = modes[currentIndex];
+                                }
+                            }
+                            Text { text: "Plane position"; color: "#cccccc"; font.pixelSize: 11; visible: backendSettings ? (backendSettings.seedMode === "PlaneXY" || backendSettings.seedMode === "PlaneXZ" || backendSettings.seedMode === "PlaneYZ") : false }
+                            LightSlider { label: "Plane pos"; value: backendSettings ? backendSettings.seedPlanePos : 0.5; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.seedPlanePos = v; visible: backendSettings ? (backendSettings.seedMode === "PlaneXY" || backendSettings.seedMode === "PlaneXZ" || backendSettings.seedMode === "PlaneYZ") : false }
+                            LightSlider { label: "Jitter"; value: backendSettings ? backendSettings.seedJitter : 0.0; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.seedJitter = v }
+                            CheckBox { text: "Show seeds"; checked: backendSettings ? backendSettings.showSeeds : false; onToggled: backendSettings.showSeeds = checked }
+                            CheckBox { text: "Show direction"; checked: backendSettings ? backendSettings.showStreamlineArrows : false; onToggled: backendSettings.showStreamlineArrows = checked }
+                            SpinBox { id: streamlineArrowSpacingSpin; width: parent.width; from: 2; to: 20; stepSize: 1; value: backendSettings ? backendSettings.streamlineArrowSpacing : 4; onValueChanged: backendSettings.streamlineArrowSpacing = value }
+                            LightSlider { label: "Arrow size"; value: backendSettings ? backendSettings.streamlineArrowSize : 0.05; from: 0.01; to: 0.2; step: 0.01; onSet: v => backendSettings.streamlineArrowSize = v }
+                        }
                     }
 
                     // Info Panel
@@ -636,6 +673,11 @@ ApplicationWindow {
             id: vectorColorDialog
             selectedColor: backendSettings ? backendSettings.vectorColor : "#3399ff"
             onAccepted: backendSettings.vectorColor = selectedColor
+        }
+        ColorDialog {
+            id: streamlineColorDialog
+            selectedColor: backendSettings ? backendSettings.streamlineColor : "#3399ff"
+            onAccepted: backendSettings.streamlineColor = selectedColor
         }
 
         // ---- Help: About ----
