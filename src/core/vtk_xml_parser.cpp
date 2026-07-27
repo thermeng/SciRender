@@ -534,7 +534,7 @@ public:
             return mesh;
         }
 
-        if (datasetType == "STRUCTUREDGRID" || datasetType == "IMAGEDATA") {
+        if (datasetType == "STRUCTUREDGRID" || datasetType == "IMAGEDATA" || datasetType == "RECTILINEARGRID") {
             std::string datasetOpenTag;
             {
                 std::string openTagStr = "<" + innerTag;
