@@ -35,6 +35,7 @@ static inline void swapBytes(T* val) {
 void byteSwap(float* val)     { swapBytes(val); }
 void byteSwap(double* val)    { swapBytes(val); }
 void byteSwap(int* val)       { swapBytes(val); }
+void byteSwap(uint32_t* val)  { swapBytes(val); }
 void byteSwap(int16_t* val)   { swapBytes(val); }
 void byteSwap(uint16_t* val)  { swapBytes(val); }
 void byteSwap(uint8_t* val)   { swapBytes(val); }

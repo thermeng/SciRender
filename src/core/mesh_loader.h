@@ -134,6 +134,7 @@ namespace mesh_utils {
     void byteSwap(float* val);
     void byteSwap(double* val);
     void byteSwap(int* val);
+    void byteSwap(uint32_t* val);
     void byteSwap(int16_t* val);
     void byteSwap(uint16_t* val);
     void byteSwap(uint8_t* val);
@@ -148,7 +149,12 @@ namespace mesh_utils {
     void computeNormals(RenderMesh& mesh);
 }
 
-// ── VTK Parser Definition ───────────────────────────────────────────────────
+// ── VTK XML Parser Definition ───────────────────────────────────────────────
+// Parses VTK XML formats (.vtu / .vts / .vti / .vtp / .vtr) — ASCII and binary
+// (inline base64 or appended base64).
+RenderMesh parseVTKXML(const std::string& filePath);
+
+// ── VTK Legacy Parser Definition ────────────────────────────────────────────
 // Parses Legacy VTK formats (supporting ASCII/BINARY and UNSTRUCTURED/STRUCTURED grids)
 RenderMesh parseVTK(const std::string& filePath);
 
