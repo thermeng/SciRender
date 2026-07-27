@@ -458,7 +458,12 @@ ApplicationWindow {
                         }
 
                         // Filter
-                        Text { text: "Filter"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                        Row {
+                            width: parent.width
+                            spacing: 8
+                            Text { text: "Filter"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            Button { text: "Reset"; implicitWidth: 50; onClicked: { backendSettings.filterMin = backendSettings.dataScalarMinQml; backendSettings.filterMax = backendSettings.dataScalarMaxQml } }
+                        }
                         ClipSlider { label: "Min"; value: backendSettings ? backendSettings.filterMin : 0; from: backendSettings ? backendSettings.dataScalarMinQml : 0; to: backendSettings ? backendSettings.dataScalarMaxQml : 1; onSet: v => backendSettings.filterMin = v }
                         ClipSlider { label: "Max"; value: backendSettings ? backendSettings.filterMax : 0; from: backendSettings ? backendSettings.dataScalarMinQml : 0; to: backendSettings ? backendSettings.dataScalarMaxQml : 1; onSet: v => backendSettings.filterMax = v }
                     }
