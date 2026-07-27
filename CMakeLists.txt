@@ -53,6 +53,7 @@ add_executable(SciRender
     src/core/stl_parser.cpp
     src/core/obj_parser.cpp
     src/core/obj_parser.h
+    src/core/vtk_xml_parser.cpp
     src/render/renderer.cpp
     src/render/renderer.h
      src/render/render_settings.cpp
@@ -144,6 +145,7 @@ add_executable(parse_regression
     src/core/mesh_loader.cpp
     src/core/mesh_utils.cpp
     src/core/vtk_parser.cpp
+    src/core/vtk_xml_parser.cpp
     src/core/stl_parser.cpp
     src/core/obj_parser.cpp
 )
