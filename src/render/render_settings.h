@@ -159,6 +159,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double streamlineOpacity READ getStreamlineOpacity WRITE setStreamlineOpacity NOTIFY viewChanged)
     Q_PROPERTY(double streamlineRibbonWidth READ getStreamlineRibbonWidth WRITE setStreamlineRibbonWidth NOTIFY viewChanged)
     Q_PROPERTY(double streamlineTaperFactor READ getStreamlineTaperFactor WRITE setStreamlineTaperFactor NOTIFY viewChanged)
+    Q_PROPERTY(bool streamlineDashEnabled READ getStreamlineDashEnabled WRITE setStreamlineDashEnabled NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineDashSpeed READ getStreamlineDashSpeed WRITE setStreamlineDashSpeed NOTIFY viewChanged)
     Q_PROPERTY(double streamlineAmbient READ getStreamlineAmbient WRITE setStreamlineAmbient NOTIFY viewChanged)
     Q_PROPERTY(double streamlineDiffuse READ getStreamlineDiffuse WRITE setStreamlineDiffuse NOTIFY viewChanged)
     Q_PROPERTY(double streamlineSpecular READ getStreamlineSpecular WRITE setStreamlineSpecular NOTIFY viewChanged)
@@ -379,7 +381,7 @@ public:
     QColor getVectorColorQml() const { return QColor::fromRgbF(vectorColor[0], vectorColor[1], vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { vectorColor[0] = c.redF(); vectorColor[1] = c.greenF(); vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     bool getShowStreamlines() const { return showStreamlines; }
-    void setShowStreamlines(bool v) { if (showStreamlines != v) { showStreamlines = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    void setShowStreamlines(bool v) { if (showStreamlines != v) { showStreamlines = v; markStateDirty(); emit viewChanged(); } }
     int getStreamlineSeedCount() const { return streamlineSeedCount; }
     void setStreamlineSeedCount(int v) { if (streamlineSeedCount != v) { streamlineSeedCount = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
     double getStreamlineStepSize() const { return streamlineStepSize; }
@@ -410,6 +412,10 @@ public:
     void setStreamlineRibbonWidth(double v) { if (streamlineRibbonWidth != v) { streamlineRibbonWidth = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
     double getStreamlineTaperFactor() const { return streamlineTaperFactor; }
     void setStreamlineTaperFactor(double v) { if (streamlineTaperFactor != v) { streamlineTaperFactor = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    bool getStreamlineDashEnabled() const { return streamlineDashEnabled; }
+    void setStreamlineDashEnabled(bool v) { if (streamlineDashEnabled != v) { streamlineDashEnabled = v; markStateDirty(); emit viewChanged(); } }
+    double getStreamlineDashSpeed() const { return streamlineDashSpeed; }
+    void setStreamlineDashSpeed(double v) { if (streamlineDashSpeed != v) { streamlineDashSpeed = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
     double getStreamlineAmbient() const { return streamlineAmbient; }
     void setStreamlineAmbient(double v) { if (streamlineAmbient != v) { streamlineAmbient = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
     double getStreamlineDiffuse() const { return streamlineDiffuse; }
@@ -613,6 +619,8 @@ private:
     float streamlineOpacity = 1.0f;
     float streamlineRibbonWidth = 0.005f;
     float streamlineTaperFactor = 0.3f;
+    bool streamlineDashEnabled = false;
+    float streamlineDashSpeed = 1.0f;
     float streamlineAmbient = 0.35f;
     float streamlineDiffuse = 0.55f;
     float streamlineSpecular = 0.25f;

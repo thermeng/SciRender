@@ -594,6 +594,8 @@ ApplicationWindow {
                             LightSlider { label: "Opacity"; value: backendSettings ? backendSettings.streamlineOpacity : 1.0; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.streamlineOpacity = v }
                             LightSlider { label: "Ribbon width"; value: backendSettings ? backendSettings.streamlineRibbonWidth : 0.005; from: 0.001; to: 0.05; step: 0.001; onSet: v => backendSettings.streamlineRibbonWidth = v }
                             LightSlider { label: "Taper factor"; value: backendSettings ? backendSettings.streamlineTaperFactor : 0.3; from: 0.0; to: 0.8; step: 0.01; onSet: v => backendSettings.streamlineTaperFactor = v }
+                            CheckBox { text: "Dash"; checked: backendSettings ? backendSettings.streamlineDashEnabled : false; onToggled: backendSettings.streamlineDashEnabled = checked }
+                            LightSlider { label: "Dash speed"; value: backendSettings ? backendSettings.streamlineDashSpeed : 1.0; from: 0.1; to: 5.0; step: 0.1; onSet: v => backendSettings.streamlineDashSpeed = v; enabled: backendSettings ? backendSettings.streamlineDashEnabled : false }
 
                             Text { text: "Lighting"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                             LightSlider { label: "Ambient"; value: backendSettings ? backendSettings.streamlineAmbient : 0.35; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.streamlineAmbient = v }

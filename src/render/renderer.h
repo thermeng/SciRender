@@ -162,6 +162,8 @@ struct RenderRenderState {
     float streamlineOpacity = 1.0f;
     float streamlineRibbonWidth = 0.005f;
     float streamlineTaperFactor = 0.3f;
+    bool streamlineDashEnabled = false;
+    float streamlineDashSpeed = 1.0f;
     float streamlineAmbient = 0.35f;
     float streamlineDiffuse = 0.55f;
     float streamlineSpecular = 0.25f;

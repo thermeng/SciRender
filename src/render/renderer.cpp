@@ -461,6 +461,7 @@ void Renderer::resizeViewport(int w, int h) {
 void Renderer::clearGpuMeshes() {
     meshManager.clear();
     vectorGlyph = VectorGlyphSet{};
+    streamlineSet.shutdown();
     m_lastUploadedMesh.reset();
     m_pendingMesh.reset();
     m_state.hasMeshLoaded = false;
@@ -1012,6 +1013,9 @@ void Renderer::renderFrame() {
     if (m_state.showStreamlines && !streamlineSet.empty() && streamlineProgram != 0) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         glUseProgram(streamlineProgram);
+        GLboolean blendWas = glIsEnabled(GL_BLEND);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         if (streamlineUbo == 0) {
             glCreateBuffers(1, &streamlineUbo);
             glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
@@ -1030,7 +1034,7 @@ void Renderer::renderFrame() {
         ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
         ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
         ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
-        ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, 0.0f, 0.0f);
+            ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineDashEnabled ? 1.0f : 0.0f, m_state.streamlineDashSpeed);
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
         glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
         if (m_state.streamlineUseColormap && colormap.vectorTexture() != 0) {
@@ -1040,6 +1044,7 @@ void Renderer::renderFrame() {
         glBindVertexArray(streamlineSet.vao);
         glDrawArrays(GL_TRIANGLES, 0, streamlineSet.lineCount);
         glBindVertexArray(0);
+        if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
         glUseProgram(0);
     }
 
@@ -1063,6 +1068,9 @@ void Renderer::renderFrame() {
 
     if (m_state.showStreamlineArrows && streamlineSet.arrowCount > 0 && streamlineProgram != 0) {
         glUseProgram(streamlineProgram);
+        GLboolean blendWas = glIsEnabled(GL_BLEND);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         if (streamlineUbo != 0) {
             glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
             computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
@@ -1075,16 +1083,17 @@ void Renderer::renderFrame() {
             static float timeAccum = 0.0f;
             timeAccum += 0.016f;
             ubo.time_opacity = glm::vec4(timeAccum, m_state.streamlineOpacity, 0.0f, 0.0f);
-            ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], 0.0f);
+            ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
             ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
             ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
-            ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, 0.0f, 0.0f);
+        ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineDashEnabled ? 1.0f : 0.0f, m_state.streamlineDashSpeed);
             glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
             glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
         }
         glBindVertexArray(streamlineSet.arrowVao);
         glDrawArrays(GL_TRIANGLES, 0, streamlineSet.arrowCount);
         glBindVertexArray(0);
+        if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
         glUseProgram(0);
     }
 
