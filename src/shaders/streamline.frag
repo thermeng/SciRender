@@ -13,6 +13,8 @@ layout(std140, binding = 0) uniform StreamlineUBO {
     vec4  uTime_Opacity;       // x: time, y: opacity
     vec4  uColor_UseColormap;  // xyz: fallback color, w: use colormap flag (0.0 or 1.0)
     vec4  uMagRange;           // x: minMag, y: maxMag
+    vec4  uMaterial;           // x: ambient, y: diffuse, z: specular, w: specularPower
+    vec4  uRibbon;             // x: ribbonWidth, y: taperFactor, zw: pad
 };
 
 uniform sampler1D uColormapLUT;
@@ -37,13 +39,13 @@ void main() {
     // Double-sided lighting fix for thin ribbon quads
     float diff = abs(dot(N, L)); 
     vec3 R = reflect(-L, N);
-    float spec = pow(max(dot(R, V), 0.0), 32.0);
+    float spec = pow(max(dot(R, V), 0.0), uMaterial.w);
 
-    float ambient = 0.35;
-    float diffuse = 0.55 * diff;
-    float specular = 0.25 * spec;
+    float ambient = uMaterial.x;
+    float diffuse = uMaterial.y * diff;
+    float specular = uMaterial.z * spec;
 
-    // 3. Dashing/Striping control
+    // Dashing/Striping control
     // Keep set to 1.0 for solid ribbons.
     // If you want animated dashes along the ribbons, uncomment the if-block.
     float dash = 1.0;

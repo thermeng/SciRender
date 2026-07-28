@@ -156,6 +156,15 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool showStreamlineArrows READ getShowStreamlineArrows WRITE setShowStreamlineArrows NOTIFY viewChanged)
     Q_PROPERTY(int streamlineArrowSpacing READ getStreamlineArrowSpacing WRITE setStreamlineArrowSpacing NOTIFY viewChanged)
     Q_PROPERTY(double streamlineArrowSize READ getStreamlineArrowSize WRITE setStreamlineArrowSize NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineOpacity READ getStreamlineOpacity WRITE setStreamlineOpacity NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineRibbonWidth READ getStreamlineRibbonWidth WRITE setStreamlineRibbonWidth NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineTaperFactor READ getStreamlineTaperFactor WRITE setStreamlineTaperFactor NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineAmbient READ getStreamlineAmbient WRITE setStreamlineAmbient NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineDiffuse READ getStreamlineDiffuse WRITE setStreamlineDiffuse NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineSpecular READ getStreamlineSpecular WRITE setStreamlineSpecular NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineSpecularPower READ getStreamlineSpecularPower WRITE setStreamlineSpecularPower NOTIFY viewChanged)
+    Q_PROPERTY(double seedPointSize READ getSeedPointSize WRITE setSeedPointSize NOTIFY viewChanged)
+    Q_PROPERTY(QColor seedPointColor READ getSeedPointColorQml WRITE setSeedPointColorQml NOTIFY viewChanged)
 
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
@@ -395,6 +404,24 @@ public:
     void setStreamlineArrowSpacing(int v) { if (streamlineArrowSpacing != v) { streamlineArrowSpacing = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
     double getStreamlineArrowSize() const { return streamlineArrowSize; }
     void setStreamlineArrowSize(double v) { if (streamlineArrowSize != v) { streamlineArrowSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    double getStreamlineOpacity() const { return streamlineOpacity; }
+    void setStreamlineOpacity(double v) { if (streamlineOpacity != v) { streamlineOpacity = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
+    double getStreamlineRibbonWidth() const { return streamlineRibbonWidth; }
+    void setStreamlineRibbonWidth(double v) { if (streamlineRibbonWidth != v) { streamlineRibbonWidth = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    double getStreamlineTaperFactor() const { return streamlineTaperFactor; }
+    void setStreamlineTaperFactor(double v) { if (streamlineTaperFactor != v) { streamlineTaperFactor = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    double getStreamlineAmbient() const { return streamlineAmbient; }
+    void setStreamlineAmbient(double v) { if (streamlineAmbient != v) { streamlineAmbient = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
+    double getStreamlineDiffuse() const { return streamlineDiffuse; }
+    void setStreamlineDiffuse(double v) { if (streamlineDiffuse != v) { streamlineDiffuse = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
+    double getStreamlineSpecular() const { return streamlineSpecular; }
+    void setStreamlineSpecular(double v) { if (streamlineSpecular != v) { streamlineSpecular = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
+    int getStreamlineSpecularPower() const { return streamlineSpecularPower; }
+    void setStreamlineSpecularPower(int v) { if (streamlineSpecularPower != v) { streamlineSpecularPower = v; markStateDirty(); emit viewChanged(); } }
+    double getSeedPointSize() const { return seedPointSize; }
+    void setSeedPointSize(double v) { if (seedPointSize != v) { seedPointSize = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
+    QColor getSeedPointColorQml() const { return QColor::fromRgbF(seedPointColor[0], seedPointColor[1], seedPointColor[2]); }
+    void setSeedPointColorQml(const QColor& c) { seedPointColor[0] = c.redF(); seedPointColor[1] = c.greenF(); seedPointColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     bool getVectorUseColormap() const { return vectorUseColormap; }
     void setVectorUseColormap(bool v) { if (vectorUseColormap != v) { vectorUseColormap = v; markStateDirty(); emit viewChanged(); } }
     int getVectorColormapChoice() const { return vectorColormapChoice; }
@@ -583,6 +610,15 @@ private:
     bool showStreamlineArrows = false;
     int streamlineArrowSpacing = 4;
     float streamlineArrowSize = 0.05f;
+    float streamlineOpacity = 1.0f;
+    float streamlineRibbonWidth = 0.005f;
+    float streamlineTaperFactor = 0.3f;
+    float streamlineAmbient = 0.35f;
+    float streamlineDiffuse = 0.55f;
+    float streamlineSpecular = 0.25f;
+    int streamlineSpecularPower = 32;
+    float seedPointSize = 6.0f;
+    float seedPointColor[3] = { 1.0f, 0.2f, 0.2f };
 
     bool clipEnabled = false;
     float sliceHeightX = 0.0f;

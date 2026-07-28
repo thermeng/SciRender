@@ -159,6 +159,16 @@ struct RenderRenderState {
     bool streamlineUseColormap = false;
     float streamlineColor[3] = { 0.2f, 0.6f, 1.0f };
 
+    float streamlineOpacity = 1.0f;
+    float streamlineRibbonWidth = 0.005f;
+    float streamlineTaperFactor = 0.3f;
+    float streamlineAmbient = 0.35f;
+    float streamlineDiffuse = 0.55f;
+    float streamlineSpecular = 0.25f;
+    int streamlineSpecularPower = 32;
+    float seedPointSize = 6.0f;
+    float seedPointColor[3] = { 1.0f, 0.2f, 0.2f };
+
     std::string seedMode = "Volume";
     double seedPlanePos = 0.5;
     double seedJitter = 0.0;
@@ -226,9 +236,11 @@ struct StreamlineUBOData {
     glm::mat4 model;
     glm::vec4 viewPos;           // xyz = viewPos
     glm::vec4 lightDir;          // xyz = lightDir
-    glm::vec4 time_opacity;      // x = uTime, y = opacity, zw = pad
+    glm::vec4 time_opacity;      // x = uTime, y = opacity
     glm::vec4 color_useColormap; // xyz = color, w = useColormap(0/1)
     glm::vec4 magRange;          // x = magMin, y = magMax, zw = pad
+    glm::vec4 material;          // x = ambient, y = diffuse, z = specular, w = specularPower
+    glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, zw = pad
 };
 
 // ---------------------------------------------------------------------------

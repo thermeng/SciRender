@@ -386,7 +386,7 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     meshManager.upload(renderMesh);
     m_lastUploadedMesh = renderMesh;
     vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform);
-    streamlineSet.rebuild(*renderMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize);
+    streamlineSet.rebuild(*renderMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
 }
 
 void Renderer::setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh) {
@@ -742,7 +742,7 @@ void Renderer::renderFrame() {
     }
 
     if (streamlineDirty.exchange(false)) {
-        if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize);
+        if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
     }
 
     glEnable(GL_DEPTH_TEST);
@@ -1026,9 +1026,11 @@ void Renderer::renderFrame() {
         ubo.lightDir = glm::vec4(kDir, 0.0f);
         static float timeAccum = 0.0f;
         timeAccum += 0.016f;
-        ubo.time_opacity = glm::vec4(timeAccum, 1.0f, 0.0f, 0.0f);
+        ubo.time_opacity = glm::vec4(timeAccum, m_state.streamlineOpacity, 0.0f, 0.0f);
         ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
         ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
+        ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
+        ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, 0.0f, 0.0f);
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
         glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
         if (m_state.streamlineUseColormap && colormap.vectorTexture() != 0) {
@@ -1043,14 +1045,20 @@ void Renderer::renderFrame() {
 
     if (m_state.showSeeds && !streamlineSet.seedsEmpty() && seedProgram != 0) {
         glUseProgram(seedProgram);
-        glm::vec4 seedColor(1.0f, 0.2f, 0.2f, 1.0f);
+        GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
+        GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+        glEnable(GL_PROGRAM_POINT_SIZE);
+        glDisable(GL_DEPTH_TEST);
+        glm::vec4 seedColor(m_state.seedPointColor[0], m_state.seedPointColor[1], m_state.seedPointColor[2], 1.0f);
         glUniformMatrix4fv(seedMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
         glUniform4fv(seedColorLoc, 1, glm::value_ptr(seedColor));
-        glUniform1f(seedPointSizeLoc, 6.0f);
+        glUniform1f(seedPointSizeLoc, m_state.seedPointSize);
         glBindVertexArray(streamlineSet.seedVao);
         glDrawArrays(GL_POINTS, 0, streamlineSet.seedCount);
         glBindVertexArray(0);
         glUseProgram(0);
+        if (pointSizeWas) glEnable(GL_PROGRAM_POINT_SIZE); else glDisable(GL_PROGRAM_POINT_SIZE);
+        if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     }
 
     if (m_state.showStreamlineArrows && streamlineSet.arrowCount > 0 && streamlineProgram != 0) {
@@ -1066,9 +1074,11 @@ void Renderer::renderFrame() {
             ubo.lightDir = glm::vec4(kDir, 0.0f);
             static float timeAccum = 0.0f;
             timeAccum += 0.016f;
-            ubo.time_opacity = glm::vec4(timeAccum, 1.0f, 0.0f, 0.0f);
+            ubo.time_opacity = glm::vec4(timeAccum, m_state.streamlineOpacity, 0.0f, 0.0f);
             ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], 0.0f);
             ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
+            ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
+            ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, 0.0f, 0.0f);
             glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
             glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
         }
