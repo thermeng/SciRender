@@ -3,7 +3,8 @@
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in float aMag;
 layout(location = 2) in vec3 aNormal;
-layout(location = 3) in vec2 aTexcoord;
+layout(location = 3) in float aDashFlag;
+layout(location = 4) in float aU;
 
 layout(std140, binding = 0) uniform StreamlineUBO {
     mat4  uMVP;
@@ -19,13 +20,15 @@ layout(std140, binding = 0) uniform StreamlineUBO {
 
 out vec3 vWorldPos;
 out vec3 vNormal;
-out vec2 vTexcoord;
+out float vDashFlag;
+out float vU;
 out float vMag;
 
 void main() {
     vWorldPos = vec3(uModel * vec4(aPos, 1.0));
     vNormal = normalize(aNormal);
-    vTexcoord = aTexcoord;
+    vDashFlag = aDashFlag;
+    vU = aU;
     vMag = aMag;
     gl_Position = uMVP * vec4(aPos, 1.0);
 }
