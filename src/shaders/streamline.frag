@@ -2,7 +2,8 @@
 
 in vec3 vWorldPos;
 in vec3 vNormal;
-in vec2 vTexcoord;
+in float vDashFlag;
+in float vU;
 in float vMag;
 
 layout(std140, binding = 0) uniform StreamlineUBO {
@@ -47,8 +48,8 @@ void main() {
 
     // Dashing/Striping control
     float dash = 1.0;
-    if (uRibbon.z > 0.5) {
-        dash = step(0.5, fract(vTexcoord.x * 20.0 - uTime_Opacity.x * uRibbon.w * 1.5));
+    if (uRibbon.z > 0.5 && vDashFlag > 0.5) {
+        dash = step(0.5, fract(vU * 20.0 - uTime_Opacity.x * uRibbon.w * 1.5));
     }
 
     float alpha = mix(1.0, dash, 0.5) * uTime_Opacity.y;

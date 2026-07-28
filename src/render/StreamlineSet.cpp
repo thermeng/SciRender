@@ -9,6 +9,7 @@
 #endif
 #include <limits>
 #include <random>
+#include <chrono>
 #include <vector>
 
 namespace {
@@ -174,7 +175,7 @@ std::vector<glm::vec3> generateSeeds(const RenderMesh& mesh, int seedCount, cons
     float maxY = static_cast<float>(mesh.bounds.maxY);
     float maxZ = static_cast<float>(mesh.bounds.maxZ);
 
-    std::mt19937 rng(42);
+    std::mt19937 rng(static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::uniform_real_distribution<float> jitterDist(-1.0f, 1.0f);
 
     if (mode == "Surface") {
@@ -292,12 +293,14 @@ std::vector<float> generateArrowhead(const glm::vec3& pos, const glm::vec3& dir,
         base.push_back(baseCenter + (frame[0] * std::cos(angle) + frame[1] * std::sin(angle)) * radius);
     }
 
-    // Helper pushes -1.0 for UVs to bypass dash calculations in fragment shader
+    // Arrowhead verts carry dashFlag=0.0 and u=0.0 so the fragment shader
+    // skips dashing for arrowheads regardless of the global dash setting.
     auto push = [&](const glm::vec3& p, const glm::vec3& n) {
         verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
         verts.push_back(mag);
         verts.push_back(n.x); verts.push_back(n.y); verts.push_back(n.z);
-        verts.push_back(-1.0f); verts.push_back(-1.0f); 
+        verts.push_back(0.0f); // dashFlag
+        verts.push_back(0.0f); // u
     };
 
     glm::vec3 coneDir = glm::normalize(dir);
@@ -368,7 +371,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
     if (limit <= 0) return;
 
     const float extent = static_cast<float>(mesh.bounds.extent);
-    const float h = std::max(stepSize * extent, 1e-8f);
+    const float h = std::max(stepSize, 1e-8f);
     const float magThresh = 1e-6f;
 
     StructuredGridInfo grid = buildStructuredGridInfo(mesh, data, limit);
@@ -497,11 +500,12 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
                 currentLength += segLen;
                 float uB = currentLength / totalLength;
 
-                auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u, float v) {
+                auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u, float) {
                     verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
                     verts.push_back(rawMag);
                     verts.push_back(normal.x); verts.push_back(normal.y); verts.push_back(normal.z);
-                    verts.push_back(u); verts.push_back(v);
+                    verts.push_back(1.0f); // dashFlag
+                    verts.push_back(u);    // u
                     if (rawMag < mn) mn = rawMag;
                     if (rawMag > mx) mx = rawMag;
                 };
@@ -555,8 +559,12 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
     glVertexArrayAttribBinding(vao, 2, 0);
 
     glEnableVertexArrayAttrib(vao, 3);
-    glVertexArrayAttribFormat(vao, 3, 2, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
+    glVertexArrayAttribFormat(vao, 3, 1, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
     glVertexArrayAttribBinding(vao, 3, 0);
+
+    glEnableVertexArrayAttrib(vao, 4);
+    glVertexArrayAttribFormat(vao, 4, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float));
+    glVertexArrayAttribBinding(vao, 4, 0);
 
     glNamedBufferData(vbo, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
     glVertexArrayVertexBuffer(vao, 0, vbo, 0, 9 * sizeof(float));
@@ -580,7 +588,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
         const float arrowRadius = arrowHeight * 0.35f;
         const int segments = 16;
         
-        const size_t floatsPerArrow = (segments * 3 + (segments + 1) * 3) * 9;
+        const size_t floatsPerArrow = segments * 6 * 9;  // 6 verts per segment (3 side + 3 cap)
         arrowVerts.reserve(arrowPositions.size() * floatsPerArrow);
 
         for (size_t i = 0; i < arrowPositions.size(); ++i) {
@@ -606,8 +614,12 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
             glVertexArrayAttribBinding(arrowVao, 2, 0);
 
             glEnableVertexArrayAttrib(arrowVao, 3);
-            glVertexArrayAttribFormat(arrowVao, 3, 2, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
+            glVertexArrayAttribFormat(arrowVao, 3, 1, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
             glVertexArrayAttribBinding(arrowVao, 3, 0);
+
+            glEnableVertexArrayAttrib(arrowVao, 4);
+            glVertexArrayAttribFormat(arrowVao, 4, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float));
+            glVertexArrayAttribBinding(arrowVao, 4, 0);
 
             glNamedBufferData(arrowVbo, arrowVerts.size() * sizeof(float), arrowVerts.data(), GL_STATIC_DRAW);
             glVertexArrayVertexBuffer(arrowVao, 0, arrowVbo, 0, 9 * sizeof(float));
