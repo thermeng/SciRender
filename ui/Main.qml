@@ -41,8 +41,9 @@ ApplicationWindow {
             activeSection === 2 ? "View & Display" :
             activeSection === 3 ? "Colormap" :
             activeSection === 4 ? "Vectors" :
-            activeSection === 5 ? "Screenshot" :
-            activeSection === 6 ? "Mesh Info" : ""
+            activeSection === 5 ? "Streamlines" :
+            activeSection === 6 ? "Screenshot" :
+            activeSection === 7 ? "Mesh Info" : ""
         width: 48 + (expanded ? panelWidth : 0)
         anchors.top: parent.top
         anchors.bottom: parent.bottom
@@ -96,8 +97,9 @@ ApplicationWindow {
             RailButton { text: "\u{1F441}"; ToolTip.text: "View & Display"; ToolTip.visible: hovered; active: rail.activeSection === 2; onClicked: rail.toggleSection(2) }
             RailButton { text: "\u{1F3A8}"; ToolTip.text: "Colormap"; ToolTip.visible: hovered; active: rail.activeSection === 3; onClicked: rail.toggleSection(3) }
             RailButton { text: "\u{27A1}"; ToolTip.text: "Vectors"; ToolTip.visible: hovered; active: rail.activeSection === 4; onClicked: rail.toggleSection(4) }
-            RailButton { text: "\u{1F4F7}"; ToolTip.text: "Screenshot"; ToolTip.visible: hovered; active: rail.activeSection === 5; onClicked: rail.toggleSection(5) }
-            RailButton { text: "\u{1F4CA}"; ToolTip.text: "Mesh Info"; ToolTip.visible: hovered; active: rail.activeSection === 6; onClicked: rail.toggleSection(6) }
+            RailButton { text: "\u{1F30D}"; ToolTip.text: "Streamlines"; ToolTip.visible: hovered; active: rail.activeSection === 5; onClicked: rail.toggleSection(5) }
+            RailButton { text: "\u{1F4F7}"; ToolTip.text: "Screenshot"; ToolTip.visible: hovered; active: rail.activeSection === 6; onClicked: rail.toggleSection(6) }
+            RailButton { text: "\u{1F4CA}"; ToolTip.text: "Mesh Info"; ToolTip.visible: hovered; active: rail.activeSection === 7; onClicked: rail.toggleSection(7) }
         }
 
         // ---- Docked content panel (slides out to the right of the icon strip) ----
@@ -470,7 +472,7 @@ ApplicationWindow {
 
                     // Screenshot Controls
                     Column {
-                        visible: rail.activeSection === 5
+                        visible: rail.activeSection === 6
                         spacing: 4
                         width: parent.width
                         Button { text: "Save Screenshot"; width: parent.width; onClicked: { screenshotSaveDialog.currentFile = backendSettings.generateScreenshotFilename(); screenshotSaveDialog.open(); } }
@@ -544,6 +546,13 @@ ApplicationWindow {
                             }
                             CheckBox { text: "Reverse palette"; enabled: backendSettings ? backendSettings.vectorUseColormap : false; checked: backendSettings ? backendSettings.vectorColormapReversed : false; onToggled: backendSettings.vectorColormapReversed = checked }
                         }
+                    }
+
+                    // Streamlines Panel
+                    Column {
+                        visible: rail.activeSection === 5
+                        spacing: 6
+                        width: parent.width
 
                         CheckBox { text: "Show streamlines"; checked: backendSettings ? backendSettings.showStreamlines : false; onToggled: backendSettings.showStreamlines = checked }
                         Column {
@@ -585,7 +594,7 @@ ApplicationWindow {
 
                     // Info Panel
                     Column {
-                        visible: rail.activeSection === 6
+                        visible: rail.activeSection === 7
                         spacing: 6
                         width: parent.width
                         Text { text: "Source"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }

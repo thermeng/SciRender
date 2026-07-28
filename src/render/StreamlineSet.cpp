@@ -287,25 +287,33 @@ std::vector<float> generateArrowhead(const glm::vec3& pos, const glm::vec3& dir,
         base.push_back(baseCenter + (frame[0] * std::cos(angle) + frame[1] * std::sin(angle)) * radius);
     }
 
-    auto push = [&](const glm::vec3& p, const glm::vec3& n, float u, float v) {
+    // Helper pushes -1.0 for UVs to bypass dash calculations in fragment shader
+    auto push = [&](const glm::vec3& p, const glm::vec3& n) {
         verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
         verts.push_back(mag);
         verts.push_back(n.x); verts.push_back(n.y); verts.push_back(n.z);
-        verts.push_back(u); verts.push_back(v);
+        verts.push_back(-1.0f); verts.push_back(-1.0f); 
     };
 
     glm::vec3 coneDir = glm::normalize(dir);
+
+    // Calculate correct slanted face normal for smooth cone shading
+    float slantAngle = std::atan2(radius, height);
     for (int i = 0; i < segments; ++i) {
-        glm::vec3 edgeNormal = glm::normalize(base[i] - pos);
-        push(apex, coneDir, 0.5f, 1.0f);
-        push(base[i], edgeNormal, std::cos(2.0f * M_PI * i / segments) * 0.5f + 0.5f, std::sin(2.0f * M_PI * i / segments) * 0.5f + 0.5f);
-        push(base[i + 1], glm::normalize(base[i + 1] - pos), std::cos(2.0f * M_PI * (i + 1) / segments) * 0.5f + 0.5f, std::sin(2.0f * M_PI * (i + 1) / segments) * 0.5f + 0.5f);
+        float midAngle = 2.0f * static_cast<float>(M_PI) * (i + 0.5f) / segments;
+        glm::vec3 radial = glm::normalize(frame[0] * std::cos(midAngle) + frame[1] * std::sin(midAngle));
+        glm::vec3 faceNormal = glm::normalize(radial * std::cos(slantAngle) + frame[2] * std::sin(slantAngle));
+
+        push(apex, faceNormal);
+        push(base[i], faceNormal);
+        push(base[i + 1], faceNormal);
     }
 
-    push(baseCenter, -coneDir, 0.5f, 0.5f);
+    // Base cap triangles
     for (int i = 0; i < segments; ++i) {
-        push(base[i], -coneDir, std::cos(2.0f * M_PI * i / segments) * 0.5f + 0.5f, std::sin(2.0f * M_PI * i / segments) * 0.5f + 0.5f);
-        push(base[i + 1], -coneDir, std::cos(2.0f * M_PI * (i + 1) / segments) * 0.5f + 0.5f, std::sin(2.0f * M_PI * (i + 1) / segments) * 0.5f + 0.5f);
+        push(baseCenter, -coneDir);
+        push(base[i], -coneDir);
+        push(base[i + 1], -coneDir);
     }
 
     return verts;
@@ -380,7 +388,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
     std::vector<float> arrowMagnitudes;
 
     const size_t estimatedSegments = seeds.size() * 2 * maxSteps;
-    verts.reserve(estimatedSegments * 6 * 9); // 6 vertices per segment
+    verts.reserve(estimatedSegments * 6 * 9); // 6 vertices per quad segment
     seedVerts.reserve(seeds.size() * 3);
     if (showArrows && arrowSpacing > 0) {
         size_t estimatedArrows = estimatedSegments / arrowSpacing;
@@ -442,6 +450,14 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
             for (size_t i = 0; i < pts.size(); i += 2) sampled.push_back(pts[i]);
             if (sampled.size() >= 2 && sampled.back() != pts.back()) sampled.push_back(pts.back());
 
+            // Compute cumulative total length for continuous U-mapping down the streamline
+            float totalLength = 0.0f;
+            for (size_t i = 0; i + 1 < sampled.size(); ++i) {
+                totalLength += glm::length(sampled[i + 1] - sampled[i]);
+            }
+            if (totalLength < 1e-6f) totalLength = 1.0f;
+
+            float currentLength = 0.0f;
             const float baseWidth = static_cast<float>(extent * 0.005f); // Normalized ribbon width
 
             for (size_t i = 0; i + 1 < sampled.size(); ++i) {
@@ -452,20 +468,28 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
                 if (segLen < 1e-12f) continue;
                 tangent /= segLen;
 
-                glm::vec3 upVecLocal = std::abs(tangent.y) < 0.95f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(0.0f, 0.0f, 1.0f);
+                // Smooth local frame orientation
+                glm::vec3 upVecLocal = std::abs(tangent.y) < 0.95f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
                 glm::vec3 side = glm::normalize(glm::cross(tangent, upVecLocal));
                 glm::vec3 normal = glm::normalize(glm::cross(tangent, side));
 
                 float magA = std::sqrt(magSq(evalField(a)));
                 float magB = std::sqrt(magSq(evalField(b)));
 
-                float t = (i + 1) / static_cast<float>(sampled.size());
-                float taper = 1.0f - 0.3f * std::abs(2.0f * t - 1.0f);
+                float tA = (i) / static_cast<float>(sampled.size());
+                float tB = (i + 1) / static_cast<float>(sampled.size());
+                float taperA = 1.0f - 0.3f * std::abs(2.0f * tA - 1.0f);
+                float taperB = 1.0f - 0.3f * std::abs(2.0f * tB - 1.0f);
 
-                glm::vec3 va = a - side * (baseWidth * taper);
-                glm::vec3 vb = a + side * (baseWidth * taper);
-                glm::vec3 vc = b - side * (baseWidth * taper);
-                glm::vec3 vd = b + side * (baseWidth * taper);
+                glm::vec3 va = a - side * (baseWidth * taperA);
+                glm::vec3 vb = a + side * (baseWidth * taperA);
+                glm::vec3 vc = b - side * (baseWidth * taperB);
+                glm::vec3 vd = b + side * (baseWidth * taperB);
+
+                // Continuous U coordinate along the ribbon
+                float uA = currentLength / totalLength;
+                currentLength += segLen;
+                float uB = currentLength / totalLength;
 
                 auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u, float v) {
                     verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
@@ -477,14 +501,14 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
                 };
 
                 // Triangle 1: va -> vb -> vc
-                pushQuadVertex(va, magA, 0.0f, 0.0f);
-                pushQuadVertex(vb, magA, 1.0f, 0.0f);
-                pushQuadVertex(vc, magB, 0.0f, 1.0f);
+                pushQuadVertex(va, magA, uA, 0.0f);
+                pushQuadVertex(vb, magA, uA, 1.0f);
+                pushQuadVertex(vc, magB, uB, 0.0f);
 
                 // Triangle 2: vb -> vd -> vc
-                pushQuadVertex(vb, magA, 1.0f, 0.0f);
-                pushQuadVertex(vd, magB, 1.0f, 1.0f);
-                pushQuadVertex(vc, magB, 0.0f, 1.0f);
+                pushQuadVertex(vb, magA, uA, 1.0f);
+                pushQuadVertex(vd, magB, uB, 1.0f);
+                pushQuadVertex(vc, magB, uB, 0.0f);
             }
 
             if (showArrows && arrowSpacing > 0 && sampled.size() > static_cast<size_t>(arrowSpacing + 1)) {
