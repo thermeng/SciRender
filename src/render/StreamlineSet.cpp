@@ -213,8 +213,13 @@ std::vector<glm::vec3> generateSeeds(const RenderMesh& mesh, int seedCount, cons
                 float y = minY + ty * sy;
                 float z = minZ + pos * sz;
 
-                if (mode == "PlaneXZ") std::swap(y, z), y = minY + pos * sy;
-                if (mode == "PlaneYZ") std::swap(x, z), x = minX + pos * sx;
+                if (mode == "PlaneXZ") {
+                    y = minY + pos * sy;
+                    z = minZ + ty * sz;
+                } else if (mode == "PlaneYZ") {
+                    x = minX + pos * sx;
+                    z = minZ + tx * sz;
+                }
 
                 if (jitter > 0.0) {
                     float dx = (maxX - minX) * 0.05f * jitterDist(rng) * static_cast<float>(jitter);

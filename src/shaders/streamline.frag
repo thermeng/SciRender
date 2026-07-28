@@ -46,14 +46,10 @@ void main() {
     float specular = uMaterial.z * spec;
 
     // Dashing/Striping control
-    // Keep set to 1.0 for solid ribbons.
-    // If you want animated dashes along the ribbons, uncomment the if-block.
     float dash = 1.0;
-    /*
-    if (vTexcoord.x >= 0.0) {
-        dash = step(0.5, fract(vTexcoord.x * 20.0 - uTime_Opacity.x * 1.5));
+    if (uRibbon.z > 0.5) {
+        dash = step(0.5, fract(vTexcoord.x * 20.0 - uTime_Opacity.x * uRibbon.w * 1.5));
     }
-    */
 
     float alpha = mix(1.0, dash, 0.5) * uTime_Opacity.y;
     vec3 color = baseColor * (ambient + diffuse) + vec3(1.0) * specular;

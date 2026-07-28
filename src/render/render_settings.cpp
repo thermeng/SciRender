@@ -125,6 +125,8 @@ void RenderSettings::buildRenderState() {
     s.streamlineOpacity = streamlineOpacity;
     s.streamlineRibbonWidth = streamlineRibbonWidth;
     s.streamlineTaperFactor = streamlineTaperFactor;
+    s.streamlineDashEnabled = streamlineDashEnabled;
+    s.streamlineDashSpeed = streamlineDashSpeed;
     s.streamlineAmbient = streamlineAmbient;
     s.streamlineDiffuse = streamlineDiffuse;
     s.streamlineSpecular = streamlineSpecular;
