@@ -32,7 +32,8 @@ public:
 
     void rebuild(const RenderMesh& mesh, int seedCount, float stepSize, int maxSteps,
                  const std::string& fieldName, const std::string& mode,
-                 double planePos, double jitter, bool showArrows, int arrowSpacing, float arrowSize);
+                 double planePos, double jitter, bool showArrows, int arrowSpacing, float arrowSize,
+                 float ribbonWidth, float taperFactor);
 
     void shutdown();
 

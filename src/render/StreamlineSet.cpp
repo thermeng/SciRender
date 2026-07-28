@@ -337,8 +337,9 @@ void StreamlineSet::shutdown() {
 }
 
 void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSize, int maxSteps,
-                            const std::string& fieldName, const std::string& mode,
-                            double planePos, double jitter, bool showArrows, int arrowSpacing, float arrowSize) {
+                                const std::string& fieldName, const std::string& mode,
+                                double planePos, double jitter, bool showArrows, int arrowSpacing, float arrowSize,
+                                float ribbonWidth, float taperFactor) {
     teardownGL();
 
     if (mesh.pointVectorsData.empty()) return;
@@ -458,7 +459,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
             if (totalLength < 1e-6f) totalLength = 1.0f;
 
             float currentLength = 0.0f;
-            const float baseWidth = static_cast<float>(extent * 0.005f); // Normalized ribbon width
+            const float baseWidth = static_cast<float>(extent * ribbonWidth);
 
             for (size_t i = 0; i + 1 < sampled.size(); ++i) {
                 glm::vec3 a = sampled[i];
@@ -478,8 +479,8 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
 
                 float tA = (i) / static_cast<float>(sampled.size());
                 float tB = (i + 1) / static_cast<float>(sampled.size());
-                float taperA = 1.0f - 0.3f * std::abs(2.0f * tA - 1.0f);
-                float taperB = 1.0f - 0.3f * std::abs(2.0f * tB - 1.0f);
+                float taperA = 1.0f - taperFactor * std::abs(2.0f * tA - 1.0f);
+                float taperB = 1.0f - taperFactor * std::abs(2.0f * tB - 1.0f);
 
                 glm::vec3 va = a - side * (baseWidth * taperA);
                 glm::vec3 vb = a + side * (baseWidth * taperA);

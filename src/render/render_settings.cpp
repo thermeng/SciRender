@@ -122,6 +122,15 @@ void RenderSettings::buildRenderState() {
     s.showStreamlineArrows = showStreamlineArrows;
     s.streamlineArrowSpacing = streamlineArrowSpacing;
     s.streamlineArrowSize = streamlineArrowSize;
+    s.streamlineOpacity = streamlineOpacity;
+    s.streamlineRibbonWidth = streamlineRibbonWidth;
+    s.streamlineTaperFactor = streamlineTaperFactor;
+    s.streamlineAmbient = streamlineAmbient;
+    s.streamlineDiffuse = streamlineDiffuse;
+    s.streamlineSpecular = streamlineSpecular;
+    s.streamlineSpecularPower = streamlineSpecularPower;
+    s.seedPointSize = seedPointSize;
+    std::copy(std::begin(seedPointColor), std::end(seedPointColor), s.seedPointColor);
     s.screenshotTransparent = screenshotTransparent;
     s.hasMeshLoaded = hasMeshLoaded;
 }

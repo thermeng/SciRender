@@ -589,6 +589,21 @@ ApplicationWindow {
                             CheckBox { text: "Show direction"; checked: backendSettings ? backendSettings.showStreamlineArrows : false; onToggled: backendSettings.showStreamlineArrows = checked }
                             SpinBox { id: streamlineArrowSpacingSpin; width: parent.width; from: 2; to: 20; stepSize: 1; value: backendSettings ? backendSettings.streamlineArrowSpacing : 4; onValueChanged: backendSettings.streamlineArrowSpacing = value }
                             LightSlider { label: "Arrow size"; value: backendSettings ? backendSettings.streamlineArrowSize : 0.05; from: 0.01; to: 0.2; step: 0.01; onSet: v => backendSettings.streamlineArrowSize = v }
+
+                            Text { text: "Appearance"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            LightSlider { label: "Opacity"; value: backendSettings ? backendSettings.streamlineOpacity : 1.0; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.streamlineOpacity = v }
+                            LightSlider { label: "Ribbon width"; value: backendSettings ? backendSettings.streamlineRibbonWidth : 0.005; from: 0.001; to: 0.05; step: 0.001; onSet: v => backendSettings.streamlineRibbonWidth = v }
+                            LightSlider { label: "Taper factor"; value: backendSettings ? backendSettings.streamlineTaperFactor : 0.3; from: 0.0; to: 0.8; step: 0.01; onSet: v => backendSettings.streamlineTaperFactor = v }
+
+                            Text { text: "Lighting"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            LightSlider { label: "Ambient"; value: backendSettings ? backendSettings.streamlineAmbient : 0.35; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.streamlineAmbient = v }
+                            LightSlider { label: "Diffuse"; value: backendSettings ? backendSettings.streamlineDiffuse : 0.55; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.streamlineDiffuse = v }
+                            LightSlider { label: "Specular"; value: backendSettings ? backendSettings.streamlineSpecular : 0.25; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.streamlineSpecular = v }
+                            SpinBox { id: streamlineSpecPowerSpin; width: parent.width; from: 2; to: 128; stepSize: 1; value: backendSettings ? backendSettings.streamlineSpecularPower : 32; onValueChanged: backendSettings.streamlineSpecularPower = value }
+
+                            Text { text: "Seeds"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            LightSlider { label: "Seed size"; value: backendSettings ? backendSettings.seedPointSize : 6.0; from: 1.0; to: 20.0; step: 0.5; onSet: v => backendSettings.seedPointSize = v }
+                            SwatchButton { width: parent.width; text: "Seed color"; swatch: backendSettings ? backendSettings.seedPointColor : "#ff3333"; onClicked: seedColorDialog.open() }
                         }
                     }
 
@@ -687,6 +702,12 @@ ApplicationWindow {
             id: streamlineColorDialog
             selectedColor: backendSettings ? backendSettings.streamlineColor : "#3399ff"
             onAccepted: backendSettings.streamlineColor = selectedColor
+        }
+        ColorDialog {
+            id: seedColorDialog
+            title: "Choose seed color"
+            selectedColor: backendSettings ? backendSettings.seedPointColor : "#ff3333"
+            onAccepted: backendSettings.seedPointColor = selectedColor
         }
 
         // ---- Help: About ----
