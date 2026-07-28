@@ -12,13 +12,11 @@
 #include <chrono>
 #include <vector>
 
-namespace {
-
-inline float magSq(const glm::vec3& v) {
+float StreamlineSet::magSq(const glm::vec3& v) {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-glm::vec3 evalFieldNearest(const RenderMesh& mesh, const glm::vec3& pos, const glm::vec3* data, int count, int searchCount) {
+glm::vec3 StreamlineSet::evalFieldNearest(const RenderMesh& mesh, const glm::vec3& pos, const glm::vec3* data, int count, int searchCount) {
     if (!data || count <= 0 || searchCount <= 0) return glm::vec3(0.0f);
 
     float bestD2 = std::numeric_limits<float>::max();
@@ -45,8 +43,8 @@ struct StructuredGridInfo {
     int count = 0;
 };
 
-StructuredGridInfo buildStructuredGridInfo(const RenderMesh& mesh, const glm::vec3* data, int count) {
-    StructuredGridInfo info;
+StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const RenderMesh& mesh, const glm::vec3* data, int count) {
+    StreamlineSet::StructuredGridInfo info;
     info.data = data;
     info.count = count;
 
@@ -107,7 +105,7 @@ StructuredGridInfo buildStructuredGridInfo(const RenderMesh& mesh, const glm::ve
     return info;
 }
 
-glm::vec3 evalFieldTrilinear(const StructuredGridInfo& info, const glm::vec3& pos) {
+glm::vec3 StreamlineSet::evalFieldTrilinear(const StreamlineSet::StructuredGridInfo& info, const glm::vec3& pos) {
     if (info.dimX <= 1 || info.dimY <= 1 || info.dimZ <= 1 || !info.data) {
         return glm::vec3(0.0f);
     }
@@ -164,7 +162,7 @@ glm::vec3 evalFieldTrilinear(const StructuredGridInfo& info, const glm::vec3& po
     return lerp(c0, c1, fz);
 }
 
-std::vector<glm::vec3> generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter) {
+std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter) {
     std::vector<glm::vec3> seeds;
     if (seedCount <= 0) return seeds;
 
@@ -269,7 +267,7 @@ std::vector<glm::vec3> generateSeeds(const RenderMesh& mesh, int seedCount, cons
     return seeds;
 }
 
-glm::mat3 buildFrame(const glm::vec3& dir) {
+glm::mat3 StreamlineSet::buildFrame(const glm::vec3& dir) {
     glm::vec3 t = glm::normalize(dir);
     glm::vec3 up = std::abs(t.y) < 0.9f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
     glm::vec3 n = glm::normalize(glm::cross(t, up));
@@ -277,7 +275,7 @@ glm::mat3 buildFrame(const glm::vec3& dir) {
     return glm::mat3(n, b, t);
 }
 
-std::vector<float> generateArrowhead(const glm::vec3& pos, const glm::vec3& dir, float height, float radius, int segments, float mag) {
+std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const glm::vec3& dir, float height, float radius, int segments, float mag) {
     std::vector<float> verts;
     float dirLen = glm::length(dir);
     if (dirLen < 1e-8f || height <= 0.0f || radius <= 0.0f || segments < 3) return verts;
@@ -325,7 +323,6 @@ std::vector<float> generateArrowhead(const glm::vec3& pos, const glm::vec3& dir,
     }
 
     return verts;
-}
 }
 
 void StreamlineSet::teardownGL() {

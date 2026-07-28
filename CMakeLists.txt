@@ -161,3 +161,20 @@ target_compile_definitions(parse_regression PRIVATE GLM_FORCE_SWIZZLE=0)
 
 add_test(NAME parse_regression COMMAND parse_regression)
 
+add_executable(streamline_direction_test
+    tests/streamline_direction_test.cpp
+    vendor/glad/src/gl.c
+    src/core/mesh_loader.cpp
+    src/core/mesh_utils.cpp
+    src/core/vtk_parser.cpp
+    src/core/vtk_xml_parser.cpp
+    src/core/stl_parser.cpp
+    src/core/obj_parser.cpp
+    src/render/StreamlineSet.cpp
+)
+target_include_directories(streamline_direction_test PRIVATE src vendor vendor/glad/include)
+target_compile_features(streamline_direction_test PRIVATE cxx_std_20)
+target_compile_definitions(streamline_direction_test PRIVATE GLM_FORCE_SWIZZLE=0)
+
+add_test(NAME streamline_direction_test COMMAND streamline_direction_test)
+
