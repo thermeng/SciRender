@@ -15,9 +15,9 @@ layout(std140, binding = 0) uniform StreamlineUBO {
     vec4  uColor_UseColormap; // xyz = color, w = useColormap(0/1)
     vec4  uMagRange;          // x = magMin, y = maxMag, zw = pad
     vec4  uMaterial;          // x = ambient, y = diffuse, z = specular, w = specularPower
-    vec4  uRibbon;            // x = ribbonWidth, y = taperFactor, zw = pad
+    vec4  uRibbon;            // x = ribbonWidth, y = taperFactor, z = dashEnabled, w = dashSpeed
+    vec4  uArrowParams;       // x = arrowAnimSpeed, yzw = pad
 };
-
 out vec3 vWorldPos;
 out vec3 vNormal;
 out float vDashFlag;
@@ -26,7 +26,7 @@ out float vMag;
 
 void main() {
     vWorldPos = vec3(uModel * vec4(aPos, 1.0));
-    vNormal = normalize(aNormal);
+    vNormal = normalize(mat3(uModel) * aNormal);
     vDashFlag = aDashFlag;
     vU = aU;
     vMag = aMag;

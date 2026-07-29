@@ -43,6 +43,60 @@ struct MeshLoadResult {
 };
 
 // ---------------------------------------------------------------------------
+// MeshData — all mesh-derived state (payload + metadata + quality).
+// Belongs to the mesh, not to the user's display preferences. Separating it
+// from RenderSettings means the QML facade stays small and adding a new
+// mesh-derived field doesn't touch the render-state copy.
+// ---------------------------------------------------------------------------
+struct MeshData {
+    // Parsed geometry (heavy — shared_ptr, never copied)
+    std::shared_ptr<const RenderMesh> loadedMesh;
+    // Light GUI meta copy (cheap: names, bounds, active scalar array)
+    RenderMesh guiMeta;
+
+    // Metadata
+    std::string fileName;
+    std::string datasetType;
+    std::string meshFormat;
+    bool hasMeshLoaded = false;
+    int triangleCount = 0;
+    int pointCount = 0;
+    bool supportsCellGrid = false;
+
+    // Scalar field
+    bool hasScalars = false;
+    bool useScalarColor = false;
+    std::string activeScalarName;
+    float scalarMin = 0, scalarMax = 1;
+    float dataScalarMin = 0, dataScalarMax = 1;
+    int colorbarTicks = 6;
+    bool showScalarColorbar = true;
+    QStringList availableScalars;
+    QStringList availableVectors;
+    std::string vectorField;
+
+    // Bounds
+    double worldMinX = -10, worldMaxX = 10;
+    double worldMinY = -10, worldMaxY = 10;
+    double worldMinZ = -10, worldMaxZ = 10;
+    double worldCenterX = 0, worldCenterY = 0, worldCenterZ = 0;
+    double worldRadius = 1;
+
+    // Quality overlay data
+    int degenerateFaces = 0;
+    int openEdges = 0;
+    int nonManifoldEdges = 0;
+    int nonManifoldVerts = 0;
+    bool watertight = false;
+    std::vector<float> qualityDegenerateTris;
+    std::vector<float> qualityOpenEdges;
+    std::vector<float> qualityNonManifoldEdges;
+
+    // Vector magnitude range (rebuilt on upload)
+    float vectorMagMin = 0, vectorMagMax = 1;
+};
+
+// ---------------------------------------------------------------------------
 // RenderSettings — the GUI-THREAD facade.
 //
 // This is the ONLY object QML binds to (as the `backendSettings` context
@@ -201,6 +255,7 @@ public:
     // Assembles the per-frame snapshot into m_renderSnapshot. Called only from
     // publishRenderState() (GUI thread, exclusive access). Non-const: writes
     // directly into the cached double-buffer member.
+    RenderRenderState snapshot() const;
     void buildRenderState();
 
     // Double-buffered publish: re-assembles the snapshot ONLY when the GUI
@@ -649,6 +704,10 @@ private:
 
     bool quickBarCollapsed = false;
     QStringList recentFiles;
+
+    // Mesh-derived data (separate from display settings so the
+    // QML facade stays focused on user preferences).
+    MeshData m_meshData;
 
     mutable std::map<int, QString> m_colormapPreviewCache;
 

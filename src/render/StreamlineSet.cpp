@@ -23,9 +23,11 @@ glm::vec3 StreamlineSet::evalFieldNearest(const RenderMesh& mesh, const glm::vec
     int bestIdx = 0;
     const float* verts = mesh.vertices.data();
     for (int i = 0; i < searchCount; ++i) {
-        float dx = verts[i * 3 + 0] - pos.x;
-        float dy = verts[i * 3 + 1] - pos.y;
-        float dz = verts[i * 3 + 2] - pos.z;
+        int vi = i * 3;
+        if (vi + 2 >= static_cast<int>(mesh.vertices.size())) break;
+        float dx = verts[vi + 0] - pos.x;
+        float dy = verts[vi + 1] - pos.y;
+        float dz = verts[vi + 2] - pos.z;
         float d2 = dx * dx + dy * dy + dz * dz;
         if (d2 < bestD2) {
             bestD2 = d2;
@@ -79,7 +81,7 @@ StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const R
         float maxVal = vec.back();
         float range = maxVal - minVal;
         float eps = range * 1e-5f;
-        if (eps < 1e-12f) eps = 1e-12f;
+        if (eps < 1e-12f || range < 1e-12f) eps = 1e-12f;
         auto it = std::unique(vec.begin(), vec.end(), [eps](float a, float b) {
             return std::abs(a - b) < eps;
         });
@@ -120,9 +122,9 @@ glm::vec3 StreamlineSet::evalFieldTrilinear(const StreamlineSet::StructuredGridI
     int j0 = static_cast<int>(std::upper_bound(info.ys.begin(), info.ys.end(), pos.y) - info.ys.begin()) - 1;
     int k0 = static_cast<int>(std::upper_bound(info.zs.begin(), info.zs.end(), pos.z) - info.zs.begin()) - 1;
 
-    i0 = std::clamp(i0, 0, info.dimX - 2);
-    j0 = std::clamp(j0, 0, info.dimY - 2);
-    k0 = std::clamp(k0, 0, info.dimZ - 2);
+    // Prevent out-of-bounds access when interpolation index is at the end
+    if (i0 < 0) i0 = 0; if (j0 < 0) j0 = 0; if (k0 < 0) k0 = 0;
+    if (i0 >= info.dimX - 1) i0 = info.dimX - 2; if (j0 >= info.dimY - 1) j0 = info.dimY - 2; if (k0 >= info.dimZ - 1) k0 = info.dimZ - 2;
 
     int i1 = i0 + 1;
     int j1 = j0 + 1;
@@ -474,10 +476,13 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
                 if (segLen < 1e-12f) continue;
                 tangent /= segLen;
 
-                // Smooth local frame orientation
-                glm::vec3 upVecLocal = std::abs(tangent.y) < 0.95f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
-                glm::vec3 side = glm::normalize(glm::cross(tangent, upVecLocal));
-                glm::vec3 normal = glm::normalize(glm::cross(tangent, side));
+    // Smooth local frame orientation
+    glm::vec3 upVecLocal = std::abs(tangent.y) < 0.95f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+    glm::vec3 side = glm::normalize(glm::cross(tangent, upVecLocal));
+    if (std::abs(glm::length(side)) < 1e-12f) {
+        side = glm::vec3(0.0f, 0.0f, 1.0f);
+    }
+    glm::vec3 normal = glm::normalize(glm::cross(tangent, side));
 
                 float magA = std::sqrt(magSq(evalField(a)));
                 float magB = std::sqrt(magSq(evalField(b)));
