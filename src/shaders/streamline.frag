@@ -15,7 +15,8 @@ layout(std140, binding = 0) uniform StreamlineUBO {
     vec4  uColor_UseColormap;  // xyz: fallback color, w: use colormap flag (0.0 or 1.0)
     vec4  uMagRange;           // x: minMag, y: maxMag
     vec4  uMaterial;           // x: ambient, y: diffuse, z: specular, w: specularPower
-    vec4  uRibbon;             // x: ribbonWidth, y: taperFactor, zw: pad
+    vec4  uRibbon;            // x = ribbonWidth, y = taperFactor, z = dashEnabled, w = dashSpeed
+    vec4  uArrowParams;       // x = arrowAnimSpeed, yzw = pad
 };
 
 uniform sampler1D uColormapLUT;
@@ -38,7 +39,8 @@ void main() {
     vec3 V = normalize(uViewPos.xyz - vWorldPos);
 
     // Double-sided lighting fix for thin ribbon quads
-    float diff = abs(dot(N, L)); 
+    if (!gl_FrontFacing) N = -N;
+    float diff = abs(dot(N, L));
     vec3 R = reflect(-L, N);
     float spec = pow(max(dot(R, V), 0.0), uMaterial.w);
 
@@ -52,7 +54,8 @@ void main() {
         dash = step(0.5, fract(vU * 20.0 - uTime_Opacity.x * uRibbon.w * 1.5));
     }
 
-    float alpha = mix(1.0, dash, 0.5) * uTime_Opacity.y;
+    float dashAlpha = mix(1.0, dash, 0.7);
+    float alpha = dashAlpha * uTime_Opacity.y;
     vec3 color = baseColor * (ambient + diffuse) + vec3(1.0) * specular;
 
     FragColor = vec4(color, alpha);
