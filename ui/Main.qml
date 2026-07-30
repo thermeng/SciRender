@@ -561,6 +561,13 @@ ApplicationWindow {
                             width: parent.width
 
                             Text { text: "Streamline"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            Text { text: "Field"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
+                            ComboBox {
+                                width: parent.width
+                                model: backendSettings ? backendSettings.availableVectors : []
+                                currentIndex: backendSettings ? Math.max(0, backendSettings.availableVectors.indexOf(backendSettings.streamlineVectorField)) : 0
+                                onActivated: backendSettings.setStreamlineVectorField(currentText)
+                            }
                             SpinBox { id: streamlineSeedSpin; width: parent.width; from: 1; to: 500; stepSize: 1; value: backendSettings ? backendSettings.streamlineSeedCount : 25; onValueChanged: backendSettings.streamlineSeedCount = value }
                             LightSlider { label: "Step size"; value: backendSettings ? backendSettings.streamlineStepSize : 0.02; from: 0.005; to: 0.1; step: 0.001; onSet: v => backendSettings.streamlineStepSize = v }
                             SpinBox { id: streamlineMaxStepsSpin; width: parent.width; from: 10; to: 500; stepSize: 1; value: backendSettings ? backendSettings.streamlineMaxSteps : 100; onValueChanged: backendSettings.streamlineMaxSteps = value }

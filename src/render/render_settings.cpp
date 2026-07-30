@@ -109,6 +109,7 @@ void RenderSettings::buildRenderState() {
     s.vectorScaleByMagnitude = vectorScaleByMagnitude;
     s.vectorMagTransform = vectorMagTransform;
     s.vectorField = m_guiMeta.vectorName;
+    s.streamlineVectorField = streamlineVectorName;
     s.showStreamlines = showStreamlines;
     s.streamlineSeedCount = streamlineSeedCount;
     s.streamlineStepSize = streamlineStepSize;
@@ -398,8 +399,10 @@ void RenderSettings::onMeshParsed() {
     sliceEnabledX = sliceEnabledY = sliceEnabledZ = false;
     if (!loaded->pointVectorsData.empty()) {
         m_guiMeta.vectorName = loaded->availableVectorNames.front();
+        streamlineVectorName = loaded->availableVectorNames.front();
     } else {
         m_guiMeta.vectorName.clear();
+        streamlineVectorName.clear();
     }
     markStateDirty(); emit meshDataUpdated();
 
@@ -452,6 +455,7 @@ void RenderSettings::clearMeshes() {
     m_renderer.clearGpuMeshes();
     m_loadedMesh.reset();
     m_guiMeta = RenderMesh{};
+    streamlineVectorName.clear();
     hasMeshLoaded = false;
     meshHasScalars = false;
     markStateDirty();
@@ -516,6 +520,19 @@ void RenderSettings::setActiveVectorField(const QString& fieldName) {
     }
     m_guiMeta.vectorName = fieldName.toStdString();
     m_renderer.markVectorGlyphDirty();
+    markStateDirty(); emit meshDataUpdated();
+}
+
+void RenderSettings::setStreamlineVectorField(const QString& fieldName) {
+    if (fieldName.isEmpty()) return;
+    if (m_guiMeta.availableVectorNames.empty() ||
+        std::find(m_guiMeta.availableVectorNames.begin(),
+                  m_guiMeta.availableVectorNames.end(),
+                  fieldName.toStdString()) == m_guiMeta.availableVectorNames.end()) {
+        setStatus(QString("Unknown vector field: %1").arg(fieldName));
+        return;
+    }
+    streamlineVectorName = fieldName.toStdString();
     m_renderer.markStreamlineDirty();
     markStateDirty(); emit meshDataUpdated();
 }
