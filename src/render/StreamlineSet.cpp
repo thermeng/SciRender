@@ -365,7 +365,9 @@ void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts, bool use
     outVerts.reserve(particles.size() * 4);
     for (const auto& p : particles) {
         if (p.pathIndex < 0 || p.pathIndex >= static_cast<int>(paths.size())) continue;
-        const auto& pts = paths[p.pathIndex].points;
+        const auto& path = paths[p.pathIndex];
+        const auto& pts = path.points;
+        const auto& spd = path.speedAtPoint;
         if (pts.size() < 2) continue;
 
         float scaledT = p.t * static_cast<float>(pts.size() - 1);
@@ -377,8 +379,15 @@ void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts, bool use
         }
         glm::vec3 pos = glm::mix(pts[idx], pts[idx + 1], frac);
 
-        glm::vec3 vel = pts[std::min(idx + 1, static_cast<int>(pts.size()) - 1)] - pts[idx];
-        float mag = glm::length(vel);
+        float mag = 0.0f;
+        if (useColormap && !spd.empty()) {
+            float sA = spd[std::min(idx, static_cast<int>(spd.size()) - 1)];
+            float sB = spd[std::min(idx + 1, static_cast<int>(spd.size()) - 1)];
+            mag = sA + (sB - sA) * frac;
+        } else {
+            glm::vec3 vel = pts[std::min(idx + 1, static_cast<int>(pts.size()) - 1)] - pts[idx];
+            mag = glm::length(vel);
+        }
 
         outVerts.push_back(pos.x);
         outVerts.push_back(pos.y);
