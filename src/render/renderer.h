@@ -302,6 +302,7 @@ public:
     void markCameraMoving();
     void markVectorGlyphDirty() { vectorGlyphDirty = true; }
     void markStreamlineDirty() { streamlineDirty = true; }
+    void markParticleCountDirty() { particleCountDirty = true; }
     void resizeViewport(int width, int height);
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
@@ -444,11 +445,13 @@ private:
 
     std::atomic<bool> vectorGlyphDirty{false};
     std::atomic<bool> streamlineDirty{false};
+    std::atomic<bool> particleCountDirty{false};
 
     bool m_destroying = false;
 
     // Animation clock (drives dash / arrow animation independent of frame rate)
     double m_animationTime = 0.0;
+    double m_lastFrameDt = 0.0;
     std::chrono::steady_clock::time_point m_lastFrameTime;
 
     // Scalar-field switch signal: set on the GUI thread and consumed here.

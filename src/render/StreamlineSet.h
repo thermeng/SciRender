@@ -33,6 +33,7 @@ public:
     // Stored streamline paths for particle animation.
     struct StreamlinePath {
         std::vector<glm::vec3> points;
+        std::vector<float> speedAtPoint;
         float totalLength = 0.0f;
     };
     std::vector<StreamlinePath> paths;
@@ -41,7 +42,6 @@ public:
     struct Particle {
         int pathIndex = 0;
         float t = 0.0f;
-        float speed = 1.0f;
     };
     std::vector<Particle> particles;
     std::mt19937 particleRng{ std::random_device{}() };
