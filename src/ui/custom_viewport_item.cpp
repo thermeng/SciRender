@@ -240,7 +240,7 @@ void ViewportFboRenderer::render() {
     // frame; skipping it when idle keeps the GPU (and fan) at rest instead of
     // redrawing the same image continuously. Continuous updates are still needed
     // while the turntable (autoRotate) or FPS HUD is on.
-    const bool continuous = (m_scene->autoRotate() || m_scene->showFps());
+    const bool continuous = (m_scene->autoRotate() || m_scene->showFps() || m_scene->isDashAnimating());
     if (!m_dirty && !continuous && m_pendingScreenshot.isEmpty()) {
         return;
     }

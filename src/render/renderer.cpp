@@ -711,6 +711,15 @@ void Renderer::buildQualityOverlayVAOs() {
 }
 
 void Renderer::renderFrame() {
+    // Advance animation clock with real elapsed time (drives dash/arrow animation).
+    {
+        auto now = std::chrono::steady_clock::now();
+        if (m_lastFrameTime.time_since_epoch().count() == 0) m_lastFrameTime = now;
+        double dt = std::chrono::duration<double>(now - m_lastFrameTime).count();
+        m_lastFrameTime = now;
+        m_animationTime += dt;
+    }
+
     // LOD debounce: once 140 ms have elapsed since the last camera motion, clear
     // the moving flag so the next frame uses the full-resolution mesh.
     if (cameraMoving.load()) {
@@ -1028,9 +1037,7 @@ void Renderer::renderFrame() {
         ubo.model = glm::mat4(1.0f);
         ubo.viewPos = glm::vec4(camPos, 0.0f);
         ubo.lightDir = glm::vec4(kDir, 0.0f);
-        static float timeAccum = 0.0f;
-        timeAccum += 0.016f;
-        ubo.time_opacity = glm::vec4(timeAccum, m_state.streamlineOpacity, 0.0f, 0.0f);
+        ubo.time_opacity = glm::vec4(static_cast<float>(m_animationTime), m_state.streamlineOpacity, 0.0f, 0.0f);
         ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
         ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
         ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
@@ -1080,9 +1087,7 @@ void Renderer::renderFrame() {
             ubo.model = glm::mat4(1.0f);
             ubo.viewPos = glm::vec4(camPos, 0.0f);
             ubo.lightDir = glm::vec4(kDir, 0.0f);
-            static float timeAccum = 0.0f;
-            timeAccum += 0.016f;
-            ubo.time_opacity = glm::vec4(timeAccum, m_state.streamlineOpacity, 0.0f, 0.0f);
+            ubo.time_opacity = glm::vec4(static_cast<float>(m_animationTime), m_state.streamlineOpacity, 0.0f, 0.0f);
             ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
             ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
             ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
