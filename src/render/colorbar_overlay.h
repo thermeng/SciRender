@@ -42,6 +42,7 @@ private:
     GLuint vao_ = 0, vbo_ = 0;
     GLuint tex_ = 0;
     GLint samplerLoc_ = -1;
+    int texW_ = 0, texH_ = 0;
 
     bool buildProgram();
     QImage buildImage(float dpr, int deviceW, int deviceH,
