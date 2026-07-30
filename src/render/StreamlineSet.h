@@ -4,6 +4,7 @@
 
 #include <glm/glm.hpp>
 
+#include <random>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,22 @@ public:
 
     float magMin = 0.0f;
     float magMax = 1.0f;
+
+    // Stored streamline paths for particle animation.
+    struct StreamlinePath {
+        std::vector<glm::vec3> points;
+        float totalLength = 0.0f;
+    };
+    std::vector<StreamlinePath> paths;
+
+    // Particle animation state
+    struct Particle {
+        int pathIndex = 0;
+        float t = 0.0f;
+        float speed = 1.0f;
+    };
+    std::vector<Particle> particles;
+    std::mt19937 particleRng{ std::random_device{}() };
 
     bool empty() const { return lineCount == 0; }
     bool seedsEmpty() const { return seedCount == 0; }
@@ -54,6 +71,11 @@ public:
     static StructuredGridInfo buildStructuredGridInfo(const RenderMesh& mesh, const glm::vec3* data, int count);
     static glm::vec3 evalFieldTrilinear(const StructuredGridInfo& info, const glm::vec3& pos);
     static glm::vec3 evalFieldNearest(const RenderMesh& mesh, const glm::vec3& pos, const glm::vec3* data, int count, int searchCount);
+
+    void initParticles(int count);
+    void updateParticles(float dt, float speed);
+    void buildParticleVertices(std::vector<float>& outVerts, bool useColormap);
+    void teardownParticles();
 
 private:
     void teardownGL();

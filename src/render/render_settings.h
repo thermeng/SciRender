@@ -221,6 +221,10 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int streamlineSpecularPower READ getStreamlineSpecularPower WRITE setStreamlineSpecularPower NOTIFY viewChanged)
     Q_PROPERTY(double seedPointSize READ getSeedPointSize WRITE setSeedPointSize NOTIFY viewChanged)
     Q_PROPERTY(QColor seedPointColor READ getSeedPointColorQml WRITE setSeedPointColorQml NOTIFY viewChanged)
+    Q_PROPERTY(bool showParticles READ getShowParticles WRITE setShowParticles NOTIFY viewChanged)
+    Q_PROPERTY(int particleCount READ getParticleCount WRITE setParticleCount NOTIFY viewChanged)
+    Q_PROPERTY(double particleSpeed READ getParticleSpeed WRITE setParticleSpeed NOTIFY viewChanged)
+    Q_PROPERTY(double particleSize READ getParticleSize WRITE setParticleSize NOTIFY viewChanged)
 
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
@@ -483,6 +487,14 @@ public:
     void setSeedPointSize(double v) { if (seedPointSize != v) { seedPointSize = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
     QColor getSeedPointColorQml() const { return QColor::fromRgbF(seedPointColor[0], seedPointColor[1], seedPointColor[2]); }
     void setSeedPointColorQml(const QColor& c) { seedPointColor[0] = c.redF(); seedPointColor[1] = c.greenF(); seedPointColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
+    bool getShowParticles() const { return showParticles; }
+    void setShowParticles(bool v) { if (showParticles != v) { showParticles = v; markStateDirty(); emit viewChanged(); } }
+    int getParticleCount() const { return particleCount; }
+    void setParticleCount(int v) { if (particleCount != v) { particleCount = v; markStateDirty(); emit viewChanged(); } }
+    double getParticleSpeed() const { return particleSpeed; }
+    void setParticleSpeed(double v) { if (particleSpeed != v) { particleSpeed = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
+    double getParticleSize() const { return particleSize; }
+    void setParticleSize(double v) { if (particleSize != v) { particleSize = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
     bool getVectorUseColormap() const { return vectorUseColormap; }
     void setVectorUseColormap(bool v) { if (vectorUseColormap != v) { vectorUseColormap = v; markStateDirty(); emit viewChanged(); } }
     int getVectorColormapChoice() const { return vectorColormapChoice; }
@@ -682,6 +694,11 @@ private:
     int streamlineSpecularPower = 32;
     float seedPointSize = 6.0f;
     float seedPointColor[3] = { 1.0f, 0.2f, 0.2f };
+
+    bool showParticles = false;
+    int particleCount = 500;
+    float particleSpeed = 1.0f;
+    float particleSize = 4.0f;
 
     bool clipEnabled = false;
     float sliceHeightX = 0.0f;

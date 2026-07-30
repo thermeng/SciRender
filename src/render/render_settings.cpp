@@ -133,6 +133,10 @@ void RenderSettings::buildRenderState() {
     s.streamlineSpecularPower = streamlineSpecularPower;
     s.seedPointSize = seedPointSize;
     std::copy(std::begin(seedPointColor), std::end(seedPointColor), s.seedPointColor);
+    s.showParticles = showParticles;
+    s.particleCount = particleCount;
+    s.particleSpeed = particleSpeed;
+    s.particleSize = particleSize;
     s.screenshotTransparent = screenshotTransparent;
     s.hasMeshLoaded = hasMeshLoaded;
 }
