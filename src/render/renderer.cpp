@@ -423,7 +423,7 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     meshManager.upload(renderMesh);
     m_lastUploadedMesh = renderMesh;
     vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform);
-    streamlineSet.rebuild(*renderMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+    streamlineSet.rebuild(*renderMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
 }
 
 void Renderer::setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh) {
@@ -790,7 +790,7 @@ void Renderer::renderFrame() {
     }
 
     if (streamlineDirty.exchange(false)) {
-        if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+        if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
         streamlineSet.initParticles(m_state.particleCount);
         particleVertexCount = 0;
     }

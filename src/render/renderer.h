@@ -153,6 +153,9 @@ struct RenderRenderState {
     int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
     std::string vectorField;
 
+    // Streamline vector field (independent from vector glyphs)
+    std::string streamlineVectorField;
+
     // Streamlines
     bool showStreamlines = false;
     int streamlineSeedCount = 50;

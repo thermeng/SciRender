@@ -198,6 +198,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
 
     Q_PROPERTY(bool showStreamlines READ getShowStreamlines WRITE setShowStreamlines NOTIFY viewChanged)
+    Q_PROPERTY(QString streamlineVectorField READ getStreamlineVectorField WRITE setStreamlineVectorField NOTIFY meshDataUpdated)
     Q_PROPERTY(int streamlineSeedCount READ getStreamlineSeedCount WRITE setStreamlineSeedCount NOTIFY viewChanged)
     Q_PROPERTY(double streamlineStepSize READ getStreamlineStepSize WRITE setStreamlineStepSize NOTIFY viewChanged)
     Q_PROPERTY(int streamlineMaxSteps READ getStreamlineMaxSteps WRITE setStreamlineMaxSteps NOTIFY viewChanged)
@@ -502,6 +503,8 @@ public:
     QStringList getAvailableVectors() const { QStringList l; for (const auto& n : m_guiMeta.availableVectorNames) l.append(QString::fromStdString(n)); return l; }
     QString getVectorField() const { return QString::fromStdString(m_guiMeta.vectorName); }
     Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
+    QString getStreamlineVectorField() const { return QString::fromStdString(streamlineVectorName); }
+    Q_INVOKABLE void setStreamlineVectorField(const QString& fieldName);
     bool getScreenshotTransparent() const { return screenshotTransparent; }
     void setScreenshotTransparent(bool v) { if (screenshotTransparent != v) { screenshotTransparent = v; markStateDirty(); } }
     QString getStatusMessage() const { return statusMessage; }
@@ -670,6 +673,7 @@ private:
     int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
 
     bool showStreamlines = false;
+    std::string streamlineVectorName;
     int streamlineSeedCount = 25;
     float streamlineStepSize = 0.02f;
     int streamlineMaxSteps = 100;
