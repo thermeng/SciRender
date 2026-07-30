@@ -404,8 +404,10 @@ private:
     // seed point program
     GLuint seedProgram = 0;
     GLint seedMvpLoc = -1;
+    GLint seedModelLoc = -1;
     GLint seedColorLoc = -1;
     GLint seedPointSizeLoc = -1;
+    GLint seedLightDirLoc = -1;
 
     // particle program
     GLuint particleProgram = 0;

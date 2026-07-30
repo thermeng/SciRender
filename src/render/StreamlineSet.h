@@ -49,7 +49,7 @@ public:
     bool empty() const { return lineCount == 0; }
     bool seedsEmpty() const { return seedCount == 0; }
 
-    void rebuild(const RenderMesh& mesh, int seedCount, float stepSize, int maxSteps,
+    void rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                  const std::string& fieldName, const std::string& mode,
                  double planePos, double jitter, bool showArrows, int arrowSpacing, float arrowSize,
                  float ribbonWidth, float taperFactor);
