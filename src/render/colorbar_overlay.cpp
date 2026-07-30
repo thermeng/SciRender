@@ -108,6 +108,7 @@ void ColorbarOverlay::shutdown() {
     if (program_) glDeleteProgram(program_);
     vao_ = vbo_ = tex_ = program_ = 0;
     samplerLoc_ = -1;
+    texW_ = texH_ = 0;
     imageCacheValid_ = false;
     textureCacheValid_ = false;
     cachedImage_ = QImage();
@@ -225,6 +226,16 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     // so the on-screen/window-space layout (top = max) is preserved in the PNG.
     gl = gl.flipped(Qt::Vertical);
 
+    if (gl.width() != texW_ || gl.height() != texH_) {
+        if (tex_) glDeleteTextures(1, &tex_);
+        glCreateTextures(GL_TEXTURE_2D, 1, &tex_);
+        glTextureParameteri(tex_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(tex_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(tex_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(tex_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        texW_ = gl.width();
+        texH_ = gl.height();
+    }
     glBindTextureUnit(0, tex_);
     glTextureStorage2D(tex_, 1, GL_RGBA8, gl.width(), gl.height());
     glTextureSubImage2D(tex_, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
