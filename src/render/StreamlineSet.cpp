@@ -499,9 +499,19 @@ for (const auto& seed : seeds) {
                 glm::vec3 vc = b - side * (baseWidth * taperB);
                 glm::vec3 vd = b + side * (baseWidth * taperB);
 
-                float uA = currentLength / totalLength;
-                currentLength += segLen;
-                float uB = currentLength / totalLength;
+                // On backward-traced segments (dir == -1), flip u so it increases
+                // in the +field direction (tip→seed).  This keeps the dash animation
+                // moving with the flow on both halves of the streamline.
+                float uA, uB;
+                if (dir == 1) {
+                    uA = currentLength / totalLength;
+                    currentLength += segLen;
+                    uB = currentLength / totalLength;
+                } else {
+                    uA = 1.0f - currentLength / totalLength;
+                    currentLength += segLen;
+                    uB = 1.0f - currentLength / totalLength;
+                }
 
                 auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u, float) {
                     verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
