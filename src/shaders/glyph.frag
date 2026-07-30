@@ -21,7 +21,7 @@ void main() {
     vec3 n = normalize(vNormal);
     vec3 L = normalize(uLightDir_ColorGB.xyz);
     float diff = abs(dot(n, L));
-    vec3 color = vec3(uColorB_UseColormap.x, uColorB_UseColormap.y, uLightDir_ColorGB.w);
+    vec3 color = vec3(uMeshExtent_MagTransform_ViewPosY_ColorR.w, uLightDir_ColorGB.w, uColorB_UseColormap.x);
     bool useColormap = uColorB_UseColormap.y > 0.5;
     vec3 base = useColormap ? texture(uColormapLUT, vMag).rgb : color;
     vec3 col = base * (0.35 + 0.65 * diff);
