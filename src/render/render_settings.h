@@ -490,7 +490,7 @@ public:
     bool getShowParticles() const { return showParticles; }
     void setShowParticles(bool v) { if (showParticles != v) { showParticles = v; markStateDirty(); emit viewChanged(); } }
     int getParticleCount() const { return particleCount; }
-    void setParticleCount(int v) { if (particleCount != v) { particleCount = v; markStateDirty(); emit viewChanged(); } }
+    void setParticleCount(int v) { if (particleCount != v) { particleCount = v; m_renderer.markParticleCountDirty(); markStateDirty(); emit viewChanged(); } }
     double getParticleSpeed() const { return particleSpeed; }
     void setParticleSpeed(double v) { if (particleSpeed != v) { particleSpeed = static_cast<float>(v); markStateDirty(); emit viewChanged(); } }
     double getParticleSize() const { return particleSize; }

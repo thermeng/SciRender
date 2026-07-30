@@ -754,6 +754,7 @@ void Renderer::renderFrame() {
         if (m_lastFrameTime.time_since_epoch().count() == 0) m_lastFrameTime = now;
         double dt = std::chrono::duration<double>(now - m_lastFrameTime).count();
         m_lastFrameTime = now;
+        m_lastFrameDt = dt;
         m_animationTime += dt;
     }
 
@@ -790,6 +791,11 @@ void Renderer::renderFrame() {
 
     if (streamlineDirty.exchange(false)) {
         if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+        streamlineSet.initParticles(m_state.particleCount);
+        particleVertexCount = 0;
+    }
+
+    if (particleCountDirty.exchange(false)) {
         streamlineSet.initParticles(m_state.particleCount);
         particleVertexCount = 0;
     }
@@ -1148,9 +1154,7 @@ void Renderer::renderFrame() {
 
     // Particle rendering pass
     if (m_state.showParticles && !streamlineSet.empty() && particleProgram != 0) {
-        auto now = std::chrono::steady_clock::now();
-        auto particleDt = std::chrono::duration<float>(now - m_lastFrameTime).count();
-        streamlineSet.updateParticles(particleDt, m_state.particleSpeed);
+        streamlineSet.updateParticles(static_cast<float>(m_lastFrameDt), m_state.particleSpeed);
 
         std::vector<float> particleVerts;
         streamlineSet.buildParticleVertices(particleVerts, m_state.streamlineUseColormap);

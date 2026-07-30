@@ -332,10 +332,9 @@ void StreamlineSet::initParticles(int count) {
     if (paths.empty() || count <= 0) return;
     std::uniform_int_distribution<int> pathDist(0, static_cast<int>(paths.size()) - 1);
     std::uniform_real_distribution<float> tDist(0.0f, 1.0f);
-    std::uniform_real_distribution<float> speedDist(0.7f, 1.3f);
     particles.reserve(count);
     for (int i = 0; i < count; ++i) {
-        particles.push_back({ pathDist(particleRng), tDist(particleRng), speedDist(particleRng) });
+        particles.push_back({ pathDist(particleRng), tDist(particleRng) });
     }
 }
 
@@ -344,10 +343,20 @@ void StreamlineSet::updateParticles(float dt, float speed) {
         if (p.pathIndex < 0 || p.pathIndex >= static_cast<int>(paths.size())) continue;
         const auto& path = paths[p.pathIndex];
         if (path.points.size() < 2) continue;
-        p.t += (dt * speed * p.speed) / std::max(path.totalLength, 1e-6f);
-        if (p.t >= 1.0f) {
-            p.t -= 1.0f;
-        }
+        int n = static_cast<int>(path.points.size());
+
+        if (p.t < 0.0f || p.t >= 1.0f) p.t = p.t - std::floor(p.t);
+
+        float scaledT = p.t * static_cast<float>(n - 1);
+        int idx = std::min(static_cast<int>(scaledT), n - 2);
+        if (idx < 0) idx = 0;
+        float frac = scaledT - static_cast<float>(idx);
+        if (frac < 0.0f) frac = 0.0f;
+        if (frac > 1.0f) frac = 1.0f;
+        float localSpeed = path.speedAtPoint[idx] * (1.0f - frac) + path.speedAtPoint[idx + 1] * frac;
+        p.t += (dt * speed * localSpeed) / std::max(path.totalLength, 1e-6f);
+
+        if (p.t >= 1.0f) p.t -= std::floor(p.t);
     }
 }
 
@@ -521,15 +530,25 @@ for (const auto& seed : seeds) {
             }
             if (totalLength < 1e-6f) totalLength = 1.0f;
 
+            // Evaluate velocity magnitude at each sampled point for CFD-accurate
+            // particle advancement (particles move proportional to |v|).
+            std::vector<float> speedAtPoint;
+            speedAtPoint.reserve(sampled.size());
+            for (const auto& pt : sampled) {
+                glm::vec3 v = evalField(pt);
+                speedAtPoint.push_back(std::sqrt(magSq(v)));
+            }
+
             // Store path for particle animation.
             // For backward-traced paths (dir == -1), points are in trace order
             // (seed -> outward against field), but the actual flow is inward.
             // Reverse the stored points so particles follow the true field direction.
             if (dir == 1) {
-                paths.push_back({ sampled, totalLength });
+                paths.push_back({ sampled, speedAtPoint, totalLength });
             } else {
                 std::vector<glm::vec3> reversed(sampled.rbegin(), sampled.rend());
-                paths.push_back({ reversed, totalLength });
+                std::vector<float> reversedSpeed(speedAtPoint.rbegin(), speedAtPoint.rend());
+                paths.push_back({ reversed, reversedSpeed, totalLength });
             }
 
             float currentLength = 0.0f;
