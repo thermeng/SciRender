@@ -278,6 +278,7 @@ public:
     // Snapshot accessors used by the FBO renderer (drawn state only).
     bool autoRotate() const { return m_state.autoRotate; }
     bool showFps() const { return m_state.showFps; }
+    bool isDashAnimating() const { return m_state.streamlineDashEnabled; }
 
     // Uploads CPU geometry to the GPU. Safe to call on the render thread.
     void uploadMesh(std::shared_ptr<const RenderMesh> renderMesh);
@@ -420,6 +421,10 @@ private:
     std::atomic<bool> streamlineDirty{false};
 
     bool m_destroying = false;
+
+    // Animation clock (drives dash / arrow animation independent of frame rate)
+    double m_animationTime = 0.0;
+    std::chrono::steady_clock::time_point m_lastFrameTime;
 
     // Scalar-field switch signal: set on the GUI thread and consumed here.
     std::atomic<bool> scalarDirty{false};

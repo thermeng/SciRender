@@ -878,6 +878,14 @@ ApplicationWindow {
         onTriggered: openGLViewport.update()
     }
 
+    // Dash animation needs continuous frames; drive repaints while enabled
+    Timer {
+        interval: 16
+        running: backendSettings ? (backendSettings.streamlineDashEnabled && backendSettings.showStreamlines) : false
+        repeat: true
+        onTriggered: openGLViewport.update()
+    }
+
     // on-screen perf HUD (bottom-left)
     Rectangle {
         anchors.left: parent.left
