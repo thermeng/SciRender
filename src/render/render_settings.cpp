@@ -115,6 +115,8 @@ void RenderSettings::buildRenderState() {
     s.streamlineStepSize = streamlineStepSize;
     s.streamlineMaxSteps = streamlineMaxSteps;
     s.streamlineUseColormap = streamlineUseColormap;
+    s.streamlineColormapChoice = streamlineColormapChoice;
+    s.streamlineColormapReversed = streamlineColormapReversed;
     std::copy(std::begin(streamlineColor), std::end(streamlineColor), s.streamlineColor);
     s.seedMode = seedMode;
     s.seedPlanePos = seedPlanePos;

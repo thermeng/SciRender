@@ -33,9 +33,18 @@ void ColormapManager::update() {
         lastVectorReversed_ = vectorReversed_;
         vectorLutDirty_ = false;
     }
+
+    if (streamlineTex_ == 0 || streamlineLutDirty_ ||
+        streamlineChoice_ != lastStreamlineChoice_ || streamlineReversed_ != lastStreamlineReversed_) {
+        uploadLUT(streamlineTex_, streamlineChoice_, streamlineReversed_);
+        lastStreamlineChoice_ = streamlineChoice_;
+        lastStreamlineReversed_ = streamlineReversed_;
+        streamlineLutDirty_ = false;
+    }
 }
 
 void ColormapManager::shutdown() {
     if (scalarTex_) { glDeleteTextures(1, &scalarTex_); scalarTex_ = 0; }
     if (vectorTex_) { glDeleteTextures(1, &vectorTex_); vectorTex_ = 0; }
+    if (streamlineTex_) { glDeleteTextures(1, &streamlineTex_); streamlineTex_ = 0; }
 }

@@ -572,6 +572,35 @@ ApplicationWindow {
                             LightSlider { label: "Step size"; value: backendSettings ? backendSettings.streamlineStepSize : 0.02; from: 0.005; to: 0.1; step: 0.001; onSet: v => backendSettings.streamlineStepSize = v }
                             SpinBox { id: streamlineMaxStepsSpin; width: parent.width; from: 10; to: 500; stepSize: 1; value: backendSettings ? backendSettings.streamlineMaxSteps : 100; onValueChanged: backendSettings.streamlineMaxSteps = value }
                             CheckBox { text: "Color by magnitude"; checked: backendSettings ? backendSettings.streamlineUseColormap : false; onToggled: backendSettings.streamlineUseColormap = checked }
+                            // streamline palette swatch grid
+                            GridLayout {
+                                width: parent.width; columns: 2; rowSpacing: 4; columnSpacing: 4
+                                Repeater {
+                                    model: backendSettings ? backendSettings.getColormapNames().length : 0
+                                    Rectangle {
+                                        Layout.fillWidth: true; height: 24; radius: 3
+                                        property bool sactive: index === (backendSettings ? backendSettings.streamlineColormapChoice : 0)
+                                        border.color: sactive ? "#4fc3f7" : "#444"; border.width: sactive ? 3 : 1
+                                        color: "#000"
+                                        Image {
+                                            source: backendSettings ? backendSettings.getColormapPreviewUri(index) : ""
+                                            sourceSize.width: 280; sourceSize.height: 64
+                                            fillMode: Image.Stretch
+                                            anchors.fill: parent; anchors.margins: 2
+                                        }
+                                        Text {
+                                            visible: sactive
+                                            text: "✓"
+                                            color: "#4fc3f7"
+                                            font.pixelSize: 14; font.bold: true
+                                            anchors.left: parent.left; anchors.top: parent.top
+                                            anchors.leftMargin: 3; anchors.topMargin: 1
+                                        }
+                                        MouseArea { anchors.fill: parent; onClicked: backendSettings.streamlineColormapChoice = index }
+                                    }
+                                }
+                            }
+                            CheckBox { text: "Reverse palette"; enabled: backendSettings ? backendSettings.streamlineUseColormap : false; checked: backendSettings ? backendSettings.streamlineColormapReversed : false; onToggled: backendSettings.streamlineColormapReversed = checked }
                             SwatchButton { width: parent.width; text: "Streamline"; swatch: backendSettings ? backendSettings.streamlineColor : "#3399ff"; onClicked: streamlineColorDialog.open() }
 
                             Text { text: "Seeding"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }

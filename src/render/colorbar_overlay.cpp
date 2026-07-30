@@ -65,8 +65,6 @@ bool ColorbarOverlay::init() {
     if (!buildProgram()) return false;
 
     // Fullscreen quad (two triangles) in clip space, with UVs.
-    // Quad covers the whole viewport; the QImage already has the colorbar
-    // drawn at the correct screen location, so we just blit it.
     const float verts[6][4] = {
         // x,   y,    u, v
         {-1, -1, 0, 0},
@@ -116,112 +114,103 @@ void ColorbarOverlay::shutdown() {
 }
 
 QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
-                                     const ColorbarData& data, int corner) const {
+                                    const std::vector<ColorbarData>& bars) const {
     QImage img(deviceW, deviceH, QImage::Format_ARGB32);
     img.fill(Qt::transparent);
 
-    if (!data.visible || data.stops.isEmpty() || data.title.isEmpty()) {
-        return img;
-    }
+    if (bars.empty()) return img;
 
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
 
-    // ---- Layout (all scaled by device pixel ratio for crisp text) ----
-    const int margin    = static_cast<int>(14 * dpr);
-    const int barW      = static_cast<int>(18 * dpr);
-    const int barH      = static_cast<int>(220 * dpr);
-    const int spacing   = static_cast<int>(8 * dpr);
-    const int tickLen   = static_cast<int>(6 * dpr);
+    const int margin = static_cast<int>(14 * dpr);
+    const int barW   = static_cast<int>(220 * dpr);
+    const int barH   = static_cast<int>(14 * dpr);
+    const int gap    = static_cast<int>(4 * dpr);
+    const int tickLen = static_cast<int>(6 * dpr);
+    const int stackGap = static_cast<int>(8 * dpr);
 
-    // Title font/metrics -> dynamic title height and width.
-    QFont titleFont;
-    titleFont.setPixelSize(static_cast<int>(12 * dpr));
-    const QFontMetrics titleFm(titleFont);
-    const int titleH   = titleFm.height();
-    const int titleW   = titleFm.horizontalAdvance(data.title);
-    const int titleGap = static_cast<int>(8 * dpr); // gap between title and bar
+    QFont labelFont;
+    labelFont.setPixelSize(static_cast<int>(11 * dpr));
+    const QFontMetrics labelFm(labelFont);
+    const int labelH = labelFm.height();
 
-    // Tick label font/metrics -> dynamic width from the longest label.
     QFont tickFont;
-    tickFont.setPixelSize(static_cast<int>(10 * dpr));
+    tickFont.setPixelSize(static_cast<int>(9 * dpr));
     const QFontMetrics tickFm(tickFont);
-    int maxLabelW = 0;
-    for (const QVariant& lbl : data.tickLabels) {
-        maxLabelW = qMax(maxLabelW, tickFm.horizontalAdvance(lbl.toString()));
-    }
-    if (maxLabelW == 0) maxLabelW = tickFm.horizontalAdvance("0.0");
+    const int tickH = tickFm.height();
 
-    // Content widths: bar + gap + label block. blockW takes the max of the
-    // label block and the title so a long title never overflows the right edge.
-    const int labelW = maxLabelW;
-    const int labelBlockW = barW + spacing + labelW;
-    const int blockW = qMax(labelBlockW, titleW);
-    const int tickPad = static_cast<int>(tickFm.height() * 0.5f);
-    const int blockH = titleH + titleGap + barH + 2 * tickPad;
+    const int blockH = labelH + gap + barH + gap + tickH;
 
-    int x, y;
-    if (corner == 0) {
-        // bottom-right
-        x = deviceW - margin - blockW;
-        y = deviceH - margin - blockH;
-    } else {
-        // top-right
-        x = deviceW - margin - blockW;
-        y = margin;
-    }
+    // Stack bars bottom-right, first bar at the bottom.
+    int y = deviceH - margin;
 
-    // ---- Title (left-aligned, above the bar, with a gap) ----
-    p.setFont(titleFont);
-    p.setPen(QColor("#e8e8e8"));
-    const QRect titleRect(x, y, blockW, titleH);
-    p.drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, data.title);
+    for (int bi = 0; bi < bars.size(); ++bi) {
+        const auto& data = bars[bi];
+        if (!data.visible || data.stops.isEmpty() || data.title.isEmpty()) continue;
 
-    const int barX = x;
-    const int barY = y + titleH + titleGap + tickPad;
+        y -= blockH;
+        const int blockX = deviceW - margin - barW;
+        const int blockY = y;
 
-    // ---- Gradient bar: smooth vertical fill from the stops ----
-    // Stops are [t, r, g, b] with t ascending 0..1, and the legend top is t=1
-    // (max). So a gradient stop at position p (0=top) maps to color(t = 1 - p).
-    {
-        QLinearGradient grad(0.0, barY, 0.0, barY + barH);
-        const int n = data.stops.size();
-        for (int i = 0; i < n; ++i) {
-            const QVariantList s = data.stops[i].toList();
-            const float t = s[0].toFloat();
-            const qreal p = qreal(1.0) - qreal(t); // top -> max
-            grad.setColorAt(p, QColor::fromRgbF(
-                qBound(0.0, s[1].toDouble(), 1.0),
-                qBound(0.0, s[2].toDouble(), 1.0),
-                qBound(0.0, s[3].toDouble(), 1.0)));
+        // ---- Title (centered above bar) ----
+        p.setFont(labelFont);
+        p.setPen(QColor("#e8e8e8"));
+        const QRect titleRect(blockX, blockY, barW, labelH);
+        p.drawText(titleRect, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, data.title);
+
+        const int barX = blockX;
+        const int barY = blockY + labelH + gap;
+
+        // ---- Horizontal gradient bar ----
+        {
+            QLinearGradient grad(static_cast<qreal>(barX), 0.0,
+                                 static_cast<qreal>(barX + barW), 0.0);
+            const int n = data.stops.size();
+            for (int i = 0; i < n; ++i) {
+                const QVariantList s = data.stops[i].toList();
+                const float t = s[0].toFloat();
+                grad.setColorAt(static_cast<qreal>(t), QColor::fromRgbF(
+                    qBound(0.0, s[1].toDouble(), 1.0),
+                    qBound(0.0, s[2].toDouble(), 1.0),
+                    qBound(0.0, s[3].toDouble(), 1.0)));
+            }
+            p.fillRect(barX, barY, barW, barH, grad);
         }
-        p.fillRect(barX, barY, barW, barH, grad);
-    }
 
-    // ---- Bar outline (crisp 1px edge) ----
-    p.setPen(QColor(0, 0, 0, 180));
-    p.setBrush(Qt::NoBrush);
-    p.drawRect(barX, barY, barW, barH);
+        // ---- Bar outline ----
+        p.setPen(QColor(0, 0, 0, 180));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(barX, barY, barW, barH);
 
-    // ---- Tick marks + numeric labels ----
-    p.setFont(tickFont);
-    p.setPen(QColor("#e8e8e8"));
+        // ---- Tick marks + labels (below bar, evenly spaced left-to-right) ----
+        p.setFont(tickFont);
+        p.setPen(QColor("#e8e8e8"));
 
-    const int tickCount = data.tickLabels.size();
-    const int labX = barX + barW + spacing;
-    for (int i = 0; i < tickCount; ++i) {
-        // i = 0 -> top of bar (max); frac = i/(count-1) measures top->bottom.
-        const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-        const int ty = barY + static_cast<int>(frac * barH);
+        const int tickCount = data.tickLabels.size();
+        if (tickCount > 0) {
+            const int tickY = barY + barH;
+            for (int i = 0; i < tickCount; ++i) {
+                const float frac = tickCount > 1
+                    ? static_cast<float>(i) / static_cast<float>(tickCount - 1)
+                    : 0.0f;
+                const int tx = barX + static_cast<int>(frac * barW);
 
-        // tick mark on the right edge of the bar, pointing outward
-        p.drawLine(barX + barW, ty, barX + barW + tickLen, ty);
+                // tick mark downward from bar bottom edge
+                p.drawLine(tx, tickY, tx, tickY + tickLen);
 
-        // numeric label, left-aligned against the bar edge, vertically centered
-        const QRect labRect(labX, ty - static_cast<int>(tickFm.height() * 0.5),
-                            labelW, tickFm.height());
-        p.drawText(labRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, data.tickLabels[i]);
+                // label centered under tick
+                const QRect lblRect(tx - static_cast<int>(tickFm.horizontalAdvance(data.tickLabels[i]) * 0.5),
+                                    tickY + tickLen,
+                                    tickFm.horizontalAdvance(data.tickLabels[i]),
+                                    tickH);
+                p.drawText(lblRect, Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine,
+                           data.tickLabels[i]);
+            }
+        }
+
+        y -= stackGap;
     }
 
     return img;
@@ -245,9 +234,6 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    // The colorbar is a full-viewport blit: always draw into the full FBO
-    // viewport, since a prior pass (e.g. gizmo light markers) may have left a
-    // smaller viewport bound. Without this the legend would be squashed.
     glViewport(0, 0, deviceW, deviceH);
 
     glUseProgram(program_);
@@ -258,37 +244,41 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glUseProgram(0);
 }
 
-void ColorbarOverlay::draw(float dpr, int deviceW, int deviceH,
-                           const ColorbarData& data, int corner) {
+void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
+                                const std::vector<ColorbarData>& bars) {
     if (!isInitialized() || deviceW <= 0 || deviceH <= 0) return;
-    if (!data.visible) return;
 
-    // Cache check: only rebuild the QImage when the visual parameters have
-    // changed (colormap stops, title, tick labels, dpr, viewport size, corner).
-    const bool paramsChanged =
-        !imageCacheValid_ ||
-        cachedDpr_ != dpr ||
-        cachedW_ != deviceW ||
-        cachedH_ != deviceH ||
-        cachedCorner_ != corner ||
-        cachedData_.title != data.title ||
-        cachedData_.stops != data.stops ||
-        cachedData_.tickLabels != data.tickLabels ||
-        cachedData_.visible != data.visible;
+    // Check if any bar is visible.
+    bool anyVisible = false;
+    for (const auto& b : bars) { if (b.visible) { anyVisible = true; break; } }
+    if (!anyVisible) return;
+
+    // Cache check: rebuild when params change.
+    bool paramsChanged = !imageCacheValid_ || cachedDpr_ != dpr ||
+                         cachedW_ != deviceW || cachedH_ != deviceH ||
+                         cachedBars_.size() != bars.size();
+    if (!paramsChanged) {
+        for (size_t i = 0; i < bars.size(); ++i) {
+            if (cachedBars_[i].title != bars[i].title ||
+                cachedBars_[i].stops != bars[i].stops ||
+                cachedBars_[i].tickLabels != bars[i].tickLabels ||
+                cachedBars_[i].visible != bars[i].visible) {
+                paramsChanged = true;
+                break;
+            }
+        }
+    }
 
     if (paramsChanged) {
-        cachedImage_ = buildImage(dpr, deviceW, deviceH, data, corner);
-        cachedData_ = data;
+        cachedImage_ = buildImage(dpr, deviceW, deviceH, bars);
+        cachedBars_ = bars;
         cachedDpr_ = dpr;
         cachedW_ = deviceW;
         cachedH_ = deviceH;
-        cachedCorner_ = corner;
         imageCacheValid_ = true;
-        textureCacheValid_ = false; // force texture re-upload with new image
+        textureCacheValid_ = false;
     }
 
-    // Only re-upload the texture when the image changed; the quad is still
-    // drawn every frame so the colorbar remains composited in the FBO.
     if (!textureCacheValid_) {
         uploadAndDraw(cachedImage_, deviceW, deviceH);
     } else {

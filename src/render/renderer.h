@@ -162,6 +162,8 @@ struct RenderRenderState {
     float streamlineStepSize = 0.02f;
     int streamlineMaxSteps = 100;
     bool streamlineUseColormap = false;
+    int streamlineColormapChoice = 3;
+    bool streamlineColormapReversed = false;
     float streamlineColor[3] = { 0.2f, 0.6f, 1.0f };
 
     float streamlineOpacity = 1.0f;

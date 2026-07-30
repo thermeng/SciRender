@@ -10,11 +10,12 @@
 #include <QString>
 #include <QVariantList>
 #include <QImage>
+#include <vector>
 
 struct ColorbarData {
-    QString title;          // header text (e.g. active scalar name)
-    QVariantList stops;     // [t, r, g, b] x N  (t in 0..1 top->bottom)
-    QStringList tickLabels; // bottom->top, count = stops coverage
+    QString title;          // label on top (e.g. "Scalar", "Vector", "Streamline")
+    QVariantList stops;     // [t, r, g, b] x N (t in 0..1)
+    QStringList tickLabels; // left-to-right, below the bar
     bool visible = false;
 };
 
@@ -27,11 +28,10 @@ public:
     void shutdown();
     bool isInitialized() const { return program_ != 0; }
 
-    // Draws the colorbar into the currently-bound FBO, covering the full
-    // deviceW x deviceH viewport. corner: 0 = bottom-right (scalar),
-    // 1 = top-right (vector). dpr scales the logical layout from Main.qml.
-    void draw(float dpr, int deviceW, int deviceH,
-              const ColorbarData& data, int corner);
+    // Draws all visible bars into the currently-bound FBO, covering the full
+    // deviceW x deviceH viewport. Bars are stacked bottom-right.
+    void drawBars(float dpr, int deviceW, int deviceH,
+                  const std::vector<ColorbarData>& bars);
 
     void markDirty() { imageCacheValid_ = false; textureCacheValid_ = false; }
 
@@ -45,16 +45,14 @@ private:
 
     bool buildProgram();
     QImage buildImage(float dpr, int deviceW, int deviceH,
-                      const ColorbarData& data, int corner) const;
+                      const std::vector<ColorbarData>& bars) const;
 
     // Image cache: avoids rebuilding the QImage every frame when the
-    // colormap choice, reversed flag, tick count, scalar range, title,
-    // or viewport dimensions haven't changed.
+    // colormap choices, tick labels, or viewport dimensions haven't changed.
     QImage cachedImage_;
     bool imageCacheValid_ = false;
     bool textureCacheValid_ = false;
-    ColorbarData cachedData_;
+    std::vector<ColorbarData> cachedBars_;
     float cachedDpr_ = 0.0f;
     int cachedW_ = 0, cachedH_ = 0;
-    int cachedCorner_ = -1;
 };
