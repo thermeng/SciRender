@@ -405,7 +405,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
         arrowMagnitudes.reserve(estimatedArrows);
     }
 
-    for (const auto& seed : seeds) {
+for (const auto& seed : seeds) {
         seedVerts.push_back(seed.x);
         seedVerts.push_back(seed.y);
         seedVerts.push_back(seed.z);
@@ -458,7 +458,6 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
             for (size_t i = 0; i < pts.size(); i += 2) sampled.push_back(pts[i]);
             if (sampled.size() >= 2 && sampled.back() != pts.back()) sampled.push_back(pts.back());
 
-            // Compute cumulative total length for continuous U-mapping down the streamline
             float totalLength = 0.0f;
             for (size_t i = 0; i + 1 < sampled.size(); ++i) {
                 totalLength += glm::length(sampled[i + 1] - sampled[i]);
@@ -477,8 +476,11 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
                 tangent /= segLen;
 
     // Smooth local frame orientation
-    glm::vec3 upVecLocal = std::abs(tangent.y) < 0.95f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
-    glm::vec3 side = glm::normalize(glm::cross(tangent, upVecLocal));
+    float tY = std::abs(tangent.y);
+    float upThreshold = 0.9f;
+    glm::vec3 side = tY < upThreshold ? 
+        glm::normalize(glm::cross(tangent, glm::vec3(0.0f, 1.0f, 0.0f))) : 
+        glm::normalize(glm::cross(tangent, glm::vec3(1.0f, 0.0f, 0.0f)));
     if (std::abs(glm::length(side)) < 1e-12f) {
         side = glm::vec3(0.0f, 0.0f, 1.0f);
     }
@@ -497,7 +499,6 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
                 glm::vec3 vc = b - side * (baseWidth * taperB);
                 glm::vec3 vd = b + side * (baseWidth * taperB);
 
-                // Continuous U coordinate along the ribbon
                 float uA = currentLength / totalLength;
                 currentLength += segLen;
                 float uB = currentLength / totalLength;
@@ -512,12 +513,10 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
                     if (rawMag > mx) mx = rawMag;
                 };
 
-                // Triangle 1: va -> vb -> vc
                 pushQuadVertex(va, magA, uA, 0.0f);
                 pushQuadVertex(vb, magA, uA, 1.0f);
                 pushQuadVertex(vc, magB, uB, 0.0f);
 
-                // Triangle 2: vb -> vd -> vc
                 pushQuadVertex(vb, magA, uA, 1.0f);
                 pushQuadVertex(vd, magB, uB, 1.0f);
                 pushQuadVertex(vc, magB, uB, 0.0f);
@@ -525,12 +524,14 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
 
             if (showArrows && arrowSpacing > 0 && sampled.size() > static_cast<size_t>(arrowSpacing + 1)) {
                 for (size_t i = arrowSpacing; i + 1 < sampled.size(); i += arrowSpacing) {
-                    glm::vec3 tangent = sampled[i + 1] - sampled[i];
-                    float len = glm::length(tangent);
-                    if (len > 1e-12f) {
+                    // Use the actual vector field direction at the arrow position
+                    // so arrows point the correct way on both forward- and backward-traced segments.
+                    glm::vec3 fieldVal = evalField(sampled[i]);
+                    float mag = std::sqrt(magSq(fieldVal));
+                    if (mag > 1e-12f) {
                         arrowPositions.push_back(sampled[i]);
-                        arrowDirections.push_back(tangent / len);
-                        arrowMagnitudes.push_back(std::sqrt(magSq(evalField(sampled[i]))));
+                        arrowDirections.push_back(fieldVal / mag);
+                        arrowMagnitudes.push_back(mag);
                     }
                 }
             }
