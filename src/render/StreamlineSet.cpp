@@ -399,7 +399,7 @@ void StreamlineSet::shutdown() {
     teardownGL();
 }
 
-void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSize, int maxSteps,
+void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                                 const std::string& fieldName, const std::string& mode,
                                 double planePos, double jitter, bool showArrows, int arrowSpacing, float arrowSize,
                                 float ribbonWidth, float taperFactor) {
@@ -439,7 +439,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
         return evalFieldNearest(mesh, pos, data, limit, limit);
     };
 
-    std::vector<glm::vec3> seeds = generateSeeds(mesh, seedCount, mode, planePos, jitter);
+    std::vector<glm::vec3> seeds = generateSeeds(mesh, seedCountParam, mode, planePos, jitter);
     if (seeds.empty()) return;
 
     float mn = std::numeric_limits<float>::max();

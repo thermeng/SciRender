@@ -291,8 +291,10 @@ void Renderer::initShaders(const ShaderSources& sources) {
             glDeleteShader(sdv); glDeleteShader(sdf);
             if (seedProgram != 0) {
                 seedMvpLoc = glGetUniformLocation(seedProgram, "uMVP");
+                seedModelLoc = glGetUniformLocation(seedProgram, "uModel");
                 seedColorLoc = glGetUniformLocation(seedProgram, "uColor");
                 seedPointSizeLoc = glGetUniformLocation(seedProgram, "uPointSize");
+                seedLightDirLoc = glGetUniformLocation(seedProgram, "uLightDir");
             }
         }
     }
@@ -1097,11 +1099,16 @@ void Renderer::renderFrame() {
         GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
         GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
         glEnable(GL_PROGRAM_POINT_SIZE);
-        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_DEPTH_TEST);
         glm::vec4 seedColor(m_state.seedPointColor[0], m_state.seedPointColor[1], m_state.seedPointColor[2], 1.0f);
+        glm::mat4 seedModel(1.0f);
+        glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
+        computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
         glUniformMatrix4fv(seedMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniformMatrix4fv(seedModelLoc, 1, GL_FALSE, glm::value_ptr(seedModel));
         glUniform4fv(seedColorLoc, 1, glm::value_ptr(seedColor));
         glUniform1f(seedPointSizeLoc, m_state.seedPointSize);
+        glUniform4fv(seedLightDirLoc, 1, glm::value_ptr(glm::vec4(kDir, 0.0f)));
         glBindVertexArray(streamlineSet.seedVao);
         glDrawArrays(GL_POINTS, 0, streamlineSet.seedCount);
         glBindVertexArray(0);
