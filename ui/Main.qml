@@ -610,7 +610,7 @@ ApplicationWindow {
                             Text { text: "Particles"; color: "#9cdcfe"; font.pixelSize: 11; font.bold: true }
                             CheckBox { text: "Show Particles"; checked: backendSettings ? backendSettings.showParticles : false; onToggled: backendSettings.showParticles = checked }
                             LightSlider { label: "Particle count"; value: backendSettings ? backendSettings.particleCount : 500; from: 10; to: 5000; step: 10; onSet: v => backendSettings.particleCount = v; enabled: backendSettings ? backendSettings.showParticles : false }
-                            LightSlider { label: "Particle speed"; value: backendSettings ? backendSettings.particleSpeed : 1.0; from: 0.1; to: 10.0; step: 0.1; onSet: v => backendSettings.particleSpeed = v; enabled: backendSettings ? backendSettings.showParticles : false }
+                            LightSlider { label: "Particle speed"; value: backendSettings ? Math.log10(Math.max(backendSettings.particleSpeed, 1)) / 2 : 0.5; from: 0; to: 1.0; step: 0.01; onSet: v => backendSettings.particleSpeed = Math.pow(10, v * 2); enabled: backendSettings ? backendSettings.showParticles : false }
                             LightSlider { label: "Particle size"; value: backendSettings ? backendSettings.particleSize : 4.0; from: 1.0; to: 20.0; step: 0.5; onSet: v => backendSettings.particleSize = v; enabled: backendSettings ? backendSettings.showParticles : false }
                         }
                     }

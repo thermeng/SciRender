@@ -521,8 +521,16 @@ for (const auto& seed : seeds) {
             }
             if (totalLength < 1e-6f) totalLength = 1.0f;
 
-            // Store path for particle animation
-            paths.push_back({ sampled, totalLength });
+            // Store path for particle animation.
+            // For backward-traced paths (dir == -1), points are in trace order
+            // (seed -> outward against field), but the actual flow is inward.
+            // Reverse the stored points so particles follow the true field direction.
+            if (dir == 1) {
+                paths.push_back({ sampled, totalLength });
+            } else {
+                std::vector<glm::vec3> reversed(sampled.rbegin(), sampled.rend());
+                paths.push_back({ reversed, totalLength });
+            }
 
             float currentLength = 0.0f;
             const float baseWidth = static_cast<float>(extent * ribbonWidth);
@@ -608,7 +616,21 @@ for (const auto& seed : seeds) {
         }
     }
 
-    if (verts.empty()) return;
+    if (verts.empty()) {
+        // Even with no ribbon geometry, seeds may still exist. Upload them
+        // so they can be rendered independently of the streamlines.
+        seedCount = static_cast<int>(seeds.size());
+        if (!seedVerts.empty()) {
+            glCreateVertexArrays(1, &seedVao);
+            glCreateBuffers(1, &seedVbo);
+            glEnableVertexArrayAttrib(seedVao, 0);
+            glVertexArrayAttribFormat(seedVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+            glVertexArrayAttribBinding(seedVao, 0, 0);
+            glNamedBufferData(seedVbo, seedVerts.size() * sizeof(float), seedVerts.data(), GL_STATIC_DRAW);
+            glVertexArrayVertexBuffer(seedVao, 0, seedVbo, 0, 3 * sizeof(float));
+        }
+        return;
+    }
     if (mn > mx) { mn = 0.0f; mx = 0.0f; }
 
     magMin = mn;
