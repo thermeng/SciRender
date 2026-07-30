@@ -203,6 +203,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double streamlineStepSize READ getStreamlineStepSize WRITE setStreamlineStepSize NOTIFY viewChanged)
     Q_PROPERTY(int streamlineMaxSteps READ getStreamlineMaxSteps WRITE setStreamlineMaxSteps NOTIFY viewChanged)
     Q_PROPERTY(bool streamlineUseColormap READ getStreamlineUseColormap WRITE setStreamlineUseColormap NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineColormapChoice READ getStreamlineColormapChoice WRITE setStreamlineColormapChoice NOTIFY viewChanged)
+    Q_PROPERTY(bool streamlineColormapReversed READ getStreamlineColormapReversed WRITE setStreamlineColormapReversed NOTIFY viewChanged)
     Q_PROPERTY(QColor streamlineColor READ getStreamlineColorQml WRITE setStreamlineColorQml NOTIFY viewChanged)
     Q_PROPERTY(QString seedMode READ getSeedMode WRITE setSeedMode NOTIFY viewChanged)
     Q_PROPERTY(double seedPlanePos READ getSeedPlanePos WRITE setSeedPlanePos NOTIFY viewChanged)
@@ -450,6 +452,10 @@ public:
     void setStreamlineMaxSteps(int v) { if (streamlineMaxSteps != v) { streamlineMaxSteps = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
     bool getStreamlineUseColormap() const { return streamlineUseColormap; }
     void setStreamlineUseColormap(bool v) { if (streamlineUseColormap != v) { streamlineUseColormap = v; markStateDirty(); emit viewChanged(); } }
+    int getStreamlineColormapChoice() const { return streamlineColormapChoice; }
+    void setStreamlineColormapChoice(int c) { if (streamlineColormapChoice != c) { streamlineColormapChoice = c; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+    bool getStreamlineColormapReversed() const { return streamlineColormapReversed; }
+    void setStreamlineColormapReversed(bool v) { if (streamlineColormapReversed != v) { streamlineColormapReversed = v; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
     QColor getStreamlineColorQml() const { return QColor::fromRgbF(streamlineColor[0], streamlineColor[1], streamlineColor[2]); }
     void setStreamlineColorQml(const QColor& c) { streamlineColor[0] = c.redF(); streamlineColor[1] = c.greenF(); streamlineColor[2] = c.blueF(); markStateDirty(); emit viewChanged(); }
     QString getSeedMode() const { return QString::fromStdString(seedMode); }
@@ -678,6 +684,8 @@ private:
     float streamlineStepSize = 0.02f;
     int streamlineMaxSteps = 100;
     bool streamlineUseColormap = false;
+    int streamlineColormapChoice = 3;
+    bool streamlineColormapReversed = false;
     float streamlineColor[3] = { 0.2f, 0.6f, 1.0f };
 
     std::string seedMode = "Volume";

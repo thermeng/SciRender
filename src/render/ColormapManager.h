@@ -28,6 +28,14 @@ public:
     GLuint vectorTexture() const { return vectorTex_; }
     void  markVectorLutDirty() { vectorLutDirty_ = true; }
 
+    // --- streamline magnitude LUT (independent of vector) ---------------------
+    int   streamlineChoice() const { return streamlineChoice_; }
+    bool  streamlineReversed() const { return streamlineReversed_; }
+    void  setStreamlineChoice(int c) { streamlineChoice_ = c; }
+    void  setStreamlineReversed(bool r) { streamlineReversed_ = r; }
+    GLuint streamlineTexture() const { return streamlineTex_; }
+    void  markStreamlineLutDirty() { streamlineLutDirty_ = true; }
+
     // Ensures both LUT textures reflect the current choice/reversed state.
     // Uploads only when something changed (choice, reversal, or dirty flag).
     void update();
@@ -41,6 +49,8 @@ public:
     bool scalarReversedForStops() const { return scalarReversed_; }
     int vectorChoiceForStops() const { return vectorChoice_; }
     bool vectorReversedForStops() const { return vectorReversed_; }
+    int streamlineChoiceForStops() const { return streamlineChoice_; }
+    bool streamlineReversedForStops() const { return streamlineReversed_; }
 
 private:
     int   scalarChoice_ = 3; // default CoolWarm
@@ -55,6 +65,13 @@ private:
     int   lastVectorChoice_ = -1;
     bool  lastVectorReversed_ = false;
     bool  vectorLutDirty_ = true;
+
+    int   streamlineChoice_ = 3;
+    bool  streamlineReversed_ = false;
+    GLuint streamlineTex_ = 0;
+    int   lastStreamlineChoice_ = -1;
+    bool  lastStreamlineReversed_ = false;
+    bool  streamlineLutDirty_ = true;
 
     void uploadLUT(GLuint& tex, int choice, bool reversed) const;
 };

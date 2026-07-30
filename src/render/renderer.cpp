@@ -618,33 +618,30 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         return out;
     };
 
-    // Scalar colorbar: bottom-right (corner 0).
+    std::vector<ColorbarData> bars;
+    const int tickCount = m_state.colorbarTicks;
+
+    // Scalar bar
     if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar) {
-        ColorbarData data;
-        data.visible = true;
-        data.title = QString::fromStdString(m_state.activeScalarName);
-        data.stops = stopsFor(m_state.colormapChoice, m_state.colormapReversed);
-        const int tickCount = m_state.colorbarTicks;
+        ColorbarData d;
+        d.visible = true;
+        d.title = QString::fromStdString(m_state.activeScalarName);
+        d.stops = stopsFor(m_state.colormapChoice, m_state.colormapReversed);
         const float range = m_state.dataScalarMax - m_state.dataScalarMin;
         for (int i = 0; i < tickCount; ++i) {
             const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float v = m_state.dataScalarMax - range * frac;
-            data.tickLabels.append(QString::number(v, 'f', 3));
+            const float v = m_state.dataScalarMin + range * frac;
+            d.tickLabels.append(QString::number(v, 'f', 3));
         }
-        colorbarOverlay.draw(dpr, deviceW, deviceH, data, 0);
+        bars.push_back(d);
     }
 
-    // Vector magnitude colorbar: top-right (corner 1).
+    // Vector bar
     if (m_state.showVectors && m_state.vectorUseColormap && m_state.hasMeshLoaded) {
-        ColorbarData data;
-        data.visible = true;
-        data.title = QString::fromStdString(m_state.vectorField) + QChar(0x27A1);
-        data.stops = stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed);
-        const int tickCount = m_state.colorbarTicks;
-        // The glyph shader maps color through txMag() (renderer state
-        // vectorMagTransform), so the LUT gradient is linear in TRANSFORMED
-        // magnitude. Tick labels must therefore invert the transform to show
-        // raw magnitudes that line up with the arrow colors.
+        ColorbarData d;
+        d.visible = true;
+        d.title = QString::fromStdString(m_state.vectorField) + QChar(0x27A1);
+        d.stops = stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed);
         auto txMag = [&](float m) -> float {
             if (m_state.vectorMagTransform == 1) return std::sqrt(std::max(m, 0.0f));
             if (m_state.vectorMagTransform == 2) return std::log(1.0f + std::max(m, 0.0f));
@@ -660,13 +657,31 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         const float tRange = tMax - tMin;
         for (int i = 0; i < tickCount; ++i) {
             const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            // frac = 0 is the top of the bar (max), frac = 1 the bottom (min).
-            const float t = tMax - tRange * frac;
+            const float t = tMin + tRange * frac;
             const float v = invTxMag(t);
-            data.tickLabels.append(QString::number(v, 'f', 3));
+            d.tickLabels.append(QString::number(v, 'f', 3));
         }
-        colorbarOverlay.draw(dpr, deviceW, deviceH, data, 1);
+        bars.push_back(d);
     }
+
+    // Streamline bar
+    if (m_state.showStreamlines && m_state.streamlineUseColormap && m_state.hasMeshLoaded) {
+        ColorbarData d;
+        d.visible = true;
+        d.title = QString::fromStdString(m_state.streamlineVectorField) + QChar(0x27A1);
+        d.stops = stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed);
+        const float sMin = streamlineSet.magMin;
+        const float sMax = streamlineSet.magMax;
+        const float sRange = sMax - sMin;
+        for (int i = 0; i < tickCount; ++i) {
+            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+            const float v = sMin + sRange * frac;
+            d.tickLabels.append(QString::number(v, 'f', 3));
+        }
+        bars.push_back(d);
+    }
+
+    colorbarOverlay.drawBars(dpr, deviceW, deviceH, bars);
 }
 
 void Renderer::drawBoundingBox(const glm::mat4& view, const glm::mat4& proj) {
@@ -865,6 +880,8 @@ void Renderer::renderFrame() {
     colormap.setScalarReversed(m_state.colormapReversed);
     colormap.setVectorChoice(m_state.vectorColormapChoice);
     colormap.setVectorReversed(m_state.vectorColormapReversed);
+    colormap.setStreamlineChoice(m_state.streamlineColormapChoice);
+    colormap.setStreamlineReversed(m_state.streamlineColormapReversed);
     colormap.update();
 
     const bool useLod = m_state.useLod;
@@ -1089,8 +1106,8 @@ void Renderer::renderFrame() {
             ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineDashEnabled ? 1.0f : 0.0f, m_state.streamlineDashSpeed);
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
         glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
-        if (m_state.streamlineUseColormap && colormap.vectorTexture() != 0) {
-            glBindTextureUnit(1, colormap.vectorTexture());
+        if (m_state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
+            glBindTextureUnit(1, colormap.streamlineTexture());
             glUniform1i(streamlineLutLoc, 1);
         }
         glBindVertexArray(streamlineSet.vao);
@@ -1188,8 +1205,8 @@ void Renderer::renderFrame() {
             glUniformMatrix4fv(particleMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
             glUniform1f(particlePointSizeLoc, m_state.particleSize);
 
-            if (m_state.streamlineUseColormap && colormap.vectorTexture() != 0) {
-                glBindTextureUnit(1, colormap.vectorTexture());
+            if (m_state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
+                glBindTextureUnit(1, colormap.streamlineTexture());
                 glUniform1i(particleLutLoc, 1);
                 glUniform1i(particleUseColormapLoc, 1);
             } else {
