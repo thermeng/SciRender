@@ -327,6 +327,62 @@ std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const 
     return verts;
 }
 
+void StreamlineSet::initParticles(int count) {
+    particles.clear();
+    if (paths.empty() || count <= 0) return;
+    std::uniform_int_distribution<int> pathDist(0, static_cast<int>(paths.size()) - 1);
+    std::uniform_real_distribution<float> tDist(0.0f, 1.0f);
+    std::uniform_real_distribution<float> speedDist(0.7f, 1.3f);
+    particles.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        particles.push_back({ pathDist(particleRng), tDist(particleRng), speedDist(particleRng) });
+    }
+}
+
+void StreamlineSet::updateParticles(float dt, float speed) {
+    for (auto& p : particles) {
+        if (p.pathIndex < 0 || p.pathIndex >= static_cast<int>(paths.size())) continue;
+        const auto& path = paths[p.pathIndex];
+        if (path.points.size() < 2) continue;
+        p.t += (dt * speed * p.speed) / std::max(path.totalLength, 1e-6f);
+        if (p.t >= 1.0f) {
+            p.t -= 1.0f;
+        }
+    }
+}
+
+void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts, bool useColormap) {
+    outVerts.clear();
+    outVerts.reserve(particles.size() * 4);
+    for (const auto& p : particles) {
+        if (p.pathIndex < 0 || p.pathIndex >= static_cast<int>(paths.size())) continue;
+        const auto& pts = paths[p.pathIndex].points;
+        if (pts.size() < 2) continue;
+
+        float scaledT = p.t * static_cast<float>(pts.size() - 1);
+        int idx = static_cast<int>(scaledT);
+        float frac = scaledT - static_cast<float>(idx);
+        if (idx >= static_cast<int>(pts.size()) - 1) {
+            idx = static_cast<int>(pts.size()) - 2;
+            frac = 1.0f;
+        }
+        glm::vec3 pos = glm::mix(pts[idx], pts[idx + 1], frac);
+
+        glm::vec3 vel = pts[std::min(idx + 1, static_cast<int>(pts.size()) - 1)] - pts[idx];
+        float mag = glm::length(vel);
+
+        outVerts.push_back(pos.x);
+        outVerts.push_back(pos.y);
+        outVerts.push_back(pos.z);
+        outVerts.push_back(mag);
+    }
+}
+
+void StreamlineSet::teardownParticles() {
+    particles.clear();
+    paths.clear();
+}
+
 void StreamlineSet::teardownGL() {
     if (vao) glDeleteVertexArrays(1, &vao);
     if (vbo) glDeleteBuffers(1, &vbo);
@@ -389,6 +445,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCount, float stepSiz
     float mn = std::numeric_limits<float>::max();
     float mx = -std::numeric_limits<float>::max();
 
+    paths.clear();
     std::vector<float> verts; // interleaved [x,y,z,mag,normalX,normalY,normalZ,u,v]
     std::vector<float> seedVerts; // interleaved [x,y,z]
     std::vector<glm::vec3> arrowPositions;
@@ -463,6 +520,9 @@ for (const auto& seed : seeds) {
                 totalLength += glm::length(sampled[i + 1] - sampled[i]);
             }
             if (totalLength < 1e-6f) totalLength = 1.0f;
+
+            // Store path for particle animation
+            paths.push_back({ sampled, totalLength });
 
             float currentLength = 0.0f;
             const float baseWidth = static_cast<float>(extent * ribbonWidth);

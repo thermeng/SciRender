@@ -229,6 +229,8 @@ void ViewportFboRenderer::render() {
         sources.streamlineFrag  = loadShader(":/SciRenderUI/src/shaders/streamline.frag");
         sources.seedVert        = loadShader(":/SciRenderUI/src/shaders/seed.vert");
         sources.seedFrag        = loadShader(":/SciRenderUI/src/shaders/seed.frag");
+        sources.particleVert    = loadShader(":/SciRenderUI/src/shaders/particle.vert");
+        sources.particleFrag    = loadShader(":/SciRenderUI/src/shaders/particle.frag");
 
         m_scene->initShaders(sources);
         m_scene->initGrid(sources);
@@ -240,7 +242,7 @@ void ViewportFboRenderer::render() {
     // frame; skipping it when idle keeps the GPU (and fan) at rest instead of
     // redrawing the same image continuously. Continuous updates are still needed
     // while the turntable (autoRotate) or FPS HUD is on.
-    const bool continuous = (m_scene->autoRotate() || m_scene->showFps() || m_scene->isDashAnimating());
+    const bool continuous = (m_scene->autoRotate() || m_scene->showFps() || m_scene->isDashAnimating() || m_scene->isParticlesAnimating());
     if (!m_dirty && !continuous && m_pendingScreenshot.isEmpty()) {
         return;
     }

@@ -125,6 +125,8 @@ qt_add_qml_module(SciRender
         src/shaders/streamline.frag
         src/shaders/seed.vert
         src/shaders/seed.frag
+        src/shaders/particle.vert
+        src/shaders/particle.frag
         src/shaders/lod.comp
         src/shaders/lod_output.comp
         src/shaders/lod_tris.comp

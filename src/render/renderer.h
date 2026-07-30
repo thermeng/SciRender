@@ -55,6 +55,8 @@ struct ShaderSources {
     std::string streamlineFrag;
     std::string seedVert;
     std::string seedFrag;
+    std::string particleVert;
+    std::string particleFrag;
 };
 
 // ---------------------------------------------------------------------------
@@ -179,6 +181,12 @@ struct RenderRenderState {
     int streamlineArrowSpacing = 5;
     float streamlineArrowSize = 0.05f;
 
+    // Particles
+    bool showParticles = false;
+    int particleCount = 500;
+    float particleSpeed = 1.0f;
+    float particleSize = 4.0f;
+
     // Screenshot export options
     bool screenshotTransparent = false;
 
@@ -279,6 +287,7 @@ public:
     bool autoRotate() const { return m_state.autoRotate; }
     bool showFps() const { return m_state.showFps; }
     bool isDashAnimating() const { return m_state.streamlineDashEnabled; }
+    bool isParticlesAnimating() const { return m_state.showParticles; }
 
     // Uploads CPU geometry to the GPU. Safe to call on the render thread.
     void uploadMesh(std::shared_ptr<const RenderMesh> renderMesh);
@@ -397,6 +406,20 @@ private:
     GLint seedMvpLoc = -1;
     GLint seedColorLoc = -1;
     GLint seedPointSizeLoc = -1;
+
+    // particle program
+    GLuint particleProgram = 0;
+    GLint particleMvpLoc = -1;
+    GLint particleColorLoc = -1;
+    GLint particleLutLoc = -1;
+    GLint particlePointSizeLoc = -1;
+    GLint particleUseColormapLoc = -1;
+    GLint particleMagRangeLoc = -1;
+
+    // particle VAO/VBO
+    GLuint particleVao = 0;
+    GLuint particleVbo = 0;
+    int particleVertexCount = 0;
 
     // quality overlay cached VAOs/VBOs (one per defect class)
     GLuint qualityOpenEdgesVao = 0, qualityOpenEdgesVbo = 0;

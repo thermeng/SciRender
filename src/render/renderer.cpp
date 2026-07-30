@@ -296,6 +296,41 @@ void Renderer::initShaders(const ShaderSources& sources) {
             }
         }
     }
+
+    // particle program
+    const std::string& pvert = sources.particleVert;
+    const std::string& pfrag = sources.particleFrag;
+    if (!pvert.empty() && !pfrag.empty()) {
+        GLuint pv = glCreateShader(GL_VERTEX_SHADER);
+        GLuint pf = glCreateShader(GL_FRAGMENT_SHADER);
+        if (!compileShader(pv, pvert.c_str(), "PARTICLE_VERT") || !compileShader(pf, pfrag.c_str(), "PARTICLE_FRAG")) {
+            glDeleteShader(pv); glDeleteShader(pf);
+            particleProgram = 0;
+        } else {
+            particleProgram = glCreateProgram();
+            glAttachShader(particleProgram, pv); glAttachShader(particleProgram, pf);
+            glLinkProgram(particleProgram);
+
+            GLint linked = 0;
+            glGetProgramiv(particleProgram, GL_LINK_STATUS, &linked);
+            if (!linked) {
+                char log[512];
+                glGetProgramInfoLog(particleProgram, 512, nullptr, log);
+                printf("Particle shader program linking error: %s\n", log);
+                glDeleteProgram(particleProgram);
+                particleProgram = 0;
+            }
+            glDeleteShader(pv); glDeleteShader(pf);
+            if (particleProgram != 0) {
+                particleMvpLoc = glGetUniformLocation(particleProgram, "uMVP");
+                particleColorLoc = glGetUniformLocation(particleProgram, "uColor");
+                particleLutLoc = glGetUniformLocation(particleProgram, "uColormapLUT");
+                particlePointSizeLoc = glGetUniformLocation(particleProgram, "uPointSize");
+                particleUseColormapLoc = glGetUniformLocation(particleProgram, "uUseColormap");
+                particleMagRangeLoc = glGetUniformLocation(particleProgram, "uParticleMagRange");
+            }
+        }
+    }
 }
 
 void Renderer::initGrid(const ShaderSources& sources) {
@@ -753,6 +788,8 @@ void Renderer::renderFrame() {
 
     if (streamlineDirty.exchange(false)) {
         if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.vectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+        streamlineSet.initParticles(m_state.particleCount);
+        particleVertexCount = 0;
     }
 
     glEnable(GL_DEPTH_TEST);
@@ -1100,6 +1137,66 @@ void Renderer::renderFrame() {
         glBindVertexArray(0);
         if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
         glUseProgram(0);
+    }
+
+    // Particle rendering pass
+    if (m_state.showParticles && !streamlineSet.empty() && particleProgram != 0) {
+        auto now = std::chrono::steady_clock::now();
+        auto particleDt = std::chrono::duration<float>(now - m_lastFrameTime).count();
+        streamlineSet.updateParticles(particleDt, m_state.particleSpeed);
+
+        std::vector<float> particleVerts;
+        streamlineSet.buildParticleVertices(particleVerts, m_state.streamlineUseColormap);
+
+        if (!particleVerts.empty()) {
+            if (particleVao == 0) {
+                glGenVertexArrays(1, &particleVao);
+                glGenBuffers(1, &particleVbo);
+                glBindVertexArray(particleVao);
+                glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(3 * sizeof(float)));
+                glBindVertexArray(0);
+            }
+
+            particleVertexCount = static_cast<int>(particleVerts.size() / 4);
+            glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
+            glBufferData(GL_ARRAY_BUFFER, particleVerts.size() * sizeof(float), particleVerts.data(), GL_DYNAMIC_DRAW);
+
+            glUseProgram(particleProgram);
+            GLboolean blendWas = glIsEnabled(GL_BLEND);
+            GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
+            GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glEnable(GL_PROGRAM_POINT_SIZE);
+            glDisable(GL_DEPTH_TEST);
+
+            glUniformMatrix4fv(particleMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
+            glUniform1f(particlePointSizeLoc, m_state.particleSize);
+
+            if (m_state.streamlineUseColormap && colormap.vectorTexture() != 0) {
+                glBindTextureUnit(1, colormap.vectorTexture());
+                glUniform1i(particleLutLoc, 1);
+                glUniform1i(particleUseColormapLoc, 1);
+            } else {
+                glm::vec4 pc(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], 1.0f);
+                glUniform4fv(particleColorLoc, 1, glm::value_ptr(pc));
+                glUniform1i(particleUseColormapLoc, 0);
+            }
+            glUniform2f(particleMagRangeLoc, streamlineSet.magMin, streamlineSet.magMax);
+
+            glBindVertexArray(particleVao);
+            glDrawArrays(GL_POINTS, 0, particleVertexCount);
+            glBindVertexArray(0);
+
+            if (!blendWas) glDisable(GL_BLEND);
+            if (!pointSizeWas) glDisable(GL_PROGRAM_POINT_SIZE);
+            if (depthWas) glEnable(GL_DEPTH_TEST);
+            glUseProgram(0);
+        }
     }
 
     if (!m_state.screenshotTransparent) drawGrid(view, proj);
