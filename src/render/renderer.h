@@ -180,6 +180,8 @@ struct RenderRenderState {
 
     std::string seedMode = "Volume";
     double seedPlanePos = 0.5;
+    int seedPlaneCountU = 10;
+    int seedPlaneCountV = 10;
     double seedJitter = 0.0;
     bool showSeeds = false;
     bool showStreamlineArrows = false;
@@ -255,7 +257,8 @@ struct StreamlineUBOData {
     glm::vec4 color_useColormap; // xyz = color, w = useColormap(0/1)
     glm::vec4 magRange;          // x = magMin, y = magMax, zw = pad
     glm::vec4 material;          // x = ambient, y = diffuse, z = specular, w = specularPower
-    glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, zw = pad
+    glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, z = dashEnabled, w = dashSpeed
+    glm::vec4 arrowParams;       // x = arrowAnimSpeed, yzw = pad
 };
 
 // ---------------------------------------------------------------------------
