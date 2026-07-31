@@ -17,12 +17,27 @@ float StreamlineSet::magSq(const glm::vec3& v) {
 }
 
 glm::vec3 StreamlineSet::evalFieldNearest(const RenderMesh& mesh, const glm::vec3& pos, const glm::vec3* data, int count, int searchCount) {
-    if (!data || count <= 0 || searchCount <= 0) return glm::vec3(0.0f);
+    if (!data || count <= 0) return glm::vec3(0.0f);
+
+    const float* verts = mesh.vertices.data();
+    const int maxSamples = 4096;
+    const int stride = std::max(1, count / maxSamples);
+
+    // Estimate characteristic point spacing from bounding box volume and point count.
+    // Use 2x this spacing as the distance cutoff: points within the mesh should be
+    // closer than this, while points in holes/gaps will be farther away.
+    const float vol = std::abs(static_cast<float>(
+        (mesh.bounds.maxX - mesh.bounds.minX) *
+        (mesh.bounds.maxY - mesh.bounds.minY) *
+        (mesh.bounds.maxZ - mesh.bounds.minZ)));
+    const float avgSpacing = (count > 0 && vol > 0.0f)
+        ? std::pow(vol / static_cast<float>(count), 1.0f / 3.0f)
+        : static_cast<float>(mesh.bounds.extent);
+    const float cutoffDistSq = avgSpacing * avgSpacing;
 
     float bestD2 = std::numeric_limits<float>::max();
-    int bestIdx = 0;
-    const float* verts = mesh.vertices.data();
-    for (int i = 0; i < searchCount; ++i) {
+    int bestIdx = -1;
+    for (int i = 0; i < count; i += stride) {
         int vi = i * 3;
         if (vi + 2 >= static_cast<int>(mesh.vertices.size())) break;
         float dx = verts[vi + 0] - pos.x;
@@ -34,16 +49,11 @@ glm::vec3 StreamlineSet::evalFieldNearest(const RenderMesh& mesh, const glm::vec
             bestIdx = i;
         }
     }
-    if (bestIdx >= count) return glm::vec3(0.0f);
+
+    if (bestIdx < 0 || bestD2 > cutoffDistSq) return glm::vec3(0.0f);
+    if (magSq(data[bestIdx]) < 1e-12f) return glm::vec3(0.0f);
     return data[bestIdx];
 }
-
-struct StructuredGridInfo {
-    std::vector<float> xs, ys, zs;
-    int dimX = 0, dimY = 0, dimZ = 0;
-    const glm::vec3* data = nullptr;
-    int count = 0;
-};
 
 StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const RenderMesh& mesh, const glm::vec3* data, int count) {
     StreamlineSet::StructuredGridInfo info;
@@ -104,6 +114,30 @@ StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const R
     info.dimX = dimX;
     info.dimY = dimY;
     info.dimZ = dimZ;
+
+    // Build per-cell activity mask: a cell is active iff ALL 8 corner vertices
+    // have non-zero field magnitude.  This lets streamlines respect non-rectangular
+    // domain boundaries (cylinders, L-shapes, etc.) stored as structured grids.
+    const int cX = dimX - 1, cY = dimY - 1, cZ = dimZ - 1;
+    info.cellActive.resize(static_cast<size_t>(cX) * cY * cZ, false);
+    auto cellIdx = [cX, cY](int i, int j, int k) { return i + j * cX + k * cX * cY; };
+    auto vertIdx = [dimX, dimY](int i, int j, int k) { return i + j * dimX + k * dimX * dimY; };
+    const float magThreshSq = 1e-6f * 1e-6f;
+    for (int k = 0; k < cZ; ++k) {
+        for (int j = 0; j < cY; ++j) {
+            for (int i = 0; i < cX; ++i) {
+                bool active = true;
+                for (int dk = 0; dk <= 1 && active; ++dk)
+                    for (int dj = 0; dj <= 1 && active; ++dj)
+                        for (int di = 0; di <= 1 && active; ++di) {
+                            const glm::vec3& v = data[vertIdx(i + di, j + dj, k + dk)];
+                            if (magSq(v) < magThreshSq) active = false;
+                        }
+                info.cellActive[cellIdx(i, j, k)] = active;
+            }
+        }
+    }
+
     return info;
 }
 
@@ -164,6 +198,153 @@ glm::vec3 StreamlineSet::evalFieldTrilinear(const StreamlineSet::StructuredGridI
     return lerp(c0, c1, fz);
 }
 
+bool StreamlineSet::isInsideDomain(const StreamlineSet::StructuredGridInfo& info, const glm::vec3& pos) {
+    if (info.cellActive.empty()) return true;
+    if (info.dimX <= 1 || info.dimY <= 1 || info.dimZ <= 1) return true;
+
+    // Cartesian path: binary search on sorted axis arrays
+    if (!info.xs.empty()) {
+        if (pos.x < info.xs.front() || pos.x > info.xs.back() ||
+            pos.y < info.ys.front() || pos.y > info.ys.back() ||
+            pos.z < info.zs.front() || pos.z > info.zs.back()) {
+            return false;
+        }
+
+        int i0 = static_cast<int>(std::upper_bound(info.xs.begin(), info.xs.end(), pos.x) - info.xs.begin()) - 1;
+        int j0 = static_cast<int>(std::upper_bound(info.ys.begin(), info.ys.end(), pos.y) - info.ys.begin()) - 1;
+        int k0 = static_cast<int>(std::upper_bound(info.zs.begin(), info.zs.end(), pos.z) - info.zs.begin()) - 1;
+
+        if (i0 < 0) i0 = 0; if (j0 < 0) j0 = 0; if (k0 < 0) k0 = 0;
+        if (i0 >= info.dimX - 1) i0 = info.dimX - 2;
+        if (j0 >= info.dimY - 1) j0 = info.dimY - 2;
+        if (k0 >= info.dimZ - 1) k0 = info.dimZ - 2;
+
+        int cX = info.dimX - 1;
+        int cY = info.dimY - 1;
+        return info.cellActive[i0 + j0 * cX + k0 * cX * cY];
+    }
+
+    // Non-Cartesian fallback: find nearest vertex, check grid-boundary
+    // containment via half-space tests, then verify cell activity.
+    //
+    // For non-Cartesian structured grids (e.g. cylindrical), a point can
+    // be geometrically close to a boundary vertex yet lie OUTSIDE the
+    // domain (e.g. inside a cylinder's hole).  The fix: when the nearest
+    // vertex sits on a grid boundary (gi==0, gi==dimX-1, etc.), project
+    // the point onto the local grid-step vector.  If the projection points
+    // OUTWARD the point is outside the mesh.
+    //
+    // Axes whose first and last vertices coincide (periodic axes such as
+    // theta in a full-annulus cylindrical grid) skip the boundary test.
+    if (!info.verts || info.vertCount <= 0) return true;
+
+    const int dX = info.dimX;
+    const int dY = info.dimY;
+    const int dZ = info.dimZ;
+
+    auto vPos = [&](int i, int j, int k) -> glm::vec3 {
+        int idx = i + j * dX + k * dX * dY;
+        if (idx < 0 || idx >= info.vertCount) return glm::vec3(0.0f);
+        const float* v = &info.verts[idx * 3];
+        return glm::vec3(v[0], v[1], v[2]);
+    };
+
+    // --- nearest-vertex search (linear scan, capped at 4096 samples) ---
+    const int maxSamples = 4096;
+    const int stride = std::max(1, info.vertCount / maxSamples);
+    float bestD2 = std::numeric_limits<float>::max();
+    int bestIdx = -1;
+    for (int i = 0; i < info.vertCount; i += stride) {
+        int vi = i * 3;
+        float dx = info.verts[vi + 0] - pos.x;
+        float dy = info.verts[vi + 1] - pos.y;
+        float dz = info.verts[vi + 2] - pos.z;
+        float d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; bestIdx = i; }
+    }
+    if (bestIdx < 0) return false;
+
+    // Safety distance cutoff (generous — boundary checks do the real work).
+    if (bestD2 > info.avgSpacing * info.avgSpacing * 4.0f) return false;
+
+    // Map flat index to (gi, gj, gk).
+    int gi = bestIdx % dX;
+    int gj = (bestIdx / dX) % dY;
+    int gk = bestIdx / (dX * dY);
+
+    // --- detect periodic axes (first and last vertices coincide) ---
+    // Sample a few (j,k) pairs to be robust against stride artifacts.
+    auto axisIsPeriodic = [&](int axis) -> bool {
+        int n = (axis == 0) ? dX : (axis == 1) ? dY : dZ;
+        if (n <= 1) return false;
+        // Compare the first and last vertices along this axis.
+        int i0 = (axis == 0) ? 0 : 0;
+        int j0 = (axis == 1) ? 0 : 0;
+        int k0 = (axis == 2) ? 0 : 0;
+        int i1 = (axis == 0) ? dX - 1 : i0;
+        int j1 = (axis == 1) ? dY - 1 : j0;
+        int k1 = (axis == 2) ? dZ - 1 : k0;
+        glm::vec3 p0 = vPos(i0, j0, k0);
+        glm::vec3 p1 = vPos(i1, j1, k1);
+        float dist = glm::length(p1 - p0);
+        // Average spacing along this axis.
+        float span = 0.0f;
+        if (axis == 0) span = glm::length(vPos(dX-1, 0, 0) - vPos(0, 0, 0));
+        else if (axis == 1) span = glm::length(vPos(0, dY-1, 0) - vPos(0, 0, 0));
+        else span = glm::length(vPos(0, 0, dZ-1) - vPos(0, 0, 0));
+        float spacing = span / static_cast<float>(std::max(1, n - 1));
+        return dist < spacing * 0.5f;
+    };
+
+    const bool iPeriodic = axisIsPeriodic(0);
+    const bool jPeriodic = axisIsPeriodic(1);
+    const bool kPeriodic = axisIsPeriodic(2);
+
+    // --- half-space boundary checks ---
+    // When the nearest vertex is on a grid boundary, the test point must
+    // lie on the INTERIOR side.  The interior direction is the vector
+    // from the boundary vertex toward its interior neighbour.
+    glm::vec3 V = vPos(gi, gj, gk);
+
+    if (!iPeriodic) {
+        if (gi == 0) {
+            glm::vec3 inward = vPos(1, gj, gk) - V;
+            if (glm::dot(pos - V, inward) < 0.0f) return false;
+        } else if (gi == dX - 1) {
+            glm::vec3 inward = vPos(dX - 2, gj, gk) - V;
+            if (glm::dot(pos - V, inward) < 0.0f) return false;
+        }
+    }
+    if (!jPeriodic) {
+        if (gj == 0) {
+            glm::vec3 inward = vPos(gi, 1, gk) - V;
+            if (glm::dot(pos - V, inward) < 0.0f) return false;
+        } else if (gj == dY - 1) {
+            glm::vec3 inward = vPos(gi, dY - 2, gk) - V;
+            if (glm::dot(pos - V, inward) < 0.0f) return false;
+        }
+    }
+    if (!kPeriodic) {
+        if (gk == 0) {
+            glm::vec3 inward = vPos(gi, gj, 1) - V;
+            if (glm::dot(pos - V, inward) < 0.0f) return false;
+        } else if (gk == dZ - 1) {
+            glm::vec3 inward = vPos(gi, gj, dZ - 2) - V;
+            if (glm::dot(pos - V, inward) < 0.0f) return false;
+        }
+    }
+
+    // --- cell activity check ---
+    int ci = std::min(gi, dX - 2);
+    int cj = std::min(gj, dY - 2);
+    int ck = std::min(gk, dZ - 2);
+    if (ci < 0) ci = 0; if (cj < 0) cj = 0; if (ck < 0) ck = 0;
+
+    int cX = dX - 1;
+    int cY = dY - 1;
+    return info.cellActive[static_cast<size_t>(ci) + cj * cX + ck * cX * cY];
+}
+
 std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter) {
     std::vector<glm::vec3> seeds;
     if (seedCount <= 0) return seeds;
@@ -219,6 +400,7 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
                     z = minZ + ty * sz;
                 } else if (mode == "PlaneYZ") {
                     x = minX + pos * sx;
+                    y = minY + ty * sy;
                     z = minZ + tx * sz;
                 }
 
@@ -360,7 +542,7 @@ void StreamlineSet::updateParticles(float dt, float speed) {
     }
 }
 
-void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts, bool useColormap) {
+void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts) {
     outVerts.clear();
     outVerts.reserve(particles.size() * 4);
     for (const auto& p : particles) {
@@ -380,13 +562,10 @@ void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts, bool use
         glm::vec3 pos = glm::mix(pts[idx], pts[idx + 1], frac);
 
         float mag = 0.0f;
-        if (useColormap && !spd.empty()) {
+        if (!spd.empty()) {
             float sA = spd[std::min(idx, static_cast<int>(spd.size()) - 1)];
             float sB = spd[std::min(idx + 1, static_cast<int>(spd.size()) - 1)];
             mag = sA + (sB - sA) * frac;
-        } else {
-            glm::vec3 vel = pts[std::min(idx + 1, static_cast<int>(pts.size()) - 1)] - pts[idx];
-            mag = glm::length(vel);
         }
 
         outVerts.push_back(pos.x);
@@ -415,6 +594,7 @@ void StreamlineSet::teardownGL() {
 
 void StreamlineSet::shutdown() {
     teardownGL();
+    teardownParticles();
 }
 
 void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
@@ -448,11 +628,62 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
     const float magThresh = 1e-6f;
 
     StructuredGridInfo grid = buildStructuredGridInfo(mesh, data, limit);
-    const bool hasGrid = grid.dimX > 0;
+    bool hasGrid = grid.dimX > 0;
+    bool nonCartesianGrid = false;
+
+    // Fallback: grid was declared structured but Cartesian coordinate
+    // extraction failed (non-Cartesian grid like cylindrical).
+    // Build cellActive mask using flat-index mapping directly.
+    if (!hasGrid && mesh.gridDimX > 0 && mesh.gridDimY > 0 && mesh.gridDimZ > 0
+        && mesh.gridDimX * mesh.gridDimY * mesh.gridDimZ == limit) {
+        grid.dimX = mesh.gridDimX;
+        grid.dimY = mesh.gridDimY;
+        grid.dimZ = mesh.gridDimZ;
+        grid.data = data;
+        grid.count = limit;
+        grid.verts = mesh.vertices.data();
+        grid.vertCount = limit;
+
+        const int cX = grid.dimX - 1, cY = grid.dimY - 1, cZ = grid.dimZ - 1;
+        grid.cellActive.resize(static_cast<size_t>(cX) * cY * cZ, false);
+        auto vIdx = [dX = grid.dimX, dY = grid.dimY](int i, int j, int k) {
+            return i + j * dX + k * dX * dY;
+        };
+        const float magThreshSq = 1e-6f * 1e-6f;
+        for (int k = 0; k < cZ; ++k)
+            for (int j = 0; j < cY; ++j)
+                for (int i = 0; i < cX; ++i) {
+                    bool active = true;
+                    for (int dk = 0; dk <= 1 && active; ++dk)
+                        for (int dj = 0; dj <= 1 && active; ++dj)
+                            for (int di = 0; di <= 1 && active; ++di)
+                                if (magSq(data[vIdx(i + di, j + dj, k + dk)]) < magThreshSq)
+                                    active = false;
+                    grid.cellActive[i + j * cX + k * cX * cY] = active;
+                }
+        hasGrid = true;
+        nonCartesianGrid = true;
+
+        // Compute average spacing for the non-Cartesian fallback distance cutoff.
+        {
+            const float vol = std::abs(static_cast<float>(
+                (mesh.bounds.maxX - mesh.bounds.minX) *
+                (mesh.bounds.maxY - mesh.bounds.minY) *
+                (mesh.bounds.maxZ - mesh.bounds.minZ)));
+            grid.avgSpacing = (limit > 0 && vol > 0.0f)
+                ? std::pow(vol / static_cast<float>(limit), 1.0f / 3.0f)
+                : 1.0f;
+        }
+    }
 
     auto evalField = [&](const glm::vec3& pos) -> glm::vec3 {
         if (hasGrid) {
-            return evalFieldTrilinear(grid, pos);
+            if (!nonCartesianGrid)
+                return evalFieldTrilinear(grid, pos);
+            // Non-Cartesian structured grid: nearest lookup with domain gate
+            glm::vec3 v = evalFieldNearest(mesh, pos, data, limit, limit);
+            if (!isInsideDomain(grid, pos)) return glm::vec3(0.0f);
+            return v;
         }
         return evalFieldNearest(mesh, pos, data, limit, limit);
     };
@@ -460,11 +691,33 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
     std::vector<glm::vec3> seeds = generateSeeds(mesh, seedCountParam, mode, planePos, jitter);
     if (seeds.empty()) return;
 
+    if (hasGrid) {
+        const float magThreshSq = magThresh * magThresh;
+        seeds.erase(
+            std::remove_if(seeds.begin(), seeds.end(), [&](const glm::vec3& s) {
+                if (!isInsideDomain(grid, s)) return true;
+                glm::vec3 v = evalField(s);
+                return magSq(v) < magThreshSq;
+            }),
+            seeds.end());
+        if (seeds.empty()) return;
+    } else {
+        const float magThreshSq = magThresh * magThresh;
+        seeds.erase(
+            std::remove_if(seeds.begin(), seeds.end(), [&](const glm::vec3& s) {
+                glm::vec3 v = evalFieldNearest(mesh, s, data, limit, limit);
+                return magSq(v) < magThreshSq;
+            }),
+            seeds.end());
+        if (seeds.empty()) return;
+    }
+
     float mn = std::numeric_limits<float>::max();
     float mx = -std::numeric_limits<float>::max();
 
     paths.clear();
-    std::vector<float> verts; // interleaved [x,y,z,mag,normalX,normalY,normalZ,u,v]
+    particles.clear();
+    std::vector<float> verts; // interleaved [x,y,z,mag,normalX,normalY,normalZ,dashFlag,u]
     std::vector<float> seedVerts; // interleaved [x,y,z]
     std::vector<glm::vec3> arrowPositions;
     std::vector<glm::vec3> arrowDirections;
@@ -515,12 +768,18 @@ for (const auto& seed : seeds) {
 
                 glm::vec3 newPos = pos + (h / 6.0f) * (k1 + 2.0f * k2 + 2.0f * k3 + k4);
 
+                {
+                    glm::vec3 nv = evalField(newPos);
+                    if (magSq(nv) < magThresh * magThresh) break;
+                }
+
                 if (newPos.x < mesh.bounds.minX || newPos.x > mesh.bounds.maxX ||
                     newPos.y < mesh.bounds.minY || newPos.y > mesh.bounds.maxY ||
                     newPos.z < mesh.bounds.minZ || newPos.z > mesh.bounds.maxZ) {
-                    pts.push_back(newPos);
                     break;
                 }
+
+                if (hasGrid && !isInsideDomain(grid, newPos)) break;
 
                 pts.push_back(newPos);
                 pos = newPos;
@@ -528,10 +787,7 @@ for (const auto& seed : seeds) {
 
             if (pts.size() < 3) continue;
 
-            std::vector<glm::vec3> sampled;
-            sampled.reserve(pts.size());
-            for (size_t i = 0; i < pts.size(); i += 2) sampled.push_back(pts[i]);
-            if (sampled.size() >= 2 && sampled.back() != pts.back()) sampled.push_back(pts.back());
+            std::vector<glm::vec3> sampled = std::move(pts);
 
             float totalLength = 0.0f;
             for (size_t i = 0; i + 1 < sampled.size(); ++i) {
@@ -609,7 +865,7 @@ for (const auto& seed : seeds) {
                     uB = 1.0f - currentLength / totalLength;
                 }
 
-                auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u, float) {
+                auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u) {
                     verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
                     verts.push_back(rawMag);
                     verts.push_back(normal.x); verts.push_back(normal.y); verts.push_back(normal.z);
@@ -619,13 +875,13 @@ for (const auto& seed : seeds) {
                     if (rawMag > mx) mx = rawMag;
                 };
 
-                pushQuadVertex(va, magA, uA, 0.0f);
-                pushQuadVertex(vb, magA, uA, 1.0f);
-                pushQuadVertex(vc, magB, uB, 0.0f);
+                pushQuadVertex(va, magA, uA);
+                pushQuadVertex(vb, magA, uA);
+                pushQuadVertex(vc, magB, uB);
 
-                pushQuadVertex(vb, magA, uA, 1.0f);
-                pushQuadVertex(vd, magB, uB, 1.0f);
-                pushQuadVertex(vc, magB, uB, 0.0f);
+                pushQuadVertex(vb, magA, uA);
+                pushQuadVertex(vd, magB, uB);
+                pushQuadVertex(vc, magB, uB);
             }
 
             if (showArrows && arrowSpacing > 0 && sampled.size() > static_cast<size_t>(arrowSpacing + 1)) {
