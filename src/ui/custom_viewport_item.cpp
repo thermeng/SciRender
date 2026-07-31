@@ -232,6 +232,9 @@ void ViewportFboRenderer::render() {
         sources.seedFrag        = loadShader(":/SciRenderUI/src/shaders/seed.frag");
         sources.particleVert    = loadShader(":/SciRenderUI/src/shaders/particle.vert");
         sources.particleFrag    = loadShader(":/SciRenderUI/src/shaders/particle.frag");
+        sources.lodComp         = loadShader(":/SciRenderUI/src/shaders/lod.comp");
+        sources.lodOutputComp   = loadShader(":/SciRenderUI/src/shaders/lod_output.comp");
+        sources.lodTrisComp     = loadShader(":/SciRenderUI/src/shaders/lod_tris.comp");
 
         m_scene->initShaders(sources);
         m_scene->initGrid(sources);

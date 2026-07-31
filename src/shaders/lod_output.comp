@@ -2,10 +2,10 @@
 layout(local_size_x = 256) in;
 
 layout(std430, binding = 4) buffer OutPos {
-    vec3 outPos[];
+    float outPos[];
 };
 layout(std430, binding = 5) buffer OutNorm {
-    vec3 outNorm[];
+    float outNorm[];
 };
 layout(std430, binding = 6) buffer OutScalar {
     float outScalar[];
@@ -16,9 +16,9 @@ layout(std430, binding = 8) buffer CellData {
 };
 
 layout(std140, binding = 9) buffer LODParams {
-    ivec3 cellsPerAxis;
-    vec3 boundsMin;
-    vec3 boundsMax;
+    ivec4 cellsPerAxis;
+    vec4 boundsMin;
+    vec4 boundsMax;
     int vertexCount;
     int triangleCount;
     int hasNormals;
@@ -40,20 +40,24 @@ void main() {
     cells[flatCell * 10u + 8u] = outIdx;
 
     float inv = 1.0f / float(cells[flatCell * 10u]);
-    outPos[outIdx] = vec3(
-        uintBitsToFloat(cells[flatCell * 10u + 1u]) * inv,
-        uintBitsToFloat(cells[flatCell * 10u + 2u]) * inv,
-        uintBitsToFloat(cells[flatCell * 10u + 3u]) * inv
-    );
+    outPos[outIdx * 3u]     = uintBitsToFloat(cells[flatCell * 10u + 1u]) * inv;
+    outPos[outIdx * 3u + 1u] = uintBitsToFloat(cells[flatCell * 10u + 2u]) * inv;
+    outPos[outIdx * 3u + 2u] = uintBitsToFloat(cells[flatCell * 10u + 3u]) * inv;
 
-    vec3 n = vec3(
-        uintBitsToFloat(cells[flatCell * 10u + 4u]) * inv,
-        uintBitsToFloat(cells[flatCell * 10u + 5u]) * inv,
-        uintBitsToFloat(cells[flatCell * 10u + 6u]) * inv
-    );
-    float nl = length(n);
-    if (nl > 1e-12f) n = n / nl;
-    outNorm[outIdx] = n;
+    if (hasNormals != 0) {
+        vec3 n = vec3(
+            uintBitsToFloat(cells[flatCell * 10u + 4u]) * inv,
+            uintBitsToFloat(cells[flatCell * 10u + 5u]) * inv,
+            uintBitsToFloat(cells[flatCell * 10u + 6u]) * inv
+        );
+        float nl = length(n);
+        if (nl > 1e-12f) n = n / nl;
+        outNorm[outIdx * 3u]     = n.x;
+        outNorm[outIdx * 3u + 1u] = n.y;
+        outNorm[outIdx * 3u + 2u] = n.z;
+    }
 
-    outScalar[outIdx] = uintBitsToFloat(cells[flatCell * 10u + 7u]) * inv;
+    if (hasScalars != 0) {
+        outScalar[outIdx] = uintBitsToFloat(cells[flatCell * 10u + 7u]) * inv;
+    }
 }

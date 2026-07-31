@@ -2,10 +2,10 @@
 layout(local_size_x = 256) in;
 
 layout(std430, binding = 0) buffer InPos {
-    vec3 inPos[];
+    float inPos[];
 };
 layout(std430, binding = 1) buffer InNorm {
-    vec3 inNorm[];
+    float inNorm[];
 };
 layout(std430, binding = 2) buffer InScalar {
     float inScalar[];
@@ -15,10 +15,10 @@ layout(std430, binding = 3) buffer InIndex {
 };
 
 layout(std430, binding = 4) buffer OutPos {
-    vec3 outPos[];
+    float outPos[];
 };
 layout(std430, binding = 5) buffer OutNorm {
-    vec3 outNorm[];
+    float outNorm[];
 };
 layout(std430, binding = 6) buffer OutScalar {
     float outScalar[];
@@ -32,9 +32,9 @@ layout(std430, binding = 8) buffer CellData {
 };
 
 layout(std140, binding = 9) buffer LODParams {
-    ivec3 cellsPerAxis;
-    vec3 boundsMin;
-    vec3 boundsMax;
+    ivec4 cellsPerAxis;
+    vec4 boundsMin;
+    vec4 boundsMax;
     int vertexCount;
     int triangleCount;
     int hasNormals;
@@ -68,12 +68,13 @@ void main() {
     uint vid = gl_GlobalInvocationID.x;
     if (vid >= uint(vertexCount)) return;
 
-    vec3 p = inPos[vid];
-    vec3 range = boundsMax - boundsMin;
-    vec3 cellCoord = (p - boundsMin) / range * vec3(cellsPerAxis);
-    ivec3 cell = ivec3(clamp(floor(cellCoord), ivec3(0), cellsPerAxis - 1));
+    vec3 p = vec3(inPos[vid * 3u], inPos[vid * 3u + 1u], inPos[vid * 3u + 2u]);
+    ivec3 cpa = ivec3(cellsPerAxis.xyz);
+    vec3 range = boundsMax.xyz - boundsMin.xyz;
+    vec3 cellCoord = (p - boundsMin.xyz) / range * vec3(cpa);
+    ivec3 cell = ivec3(clamp(floor(cellCoord), ivec3(0), cpa - 1));
 
-    int flatCell = cell.x + cell.y * cellsPerAxis.x + cell.z * cellsPerAxis.x * cellsPerAxis.y;
+    int flatCell = cell.x + cell.y * cpa.x + cell.z * cpa.x * cpa.y;
 
     atomicAdd(cells[flatCell * 10u], 1u);
     atomicAddFloat(flatCell * 10u + 1u, p.x);
@@ -81,9 +82,9 @@ void main() {
     atomicAddFloat(flatCell * 10u + 3u, p.z);
 
     if (hasNormals != 0) {
-        atomicAddFloat(flatCell * 10u + 4u, inNorm[vid].x);
-        atomicAddFloat(flatCell * 10u + 5u, inNorm[vid].y);
-        atomicAddFloat(flatCell * 10u + 6u, inNorm[vid].z);
+        atomicAddFloat(flatCell * 10u + 4u, inNorm[vid * 3u]);
+        atomicAddFloat(flatCell * 10u + 5u, inNorm[vid * 3u + 1u]);
+        atomicAddFloat(flatCell * 10u + 6u, inNorm[vid * 3u + 2u]);
     }
     if (hasScalars != 0) {
         atomicAddFloat(flatCell * 10u + 7u, inScalar[vid]);
