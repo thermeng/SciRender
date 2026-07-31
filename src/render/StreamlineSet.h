@@ -66,15 +66,20 @@ public:
         int dimX = 0, dimY = 0, dimZ = 0;
         const glm::vec3* data = nullptr;
         int count = 0;
+        std::vector<bool> cellActive; // (dimX-1)*(dimY-1)*(dimZ-1) bitmask
+        const float* verts = nullptr; // vertex positions (x,y,z interleaved) for non-Cartesian fallback
+        int vertCount = 0;
+        float avgSpacing = 1.0f; // estimated grid spacing for distance cutoffs
     };
 
     static StructuredGridInfo buildStructuredGridInfo(const RenderMesh& mesh, const glm::vec3* data, int count);
     static glm::vec3 evalFieldTrilinear(const StructuredGridInfo& info, const glm::vec3& pos);
+    static bool isInsideDomain(const StructuredGridInfo& info, const glm::vec3& pos);
     static glm::vec3 evalFieldNearest(const RenderMesh& mesh, const glm::vec3& pos, const glm::vec3* data, int count, int searchCount);
 
     void initParticles(int count);
     void updateParticles(float dt, float speed);
-    void buildParticleVertices(std::vector<float>& outVerts, bool useColormap);
+    void buildParticleVertices(std::vector<float>& outVerts);
     void teardownParticles();
 
 private:
