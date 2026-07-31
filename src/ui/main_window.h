@@ -45,14 +45,17 @@ private slots:
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void setupMenus();
     void setupSidebar();
+    void setupQuickBar();
     void setupTimers();
     void setupKeyboardShortcuts();
     void connectSettings();
     void updateStatusBar();
+    void updateQuickBarVisibility();
 
     ::RenderSettings* m_settings = nullptr;
     ViewportWidget* m_viewport = nullptr;
@@ -79,11 +82,17 @@ private:
     // Quick bar
     QWidget* m_quickBar = nullptr;
     QToolButton* m_quickBarHandle = nullptr;
+    QHBoxLayout* m_quickBarLayout = nullptr;
 
     // FPS HUD
     QLabel* m_fpsLabel = nullptr;
     QLabel* m_statusToast = nullptr;
     QLabel* m_dropPrompt = nullptr;
+
+    // Field selection combos (populated on mesh load)
+    QComboBox* m_scalarCombo = nullptr;
+    QComboBox* m_vectorCombo = nullptr;
+    QComboBox* m_streamlineCombo = nullptr;
 
     // Timers
     QTimer m_autoRotateTimer;

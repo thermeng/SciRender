@@ -1,5 +1,6 @@
 #include "main_window.h"
 #include "render/render_config.h"
+#include "core/Colormaps.h"
 #include <QApplication>
 #include <QMenuBar>
 #include <QStatusBar>
@@ -22,6 +23,7 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QUrl>
+#include <QResizeEvent>
 #include <QFileDialog>
 #include <QColorDialog>
 #include <QMessageBox>
@@ -181,6 +183,58 @@ static QToolButton* createCollapsibleHeader(const QString& title, bool expanded,
 }
 
 // ============================================================================
+// Helper: Colormap preview pixmap (gradient + name label)
+// ============================================================================
+static QPixmap generateColormapPreview(int index, int w = 100, int h = 24) {
+    QImage img(w, h, QImage::Format_RGB888);
+    ColormapType type = static_cast<ColormapType>(index);
+    for (int x = 0; x < w; ++x) {
+        float t = static_cast<float>(x) / static_cast<float>(w - 1);
+        glm::vec3 c = Colormaps::evaluate(t, type);
+        int r = static_cast<int>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
+        int g = static_cast<int>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
+        int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
+        for (int y = 0; y < h; ++y) img.setPixel(x, y, qRgb(r, g, b));
+    }
+    {
+        QPainter p(&img);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+        QFont f("Sans", 10, QFont::Bold);
+        f.setStretch(QFont::Condensed);
+        p.setFont(f);
+        QRect r(0, 0, w, h);
+        QString name = QString::fromUtf8(Colormaps::getName(type));
+        p.setPen(Qt::black);
+        p.drawText(r.translated(1, 1), Qt::AlignCenter, name);
+        p.setPen(Qt::white);
+        p.drawText(r, Qt::AlignCenter, name);
+    }
+    return QPixmap::fromImage(img);
+}
+
+// Helper: Build a 2-column colormap swatch grid wired to a callback
+static QGridLayout* buildColormapGrid(int currentChoice, std::function<void(int)> onChoose) {
+    auto* grid = new QGridLayout;
+    grid->setHorizontalSpacing(4);
+    grid->setVerticalSpacing(4);
+    int count = static_cast<int>(ColormapType::Count);
+    for (int i = 0; i < count; ++i) {
+        auto* btn = new QPushButton;
+        btn->setFixedSize(100, 24);
+        btn->setIcon(generateColormapPreview(i));
+        btn->setIconSize(QSize(100, 24));
+        btn->setCheckable(true);
+        btn->setChecked(i == currentChoice);
+        btn->setStyleSheet(QString("QPushButton { border: 2px solid %1; background: #000; padding: 0; }"
+                                    "QPushButton:checked { border-color: #4fc3f7; }")
+            .arg(i == currentChoice ? "#4fc3f7" : "#444"));
+        QObject::connect(btn, &QPushButton::clicked, [onChoose, i]() { onChoose(i); });
+        grid->addWidget(btn, i / 2, i % 2);
+    }
+    return grid;
+}
+
+// ============================================================================
 // MainWindow
 // ============================================================================
 MainWindow::MainWindow(QWidget* parent)
@@ -202,6 +256,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     setupMenus();
     setupSidebar();
+    setupQuickBar();
     setupTimers();
     setupKeyboardShortcuts();
     connectSettings();
@@ -761,32 +816,18 @@ QWidget* MainWindow::buildColormapPage() {
     layout->setSpacing(4);
 
     layout->addWidget(sectionHeader("Field"));
-    auto* scalarCombo = new QComboBox;
-    scalarCombo->addItems(m_settings->getAvailableScalars());
-    scalarCombo->setCurrentText(m_settings->getActiveScalarNameQml());
-    scalarCombo->setEnabled(m_settings->hasMeshScalars());
-    connect(scalarCombo, &QComboBox::activated, m_settings, [this, scalarCombo](int idx) {
-        m_settings->setActiveScalarField(scalarCombo->itemText(idx));
+    m_scalarCombo = new QComboBox;
+    m_scalarCombo->addItems(m_settings->getAvailableScalars());
+    m_scalarCombo->setCurrentText(m_settings->getActiveScalarNameQml());
+    m_scalarCombo->setEnabled(m_settings->hasMeshScalars());
+    connect(m_scalarCombo, &QComboBox::activated, m_settings, [this](int idx) {
+        m_settings->setActiveScalarField(m_scalarCombo->itemText(idx));
     });
-    layout->addWidget(scalarCombo);
+    layout->addWidget(m_scalarCombo);
 
     layout->addWidget(sectionHeader("Palette"));
-    // Colormap grid placeholder (2-column grid of swatches)
-    auto* cmapGrid = new QGridLayout;
-    cmapGrid->setHorizontalSpacing(4);
-    cmapGrid->setVerticalSpacing(4);
-    auto names = m_settings->getColormapNames();
-    for (int i = 0; i < names.size(); ++i) {
-        auto* btn = new QPushButton;
-        btn->setFixedHeight(24);
-        btn->setCheckable(true);
-        btn->setChecked(i == m_settings->getColormapChoice());
-        btn->setStyleSheet(QString("QPushButton { background: %1; border: 2px solid %2; }")
-            .arg(i == m_settings->getColormapChoice() ? "#4fc3f7" : "#000",
-                 i == m_settings->getColormapChoice() ? "#4fc3f7" : "#444"));
-        connect(btn, &QPushButton::clicked, m_settings, [this, i]() { m_settings->setColormapChoice(i); });
-        cmapGrid->addWidget(btn, i / 2, i % 2);
-    }
+    auto* cmapGrid = buildColormapGrid(m_settings->getColormapChoice(),
+        [this](int i) { m_settings->setColormapChoice(i); });
     layout->addLayout(cmapGrid);
 
     auto* scalarColorCb = new QCheckBox("Color by scalar");
@@ -863,13 +904,13 @@ QWidget* MainWindow::buildVectorsPage() {
     optLayout->setContentsMargins(0, 0, 0, 0);
 
     optLayout->addWidget(sectionHeader("Field & Scale"));
-    auto* fieldCombo = new QComboBox;
-    fieldCombo->addItems(m_settings->getAvailableVectors());
-    fieldCombo->setCurrentText(m_settings->getVectorField());
-    connect(fieldCombo, &QComboBox::activated, m_settings, [this, fieldCombo](int) {
-        m_settings->setActiveVectorField(fieldCombo->currentText());
+    m_vectorCombo = new QComboBox;
+    m_vectorCombo->addItems(m_settings->getAvailableVectors());
+    m_vectorCombo->setCurrentText(m_settings->getVectorField());
+    connect(m_vectorCombo, &QComboBox::activated, m_settings, [this](int) {
+        m_settings->setActiveVectorField(m_vectorCombo->currentText());
     });
-    optLayout->addWidget(fieldCombo);
+    optLayout->addWidget(m_vectorCombo);
 
     {
         auto row = createLightSlider("Scale", m_settings->getVectorScale(), 0.01, 5.0, 0.01, 2, [this](double v) { m_settings->setVectorScale(v); });
@@ -906,6 +947,10 @@ QWidget* MainWindow::buildVectorsPage() {
     useCmapCb->setChecked(m_settings->getVectorUseColormap());
     connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorUseColormap);
     optLayout->addWidget(useCmapCb);
+
+    auto* vCmapGrid = buildColormapGrid(m_settings->getVectorColormapChoice(),
+        [this](int i) { m_settings->setVectorColormapChoice(i); });
+    optLayout->addLayout(vCmapGrid);
 
     // Reverse palette
     auto* revCb = new QCheckBox("Reverse palette");
@@ -954,13 +999,13 @@ QWidget* MainWindow::buildStreamlinesPage() {
     auto* fieldLayout = new QVBoxLayout(fieldGroup);
     fieldLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto* streamlineFieldCombo = new QComboBox;
-    streamlineFieldCombo->addItems(m_settings->getAvailableVectors());
-    streamlineFieldCombo->setCurrentText(m_settings->getStreamlineVectorField());
-    connect(streamlineFieldCombo, &QComboBox::activated, m_settings, [this, streamlineFieldCombo](int) {
-        m_settings->setStreamlineVectorField(streamlineFieldCombo->currentText());
+    m_streamlineCombo = new QComboBox;
+    m_streamlineCombo->addItems(m_settings->getAvailableVectors());
+    m_streamlineCombo->setCurrentText(m_settings->getStreamlineVectorField());
+    connect(m_streamlineCombo, &QComboBox::activated, m_settings, [this](int) {
+        m_settings->setStreamlineVectorField(m_streamlineCombo->currentText());
     });
-    fieldLayout->addWidget(streamlineFieldCombo);
+    fieldLayout->addWidget(m_streamlineCombo);
 
     auto* seedCountRow = new QHBoxLayout;
     seedCountRow->addWidget(new QLabel("Seed count"));
@@ -1004,6 +1049,11 @@ QWidget* MainWindow::buildStreamlinesPage() {
     slUseCmapCb->setChecked(m_settings->getStreamlineUseColormap());
     connect(slUseCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineUseColormap);
     colorLayout->addWidget(slUseCmapCb);
+
+    auto* slCmapGrid = buildColormapGrid(m_settings->getStreamlineColormapChoice(),
+        [this](int i) { m_settings->setStreamlineColormapChoice(i); });
+    colorLayout->addLayout(slCmapGrid);
+
     auto* slRevCb = new QCheckBox("Reverse palette");
     slRevCb->setChecked(m_settings->getStreamlineColormapReversed());
     connect(slRevCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineColormapReversed);
@@ -1345,6 +1395,99 @@ void MainWindow::setupTimers() {
 }
 
 // ============================================================================
+// Quick bar (floating display toggles, top-left of viewport)
+// ============================================================================
+void MainWindow::setupQuickBar() {
+    m_quickBar = new QWidget(m_viewport);
+    m_quickBar->setStyleSheet(
+        "QWidget { background: rgba(0,0,0,187); border-radius: 6px; border: 1px solid #555; }");
+    m_quickBarLayout = new QHBoxLayout(m_quickBar);
+    m_quickBarLayout->setContentsMargins(6, 4, 6, 4);
+    m_quickBarLayout->setSpacing(6);
+
+    auto addQBButton = [this](const QString& text, const QString& tooltip, bool active, std::function<void()> onClicked) -> QToolButton* {
+        auto* btn = new QToolButton;
+        btn->setText(text);
+        btn->setToolTip(tooltip);
+        btn->setFixedSize(30, 28);
+        btn->setCheckable(true);
+        btn->setChecked(active);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setStyleSheet(QString("QToolButton { font-size: 12px; border-radius: 4px; }"
+            "QToolButton:checked { background: #4a90d9; border: 1px solid #6aa9e8; }"
+            "QToolButton:unchecked { background: #2a2a2a; border: 1px solid #444; }"
+            "QToolButton:hover { background: #3a3a3a; }"));
+        connect(btn, &QToolButton::clicked, onClicked);
+        m_quickBarLayout->addWidget(btn);
+        return btn;
+    };
+
+    auto addSeparator = [this]() {
+        auto* sep = new QFrame;
+        sep->setFrameShape(QFrame::VLine);
+        sep->setStyleSheet("color: #555;");
+        sep->setFixedSize(2, 22);
+        m_quickBarLayout->addWidget(sep);
+    };
+
+    // Display toggles
+    addQBButton("W", "Wireframe", m_settings->isWireframe(), [this]() {
+        m_settings->setWireframe(!m_settings->isWireframe());
+        updateQuickBarVisibility();
+    });
+    addQBButton("G", "Ground", m_settings->isGridVisible(), [this]() {
+        m_settings->toggleGrid(!m_settings->isGridVisible());
+        updateQuickBarVisibility();
+    });
+    addQBButton("S", "Surface", m_settings->isSurfaceVisible(), [this]() {
+        m_settings->toggleSurface(!m_settings->isSurfaceVisible());
+        updateQuickBarVisibility();
+    });
+
+    addSeparator();
+
+    // Ortho snaps
+    for (int i = 0; i < 6; ++i) {
+        const char* labels[] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
+        const char* tips[] = {"Ortho +X", "Ortho -X", "Ortho +Y", "Ortho -Y", "Ortho +Z", "Ortho -Z"};
+        addQBButton(labels[i], tips[i], false, [this, i]() { m_settings->snapToOrthoView(i); });
+    }
+
+    addSeparator();
+
+    // Reset camera
+    addQBButton("\u21BB", "Reset Camera", false, [this]() { m_settings->resetCamera(); });
+    // Collapse
+    addQBButton("\u00D7", "Collapse quick-bar", false, [this]() {
+        m_settings->setQuickBarCollapsed(true);
+        updateQuickBarVisibility();
+    });
+
+    // Handle (shown when collapsed)
+    m_quickBarHandle = new QToolButton(m_viewport);
+    m_quickBarHandle->setText("\u{25A6}");
+    m_quickBarHandle->setToolTip("Show display quick-bar");
+    m_quickBarHandle->setFixedSize(30, 30);
+    m_quickBarHandle->setCursor(Qt::PointingHandCursor);
+    m_quickBarHandle->setStyleSheet(
+        "QToolButton { background: #000000bb; border: 1px solid #555; border-radius: 6px; font-size: 15px; }"
+        "QToolButton:hover { background: #3a3a3a; }");
+    connect(m_quickBarHandle, &QToolButton::clicked, this, [this]() {
+        m_settings->setQuickBarCollapsed(false);
+        updateQuickBarVisibility();
+    });
+
+    updateQuickBarVisibility();
+}
+
+void MainWindow::updateQuickBarVisibility() {
+    bool hasMesh = m_settings->getHasMeshLoaded();
+    bool collapsed = m_settings->getQuickBarCollapsed();
+    m_quickBar->setVisible(hasMesh && !collapsed);
+    m_quickBarHandle->setVisible(hasMesh && collapsed);
+}
+
+// ============================================================================
 // Keyboard shortcuts
 // ============================================================================
 void MainWindow::setupKeyboardShortcuts() {
@@ -1365,10 +1508,39 @@ void MainWindow::setupKeyboardShortcuts() {
 // ============================================================================
 void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateQuickBarVisibility);
     connect(m_settings, &RenderSettings::statusMessageChanged, this, [this]() {
         auto msg = m_settings->getStatusMessage();
         if (!msg.isEmpty()) {
             m_toastTimer.start();
+        }
+    });
+
+    // Repopulate field combos when mesh data changes
+    connect(m_settings, &RenderSettings::meshDataUpdated, this, [this]() {
+        auto scalars = m_settings->getAvailableScalars();
+        auto vectors = m_settings->getAvailableVectors();
+        if (m_scalarCombo) {
+            m_scalarCombo->blockSignals(true);
+            m_scalarCombo->clear();
+            m_scalarCombo->addItems(scalars);
+            m_scalarCombo->setCurrentText(m_settings->getActiveScalarNameQml());
+            m_scalarCombo->setEnabled(m_settings->hasMeshScalars());
+            m_scalarCombo->blockSignals(false);
+        }
+        if (m_vectorCombo) {
+            m_vectorCombo->blockSignals(true);
+            m_vectorCombo->clear();
+            m_vectorCombo->addItems(vectors);
+            m_vectorCombo->setCurrentText(m_settings->getVectorField());
+            m_vectorCombo->blockSignals(false);
+        }
+        if (m_streamlineCombo) {
+            m_streamlineCombo->blockSignals(true);
+            m_streamlineCombo->clear();
+            m_streamlineCombo->addItems(vectors);
+            m_streamlineCombo->setCurrentText(m_settings->getStreamlineVectorField());
+            m_streamlineCombo->blockSignals(false);
         }
     });
 }
@@ -1428,6 +1600,16 @@ void MainWindow::dropEvent(QDropEvent* event) {
         if (!path.isEmpty()) m_settings->loadMesh(path);
     }
     event->acceptProposedAction();
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    // Reposition quick bar and handle within the viewport
+    if (m_quickBar && m_viewport) {
+        int margin = 8;
+        m_quickBar->move(margin, margin);
+        m_quickBarHandle->move(margin, margin);
+    }
 }
 
 // ============================================================================
