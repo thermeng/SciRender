@@ -46,6 +46,36 @@ static bool compileShader(GLuint shader, const char* source, const char* type) {
     return true;
 }
 
+// Compile vertex + fragment shaders, link into a program, and return the handle.
+// Returns 0 on failure (shaders/program are cleaned up internally).
+static GLuint compileProgram(const char* vertSrc, const char* fragSrc, const char* label) {
+    GLuint v = glCreateShader(GL_VERTEX_SHADER);
+    GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
+    if (!compileShader(v, vertSrc, label) || !compileShader(f, fragSrc, label)) {
+        glDeleteShader(v);
+        glDeleteShader(f);
+        return 0;
+    }
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, v);
+    glAttachShader(prog, f);
+    glLinkProgram(prog);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[512];
+        glGetProgramInfoLog(prog, 512, nullptr, log);
+        printf("%s shader program linking error: %s\n", label, log);
+        glDeleteProgram(prog);
+        glDeleteShader(v);
+        glDeleteShader(f);
+        return 0;
+    }
+    glDeleteShader(v);
+    glDeleteShader(f);
+    return prog;
+}
+
 Renderer::Renderer()
     : m_state() {
     // Default system initialization parameters (mirror RenderSettings defaults;
@@ -120,80 +150,22 @@ std::string Renderer::readShaderFile(const std::string& filePath) {
 }
 
 void Renderer::initShaders(const ShaderSources& sources) {
-    const std::string& vertSrcStr = sources.meshVert;
-    const std::string& fragSrcStr = sources.meshFrag;
-
-    if (vertSrcStr.empty() || fragSrcStr.empty()) {
+    if (sources.meshVert.empty() || sources.meshFrag.empty()) {
         qFatal("Shader compilation aborted due to unreadable file streams.");
         return;
     }
 
-    const char* vertSrc = vertSrcStr.c_str();
-    const char* fragSrc = fragSrcStr.c_str();
-
-    GLuint vert = glCreateShader(GL_VERTEX_SHADER);
-    GLuint frag = glCreateShader(GL_FRAGMENT_SHADER);
-
-    if (!compileShader(vert, vertSrc, "VERTEX") || !compileShader(frag, fragSrc, "FRAGMENT")) {
-        glDeleteShader(vert);
-        glDeleteShader(frag);
-        return;
+    // mesh program
+    shaderProgram = compileProgram(sources.meshVert.c_str(), sources.meshFrag.c_str(), "Mesh");
+    if (shaderProgram != 0) {
+        meshUboIndex = glGetUniformBlockIndex(shaderProgram, "MeshUBO");
+        glUniformBlockBinding(shaderProgram, meshUboIndex, 0);
+        lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
     }
-
-    shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vert);
-    glAttachShader(shaderProgram, frag);
-    glLinkProgram(shaderProgram);
-
-    GLint success;
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        char log[512];
-        glGetProgramInfoLog(shaderProgram, 512, nullptr, log);
-        printf("Shader program linking error: %s\n", log);
-        glDeleteProgram(shaderProgram);
-        shaderProgram = 0;
-        glDeleteShader(vert);
-        glDeleteShader(frag);
-        return;
-    }
-
-    glDeleteShader(vert);
-    glDeleteShader(frag);
-
-    meshUboIndex = glGetUniformBlockIndex(shaderProgram, "MeshUBO");
-    glUniformBlockBinding(shaderProgram, meshUboIndex, 0);
-
-    lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
 
     // instanced vector glyph program
-    const std::string& gvert = sources.glyphVert;
-    const std::string& gfrag = sources.glyphFrag;
-    if (!gvert.empty() && !gfrag.empty()) {
-        GLuint gv = glCreateShader(GL_VERTEX_SHADER);
-        GLuint gf = glCreateShader(GL_FRAGMENT_SHADER);
-        if (!compileShader(gv, gvert.c_str(), "GLYPH_VERT") || !compileShader(gf, gfrag.c_str(), "GLYPH_FRAG")) {
-            glDeleteShader(gv);
-            glDeleteShader(gf);
-            glyphProgram = 0;
-        } else {
-            glyphProgram = glCreateProgram();
-            glAttachShader(glyphProgram, gv); glAttachShader(glyphProgram, gf);
-            glLinkProgram(glyphProgram);
-
-            GLint glyphLinked = 0;
-            glGetProgramiv(glyphProgram, GL_LINK_STATUS, &glyphLinked);
-            if (!glyphLinked) {
-                char log[512];
-                glGetProgramInfoLog(glyphProgram, 512, nullptr, log);
-                printf("Glyph shader program linking error: %s\n", log);
-                glDeleteProgram(glyphProgram);
-                glyphProgram = 0;
-            }
-
-            glDeleteShader(gv); glDeleteShader(gf);
-        }
-
+    if (!sources.glyphVert.empty() && !sources.glyphFrag.empty()) {
+        glyphProgram = compileProgram(sources.glyphVert.c_str(), sources.glyphFrag.c_str(), "Glyph");
         if (glyphProgram != 0) {
             glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
             glyphUboIndex = glGetUniformBlockIndex(glyphProgram, "GlyphUBO");
@@ -207,163 +179,56 @@ void Renderer::initShaders(const ShaderSources& sources) {
     }
 
     // bbox overlay program
-    const std::string& bvert = sources.bboxVert;
-    const std::string& bfrag = sources.bboxFrag;
-    if (!bvert.empty() && !bfrag.empty()) {
-        GLuint bv = glCreateShader(GL_VERTEX_SHADER);
-        GLuint bf = glCreateShader(GL_FRAGMENT_SHADER);
-        if (!compileShader(bv, bvert.c_str(), "BBOX_VERT") || !compileShader(bf, bfrag.c_str(), "BBOX_FRAG")) {
-            glDeleteShader(bv); glDeleteShader(bf);
-            bboxProgram = 0;
-        } else {
-            bboxProgram = glCreateProgram();
-            glAttachShader(bboxProgram, bv); glAttachShader(bboxProgram, bf);
-            glLinkProgram(bboxProgram);
-            GLint bboxLinked = 0;
-            glGetProgramiv(bboxProgram, GL_LINK_STATUS, &bboxLinked);
-            if (!bboxLinked) {
-                char log[512];
-                glGetProgramInfoLog(bboxProgram, 512, nullptr, log);
-                printf("BBox shader program linking error: %s\n", log);
-                glDeleteProgram(bboxProgram);
-                bboxProgram = 0;
-            }
-            glDeleteShader(bv); glDeleteShader(bf);
-            if (bboxProgram != 0) {
-                bboxMvpLoc = glGetUniformLocation(bboxProgram, "uMVP");
-                bboxColorLoc = glGetUniformLocation(bboxProgram, "uColor");
-            }
+    if (!sources.bboxVert.empty() && !sources.bboxFrag.empty()) {
+        bboxProgram = compileProgram(sources.bboxVert.c_str(), sources.bboxFrag.c_str(), "BBox");
+        if (bboxProgram != 0) {
+            bboxMvpLoc = glGetUniformLocation(bboxProgram, "uMVP");
+            bboxColorLoc = glGetUniformLocation(bboxProgram, "uColor");
         }
     }
 
     // streamline line-list program
-    const std::string& svert = sources.streamlineVert;
-    const std::string& sfrag = sources.streamlineFrag;
-    if (!svert.empty() && !sfrag.empty()) {
-        GLuint sv = glCreateShader(GL_VERTEX_SHADER);
-        GLuint sf = glCreateShader(GL_FRAGMENT_SHADER);
-        if (!compileShader(sv, svert.c_str(), "STREAMLINE_VERT") || !compileShader(sf, sfrag.c_str(), "STREAMLINE_FRAG")) {
-            glDeleteShader(sv); glDeleteShader(sf);
-            streamlineProgram = 0;
-        } else {
-            streamlineProgram = glCreateProgram();
-            glAttachShader(streamlineProgram, sv); glAttachShader(streamlineProgram, sf);
-            glLinkProgram(streamlineProgram);
-
-            GLint linked = 0;
-            glGetProgramiv(streamlineProgram, GL_LINK_STATUS, &linked);
-            if (!linked) {
-                char log[512];
-                glGetProgramInfoLog(streamlineProgram, 512, nullptr, log);
-                printf("Streamline shader program linking error: %s\n", log);
-                glDeleteProgram(streamlineProgram);
-                streamlineProgram = 0;
-            }
-            glDeleteShader(sv); glDeleteShader(sf);
-            if (streamlineProgram != 0) {
-                streamlineLutLoc = glGetUniformLocation(streamlineProgram, "uColormapLUT");
-                if (streamlineUbo == 0) {
-                    glCreateBuffers(1, &streamlineUbo);
-                    glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
-                }
+    if (!sources.streamlineVert.empty() && !sources.streamlineFrag.empty()) {
+        streamlineProgram = compileProgram(sources.streamlineVert.c_str(), sources.streamlineFrag.c_str(), "Streamline");
+        if (streamlineProgram != 0) {
+            streamlineLutLoc = glGetUniformLocation(streamlineProgram, "uColormapLUT");
+            if (streamlineUbo == 0) {
+                glCreateBuffers(1, &streamlineUbo);
+                glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
             }
         }
     }
 
     // seed point program
-    const std::string& sdvert = sources.seedVert;
-    const std::string& sdfrag = sources.seedFrag;
-    if (!sdvert.empty() && !sdfrag.empty()) {
-        GLuint sdv = glCreateShader(GL_VERTEX_SHADER);
-        GLuint sdf = glCreateShader(GL_FRAGMENT_SHADER);
-        if (!compileShader(sdv, sdvert.c_str(), "SEED_VERT") || !compileShader(sdf, sdfrag.c_str(), "SEED_FRAG")) {
-            glDeleteShader(sdv); glDeleteShader(sdf);
-            seedProgram = 0;
-        } else {
-            seedProgram = glCreateProgram();
-            glAttachShader(seedProgram, sdv); glAttachShader(seedProgram, sdf);
-            glLinkProgram(seedProgram);
-
-            GLint linked = 0;
-            glGetProgramiv(seedProgram, GL_LINK_STATUS, &linked);
-            if (!linked) {
-                char log[512];
-                glGetProgramInfoLog(seedProgram, 512, nullptr, log);
-                printf("Seed shader program linking error: %s\n", log);
-                glDeleteProgram(seedProgram);
-                seedProgram = 0;
-            }
-            glDeleteShader(sdv); glDeleteShader(sdf);
-            if (seedProgram != 0) {
-                seedMvpLoc = glGetUniformLocation(seedProgram, "uMVP");
-                seedModelLoc = glGetUniformLocation(seedProgram, "uModel");
-                seedColorLoc = glGetUniformLocation(seedProgram, "uColor");
-                seedPointSizeLoc = glGetUniformLocation(seedProgram, "uPointSize");
-                seedLightDirLoc = glGetUniformLocation(seedProgram, "uLightDir");
-            }
+    if (!sources.seedVert.empty() && !sources.seedFrag.empty()) {
+        seedProgram = compileProgram(sources.seedVert.c_str(), sources.seedFrag.c_str(), "Seed");
+        if (seedProgram != 0) {
+            seedMvpLoc = glGetUniformLocation(seedProgram, "uMVP");
+            seedModelLoc = glGetUniformLocation(seedProgram, "uModel");
+            seedColorLoc = glGetUniformLocation(seedProgram, "uColor");
+            seedPointSizeLoc = glGetUniformLocation(seedProgram, "uPointSize");
+            seedLightDirLoc = glGetUniformLocation(seedProgram, "uLightDir");
         }
     }
 
     // particle program
-    const std::string& pvert = sources.particleVert;
-    const std::string& pfrag = sources.particleFrag;
-    if (!pvert.empty() && !pfrag.empty()) {
-        GLuint pv = glCreateShader(GL_VERTEX_SHADER);
-        GLuint pf = glCreateShader(GL_FRAGMENT_SHADER);
-        if (!compileShader(pv, pvert.c_str(), "PARTICLE_VERT") || !compileShader(pf, pfrag.c_str(), "PARTICLE_FRAG")) {
-            glDeleteShader(pv); glDeleteShader(pf);
-            particleProgram = 0;
-        } else {
-            particleProgram = glCreateProgram();
-            glAttachShader(particleProgram, pv); glAttachShader(particleProgram, pf);
-            glLinkProgram(particleProgram);
-
-            GLint linked = 0;
-            glGetProgramiv(particleProgram, GL_LINK_STATUS, &linked);
-            if (!linked) {
-                char log[512];
-                glGetProgramInfoLog(particleProgram, 512, nullptr, log);
-                printf("Particle shader program linking error: %s\n", log);
-                glDeleteProgram(particleProgram);
-                particleProgram = 0;
-            }
-            glDeleteShader(pv); glDeleteShader(pf);
-            if (particleProgram != 0) {
-                particleMvpLoc = glGetUniformLocation(particleProgram, "uMVP");
-                particleColorLoc = glGetUniformLocation(particleProgram, "uColor");
-                particleLutLoc = glGetUniformLocation(particleProgram, "uColormapLUT");
-                particlePointSizeLoc = glGetUniformLocation(particleProgram, "uPointSize");
-                particleUseColormapLoc = glGetUniformLocation(particleProgram, "uUseColormap");
-                particleMagRangeLoc = glGetUniformLocation(particleProgram, "uParticleMagRange");
-            }
+    if (!sources.particleVert.empty() && !sources.particleFrag.empty()) {
+        particleProgram = compileProgram(sources.particleVert.c_str(), sources.particleFrag.c_str(), "Particle");
+        if (particleProgram != 0) {
+            particleMvpLoc = glGetUniformLocation(particleProgram, "uMVP");
+            particleColorLoc = glGetUniformLocation(particleProgram, "uColor");
+            particleLutLoc = glGetUniformLocation(particleProgram, "uColormapLUT");
+            particlePointSizeLoc = glGetUniformLocation(particleProgram, "uPointSize");
+            particleUseColormapLoc = glGetUniformLocation(particleProgram, "uUseColormap");
+            particleMagRangeLoc = glGetUniformLocation(particleProgram, "uParticleMagRange");
         }
     }
 }
 
 void Renderer::initGrid(const ShaderSources& sources) {
-    const std::string& vs = sources.gridVert;
-    const std::string& fs = sources.gridFrag;
-    if (vs.empty() || fs.empty()) return;
+    if (sources.gridVert.empty() || sources.gridFrag.empty()) return;
 
-    GLuint v = glCreateShader(GL_VERTEX_SHADER);
-    GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
-    if (!compileShader(v, vs.c_str(), "GRID_VERT") || !compileShader(f, fs.c_str(), "GRID_FRAG")) {
-        glDeleteShader(v); glDeleteShader(f); return;
-    }
-    gridProgram = glCreateProgram();
-    glAttachShader(gridProgram, v);
-    glAttachShader(gridProgram, f);
-    glLinkProgram(gridProgram);
-    glDeleteShader(v); glDeleteShader(f);
-    GLint gridLinked = 0;
-    glGetProgramiv(gridProgram, GL_LINK_STATUS, &gridLinked);
-    if (!gridLinked) {
-        char log[512];
-        glGetProgramInfoLog(gridProgram, 512, nullptr, log);
-        printf("Grid shader program linking error: %s\n", log);
-        glDeleteProgram(gridProgram);
-        gridProgram = 0;
-    }
+    gridProgram = compileProgram(sources.gridVert.c_str(), sources.gridFrag.c_str(), "Grid");
 
     const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f, 1.0f, 1.0f };
     glCreateVertexArrays(1, &gridVAO);
@@ -501,6 +366,10 @@ void Renderer::resizeViewport(int w, int h) {
 }
 
 void Renderer::clearGpuMeshes() {
+    // Join the background streamline worker before tearing down GL resources.
+    streamlineCancelFlag = true;
+    if (streamlineWorker.joinable()) streamlineWorker.join();
+
     meshManager.clear();
     vectorGlyph = VectorGlyphSet{};
     streamlineSet.shutdown();
@@ -521,7 +390,10 @@ bool Renderer::consumeScalarDirty() {
 }
 
 void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars) {
-    m_pendingScalarSrc = scalars; // shared_ptr, no data copy
+    {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        m_pendingScalarSrc = scalars; // shared_ptr, no data copy
+    }
     meshManager.updateScalars(scalars);
 }
 

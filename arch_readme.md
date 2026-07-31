@@ -1,377 +1,65 @@
-# SciRender — Architecture Overview
+# Architecture Review — SciRender
 
-## Project Summary
-
-SciRender is a desktop scientific mesh visualization application built with **Qt 6 (QML) + OpenGL 3.3 Core**. It loads VTK, STL, and OBJ datasets, renders them with GPU-accelerated shaders, and exposes interactive controls via a declarative QML sidebar. The application enforces a strict **two-thread separation** between the GUI (Qt Quick scene graph) and the raw OpenGL render thread.
+> Auto-generated architecture audit. Issues ordered by severity.
 
 ---
 
-## Technology Stack
+## Critical (Data Races / Correctness)
 
-| Component | Technology |
-|-----------|-----------|
-| Language | C++20 |
-| UI Framework | Qt 6 (Qml, Quick, QuickControls2, OpenGLWidgets) |
-| Graphics API | OpenGL 3.3 Core Profile |
-| OpenGL Loader | GLAD |
-| Math | GLM (header-only) |
-| Build System | CMake 3.16+ |
+| # | Issue | Location |
+|---|---|---|
+| C1 | **Data race on `m_pendingScalarSrc`**: `updateScalarsOnGPU()` writes `m_pendingScalarSrc` without holding `meshQueueMutex`, racing with `markScalarDirty()` on the GUI thread which locks the mutex. | `renderer.cpp:524` vs `renderer.h:327` |
+| C2 | **GL teardown while worker running**: `clearGpuMeshes()` calls `streamlineSet.shutdown()` (deletes GL buffers) without joining `streamlineWorker`. If the worker completes after shutdown, the next `uploadGL()` call operates on a teardown'd state. | `renderer.cpp:503-506` |
 
 ---
 
-## High-Level Architecture
+## High (Architecture / Maintainability)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     GUI Thread (Qt Quick)                     │
-│                                                              │
-│  Main.qml ──► ViewportVisualizer (QQuickFBO)               │
-│                     │                                       │
-│                     │ synchronize()                         │
-│                     ▼                                       │
-│              RenderSettings (QObject)                        │
-│              - Q_PROPERTY facade for ~80 settings           │
-│              - buildRenderState() → deep-copy snapshot      │
-│              - Async mesh load via QtConcurrent             │
-│              - Camera manipulation (GUI-thread copy)        │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-                        │ RenderRenderState (value copy)
-                        │ setState() / setPendingMesh()
-                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 Render Thread (QSG)                          │
-│                                                              │
-│  ViewportFboRenderer::render()                              │
-│                     │                                       │
-│                     ▼                                       │
-│              Renderer (pure C++, no QObject)                 │
-│              - owns GL programs, VAOs, VBOs                  │
-│              - delegates to 4 helpers:                       │
-│                  • MeshGLManager (GPU mesh + LOD)            │
-│                  • ColormapManager (LUT textures)            │
-│                  • VectorGlyphSet (instanced glyphs)         │
-│                  • LightingModel (4-point light kit)        │
-│              - draws overlays: Gizmo, ColorbarOverlay        │
-│              - renderFrame() reads m_state snapshot only     │
-└─────────────────────────────────────────────────────────────┘
-```
+| # | Issue | Location |
+|---|---|---|
+| H1 | **God Object**: `Renderer` handles 12+ independent responsibilities — shader compilation, UBO management, LOD dispatch, streamline threading, screenshot capture, camera reset, state management, grid/bbox/particle rendering, colorbar legend, lighting. At 502 header + 1289 impl lines, it violates SRP severely. | `renderer.h` entire file |
+| H2 | **Q_PROPERTY bloat**: 127 Q_PROPERTY declarations require 4-site manual synchronization: (a) `RenderRenderState` struct, (b) `RenderSettings` member, (c) `Q_PROPERTY` block, (d) `buildRenderState()`. Adding any setting touches all 4. | `render_settings.h:116-255` |
+| H3 | **Duplicated state**: `RenderSettings` GUI members (`showSurface`, `meshColor[3]`, `bgColor[3]`, etc.) mirror `RenderRenderState` fields 1:1. `buildRenderState()` is a 100-line manual copy (`render_settings.cpp:47-147`). Should use `RenderRenderState` as the single source of truth. | `render_settings.h:608-734` |
+| H4 | **No RAII for GL resources**: All 6 resource-owning classes (`StreamlineSet`, `VectorGlyphSet`, `ColormapManager`, `MeshGLManager`, `Gizmo`, `ColorbarOverlay`) use manual `shutdown()` calls with destructors `= default`. If `shutdown()` is missed, GL handles leak silently. | `StreamlineSet.h:16`, `VectorGlyphSet.h:19`, etc. |
+| H5 | **Shader compilation boilerplate**: 5 identical ~30-line create/compile/link/check-delete blocks in `initShaders()`. Should be a single `GLuint compileProgram(vert, frag)` helper. | `renderer.cpp:170-341` |
 
 ---
 
-## Directory Structure
+## Medium (Design / Code Quality)
 
-```
-src/
-├── app/
-│   └── main.cpp                  # Qt entry point; OpenGL 3.3 context setup
-    ├── core/
-    │   ├── Camera.h / .cpp           # VTK-style camera (azimuth, elevation, dolly, pan)
-    │   ├── mesh_loader.h / .cpp      # Parser dispatcher (loadMeshFile)
-    │   ├── mesh_utils.cpp            # Bounds, normals, endianness helpers
-    │   ├── vtk_parser.cpp            # Legacy VTK (ASCII/binary, structured/unstructured)
-    │   ├── vtk_xml_parser.cpp        # VTK XML (.vtu/.vts/.vti/.vtp/.vtr) — hand-rolled tokenizer, zero external deps
-    │   ├── stl_parser.cpp            # ASCII + binary STL
-    │   ├── obj_parser.h / .cpp       # Wavefront OBJ
-    │   ├── Colormaps.h               # Colormap palette definitions
-    │   └── mesh_quality.h            # Mesh quality analysis (degenerate faces, edges)
-├── render/
-│   ├── renderer.h / .cpp         # Pure-C++ render backend (thread-isolated)
-│   ├── render_settings.h / .cpp  # GUI-thread QObject facade (~80 Q_PROPERTYs)
-│   ├── render_config.h           # Compile-time render options
-│   ├── LightingModel.h / .cpp    # 4-point light kit (key, fill, back, head)
-│   ├── ColormapManager.h / .cpp  # Scalar + vector LUT texture management
-│   ├── MeshGLManager.h / .cpp    # GPU mesh upload, LOD decimation, scalar re-upload
-│   ├── VectorGlyphSet.h / .cpp   # Instanced arrow glyphs for VTK VECTORS
-│   ├── gizmo.h / .cpp            # 3D coordinate triad overlay (billboarded text)
-│   └── colorbar_overlay.h / .cpp # GPU-composited colorbar legend (QImage → texture)
-├── ui/
-│   └── custom_viewport_item.h / .cpp  # ViewportFboRenderer + ViewportVisualizer
-ui/
-└── Main.qml                      # Declarative UI (rail sidebar, panels, viewport)
-src/shaders/
-├── mesh.vert / mesh.frag         # Main mesh shading (Phong + colormap LUT)
-├── grid.vert / grid.frag         # Reference grid (procedural ray-cast ground plane)
-└── glyph.vert / glyph.frag       # Instanced vector arrow glyphs
-vendor/
-├── glad/                         # OpenGL function loader (static lib)
-└── glm/                          # GLM header-only math library (INTERFACE target)
-tests/
-└── parse_regression.cpp          # Parser unit tests (no Qt/GL dependency)
-```
+| # | Issue | Location |
+|---|---|---|
+| M1 | **StreamlineSet conflates concerns**: Holds GL handles (`vao`, `vbo`), CPU computation results (`paths`), and animation state (`particles`, `particleRng`) in one class. `StructuredGridInfo` (10-field struct) is public but only used inside `compute()`. | `StreamlineSet.h:18-106` |
+| M2 | **Lazy UBO creation scattered across `renderFrame()`**: `meshUbo` (line 959), `glyphUbo` (line 1127), `streamlineUbo` (line 1160), `gridUbo` (line 380) are created on first use deep in the draw loop. Should be created alongside their programs in `initShaders()`. | `renderer.cpp:380,959,1127,1160` |
+| M3 | **`ChangeFlag` enum mostly unused**: Exists for granular dirty signaling (Display, Lighting, Colormap, etc.) but most setters emit `ChangeFlag::All`, defeating the purpose. | `render_settings.h` (most setters default to `ChangeFlag::All`) |
+| M4 | **Duplicated mesh data**: `MeshData` struct is defined but `RenderSettings` keeps parallel members for most of the same data. `m_lastUploadedMesh`, `fullSource_`, and `m_loadedMesh` each hold `shared_ptr<const RenderMesh>`, tripling CPU memory for large meshes. | `render_settings.h:51-97,641-669` |
+| M5 | **Inconsistent GL API usage**: Particle VAO uses legacy `glGenVertexArrays`/`glGenBuffers` while everything else uses DSA `glCreateVertexArrays`/`glCreateBuffers`. | `renderer.cpp:1231` vs everywhere else |
+| M6 | **Flat CMake with duplicated source lists**: All sources in a single `add_executable`. Test targets re-list parser sources. No static libraries for `core/` or `render/` — every file change recompiles the entire project. | `CMakeLists.txt:44-79,151-176` |
+| M7 | **Mixed logging**: `printf()`, `std::cerr`, `qDebug()`, `qWarning()` used interchangeably with no abstraction layer. | `renderer.cpp:43,114,106` etc. |
+| M8 | **Synchronous `compute()` blocks render thread on first mesh load**: `uploadMesh()` calls `rebuild()` → `compute()` synchronously. Only subsequent dirty-triggered rebuilds use the async path. | `StreamlineSet.cpp:989-997` via `renderer.cpp:431` |
 
 ---
 
-## Threading Model
+## Low (Style / Polish)
 
-SciRender uses **strict thread isolation** to avoid race conditions and deadlocks between the Qt Quick GUI thread and the QSG render thread.
-
-### GUI Thread Owns
-- `RenderSettings` (QObject, Q_PROPERTY, signals/slots)
-- All QML bindings and UI controls
-- `Camera` copy (GUI-side source of truth)
-- `RenderMesh` shared_ptr (immutable after parse)
-- Async mesh parsing via `QtConcurrent::run`
-
-### Render Thread Owns
-- `Renderer` (pure C++, no QObject, no signals)
-- All OpenGL resources: shader programs, VAOs, VBOs, EBOs, textures
-- `MeshGLManager`, `ColormapManager`, `VectorGlyphSet`, `LightingModel`
-- `Gizmo`, `ColorbarOverlay`
-
-### State Transfer Protocol
-
-```
-GUI Thread                              Render Thread
-     │                                      │
-     │  buildRenderState()                  │
-     │  → deep-copy RenderRenderState       │
-     │  → publishRenderState()              │
-     │  → setState(snapshot) ──────────────►│
-     │                                      │  renderFrame()
-     │                                      │  reads m_state ONLY
-     │                                      │
-     │  setPendingMesh(shared_ptr) ────────►│  renderFrame()
-     │                                      │  uploads to GPU
-     │  markScalarDirty(shared_ptr) ───────►│  updateScalarsOnGPU()
-     │                                      │
-     │  markCameraMoving() ────────────────►│  resets LOD debounce timer
-```
-
-**Key invariants:**
-- The render thread never reads `RenderSettings` members directly.
-- The GUI thread never reads or writes `Renderer` members directly.
-- All cross-thread handoffs use **value copies** (snapshots) or **shared_ptr** (zero-copy reference handoff).
-- `meshQueueMutex` protects the scalar handoff queue only (the snapshot copy itself is structurally safe).
+| # | Issue | Location |
+|---|---|---|
+| L1 | **Inconsistent atomic usage**: `m_destroying` is a plain `bool` while all sibling flags (`streamlineDirty`, `vectorGlyphDirty`, etc.) are `std::atomic<bool>`. | `renderer.h:471` |
+| L2 | **Inconsistent indentation in CMakeLists.txt**: Some source paths have extra leading spaces. | `CMakeLists.txt:59-61` |
+| L3 | **No `.clang-format` or `.clang-tidy`**: Formatting is inconsistent (braces, spacing, naming). | Project root |
+| L4 | **Static `char log[511]` for shader errors**: Could truncate long messages. Should use `std::string` or dynamic allocation. | `renderer.cpp:41,151,187,224,255,289,324,362` |
+| L5 | **Overallocation in `compute()`**: `estimatedSegments * 6 * 9` floats reserved upfront can be a massive overallocation for meshes with many seed points. | `StreamlineSet.cpp:717` |
+| L6 | **No render-layer unit tests**: Only parser tests exist. No tests for `Renderer`, `MeshGLManager`, `ColormapManager`, or `StreamlineSet`. | `tests/` |
 
 ---
 
-## Core Data Structures
+## Recommendations (Priority Order)
 
-### RenderMesh (`src/core/mesh_loader.h`)
-The central GPU-facing data structure. Produced by parsers, consumed by `MeshGLManager`.
-
-```
-RenderMesh
-├── vertices:        float[]  (x,y,z interleaved)
-├── indices:         uint32[] (triangle indices)
-├── normals:         float[]  (nx,ny,nz interleaved)
-├── scalars:         float[]  (active scalar field, per-vertex)
-├── cellEdges:       float[]  (per-cell boundary edges, xyz line verts)
-├── pointVectorsData: glm::vec3[] (contiguous vector field runs)
-├── pointVectorOffset: unordered_map (field name → vec3 offset)
-├── availableScalarNames: string[]
-├── availableVectorNames: string[]
-├── bounds:           BoundingVolume (double-precision)
-├── flatVerts:        float[] (raw per-face corners for quality analysis)
-├── sourcePointCount: int (true topological point count)
-├── renderAsPoints:   bool (point cloud mode)
-└── supportsCellGrid: bool (structured grid cell edges)
-```
-
-### RenderRenderState (`src/render/renderer.h`)
-The per-frame snapshot that crosses the thread boundary.
-
-```
-RenderRenderState
-├── camera:               Camera (position, focalPoint, viewUp, distance)
-├── display flags:        showWireframe, showSurface, showGrid, showGizmo,
-│                         showPoints, autoRotate, orthographic, etc.
-├── render params:        pointSize, lineWidth, surfaceOpacity, cullMode
-├── colors:               meshColor[3], surfaceColor[3], bgColor[3]
-├── world bounds:         worldCenterX/Y/Z, worldRadius, worldMin/MaxX/Y/Z
-├── lighting:             LightingModel (4-point kit + material)
-├── colormap state:       colormapChoice, colormapReversed, vectorColormapChoice
-├── scalar field:         meshHasScalars, scalarMin/Max, filterMin/Max,
-│                         activeScalarName, showScalarColorbar
-├── slice/clip:           clipEnabled, sliceHeightX/Y/Z, invertX/Y/Z
-├── vector glyphs:        showVectors, vectorScale, vectorStride, vectorField
-├── quality overlays:     qualityDegenerateTris, qualityOpenEdges, qualityNonManifoldEdges
-└── screenshot:           screenshotTransparent
-```
-
----
-
-## Rendering Pipeline (per frame)
-
-```
-ViewportFboRenderer::render()
-    │
-    ├─ 1. synchronize() called by QSG
-    │     ├─ consume pending mesh handoff → m_scene->setPendingMesh()
-    │     ├─ consume pending scalar handoff → m_scene->markScalarDirty()
-    │     ├─ consume pending screenshot path
-    │     └─ publishRenderState() → deep-copy snapshot into m_scene
-    │
-    ├─ 2. renderFrame() (GL context current)
-    │     │
-    │     ├─ Upload pending mesh (if any) → MeshGLManager::upload()
-    │     │     ├─ buildMeshGL() → full-res VAO/VBO/EBO/NBO/SBO
-    │     │     └─ optional decimate() → LOD mesh via vertex clustering
-    │     │
-    │     ├─ Upload pending scalars (if dirty) → MeshGLManager::updateScalars()
-    │     │     └─ orphan + refill SBO (no stall)
-    │     │
-    │     ├─ Update LUT textures (if dirty) → ColormapManager::update()
-    │     │     └─ uploadLUT() → GL 1D texture
-    │     │
-    │     ├─ Rebuild vector glyphs (if dirty) → VectorGlyphSet::rebuild()
-    │     │     └─ instanced arrow VAO (unit arrow + per-instance origin/direction)
-    │     │
-    │     ├─ Clear FBO → glClear(bgColor)
-    │     │
-    │     ├─ Draw grid (optional) → grid shader (procedural ray-cast ground plane)
-    │     │
-    │     ├─ Draw mesh (if loaded)
-    │     │     ├─ Compute MVP (Camera view × proj × model)
-    │     │     ├─ Compute light directions (LightingModel::computeDirections)
-    │     │     ├─ Bind mesh shader program
-    │     │     ├─ Set uniforms (MVP, lighting, colormap, slice/clip planes)
-    │     │     ├─ snapshotDrawList() → select full or LOD mesh
-    │     │     ├─ Draw triangles (GL_TRIANGLES, indexed)
-    │     │     ├─ Draw points (optional, GL_POINTS)
-    │     │     ├─ Draw wireframe (optional, GL_LINES)
-    │     │     ├─ Draw cell edges (optional, GL_LINES from cellEdges VBO)
-    │     │     └─ Draw bounds box (optional, GL_LINES)
-    │     │
-    │     ├─ Draw vector glyphs (optional) → glyph shader (instanced)
-    │     │
-    │     ├─ Draw gizmo (optional) → corner viewport with axis triad + light markers
-    │     │
-    │     └─ Draw colorbar legends (optional) → ColorbarOverlay::draw()
-    │           └─ CPU-rendered QImage → GL texture → textured quad in FBO
-    │
-    └─ 3. Screenshot capture (if pending)
-          └─ captureViewportToFile() → read FBO → QImage → native PNG/JPEG/BMP writer
-```
-
----
-
-## Subsystem Details
-
-### Mesh Loading (Async)
-```
-User loads file (QML file dialog / drag-and-drop)
-    │
-    ▼
-RenderSettings::loadMesh(path)
-    │
-    ├─ Save state to QSettings
-    ├─ Increment load token (generation counter)
-    ├─ QtConcurrent::run(parseVTK/parseSTL/parseOBJ/parseVTKXML)
-    │     └─ Parse file → RenderMesh (CPU, no GL)
-    │
-    ▼ (callback on GUI thread)
-RenderSettings::onMeshParsed()
-    │
-    ├─ Check token matches current (stale loads are discarded)
-    ├─ Run mesh quality analysis (MeshQuality)
-    ├─ Compute bounds (mesh_utils::computeBounds)
-    ├─ Compute normals (mesh_utils::computeNormals)
-    ├─ Store m_loadedMesh (shared_ptr, immutable)
-    ├─ Extract GUI metadata (m_guiMeta)
-    ├─ Update RenderSettings state (triangleCount, pointCount, etc.)
-    ├─ setPendingMesh(m_loadedMesh) → handoff to render thread
-    └─ emit meshLoadStateChanged()
-```
-
-### LOD (Level of Detail)
-- `MeshGLManager` runs **vertex-clustering decimation** (coarse voxel grid, one representative per cell).
-- Produces a separate `decimatedMeshes_` list alongside the full-resolution `meshes_`.
-- While the camera is moving (`cameraMoving == true`), the renderer draws the decimated set.
-- When the camera stops (debounce timer expires), the full-resolution set is drawn.
-- Scalar fields on the LOD mesh are recomputed by averaging (`decimateScalars()`) using the same clustering.
-
-### Vector Glyphs
-- VTK VECTORS are stored per-point as `glm::vec3` runs in `RenderMesh::pointVectorsData`.
-- `VectorGlyphSet::rebuild()` samples points at the configured stride, computes magnitude, and builds:
-  - A **unit arrow** geometry (cylinder shaft + cone head, height 1, pointing +Y).
-  - An **instanced buffer** of `[originX, originY, originZ, dirX, dirY, dirZ]` per instance.
-- The glyph shader applies per-instance transforms with magnitude scaling (linear/sqrt/log).
-- LUT-based magnitude coloring is optional (`vectorUseColormap`).
-
-### Lighting Model
-- **4-point light kit**: Key, Fill, Back, Head lights.
-- Directions are specified in **camera-relative azimuth/elevation** (degrees).
-- `computeDirections()` rotates kit-local directions into world space using the camera basis.
-- Presets: Studio (default), CAD Flat, Soft.
-- Material registers: ambient, diffuse, specular, shininess.
-- Warm tint control (`lightWarm`) blends between cool and warm key-light color.
-
-### Screenshots
-- The viewport FBO is captured directly on the render thread (`captureViewportToFile`).
-- Since the colorbar is rendered **inside** the FBO (not as a QML overlay), screenshots include the colorbar exactly as displayed.
-- Format is inferred from file extension: PNG (with optional alpha), JPEG, BMP.
-
----
-
-## Build Targets
-
-| Target | Type | Purpose |
-|--------|------|---------|
-| `SciRender` | Executable | Main application |
-| `parse_regression` | Test executable | Parser unit tests (no Qt/GL dependency) |
-
-### Key CMake Details
-- **Qt modules**: Core, Gui, Qml, Quick, QuickControls2, OpenGLWidgets
-- **Vendor libs**: GLAD (static), GLM (INTERFACE/header-only)
-- **Shader sync**: Post-build copies `src/shaders/` to `<build>/shaders/` for runtime loading
-- **QML module**: `SciRenderUI` (URI), exposes `Main.qml` and shader resources
-- **Test**: `enable_testing()` + `add_test()` for CTest integration
-
----
-
-## Key Design Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Raw OpenGL instead of Qt RHI | Need OpenGL 3.3 core for `#version 330` shaders; Qt RHI on Windows defaults to ANGLE/ES3. |
-| `QQuickFramebufferObject` over `SGRenderNode` | Allows raw OpenGL with an explicit FBO; simpler lifecycle for screenshot capture. |
-| Thread-isolated Renderer (no QObject) | Eliminates race conditions; snapshot copy is the only cross-thread boundary. |
-| shared_ptr for mesh/scalar handoff | Zero-copy transfer; the GUI thread keeps the authoritative CPU payload alive. |
-| Value-type RenderRenderState | Deep copy is cheap (~75 fields, no heap indirection); avoids mutexes on the snapshot. |
-| LOD with camera-motion debounce | Balances interactivity (low poly while orbiting) and fidelity (full poly when静止). |
-| Colorbar as FBO quad, not QML overlay | Ensures screenshots capture the colorbar; keeps it in GL coordinate space. |
-| VTK legacy parser only | Structured/Unstructured Grid + PolyData (legacy .vtk); VTK XML formats handled separately by vtk_xml_parser.cpp. |
-| GLM header-only | No linking overhead; used for all math (matrices, quaternions, vectors). |
-
----
-
-## Dependencies Between Modules
-
-```
-RenderSettings ──owns──► Renderer
-     │                       │
-     │                       ├──► MeshGLManager ──uses──► RenderMesh (core)
-     │                       ├──► ColormapManager
-     │                       ├──► VectorGlyphSet ──uses──► RenderMesh
-     │                       ├──► LightingModel
-     │                       ├──► Gizmo
-     │                       └──► ColorbarOverlay
-     │
-     ├──► Camera (GUI-thread copy)
-     │
-     └──► ViewportFboRenderer ──owns──► QOpenGLFramebufferObject
-
-ViewportVisualizer (QQuickFBO) ──creates──► ViewportFboRenderer
-Main.qml ──binds──► ViewportVisualizer
-Main.qml ──binds──► backendSettings (RenderSettings*)
-```
-
----
-
-## Out of Scope
-
-- Volume rendering / ray marching
-- Multi-pass transparency (alpha blending is single-pass, order-dependent)
-- Animation / time-varying datasets
-- Network / remote rendering
-- Mobile / OpenGL ES
-
----
-
-## Testing
-
-- `parse_regression` target runs parser tests without Qt/GL dependencies.
-- Tests verify VTK, STL, and OBJ parsing correctness (indices, normals, bounds, scalar fields).
-- Mesh quality analysis is validated for degenerate face, open edge, and non-manifold detection.
+1. **Fix C1 & C2** — actual data races that can cause crashes or GL corruption.
+2. **Extract shader helper** (H5) — quick win, reduces `initShaders()` by ~120 lines.
+3. **Introduce `RenderLib` / `CoreLib` CMake targets** (M6) — enables incremental builds and test linking.
+4. **Collapse `RenderSettings` ↔ `RenderRenderState` duplication** (H3) — biggest long-term maintainability win.
+5. **Wrap GL handles in RAII types** (H4) — `UniqueGLBuffer`, `UniqueGLVertexArray` that call `glDelete*` in destructors.
+6. **Split `Renderer` into focused managers** (H1) — e.g. `ShaderManager`, `ScreenshotCapture`, `StreamlineController`, `ParticleAnimator`.
+7. **Wire up `ChangeFlag` properly** (M3) — avoid full-state copies on every property change.
+8. **Add `.clang-format`** (L3) — enforce consistent formatting.
