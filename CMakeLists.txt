@@ -14,11 +14,10 @@ set(CMAKE_AUTOUIC ON)
 # 1. Locate Qt 6 and System Graphics Dependencies
 # ---------------------------------------------------------------------------
 # FIX: Added QuickControls2 to COMPONENTS to fetch C++ headers like <QQuickStyle>
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 OpenGLWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGLWidgets)
 find_package(OpenGL REQUIRED)
 
-# FIX: Set Qt policy QTP0004 NEW to support custom sub-directory layout
-qt_policy(SET QTP0004 NEW)
+
 
 # ---------------------------------------------------------------------------
 # 2. Configure Vendor Libraries
@@ -77,15 +76,17 @@ add_library(RenderLib STATIC
 )
 target_include_directories(RenderLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(RenderLib PUBLIC CoreLib glad OpenGL::GL
-    Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::OpenGLWidgets)
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::OpenGLWidgets)
 
 # ---------------------------------------------------------------------------
 # 5. Main Application Target
 # ---------------------------------------------------------------------------
 add_executable(SciRender
     src/app/main.cpp
-    src/ui/custom_viewport_item.cpp
-    src/ui/custom_viewport_item.h
+    src/ui/viewport_widget.cpp
+    src/ui/viewport_widget.h
+    src/ui/main_window.cpp
+    src/ui/main_window.h
     assets/app_icon.rc
 )
 
@@ -96,14 +97,11 @@ target_compile_definitions(SciRender PRIVATE
 target_link_libraries(SciRender PRIVATE CoreLib RenderLib)
 
 # ---------------------------------------------------------------------------
-# 6. Declarative UI Assets Module + Shaders
+# 6. Shader Resources
 # ---------------------------------------------------------------------------
-qt_add_qml_module(SciRender
-    URI SciRenderUI
-    VERSION 1.0
-    QML_FILES
-        ui/Main.qml
-    RESOURCES
+qt_add_resources(SciRender "shaders"
+    PREFIX "/"
+    FILES
         src/shaders/mesh.vert
         src/shaders/mesh.frag
         src/shaders/grid.vert

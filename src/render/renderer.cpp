@@ -27,7 +27,6 @@
 #include <QDir>
 #include <QDateTime>
 #include <QRegularExpression>
-#include <QQuickOpenGLUtils>
 #include <QFileInfo>
 #include <QOpenGLContext>
 #include <QSettings>
@@ -1170,6 +1169,6 @@ void Renderer::renderFrame() {
 
     drawColorbarLegends(deviceW, deviceH);
 
-    QQuickOpenGLUtils::resetOpenGLState();
+    glBindVertexArray(0);
 }
 
