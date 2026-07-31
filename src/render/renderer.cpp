@@ -215,7 +215,6 @@ void Renderer::initShaders(const ShaderSources& sources) {
     if (!sources.particleVert.empty() && !sources.particleFrag.empty()) {
         particleProgram = compileProgram(sources.particleVert.c_str(), sources.particleFrag.c_str(), "Particle");
         if (particleProgram != 0) {
-            particleMvpLoc = glGetUniformLocation(particleProgram, "uMVP");
             particleColorLoc = glGetUniformLocation(particleProgram, "uColor");
             particleLutLoc = glGetUniformLocation(particleProgram, "uColormapLUT");
             particlePointSizeLoc = glGetUniformLocation(particleProgram, "uPointSize");
@@ -344,7 +343,7 @@ void Renderer::resetCamera() {
     m_orthoRefDist = camera.distance;
     if (camera.distance < 1.0) camera.distance = 1.0;
     camera.maxDistance = std::max(1000.0, camera.distance * 50.0);
-    nearPlane = std::max(0.01, camera.distance * 0.01);
+    nearPlane = std::max(0.01, camera.distance * 0.001);
     farPlane  = std::max(100.0, camera.distance * 20.0);
     camera.position = camera.focalPoint + glm::dvec3(0.0, 0.0, camera.distance);
     camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
@@ -990,6 +989,7 @@ void Renderer::renderFrame() {
         }
 
         glUseProgram(0);
+    }
 
     drawBoundingBox(view, proj);
 
@@ -1047,7 +1047,7 @@ void Renderer::renderFrame() {
             ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
             ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineDashEnabled ? 1.0f : 0.0f, m_state.streamlineDashSpeed);
             ubo.arrowParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f); // arrowAnimSpeed, pad
-            glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
+            glBindBufferBase(GL_UNIFORM_BUFFER, 3, streamlineUbo);
             glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
             if (m_state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
                 glBindTextureUnit(1, colormap.streamlineTexture());
@@ -1100,31 +1100,32 @@ void Renderer::renderFrame() {
 
         if (!particleVerts.empty()) {
             if (particleVao == 0) {
-                glGenVertexArrays(1, &particleVao);
-                glGenBuffers(1, &particleVbo);
-                glBindVertexArray(particleVao);
-                glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
-                glEnableVertexAttribArray(0);
-                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-                glEnableVertexAttribArray(1);
-                glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(3 * sizeof(float)));
-                glBindVertexArray(0);
+                glCreateVertexArrays(1, &particleVao);
+                glCreateBuffers(1, &particleVbo);
+                glEnableVertexArrayAttrib(particleVao, 0);
+                glVertexArrayAttribFormat(particleVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+                glVertexArrayAttribBinding(particleVao, 0, 0);
+                glEnableVertexArrayAttrib(particleVao, 1);
+                glVertexArrayAttribFormat(particleVao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
+                glVertexArrayAttribBinding(particleVao, 1, 0);
+                glVertexArrayVertexBuffer(particleVao, 0, particleVbo, 0, 4 * sizeof(float));
             }
 
             particleVertexCount = static_cast<int>(particleVerts.size() / 4);
-            glBindBuffer(GL_ARRAY_BUFFER, particleVbo);
-            glBufferData(GL_ARRAY_BUFFER, particleVerts.size() * sizeof(float), particleVerts.data(), GL_DYNAMIC_DRAW);
+            glNamedBufferData(particleVbo, particleVerts.size() * sizeof(float), particleVerts.data(), GL_DYNAMIC_DRAW);
 
             glUseProgram(particleProgram);
             GLboolean blendWas = glIsEnabled(GL_BLEND);
             GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
             GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+            GLboolean depthMaskWas;
+            glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMaskWas);
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glEnable(GL_PROGRAM_POINT_SIZE);
             glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
 
-            glUniformMatrix4fv(particleMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
             glUniform1f(particlePointSizeLoc, m_state.particleSize);
 
             if (m_state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
@@ -1145,6 +1146,7 @@ void Renderer::renderFrame() {
             if (!blendWas) glDisable(GL_BLEND);
             if (!pointSizeWas) glDisable(GL_PROGRAM_POINT_SIZE);
             if (depthWas) glEnable(GL_DEPTH_TEST);
+            glDepthMask(depthMaskWas);
             glUseProgram(0);
         }
     }
@@ -1156,6 +1158,5 @@ void Renderer::renderFrame() {
     drawColorbarLegends(deviceW, deviceH);
 
     QQuickOpenGLUtils::resetOpenGLState();
-}
 }
 

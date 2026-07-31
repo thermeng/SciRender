@@ -422,7 +422,6 @@ private:
 
     // particle program
     GLuint particleProgram = 0;
-    GLint particleMvpLoc = -1;
     GLint particleColorLoc = -1;
     GLint particleLutLoc = -1;
     GLint particlePointSizeLoc = -1;
