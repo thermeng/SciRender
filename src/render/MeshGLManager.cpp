@@ -594,6 +594,11 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     glNamedBufferData(lodCellSsbo, totalCells * sizeof(unsigned int) * 10, nullptr, GL_DYNAMIC_DRAW);
     glNamedBufferData(lodRemapSsbo, nv * sizeof(unsigned int), nullptr, GL_DYNAMIC_DRAW);
     glNamedBufferData(lodCounterSsbo, 2 * sizeof(unsigned int), nullptr, GL_DYNAMIC_DRAW);
+    {
+        // Zero the cell data buffer so atomicAdd starts from 0.
+        std::vector<GLuint> zeros(totalCells * 10, 0);
+        glNamedBufferSubData(lodCellSsbo, 0, zeros.size() * sizeof(GLuint), zeros.data());
+    }
     GLuint zero = 0;
     glNamedBufferSubData(lodCounterSsbo, 0, sizeof(unsigned int), &zero);
     glNamedBufferSubData(lodCounterSsbo, sizeof(unsigned int), sizeof(unsigned int), &zero);
@@ -629,6 +634,7 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, lodCellSsbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, lodParamsUbo);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, lodCounterSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, lodRemapSsbo);
 
     GLuint groups = (static_cast<GLuint>(nv) + 255u) / 256u;
 

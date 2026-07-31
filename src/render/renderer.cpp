@@ -805,7 +805,7 @@ void Renderer::renderFrame() {
     }
 
     if (streamlineDirty.exchange(false)) {
-        if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+        if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
         streamlineSet.initParticles(m_state.particleCount);
         particleVertexCount = 0;
     }
@@ -1081,40 +1081,51 @@ void Renderer::renderFrame() {
         glUseProgram(0);
     }
 
-    if (m_state.showStreamlines && !streamlineSet.empty() && streamlineProgram != 0) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glUseProgram(streamlineProgram);
-        GLboolean blendWas = glIsEnabled(GL_BLEND);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        if (streamlineUbo == 0) {
-            glCreateBuffers(1, &streamlineUbo);
-            glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
-        }
-        glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
-        computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-        glm::vec3 camPos = glm::vec3(m_state.camera.position);
-        StreamlineUBOData ubo{};
-        ubo.mvp = mvp;
-        ubo.model = glm::mat4(1.0f);
-        ubo.viewPos = glm::vec4(camPos, 0.0f);
-        ubo.lightDir = glm::vec4(kDir, 0.0f);
-        ubo.time_opacity = glm::vec4(static_cast<float>(m_animationTime), m_state.streamlineOpacity, 0.0f, 0.0f);
-        ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
-        ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
-        ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
+    if ((m_state.showStreamlines && !streamlineSet.empty()) ||
+        (m_state.showStreamlineArrows && streamlineSet.arrowVao != 0 && streamlineSet.arrowCount > 0)) {
+        if (streamlineProgram != 0) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            glUseProgram(streamlineProgram);
+            GLboolean blendWas = glIsEnabled(GL_BLEND);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            if (streamlineUbo == 0) {
+                glCreateBuffers(1, &streamlineUbo);
+                glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
+            }
+            glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
+            computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
+            glm::vec3 camPos = glm::vec3(m_state.camera.position);
+            StreamlineUBOData ubo{};
+            ubo.mvp = mvp;
+            ubo.model = glm::mat4(1.0f);
+            ubo.viewPos = glm::vec4(camPos, 0.0f);
+            ubo.lightDir = glm::vec4(kDir, 0.0f);
+            ubo.time_opacity = glm::vec4(static_cast<float>(m_animationTime), m_state.streamlineOpacity, 0.0f, 0.0f);
+            ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
+            ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
+            ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
             ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineDashEnabled ? 1.0f : 0.0f, m_state.streamlineDashSpeed);
-        glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
-        glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
-        if (m_state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
-            glBindTextureUnit(1, colormap.streamlineTexture());
-            glUniform1i(streamlineLutLoc, 1);
+            ubo.arrowParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f); // arrowAnimSpeed, pad
+            glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
+            glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
+            if (m_state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
+                glBindTextureUnit(1, colormap.streamlineTexture());
+                glUniform1i(streamlineLutLoc, 1);
+            }
+            if (m_state.showStreamlines && !streamlineSet.empty()) {
+                glBindVertexArray(streamlineSet.vao);
+                glDrawArrays(GL_TRIANGLES, 0, streamlineSet.lineCount);
+                glBindVertexArray(0);
+            }
+            if (m_state.showStreamlineArrows && streamlineSet.arrowVao != 0 && streamlineSet.arrowCount > 0) {
+                glBindVertexArray(streamlineSet.arrowVao);
+                glDrawArrays(GL_TRIANGLES, 0, streamlineSet.arrowCount);
+                glBindVertexArray(0);
+            }
+            if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+            glUseProgram(0);
         }
-        glBindVertexArray(streamlineSet.vao);
-        glDrawArrays(GL_TRIANGLES, 0, streamlineSet.lineCount);
-        glBindVertexArray(0);
-        if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-        glUseProgram(0);
     }
 
     if (m_state.showSeeds && !streamlineSet.seedsEmpty() && seedProgram != 0) {
@@ -1140,41 +1151,12 @@ void Renderer::renderFrame() {
         if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     }
 
-    if (m_state.showStreamlineArrows && streamlineSet.arrowCount > 0 && streamlineProgram != 0) {
-        glUseProgram(streamlineProgram);
-        GLboolean blendWas = glIsEnabled(GL_BLEND);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        if (streamlineUbo != 0) {
-            glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
-            computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-            glm::vec3 camPos = glm::vec3(m_state.camera.position);
-            StreamlineUBOData ubo{};
-            ubo.mvp = mvp;
-            ubo.model = glm::mat4(1.0f);
-            ubo.viewPos = glm::vec4(camPos, 0.0f);
-            ubo.lightDir = glm::vec4(kDir, 0.0f);
-            ubo.time_opacity = glm::vec4(static_cast<float>(m_animationTime), m_state.streamlineOpacity, 0.0f, 0.0f);
-            ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
-            ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
-            ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
-        ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineDashEnabled ? 1.0f : 0.0f, m_state.streamlineDashSpeed);
-            glBindBufferBase(GL_UNIFORM_BUFFER, 0, streamlineUbo);
-            glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
-        }
-        glBindVertexArray(streamlineSet.arrowVao);
-        glDrawArrays(GL_TRIANGLES, 0, streamlineSet.arrowCount);
-        glBindVertexArray(0);
-        if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-        glUseProgram(0);
-    }
-
     // Particle rendering pass
     if (m_state.showParticles && !streamlineSet.empty() && particleProgram != 0) {
         streamlineSet.updateParticles(static_cast<float>(m_lastFrameDt), m_state.particleSpeed);
 
         std::vector<float> particleVerts;
-        streamlineSet.buildParticleVertices(particleVerts, m_state.streamlineUseColormap);
+        streamlineSet.buildParticleVertices(particleVerts);
 
         if (!particleVerts.empty()) {
             if (particleVao == 0) {
