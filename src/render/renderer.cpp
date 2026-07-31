@@ -61,6 +61,11 @@ Renderer::Renderer()
 #pragma GCC diagnostic ignored "-Wattributes"
 Renderer::~Renderer() {
     m_destroying = true;
+
+    // Join the background streamline worker before destroying GL resources.
+    streamlineCancelFlag = true;
+    if (streamlineWorker.joinable()) streamlineWorker.join();
+
     if (QOpenGLContext::currentContext()) {
         if (meshUbo) glDeleteBuffers(1, &meshUbo);
         if (gridUbo) glDeleteBuffers(1, &gridUbo);
@@ -805,9 +810,72 @@ void Renderer::renderFrame() {
     }
 
     if (streamlineDirty.exchange(false)) {
-        if (m_lastUploadedMesh) streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
-        streamlineSet.initParticles(m_state.particleCount);
-        particleVertexCount = 0;
+        m_streamlineRequestTime = std::chrono::steady_clock::now();
+    }
+
+    // Off-thread streamline: after debounce, launch compute() on a background
+    // thread; when the result is ready, uploadGL() runs here on the GL thread.
+    {
+        auto dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_streamlineRequestTime).count();
+        if (dt >= kStreamlineDebounceSec && m_streamlineRequestTime.time_since_epoch().count() > 0
+            && m_lastUploadedMesh
+            && !streamlineComputeRunning.load()) {
+            m_streamlineRequestTime = {}; // reset
+
+            // Cancel any in-flight compute (will be joined before launch).
+            streamlineCancelFlag = false;
+            if (streamlineWorker.joinable()) streamlineWorker.join();
+
+            // Capture everything compute() needs by value/shared_ptr.
+            auto mesh = m_lastUploadedMesh;
+            int   seedCount     = m_state.streamlineSeedCount;
+            float stepSize      = m_state.streamlineStepSize;
+            int   maxSteps      = m_state.streamlineMaxSteps;
+            std::string field   = m_state.streamlineVectorField;
+            std::string mode    = m_state.seedMode;
+            double planePos     = m_state.seedPlanePos;
+            double jitter       = m_state.seedJitter;
+            int   planeCountU   = m_state.seedPlaneCountU;
+            int   planeCountV   = m_state.seedPlaneCountV;
+            bool  showArrows    = m_state.showStreamlineArrows;
+            int   arrowSpacing  = m_state.streamlineArrowSpacing;
+            float arrowSize     = m_state.streamlineArrowSize;
+            float ribbonWidth   = m_state.streamlineRibbonWidth;
+            float taperFactor   = m_state.streamlineTaperFactor;
+
+            streamlineComputeRunning = true;
+            streamlineWorker = std::thread(
+                [this, mesh, seedCount, stepSize, maxSteps, field, mode, planePos,
+                 jitter, planeCountU, planeCountV, showArrows, arrowSpacing,
+                 arrowSize, ribbonWidth, taperFactor]() {
+                    auto result = streamlineSet.compute(
+                        *mesh, seedCount, stepSize, maxSteps, field, mode,
+                        planePos, jitter, planeCountU, planeCountV,
+                        showArrows, arrowSpacing, arrowSize, ribbonWidth, taperFactor);
+
+                    if (streamlineCancelFlag.load()) {
+                        streamlineComputeRunning = false;
+                        return;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(streamlineResultMutex);
+                        pendingStreamlineResult = std::make_unique<StreamlineSet::StreamlineResult>(std::move(result));
+                    }
+                    streamlineComputeRunning = false;
+                });
+        }
+    }
+
+    // Consume a completed streamline computation (produced by the background thread).
+    {
+        std::lock_guard<std::mutex> lock(streamlineResultMutex);
+        if (pendingStreamlineResult) {
+            streamlineSet.uploadGL(std::move(*pendingStreamlineResult), m_state.showStreamlineArrows, m_state.streamlineArrowSize);
+            streamlineSet.initParticles(m_state.particleCount);
+            particleVertexCount = 0;
+            pendingStreamlineResult.reset();
+        }
     }
 
     if (particleCountDirty.exchange(false)) {

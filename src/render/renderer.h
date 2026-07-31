@@ -26,6 +26,8 @@
 #include <optional>
 #include <chrono>
 #include <map>
+#include <thread>
+#include <memory>
 
 #include "core/mesh_loader.h"
 #include "render/gizmo.h"
@@ -453,6 +455,17 @@ private:
 
     std::atomic<bool> vectorGlyphDirty{false};
     std::atomic<bool> streamlineDirty{false};
+    std::chrono::steady_clock::time_point m_streamlineRequestTime;
+    static constexpr double kStreamlineDebounceSec = 0.15;
+
+    // Off-thread streamline computation: compute() runs on a background thread,
+    // uploadGL() runs on the GL render thread when the result is ready.
+    std::mutex streamlineResultMutex;
+    std::unique_ptr<StreamlineSet::StreamlineResult> pendingStreamlineResult;
+    std::thread streamlineWorker;
+    std::atomic<bool> streamlineComputeRunning{false};
+    std::atomic<bool> streamlineCancelFlag{false};
+
     std::atomic<bool> particleCountDirty{false};
 
     bool m_destroying = false;

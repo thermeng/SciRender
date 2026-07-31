@@ -49,6 +49,33 @@ public:
     bool empty() const { return lineCount == 0; }
     bool seedsEmpty() const { return seedCount == 0; }
 
+    // CPU-side result of streamline computation (no GL state).
+    // Produced by compute() on any thread, consumed by uploadGL() on the GL thread.
+    struct StreamlineResult {
+        std::vector<float> verts;           // interleaved ribbon vertices
+        std::vector<float> seedVerts;       // [x,y,z] per seed
+        std::vector<float> arrowVerts;      // interleaved arrowhead vertices
+        std::vector<StreamlinePath> paths;
+        int seedCount = 0;
+        int lineCount = 0;
+        int arrowCount = 0;
+        float magMin = 0.0f;
+        float magMax = 0.0f;
+    };
+
+    // CPU-heavy computation: seed generation, filtering, RK4 tracing, vertex
+    // building.  Runs on any thread (no GL calls).  Returns a result ready
+    // for uploadGL().
+    StreamlineResult compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
+                             const std::string& fieldName, const std::string& mode,
+                             double planePos, double jitter, int planeCountU, int planeCountV,
+                             bool showArrows, int arrowSpacing, float arrowSize,
+                             float ribbonWidth, float taperFactor);
+
+    // GL upload: teardown old buffers, create new VAOs/VBOs, upload data.
+    // Must be called on the GL thread.
+    void uploadGL(StreamlineResult&& result, bool showArrows, float arrowSize);
+
     void rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                  const std::string& fieldName, const std::string& mode,
                  double planePos, double jitter, int planeCountU, int planeCountV,
