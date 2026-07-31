@@ -10,11 +10,8 @@ layout(std430, binding = 5) buffer OutNorm {
 layout(std430, binding = 6) buffer OutScalar {
     float outScalar[];
 };
-layout(std430, binding = 8) buffer Remap {
-    uint remap[];
-};
 
-layout(std430, binding = 9) buffer CellData {
+layout(std430, binding = 8) buffer CellData {
     uint cells[];
 };
 

@@ -26,11 +26,8 @@ layout(std430, binding = 6) buffer OutScalar {
 layout(std430, binding = 7) buffer OutIndex {
     uint outIndex[];
 };
-layout(std430, binding = 8) buffer Remap {
-    uint remap[];
-};
 
-layout(std430, binding = 9) buffer CellData {
+layout(std430, binding = 8) buffer CellData {
     uint cells[];
 };
 
@@ -49,14 +46,18 @@ layout(std430, binding = 10) buffer Counters {
     uint outTriCount;
 };
 
-float atomicAddFloat(inout uint addr, float value) {
-    uint old = atomicAdd(addr, 0u);
+layout(std430, binding = 11) buffer Remap {
+    uint remap[];
+};
+
+float atomicAddFloat(uint idx, float value) {
+    uint old = atomicAdd(cells[idx], 0u);
     uint newVal;
     do {
         float cur = uintBitsToFloat(old);
         float sum = cur + value;
         newVal = floatBitsToUint(sum);
-        uint prev = atomicCompSwap(addr, old, newVal);
+        uint prev = atomicCompSwap(cells[idx], old, newVal);
         if (prev == old) break;
         old = prev;
     } while (true);
@@ -73,19 +74,20 @@ void main() {
     ivec3 cell = ivec3(clamp(floor(cellCoord), ivec3(0), cellsPerAxis - 1));
 
     int flatCell = cell.x + cell.y * cellsPerAxis.x + cell.z * cellsPerAxis.x * cellsPerAxis.y;
-    int stride = cellsPerAxis.x * cellsPerAxis.y * cellsPerAxis.z;
 
     atomicAdd(cells[flatCell * 10u], 1u);
-    atomicAddFloat(cells[flatCell * 10u + 1u], p.x);
-    atomicAddFloat(cells[flatCell * 10u + 2u], p.y);
-    atomicAddFloat(cells[flatCell * 10u + 3u], p.z);
+    atomicAddFloat(flatCell * 10u + 1u, p.x);
+    atomicAddFloat(flatCell * 10u + 2u, p.y);
+    atomicAddFloat(flatCell * 10u + 3u, p.z);
 
     if (hasNormals != 0) {
-        atomicAddFloat(cells[flatCell * 10u + 4u], inNorm[vid].x);
-        atomicAddFloat(cells[flatCell * 10u + 5u], inNorm[vid].y);
-        atomicAddFloat(cells[flatCell * 10u + 6u], inNorm[vid].z);
+        atomicAddFloat(flatCell * 10u + 4u, inNorm[vid].x);
+        atomicAddFloat(flatCell * 10u + 5u, inNorm[vid].y);
+        atomicAddFloat(flatCell * 10u + 6u, inNorm[vid].z);
     }
     if (hasScalars != 0) {
-        atomicAddFloat(cells[flatCell * 10u + 7u], inScalar[vid]);
+        atomicAddFloat(flatCell * 10u + 7u, inScalar[vid]);
     }
+
+    remap[vid] = uint(flatCell);
 }

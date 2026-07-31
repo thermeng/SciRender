@@ -7,11 +7,8 @@ layout(std430, binding = 3) buffer InIndex {
 layout(std430, binding = 7) buffer OutIndex {
     uint outIndex[];
 };
-layout(std430, binding = 8) buffer Remap {
-    uint remap[];
-};
 
-layout(std430, binding = 9) buffer CellData {
+layout(std430, binding = 8) buffer CellData {
     uint cells[];
 };
 
@@ -30,6 +27,10 @@ layout(std430, binding = 10) buffer Counters {
     uint outTriCount;
 };
 
+layout(std430, binding = 11) buffer Remap {
+    uint remap[];
+};
+
 void main() {
     uint tid = gl_GlobalInvocationID.x;
     if (tid >= uint(triangleCount)) return;
@@ -38,16 +39,18 @@ void main() {
     uint b = inIndex[tid * 3u + 1u];
     uint c = inIndex[tid * 3u + 2u];
 
-    int totalCells = cellsPerAxis.x * cellsPerAxis.y * cellsPerAxis.z;
+    uint cellA = remap[a];
+    uint cellB = remap[b];
+    uint cellC = remap[c];
 
-    uint na = remap[a];
-    uint nb = remap[b];
-    uint nc = remap[c];
+    uint na = cells[cellA * 10u + 8u];
+    uint nb = cells[cellB * 10u + 8u];
+    uint nc = cells[cellC * 10u + 8u];
 
     if (na == nb || nb == nc || na == nc) return;
 
     uint base = atomicAdd(outTriCount, 3u);
-    outIndex[base] = na;
+    outIndex[base]     = na;
     outIndex[base + 1u] = nb;
     outIndex[base + 2u] = nc;
 }
