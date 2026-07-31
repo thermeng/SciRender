@@ -51,7 +51,8 @@ public:
 
     void rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                  const std::string& fieldName, const std::string& mode,
-                 double planePos, double jitter, bool showArrows, int arrowSpacing, float arrowSize,
+                 double planePos, double jitter, int planeCountU, int planeCountV,
+                 bool showArrows, int arrowSpacing, float arrowSize,
                  float ribbonWidth, float taperFactor);
 
     void shutdown();
@@ -59,7 +60,7 @@ public:
     static float magSq(const glm::vec3& v);
     static glm::mat3 buildFrame(const glm::vec3& dir);
     static std::vector<float> generateArrowhead(const glm::vec3& pos, const glm::vec3& dir, float height, float radius, int segments, float mag);
-    static std::vector<glm::vec3> generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter);
+    static std::vector<glm::vec3> generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter, int planeCountU = 10, int planeCountV = 10);
 
     struct StructuredGridInfo {
         std::vector<float> xs, ys, zs;

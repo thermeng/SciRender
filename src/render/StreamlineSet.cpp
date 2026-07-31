@@ -345,7 +345,7 @@ bool StreamlineSet::isInsideDomain(const StreamlineSet::StructuredGridInfo& info
     return info.cellActive[static_cast<size_t>(ci) + cj * cX + ck * cX * cY];
 }
 
-std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter) {
+std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter, int planeCountU, int planeCountV) {
     std::vector<glm::vec3> seeds;
     if (seedCount <= 0) return seeds;
 
@@ -381,16 +381,16 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
 
     if (mode == "PlaneXY" || mode == "PlaneXZ" || mode == "PlaneYZ") {
         float pos = static_cast<float>(planePos);
-        int n = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(seedCount))));
-        n = std::max(1, n);
+        int nU = std::max(1, planeCountU);
+        int nV = std::max(1, planeCountV);
         float sx = maxX - minX;
         float sy = maxY - minY;
         float sz = maxZ - minZ;
 
-        for (int ix = 0; ix < n && static_cast<int>(seeds.size()) < seedCount; ++ix) {
-            for (int iy = 0; iy < n && static_cast<int>(seeds.size()) < seedCount; ++iy) {
-                float tx = (ix + 0.5f) / n;
-                float ty = (iy + 0.5f) / n;
+        for (int ix = 0; ix < nU && static_cast<int>(seeds.size()) < nU * nV; ++ix) {
+            for (int iy = 0; iy < nV && static_cast<int>(seeds.size()) < nU * nV; ++iy) {
+                float tx = (ix + 0.5f) / nU;
+                float ty = (iy + 0.5f) / nV;
                 float x = minX + tx * sx;
                 float y = minY + ty * sy;
                 float z = minZ + pos * sz;
@@ -599,7 +599,8 @@ void StreamlineSet::shutdown() {
 
 void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                                 const std::string& fieldName, const std::string& mode,
-                                double planePos, double jitter, bool showArrows, int arrowSpacing, float arrowSize,
+                                double planePos, double jitter, int planeCountU, int planeCountV,
+                                bool showArrows, int arrowSpacing, float arrowSize,
                                 float ribbonWidth, float taperFactor) {
     teardownGL();
 
@@ -688,7 +689,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
         return evalFieldNearest(mesh, pos, data, limit, limit);
     };
 
-    std::vector<glm::vec3> seeds = generateSeeds(mesh, seedCountParam, mode, planePos, jitter);
+    std::vector<glm::vec3> seeds = generateSeeds(mesh, seedCountParam, mode, planePos, jitter, planeCountU, planeCountV);
     if (seeds.empty()) return;
 
     if (hasGrid) {

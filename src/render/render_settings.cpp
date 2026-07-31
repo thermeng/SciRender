@@ -120,6 +120,8 @@ void RenderSettings::buildRenderState() {
     std::copy(std::begin(streamlineColor), std::end(streamlineColor), s.streamlineColor);
     s.seedMode = seedMode;
     s.seedPlanePos = seedPlanePos;
+    s.seedPlaneCountU = seedPlaneCountU;
+    s.seedPlaneCountV = seedPlaneCountV;
     s.seedJitter = seedJitter;
     s.showSeeds = showSeeds;
     s.showStreamlineArrows = showStreamlineArrows;

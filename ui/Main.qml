@@ -676,6 +676,15 @@ ApplicationWindow {
                                     }
                                     Text { text: "Plane position"; color: "#cccccc"; font.pixelSize: 11; visible: backendSettings ? (backendSettings.seedMode === "PlaneXY" || backendSettings.seedMode === "PlaneXZ" || backendSettings.seedMode === "PlaneYZ") : false }
                                     LightSlider { label: "Plane pos"; value: backendSettings ? backendSettings.seedPlanePos : 0.5; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.seedPlanePos = v; visible: backendSettings ? (backendSettings.seedMode === "PlaneXY" || backendSettings.seedMode === "PlaneXZ" || backendSettings.seedMode === "PlaneYZ") : false }
+                                    property bool _planeMode: backendSettings ? (backendSettings.seedMode === "PlaneXY" || backendSettings.seedMode === "PlaneXZ" || backendSettings.seedMode === "PlaneYZ") : false
+                                    RowLayout { width: parent.width; spacing: 8; visible: parent._planeMode
+                                        Text { text: "Seeds U"; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 64; elide: Text.ElideRight }
+                                        SpinBox { Layout.fillWidth: true; from: 1; to: 200; stepSize: 1; value: backendSettings ? backendSettings.seedPlaneCountU : 10; onValueChanged: backendSettings.seedPlaneCountU = value }
+                                    }
+                                    RowLayout { width: parent.width; spacing: 8; visible: parent._planeMode
+                                        Text { text: "Seeds V"; color: "#cccccc"; font.pixelSize: 11; Layout.preferredWidth: 64; elide: Text.ElideRight }
+                                        SpinBox { Layout.fillWidth: true; from: 1; to: 200; stepSize: 1; value: backendSettings ? backendSettings.seedPlaneCountV : 10; onValueChanged: backendSettings.seedPlaneCountV = value }
+                                    }
                                     LightSlider { label: "Jitter"; value: backendSettings ? backendSettings.seedJitter : 0.0; from: 0.0; to: 1.0; step: 0.01; onSet: v => backendSettings.seedJitter = v }
                                     CheckBox { text: "Show seeds"; checked: backendSettings ? backendSettings.showSeeds : false; onToggled: backendSettings.showSeeds = checked }
                                     LightSlider { label: "Seed size"; value: backendSettings ? backendSettings.seedPointSize : 6.0; from: 1.0; to: 20.0; step: 0.5; onSet: v => backendSettings.seedPointSize = v }

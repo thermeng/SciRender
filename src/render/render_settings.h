@@ -208,6 +208,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(QColor streamlineColor READ getStreamlineColorQml WRITE setStreamlineColorQml NOTIFY viewChanged)
     Q_PROPERTY(QString seedMode READ getSeedMode WRITE setSeedMode NOTIFY viewChanged)
     Q_PROPERTY(double seedPlanePos READ getSeedPlanePos WRITE setSeedPlanePos NOTIFY viewChanged)
+    Q_PROPERTY(int seedPlaneCountU READ getSeedPlaneCountU WRITE setSeedPlaneCountU NOTIFY viewChanged)
+    Q_PROPERTY(int seedPlaneCountV READ getSeedPlaneCountV WRITE setSeedPlaneCountV NOTIFY viewChanged)
     Q_PROPERTY(double seedJitter READ getSeedJitter WRITE setSeedJitter NOTIFY viewChanged)
     Q_PROPERTY(bool showSeeds READ getShowSeeds WRITE setShowSeeds NOTIFY viewChanged)
     Q_PROPERTY(bool showStreamlineArrows READ getShowStreamlineArrows WRITE setShowStreamlineArrows NOTIFY viewChanged)
@@ -462,6 +464,10 @@ public:
     void setSeedMode(const QString& v) { if (seedMode != v.toStdString()) { seedMode = v.toStdString(); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
     double getSeedPlanePos() const { return seedPlanePos; }
     void setSeedPlanePos(double v) { if (seedPlanePos != v) { seedPlanePos = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    int getSeedPlaneCountU() const { return seedPlaneCountU; }
+    void setSeedPlaneCountU(int v) { if (v < 1) v = 1; if (seedPlaneCountU != v) { seedPlaneCountU = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
+    int getSeedPlaneCountV() const { return seedPlaneCountV; }
+    void setSeedPlaneCountV(int v) { if (v < 1) v = 1; if (seedPlaneCountV != v) { seedPlaneCountV = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
     double getSeedJitter() const { return seedJitter; }
     void setSeedJitter(double v) { if (seedJitter != v) { seedJitter = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(); } }
     bool getShowSeeds() const { return showSeeds; }
@@ -690,6 +696,8 @@ private:
 
     std::string seedMode = "Volume";
     double seedPlanePos = 0.5;
+    int seedPlaneCountU = 10;
+    int seedPlaneCountV = 10;
     double seedJitter = 0.0;
     bool showSeeds = false;
     bool showStreamlineArrows = false;
