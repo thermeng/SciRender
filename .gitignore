@@ -92,4 +92,4 @@ CMakeLists.txt.user*
 # Ignore
 /.hermes/
 /.kilo/
-ARCHITECTURE_REVIEW.md
+arch_readme.md

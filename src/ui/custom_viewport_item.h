@@ -1,12 +1,13 @@
 #pragma once
 
 #include <QtQuick/QQuickFramebufferObject>
-#include <QOpenGLFramebufferObject>
 #include <QPoint>
 #include <QString>
 #include <QElapsedTimer>
 #include "render/renderer.h"
 #include "render/render_settings.h"
+
+class QOpenGLFramebufferObject;
 
 class ViewportFboRenderer : public QQuickFramebufferObject::Renderer {
 public:

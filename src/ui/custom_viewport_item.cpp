@@ -1,6 +1,7 @@
 ﻿#include <glad/gl.h>
 #include "custom_viewport_item.h"
 #include "render/render_config.h"
+#include <QOpenGLFramebufferObject>
 #include <QQuickWindow>
 #include <QMouseEvent>
 #include <QWheelEvent>
