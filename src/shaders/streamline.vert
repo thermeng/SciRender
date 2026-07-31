@@ -6,7 +6,7 @@ layout(location = 2) in vec3 aNormal;
 layout(location = 3) in float aDashFlag;
 layout(location = 4) in float aU;
 
-layout(std140, binding = 0) uniform StreamlineUBO {
+layout(std140, binding = 3) uniform StreamlineUBO {
     mat4  uMVP;
     mat4  uModel;
     vec4  uViewPos;           // xyz = viewPos

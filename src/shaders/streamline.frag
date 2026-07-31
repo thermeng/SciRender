@@ -6,7 +6,7 @@ in float vDashFlag;
 in float vU;
 in float vMag;
 
-layout(std140, binding = 0) uniform StreamlineUBO {
+layout(std140, binding = 3) uniform StreamlineUBO {
     mat4  uMVP;
     mat4  uModel;
     vec4  uViewPos;

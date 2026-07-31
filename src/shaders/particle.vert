@@ -3,7 +3,7 @@
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in float aMag;
 
-layout(std140, binding = 0) uniform StreamlineUBO {
+layout(std140, binding = 3) uniform StreamlineUBO {
     mat4  uMVP;
     mat4  uModel;
     vec4  uViewPos;
