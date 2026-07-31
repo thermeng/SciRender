@@ -84,11 +84,6 @@ private:
     QToolButton* m_quickBarHandle = nullptr;
     QHBoxLayout* m_quickBarLayout = nullptr;
 
-    // FPS HUD
-    QLabel* m_fpsLabel = nullptr;
-    QLabel* m_statusToast = nullptr;
-    QLabel* m_dropPrompt = nullptr;
-
     // Field selection combos (populated on mesh load)
     QComboBox* m_scalarCombo = nullptr;
     QComboBox* m_vectorCombo = nullptr;
@@ -109,7 +104,4 @@ private:
     QColorDialog* m_vectorColorDialog = nullptr;
     QColorDialog* m_streamlineColorDialog = nullptr;
     QColorDialog* m_seedColorDialog = nullptr;
-
-    // Status toast hide timer
-    QTimer m_toastTimer;
 };

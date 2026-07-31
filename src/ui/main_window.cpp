@@ -54,7 +54,7 @@ static SliderRow createLightSlider(const QString& label, double value, double fr
 
     auto* lbl = new QLabel(label);
     lbl->setFixedWidth(64);
-    lbl->setStyleSheet("color: #cccccc; font-size: 11px;");
+    lbl->setStyleSheet("font-size: 11px;");
     lbl->setWordWrap(false);
     layout->addWidget(lbl);
 
@@ -68,7 +68,7 @@ static SliderRow createLightSlider(const QString& label, double value, double fr
     row.valueLabel = new QLabel(QString::number(value, 'f', decimals));
     row.valueLabel->setFixedWidth(36);
     row.valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    row.valueLabel->setStyleSheet("color: #999999; font-size: 10px;");
+    row.valueLabel->setStyleSheet("font-size: 10px;");
     layout->addWidget(row.valueLabel);
 
     row.callback = cb;
@@ -101,7 +101,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
 
     auto* lbl = new QLabel(label);
     lbl->setFixedWidth(64);
-    lbl->setStyleSheet("color: #cccccc; font-size: 11px;");
+    lbl->setStyleSheet("font-size: 11px;");
     lbl->setWordWrap(false);
     layout->addWidget(lbl);
 
@@ -114,7 +114,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
     row.field = new QLineEdit(QString::number(value, 'f', 3));
     row.field->setFixedWidth(48);
     row.field->setAlignment(Qt::AlignRight);
-    row.field->setStyleSheet("color: #cccccc; font-size: 11px; background: #333; border: 1px solid #555;");
+    row.field->setStyleSheet("font-size: 11px;");
     auto* validator = new QDoubleValidator(from, to, 3);
     row.field->setValidator(validator);
     layout->addWidget(row.field);
@@ -143,7 +143,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
 // ============================================================================
 static QLabel* sectionHeader(const QString& text) {
     auto* lbl = new QLabel(text);
-    lbl->setStyleSheet("color: #9cdcfe; font-size: 11px; font-weight: bold;");
+    lbl->setStyleSheet("font-size: 11px; font-weight: bold;");
     return lbl;
 }
 
@@ -153,7 +153,7 @@ static QLabel* sectionHeader(const QString& text) {
 static QPushButton* createSwatchButton(const QString& text, const QColor& color, std::function<void()> onClicked) {
     auto* btn = new QPushButton(text);
     btn->setFixedHeight(22);
-    btn->setStyleSheet(QString("QPushButton { text-align: left; color: #ddd; font-size: 11px; }"));
+    btn->setStyleSheet("QPushButton { text-align: left; font-size: 11px; }");
     btn->setIcon(QIcon());
     // Paint swatch
     QPixmap pix(14, 14);
@@ -171,7 +171,7 @@ static QToolButton* createCollapsibleHeader(const QString& title, bool expanded,
     auto* btn = new QToolButton;
     btn->setText(QString("%1 %2").arg(expanded ? "\u25BC" : "\u25B6", title));
     btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    btn->setStyleSheet("QToolButton { text-align: left; color: #9cdcfe; font-size: 11px; font-weight: bold; background: transparent; border: none; padding: 2px; }");
+    btn->setStyleSheet("QToolButton { text-align: left; font-size: 11px; font-weight: bold; padding: 2px; }");
     btn->setCursor(Qt::PointingHandCursor);
     bool* state = new bool(expanded);
     QObject::connect(btn, &QToolButton::clicked, [btn, state, toggle]() {
@@ -225,9 +225,6 @@ static QGridLayout* buildColormapGrid(int currentChoice, std::function<void(int)
         btn->setIconSize(QSize(100, 24));
         btn->setCheckable(true);
         btn->setChecked(i == currentChoice);
-        btn->setStyleSheet(QString("QPushButton { border: 2px solid %1; background: #000; padding: 0; }"
-                                    "QPushButton:checked { border-color: #4fc3f7; }")
-            .arg(i == currentChoice ? "#4fc3f7" : "#444"));
         QObject::connect(btn, &QPushButton::clicked, [onChoose, i]() { onChoose(i); });
         grid->addWidget(btn, i / 2, i % 2);
     }
@@ -348,7 +345,6 @@ void MainWindow::setupSidebar() {
     // Icon strip
     auto* iconStrip = new QWidget;
     iconStrip->setFixedWidth(kIconStripWidth);
-    iconStrip->setStyleSheet("background: #262626;");
     auto* iconLayout = new QVBoxLayout(iconStrip);
     iconLayout->setContentsMargins(0, 4, 0, 4);
     iconLayout->setSpacing(2);
@@ -370,16 +366,15 @@ void MainWindow::setupSidebar() {
         {"\u{1F4CA}", "Mesh Info", 7},
     };
 
-    QToolButton* sectionButtons[9] = {};
     for (int i = 0; i < 9; ++i) {
         auto* btn = new QToolButton;
         btn->setText(QString::fromUtf8(icons[i].icon));
         btn->setToolTip(QString::fromUtf8(icons[i].tooltip));
         btn->setFixedSize(44, 40);
-        btn->setStyleSheet("QToolButton { font-size: 18px; border: none; }");
+        btn->setCheckable(i > 0);
         btn->setCursor(Qt::PointingHandCursor);
+        btn->setStyleSheet("QToolButton { font-size: 18px; border: none; }");
         iconLayout->addWidget(btn);
-        sectionButtons[i] = btn;
 
         if (i == 0) {
             connect(btn, &QToolButton::clicked, this, &MainWindow::openMesh);
@@ -392,7 +387,6 @@ void MainWindow::setupSidebar() {
 
     // Section stack
     m_sectionStack = new QStackedWidget;
-    m_sectionStack->setStyleSheet("background: #2b2b2b; border: 1px solid #444;");
 
     m_sectionStack->addWidget(buildLightingPage());     // 0
     m_sectionStack->addWidget(buildSlicingPage());      // 1
@@ -409,10 +403,6 @@ void MainWindow::setupSidebar() {
 
     m_sidebarDock->setWidget(m_sidebarWidget);
     addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
-
-    // Store button pointers for active highlighting
-    m_sidebarDock->setProperty("sectionButtons", QVariant::fromValue(reinterpret_cast<quintptr>(sectionButtons)));
-    m_sidebarDock->setProperty("sectionCount", 9);
 }
 
 // ============================================================================
@@ -424,7 +414,7 @@ QWidget* MainWindow::buildLightingPage() {
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setStyleSheet("QScrollArea { background: #2b2b2b; border: none; }");
+    scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
@@ -469,7 +459,7 @@ QWidget* MainWindow::buildLightingPage() {
 
     layout->addWidget(sectionHeader("Direction"));
     auto* tabWidget = new QTabWidget;
-    tabWidget->setStyleSheet("QTabWidget::pane { border: 1px solid #444; background: #2b2b2b; } QTabBar::tab { background: #333; color: #ccc; padding: 4px 12px; } QTabBar::tab:selected { background: #4a90d9; }");
+    tabWidget->setStyleSheet("QTabBar::tab { padding: 4px 12px; }");
 
     const char* lightNames[] = {"Key", "Fill", "Back", "Head"};
     using GetterFn = float (RenderSettings::*)() const;
@@ -609,7 +599,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setStyleSheet("QScrollArea { background: #2b2b2b; border: none; }");
+    scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
@@ -808,7 +798,7 @@ QWidget* MainWindow::buildColormapPage() {
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setStyleSheet("QScrollArea { background: #2b2b2b; border: none; }");
+    scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
@@ -975,7 +965,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setStyleSheet("QScrollArea { background: #2b2b2b; border: none; }");
+    scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
@@ -1276,9 +1266,9 @@ QWidget* MainWindow::buildMeshInfoPage() {
         auto* row = new QHBoxLayout;
         auto* lbl = new QLabel(label);
         lbl->setFixedWidth(96);
-        lbl->setStyleSheet("color: #888; font-size: 11px;");
+        lbl->setStyleSheet("font-size: 11px;");
         auto* val = new QLabel(value);
-        val->setStyleSheet(QString("color: %1; font-size: 11px;").arg(color));
+        val->setStyleSheet("font-size: 11px;");
         row->addWidget(lbl);
         row->addWidget(val);
         layout->addLayout(row);
@@ -1305,16 +1295,16 @@ QWidget* MainWindow::buildMeshInfoPage() {
     const char* xyz[] = {"X", "Y", "Z"};
     for (int i = 0; i < 3; ++i) {
         auto* h = new QLabel(QString::fromUtf8(xyz[i]));
-        h->setStyleSheet("color: #aaa; font-size: 10px;");
+        h->setStyleSheet("font-size: 10px;");
         bbGrid->addWidget(h, 0, i + 1);
     }
     auto addBBRow = [&](int row, const QString& lbl, auto getter) {
         auto* l = new QLabel(lbl);
-        l->setStyleSheet("color: #888; font-size: 11px;");
+        l->setStyleSheet("font-size: 11px;");
         bbGrid->addWidget(l, row, 0);
         for (int i = 0; i < 3; ++i) {
             auto* v = new QLabel(QString::number(getter(i), 'f', 3));
-            v->setStyleSheet("color: #ddd; font-size: 11px;");
+            v->setStyleSheet("font-size: 11px;");
             bbGrid->addWidget(v, row, i + 1);
         }
     };
@@ -1336,7 +1326,6 @@ QWidget* MainWindow::buildMeshInfoPage() {
 // ============================================================================
 void MainWindow::setSidebarSection(int section) {
     if (m_activeSection == section && m_sidebarExpanded) {
-        // Toggle off
         m_activeSection = -1;
         m_sidebarExpanded = false;
         m_sectionStack->setVisible(false);
@@ -1388,10 +1377,6 @@ void MainWindow::setupTimers() {
         if (shouldRun && !m_particleTimer.isActive()) m_particleTimer.start();
         else if (!shouldRun && m_particleTimer.isActive()) m_particleTimer.stop();
     });
-
-    // Toast hide timer
-    m_toastTimer.setSingleShot(true);
-    m_toastTimer.setInterval(5000);
 }
 
 // ============================================================================
@@ -1399,8 +1384,6 @@ void MainWindow::setupTimers() {
 // ============================================================================
 void MainWindow::setupQuickBar() {
     m_quickBar = new QWidget(m_viewport);
-    m_quickBar->setStyleSheet(
-        "QWidget { background: rgba(0,0,0,187); border-radius: 6px; border: 1px solid #555; }");
     m_quickBarLayout = new QHBoxLayout(m_quickBar);
     m_quickBarLayout->setContentsMargins(6, 4, 6, 4);
     m_quickBarLayout->setSpacing(6);
@@ -1413,10 +1396,7 @@ void MainWindow::setupQuickBar() {
         btn->setCheckable(true);
         btn->setChecked(active);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setStyleSheet(QString("QToolButton { font-size: 12px; border-radius: 4px; }"
-            "QToolButton:checked { background: #4a90d9; border: 1px solid #6aa9e8; }"
-            "QToolButton:unchecked { background: #2a2a2a; border: 1px solid #444; }"
-            "QToolButton:hover { background: #3a3a3a; }"));
+        btn->setStyleSheet("QToolButton { font-size: 12px; border-radius: 4px; }");
         connect(btn, &QToolButton::clicked, onClicked);
         m_quickBarLayout->addWidget(btn);
         return btn;
@@ -1425,7 +1405,6 @@ void MainWindow::setupQuickBar() {
     auto addSeparator = [this]() {
         auto* sep = new QFrame;
         sep->setFrameShape(QFrame::VLine);
-        sep->setStyleSheet("color: #555;");
         sep->setFixedSize(2, 22);
         m_quickBarLayout->addWidget(sep);
     };
@@ -1469,9 +1448,7 @@ void MainWindow::setupQuickBar() {
     m_quickBarHandle->setToolTip("Show display quick-bar");
     m_quickBarHandle->setFixedSize(30, 30);
     m_quickBarHandle->setCursor(Qt::PointingHandCursor);
-    m_quickBarHandle->setStyleSheet(
-        "QToolButton { background: #000000bb; border: 1px solid #555; border-radius: 6px; font-size: 15px; }"
-        "QToolButton:hover { background: #3a3a3a; }");
+    m_quickBarHandle->setStyleSheet("QToolButton { border-radius: 6px; font-size: 15px; }");
     connect(m_quickBarHandle, &QToolButton::clicked, this, [this]() {
         m_settings->setQuickBarCollapsed(false);
         updateQuickBarVisibility();
@@ -1509,12 +1486,6 @@ void MainWindow::setupKeyboardShortcuts() {
 void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateQuickBarVisibility);
-    connect(m_settings, &RenderSettings::statusMessageChanged, this, [this]() {
-        auto msg = m_settings->getStatusMessage();
-        if (!msg.isEmpty()) {
-            m_toastTimer.start();
-        }
-    });
 
     // Repopulate field combos when mesh data changes
     connect(m_settings, &RenderSettings::meshDataUpdated, this, [this]() {
@@ -1604,6 +1575,8 @@ void MainWindow::dropEvent(QDropEvent* event) {
 
 void MainWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
+    if (!m_viewport) return;
+
     // Reposition quick bar and handle within the viewport
     if (m_quickBar && m_viewport) {
         int margin = 8;
