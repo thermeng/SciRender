@@ -17,7 +17,7 @@ set(CMAKE_AUTOUIC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 OpenGLWidgets)
 find_package(OpenGL REQUIRED)
 
-# FIX: Set Qt policy QTP0004 to NEW to support your custom sub-directory layout and silence the macro warning
+# FIX: Set Qt policy QTP0004 NEW to support custom sub-directory layout
 qt_policy(SET QTP0004 NEW)
 
 # ---------------------------------------------------------------------------
@@ -32,17 +32,10 @@ target_include_directories(glad PUBLIC "vendor/glad/include")
 add_library(glm INTERFACE)
 target_include_directories(glm INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vendor")
 
-# Note: Screenshots capture the live GL viewport FBO directly via QImage
-# native writers (no STB, no ScreenshotExporter class). Format is inferred
-# from the file extension; PNG keeps alpha when Transparent is enabled.
-
 # ---------------------------------------------------------------------------
-# 3. Main Application Target Definition
+# 3. CoreLib — parser, mesh, camera, colormaps (no Qt, no GL)
 # ---------------------------------------------------------------------------
-
-# Explicitly list source files to avoid capturing deleted/legacy main.cpp files
-add_executable(SciRender
-    src/app/main.cpp                 # Qt entry point
+add_library(CoreLib STATIC
     src/core/Camera.cpp
     src/core/Camera.h
     src/core/Colormaps.h
@@ -54,11 +47,19 @@ add_executable(SciRender
     src/core/obj_parser.cpp
     src/core/obj_parser.h
     src/core/vtk_xml_parser.cpp
+)
+target_include_directories(CoreLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(CoreLib PUBLIC glm)
+
+# ---------------------------------------------------------------------------
+# 4. RenderLib — renderer, GL managers, streamlines, glyphs, overlays
+# ---------------------------------------------------------------------------
+add_library(RenderLib STATIC
     src/render/renderer.cpp
     src/render/renderer.h
-     src/render/render_settings.cpp
-     src/render/render_settings.h
-     src/render/render_config.h
+    src/render/render_settings.cpp
+    src/render/render_settings.h
+    src/render/render_config.h
     src/render/LightingModel.cpp
     src/render/LightingModel.h
     src/render/ColormapManager.cpp
@@ -73,39 +74,32 @@ add_executable(SciRender
     src/render/gizmo.h
     src/render/colorbar_overlay.cpp
     src/render/colorbar_overlay.h
+)
+target_include_directories(RenderLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(RenderLib PUBLIC CoreLib glad OpenGL::GL
+    Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::OpenGLWidgets)
+target_compile_definitions(RenderLib PRIVATE
+    SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
+
+# ---------------------------------------------------------------------------
+# 5. Main Application Target
+# ---------------------------------------------------------------------------
+add_executable(SciRender
+    src/app/main.cpp
     src/ui/custom_viewport_item.cpp
     src/ui/custom_viewport_item.h
-    assets/app_icon.rc          # Windows .exe + window icon
+    assets/app_icon.rc
 )
 
-# Inform your C++ files where GLSL shaders are housed
 target_compile_definitions(SciRender PRIVATE
     SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/shaders"
     APP_ICON_SRC="${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.ico"
 )
 
-# Set base root compilation includes relative to 'src'
-target_include_directories(SciRender PRIVATE "src")
-
-# Link everything together
-# FIX: Linked Qt6::QuickControls2 so the linker can map QQuickStyle symbols
-target_link_libraries(SciRender PRIVATE
-    glad
-    glm
-    OpenGL::GL
-    Qt6::Core
-    Qt6::Gui
-    Qt6::Qml
-    Qt6::Quick
-    Qt6::QuickControls2
-    Qt6::OpenGLWidgets
-)
+target_link_libraries(SciRender PRIVATE CoreLib RenderLib)
 
 # ---------------------------------------------------------------------------
-# 4. Declarative UI Assets Module
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# 4. Declarative UI Assets Module + Shaders
+# 6. Declarative UI Assets Module + Shaders
 # ---------------------------------------------------------------------------
 qt_add_qml_module(SciRender
     URI SciRenderUI
@@ -133,7 +127,7 @@ qt_add_qml_module(SciRender
 )
 
 # ---------------------------------------------------------------------------
-# 5. Post-Build Pipeline Automation (Shader Dynamic Sync)
+# 7. Post-Build Pipeline Automation (Shader Dynamic Sync)
 # ---------------------------------------------------------------------------
 add_custom_command(TARGET SciRender POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:SciRender>/shaders"
@@ -144,39 +138,22 @@ add_custom_command(TARGET SciRender POST_BUILD
 )
 
 # ---------------------------------------------------------------------------
-# 6. Parser Regression Tests (no Qt/GL dependency)
+# 8. Tests
 # ---------------------------------------------------------------------------
 enable_testing()
 
+# Parser regression — no Qt/GL, only CoreLib
 add_executable(parse_regression
     tests/parse_regression.cpp
-    src/core/mesh_loader.cpp
-    src/core/mesh_utils.cpp
-    src/core/vtk_parser.cpp
-    src/core/vtk_xml_parser.cpp
-    src/core/stl_parser.cpp
-    src/core/obj_parser.cpp
 )
-target_include_directories(parse_regression PRIVATE src vendor)
-target_compile_features(parse_regression PRIVATE cxx_std_20)
+target_link_libraries(parse_regression PRIVATE CoreLib)
 target_compile_definitions(parse_regression PRIVATE GLM_FORCE_SWIZZLE=0)
-
 add_test(NAME parse_regression COMMAND parse_regression)
 
+# Streamline direction — needs CoreLib + RenderLib + GLAD
 add_executable(streamline_direction_test
     tests/streamline_direction_test.cpp
-    vendor/glad/src/gl.c
-    src/core/mesh_loader.cpp
-    src/core/mesh_utils.cpp
-    src/core/vtk_parser.cpp
-    src/core/vtk_xml_parser.cpp
-    src/core/stl_parser.cpp
-    src/core/obj_parser.cpp
-    src/render/StreamlineSet.cpp
 )
-target_include_directories(streamline_direction_test PRIVATE src vendor vendor/glad/include)
-target_compile_features(streamline_direction_test PRIVATE cxx_std_20)
+target_link_libraries(streamline_direction_test PRIVATE CoreLib RenderLib glad)
 target_compile_definitions(streamline_direction_test PRIVATE GLM_FORCE_SWIZZLE=0)
-
 add_test(NAME streamline_direction_test COMMAND streamline_direction_test)
-
