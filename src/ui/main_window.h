@@ -69,6 +69,13 @@ private:
     static constexpr int kSidebarWidth = 220;
     static constexpr int kIconStripWidth = 48;
 
+    // Panel header
+    QWidget* m_panelHeader = nullptr;
+    QLabel* m_panelTitle = nullptr;
+
+    // Icon strip buttons (indices 1-8 are section toggles)
+    QVector<QToolButton*> m_iconButtons;
+
     // Section pages
     QWidget* buildLightingPage();
     QWidget* buildSlicingPage();
