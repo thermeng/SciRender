@@ -597,14 +597,14 @@ void StreamlineSet::shutdown() {
     teardownParticles();
 }
 
-void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
+StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                                 const std::string& fieldName, const std::string& mode,
                                 double planePos, double jitter, int planeCountU, int planeCountV,
                                 bool showArrows, int arrowSpacing, float arrowSize,
                                 float ribbonWidth, float taperFactor) {
-    teardownGL();
+    StreamlineResult result;
 
-    if (mesh.pointVectorsData.empty()) return;
+    if (mesh.pointVectorsData.empty()) return result;
 
     size_t count = 0;
     const glm::vec3* data = nullptr;
@@ -617,12 +617,12 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
     };
     if (!tryField(fieldName) && !tryField(mesh.vectorName) &&
         !(mesh.availableVectorNames.empty() ? false : tryField(mesh.availableVectorNames.front()))) {
-        return;
+        return result;
     }
 
     int numVerts = static_cast<int>(mesh.vertices.size() / 3);
     const int limit = std::min(numVerts, static_cast<int>(count));
-    if (limit <= 0) return;
+    if (limit <= 0) return result;
 
     const float extent = static_cast<float>(mesh.bounds.extent);
     const float h = std::max(stepSize, 1e-8f);
@@ -632,9 +632,6 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
     bool hasGrid = grid.dimX > 0;
     bool nonCartesianGrid = false;
 
-    // Fallback: grid was declared structured but Cartesian coordinate
-    // extraction failed (non-Cartesian grid like cylindrical).
-    // Build cellActive mask using flat-index mapping directly.
     if (!hasGrid && mesh.gridDimX > 0 && mesh.gridDimY > 0 && mesh.gridDimZ > 0
         && mesh.gridDimX * mesh.gridDimY * mesh.gridDimZ == limit) {
         grid.dimX = mesh.gridDimX;
@@ -665,23 +662,19 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
         hasGrid = true;
         nonCartesianGrid = true;
 
-        // Compute average spacing for the non-Cartesian fallback distance cutoff.
-        {
-            const float vol = std::abs(static_cast<float>(
-                (mesh.bounds.maxX - mesh.bounds.minX) *
-                (mesh.bounds.maxY - mesh.bounds.minY) *
-                (mesh.bounds.maxZ - mesh.bounds.minZ)));
-            grid.avgSpacing = (limit > 0 && vol > 0.0f)
-                ? std::pow(vol / static_cast<float>(limit), 1.0f / 3.0f)
-                : 1.0f;
-        }
+        const float vol = std::abs(static_cast<float>(
+            (mesh.bounds.maxX - mesh.bounds.minX) *
+            (mesh.bounds.maxY - mesh.bounds.minY) *
+            (mesh.bounds.maxZ - mesh.bounds.minZ)));
+        grid.avgSpacing = (limit > 0 && vol > 0.0f)
+            ? std::pow(vol / static_cast<float>(limit), 1.0f / 3.0f)
+            : 1.0f;
     }
 
     auto evalField = [&](const glm::vec3& pos) -> glm::vec3 {
         if (hasGrid) {
             if (!nonCartesianGrid)
                 return evalFieldTrilinear(grid, pos);
-            // Non-Cartesian structured grid: nearest lookup with domain gate
             glm::vec3 v = evalFieldNearest(mesh, pos, data, limit, limit);
             if (!isInsideDomain(grid, pos)) return glm::vec3(0.0f);
             return v;
@@ -690,7 +683,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
     };
 
     std::vector<glm::vec3> seeds = generateSeeds(mesh, seedCountParam, mode, planePos, jitter, planeCountU, planeCountV);
-    if (seeds.empty()) return;
+    if (seeds.empty()) return result;
 
     if (hasGrid) {
         const float magThreshSq = magThresh * magThresh;
@@ -701,7 +694,7 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
                 return magSq(v) < magThreshSq;
             }),
             seeds.end());
-        if (seeds.empty()) return;
+        if (seeds.empty()) return result;
     } else {
         const float magThreshSq = magThresh * magThresh;
         seeds.erase(
@@ -710,23 +703,19 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
                 return magSq(v) < magThreshSq;
             }),
             seeds.end());
-        if (seeds.empty()) return;
+        if (seeds.empty()) return result;
     }
 
     float mn = std::numeric_limits<float>::max();
     float mx = -std::numeric_limits<float>::max();
 
-    paths.clear();
-    particles.clear();
-    std::vector<float> verts; // interleaved [x,y,z,mag,normalX,normalY,normalZ,dashFlag,u]
-    std::vector<float> seedVerts; // interleaved [x,y,z]
     std::vector<glm::vec3> arrowPositions;
     std::vector<glm::vec3> arrowDirections;
     std::vector<float> arrowMagnitudes;
 
     const size_t estimatedSegments = seeds.size() * 2 * maxSteps;
-    verts.reserve(estimatedSegments * 6 * 9); // 6 vertices per quad segment
-    seedVerts.reserve(seeds.size() * 3);
+    result.verts.reserve(estimatedSegments * 6 * 9);
+    result.seedVerts.reserve(seeds.size() * 3);
     if (showArrows && arrowSpacing > 0) {
         size_t estimatedArrows = estimatedSegments / arrowSpacing;
         arrowPositions.reserve(estimatedArrows);
@@ -734,15 +723,17 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
         arrowMagnitudes.reserve(estimatedArrows);
     }
 
-for (const auto& seed : seeds) {
-        seedVerts.push_back(seed.x);
-        seedVerts.push_back(seed.y);
-        seedVerts.push_back(seed.z);
+    for (const auto& seed : seeds) {
+        result.seedVerts.push_back(seed.x);
+        result.seedVerts.push_back(seed.y);
+        result.seedVerts.push_back(seed.z);
 
         for (int dir = -1; dir <= 1; dir += 2) {
             glm::vec3 pos = seed;
             std::vector<glm::vec3> pts;
+            std::vector<glm::vec3> fieldVecs;
             pts.push_back(pos);
+            fieldVecs.push_back(evalField(pos));
 
             for (int iter = 0; iter < maxSteps; ++iter) {
                 auto direction = [&](const glm::vec3& p) -> glm::vec3 {
@@ -771,16 +762,19 @@ for (const auto& seed : seeds) {
 
                 {
                     glm::vec3 nv = evalField(newPos);
-                    if (magSq(nv) < magThresh * magThresh) break;
-                }
+                    float nm = std::sqrt(magSq(nv));
+                    if (nm < magThresh) break;
 
-                if (newPos.x < mesh.bounds.minX || newPos.x > mesh.bounds.maxX ||
-                    newPos.y < mesh.bounds.minY || newPos.y > mesh.bounds.maxY ||
-                    newPos.z < mesh.bounds.minZ || newPos.z > mesh.bounds.maxZ) {
-                    break;
-                }
+                    if (newPos.x < mesh.bounds.minX || newPos.x > mesh.bounds.maxX ||
+                        newPos.y < mesh.bounds.minY || newPos.y > mesh.bounds.maxY ||
+                        newPos.z < mesh.bounds.minZ || newPos.z > mesh.bounds.maxZ) {
+                        break;
+                    }
 
-                if (hasGrid && !isInsideDomain(grid, newPos)) break;
+                    if (hasGrid && !isInsideDomain(grid, newPos)) break;
+
+                    fieldVecs.push_back(nv);
+                }
 
                 pts.push_back(newPos);
                 pos = newPos;
@@ -796,25 +790,18 @@ for (const auto& seed : seeds) {
             }
             if (totalLength < 1e-6f) totalLength = 1.0f;
 
-            // Evaluate velocity magnitude at each sampled point for CFD-accurate
-            // particle advancement (particles move proportional to |v|).
             std::vector<float> speedAtPoint;
-            speedAtPoint.reserve(sampled.size());
-            for (const auto& pt : sampled) {
-                glm::vec3 v = evalField(pt);
-                speedAtPoint.push_back(std::sqrt(magSq(v)));
+            speedAtPoint.reserve(fieldVecs.size());
+            for (const auto& fv : fieldVecs) {
+                speedAtPoint.push_back(std::sqrt(magSq(fv)));
             }
 
-            // Store path for particle animation.
-            // For backward-traced paths (dir == -1), points are in trace order
-            // (seed -> outward against field), but the actual flow is inward.
-            // Reverse the stored points so particles follow the true field direction.
             if (dir == 1) {
-                paths.push_back({ sampled, speedAtPoint, totalLength });
+                result.paths.push_back({ sampled, speedAtPoint, totalLength });
             } else {
                 std::vector<glm::vec3> reversed(sampled.rbegin(), sampled.rend());
                 std::vector<float> reversedSpeed(speedAtPoint.rbegin(), speedAtPoint.rend());
-                paths.push_back({ reversed, reversedSpeed, totalLength });
+                result.paths.push_back({ reversed, reversedSpeed, totalLength });
             }
 
             float currentLength = 0.0f;
@@ -828,19 +815,18 @@ for (const auto& seed : seeds) {
                 if (segLen < 1e-12f) continue;
                 tangent /= segLen;
 
-    // Smooth local frame orientation
-    float tY = std::abs(tangent.y);
-    float upThreshold = 0.9f;
-    glm::vec3 side = tY < upThreshold ? 
-        glm::normalize(glm::cross(tangent, glm::vec3(0.0f, 1.0f, 0.0f))) : 
-        glm::normalize(glm::cross(tangent, glm::vec3(1.0f, 0.0f, 0.0f)));
-    if (std::abs(glm::length(side)) < 1e-12f) {
-        side = glm::vec3(0.0f, 0.0f, 1.0f);
-    }
-    glm::vec3 normal = glm::normalize(glm::cross(tangent, side));
+                float tY = std::abs(tangent.y);
+                float upThreshold = 0.9f;
+                glm::vec3 side = tY < upThreshold ?
+                    glm::normalize(glm::cross(tangent, glm::vec3(0.0f, 1.0f, 0.0f))) :
+                    glm::normalize(glm::cross(tangent, glm::vec3(1.0f, 0.0f, 0.0f)));
+                if (std::abs(glm::length(side)) < 1e-12f) {
+                    side = glm::vec3(0.0f, 0.0f, 1.0f);
+                }
+                glm::vec3 normal = glm::normalize(glm::cross(tangent, side));
 
-                float magA = std::sqrt(magSq(evalField(a)));
-                float magB = std::sqrt(magSq(evalField(b)));
+                float magA = speedAtPoint[i];
+                float magB = speedAtPoint[i + 1];
 
                 float tA = (i) / static_cast<float>(sampled.size());
                 float tB = (i + 1) / static_cast<float>(sampled.size());
@@ -852,9 +838,6 @@ for (const auto& seed : seeds) {
                 glm::vec3 vc = b - side * (baseWidth * taperB);
                 glm::vec3 vd = b + side * (baseWidth * taperB);
 
-                // On backward-traced segments (dir == -1), flip u so it increases
-                // in the +field direction (tip→seed).  This keeps the dash animation
-                // moving with the flow on both halves of the streamline.
                 float uA, uB;
                 if (dir == 1) {
                     uA = currentLength / totalLength;
@@ -867,11 +850,11 @@ for (const auto& seed : seeds) {
                 }
 
                 auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u) {
-                    verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
-                    verts.push_back(rawMag);
-                    verts.push_back(normal.x); verts.push_back(normal.y); verts.push_back(normal.z);
-                    verts.push_back(1.0f); // dashFlag
-                    verts.push_back(u);    // u
+                    result.verts.push_back(p.x); result.verts.push_back(p.y); result.verts.push_back(p.z);
+                    result.verts.push_back(rawMag);
+                    result.verts.push_back(normal.x); result.verts.push_back(normal.y); result.verts.push_back(normal.z);
+                    result.verts.push_back(1.0f);
+                    result.verts.push_back(u);
                     if (rawMag < mn) mn = rawMag;
                     if (rawMag > mx) mx = rawMag;
                 };
@@ -887,10 +870,8 @@ for (const auto& seed : seeds) {
 
             if (showArrows && arrowSpacing > 0 && sampled.size() > static_cast<size_t>(arrowSpacing + 1)) {
                 for (size_t i = arrowSpacing; i + 1 < sampled.size(); i += arrowSpacing) {
-                    // Use the actual vector field direction at the arrow position
-                    // so arrows point the correct way on both forward- and backward-traced segments.
-                    glm::vec3 fieldVal = evalField(sampled[i]);
-                    float mag = std::sqrt(magSq(fieldVal));
+                    const glm::vec3& fieldVal = fieldVecs[i];
+                    float mag = speedAtPoint[i];
                     if (mag > 1e-12f) {
                         arrowPositions.push_back(sampled[i]);
                         arrowDirections.push_back(fieldVal / mag);
@@ -901,108 +882,117 @@ for (const auto& seed : seeds) {
         }
     }
 
-    if (verts.empty()) {
-        // Even with no ribbon geometry, seeds may still exist. Upload them
-        // so they can be rendered independently of the streamlines.
-        seedCount = static_cast<int>(seeds.size());
-        if (!seedVerts.empty()) {
-            glCreateVertexArrays(1, &seedVao);
-            glCreateBuffers(1, &seedVbo);
-            glEnableVertexArrayAttrib(seedVao, 0);
-            glVertexArrayAttribFormat(seedVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-            glVertexArrayAttribBinding(seedVao, 0, 0);
-            glNamedBufferData(seedVbo, seedVerts.size() * sizeof(float), seedVerts.data(), GL_STATIC_DRAW);
-            glVertexArrayVertexBuffer(seedVao, 0, seedVbo, 0, 3 * sizeof(float));
-        }
-        return;
-    }
     if (mn > mx) { mn = 0.0f; mx = 0.0f; }
+    result.magMin = mn;
+    result.magMax = mx;
+    result.lineCount = static_cast<int>(result.verts.size() / 9);
+    result.seedCount = static_cast<int>(seeds.size());
 
-    magMin = mn;
-    magMax = mx;
-    lineCount = static_cast<int>(verts.size() / 9);
+    // Generate arrowhead vertices on the CPU (no GL needed).
+    if (showArrows && !arrowPositions.empty()) {
+        const float arrowHeight = static_cast<float>(arrowSize * extent);
+        const float arrowRadius = arrowHeight * 0.35f;
+        const int segments = 16;
 
-    // Streamline ribbon VAO/VBO setup
-    glCreateVertexArrays(1, &vao);
-    glCreateBuffers(1, &vbo);
+        const size_t floatsPerArrow = segments * 6 * 9;
+        result.arrowVerts.reserve(arrowPositions.size() * floatsPerArrow);
 
-    glEnableVertexArrayAttrib(vao, 0);
-    glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(vao, 0, 0);
+        for (size_t i = 0; i < arrowPositions.size(); ++i) {
+            auto piece = generateArrowhead(arrowPositions[i], arrowDirections[i], arrowHeight, arrowRadius, segments, arrowMagnitudes[i]);
+            result.arrowVerts.insert(result.arrowVerts.end(), piece.begin(), piece.end());
+        }
+        result.arrowCount = static_cast<int>(result.arrowVerts.size() / 9);
+    }
 
-    glEnableVertexArrayAttrib(vao, 1);
-    glVertexArrayAttribFormat(vao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-    glVertexArrayAttribBinding(vao, 1, 0);
+    return result;
+}
 
-    glEnableVertexArrayAttrib(vao, 2);
-    glVertexArrayAttribFormat(vao, 2, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
-    glVertexArrayAttribBinding(vao, 2, 0);
+void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArrows, float arrowSize) {
+    teardownGL();
 
-    glEnableVertexArrayAttrib(vao, 3);
-    glVertexArrayAttribFormat(vao, 3, 1, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
-    glVertexArrayAttribBinding(vao, 3, 0);
+    magMin = res.magMin;
+    magMax = res.magMax;
+    lineCount = res.lineCount;
+    seedCount = res.seedCount;
+    paths = std::move(res.paths);
+    particles.clear();
 
-    glEnableVertexArrayAttrib(vao, 4);
-    glVertexArrayAttribFormat(vao, 4, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float));
-    glVertexArrayAttribBinding(vao, 4, 0);
+    if (!res.verts.empty()) {
+        glCreateVertexArrays(1, &vao);
+        glCreateBuffers(1, &vbo);
 
-    glNamedBufferData(vbo, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
-    glVertexArrayVertexBuffer(vao, 0, vbo, 0, 9 * sizeof(float));
+        glEnableVertexArrayAttrib(vao, 0);
+        glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(vao, 0, 0);
 
-    // Seed points VAO/VBO setup
-    seedCount = static_cast<int>(seeds.size());
-    if (!seedVerts.empty()) {
+        glEnableVertexArrayAttrib(vao, 1);
+        glVertexArrayAttribFormat(vao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
+        glVertexArrayAttribBinding(vao, 1, 0);
+
+        glEnableVertexArrayAttrib(vao, 2);
+        glVertexArrayAttribFormat(vao, 2, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+        glVertexArrayAttribBinding(vao, 2, 0);
+
+        glEnableVertexArrayAttrib(vao, 3);
+        glVertexArrayAttribFormat(vao, 3, 1, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
+        glVertexArrayAttribBinding(vao, 3, 0);
+
+        glEnableVertexArrayAttrib(vao, 4);
+        glVertexArrayAttribFormat(vao, 4, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float));
+        glVertexArrayAttribBinding(vao, 4, 0);
+
+        glNamedBufferData(vbo, res.verts.size() * sizeof(float), res.verts.data(), GL_STATIC_DRAW);
+        glVertexArrayVertexBuffer(vao, 0, vbo, 0, 9 * sizeof(float));
+    }
+
+    if (!res.seedVerts.empty()) {
         glCreateVertexArrays(1, &seedVao);
         glCreateBuffers(1, &seedVbo);
         glEnableVertexArrayAttrib(seedVao, 0);
         glVertexArrayAttribFormat(seedVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
         glVertexArrayAttribBinding(seedVao, 0, 0);
-        glNamedBufferData(seedVbo, seedVerts.size() * sizeof(float), seedVerts.data(), GL_STATIC_DRAW);
+        glNamedBufferData(seedVbo, res.seedVerts.size() * sizeof(float), res.seedVerts.data(), GL_STATIC_DRAW);
         glVertexArrayVertexBuffer(seedVao, 0, seedVbo, 0, 3 * sizeof(float));
     }
 
-    // Arrowhead VAO/VBO setup
-    if (showArrows && !arrowPositions.empty()) {
-        std::vector<float> arrowVerts;
-        const float arrowHeight = static_cast<float>(arrowSize * extent);
-        const float arrowRadius = arrowHeight * 0.35f;
-        const int segments = 16;
-        
-        const size_t floatsPerArrow = segments * 6 * 9;  // 6 verts per segment (3 side + 3 cap)
-        arrowVerts.reserve(arrowPositions.size() * floatsPerArrow);
+    if (showArrows && !res.arrowVerts.empty()) {
+        arrowCount = res.arrowCount;
 
-        for (size_t i = 0; i < arrowPositions.size(); ++i) {
-            auto piece = generateArrowhead(arrowPositions[i], arrowDirections[i], arrowHeight, arrowRadius, segments, arrowMagnitudes[i]);
-            arrowVerts.insert(arrowVerts.end(), piece.begin(), piece.end());
-        }
+        glCreateVertexArrays(1, &arrowVao);
+        glCreateBuffers(1, &arrowVbo);
 
-        arrowCount = static_cast<int>(arrowVerts.size() / 9);
-        if (arrowCount > 0) {
-            glCreateVertexArrays(1, &arrowVao);
-            glCreateBuffers(1, &arrowVbo);
+        glEnableVertexArrayAttrib(arrowVao, 0);
+        glVertexArrayAttribFormat(arrowVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(arrowVao, 0, 0);
 
-            glEnableVertexArrayAttrib(arrowVao, 0);
-            glVertexArrayAttribFormat(arrowVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-            glVertexArrayAttribBinding(arrowVao, 0, 0);
+        glEnableVertexArrayAttrib(arrowVao, 1);
+        glVertexArrayAttribFormat(arrowVao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
+        glVertexArrayAttribBinding(arrowVao, 1, 0);
 
-            glEnableVertexArrayAttrib(arrowVao, 1);
-            glVertexArrayAttribFormat(arrowVao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-            glVertexArrayAttribBinding(arrowVao, 1, 0);
+        glEnableVertexArrayAttrib(arrowVao, 2);
+        glVertexArrayAttribFormat(arrowVao, 2, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+        glVertexArrayAttribBinding(arrowVao, 2, 0);
 
-            glEnableVertexArrayAttrib(arrowVao, 2);
-            glVertexArrayAttribFormat(arrowVao, 2, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
-            glVertexArrayAttribBinding(arrowVao, 2, 0);
+        glEnableVertexArrayAttrib(arrowVao, 3);
+        glVertexArrayAttribFormat(arrowVao, 3, 1, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
+        glVertexArrayAttribBinding(arrowVao, 3, 0);
 
-            glEnableVertexArrayAttrib(arrowVao, 3);
-            glVertexArrayAttribFormat(arrowVao, 3, 1, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
-            glVertexArrayAttribBinding(arrowVao, 3, 0);
+        glEnableVertexArrayAttrib(arrowVao, 4);
+        glVertexArrayAttribFormat(arrowVao, 4, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float));
+        glVertexArrayAttribBinding(arrowVao, 4, 0);
 
-            glEnableVertexArrayAttrib(arrowVao, 4);
-            glVertexArrayAttribFormat(arrowVao, 4, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float));
-            glVertexArrayAttribBinding(arrowVao, 4, 0);
-
-            glNamedBufferData(arrowVbo, arrowVerts.size() * sizeof(float), arrowVerts.data(), GL_STATIC_DRAW);
-            glVertexArrayVertexBuffer(arrowVao, 0, arrowVbo, 0, 9 * sizeof(float));
-        }
+        glNamedBufferData(arrowVbo, res.arrowVerts.size() * sizeof(float), res.arrowVerts.data(), GL_STATIC_DRAW);
+        glVertexArrayVertexBuffer(arrowVao, 0, arrowVbo, 0, 9 * sizeof(float));
     }
+}
+
+void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
+                                const std::string& fieldName, const std::string& mode,
+                                double planePos, double jitter, int planeCountU, int planeCountV,
+                                bool showArrows, int arrowSpacing, float arrowSize,
+                                float ribbonWidth, float taperFactor) {
+    auto result = compute(mesh, seedCountParam, stepSize, maxSteps, fieldName, mode,
+                          planePos, jitter, planeCountU, planeCountV,
+                          showArrows, arrowSpacing, arrowSize, ribbonWidth, taperFactor);
+    uploadGL(std::move(result), showArrows, arrowSize);
 }
