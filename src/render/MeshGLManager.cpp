@@ -3,10 +3,10 @@
 #include "core/mesh_loader.h"
 
 #include <cmath>
+#include <cstdio>
 #include <unordered_map>
 #include <algorithm>
 #include <string>
-#include <fstream>
 
 namespace {
 // Format gate for LOD (decimation). We now allow the regular volumetric grid
@@ -471,7 +471,7 @@ void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
 }
 
 namespace {
-GLuint compileCompute(const char* src) {
+GLuint compileCompute(const char* src, const char* label, std::string& errOut) {
     GLuint s = glCreateShader(GL_COMPUTE_SHADER);
     glShaderSource(s, 1, &src, nullptr);
     glCompileShader(s);
@@ -480,14 +480,14 @@ GLuint compileCompute(const char* src) {
     if (!ok) {
         char log[512];
         glGetShaderInfoLog(s, 512, nullptr, log);
-        std::fprintf(stderr, "[LOD] compute shader compile error: %s\n", log);
+        errOut += std::string("[LOD] ") + label + " compile error: " + log + "\n";
         glDeleteShader(s);
         return 0;
     }
     return s;
 }
 
-GLuint linkCompute(GLuint s) {
+GLuint linkCompute(GLuint s, const char* label, std::string& errOut) {
     GLuint p = glCreateProgram();
     glAttachShader(p, s);
     glLinkProgram(p);
@@ -496,7 +496,7 @@ GLuint linkCompute(GLuint s) {
     if (!ok) {
         char log[512];
         glGetProgramInfoLog(p, 512, nullptr, log);
-        std::fprintf(stderr, "[LOD] compute program link error: %s\n", log);
+        errOut += std::string("[LOD] ") + label + " link error: " + log + "\n";
         glDeleteProgram(p);
         return 0;
     }
@@ -505,30 +505,18 @@ GLuint linkCompute(GLuint s) {
 }
 }
 
-void MeshGLManager::initLodCompute() {
+void MeshGLManager::initLodCompute(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc) {
     if (lodProgramAccum) return;
 
-    std::string srcAccum, srcOutput, srcTris;
-    {
-        std::ifstream f(SHADER_DIR "/lod.comp");
-        if (f) std::getline(f, srcAccum, '\0');
-    }
-    {
-        std::ifstream f(SHADER_DIR "/lod_output.comp");
-        if (f) std::getline(f, srcOutput, '\0');
-    }
-    {
-        std::ifstream f(SHADER_DIR "/lod_tris.comp");
-        if (f) std::getline(f, srcTris, '\0');
-    }
+    lastLodError_.clear();
 
-    GLuint sAccum = compileCompute(srcAccum.c_str());
-    GLuint sOutput = compileCompute(srcOutput.c_str());
-    GLuint sTris = compileCompute(srcTris.c_str());
+    GLuint sAccum = compileCompute(accumSrc.c_str(), "accum", lastLodError_);
+    GLuint sOutput = compileCompute(outputSrc.c_str(), "output", lastLodError_);
+    GLuint sTris = compileCompute(trisSrc.c_str(), "tris", lastLodError_);
 
-    lodProgramAccum = sAccum ? linkCompute(sAccum) : 0;
-    lodProgramOutput = sOutput ? linkCompute(sOutput) : 0;
-    lodProgramTris = sTris ? linkCompute(sTris) : 0;
+    lodProgramAccum = sAccum ? linkCompute(sAccum, "accum", lastLodError_) : 0;
+    lodProgramOutput = sOutput ? linkCompute(sOutput, "output", lastLodError_) : 0;
+    lodProgramTris = sTris ? linkCompute(sTris, "tris", lastLodError_) : 0;
 
     if (!lodProgramAccum || !lodProgramOutput || !lodProgramTris) {
         cleanupLodCompute();
@@ -554,18 +542,42 @@ void MeshGLManager::cleanupLodCompute() {
     lodCellsPerAxis = 0;
 }
 
+void MeshGLManager::setComputeShaderSources(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc) {
+    lodAccumSrc_ = accumSrc;
+    lodOutputSrc_ = outputSrc;
+    lodTrisSrc_ = trisSrc;
+}
+
 bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimated) {
-    if (!lodGpuDecimationReady) initLodCompute();
-    if (!lodProgramAccum || !lodProgramOutput || !lodProgramTris) return false;
+    if (!lodGpuDecimationReady) initLodCompute(lodAccumSrc_, lodOutputSrc_, lodTrisSrc_);
+    if (!lodProgramAccum || !lodProgramOutput || !lodProgramTris) {
+        if (lastLodError_.empty()) lastLodError_ = "[LOD] compute programs not ready";
+        return false;
+    }
+
+    // The persistent LOD buffers stay bound to SSBO slots 8-11 from the
+    // previous dispatch. Resizing them with glNamedBufferData while bound to an
+    // indexed binding point generates GL_INVALID_OPERATION, so unbind first.
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, 0);
 
     const size_t nv = mesh.vertices.size() / 3;
-    if (nv < 3 || mesh.indices.empty()) return false;
+    if (nv < 3 || mesh.indices.empty()) {
+        lastLodError_ = "[LOD] source mesh too small or has no triangles (nv="
+            + std::to_string(nv) + ", indices=" + std::to_string(mesh.indices.size()) + ")";
+        return false;
+    }
 
     const double dx = mesh.bounds.maxX - mesh.bounds.minX;
     const double dy = mesh.bounds.maxY - mesh.bounds.minY;
     const double dz = mesh.bounds.maxZ - mesh.bounds.minZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
-    if (diag < 1e-9) return false;
+    if (diag < 1e-9) {
+        lastLodError_ = "[LOD] degenerate bounds (diag=" + std::to_string(diag) + ")";
+        return false;
+    }
 
     int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
     cellsPerAxis = std::max(2, std::min(cellsPerAxis, 128));
@@ -573,18 +585,19 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     lodCellsPerAxis = cellsPerAxis;
 
     struct Params {
-        glm::ivec3 cellsPerAxis;
-        glm::vec3 boundsMin;
-        glm::vec3 boundsMax;
+        glm::ivec4 cellsPerAxis;
+        glm::vec4 boundsMin;
+        glm::vec4 boundsMax;
         int vertexCount;
         int triangleCount;
         int hasNormals;
         int hasScalars;
     };
     Params params;
-    params.cellsPerAxis = glm::ivec3(cellsPerAxis);
-    params.boundsMin = glm::vec3(mesh.bounds.minX, mesh.bounds.minY, mesh.bounds.minZ);
-    params.boundsMax = glm::vec3(mesh.bounds.maxX, mesh.bounds.maxY, mesh.bounds.maxZ);
+    //params.cellsPerAxis = glm::ivec4(cellsPerAxis, 0, 0, 0);
+    params.cellsPerAxis = glm::ivec4(cellsPerAxis, cellsPerAxis, cellsPerAxis, 0);
+    params.boundsMin = glm::vec4(static_cast<float>(mesh.bounds.minX), static_cast<float>(mesh.bounds.minY), static_cast<float>(mesh.bounds.minZ), 0.0f);
+    params.boundsMax = glm::vec4(static_cast<float>(mesh.bounds.maxX), static_cast<float>(mesh.bounds.maxY), static_cast<float>(mesh.bounds.maxZ), 0.0f);
     params.vertexCount = static_cast<int>(nv);
     params.triangleCount = static_cast<int>(mesh.indices.size() / 3);
     params.hasNormals = mesh.normals.size() == mesh.vertices.size() && !mesh.normals.empty() ? 1 : 0;
@@ -609,8 +622,8 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     glCreateBuffers(1, &inScalSsbo);
     glCreateBuffers(1, &inIdxSsbo);
     glNamedBufferData(inPosSsbo, mesh.vertices.size() * sizeof(float), mesh.vertices.data(), GL_STATIC_DRAW);
-    glNamedBufferData(inNormSsbo, mesh.normals.size() * sizeof(float), mesh.normals.data(), GL_STATIC_DRAW);
-    glNamedBufferData(inScalSsbo, mesh.scalars.size() * sizeof(float), mesh.scalars.data(), GL_STATIC_DRAW);
+    glNamedBufferData(inNormSsbo, std::max<size_t>(1, mesh.normals.size()) * sizeof(float), mesh.normals.empty() ? nullptr : mesh.normals.data(), GL_STATIC_DRAW);
+    glNamedBufferData(inScalSsbo, std::max<size_t>(1, mesh.scalars.size()) * sizeof(float), mesh.scalars.empty() ? nullptr : mesh.scalars.data(), GL_STATIC_DRAW);
     glNamedBufferData(inIdxSsbo, mesh.indices.size() * sizeof(unsigned int), mesh.indices.data(), GL_STATIC_DRAW);
 
     GLuint outPosSsbo = 0, outNormSsbo = 0, outScalSsbo = 0, outIdxSsbo = 0;
@@ -619,8 +632,8 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     glCreateBuffers(1, &outScalSsbo);
     glCreateBuffers(1, &outIdxSsbo);
     glNamedBufferData(outPosSsbo, mesh.vertices.size() * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    glNamedBufferData(outNormSsbo, mesh.normals.size() * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    glNamedBufferData(outScalSsbo, mesh.scalars.size() * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferData(outNormSsbo, std::max<size_t>(1, mesh.normals.size()) * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferData(outScalSsbo, std::max<size_t>(1, mesh.scalars.size()) * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
     glNamedBufferData(outIdxSsbo, mesh.indices.size() * sizeof(unsigned int), nullptr, GL_DYNAMIC_DRAW);
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, inPosSsbo);
@@ -642,22 +655,46 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     glDispatchCompute(groups, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    GLenum errAccum = glGetError();
 
     glUseProgram(lodProgramOutput);
     glDispatchCompute(totalCells, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    GLenum errOutput = glGetError();
 
     glUseProgram(lodProgramTris);
     GLuint triGroups = (static_cast<GLuint>(mesh.indices.size() / 3) + 255u) / 256u;
     glDispatchCompute(triGroups, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+    GLenum errTris = glGetError();
+
+    // The compute writes must be visible to the host before the counter/data
+    // readbacks below. GL_SHADER_STORAGE_BARRIER_BIT only orders shader-to-shader
+    // accesses; host reads of buffer data additionally need
+    // GL_BUFFER_UPDATE_BARRIER_BIT (plus glFinish for a hard sync point). Without
+    // it, drivers may return stale zeros from the SSBOs.
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+    glFinish();
 
     GLuint outVertCount = 0, outTriCount = 0;
     glGetNamedBufferSubData(lodCounterSsbo, 0, sizeof(unsigned int), &outVertCount);
     glGetNamedBufferSubData(lodCounterSsbo, sizeof(unsigned int), sizeof(unsigned int), &outTriCount);
 
     if (outVertCount == 0 || outTriCount == 0) {
+        GLuint cellSample[8] = {0,0,0,0,0,0,0,0};
+        glGetNamedBufferSubData(lodCellSsbo, 0, sizeof(cellSample), cellSample);
+        lastLodError_ = "[LOD] compute produced empty result (verts="
+            + std::to_string(outVertCount) + ", tris=" + std::to_string(outTriCount)
+            + ", nv=" + std::to_string(nv) + ", cellsPerAxis=" + std::to_string(cellsPerAxis)
+            + ", hasNormals=" + std::to_string(params.hasNormals)
+            + ", hasScalars=" + std::to_string(params.hasScalars)
+            + ", accumCells[0..7]="
+            + std::to_string(cellSample[0]) + "," + std::to_string(cellSample[1]) + ","
+            + std::to_string(cellSample[2]) + "," + std::to_string(cellSample[3]) + ","
+            + std::to_string(cellSample[4]) + "," + std::to_string(cellSample[5]) + ","
+            + std::to_string(cellSample[6]) + "," + std::to_string(cellSample[7])
+            + ", glErr=0x" + [&]() { char buf[8]; std::snprintf(buf, sizeof(buf), "%X", errAccum | errOutput | errTris); return std::string(buf); }() + ")";
         glDeleteBuffers(1, &inPosSsbo); glDeleteBuffers(1, &inNormSsbo);
         glDeleteBuffers(1, &inScalSsbo); glDeleteBuffers(1, &inIdxSsbo);
         glDeleteBuffers(1, &outPosSsbo); glDeleteBuffers(1, &outNormSsbo);

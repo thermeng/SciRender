@@ -222,6 +222,8 @@ void Renderer::initShaders(const ShaderSources& sources) {
             particleMagRangeLoc = glGetUniformLocation(particleProgram, "uParticleMagRange");
         }
     }
+
+    meshManager.setComputeShaderSources(sources.lodComp, sources.lodOutputComp, sources.lodTrisComp);
 }
 
 void Renderer::initGrid(const ShaderSources& sources) {
@@ -879,7 +881,11 @@ void Renderer::renderFrame() {
             if (meshManager.dispatchLodCompute(*meshManager.getFullSource(), newDec)) {
                 meshManager.replaceDecimatedMesh(0, newDec);
             } else {
-                qWarning() << "[LOD] GPU compute decimation failed, using CPU fallback";
+                QString err = QString::fromStdString(meshManager.lastLodError());
+                if (err.isEmpty())
+                    qWarning() << "[LOD] GPU compute decimation failed, using CPU fallback";
+                else
+                    qWarning().noquote() << "[LOD] GPU compute decimation failed:\n" + err.trimmed();
             }
             gpuDecimationDirty = false;
         }
@@ -899,7 +905,11 @@ void Renderer::renderFrame() {
                 const bool cull = m_state.cullMode != 0 && opaque;
                 if (cull) { glEnable(GL_CULL_FACE); glCullFace(m_state.cullMode == 2 ? GL_FRONT : GL_BACK); }
                 else glDisable(GL_CULL_FACE);
-                if (!opaque) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); }
+                if (!opaque) {
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    glDepthMask(GL_FALSE);
+                }
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                 // ponytail: push the FILL surface slightly back in depth so the
                 // coincident cell-edge GL_LINES (drawn later) win the depth test
@@ -912,7 +922,10 @@ void Renderer::renderFrame() {
                 glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
                 glDisable(GL_POLYGON_OFFSET_FILL);
                 if (cull) glDisable(GL_CULL_FACE);
-                if (!opaque) glDisable(GL_BLEND);
+                if (!opaque) {
+                    glDisable(GL_BLEND);
+                    glDepthMask(GL_TRUE);
+                }
             }
 
             if (m_state.showWireframe) {
@@ -1123,7 +1136,7 @@ void Renderer::renderFrame() {
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glEnable(GL_PROGRAM_POINT_SIZE);
-            glDisable(GL_DEPTH_TEST);
+            glEnable(GL_DEPTH_TEST);
             glDepthMask(GL_FALSE);
 
             glUniform1f(particlePointSizeLoc, m_state.particleSize);

@@ -78,8 +78,6 @@ add_library(RenderLib STATIC
 target_include_directories(RenderLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(RenderLib PUBLIC CoreLib glad OpenGL::GL
     Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::OpenGLWidgets)
-target_compile_definitions(RenderLib PRIVATE
-    SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/shaders")
 
 # ---------------------------------------------------------------------------
 # 5. Main Application Target
@@ -92,7 +90,6 @@ add_executable(SciRender
 )
 
 target_compile_definitions(SciRender PRIVATE
-    SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/shaders"
     APP_ICON_SRC="${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.ico"
 )
 

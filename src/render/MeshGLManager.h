@@ -3,6 +3,7 @@
 #include <glad/gl.h>
 
 #include <vector>
+#include <string>
 #include <mutex>
 #include <atomic>
 
@@ -75,9 +76,11 @@ public:
     }
 
     // GPU compute shader LOD helpers
-    void initLodCompute();
+    void setComputeShaderSources(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc);
+    void initLodCompute(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc);
     void cleanupLodCompute();
     bool dispatchLodCompute(const RenderMesh& mesh, Mesh& outMesh);
+    const std::string& lastLodError() const { return lastLodError_; }
 
     // Replace the first decimated mesh with a new one (used after compute LOD).
     void replaceDecimatedMesh(int index, Mesh newMesh) {
@@ -124,4 +127,8 @@ private:
     GLuint lodCounterSsbo = 0;
     int lodCellsPerAxis = 0;
     bool lodGpuDecimationReady = false;
+    std::string lodAccumSrc_;
+    std::string lodOutputSrc_;
+    std::string lodTrisSrc_;
+    std::string lastLodError_;
 };

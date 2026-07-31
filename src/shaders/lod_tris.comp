@@ -13,9 +13,9 @@ layout(std430, binding = 8) buffer CellData {
 };
 
 layout(std140, binding = 9) buffer LODParams {
-    ivec3 cellsPerAxis;
-    vec3 boundsMin;
-    vec3 boundsMax;
+    ivec4 cellsPerAxis;
+    vec4 boundsMin;
+    vec4 boundsMax;
     int vertexCount;
     int triangleCount;
     int hasNormals;

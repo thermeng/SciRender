@@ -59,6 +59,9 @@ struct ShaderSources {
     std::string seedFrag;
     std::string particleVert;
     std::string particleFrag;
+    std::string lodComp;
+    std::string lodOutputComp;
+    std::string lodTrisComp;
 };
 
 // ---------------------------------------------------------------------------
