@@ -1,4 +1,5 @@
 #include "render/renderer.h"
+#include "render/shader_utils.h"
 #include "render/render_config.h"
 #include "render/StreamlineSet.h"
 #include "core/Colormaps.h"
@@ -31,50 +32,6 @@
 #include <QOpenGLContext>
 #include <QSettings>
 
-static bool compileShader(GLuint shader, const char* source, const char* type) {
-    glShaderSource(shader, 1, &source, nullptr);
-    glCompileShader(shader);
-    GLint success;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        char log[512];
-        glGetShaderInfoLog(shader, 512, nullptr, log);
-        printf("Shader compile error (%s): %s\n", type, log);
-        return false;
-    }
-    return true;
-}
-
-// Compile vertex + fragment shaders, link into a program, and return the handle.
-// Returns 0 on failure (shaders/program are cleaned up internally).
-static GLuint compileProgram(const char* vertSrc, const char* fragSrc, const char* label) {
-    GLuint v = glCreateShader(GL_VERTEX_SHADER);
-    GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
-    if (!compileShader(v, vertSrc, label) || !compileShader(f, fragSrc, label)) {
-        glDeleteShader(v);
-        glDeleteShader(f);
-        return 0;
-    }
-    GLuint prog = glCreateProgram();
-    glAttachShader(prog, v);
-    glAttachShader(prog, f);
-    glLinkProgram(prog);
-    GLint ok = 0;
-    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
-    if (!ok) {
-        char log[512];
-        glGetProgramInfoLog(prog, 512, nullptr, log);
-        printf("%s shader program linking error: %s\n", label, log);
-        glDeleteProgram(prog);
-        glDeleteShader(v);
-        glDeleteShader(f);
-        return 0;
-    }
-    glDeleteShader(v);
-    glDeleteShader(f);
-    return prog;
-}
-
 Renderer::Renderer()
     : m_state() {
     // Default system initialization parameters (mirror RenderSettings defaults;
@@ -92,31 +49,21 @@ Renderer::~Renderer() {
     m_destroying = true;
 
     // Join the background streamline worker before destroying GL resources.
-    streamlineCancelFlag = true;
-    if (streamlineWorker.joinable()) streamlineWorker.join();
+    m_streamlines.cancelAndJoin();
 
     if (QOpenGLContext::currentContext()) {
         if (meshUbo) glDeleteBuffers(1, &meshUbo);
-        if (gridUbo) glDeleteBuffers(1, &gridUbo);
         if (glyphUbo) glDeleteBuffers(1, &glyphUbo);
         if (shaderProgram) glDeleteProgram(shaderProgram);
-        if (gridProgram) glDeleteProgram(gridProgram);
-        if (gridVAO) glDeleteVertexArrays(1, &gridVAO);
-        if (gridVBO) glDeleteBuffers(1, &gridVBO);
-        if (bboxProgram) glDeleteProgram(bboxProgram);
-        if (bboxVao) glDeleteVertexArrays(1, &bboxVao);
-        if (bboxVbo) glDeleteBuffers(1, &bboxVbo);
-        if (qualityOpenEdgesVao) glDeleteVertexArrays(1, &qualityOpenEdgesVao);
-        if (qualityOpenEdgesVbo) glDeleteBuffers(1, &qualityOpenEdgesVbo);
-        if (qualityNonManifoldVao) glDeleteVertexArrays(1, &qualityNonManifoldVao);
-        if (qualityNonManifoldVbo) glDeleteBuffers(1, &qualityNonManifoldVbo);
-        if (qualityDegenerateVao) glDeleteVertexArrays(1, &qualityDegenerateVao);
-        if (qualityDegenerateVbo) glDeleteBuffers(1, &qualityDegenerateVbo);
         colormap.shutdown();
         vectorGlyph.shutdown();
         streamlineSet.shutdown();
         gizmo.shutdown();
         colorbarOverlay.shutdown();
+        m_grid.shutdown();
+        m_bbox.shutdown();
+        m_qualityOverlay.shutdown();
+        m_streamlines.shutdown();
     }
 }
 #pragma GCC diagnostic pop
@@ -135,17 +82,6 @@ void Renderer::initGLAD() {
     qDebug() << "[GL DIAGNOSTIC] VERSION:" << (const char*)glGetString(GL_VERSION)
              << "| RENDERER:" << (const char*)glGetString(GL_RENDERER)
              << "| GLSL:" << (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
-}
-
-std::string Renderer::readShaderFile(const std::string& filePath) {
-    std::ifstream file(filePath);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open shader source file: " << filePath << std::endl;
-        return "";
-    }
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
 }
 
 void Renderer::initShaders(const ShaderSources& sources) {
@@ -177,39 +113,6 @@ void Renderer::initShaders(const ShaderSources& sources) {
         }
     }
 
-    // bbox overlay program
-    if (!sources.bboxVert.empty() && !sources.bboxFrag.empty()) {
-        bboxProgram = compileProgram(sources.bboxVert.c_str(), sources.bboxFrag.c_str(), "BBox");
-        if (bboxProgram != 0) {
-            bboxMvpLoc = glGetUniformLocation(bboxProgram, "uMVP");
-            bboxColorLoc = glGetUniformLocation(bboxProgram, "uColor");
-        }
-    }
-
-    // streamline line-list program
-    if (!sources.streamlineVert.empty() && !sources.streamlineFrag.empty()) {
-        streamlineProgram = compileProgram(sources.streamlineVert.c_str(), sources.streamlineFrag.c_str(), "Streamline");
-        if (streamlineProgram != 0) {
-            streamlineLutLoc = glGetUniformLocation(streamlineProgram, "uColormapLUT");
-            if (streamlineUbo == 0) {
-                glCreateBuffers(1, &streamlineUbo);
-                glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
-            }
-        }
-    }
-
-    // seed point program
-    if (!sources.seedVert.empty() && !sources.seedFrag.empty()) {
-        seedProgram = compileProgram(sources.seedVert.c_str(), sources.seedFrag.c_str(), "Seed");
-        if (seedProgram != 0) {
-            seedMvpLoc = glGetUniformLocation(seedProgram, "uMVP");
-            seedModelLoc = glGetUniformLocation(seedProgram, "uModel");
-            seedColorLoc = glGetUniformLocation(seedProgram, "uColor");
-            seedPointSizeLoc = glGetUniformLocation(seedProgram, "uPointSize");
-            seedLightDirLoc = glGetUniformLocation(seedProgram, "uLightDir");
-        }
-    }
-
     // particle program
     if (!sources.particleVert.empty() && !sources.particleFrag.empty()) {
         particleProgram = compileProgram(sources.particleVert.c_str(), sources.particleFrag.c_str(), "Particle");
@@ -223,64 +126,10 @@ void Renderer::initShaders(const ShaderSources& sources) {
     }
 
     meshManager.setComputeShaderSources(sources.lodComp, sources.lodOutputComp, sources.lodTrisComp);
-}
 
-void Renderer::initGrid(const ShaderSources& sources) {
-    if (sources.gridVert.empty() || sources.gridFrag.empty()) return;
-
-    gridProgram = compileProgram(sources.gridVert.c_str(), sources.gridFrag.c_str(), "Grid");
-
-    const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f, 1.0f, 1.0f };
-    glCreateVertexArrays(1, &gridVAO);
-    glCreateBuffers(1, &gridVBO);
-    glEnableVertexArrayAttrib(gridVAO, 0);
-    glVertexArrayAttribFormat(gridVAO, 0, 2, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(gridVAO, 0, 0);
-    glNamedBufferData(gridVBO, sizeof(q), q, GL_STATIC_DRAW);
-    glVertexArrayVertexBuffer(gridVAO, 0, gridVBO, 0, 2 * sizeof(float));
-}
-
-void Renderer::updateGridUbo(const glm::mat4& view, const glm::mat4& proj) {
-    if (gridProgram == 0) return;
-    if (gridUbo == 0) {
-        gridUboIndex = glGetUniformBlockIndex(gridProgram, "GridUBO");
-        if (gridUboIndex != GL_INVALID_INDEX) {
-            glUniformBlockBinding(gridProgram, gridUboIndex, 2);
-            glCreateBuffers(1, &gridUbo);
-            glNamedBufferData(gridUbo, sizeof(GridUBOData), nullptr, GL_DYNAMIC_DRAW);
-            glBindBufferBase(GL_UNIFORM_BUFFER, 2, gridUbo);
-        }
-    }
-    if (gridUbo == 0) return;
-    GridUBOData ubo{};
-    ubo.invView = glm::inverse(view);
-    ubo.invProj = glm::inverse(proj);
-    ubo.view = view;
-    ubo.proj = proj;
-    ubo.camPos_colorR = glm::vec4(glm::vec3(m_state.camera.position), 0.0f);
-    float bgLum = 0.299f * m_state.bgColor[0] + 0.587f * m_state.bgColor[1] + 0.114f * m_state.bgColor[2];
-    glm::vec3 gridCol = (bgLum > 0.5f) ? glm::vec3(0.18f, 0.18f, 0.20f) : glm::vec3(0.78f, 0.78f, 0.82f);
-    ubo.colorBG_falloff = glm::vec4(gridCol.r, gridCol.g, gridCol.b, 0.02f);
-    gridPlaneY = m_state.hasMeshLoaded ? m_state.worldMinY : 0.0;
-    ubo.planeY_pad = glm::vec4(static_cast<float>(gridPlaneY), 0.0f, 0.0f, 0.0f);
-    glNamedBufferSubData(gridUbo, 0, sizeof(GridUBOData), &ubo);
-}
-
-void Renderer::drawGrid(const glm::mat4& view, const glm::mat4& proj) {
-    if (!m_state.showGrid || gridProgram == 0) return;
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    glUseProgram(gridProgram);
-
-    updateGridUbo(view, proj);
-
-    glBindVertexArray(gridVAO);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glBindVertexArray(0);
-
-    glDisable(GL_BLEND);
-    glUseProgram(0);
+    m_grid.init(sources);
+    m_bbox.init(sources);
+    m_streamlines.init(sources);
 }
 
 void Renderer::initGizmo() {
@@ -367,8 +216,7 @@ void Renderer::resizeViewport(int w, int h) {
 
 void Renderer::clearGpuMeshes() {
     // Join the background streamline worker before tearing down GL resources.
-    streamlineCancelFlag = true;
-    if (streamlineWorker.joinable()) streamlineWorker.join();
+    m_streamlines.cancelAndJoin();
 
     meshManager.clear();
     vectorGlyph = VectorGlyphSet{};
@@ -376,13 +224,8 @@ void Renderer::clearGpuMeshes() {
     m_lastUploadedMesh.reset();
     m_pendingMesh.reset();
     m_state.hasMeshLoaded = false;
-    qualityOverlayDirty = true;
-    if (qualityOpenEdgesVao) { glDeleteVertexArrays(1, &qualityOpenEdgesVao); qualityOpenEdgesVao = 0; }
-    if (qualityOpenEdgesVbo) { glDeleteBuffers(1, &qualityOpenEdgesVbo); qualityOpenEdgesVbo = 0; }
-    if (qualityNonManifoldVao) { glDeleteVertexArrays(1, &qualityNonManifoldVao); qualityNonManifoldVao = 0; }
-    if (qualityNonManifoldVbo) { glDeleteBuffers(1, &qualityNonManifoldVbo); qualityNonManifoldVbo = 0; }
-    if (qualityDegenerateVao) { glDeleteVertexArrays(1, &qualityDegenerateVao); qualityDegenerateVao = 0; }
-    if (qualityDegenerateVbo) { glDeleteBuffers(1, &qualityDegenerateVbo); qualityDegenerateVbo = 0; }
+    m_qualityOverlay.markDirty();
+    m_qualityOverlay.shutdown();
 }
 
 bool Renderer::consumeScalarDirty() {
@@ -561,84 +404,6 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     colorbarOverlay.drawBars(dpr, deviceW, deviceH, bars);
 }
 
-void Renderer::drawBoundingBox(const glm::mat4& view, const glm::mat4& proj) {
-    if (!m_state.showBounds || bboxProgram == 0) return;
-    if (!meshManager.hasMeshes()) return;
-
-    // 12 edges of a unit cube centered at origin, coords -0.5..0.5
-    static const float c[24 * 3] = {
-        -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,
-         0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
-         0.5f, 0.5f,-0.5f, -0.5f, 0.5f,-0.5f,
-        -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
-        -0.5f,-0.5f, 0.5f,  0.5f,-0.5f, 0.5f,
-         0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f,
-         0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
-        -0.5f, 0.5f, 0.5f, -0.5f,-0.5f, 0.5f,
-        -0.5f,-0.5f,-0.5f, -0.5f,-0.5f, 0.5f,
-         0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f,
-         0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
-        -0.5f, 0.5f,-0.5f, -0.5f, 0.5f, 0.5f
-    };
-    if (bboxVao == 0) {
-        glCreateVertexArrays(1, &bboxVao);
-        glCreateBuffers(1, &bboxVbo);
-        glEnableVertexArrayAttrib(bboxVao, 0);
-        glVertexArrayAttribFormat(bboxVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(bboxVao, 0, 0);
-        glNamedBufferData(bboxVbo, sizeof(c), c, GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(bboxVao, 0, bboxVbo, 0, 3 * sizeof(float));
-    }
-
-    glm::vec3 center(static_cast<float>(m_state.worldCenterX),
-                     static_cast<float>(m_state.worldCenterY),
-                     static_cast<float>(m_state.worldCenterZ));
-    glm::vec3 diag(static_cast<float>(m_state.worldMaxX - m_state.worldMinX),
-                   static_cast<float>(m_state.worldMaxY - m_state.worldMinY),
-                   static_cast<float>(m_state.worldMaxZ - m_state.worldMinZ));
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), center) *
-                      glm::scale(glm::mat4(1.0f), diag);
-    glm::mat4 mvp = proj * view * model;
-
-    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-    glDisable(GL_DEPTH_TEST);
-    glLineWidth(1.0f);
-
-    glUseProgram(bboxProgram);
-    glUniformMatrix4fv(bboxMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
-    glUniform4f(bboxColorLoc,
-                m_state.meshColor[0],
-                m_state.meshColor[1],
-                m_state.meshColor[2],
-                1.0f);
-
-    glBindVertexArray(bboxVao);
-    glDrawArrays(GL_LINES, 0, 24);
-    glBindVertexArray(0);
-
-    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-    glUseProgram(0);
-}
-
-void Renderer::buildQualityOverlayVAOs() {
-    auto buildOne = [&](GLuint& vao, GLuint& vbo, const std::vector<float>& verts) {
-        if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }
-        if (vbo) { glDeleteBuffers(1, &vbo); vbo = 0; }
-        if (verts.empty()) return;
-        glCreateVertexArrays(1, &vao);
-        glCreateBuffers(1, &vbo);
-        glEnableVertexArrayAttrib(vao, 0);
-        glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(vao, 0, 0);
-        glNamedBufferData(vbo, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(vao, 0, vbo, 0, 3 * sizeof(float));
-    };
-    buildOne(qualityOpenEdgesVao, qualityOpenEdgesVbo, m_state.qualityOpenEdges);
-    buildOne(qualityNonManifoldVao, qualityNonManifoldVbo, m_state.qualityNonManifoldEdges);
-    buildOne(qualityDegenerateVao, qualityDegenerateVbo, m_state.qualityDegenerateTris);
-    qualityOverlayDirty = false;
-}
-
 void Renderer::renderFrame() {
     // Advance animation clock with real elapsed time (drives dash/arrow animation).
     {
@@ -673,7 +438,7 @@ void Renderer::renderFrame() {
         if (m_pendingMesh) {
             uploadMesh(m_pendingMesh);
             m_pendingMesh.reset();
-            qualityOverlayDirty = true;
+            m_qualityOverlay.markDirty();
         }
     }
 
@@ -681,76 +446,15 @@ void Renderer::renderFrame() {
         if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform);
     }
 
-    if (streamlineDirty.exchange(false)) {
-        m_streamlineRequestTime = std::chrono::steady_clock::now();
+    if (m_streamlines.streamlineDirty.exchange(false)) {
+        // Timestamp handled inside StreamlineController::dispatchCompute
     }
 
-    // Off-thread streamline: after debounce, launch compute() on a background
-    // thread; when the result is ready, uploadGL() runs here on the GL thread.
-    {
-        auto dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_streamlineRequestTime).count();
-        if (dt >= kStreamlineDebounceSec && m_streamlineRequestTime.time_since_epoch().count() > 0
-            && m_lastUploadedMesh
-            && !streamlineComputeRunning.load()) {
-            m_streamlineRequestTime = {}; // reset
+    // Off-thread streamline: debounce, launch compute, consume results
+    m_streamlines.dispatchCompute(m_state, m_lastUploadedMesh, streamlineSet);
+    m_streamlines.consumeResult(m_state, streamlineSet);
 
-            // Cancel any in-flight compute (will be joined before launch).
-            streamlineCancelFlag = false;
-            if (streamlineWorker.joinable()) streamlineWorker.join();
-
-            // Capture everything compute() needs by value/shared_ptr.
-            auto mesh = m_lastUploadedMesh;
-            int   seedCount     = m_state.streamlineSeedCount;
-            float stepSize      = m_state.streamlineStepSize;
-            int   maxSteps      = m_state.streamlineMaxSteps;
-            std::string field   = m_state.streamlineVectorField;
-            std::string mode    = m_state.seedMode;
-            double planePos     = m_state.seedPlanePos;
-            double jitter       = m_state.seedJitter;
-            int   planeCountU   = m_state.seedPlaneCountU;
-            int   planeCountV   = m_state.seedPlaneCountV;
-            bool  showArrows    = m_state.showStreamlineArrows;
-            int   arrowSpacing  = m_state.streamlineArrowSpacing;
-            float arrowSize     = m_state.streamlineArrowSize;
-            float ribbonWidth   = m_state.streamlineRibbonWidth;
-            float taperFactor   = m_state.streamlineTaperFactor;
-
-            streamlineComputeRunning = true;
-            streamlineWorker = std::thread(
-                [this, mesh, seedCount, stepSize, maxSteps, field, mode, planePos,
-                 jitter, planeCountU, planeCountV, showArrows, arrowSpacing,
-                 arrowSize, ribbonWidth, taperFactor]() {
-                    auto result = streamlineSet.compute(
-                        *mesh, seedCount, stepSize, maxSteps, field, mode,
-                        planePos, jitter, planeCountU, planeCountV,
-                        showArrows, arrowSpacing, arrowSize, ribbonWidth, taperFactor);
-
-                    if (streamlineCancelFlag.load()) {
-                        streamlineComputeRunning = false;
-                        return;
-                    }
-
-                    {
-                        std::lock_guard<std::mutex> lock(streamlineResultMutex);
-                        pendingStreamlineResult = std::make_unique<StreamlineSet::StreamlineResult>(std::move(result));
-                    }
-                    streamlineComputeRunning = false;
-                });
-        }
-    }
-
-    // Consume a completed streamline computation (produced by the background thread).
-    {
-        std::lock_guard<std::mutex> lock(streamlineResultMutex);
-        if (pendingStreamlineResult) {
-            streamlineSet.uploadGL(std::move(*pendingStreamlineResult), m_state.showStreamlineArrows, m_state.streamlineArrowSize);
-            streamlineSet.initParticles(m_state.particleCount);
-            particleVertexCount = 0;
-            pendingStreamlineResult.reset();
-        }
-    }
-
-    if (particleCountDirty.exchange(false)) {
+    if (m_streamlines.particleCountDirty.exchange(false)) {
         streamlineSet.initParticles(m_state.particleCount);
         particleVertexCount = 0;
     }
@@ -981,29 +685,12 @@ void Renderer::renderFrame() {
         // + open edges (amber) + non-manifold edges (magenta), drawn ON TOP of
         // the mesh. Depth test + cull are disabled so interior defects (coplanar
         // with the surface) are not z-rejected and hidden.
-        if (m_state.showQualityOverlay && shaderProgram != 0) {
-            GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-            GLboolean cullWas  = glIsEnabled(GL_CULL_FACE);
-            glDisable(GL_DEPTH_TEST);
-            glDisable(GL_CULL_FACE);
-            if (qualityOverlayDirty) buildQualityOverlayVAOs();
-            auto drawCached = [&](GLuint vao, GLsizei count) {
-                if (vao == 0 || count <= 0) return;
-                glBindVertexArray(vao);
-                glDrawArrays(GL_LINES, 0, count);
-                glBindVertexArray(0);
-            };
-            drawCached(qualityOpenEdgesVao, static_cast<GLsizei>(m_state.qualityOpenEdges.size() / 3));
-            drawCached(qualityNonManifoldVao, static_cast<GLsizei>(m_state.qualityNonManifoldEdges.size() / 3));
-            drawCached(qualityDegenerateVao, static_cast<GLsizei>(m_state.qualityDegenerateTris.size() / 3));
-            if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-            if (cullWas)  glEnable(GL_CULL_FACE);  else glDisable(GL_CULL_FACE);
-        }
+        m_qualityOverlay.draw(m_state, shaderProgram);
 
         glUseProgram(0);
     }
 
-    drawBoundingBox(view, proj);
+    m_bbox.draw(m_state, view, proj, meshManager.hasMeshes());
 
     if (m_state.showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -1033,74 +720,11 @@ void Renderer::renderFrame() {
         glUseProgram(0);
     }
 
-    if ((m_state.showStreamlines && !streamlineSet.empty()) ||
-        (m_state.showStreamlineArrows && streamlineSet.arrowVao != 0 && streamlineSet.arrowCount > 0)) {
-        if (streamlineProgram != 0) {
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            glUseProgram(streamlineProgram);
-            GLboolean blendWas = glIsEnabled(GL_BLEND);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            if (streamlineUbo == 0) {
-                glCreateBuffers(1, &streamlineUbo);
-                glNamedBufferData(streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
-            }
-            glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
-            computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-            glm::vec3 camPos = glm::vec3(m_state.camera.position);
-            StreamlineUBOData ubo{};
-            ubo.mvp = mvp;
-            ubo.model = glm::mat4(1.0f);
-            ubo.viewPos = glm::vec4(camPos, 0.0f);
-            ubo.lightDir = glm::vec4(kDir, 0.0f);
-            ubo.time_opacity = glm::vec4(static_cast<float>(m_animationTime), m_state.streamlineOpacity, 0.0f, 0.0f);
-            ubo.color_useColormap = glm::vec4(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], m_state.streamlineUseColormap ? 1.0f : 0.0f);
-            ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
-            ubo.material = glm::vec4(m_state.streamlineAmbient, m_state.streamlineDiffuse, m_state.streamlineSpecular, static_cast<float>(m_state.streamlineSpecularPower));
-            ubo.ribbon = glm::vec4(m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineDashEnabled ? 1.0f : 0.0f, m_state.streamlineDashSpeed);
-            ubo.arrowParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f); // arrowAnimSpeed, pad
-            glBindBufferBase(GL_UNIFORM_BUFFER, 3, streamlineUbo);
-            glNamedBufferSubData(streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
-            if (m_state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
-                glBindTextureUnit(1, colormap.streamlineTexture());
-                glUniform1i(streamlineLutLoc, 1);
-            }
-            if (m_state.showStreamlines && !streamlineSet.empty()) {
-                glBindVertexArray(streamlineSet.vao);
-                glDrawArrays(GL_TRIANGLES, 0, streamlineSet.lineCount);
-                glBindVertexArray(0);
-            }
-            if (m_state.showStreamlineArrows && streamlineSet.arrowVao != 0 && streamlineSet.arrowCount > 0) {
-                glBindVertexArray(streamlineSet.arrowVao);
-                glDrawArrays(GL_TRIANGLES, 0, streamlineSet.arrowCount);
-                glBindVertexArray(0);
-            }
-            if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-            glUseProgram(0);
-        }
-    }
-
-    if (m_state.showSeeds && !streamlineSet.seedsEmpty() && seedProgram != 0) {
-        glUseProgram(seedProgram);
-        GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
-        GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-        glEnable(GL_PROGRAM_POINT_SIZE);
-        glEnable(GL_DEPTH_TEST);
-        glm::vec4 seedColor(m_state.seedPointColor[0], m_state.seedPointColor[1], m_state.seedPointColor[2], 1.0f);
-        glm::mat4 seedModel(1.0f);
+    // Streamlines + seeds (delegated to StreamlineController)
+    {
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-        glUniformMatrix4fv(seedMvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
-        glUniformMatrix4fv(seedModelLoc, 1, GL_FALSE, glm::value_ptr(seedModel));
-        glUniform4fv(seedColorLoc, 1, glm::value_ptr(seedColor));
-        glUniform1f(seedPointSizeLoc, m_state.seedPointSize);
-        glUniform4fv(seedLightDirLoc, 1, glm::value_ptr(glm::vec4(kDir, 0.0f)));
-        glBindVertexArray(streamlineSet.seedVao);
-        glDrawArrays(GL_POINTS, 0, streamlineSet.seedCount);
-        glBindVertexArray(0);
-        glUseProgram(0);
-        if (pointSizeWas) glEnable(GL_PROGRAM_POINT_SIZE); else glDisable(GL_PROGRAM_POINT_SIZE);
-        if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+        m_streamlines.draw(m_state, streamlineSet, colormap, mvp, m_animationTime, kDir);
     }
 
     // Particle rendering pass
@@ -1163,7 +787,7 @@ void Renderer::renderFrame() {
         }
     }
 
-    if (!m_state.screenshotTransparent) drawGrid(view, proj);
+    if (!m_state.screenshotTransparent) m_grid.draw(m_state, view, proj);
 
     if (m_state.showGizmo) drawGizmo();
 

@@ -59,6 +59,7 @@ add_library(RenderLib STATIC
     src/render/render_settings.cpp
     src/render/render_settings.h
     src/render/render_config.h
+    src/render/shader_utils.h
     src/render/LightingModel.cpp
     src/render/LightingModel.h
     src/render/ColormapManager.cpp
@@ -73,6 +74,14 @@ add_library(RenderLib STATIC
     src/render/gizmo.h
     src/render/colorbar_overlay.cpp
     src/render/colorbar_overlay.h
+    src/render/GridRenderer.cpp
+    src/render/GridRenderer.h
+    src/render/BBoxOverlay.cpp
+    src/render/BBoxOverlay.h
+    src/render/QualityOverlayRenderer.cpp
+    src/render/QualityOverlayRenderer.h
+    src/render/StreamlineController.cpp
+    src/render/StreamlineController.h
 )
 target_include_directories(RenderLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(RenderLib PUBLIC CoreLib glad OpenGL::GL
@@ -119,6 +128,15 @@ qt_add_resources(SciRender "shaders"
         src/shaders/lod.comp
         src/shaders/lod_output.comp
         src/shaders/lod_tris.comp
+)
+
+# ---------------------------------------------------------------------------
+# 6b. Icon Resources
+# ---------------------------------------------------------------------------
+qt_add_resources(SciRender "icons"
+    PREFIX "/"
+    FILES
+        src/resources/icons/checkmark.svg
 )
 
 # ---------------------------------------------------------------------------

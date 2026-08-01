@@ -39,6 +39,10 @@
 #include "render/VectorGlyphSet.h"
 #include "render/StreamlineSet.h"
 #include "render/MeshGLManager.h"
+#include "render/GridRenderer.h"
+#include "render/BBoxOverlay.h"
+#include "render/QualityOverlayRenderer.h"
+#include "render/StreamlineController.h"
 
 #include <QOpenGLFramebufferObject>
 
@@ -96,9 +100,10 @@ struct RenderRenderState {
     bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
     bool showCellEdges = false;      // ponytail: ParaView-style per-cell boundary edges
     // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
-    std::vector<float> qualityDegenerateTris;
-    std::vector<float> qualityOpenEdges;
-    std::vector<float> qualityNonManifoldEdges;
+    // shared_ptr so RenderRenderState copies are O(1) instead of O(n)
+    std::shared_ptr<const std::vector<float>> qualityDegenerateTris;
+    std::shared_ptr<const std::vector<float>> qualityOpenEdges;
+    std::shared_ptr<const std::vector<float>> qualityNonManifoldEdges;
     bool orthographic = false;    // ponytail: orthographic (parallel) projection
 
     // Colors
@@ -288,8 +293,6 @@ public:
     // Core Initialization & Graphics Lifecycle Routines (render thread).
     void initGLAD();
     void initShaders(const ShaderSources& sources);
-    void initGrid(const ShaderSources& sources);
-    void updateGridUbo(const glm::mat4& view, const glm::mat4& proj);
     void initGizmo();
     void renderFrame();
 
@@ -304,7 +307,6 @@ public:
 
     // Uploads CPU geometry to the GPU. Safe to call on the render thread.
     void uploadMesh(std::shared_ptr<const RenderMesh> renderMesh);
-    void drawGrid(const glm::mat4& view, const glm::mat4& proj);
 
     // Pending mesh handoff (GUI -> render thread). setPendingMesh() stores a
     // shared_ptr (no copy) plus a dirty flag; renderFrame() consumes it and
@@ -314,8 +316,8 @@ public:
     // Mark the camera as moving and (re)start the LOD debounce timer.
     void markCameraMoving();
     void markVectorGlyphDirty() { vectorGlyphDirty = true; }
-    void markStreamlineDirty() { streamlineDirty = true; }
-    void markParticleCountDirty() { particleCountDirty = true; }
+    void markStreamlineDirty() { m_streamlines.streamlineDirty = true; }
+    void markParticleCountDirty() { m_streamlines.particleCountDirty = true; }
     void resizeViewport(int width, int height);
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
@@ -374,10 +376,7 @@ public:
 private:
     void drawGizmo();
     void drawColorbarLegends(int deviceW, int deviceH);
-    void drawBoundingBox(const glm::mat4& view, const glm::mat4& proj);
-    void buildQualityOverlayVAOs(); // ponytail: rebuild cached defect VAOs/VBOs
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
-    std::string readShaderFile(const std::string& filePath);
 
     // Display Dimension Registers
     int width = 800;
@@ -391,8 +390,6 @@ private:
     GLuint shaderProgram = 0;
     GLuint meshUbo = 0;
     GLuint meshUboIndex = GL_INVALID_INDEX;
-    GLuint gridUbo = 0;
-    GLuint gridUboIndex = GL_INVALID_INDEX;
     GLuint glyphUbo = 0;
     GLuint glyphUboIndex = GL_INVALID_INDEX;
     GLint lutTextureLoc = -1;
@@ -402,26 +399,6 @@ private:
     // glyph program
     GLuint glyphProgram = 0;
     GLint glyphLutLoc = -1;
-
-    // bbox overlay program
-    GLuint bboxProgram = 0;
-    GLint bboxMvpLoc = -1;
-    GLint bboxColorLoc = -1;
-    GLuint bboxVao = 0;
-    GLuint bboxVbo = 0;
-
-    // streamline program
-    GLuint streamlineProgram = 0;
-    GLuint streamlineUbo = 0;
-    GLint streamlineLutLoc = -1;
-
-    // seed point program
-    GLuint seedProgram = 0;
-    GLint seedMvpLoc = -1;
-    GLint seedModelLoc = -1;
-    GLint seedColorLoc = -1;
-    GLint seedPointSizeLoc = -1;
-    GLint seedLightDirLoc = -1;
 
     // particle program
     GLuint particleProgram = 0;
@@ -436,12 +413,6 @@ private:
     GLuint particleVbo = 0;
     int particleVertexCount = 0;
 
-    // quality overlay cached VAOs/VBOs (one per defect class)
-    GLuint qualityOpenEdgesVao = 0, qualityOpenEdgesVbo = 0;
-    GLuint qualityNonManifoldVao = 0, qualityNonManifoldVbo = 0;
-    GLuint qualityDegenerateVao = 0, qualityDegenerateVbo = 0;
-    bool qualityOverlayDirty = true;
-
     double camDistance = 3.0;
     double nearPlane = 0.1;
     double farPlane = 100.0;
@@ -450,25 +421,7 @@ private:
     std::atomic<bool> gpuDecimationDirty{false};
     bool m_wasCameraMoving = false;
 
-    // grid (procedural ray-cast ground plane)
-    GLuint gridVAO = 0, gridVBO = 0;
-    GLuint gridProgram = 0;
-    double gridPlaneY = 0.0;
-
     std::atomic<bool> vectorGlyphDirty{false};
-    std::atomic<bool> streamlineDirty{false};
-    std::chrono::steady_clock::time_point m_streamlineRequestTime;
-    static constexpr double kStreamlineDebounceSec = 0.15;
-
-    // Off-thread streamline computation: compute() runs on a background thread,
-    // uploadGL() runs on the GL render thread when the result is ready.
-    std::mutex streamlineResultMutex;
-    std::unique_ptr<StreamlineSet::StreamlineResult> pendingStreamlineResult;
-    std::thread streamlineWorker;
-    std::atomic<bool> streamlineComputeRunning{false};
-    std::atomic<bool> streamlineCancelFlag{false};
-
-    std::atomic<bool> particleCountDirty{false};
 
     bool m_destroying = false;
 
@@ -501,4 +454,8 @@ private:
     VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
     StreamlineSet streamlineSet;  // GL_LINES streamline GPU resources + mag range
     MeshGLManager meshManager;     // full + decimated GPU meshes & upload
+    GridRenderer m_grid;           // procedural ray-cast ground plane
+    BBoxOverlay m_bbox;            // AABB wireframe overlay
+    QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
+    StreamlineController m_streamlines;      // streamline compute + draw + seeds
 };

@@ -179,14 +179,14 @@ static QToolButton* createCollapsibleHeader(const QString& title, bool expanded,
     btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     btn->setStyleSheet(
         "QToolButton {"
-        "  text-align: left; font-size: 11px; font-weight: bold;"
-        "  color: #007acc; padding: 4px 2px 2px 2px; border: none;"
-        "  background: transparent;"
+        "  text-align: left; font-size: 12px; font-weight: bold;"
+        "  color: #cccccc; padding: 6px 8px; border: none;"
+        "  background: #2a2d2e; border-radius: 4px 4px 0 0;"
         "}"
-        "QToolButton:hover { color: #1c8cd9; }"
+        "QToolButton:hover { background: #333334; }"
     );
     btn->setCursor(Qt::PointingHandCursor);
-    bool* state = new bool(expanded);
+    auto state = std::make_shared<bool>(expanded);
     QObject::connect(btn, &QToolButton::clicked, [btn, state, toggle]() {
         *state = !*state;
         btn->setText(QString("%1 %2").arg(*state ? "\u25BC" : "\u25B6", btn->text().mid(2)));
@@ -1084,14 +1084,13 @@ QWidget* MainWindow::buildStreamlinesPage() {
     auto* optionsGroup = new QWidget;
     auto* optLayout = new QVBoxLayout(optionsGroup);
     optLayout->setContentsMargins(0, 0, 0, 0);
+    optLayout->setSpacing(8);
 
     // Field
-    auto* fieldHeader = createCollapsibleHeader("Field", true, [](bool) {});
-    optLayout->addWidget(fieldHeader);
-
     auto* fieldGroup = new QWidget;
+    fieldGroup->setStyleSheet("QWidget { background: #222222; border-radius: 0 0 4px 4px; }");
     auto* fieldLayout = new QVBoxLayout(fieldGroup);
-    fieldLayout->setContentsMargins(0, 0, 0, 0);
+    fieldLayout->setContentsMargins(12, 4, 8, 8);
 
     m_streamlineCombo = new QComboBox;
     m_streamlineCombo->addItems(m_settings->getAvailableVectors());
@@ -1128,14 +1127,17 @@ QWidget* MainWindow::buildStreamlinesPage() {
     maxStepsRow->addWidget(maxStepsSpin, 1);
     fieldLayout->addLayout(maxStepsRow);
 
+    auto* fieldHeader = createCollapsibleHeader("Field", true, [fieldGroup](bool expanded) {
+        fieldGroup->setVisible(expanded);
+    });
+    optLayout->addWidget(fieldHeader);
     optLayout->addWidget(fieldGroup);
 
     // Color
-    auto* colorHeader = createCollapsibleHeader("Color", true, [](bool) {});
-    optLayout->addWidget(colorHeader);
     auto* colorGroup = new QWidget;
+    colorGroup->setStyleSheet("QWidget { background: #222222; border-radius: 0 0 4px 4px; }");
     auto* colorLayout = new QVBoxLayout(colorGroup);
-    colorLayout->setContentsMargins(0, 0, 0, 0);
+    colorLayout->setContentsMargins(12, 4, 8, 8);
     colorLayout->addWidget(createSwatchButton("Streamline", m_settings->getStreamlineColorQml(), [this]() {
         if (!m_streamlineColorDialog) {
             m_streamlineColorDialog = new QColorDialog(m_settings->getStreamlineColorQml(), this);
@@ -1156,14 +1158,18 @@ QWidget* MainWindow::buildStreamlinesPage() {
     slRevCb->setChecked(m_settings->getStreamlineColormapReversed());
     connect(slRevCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineColormapReversed);
     colorLayout->addWidget(slRevCb);
+
+    auto* colorHeader = createCollapsibleHeader("Color", true, [colorGroup](bool expanded) {
+        colorGroup->setVisible(expanded);
+    });
+    optLayout->addWidget(colorHeader);
     optLayout->addWidget(colorGroup);
 
     // Seeding
-    auto* seedHeader = createCollapsibleHeader("Seeding", true, [](bool) {});
-    optLayout->addWidget(seedHeader);
     auto* seedGroup = new QWidget;
+    seedGroup->setStyleSheet("QWidget { background: #222222; border-radius: 0 0 4px 4px; }");
     auto* seedLayout = new QVBoxLayout(seedGroup);
-    seedLayout->setContentsMargins(0, 0, 0, 0);
+    seedLayout->setContentsMargins(12, 4, 8, 8);
     auto* seedModeCombo = new QComboBox;
     seedModeCombo->addItems({"Volume", "Surface", "Plane XY", "Plane XZ", "Plane YZ"});
     const QStringList modeKeys = {"Volume", "Surface", "PlaneXY", "PlaneXZ", "PlaneYZ"};
@@ -1229,14 +1235,17 @@ QWidget* MainWindow::buildStreamlinesPage() {
         m_seedColorDialog->open();
     }));
 
+    auto* seedHeader = createCollapsibleHeader("Seeding", true, [seedGroup](bool expanded) {
+        seedGroup->setVisible(expanded);
+    });
+    optLayout->addWidget(seedHeader);
     optLayout->addWidget(seedGroup);
 
     // Appearance
-    auto* appHeader = createCollapsibleHeader("Appearance", false, [](bool) {});
-    optLayout->addWidget(appHeader);
     auto* appGroup = new QWidget;
+    appGroup->setStyleSheet("QWidget { background: #222222; border-radius: 0 0 4px 4px; }");
     auto* appLayout = new QVBoxLayout(appGroup);
-    appLayout->setContentsMargins(0, 0, 0, 0);
+    appLayout->setContentsMargins(12, 4, 8, 8);
     {
         auto row = createLightSlider("Opacity", m_settings->getStreamlineOpacity(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineOpacity(v); });
         appLayout->addWidget(row.slider->parentWidget());
@@ -1257,14 +1266,18 @@ QWidget* MainWindow::buildStreamlinesPage() {
         auto row = createLightSlider("Dash speed", m_settings->getStreamlineDashSpeed(), 0.1, 5.0, 0.1, 1, [this](double v) { m_settings->setStreamlineDashSpeed(v); });
         appLayout->addWidget(row.slider->parentWidget());
     }
+    auto* appHeader = createCollapsibleHeader("Appearance", false, [appGroup](bool expanded) {
+        appGroup->setVisible(expanded);
+    });
+    optLayout->addWidget(appHeader);
+    appGroup->setVisible(false);
     optLayout->addWidget(appGroup);
 
     // Lighting
-    auto* lightHeader = createCollapsibleHeader("Lighting", false, [](bool) {});
-    optLayout->addWidget(lightHeader);
     auto* lightGroup = new QWidget;
+    lightGroup->setStyleSheet("QWidget { background: #222222; border-radius: 0 0 4px 4px; }");
     auto* lightLayout = new QVBoxLayout(lightGroup);
-    lightLayout->setContentsMargins(0, 0, 0, 0);
+    lightLayout->setContentsMargins(12, 4, 8, 8);
     {
         auto row = createLightSlider("Ambient", m_settings->getStreamlineAmbient(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineAmbient(v); });
         lightLayout->addWidget(row.slider->parentWidget());
@@ -1282,6 +1295,11 @@ QWidget* MainWindow::buildStreamlinesPage() {
     specPowerSpin->setValue(m_settings->getStreamlineSpecularPower());
     connect(specPowerSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineSpecularPower);
     lightLayout->addWidget(specPowerSpin);
+    auto* lightHeader = createCollapsibleHeader("Lighting", false, [lightGroup](bool expanded) {
+        lightGroup->setVisible(expanded);
+    });
+    optLayout->addWidget(lightHeader);
+    lightGroup->setVisible(false);
     optLayout->addWidget(lightGroup);
 
     // Arrows

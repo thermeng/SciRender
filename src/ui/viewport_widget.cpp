@@ -60,7 +60,6 @@ void ViewportWidget::initializeGL() {
 
     scene->initGLAD();
     loadShaders();
-    scene->initGrid(ShaderSources{});
     scene->initGizmo();
     m_initialized = true;
 }
@@ -99,7 +98,6 @@ void ViewportWidget::loadShaders() {
     sources.lodTrisComp     = loadShader(":/src/shaders/lod_tris.comp");
 
     scene->initShaders(sources);
-    scene->initGrid(sources);
 }
 
 void ViewportWidget::resizeGL(int w, int h) {

@@ -28,8 +28,8 @@ RenderSettings::~RenderSettings() = default;
 void RenderSettings::publishRenderState(::Renderer* scene) {
     if (m_stateDirty) {
         m_stateDirty = false;
+        if (scene) scene->setState(m_state);
     }
-    if (scene) scene->setState(m_state);
 }
 
 void RenderSettings::setFpsText(const QString& text) {
@@ -55,14 +55,14 @@ void RenderSettings::setUseLod(bool enabled) {
     if (m_state.useLod == enabled) return;
     m_state.useLod = enabled;
     m_renderer.markCameraMoving();
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
 void RenderSettings::setMsaaSamples(int n) {
     n = qBound(0, n, 4); // ponytail: only 0/2/4 offered; clamp guards stray QML
     if (msaaSamples == n) return;
     msaaSamples = n;
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::toggleGrid(bool visible) {
@@ -82,14 +82,14 @@ void RenderSettings::toggleSurface(bool visible) {
 void RenderSettings::snapToOrthoView(int axis) {
     m_state.camera.snapToOrthoView(axis);
     m_renderer.markCameraMoving();
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
 void RenderSettings::snapToAxisView(int axis, bool flip) {
     int preset = flip ? (axis * 2 + 1) : (axis * 2);
     m_state.camera.snapToOrthoView(preset);
     m_renderer.markCameraMoving();
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
 void RenderSettings::resetCamera() {
@@ -109,7 +109,7 @@ void RenderSettings::resetCamera() {
     m_state.camera.position = m_state.camera.focalPoint + glm::dvec3(0.0, 0.0, m_state.camera.distance);
     m_state.camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
     m_state.camera.orthogonalizeViewUp();
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
 void RenderSettings::loadRecentFromSettings() {
@@ -252,9 +252,9 @@ void RenderSettings::onMeshParsed() {
         m_meshData.nonManifoldEdges = mq.nonManifoldEdges;
         m_meshData.nonManifoldVerts = mq.nonManifoldVerts;
         m_meshData.watertight       = mq.watertight;
-        m_state.qualityDegenerateTris  = mq.degenerateTriVerts;
-        m_state.qualityOpenEdges        = mq.openEdgeVerts;
-        m_state.qualityNonManifoldEdges = mq.nonManifoldEdgeVerts;
+        m_state.qualityDegenerateTris  = std::make_shared<const std::vector<float>>(std::move(mq.degenerateTriVerts));
+        m_state.qualityOpenEdges        = std::make_shared<const std::vector<float>>(std::move(mq.openEdgeVerts));
+        m_state.qualityNonManifoldEdges = std::make_shared<const std::vector<float>>(std::move(mq.nonManifoldEdgeVerts));
     }
 
     m_meshData.guiMeta.vertices.clear();   m_meshData.guiMeta.vertices.shrink_to_fit();
@@ -351,7 +351,7 @@ void RenderSettings::clearMeshes() {
     m_state.hasMeshLoaded = false;
     m_state.meshHasScalars = false;
     markStateDirty();
-    m_state.qualityDegenerateTris.clear(); m_state.qualityOpenEdges.clear(); m_state.qualityNonManifoldEdges.clear();
+    m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();
     emit meshLoadStateChanged();
 }
 
