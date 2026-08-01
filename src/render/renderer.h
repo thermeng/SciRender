@@ -66,6 +66,8 @@ struct ShaderSources {
     std::string lodComp;
     std::string lodOutputComp;
     std::string lodTrisComp;
+    std::string qualityOverlayVert;
+    std::string qualityOverlayFrag;
 };
 
 // ---------------------------------------------------------------------------

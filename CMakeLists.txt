@@ -128,6 +128,8 @@ qt_add_resources(SciRender "shaders"
         src/shaders/lod.comp
         src/shaders/lod_output.comp
         src/shaders/lod_tris.comp
+        src/shaders/quality_overlay.vert
+        src/shaders/quality_overlay.frag
 )
 
 # ---------------------------------------------------------------------------

@@ -129,6 +129,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
 
     m_grid.init(sources);
     m_bbox.init(sources);
+    m_qualityOverlay.init(sources);
     m_streamlines.init(sources);
 }
 
@@ -683,9 +684,8 @@ void Renderer::renderFrame() {
 
         // ponytail: mesh-quality highlight overlay — degenerate faces (red fill)
         // + open edges (amber) + non-manifold edges (magenta), drawn ON TOP of
-        // the mesh. Depth test + cull are disabled so interior defects (coplanar
-        // with the surface) are not z-rejected and hidden.
-        m_qualityOverlay.draw(m_state, shaderProgram);
+        // the mesh with a slight depth bias.
+        m_qualityOverlay.draw(m_state, glm::value_ptr(view), glm::value_ptr(proj));
 
         glUseProgram(0);
     }

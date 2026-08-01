@@ -96,6 +96,8 @@ void ViewportWidget::loadShaders() {
     sources.lodComp         = loadShader(":/src/shaders/lod.comp");
     sources.lodOutputComp   = loadShader(":/src/shaders/lod_output.comp");
     sources.lodTrisComp     = loadShader(":/src/shaders/lod_tris.comp");
+    sources.qualityOverlayVert = loadShader(":/src/shaders/quality_overlay.vert");
+    sources.qualityOverlayFrag = loadShader(":/src/shaders/quality_overlay.frag");
 
     scene->initShaders(sources);
 }
