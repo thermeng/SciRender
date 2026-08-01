@@ -85,6 +85,7 @@ private:
     QWidget* buildStreamlinesPage();
     QWidget* buildScreenshotPage();
     QWidget* buildMeshInfoPage();
+    void refreshMeshInfoPage();
 
     // Quick bar
     QWidget* m_quickBar = nullptr;
@@ -95,6 +96,9 @@ private:
     QComboBox* m_scalarCombo = nullptr;
     QComboBox* m_vectorCombo = nullptr;
     QComboBox* m_streamlineCombo = nullptr;
+
+    // Mesh info page (rebuilt on mesh load)
+    QWidget* m_meshInfoPage = nullptr;
 
     // Timers
     QTimer m_autoRotateTimer;

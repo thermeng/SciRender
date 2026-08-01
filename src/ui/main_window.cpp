@@ -479,7 +479,8 @@ void MainWindow::setupSidebar() {
     m_sectionStack->addWidget(buildVectorsPage());      // 4
     m_sectionStack->addWidget(buildStreamlinesPage());  // 5
     m_sectionStack->addWidget(buildScreenshotPage());   // 6
-    m_sectionStack->addWidget(buildMeshInfoPage());     // 7
+    m_meshInfoPage = buildMeshInfoPage();
+    m_sectionStack->addWidget(m_meshInfoPage);           // 7
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -1453,6 +1454,15 @@ QWidget* MainWindow::buildMeshInfoPage() {
     return page;
 }
 
+void MainWindow::refreshMeshInfoPage() {
+    if (!m_meshInfoPage || !m_sectionStack) return;
+    int idx = m_sectionStack->indexOf(m_meshInfoPage);
+    m_sectionStack->removeWidget(m_meshInfoPage);
+    delete m_meshInfoPage;
+    m_meshInfoPage = buildMeshInfoPage();
+    m_sectionStack->insertWidget(idx, m_meshInfoPage);
+}
+
 // ============================================================================
 // Sidebar section switching
 // ============================================================================
@@ -1651,6 +1661,7 @@ void MainWindow::setupKeyboardShortcuts() {
 void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateQuickBarVisibility);
+    connect(m_settings, &RenderSettings::meshDataUpdated, this, &MainWindow::refreshMeshInfoPage);
 
     // Repopulate field combos when mesh data changes
     connect(m_settings, &RenderSettings::meshDataUpdated, this, [this]() {
