@@ -10,9 +10,8 @@ void QualityOverlayRenderer::init(const ShaderSources& sources) {
     m_program = compileProgram(sources.qualityOverlayVert.c_str(),
                                sources.qualityOverlayFrag.c_str(), "QualityOverlay");
     if (m_program != 0) {
-        m_mvpLoc       = glGetUniformLocation(m_program, "uMVP");
-        m_colorLoc     = glGetUniformLocation(m_program, "uColor");
-        m_depthBiasLoc = glGetUniformLocation(m_program, "uDepthBias");
+        m_mvpLoc   = glGetUniformLocation(m_program, "uMVP");
+        m_colorLoc = glGetUniformLocation(m_program, "uColor");
     }
 }
 
@@ -59,10 +58,9 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
     glUseProgram(m_program);
     glUniformMatrix4fv(m_mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
 
-    auto drawOne = [&](GLuint vao, GLsizei count, const float* color, float bias) {
+    auto drawOne = [&](GLuint vao, GLsizei count, const float* color) {
         if (vao == 0 || count <= 0) return;
         glUniform4f(m_colorLoc, color[0], color[1], color[2], color[3]);
-        glUniform1f(m_depthBiasLoc, bias);
         glBindVertexArray(vao);
         glDrawArrays(GL_LINES, 0, count);
         glBindVertexArray(0);
@@ -75,20 +73,18 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
     // non-manifold: purple (edges + verts share color)
     static const float kPurple[]  = { 1.0f, 0.267f, 1.0f,  1.0f };
 
-    constexpr float kBias = -0.001f;
-
     drawOne(m_degenerateVao,
             hasData(state.qualityDegenerateTris)
                 ? static_cast<GLsizei>(state.qualityDegenerateTris->size() / 3) : 0,
-            kRed, kBias);
+            kRed);
     drawOne(m_openEdgesVao,
             hasData(state.qualityOpenEdges)
                 ? static_cast<GLsizei>(state.qualityOpenEdges->size() / 3) : 0,
-            kOrange, kBias);
+            kOrange);
     drawOne(m_nonManifoldVao,
             hasData(state.qualityNonManifoldEdges)
                 ? static_cast<GLsizei>(state.qualityNonManifoldEdges->size() / 3) : 0,
-            kPurple, kBias);
+            kPurple);
 
     glUseProgram(0);
     glLineWidth(1.0f);
