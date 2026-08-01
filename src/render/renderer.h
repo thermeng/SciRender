@@ -12,7 +12,7 @@
 // Raw OpenGL / math dependencies only. NO Qt Object macros: this class runs
 // strictly on the QSG render thread and must never be touched from the GUI
 // thread. All view/visual state arrives via a deep-copied RenderRenderState
-// produced on the GUI thread by RenderSettings::buildRenderState().
+// produced on the GUI thread by RenderSettings::publishRenderState().
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -163,7 +163,7 @@ struct RenderRenderState {
 
     // Streamlines
     bool showStreamlines = false;
-    int streamlineSeedCount = 50;
+    int streamlineSeedCount = 25;
     float streamlineStepSize = 0.02f;
     int streamlineMaxSteps = 100;
     bool streamlineUseColormap = false;
@@ -190,7 +190,7 @@ struct RenderRenderState {
     double seedJitter = 0.0;
     bool showSeeds = false;
     bool showStreamlineArrows = false;
-    int streamlineArrowSpacing = 5;
+    int streamlineArrowSpacing = 4;
     float streamlineArrowSize = 0.05f;
 
     // Particles
