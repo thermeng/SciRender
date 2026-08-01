@@ -237,7 +237,6 @@ void ViewportFboRenderer::render() {
         sources.lodTrisComp     = loadShader(":/SciRenderUI/src/shaders/lod_tris.comp");
 
         m_scene->initShaders(sources);
-        m_scene->initGrid(sources);
         m_scene->initGizmo();
         m_initialized = true;
     }

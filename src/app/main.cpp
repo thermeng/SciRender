@@ -117,12 +117,6 @@ static void applyDarkTheme(QApplication& app) {
         QSpinBox::down-button, QDoubleSpinBox::down-button {
             background-color: #3c3c3c; border-left: 1px solid #3c3c3c; width: 16px;
         }
-        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-            border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 4px solid #cccccc; width: 0px; height: 0px;
-        }
-        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-            border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 4px solid #cccccc; width: 0px; height: 0px;
-        }
 
         /* Checkboxes & Radio Buttons */
         QCheckBox, QRadioButton { color: #cccccc; spacing: 6px; }
@@ -132,8 +126,8 @@ static void applyDarkTheme(QApplication& app) {
             width: 14px; height: 14px; border: 1px solid #6c6c6c; border-radius: 2px; background-color: transparent;
         }
         QCheckBox::indicator:hover { border: 1px solid #007acc; }
-        QCheckBox::indicator:checked { background-color: #007acc; border: 1px solid #007acc; }
-        QCheckBox::indicator:checked:hover { background-color: #1c8cd9; }
+        QCheckBox::indicator:checked { background-color: #007acc; border: 1px solid #007acc; image: url(:/src/resources/icons/checkmark.svg); }
+        QCheckBox::indicator:checked:hover { background-color: #1c8cd9; border: 1px solid #1c8cd9; image: url(:/src/resources/icons/checkmark.svg); }
 
         QRadioButton::indicator {
             width: 14px; height: 14px; border: 1px solid #6c6c6c; border-radius: 7px; background-color: transparent;
@@ -145,10 +139,11 @@ static void applyDarkTheme(QApplication& app) {
         QPushButton {
             background-color: #0e639c; color: #ffffff;
             border: none; border-radius: 2px; padding: 4px 12px; min-height: 20px;
+            border: 1px solid #1177bb;
         }
-        QPushButton:hover { background-color: #1177bb; }
-        QPushButton:pressed { background-color: #094771; }
-        QPushButton:disabled { background-color: #3c3c3c; color: #6c6c6c; }
+        QPushButton:hover { background-color: #1177bb; border: 1px solid #1c8cd9;}
+        QPushButton:pressed { background-color: #094771; border: 1px solid #094771;}
+        QPushButton:disabled { background-color: #3c3c3c; color: #6c6c6c; border: 1px solid #3c3c3c;}
 
         QToolButton {
             background-color: transparent; color: #cccccc;
