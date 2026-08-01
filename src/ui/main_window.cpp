@@ -393,7 +393,6 @@ void MainWindow::setupSidebar() {
         btn->setToolTip(QString::fromUtf8(icons[i].tooltip));
         btn->setFixedSize(48, 44);
         btn->setCheckable(i > 0);
-        btn->setAutoExclusive(true);
         btn->setCursor(Qt::PointingHandCursor);
 
         // VS Code-style icon strip: no border, clean look
@@ -467,6 +466,7 @@ void MainWindow::setupSidebar() {
     headerLayout->addWidget(closeBtn);
 
     rightLayout->addWidget(m_panelHeader);
+    m_panelHeader->setVisible(false);
 
     // Stacked widget (section pages)
     m_sectionStack = new QStackedWidget;
@@ -1521,12 +1521,12 @@ void MainWindow::setupQuickBar() {
     m_quickBarLayout->setContentsMargins(6, 4, 6, 4);
     m_quickBarLayout->setSpacing(4);
 
-    auto addQBButton = [this](const QString& text, const QString& tooltip, bool active, std::function<void()> onClicked) -> QToolButton* {
+    auto addQBButton = [this](const QString& text, const QString& tooltip, bool active, bool checkable, std::function<void()> onClicked) -> QToolButton* {
         auto* btn = new QToolButton;
         btn->setText(text);
         btn->setToolTip(tooltip);
         btn->setFixedSize(30, 28);
-        btn->setCheckable(true);
+        btn->setCheckable(checkable);
         btn->setChecked(active);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setStyleSheet(
@@ -1551,15 +1551,15 @@ void MainWindow::setupQuickBar() {
     };
 
     // Display toggles
-    addQBButton("W", "Wireframe", m_settings->isWireframe(), [this]() {
+    addQBButton("W", "Wireframe", m_settings->isWireframe(), true, [this]() {
         m_settings->setWireframe(!m_settings->isWireframe());
         updateQuickBarVisibility();
     });
-    addQBButton("G", "Ground", m_settings->isGridVisible(), [this]() {
+    addQBButton("G", "Ground", m_settings->isGridVisible(), true, [this]() {
         m_settings->toggleGrid(!m_settings->isGridVisible());
         updateQuickBarVisibility();
     });
-    addQBButton("S", "Surface", m_settings->isSurfaceVisible(), [this]() {
+    addQBButton("S", "Surface", m_settings->isSurfaceVisible(), true, [this]() {
         m_settings->toggleSurface(!m_settings->isSurfaceVisible());
         updateQuickBarVisibility();
     });
@@ -1570,15 +1570,15 @@ void MainWindow::setupQuickBar() {
     for (int i = 0; i < 6; ++i) {
         const char* labels[] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
         const char* tips[] = {"Ortho +X", "Ortho -X", "Ortho +Y", "Ortho -Y", "Ortho +Z", "Ortho -Z"};
-        addQBButton(labels[i], tips[i], false, [this, i]() { m_settings->snapToOrthoView(i); });
+        addQBButton(labels[i], tips[i], false, false, [this, i]() { m_settings->snapToOrthoView(i); });
     }
 
     addSeparator();
 
     // Reset camera
-    addQBButton("\u21BB", "Reset Camera", false, [this]() { m_settings->resetCamera(); });
+    addQBButton("\u21BB", "Reset Camera", false, false, [this]() { m_settings->resetCamera(); });
     // Collapse
-    addQBButton("\u00D7", "Collapse quick-bar", false, [this]() {
+    addQBButton("\u00D7", "Collapse quick-bar", false, false, [this]() {
         m_settings->setQuickBarCollapsed(true);
         updateQuickBarVisibility();
     });
