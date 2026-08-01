@@ -1416,10 +1416,10 @@ QWidget* MainWindow::buildMeshInfoPage() {
     addInfoRow("Points", QString::number(m_settings->getPointCount()));
 
     layout->addWidget(sectionHeader("Quality"));
-    addInfoRow("Degenerate", QString::number(m_settings->getDegenerateFaces()), m_settings->getDegenerateFaces() > 0 ? "#ff6666" : "#ddd");
-    addInfoRow("Open edges", QString::number(m_settings->getOpenEdges()), m_settings->getOpenEdges() > 0 ? "#ffaa44" : "#ddd");
-    addInfoRow("Non-manifold E", QString::number(m_settings->getNonManifoldEdges()), m_settings->getNonManifoldEdges() > 0 ? "#ff44ff" : "#ddd");
-    addInfoRow("Non-manifold V", QString::number(m_settings->getNonManifoldVerts()), m_settings->getNonManifoldVerts() > 0 ? "#ff44ff" : "#ddd");
+    addInfoRow("Degenerate", QString::number(m_settings->getDegenerateFaces()), "#ff6666");
+    addInfoRow("Open edges", QString::number(m_settings->getOpenEdges()), "#ffaa44");
+    addInfoRow("Non-manifold E", QString::number(m_settings->getNonManifoldEdges()), "#ff44ff");
+    addInfoRow("Non-manifold V", QString::number(m_settings->getNonManifoldVerts()), "#ff44ff");
     addInfoRow("Watertight", m_settings->getWatertight() ? "yes" : "no", m_settings->getWatertight() ? "#66dd66" : "#ff6666");
 
     layout->addWidget(sectionHeader("Bounding box"));
