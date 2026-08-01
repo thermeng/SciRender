@@ -28,7 +28,20 @@ RenderSettings::~RenderSettings() = default;
 void RenderSettings::publishRenderState(::Renderer* scene) {
     if (m_stateDirty) {
         m_stateDirty = false;
-        if (scene) scene->setState(m_state);
+        if (scene) {
+            // N4: skip copying quality overlay geometry when overlay is hidden
+            if (!m_state.showQualityOverlay) {
+                auto saved0 = std::exchange(m_state.qualityDegenerateTris, nullptr);
+                auto saved1 = std::exchange(m_state.qualityOpenEdges, nullptr);
+                auto saved2 = std::exchange(m_state.qualityNonManifoldEdges, nullptr);
+                scene->setState(m_state);
+                m_state.qualityDegenerateTris = std::move(saved0);
+                m_state.qualityOpenEdges = std::move(saved1);
+                m_state.qualityNonManifoldEdges = std::move(saved2);
+            } else {
+                scene->setState(m_state);
+            }
+        }
     }
 }
 
