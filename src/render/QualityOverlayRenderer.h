@@ -18,7 +18,6 @@ private:
     GLuint m_program = 0;
     GLint m_mvpLoc = -1;
     GLint m_colorLoc = -1;
-    GLint m_depthBiasLoc = -1;
 
     GLuint m_openEdgesVao = 0, m_openEdgesVbo = 0;
     GLuint m_nonManifoldVao = 0, m_nonManifoldVbo = 0;
