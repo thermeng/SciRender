@@ -119,13 +119,14 @@ void main() {
         baseColor = uSurfaceColor_Op.xyz;
     }
 
+    float surfaceOpacity = uSurfaceColor_Op.w;
+
     vec3 ambientComponent = baseColor * uMatAmbient();
     vec3 diffuseComponent = baseColor * totalDiffuse * uMatDiffuse();
     vec3 specularComponent = totalSpecular * uMatSpecular();
 
     vec3 finalColor = ambientComponent + diffuseComponent + specularComponent;
     float pointOpacity = uPointClip.z;
-    float surfaceOpacity = uSurfaceColor_Op.w;
     if (isPoint) {
         finalColor += baseColor * 0.15;
         FragColor = vec4(finalColor, pointOpacity);

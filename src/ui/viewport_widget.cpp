@@ -98,6 +98,10 @@ void ViewportWidget::loadShaders() {
     sources.lodTrisComp     = loadShader(":/src/shaders/lod_tris.comp");
     sources.qualityOverlayVert = loadShader(":/src/shaders/quality_overlay.vert");
     sources.qualityOverlayFrag = loadShader(":/src/shaders/quality_overlay.frag");
+    sources.depthPeelVert = loadShader(":/src/shaders/depth_peel.vert");
+    sources.depthPeelFrag = loadShader(":/src/shaders/depth_peel.frag");
+    sources.compositeVert = loadShader(":/src/shaders/composite.vert");
+    sources.compositeFrag = loadShader(":/src/shaders/composite.frag");
 
     scene->initShaders(sources);
 }
