@@ -20,9 +20,13 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     fmt.setDepthBufferSize(24);
     fmt.setSamples(msaaSamples);
     setFormat(fmt);
+
+    // FPS HUD samples elapsed() in paintGL(); start the clock or the first
+    // frame delta is always 0 and the HUD never updates.
+    m_fpsClock.start();
 }
 
-ViewportWidget::~ViewportWidget() { makeCurrent(); doneCurrent(); }
+ViewportWidget::~ViewportWidget() = default;
 
 void ViewportWidget::setSettings(::RenderSettings* s) {
     if (m_settings == s) return;
@@ -109,12 +113,14 @@ void ViewportWidget::loadShaders() {
 }
 
 void ViewportWidget::resizeGL(int w, int h) {
-    if (!m_settings) return;
+    if (!m_settings) { m_dirty = true; update(); return; }
     ::Renderer* scene = m_settings->backend();
-    if (!scene) return;
+    if (!scene) { m_dirty = true; update(); return; }
     const float dpr = static_cast<float>(devicePixelRatioF());
     scene->setDevicePixelRatio(dpr);
     scene->resizeViewport(w, h);
+    m_dirty = true;
+    update();
 }
 
 void ViewportWidget::paintGL() {

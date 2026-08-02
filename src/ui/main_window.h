@@ -23,6 +23,8 @@
 #include <QStatusBar>
 #include <QApplication>
 #include <QActionGroup>
+#include <QHash>
+#include <QList>
 
 #include "viewport_widget.h"
 #include "render/render_settings.h"
@@ -56,6 +58,7 @@ private:
     void connectSettings();
     void updateStatusBar();
     void updateQuickBarVisibility();
+    void syncQuickBar();
     void applyTheme(AppTheme theme);
     void rebuildSidebarStyles();
     void rebuildQuickBarStyles();
@@ -68,6 +71,7 @@ private:
     // Sidebar
     QDockWidget* m_sidebarDock = nullptr;
     QWidget* m_sidebarWidget = nullptr;
+    QWidget* m_rightPanel = nullptr;
     QStackedWidget* m_sectionStack = nullptr;
     int m_activeSection = -1;
     bool m_sidebarExpanded = false;
@@ -93,11 +97,19 @@ private:
     QWidget* buildScreenshotPage();
     QWidget* buildMeshInfoPage();
     void refreshMeshInfoPage();
+    QHash<QString, QLabel*> m_meshInfoLabels;
 
     // Quick bar
     QWidget* m_quickBar = nullptr;
     QToolButton* m_quickBarHandle = nullptr;
     QHBoxLayout* m_quickBarLayout = nullptr;
+    QToolButton* m_qbWireframe = nullptr;
+    QToolButton* m_qbGrid = nullptr;
+    QToolButton* m_qbSurface = nullptr;
+
+    // Navigation shortcuts (lives on MainWindow so it survives viewport rebuilds);
+    // disabled while an editor widget has focus (see setupKeyboardShortcuts).
+    QList<QShortcut*> m_navShortcuts;
 
     // Field selection combos (populated on mesh load)
     QComboBox* m_scalarCombo = nullptr;

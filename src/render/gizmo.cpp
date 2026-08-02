@@ -13,7 +13,39 @@
 // ----------------------------------------------------------------------------
 // Shaders
 // ----------------------------------------------------------------------------
-static const char* lineVS = R"(
+// Screen-space AA line: quad vertices carry clip-space pos + color + signed distance.
+// Fragment shader uses fwidth/smoothstep on the distance for crisp AA at any DPI.
+static const char* aaLineVS = R"(
+#version 460 core
+layout(location = 0) in vec2 aPos;    // clip-space xy
+layout(location = 1) in vec3 aColor;
+layout(location = 2) in float aDist;  // signed distance from centerline (pixels)
+uniform mat4 uMVP;
+out vec3 vColor;
+out float vDist;
+void main() {
+    vColor = aColor;
+    vDist = aDist;
+    gl_Position = uMVP * vec4(aPos, 0.0, 1.0);
+}
+)";
+static const char* aaLineFS = R"(
+#version 460 core
+in vec3 vColor;
+in float vDist;
+uniform float uHalfWidth;
+out vec4 frag;
+void main() {
+    float d = abs(vDist);
+    float aa = fwidth(d);
+    float alpha = 1.0 - smoothstep(uHalfWidth - aa, uHalfWidth + aa, d);
+    if (alpha < 0.005) discard;
+    frag = vec4(vColor, alpha);
+}
+)";
+
+// Simple solid-color shader for light-marker discs.
+static const char* lightMarkVS = R"(
 #version 460 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
@@ -24,11 +56,28 @@ void main() {
     gl_Position = uMVP * vec4(aPos, 1.0);
 }
 )";
-static const char* lineFS = R"(
+static const char* lightMarkFS = R"(
 #version 460 core
 in vec3 vColor;
 out vec4 frag;
 void main() { frag = vec4(vColor, 1.0); }
+)";
+
+// Simple diffuse-lit shader for axis tip cones.
+static const char* capVS = R"(
+#version 460 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+uniform mat4 uMVP;
+void main() {
+    gl_Position = uMVP * vec4(aPos, 1.0);
+}
+)";
+static const char* capFS = R"(
+#version 460 core
+uniform vec3 uColor;
+out vec4 frag;
+void main() { frag = vec4(uColor, 1.0); }
 )";
 
 static const char* textVS = R"(
@@ -113,8 +162,8 @@ bool Gizmo::buildAtlas() {
         QPainter p(&img);
         p.setPen(Qt::white);
         QFont f;
-        f.setPointSize(44);
-        f.setBold(true);
+        f.setPointSize(33);
+        //f.setBold(true);
         p.setFont(f);
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setRenderHint(QPainter::TextAntialiasing, true);
@@ -142,13 +191,33 @@ bool Gizmo::buildAtlas() {
     return glyphTex != 0;
 }
 
-bool Gizmo::buildLineProgram() {
-    lineProgram = linkProgram(lineVS, lineFS);
-    if (!lineProgram) return false;
-    lineMvpLoc   = glGetUniformLocation(lineProgram, "uMVP");
-    linePosLoc   = glGetAttribLocation(lineProgram, "aPos");
-    lineColLoc   = glGetAttribLocation(lineProgram, "aColor");
-    return lineMvpLoc >= 0 && linePosLoc >= 0 && lineColLoc >= 0;
+bool Gizmo::buildAALineProgram() {
+    aaLineProgram = linkProgram(aaLineVS, aaLineFS);
+    if (!aaLineProgram) return false;
+    aaLineMvpLoc       = glGetUniformLocation(aaLineProgram, "uMVP");
+    aaLineHalfWidthLoc = glGetUniformLocation(aaLineProgram, "uHalfWidth");
+    aaLinePosLoc       = glGetAttribLocation(aaLineProgram, "aPos");
+    aaLineColLoc       = glGetAttribLocation(aaLineProgram, "aColor");
+    aaLineDistLoc      = glGetAttribLocation(aaLineProgram, "aDist");
+    return aaLineMvpLoc >= 0 && aaLineHalfWidthLoc >= 0
+        && aaLinePosLoc >= 0 && aaLineColLoc >= 0 && aaLineDistLoc >= 0;
+}
+
+bool Gizmo::buildCapProgram() {
+    capProgram = linkProgram(capVS, capFS);
+    if (!capProgram) return false;
+    capMvpLoc   = glGetUniformLocation(capProgram, "uMVP");
+    capColorLoc = glGetUniformLocation(capProgram, "uColor");
+    return capMvpLoc >= 0 && capColorLoc >= 0;
+}
+
+bool Gizmo::buildLightMarkProgram() {
+    lightMarkProgram = linkProgram(lightMarkVS, lightMarkFS);
+    if (!lightMarkProgram) return false;
+    lightMarkMvpLoc = glGetUniformLocation(lightMarkProgram, "uMVP");
+    GLint posLoc = glGetAttribLocation(lightMarkProgram, "aPos");
+    GLint colLoc = glGetAttribLocation(lightMarkProgram, "aColor");
+    return lightMarkMvpLoc >= 0 && posLoc >= 0 && colLoc >= 0;
 }
 
 bool Gizmo::buildTextProgram() {
@@ -164,31 +233,138 @@ bool Gizmo::buildTextProgram() {
 bool Gizmo::init() {
     if (isInitialized()) return true;
 
-    if (!buildLineProgram() || !buildTextProgram() || !buildAtlas())
+    if (!buildAALineProgram() || !buildCapProgram() || !buildLightMarkProgram()
+        || !buildTextProgram() || !buildAtlas())
         return false;
 
-    // Axis line geometry: origin -> tip, per-vertex color (R/G/B).
-    const float lines[] = {
-        //  pos                color
-        0.0f, 0.0f, 0.0f,  1.0f, 0.2f, 0.2f,   // X base
-        1.0f, 0.0f, 0.0f,  1.0f, 0.2f, 0.2f,   // X tip (red)
-        0.0f, 0.0f, 0.0f,  0.2f, 1.0f, 0.2f,   // Y base
-        0.0f, 1.0f, 0.0f,  0.2f, 1.0f, 0.2f,   // Y tip (green)
-        0.0f, 0.0f, 0.0f,  0.3f, 0.5f, 1.0f,   // Z base
-        0.0f, 0.0f, 1.0f,  0.3f, 0.5f, 1.0f,   // Z tip (blue)
-    };
-    glCreateVertexArrays(1, &lineVAO);
-    glCreateBuffers(1, &lineVBO);
-    glEnableVertexArrayAttrib(lineVAO, linePosLoc);
-    glVertexArrayAttribFormat(lineVAO, linePosLoc, 3, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(lineVAO, linePosLoc, 0);
-    glEnableVertexArrayAttrib(lineVAO, lineColLoc);
-    glVertexArrayAttribFormat(lineVAO, lineColLoc, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-    glVertexArrayAttribBinding(lineVAO, lineColLoc, 0);
-    glNamedBufferData(lineVBO, sizeof(lines), lines, GL_STATIC_DRAW);
-    glVertexArrayVertexBuffer(lineVAO, 0, lineVBO, 0, 6 * sizeof(float));
+    // ---- AA line VBO (dynamic): 3 axes × 4 verts × (vec2 pos + vec3 col + float dist) ----
+    {
+        glCreateVertexArrays(1, &aaLineVAO);
+        glCreateBuffers(1, &aaLineVBO);
+        glEnableVertexArrayAttrib(aaLineVAO, aaLinePosLoc);
+        glVertexArrayAttribFormat(aaLineVAO, aaLinePosLoc, 2, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(aaLineVAO, aaLinePosLoc, 0);
+        glEnableVertexArrayAttrib(aaLineVAO, aaLineColLoc);
+        glVertexArrayAttribFormat(aaLineVAO, aaLineColLoc, 3, GL_FLOAT, GL_FALSE, 2 * sizeof(float));
+        glVertexArrayAttribBinding(aaLineVAO, aaLineColLoc, 0);
+        glEnableVertexArrayAttrib(aaLineVAO, aaLineDistLoc);
+        glVertexArrayAttribFormat(aaLineVAO, aaLineDistLoc, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float));
+        glVertexArrayAttribBinding(aaLineVAO, aaLineDistLoc, 0);
+        glNamedBufferData(aaLineVBO, 3 * 4 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        glVertexArrayVertexBuffer(aaLineVAO, 0, aaLineVBO, 0, 6 * sizeof(float));
+    }
 
-    // Text quad VBO: 3 chars * 6 verts * vec4(px.xy, uv.zw). Allocated dynamic.
+    // ---- Cap cones (static): 3 axes × 8-sided cone × (vec3 pos + vec3 normal) ----
+    {
+        const int segments = 8;
+        const float coneH = 0.25f;   // height along axis
+        const float coneR = 0.08f;   // base radius
+        // Each cone: 1 cap triangle fan (segments tris) + side triangles (segments tris)
+        // = 2*segments triangles = 6*segments vertices
+        capVertCount = 3 * 6 * segments;
+        std::vector<float> verts;
+        verts.reserve(capVertCount * 6);
+
+        const glm::vec3 axes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+        const glm::vec3 colors[3] = { {1,0.2f,0.2f}, {0.2f,1,0.2f}, {0.3f,0.5f,1} };
+
+        for (int a = 0; a < 3; ++a) {
+            glm::vec3 tip = axes[a] * (1.0f + coneH);  // tip extends beyond axis length 1
+            glm::vec3 base = axes[a];                    // base at axis tip
+            // Find two perpendicular vectors to the axis
+            glm::vec3 perp1, perp2;
+            if (std::abs(axes[a].x) < 0.9f)
+                perp1 = glm::normalize(glm::cross(axes[a], glm::vec3(1,0,0)));
+            else
+                perp1 = glm::normalize(glm::cross(axes[a], glm::vec3(0,1,0)));
+            perp2 = glm::cross(axes[a], perp1);
+
+            // Side normal: average of (tip-normal) and (side direction) — approximate
+            glm::vec3 sideNormal = glm::normalize(tip - base + (perp1 * coneR));
+
+            // Side triangles: each is (tip, base+i, base+i+1) with per-vertex normals
+            for (int i = 0; i < segments; ++i) {
+                float a0 = (float)i / segments * 6.28318f;
+                float a1 = (float)(i + 1) / segments * 6.28318f;
+                glm::vec3 p0 = base + (perp1 * std::cos(a0) + perp2 * std::sin(a0)) * coneR;
+                glm::vec3 p1 = base + (perp1 * std::cos(a1) + perp2 * std::sin(a1)) * coneR;
+                // Tip vertex (normal points outward along axis)
+                glm::vec3 nTip = axes[a];
+                // Base edge normals (point outward and slightly back)
+                glm::vec3 nEdge = glm::normalize(tip - p0);
+                glm::vec3 nEdge1 = glm::normalize(tip - p1);
+                float v[] = {
+                    tip.x, tip.y, tip.z, nTip.x, nTip.y, nTip.z,
+                    p0.x, p0.y, p0.z, nEdge.x, nEdge.y, nEdge.z,
+                    p1.x, p1.y, p1.z, nEdge1.x, nEdge1.y, nEdge1.z,
+                };
+                verts.insert(verts.end(), v, v + 18);
+            }
+            // Cap fan triangles (base face, normal points backward)
+            glm::vec3 capN = -axes[a];
+            glm::vec3 c0 = base + (perp1 * std::cos(0.0f) + perp2 * std::sin(0.0f)) * coneR;
+            for (int i = 1; i < segments; ++i) {
+                float a0 = (float)i / segments * 6.28318f;
+                float a1 = (float)(i + 1) / segments * 6.28318f;
+                if (i + 1 == segments) a1 = 0.0f;
+                glm::vec3 p0 = base + (perp1 * std::cos(a0) + perp2 * std::sin(a0)) * coneR;
+                glm::vec3 p1 = base + (perp1 * std::cos(a1) + perp2 * std::sin(a1)) * coneR;
+                float v[] = {
+                    base.x, base.y, base.z, capN.x, capN.y, capN.z,
+                    p0.x, p0.y, p0.z, capN.x, capN.y, capN.z,
+                    p1.x, p1.y, p1.z, capN.x, capN.y, capN.z,
+                };
+                verts.insert(verts.end(), v, v + 18);
+            }
+        }
+
+        glCreateVertexArrays(1, &capVAO);
+        glCreateBuffers(1, &capVBO);
+        GLint capPosLoc = 0, capNormLoc = 1;
+        glEnableVertexArrayAttrib(capVAO, capPosLoc);
+        glVertexArrayAttribFormat(capVAO, capPosLoc, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(capVAO, capPosLoc, 0);
+        glEnableVertexArrayAttrib(capVAO, capNormLoc);
+        glVertexArrayAttribFormat(capVAO, capNormLoc, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
+        glVertexArrayAttribBinding(capVAO, capNormLoc, 0);
+        glNamedBufferData(capVBO, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+        glVertexArrayVertexBuffer(capVAO, 0, capVBO, 0, 6 * sizeof(float));
+    }
+
+    // ---- Origin disc (static): 12-sided disc at pivot, white per-vertex ----
+    {
+        const int segments = 12;
+        const float radius = 0.07f;
+        originVertCount = segments * 3;
+        std::vector<float> verts;
+        verts.reserve(originVertCount * 6);
+        for (int i = 0; i < segments; ++i) {
+            float a0 = (float)i / segments * 6.28318f;
+            float a1 = (float)(i + 1) / segments * 6.28318f;
+            if (i + 1 == segments) a1 = 0.0f;
+            // vec3 pos + vec3 color (white)
+            float v[] = {
+                0.0f, 0.0f, 0.0f,    0.85f, 0.85f, 0.85f,
+                std::cos(a0) * radius, std::sin(a0) * radius, 0.0f,  0.85f, 0.85f, 0.85f,
+                std::cos(a1) * radius, std::sin(a1) * radius, 0.0f,  0.85f, 0.85f, 0.85f,
+            };
+            verts.insert(verts.end(), v, v + 18);
+        }
+        glCreateVertexArrays(1, &originVAO);
+        glCreateBuffers(1, &originVBO);
+        GLint lmPosLoc2 = glGetAttribLocation(lightMarkProgram, "aPos");
+        GLint lmColLoc2 = glGetAttribLocation(lightMarkProgram, "aColor");
+        glEnableVertexArrayAttrib(originVAO, lmPosLoc2);
+        glVertexArrayAttribFormat(originVAO, lmPosLoc2, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(originVAO, lmPosLoc2, 0);
+        glEnableVertexArrayAttrib(originVAO, lmColLoc2);
+        glVertexArrayAttribFormat(originVAO, lmColLoc2, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
+        glVertexArrayAttribBinding(originVAO, lmColLoc2, 0);
+        glNamedBufferData(originVBO, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+        glVertexArrayVertexBuffer(originVAO, 0, originVBO, 0, 6 * sizeof(float));
+    }
+
+    // ---- Text quad VBO (dynamic): 3 chars × 6 verts × vec4(px.xy, uv.zw) ----
     glCreateVertexArrays(1, &textVAO);
     glCreateBuffers(1, &textVBO);
     glEnableVertexArrayAttrib(textVAO, textPosLoc);
@@ -197,41 +373,51 @@ bool Gizmo::init() {
     glNamedBufferData(textVBO, 3 * 6 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
     glVertexArrayVertexBuffer(textVAO, 0, textVBO, 0, 4 * sizeof(float));
 
-    // light-marker disc VBO (5 lights * 6 verts * vec6 = px.xy + z + rgb)
-    glCreateVertexArrays(1, &lightMarkVAO);
-    glCreateBuffers(1, &lightMarkVBO);
-    glEnableVertexArrayAttrib(lightMarkVAO, linePosLoc);
-    glVertexArrayAttribFormat(lightMarkVAO, linePosLoc, 3, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(lightMarkVAO, linePosLoc, 0);
-    glEnableVertexArrayAttrib(lightMarkVAO, lineColLoc);
-    glVertexArrayAttribFormat(lightMarkVAO, lineColLoc, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-    glVertexArrayAttribBinding(lightMarkVAO, lineColLoc, 0);
-    glNamedBufferData(lightMarkVBO, 5 * 6 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    glVertexArrayVertexBuffer(lightMarkVAO, 0, lightMarkVBO, 0, 6 * sizeof(float));
+    // ---- Light-marker disc VBO (dynamic): 5 lights × 6 verts × vec6(px.xy + rgb) ----
+    {
+        glCreateVertexArrays(1, &lightMarkVAO);
+        glCreateBuffers(1, &lightMarkVBO);
+        GLint lmPosLoc = glGetAttribLocation(lightMarkProgram, "aPos");
+        GLint lmColLoc = glGetAttribLocation(lightMarkProgram, "aColor");
+        glEnableVertexArrayAttrib(lightMarkVAO, lmPosLoc);
+        glVertexArrayAttribFormat(lightMarkVAO, lmPosLoc, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(lightMarkVAO, lmPosLoc, 0);
+        glEnableVertexArrayAttrib(lightMarkVAO, lmColLoc);
+        glVertexArrayAttribFormat(lightMarkVAO, lmColLoc, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
+        glVertexArrayAttribBinding(lightMarkVAO, lmColLoc, 0);
+        glNamedBufferData(lightMarkVBO, 5 * 6 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        glVertexArrayVertexBuffer(lightMarkVAO, 0, lightMarkVBO, 0, 6 * sizeof(float));
+    }
 
     return true;
 }
 
 void Gizmo::shutdown() {
-    // Only free GL objects when a context is current. shutdown() is called from
-    // Renderer::~Renderer() on the GUI thread after the scene graph is gone, so
-    // no context is current there — skip to avoid GL errors (driver reclaims).
     if (!QOpenGLContext::currentContext()) return;
-    if (lineVAO)   glDeleteVertexArrays(1, &lineVAO);
-    if (lineVBO)   glDeleteBuffers(1, &lineVBO);
-    if (textVAO)   glDeleteVertexArrays(1, &textVAO);
-    if (textVBO)   glDeleteBuffers(1, &textVBO);
-    if (glyphTex)  glDeleteTextures(1, &glyphTex);
-    if (lineProgram)  glDeleteProgram(lineProgram);
-    if (textProgram)  glDeleteProgram(textProgram);
-    lineVAO = lineVBO = textVAO = textVBO = glyphTex = 0;
-    lineProgram = textProgram = 0;
+    if (aaLineVAO)       glDeleteVertexArrays(1, &aaLineVAO);
+    if (aaLineVBO)       glDeleteBuffers(1, &aaLineVBO);
+    if (aaLineProgram)   glDeleteProgram(aaLineProgram);
+    if (capVAO)          glDeleteVertexArrays(1, &capVAO);
+    if (capVBO)          glDeleteBuffers(1, &capVBO);
+    if (capProgram)      glDeleteProgram(capProgram);
+    if (originVAO)       glDeleteVertexArrays(1, &originVAO);
+    if (originVBO)       glDeleteBuffers(1, &originVBO);
+    if (lightMarkVAO)    glDeleteVertexArrays(1, &lightMarkVAO);
+    if (lightMarkVBO)    glDeleteBuffers(1, &lightMarkVBO);
+    if (lightMarkProgram)glDeleteProgram(lightMarkProgram);
+    if (textVAO)         glDeleteVertexArrays(1, &textVAO);
+    if (textVBO)         glDeleteBuffers(1, &textVBO);
+    if (textProgram)     glDeleteProgram(textProgram);
+    if (glyphTex)        glDeleteTextures(1, &glyphTex);
+    aaLineVAO = aaLineVBO = capVAO = capVBO = originVAO = originVBO = 0;
+    lightMarkVAO = lightMarkVBO = textVAO = textVBO = glyphTex = 0;
+    aaLineProgram = capProgram = lightMarkProgram = textProgram = 0;
 }
 
 void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     if (!isInitialized()) return;
 
-    // Preserve engine state we mutate (viewport + depth test + blend + poly mode + bindings).
+    // Preserve engine state we mutate.
     GLint prevVP[4];
     glGetIntegerv(GL_VIEWPORT, prevVP);
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
@@ -243,78 +429,120 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glGetIntegerv(GL_CLIP_ORIGIN, (GLint*)&prevClipOrigin);
     glGetIntegerv(GL_CLIP_DEPTH_MODE, (GLint*)&prevClipDepthMode);
 
-    // 2. Isolated corner viewport footprint (scaled by dpr so it stays constant on HiDPI).
     const int margin = 10;
     const int s = static_cast<int>(foot * dpr);
     const int m = static_cast<int>(margin * dpr);
-    
-    const int y0 = m;
-    glViewport(m, y0, s, s);
+    glViewport(m, m, s, s);
 
-    // NO clear — scene already painted this corner with bgColor before
-    // drawGizmo() runs, so blending on top keeps the gizmo transparent (model stays
-    // visible behind it) instead of an opaque plate covering the mesh.
-
-    // Rotation-only view matrix (strips camera translation).
     const glm::mat4 gizmoView = glm::mat4(glm::mat3(mainView));
-    // Tight ortho but with margin so the triad + labels never reach the viewport edge.
-    // No Y-flip: main scene is drawn in standard GL convention and mirrored once at
-    // the compositing layer, so the gizmo matches (unflipped) to stay attached.
     const glm::mat4 gizmoProj = glm::ortho(-1.55f, 1.55f, -1.55f, 1.55f, -10.0f, 10.0f);
     const glm::mat4 lineMVP = gizmoProj * gizmoView;
 
     glClipControl(prevClipOrigin, GL_NEGATIVE_ONE_TO_ONE);
-
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    // Force filled quads: a wireframe pass elsewhere may have left GL_POLYGON_MODE
-    // as GL_LINE, which would rasterize the text/marker quads as outlines.
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-    // ---- Axis lines ----
-    glUseProgram(lineProgram);
-    glUniformMatrix4fv(lineMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
-    glBindVertexArray(lineVAO);
-    glDrawArrays(GL_LINES, 0, 6);
+    // ---- Screen-space AA axis lines ----
+    // ponytail: clip-space expansion calibrated for ortho [-1.55,1.55] → [0,foot] px
+    const float clipPerPx = 3.1f / static_cast<float>(foot);
+    const float halfWidth = 0.6f;  // ~1.2px total
+    const float hwClip = halfWidth * clipPerPx;
+
+    const glm::vec3 origins[3] = { {0,0,0}, {0,0,0}, {0,0,0} };
+    const glm::vec3 tips[3]    = { {1,0,0}, {0,1,0}, {0,0,1} };
+    const float colors[3][3]   = { {1,0.2f,0.2f}, {0.2f,1,0.2f}, {0.3f,0.5f,1.0f} };
+
+    // Per-axis quad: 6 verts (2 triangles) × (vec2 pos + vec3 col + float dist) = 36 floats
+    float quadData[3][36];
+
+    for (int i = 0; i < 3; ++i) {
+        glm::vec4 cA = lineMVP * glm::vec4(origins[i], 1.0f);
+        glm::vec4 cB = lineMVP * glm::vec4(tips[i], 1.0f);
+        // Ortho: w=1, just use xy
+        glm::vec2 a(cA), b(cB);
+        glm::vec2 dir = b - a;
+        float len = glm::length(dir);
+        if (len < 1e-6f) continue;
+        glm::vec2 perp(-dir.y / len, dir.x / len);  // perpendicular in clip space
+
+        glm::vec2 aL = a - perp * hwClip;
+        glm::vec2 aR = a + perp * hwClip;
+        glm::vec2 bL = b - perp * hwClip;
+        glm::vec2 bR = b + perp * hwClip;
+
+        float r = colors[i][0], g = colors[i][1], b2 = colors[i][2];
+        // Two triangles: (aL,bL,bR) and (aL,bR,aR)
+        // vDist: -halfWidth at left edge, +halfWidth at right edge
+        float q[] = {
+            aL.x, aL.y, r, g, b2, -halfWidth,
+            bL.x, bL.y, r, g, b2, -halfWidth,
+            bR.x, bR.y, r, g, b2,  halfWidth,
+            aL.x, aL.y, r, g, b2, -halfWidth,
+            bR.x, bR.y, r, g, b2,  halfWidth,
+            aR.x, aR.y, r, g, b2,  halfWidth,
+        };
+        std::memcpy(quadData[i], q, sizeof(q));
+    }
+
+    glUseProgram(aaLineProgram);
+    glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));  // positions already in clip space
+    glUniform1f(aaLineHalfWidthLoc, halfWidth);
+    glBindVertexArray(aaLineVAO);
+    for (int i = 0; i < 3; ++i) {
+        glNamedBufferSubData(aaLineVBO, 0, sizeof(quadData[i]), quadData[i]);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+    }
     glBindVertexArray(0);
 
-    // ---- Text placement: project each tip into the corner viewport's local px space ----
-    // Text ortho maps local px [0..foot]x[0..foot] to clip; glyph coords live in that space.
+    // ---- Axis tip cones (diffuse-lit) ----
+    glUseProgram(capProgram);
+    glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
+    // Simple directional light from upper-right-front
+    glm::vec3 lightDir = glm::normalize(glm::vec3(0.4f, 0.6f, 0.7f));
+    glUniform3fv(capLightDirLoc, 1, glm::value_ptr(lightDir));
+    glBindVertexArray(capVAO);
+    for (int i = 0; i < 3; ++i) {
+        glUniform3fv(capColorLoc, 1, colors[i]);
+        glDrawArrays(GL_TRIANGLES, i * (capVertCount / 3), capVertCount / 3);
+    }
+    glBindVertexArray(0);
+
+    // ---- Origin disc (solid white at pivot) ----
+    glUseProgram(lightMarkProgram);
+    glUniformMatrix4fv(lightMarkMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
+    glBindVertexArray(originVAO);
+    glDrawArrays(GL_TRIANGLES, 0, originVertCount);
+    glBindVertexArray(0);
+
+    // ---- Text labels ----
     const glm::mat4 textMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
-    const float colors[3][3] = { {1.0f,0.2f,0.2f}, {0.2f,1.0f,0.2f}, {0.3f,0.5f,1.0f} };
-    const glm::vec3 tips[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
     const float cellU = 1.0f / 3.0f;
 
-    // Build dynamic quad geometry for all three glyphs, then draw per-axis for color override.
-    float quads[3][6][4]; // [char][vert][px.x,px.y,uv.u,uv.v]
+    float quads[3][6][4];
     const float glyph = 24.0f;
     for (int i = 0; i < 3; ++i) {
         glm::vec4 clip = gizmoProj * gizmoView * glm::vec4(tips[i], 1.0f);
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
-        // push the label slightly beyond the tip along its screen direction
-        float f = 1.16f;
+        float f = 1.35f;
         ndc.x *= f; ndc.y *= f;
         float cx = (ndc.x * 0.5f + 0.5f) * foot;
         float cy = (ndc.y * 0.5f + 0.5f) * foot;
-        // clamp so the entire glyph quad stays inside the viewport footprint (no clipping)
         const float half = glyph * 0.5f;
         cx = std::max(half, std::min(foot - half, cx));
         cy = std::max(half, std::min(foot - half, cy));
 
         float u0 = i * cellU, u1 = (i + 1) * cellU;
-        // Atlas uploaded with glyph-top at texture v=0 (no UNPACK_FLIP_Y), so the
-        // quad's TOP edge must sample v=0 and its BOTTOM edge v=1. The previous
-        // mapping (top->v1, bottom->v0) rendered the labels upside-down.
         float vTop = 0.0f, vBot = 1.0f;
         float hx = glyph * 0.5f, hy = glyph * 0.5f;
         float tri[6][4] = {
-            { cx - hx, cy + hy, u0, vTop }, // TL
-            { cx + hx, cy + hy, u1, vTop }, // TR
-            { cx - hx, cy - hy, u0, vBot }, // BL
-            { cx + hx, cy + hy, u1, vTop }, // TR
-            { cx + hx, cy - hy, u1, vBot }, // BR
-            { cx - hx, cy - hy, u0, vBot }, // BL
+            { cx - hx, cy + hy, u0, vTop },
+            { cx + hx, cy + hy, u1, vTop },
+            { cx - hx, cy - hy, u0, vBot },
+            { cx + hx, cy + hy, u1, vTop },
+            { cx + hx, cy - hy, u1, vBot },
+            { cx - hx, cy - hy, u0, vBot },
         };
         std::memcpy(quads[i], tri, sizeof(tri));
     }
@@ -332,7 +560,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glBindVertexArray(0);
     glUseProgram(0);
 
-    // ---- State handover: restore everything we touched ----
+    // ---- State handover ----
     glClipControl(prevClipOrigin, prevClipDepthMode);
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
@@ -373,8 +601,8 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     const float r = 6.0f; // disc radius in px
     float quad[6][6];     // 2 triangles; per-vertex (x,y,0.0,r,g,b)
 
-    glUseProgram(lineProgram);
-    glUniformMatrix4fv(lineMvpLoc, 1, GL_FALSE, glm::value_ptr(pxMVP));
+    glUseProgram(lightMarkProgram);
+    glUniformMatrix4fv(lightMarkMvpLoc, 1, GL_FALSE, glm::value_ptr(pxMVP));
     glBindVertexArray(lightMarkVAO);
     for (int i = 0; i < 5; ++i) {
         float cx = (dirs[i].x * 0.5f + 0.5f) * foot;

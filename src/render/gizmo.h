@@ -31,12 +31,26 @@ public:
     //  foot    : viewport size in pixels (default 120)
     void drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float dpr, int foot = 120);
 
-    bool isInitialized() const { return lineProgram != 0 && textProgram != 0; }
+    bool isInitialized() const { return aaLineProgram != 0 && textProgram != 0; }
 
 private:
-    // Axis lines (origin -> tip, per-vertex color)
-    GLuint lineVAO = 0, lineVBO = 0, lineProgram = 0;
-    GLint  lineMvpLoc = -1, lineColorLoc = -1, linePosLoc = -1, lineColLoc = -1;
+    // Screen-space AA axis lines (clip-space pos + color + signed dist)
+    GLuint aaLineVAO = 0, aaLineVBO = 0, aaLineProgram = 0;
+    GLint  aaLineMvpLoc = -1, aaLineHalfWidthLoc = -1;
+    GLint  aaLinePosLoc = -1, aaLineColLoc = -1, aaLineDistLoc = -1;
+
+    // Axis tip cones (simple diffuse-lit)
+    GLuint capVAO = 0, capVBO = 0, capProgram = 0;
+    GLint  capMvpLoc = -1, capLightDirLoc = -1, capColorLoc = -1;
+    int    capVertCount = 0;
+
+    // Origin disc at pivot
+    GLuint originVAO = 0, originVBO = 0;
+    int    originVertCount = 0;
+
+    // Light-marker solid-color program (reuses the old simple line shader)
+    GLuint lightMarkProgram = 0;
+    GLint  lightMarkMvpLoc = -1;
 
     // Billboard text quads (6 verts/char, vec4 = px.xy + uv.uv)
     GLuint textVAO = 0, textVBO = 0, textProgram = 0;
@@ -48,6 +62,8 @@ private:
     GLuint lightMarkVAO = 0, lightMarkVBO = 0;
 
     bool buildAtlas();      // rasterize X/Y/Z into a horizontal strip atlas via Qt
-    bool buildLineProgram();
+    bool buildAALineProgram();
+    bool buildCapProgram();
+    bool buildLightMarkProgram();
     bool buildTextProgram();
 };

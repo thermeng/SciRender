@@ -143,6 +143,7 @@ qt_add_resources(SciRender "icons"
     PREFIX "/"
     FILES
         src/resources/icons/checkmark.svg
+        src/resources/icons/downarrow.svg
 )
 
 # ---------------------------------------------------------------------------

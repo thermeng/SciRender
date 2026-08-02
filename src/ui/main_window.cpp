@@ -38,6 +38,16 @@
 #include <QTextStream>
 
 // ============================================================================
+// Helper: Does a widget want typing/navigation keys (so viewport shortcuts
+// must stay out of the way)?
+// ============================================================================
+static bool navFocusIsEditor(QWidget* w) {
+    return w && (qobject_cast<QLineEdit*>(w) ||
+                 qobject_cast<QComboBox*>(w) || qobject_cast<QSpinBox*>(w) ||
+                 qobject_cast<QDoubleSpinBox*>(w));
+}
+
+// ============================================================================
 // Helper: Create a labeled slider row (LightSlider equivalent)
 // ============================================================================
 struct SliderRow {
@@ -55,6 +65,7 @@ static SliderRow createLightSlider(const QString& label, double value, double fr
 
     auto* lbl = new QLabel(label);
     lbl->setFixedWidth(72);
+    lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     lbl->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     lbl->setWordWrap(false);
     layout->addWidget(lbl);
@@ -64,13 +75,13 @@ static SliderRow createLightSlider(const QString& label, double value, double fr
     row.slider->setMaximum(static_cast<int>(to * 1000));
     row.slider->setSingleStep(static_cast<int>(step * 1000));
     row.slider->setValue(static_cast<int>(value * 1000));
-    layout->addWidget(row.slider, 1);
+    layout->addWidget(row.slider, 1, Qt::AlignVCenter);
 
     row.valueLabel = new QLabel(QString::number(value, 'f', decimals));
     row.valueLabel->setFixedWidth(36);
     row.valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     row.valueLabel->setStyleSheet(QString("font-size: 10px; color: %1;").arg(currentThemeColors().textMuted.name()));
-    layout->addWidget(row.valueLabel);
+    layout->addWidget(row.valueLabel, 0, Qt::AlignVCenter);
 
     row.callback = cb;
     auto updateLabel = [row, decimals](int raw) {
@@ -102,6 +113,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
 
     auto* lbl = new QLabel(label);
     lbl->setFixedWidth(72);
+    lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     lbl->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     lbl->setWordWrap(false);
     layout->addWidget(lbl);
@@ -110,16 +122,16 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
     row.slider->setMinimum(static_cast<int>(from * 1000));
     row.slider->setMaximum(static_cast<int>(to * 1000));
     row.slider->setValue(static_cast<int>(value * 1000));
-    layout->addWidget(row.slider, 1);
+    layout->addWidget(row.slider, 1, Qt::AlignVCenter);
 
     row.field = new QLineEdit(QString::number(value, 'f', 3));
     row.field->setFixedWidth(48);
-    row.field->setAlignment(Qt::AlignRight);
+    row.field->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     row.field->setStyleSheet(QString("font-size: 11px; background: %1; color: %2; border: 1px solid %1; border-radius: 2px; padding: 1px 4px;")
         .arg(currentThemeColors().inputBg.name(), currentThemeColors().textPrimary.name()));
     auto* validator = new QDoubleValidator(from, to, 3);
     row.field->setValidator(validator);
-    layout->addWidget(row.field);
+    layout->addWidget(row.field, 0, Qt::AlignVCenter);
 
     row.callback = cb;
     auto syncFromSlider = [row](int raw) {
@@ -145,7 +157,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
 // ============================================================================
 static QLabel* sectionHeader(const QString& text) {
     auto* lbl = new QLabel(text);
-    lbl->setStyleSheet(QString("font-size: 11px; font-weight: bold; color: %1; padding-top: 4px;").arg(currentThemeColors().accent.name()));
+    lbl->setStyleSheet(QString("font-size: 11px; font-weight: bold; color: %1; padding-top: 2px;").arg(currentThemeColors().accent.name()));
     return lbl;
 }
 
@@ -155,27 +167,16 @@ static QLabel* sectionHeader(const QString& text) {
 static QPushButton* createSwatchButton(const QString& text, const QColor& color, std::function<void()> onClicked) {
     auto* btn = new QPushButton(text);
     btn->setFixedHeight(24);
-    btn->setStyleSheet(
-        QString(
-        "QPushButton {"
-        "  text-align: left; font-size: 11px;"
-        "  background: %1; color: %2;"
-        "  border: 1px solid %3; border-radius: 2px;"
-        "  padding: 2px 6px;"
-        "}"
-        "QPushButton:hover { border: 1px solid %4; }"
-        ).arg(
-            currentThemeColors().inputBg.name(),
-            currentThemeColors().textPrimary.name(),
-            currentThemeColors().border.name(),
-            currentThemeColors().accent.name()
-        )
-    );
+    btn->setObjectName("swatchButton");
     QPixmap pix(14, 14);
     pix.fill(color);
     btn->setIcon(pix);
     btn->setIconSize(QSize(14, 14));
-    QObject::connect(btn, &QPushButton::clicked, onClicked);
+    // Only connect when a handler was provided. Callers (e.g. createColorButton)
+    // attach their own clicked() slot separately and pass nullptr here; connecting
+    // an empty std::function throws std::bad_function_call when the button is clicked.
+    if (onClicked)
+        QObject::connect(btn, &QPushButton::clicked, onClicked);
     return btn;
 }
 
@@ -248,9 +249,9 @@ static QGridLayout* buildColormapGrid(int currentChoice, std::function<void(int)
     int count = static_cast<int>(ColormapType::Count);
     for (int i = 0; i < count; ++i) {
         auto* btn = new QPushButton;
-        btn->setFixedSize(100, 24);
-        btn->setIcon(generateColormapPreview(i));
-        btn->setIconSize(QSize(100, 24));
+        btn->setFixedSize(96, 24);
+        btn->setIcon(generateColormapPreview(i, 92, 20));
+        btn->setIconSize(QSize(92, 20));
         btn->setCheckable(true);
         btn->setChecked(i == currentChoice);
         btn->setStyleSheet(
@@ -358,6 +359,20 @@ void MainWindow::setupMenus() {
     lodAction->setCheckable(true);
     lodAction->setChecked(m_settings->getUseLod());
     connect(lodAction, &QAction::triggered, m_settings, [this, lodAction]() { m_settings->setUseLod(lodAction->isChecked()); });
+
+    viewMenu->addSeparator();
+    auto* msaaMenu = viewMenu->addMenu("&MSAA");
+    auto* msaaGroup = new QActionGroup(this);
+    msaaGroup->setExclusive(true);
+    const char* msaaLabels[] = {"Off", "2x", "4x"};
+    int msaaSamples[] = {0, 2, 4};
+    for (int i = 0; i < 3; ++i) {
+        auto* a = msaaGroup->addAction(QString::fromUtf8(msaaLabels[i]));
+        a->setCheckable(true);
+        a->setChecked(m_settings->getMsaaSamples() == msaaSamples[i]);
+        msaaMenu->addAction(a);
+        connect(a, &QAction::triggered, this, [this, s = msaaSamples[i]]() { m_settings->setMsaaSamples(s); recreateViewport(); });
+    }
 
     viewMenu->addSeparator();
     auto* themeMenu = viewMenu->addMenu("&Theme");
@@ -489,9 +504,9 @@ void MainWindow::setupSidebar() {
     iconLayout->addStretch();
 
     // --- Section stack with panel header ---
-    auto* rightPanel = new QWidget;
-    rightPanel->setStyleSheet(QString("background-color: %1;").arg(currentThemeColors().panelBg.name()));
-    auto* rightLayout = new QVBoxLayout(rightPanel);
+    m_rightPanel = new QWidget;
+    m_rightPanel->setStyleSheet(QString("background-color: %1;").arg(currentThemeColors().panelBg.name()));
+    auto* rightLayout = new QVBoxLayout(m_rightPanel);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(0);
 
@@ -547,7 +562,7 @@ void MainWindow::setupSidebar() {
     m_sectionStack->setVisible(false);
 
     mainLayout->addWidget(iconStrip);
-    mainLayout->addWidget(rightPanel, 1);
+    mainLayout->addWidget(m_rightPanel, 1);
 
     m_sidebarDock->setWidget(m_sidebarWidget);
     addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
@@ -557,7 +572,6 @@ void MainWindow::setupSidebar() {
 // Section: Lighting (0)
 // ============================================================================
 QWidget* MainWindow::buildLightingPage() {
-    auto* page = new QWidget;
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -567,9 +581,10 @@ QWidget* MainWindow::buildLightingPage() {
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    layout->setSpacing(3);
 
     auto* resetBtn = new QPushButton("Reset");
+    resetBtn->setObjectName("secondaryButton");
     connect(resetBtn, &QPushButton::clicked, m_settings, &RenderSettings::resetLighting);
     layout->addWidget(resetBtn);
 
@@ -701,7 +716,7 @@ QWidget* MainWindow::buildSlicingPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    layout->setSpacing(3);
 
     layout->addWidget(sectionHeader("Slicing"));
 
@@ -730,9 +745,10 @@ QWidget* MainWindow::buildSlicingPage() {
     connect(cbZ, &QCheckBox::toggled, m_settings, &RenderSettings::setSliceEnabledZ);
     optLayout->addLayout(axisRow);
 
-    optLayout->addWidget(new QLabel("Cut planes (world units)"));
-    auto* cutLabel = qobject_cast<QLabel*>(optLayout->itemAt(optLayout->count()-1)->widget());
-    if (cutLabel) cutLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
+    auto* cutLabel = new QLabel("Cut planes (world units)");
+    cutLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
+    optLayout->addWidget(cutLabel);
+
     {
         auto row = createClipSlider("Slice X", m_settings->getSliceX(), m_settings->getWorldMinX(), m_settings->getWorldMaxX(),
             [this](double v) { m_settings->setSliceX(v); });
@@ -770,14 +786,27 @@ QWidget* MainWindow::buildSlicingPage() {
     optionsGroup->setEnabled(m_settings->getClipEnabled());
 
     layout->addStretch();
-    return page;
+
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { border: none; }");
+    scroll->setWidget(page);
+
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(scroll);
+    return wrapper;
 }
 
 // ============================================================================
 // Section: View & Display (2)
 // ============================================================================
+
+
 QWidget* MainWindow::buildViewDisplayPage() {
-    auto* page = new QWidget;
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -787,109 +816,113 @@ QWidget* MainWindow::buildViewDisplayPage() {
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(6);
+    layout->setSpacing(6); // Section breathing room
 
-    // Camera
+    // ==========================================
+    // 1. CAMERA SECTION
+    // ==========================================
     layout->addWidget(sectionHeader("Camera"));
-    auto* cameraGrid = new QGridLayout;
-    const char* axisLabels[] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
-    for (int i = 0; i < 6; ++i) {
-        auto* btn = new QPushButton(QString::fromUtf8(axisLabels[i]));
-        cameraGrid->addWidget(btn, i / 3, i % 3);
-        connect(btn, &QPushButton::clicked, m_settings, [this, i]() { m_settings->snapToOrthoView(i); });
-    }
-    layout->addLayout(cameraGrid);
 
-    auto* orthoCb = new QCheckBox("Parallel View");
+    // Compact Checkbox Row (Parallel View + Auto-Rotate)
+    auto* camOptionsLayout = new QHBoxLayout;
+    auto* orthoCb = new QCheckBox("Parallel");
     orthoCb->setChecked(m_settings->getOrthographic());
     connect(orthoCb, &QCheckBox::toggled, m_settings, &RenderSettings::setOrthographic);
-    layout->addWidget(orthoCb);
+    camOptionsLayout->addWidget(orthoCb);
 
     auto* rotateCb = new QCheckBox("Auto-Rotate");
     rotateCb->setChecked(m_settings->getAutoRotate());
     connect(rotateCb, &QCheckBox::toggled, m_settings, &RenderSettings::setAutoRotate);
-    layout->addWidget(rotateCb);
+    camOptionsLayout->addWidget(rotateCb);
+    layout->addLayout(camOptionsLayout);
 
-    // Roll slider
+    // Roll slider with integrated reset
     {
         auto row = createLightSlider("Roll", m_settings->getRoll(), -180, 180, 1, 0, [this](double v) {
             double delta = v - m_settings->getRoll();
             if (delta != 0.0) m_settings->roll(delta);
         });
         auto* resetBtn = new QPushButton("0");
-        resetBtn->setFixedWidth(28);
+        resetBtn->setObjectName("secondaryButton");
+        resetBtn->setFixedWidth(24);
+        resetBtn->setFixedHeight(20);
         connect(resetBtn, &QPushButton::clicked, m_settings, &RenderSettings::resetCamera);
         auto* rowWidget = row.slider->parentWidget();
-        auto* hlay = qobject_cast<QHBoxLayout*>(rowWidget->layout());
-        if (hlay) hlay->addWidget(resetBtn);
+        if (auto* hlay = qobject_cast<QHBoxLayout*>(rowWidget->layout())) {
+            hlay->addWidget(resetBtn);
+        }
         layout->addWidget(rowWidget);
     }
 
-    auto* resetCamBtn = new QPushButton("Reset Camera");
+    auto* resetCamBtn = new QPushButton("Reset All Camera Settings");
+    resetCamBtn->setObjectName("secondaryButton");
+    resetCamBtn->setFixedHeight(24);
     connect(resetCamBtn, &QPushButton::clicked, m_settings, &RenderSettings::resetCamera);
     layout->addWidget(resetCamBtn);
 
-    // Display
-    layout->addWidget(sectionHeader("Display"));
+    // ==========================================
+    // 2. DISPLAY & RENDERING SECTION
+    // ==========================================
+    layout->addWidget(sectionHeader("Display Modes"));
 
-    auto* wfRow = new QHBoxLayout;
-    auto* wfCb = new QCheckBox("Wireframe");
-    wfCb->setChecked(m_settings->isWireframe());
-    connect(wfCb, &QCheckBox::toggled, m_settings, &RenderSettings::setWireframe);
-    wfRow->addWidget(wfCb);
-    auto* wfSlider = new QSlider(Qt::Horizontal);
-    wfSlider->setRange(10, 100);
-    wfSlider->setValue(static_cast<int>(m_settings->getLineWidth() * 10));
-    wfSlider->setEnabled(m_settings->isWireframe());
-    connect(wfSlider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setLineWidth(v / 10.0); });
-    connect(wfCb, &QCheckBox::toggled, wfSlider, &QWidget::setEnabled);
-    wfRow->addWidget(wfSlider);
-    layout->addLayout(wfRow);
+    auto createModeRow = [this](const QString& text, bool checked, bool enabled,
+                                double val, double min, double max,
+                                auto toggleSlot, auto sliderSlot) {
+        auto* rowLayout = new QHBoxLayout;
+        rowLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto* ceRow = new QHBoxLayout;
-    auto* ceCb = new QCheckBox("Cell Edge");
-    ceCb->setChecked(m_settings->getShowCellEdges());
-    ceCb->setEnabled(m_settings->getSupportsCellGrid());
-    connect(ceCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowCellEdges);
-    ceRow->addWidget(ceCb);
-    auto* ceSlider = new QSlider(Qt::Horizontal);
-    ceSlider->setRange(10, 100);
-    ceSlider->setValue(static_cast<int>(m_settings->getCellEdgeLineWidth() * 10));
-    ceSlider->setEnabled(m_settings->getShowCellEdges());
-    connect(ceSlider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); });
-    connect(ceCb, &QCheckBox::toggled, ceSlider, &QWidget::setEnabled);
-    ceRow->addWidget(ceSlider);
-    layout->addLayout(ceRow);
+        auto* cb = new QCheckBox(text);
+        cb->setChecked(checked);
+        cb->setEnabled(enabled);
+        connect(cb, &QCheckBox::toggled, m_settings, toggleSlot);
+        rowLayout->addWidget(cb);
 
-    auto* surfaceCb = new QCheckBox("Surface");
-    surfaceCb->setChecked(m_settings->isSurfaceVisible());
-    connect(surfaceCb, &QCheckBox::toggled, m_settings, &RenderSettings::toggleSurface);
-    layout->addWidget(surfaceCb);
+        auto* slider = new QSlider(Qt::Horizontal);
+        slider->setRange(static_cast<int>(min * 10), static_cast<int>(max * 10));
+        slider->setValue(static_cast<int>(val * 10));
+        slider->setEnabled(checked && enabled);
+        connect(slider, &QSlider::valueChanged, m_settings, sliderSlot);
+        connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
+        rowLayout->addWidget(slider);
 
-    auto* pointsCb = new QCheckBox("Points");
-    pointsCb->setChecked(m_settings->getShowPoints());
-    connect(pointsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowPoints);
-    layout->addWidget(pointsCb);
+        return rowLayout;
+    };
 
-    auto* gridCb = new QCheckBox("Reference");
-    gridCb->setChecked(m_settings->isGridVisible());
-    connect(gridCb, &QCheckBox::toggled, m_settings, &RenderSettings::toggleGrid);
-    layout->addWidget(gridCb);
+    // Wireframe
+    layout->addLayout(createModeRow("Wireframe", m_settings->isWireframe(), true,
+                                    m_settings->getLineWidth(), 1.0, 10.0,
+                                    &RenderSettings::setWireframe, [this](int v) { m_settings->setLineWidth(v / 10.0); }));
 
-    auto* boundsCb = new QCheckBox("Bounding Box");
-    boundsCb->setChecked(m_settings->getShowBounds());
-    connect(boundsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowBounds);
-    layout->addWidget(boundsCb);
+    // Cell Edge
+    layout->addLayout(createModeRow("Cell Edge", m_settings->getShowCellEdges(), m_settings->getSupportsCellGrid(),
+                                    m_settings->getCellEdgeLineWidth(), 1.0, 10.0,
+                                    &RenderSettings::setShowCellEdges, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); }));
 
-    auto* defectsCb = new QCheckBox("Defects");
-    defectsCb->setChecked(m_settings->getShowQualityOverlay());
-    connect(defectsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowQualityOverlay);
-    layout->addWidget(defectsCb);
+    // Simple checkboxes grid or vertical flow for standard toggles
+    auto* flagsLayout = new QGridLayout;
+    int flagIdx = 0;
 
-    // Point controls
+    auto addFlagCb = [&](const QString& text, bool checked, auto slot) {
+        auto* cb = new QCheckBox(text);
+        cb->setChecked(checked);
+        connect(cb, &QCheckBox::toggled, m_settings, slot);
+        flagsLayout->addWidget(cb, flagIdx / 2, flagIdx % 2);
+        flagIdx++;
+        return cb;
+    };
+
+    auto* surfaceCb = addFlagCb("Surface", m_settings->isSurfaceVisible(), &RenderSettings::toggleSurface);
+    auto* pointsCb  = addFlagCb("Points", m_settings->getShowPoints(), &RenderSettings::setShowPoints);
+    addFlagCb("Reference Grid", m_settings->isGridVisible(), &RenderSettings::toggleGrid);
+    addFlagCb("Bounding Box", m_settings->getShowBounds(), &RenderSettings::setShowBounds);
+    addFlagCb("Defects", m_settings->getShowQualityOverlay(), &RenderSettings::setShowQualityOverlay);
+
+    layout->addLayout(flagsLayout);
+
+    // Point controls (conditional)
     auto* pointGroup = new QWidget;
     auto* pointLayout = new QVBoxLayout(pointGroup);
-    pointLayout->setContentsMargins(0, 0, 0, 0);
+    pointLayout->setContentsMargins(12, 2, 0, 2); // Indented for hierarchy
     {
         auto row = createLightSlider("Size", m_settings->getPointSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setPointSize(v); });
         pointLayout->addWidget(row.slider->parentWidget());
@@ -899,93 +932,64 @@ QWidget* MainWindow::buildViewDisplayPage() {
     connect(scalarCb, &QCheckBox::toggled, m_settings, &RenderSettings::setPointUseScalar);
     pointLayout->addWidget(scalarCb);
     layout->addWidget(pointGroup);
+
     connect(pointsCb, &QCheckBox::toggled, pointGroup, &QWidget::setVisible);
     pointGroup->setVisible(m_settings->getShowPoints());
 
-    // Transparency
-    layout->addWidget(sectionHeader("Transparency"));
+    // ==========================================
+    // 3. TRANSPARENCY & APPEARANCE
+    // ==========================================
+    layout->addWidget(sectionHeader("Transparency & Quality"));
     {
-        auto row = createLightSlider("Surface", m_settings->getSurfaceOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setSurfaceOpacity(v); });
+        auto row = createLightSlider("Surface Opacity", m_settings->getSurfaceOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setSurfaceOpacity(v); });
         layout->addWidget(row.slider->parentWidget());
     }
     {
-        auto row = createLightSlider("Point", m_settings->getPointOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setPointOpacity(v); });
+        auto row = createLightSlider("Point Opacity", m_settings->getPointOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setPointOpacity(v); });
         layout->addWidget(row.slider->parentWidget());
     }
 
-    // Appearance
-    layout->addWidget(sectionHeader("Appearance"));
-    auto* msaaRow = new QHBoxLayout;
-    auto* msaaLabel = new QLabel("MSAA");
-    msaaLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-    msaaRow->addWidget(msaaLabel);
-    auto* msaaCombo = new QComboBox;
-    msaaCombo->addItems({"Off", "2x", "4x"});
-    msaaCombo->setCurrentIndex(m_settings->getMsaaSamples() / 2);
-    connect(msaaCombo, &QComboBox::activated, this, [this, msaaCombo](int idx) {
-        m_settings->setMsaaSamples(idx * 2);
-        recreateViewport();
-    });
-    msaaRow->addWidget(msaaCombo, 1);
-    layout->addLayout(msaaRow);
-
-    // Overlays
-    layout->addWidget(sectionHeader("Overlays"));
+    // HUD / Gizmo + FPS compact row
+    auto* subRowLayout = new QHBoxLayout;
     auto* gizmoCb = new QCheckBox("Gizmo");
     gizmoCb->setChecked(m_settings->isGizmoVisible());
     connect(gizmoCb, &QCheckBox::toggled, m_settings, &RenderSettings::setGizmoVisible);
-    layout->addWidget(gizmoCb);
+    subRowLayout->addWidget(gizmoCb);
 
     auto* fpsCb = new QCheckBox("FPS HUD");
     fpsCb->setChecked(m_settings->getShowFps());
     connect(fpsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowFps);
-    layout->addWidget(fpsCb);
+    subRowLayout->addWidget(fpsCb);
 
-    // Colors
+    layout->addLayout(subRowLayout);
+
+    // ==========================================
+    // 4. COLORS SECTION (Swatch Grid)
+    // ==========================================
     layout->addWidget(sectionHeader("Colors"));
-    {
-        auto* btn = createSwatchButton("Wireframe", m_settings->getMeshColorQml(), nullptr);
-        connect(btn, &QPushButton::clicked, this, [this, btn]() {
-            if (!m_meshColorDialog) {
-                m_meshColorDialog = new QColorDialog(m_settings->getMeshColorQml(), this);
-                m_meshColorDialog->setOption(QColorDialog::ShowAlphaChannel, false);
-                connect(m_meshColorDialog, &QColorDialog::colorSelected, m_settings, &RenderSettings::setMeshColorQml);
-                connect(m_meshColorDialog, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
+    auto* colorLayout = new QHBoxLayout;
+
+    auto createColorButton = [this](const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
+        auto* btn = createSwatchButton(name, initialColor, nullptr);
+        connect(btn, &QPushButton::clicked, this, [this, btn, name, initialColor, dialogPtr, setterMember]() {
+            if (!*dialogPtr) {
+                *dialogPtr = new QColorDialog(initialColor, this);
+                (*dialogPtr)->setOption(QColorDialog::ShowAlphaChannel, false);
+                connect(*dialogPtr, &QColorDialog::colorSelected, m_settings, setterMember);
+                connect(*dialogPtr, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
                     QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
                 });
             }
-            m_meshColorDialog->open();
+            (*dialogPtr)->open();
         });
-        layout->addWidget(btn);
-    }
-    {
-        auto* btn = createSwatchButton("Surface", m_settings->getSurfaceColorQml(), nullptr);
-        connect(btn, &QPushButton::clicked, this, [this, btn]() {
-            if (!m_surfaceColorDialog) {
-                m_surfaceColorDialog = new QColorDialog(m_settings->getSurfaceColorQml(), this);
-                connect(m_surfaceColorDialog, &QColorDialog::colorSelected, m_settings, &RenderSettings::setSurfaceColorQml);
-                connect(m_surfaceColorDialog, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
-                    QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
-                });
-            }
-            m_surfaceColorDialog->open();
-        });
-        layout->addWidget(btn);
-    }
-    {
-        auto* btn = createSwatchButton("Background", m_settings->getBgColorQml(), nullptr);
-        connect(btn, &QPushButton::clicked, this, [this, btn]() {
-            if (!m_bgColorDialog) {
-                m_bgColorDialog = new QColorDialog(m_settings->getBgColorQml(), this);
-                connect(m_bgColorDialog, &QColorDialog::colorSelected, m_settings, &RenderSettings::setBgColorQml);
-                connect(m_bgColorDialog, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
-                    QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
-                });
-            }
-            m_bgColorDialog->open();
-        });
-        layout->addWidget(btn);
-    }
+        return btn;
+    };
+
+    colorLayout->addWidget(createColorButton("Wireframe", m_settings->getMeshColorQml(), &m_meshColorDialog, &RenderSettings::setMeshColorQml));
+    colorLayout->addWidget(createColorButton("Surface", m_settings->getSurfaceColorQml(), &m_surfaceColorDialog, &RenderSettings::setSurfaceColorQml));
+    colorLayout->addWidget(createColorButton("Background", m_settings->getBgColorQml(), &m_bgColorDialog, &RenderSettings::setBgColorQml));
+
+    layout->addLayout(colorLayout);
 
     layout->addStretch();
     scroll->setWidget(content);
@@ -1001,7 +1005,6 @@ QWidget* MainWindow::buildViewDisplayPage() {
 // Section: Colormap (3)
 // ============================================================================
 QWidget* MainWindow::buildColormapPage() {
-    auto* page = new QWidget;
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1011,7 +1014,7 @@ QWidget* MainWindow::buildColormapPage() {
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    layout->setSpacing(3);
 
     layout->addWidget(sectionHeader("Field"));
     m_scalarCombo = new QComboBox;
@@ -1046,7 +1049,9 @@ QWidget* MainWindow::buildColormapPage() {
     layout->addWidget(sectionHeader("Colorbar"));
     auto* ticksRow = new QHBoxLayout;
     auto* ticksLabel = new QLabel("Ticks");
+    ticksLabel->setFixedWidth(72);
     ticksLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
+    ticksLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     ticksRow->addWidget(ticksLabel);
     auto* ticksSpin = new QSpinBox;
     ticksSpin->setRange(2, 20);
@@ -1057,6 +1062,7 @@ QWidget* MainWindow::buildColormapPage() {
 
     layout->addWidget(sectionHeader("Filter"));
     auto* resetFilterBtn = new QPushButton("Reset");
+    resetFilterBtn->setObjectName("secondaryButton");
     resetFilterBtn->setFixedWidth(50);
     connect(resetFilterBtn, &QPushButton::clicked, m_settings, [this]() {
         m_settings->setFilterMin(m_settings->getDataScalarMinQml());
@@ -1092,7 +1098,7 @@ QWidget* MainWindow::buildVectorsPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    layout->setSpacing(3);
 
     auto* showCb = new QCheckBox("Show vectors");
     showCb->setChecked(m_settings->getShowVectors());
@@ -1170,14 +1176,25 @@ QWidget* MainWindow::buildVectorsPage() {
     optionsGroup->setEnabled(m_settings->getShowVectors());
 
     layout->addStretch();
-    return page;
+
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { border: none; }");
+    scroll->setWidget(page);
+
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(scroll);
+    return wrapper;
 }
 
 // ============================================================================
 // Section: Streamlines (5)
 // ============================================================================
 QWidget* MainWindow::buildStreamlinesPage() {
-    auto* page = new QWidget;
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1187,28 +1204,21 @@ QWidget* MainWindow::buildStreamlinesPage() {
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    layout->setSpacing(3);
 
     auto* showCb = new QCheckBox("Show streamlines");
     showCb->setChecked(m_settings->getShowStreamlines());
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowStreamlines);
     layout->addWidget(showCb);
 
-    auto* integrateBtn = new QPushButton("Integrate");
-    connect(integrateBtn, &QPushButton::clicked, this, [this]() {
-        m_settings->backend()->markStreamlineDirty();
-        m_viewport->update();
-    });
-    layout->addWidget(integrateBtn);
-
     auto* optionsGroup = new QWidget;
     auto* optLayout = new QVBoxLayout(optionsGroup);
     optLayout->setContentsMargins(0, 0, 0, 0);
-    optLayout->setSpacing(8);
+    optLayout->setSpacing(6);
 
     // Field
     auto* fieldGroup = new QWidget;
-    fieldGroup->setStyleSheet(QString("QWidget { background: %1; border-radius: 0 0 4px 4px; }").arg(currentThemeColors().surfaceBg.name()));
+    fieldGroup->setStyleSheet(QString("background-color: %1; border-radius: 0 0 4px 4px;").arg(currentThemeColors().surfaceBg.name()));
     auto* fieldLayout = new QVBoxLayout(fieldGroup);
     fieldLayout->setContentsMargins(12, 4, 8, 8);
 
@@ -1222,7 +1232,9 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* seedCountRow = new QHBoxLayout;
     auto* seedCountLabel = new QLabel("Seed count");
+    seedCountLabel->setFixedWidth(72);
     seedCountLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
+    seedCountLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     seedCountRow->addWidget(seedCountLabel);
     auto* seedSpin = new QSpinBox;
     seedSpin->setRange(1, 500);
@@ -1238,7 +1250,9 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* maxStepsRow = new QHBoxLayout;
     auto* maxStepsLabel = new QLabel("Max steps");
+    maxStepsLabel->setFixedWidth(72);
     maxStepsLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
+    maxStepsLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     maxStepsRow->addWidget(maxStepsLabel);
     auto* maxStepsSpin = new QSpinBox;
     maxStepsSpin->setRange(10, 500);
@@ -1246,6 +1260,14 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(maxStepsSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineMaxSteps);
     maxStepsRow->addWidget(maxStepsSpin, 1);
     fieldLayout->addLayout(maxStepsRow);
+
+    auto* integrateBtn = new QPushButton("Integrate");
+    integrateBtn->setMinimumHeight(24);
+    connect(integrateBtn, &QPushButton::clicked, this, [this]() {
+        m_settings->backend()->markStreamlineDirty();
+        m_viewport->update();
+    });
+    fieldLayout->addWidget(integrateBtn);
 
     auto* fieldHeader = createCollapsibleHeader("Field", true, [fieldGroup](bool expanded) {
         fieldGroup->setVisible(expanded);
@@ -1255,7 +1277,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     // Color
     auto* colorGroup = new QWidget;
-    colorGroup->setStyleSheet(QString("QWidget { background: %1; border-radius: 0 0 4px 4px; }").arg(currentThemeColors().surfaceBg.name()));
+    colorGroup->setStyleSheet(QString("background-color: %1; border-radius: 0 0 4px 4px;").arg(currentThemeColors().surfaceBg.name()));
     auto* colorLayout = new QVBoxLayout(colorGroup);
     colorLayout->setContentsMargins(12, 4, 8, 8);
     {
@@ -1294,7 +1316,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     // Seeding
     auto* seedGroup = new QWidget;
-    seedGroup->setStyleSheet(QString("QWidget { background: %1; border-radius: 0 0 4px 4px; }").arg(currentThemeColors().surfaceBg.name()));
+    seedGroup->setStyleSheet(QString("background-color: %1; border-radius: 0 0 4px 4px;").arg(currentThemeColors().surfaceBg.name()));
     auto* seedLayout = new QVBoxLayout(seedGroup);
     seedLayout->setContentsMargins(12, 4, 8, 8);
     auto* seedModeCombo = new QComboBox;
@@ -1308,9 +1330,10 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* planePosRow = new QHBoxLayout;
     auto* planePosLabel = new QLabel("Plane pos");
+    planePosLabel->setFixedWidth(72);
     planePosLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-    planePosRow->addWidget(planePosLabel);
-    auto* planePosSlider = new QSlider(Qt::Horizontal);
+    planePosLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    planePosRow->addWidget(planePosLabel);    auto* planePosSlider = new QSlider(Qt::Horizontal);
     planePosSlider->setRange(0, 1000);
     planePosSlider->setValue(static_cast<int>(m_settings->getSeedPlanePos() * 1000));
     connect(planePosSlider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setSeedPlanePos(v / 1000.0); });
@@ -1319,7 +1342,9 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* seedsURow = new QHBoxLayout;
     auto* seedsULabel = new QLabel("Seeds U");
+    seedsULabel->setFixedWidth(72);
     seedsULabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
+    seedsULabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     seedsURow->addWidget(seedsULabel);
     auto* seedsUSpin = new QSpinBox;
     seedsUSpin->setRange(1, 200);
@@ -1330,7 +1355,9 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* seedsVRow = new QHBoxLayout;
     auto* seedsVLabel = new QLabel("Seeds V");
+    seedsVLabel->setFixedWidth(72);
     seedsVLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
+    seedsVLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     seedsVRow->addWidget(seedsVLabel);
     auto* seedsVSpin = new QSpinBox;
     seedsVSpin->setRange(1, 200);
@@ -1377,7 +1404,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     // Appearance
     auto* appGroup = new QWidget;
-    appGroup->setStyleSheet(QString("QWidget { background: %1; border-radius: 0 0 4px 4px; }").arg(currentThemeColors().surfaceBg.name()));
+    appGroup->setStyleSheet(QString("background-color: %1; border-radius: 0 0 4px 4px;").arg(currentThemeColors().surfaceBg.name()));
     auto* appLayout = new QVBoxLayout(appGroup);
     appLayout->setContentsMargins(12, 4, 8, 8);
     {
@@ -1409,7 +1436,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     // Lighting
     auto* lightGroup = new QWidget;
-    lightGroup->setStyleSheet(QString("QWidget { background: %1; border-radius: 0 0 4px 4px; }").arg(currentThemeColors().surfaceBg.name()));
+    lightGroup->setStyleSheet(QString("background-color: %1; border-radius: 0 0 4px 4px;").arg(currentThemeColors().surfaceBg.name()));
     auto* lightLayout = new QVBoxLayout(lightGroup);
     lightLayout->setContentsMargins(12, 4, 8, 8);
     {
@@ -1504,7 +1531,7 @@ QWidget* MainWindow::buildScreenshotPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    layout->setSpacing(3);
 
     auto* saveBtn = new QPushButton("Save Screenshot");
     connect(saveBtn, &QPushButton::clicked, this, &MainWindow::saveScreenshot);
@@ -1516,7 +1543,19 @@ QWidget* MainWindow::buildScreenshotPage() {
     layout->addWidget(transCb);
 
     layout->addStretch();
-    return page;
+
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { border: none; }");
+    scroll->setWidget(page);
+
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(scroll);
+    return wrapper;
 }
 
 // ============================================================================
@@ -1526,18 +1565,21 @@ QWidget* MainWindow::buildMeshInfoPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    layout->setSpacing(3);
+    m_meshInfoLabels.clear();
 
-    auto addInfoRow = [layout](const QString& label, const QString& value, const QString& color = currentThemeColors().textPrimary.name()) {
+    auto addInfoRow = [this, layout](const QString& label, const QString& value, const QString& color = currentThemeColors().textPrimary.name()) {
         auto* row = new QHBoxLayout;
         auto* lbl = new QLabel(label);
-        lbl->setFixedWidth(96);
+        lbl->setFixedWidth(72);
         lbl->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
         auto* val = new QLabel(value);
+        val->setObjectName("mvp:" + label);
         val->setStyleSheet(QString("font-size: 11px; color: %1;").arg(color));
         row->addWidget(lbl);
         row->addWidget(val);
         layout->addLayout(row);
+        m_meshInfoLabels[label] = val;
     };
 
     layout->addWidget(sectionHeader("Source"));
@@ -1564,14 +1606,16 @@ QWidget* MainWindow::buildMeshInfoPage() {
         h->setStyleSheet(QString("font-size: 10px; color: %1;").arg(currentThemeColors().textMuted.name()));
         bbGrid->addWidget(h, 0, i + 1);
     }
-    auto addBBRow = [&](int row, const QString& lbl, auto getter) {
+    auto addBBRow = [this, &bbGrid](int row, const QString& lbl, auto getter) {
         auto* l = new QLabel(lbl);
         l->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
         bbGrid->addWidget(l, row, 0);
         for (int i = 0; i < 3; ++i) {
             auto* v = new QLabel(QString::number(getter(i), 'f', 3));
+            v->setObjectName(QString("mvp:BB:%1:%2").arg(lbl).arg(i));
             v->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
             bbGrid->addWidget(v, row, i + 1);
+            m_meshInfoLabels[QString("BB:%1:%2").arg(lbl).arg(i)] = v;
         }
     };
     addBBRow(1, "Min", [&](int i) { return i == 0 ? m_settings->getWorldMinX() : i == 1 ? m_settings->getWorldMinY() : m_settings->getWorldMinZ(); });
@@ -1584,16 +1628,57 @@ QWidget* MainWindow::buildMeshInfoPage() {
     layout->addLayout(bbGrid);
 
     layout->addStretch();
-    return page;
+
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { border: none; }");
+    scroll->setWidget(page);
+
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(scroll);
+    return wrapper;
 }
 
 void MainWindow::refreshMeshInfoPage() {
-    if (!m_meshInfoPage || !m_sectionStack) return;
-    int idx = m_sectionStack->indexOf(m_meshInfoPage);
-    m_sectionStack->removeWidget(m_meshInfoPage);
-    delete m_meshInfoPage;
-    m_meshInfoPage = buildMeshInfoPage();
-    m_sectionStack->insertWidget(idx, m_meshInfoPage);
+    if (!m_meshInfoPage) return;
+
+    // Update existing value labels in place instead of tearing the page down
+    // (preserves scroll position and avoids re-layout churn on every mesh change).
+    auto setInfo = [&](const QString& label, const QString& value, const QString& color) {
+        auto it = m_meshInfoLabels.find(label);
+        if (it == m_meshInfoLabels.end()) return;
+        it.value()->setText(value);
+        it.value()->setStyleSheet(QString("font-size: 11px; color: %1;").arg(color));
+    };
+    const auto& tc = currentThemeColors();
+    const QString ok   = tc.textPrimary.name();
+    const QString bad  = "#ff6666";
+    setInfo("Type",       m_settings->getMeshDataType(),  ok);
+    setInfo("Format",     m_settings->getMeshFormat(),    ok);
+    setInfo("Triangles",  QString::number(m_settings->getTriangleCount()), ok);
+    setInfo("Points",     QString::number(m_settings->getPointCount()),    ok);
+    setInfo("Degenerate", QString::number(m_settings->getDegenerateFaces()), "#ff6666");
+    setInfo("Open edges", QString::number(m_settings->getOpenEdges()),       "#ffaa44");
+    setInfo("Non-manifold E", QString::number(m_settings->getNonManifoldEdges()), "#ff44ff");
+    setInfo("Non-manifold V", QString::number(m_settings->getNonManifoldVerts()), "#ff44ff");
+    setInfo("Watertight", m_settings->getWatertight() ? "yes" : "no",
+            m_settings->getWatertight() ? "#66dd66" : bad);
+
+    auto setBB = [&](const QString& row, int axis, double v) {
+        auto it = m_meshInfoLabels.find(QString("BB:%1:%2").arg(row).arg(axis));
+        if (it != m_meshInfoLabels.end()) it.value()->setText(QString::number(v, 'f', 3));
+    };
+    const double min[3] = { m_settings->getWorldMinX(), m_settings->getWorldMinY(), m_settings->getWorldMinZ() };
+    const double max[3] = { m_settings->getWorldMaxX(), m_settings->getWorldMaxY(), m_settings->getWorldMaxZ() };
+    for (int i = 0; i < 3; ++i) {
+        setBB("Min",   i, min[i]);
+        setBB("Max",   i, max[i]);
+        setBB("Delta", i, max[i] - min[i]);
+    }
 }
 
 // ============================================================================
@@ -1698,13 +1783,13 @@ void MainWindow::setupQuickBar() {
             "}"
             "QToolButton:hover { background: %2; color: %3; }"
             "QToolButton:checked { background: %4; color: %5; }"
-            ).arg(
-                currentThemeColors().textMuted.name(),
-                currentThemeColors().border.name(),
-                currentThemeColors().textPrimary.name(),
-                currentThemeColors().accent.name(),
-                currentThemeColors().textBright.name()
-            )
+             ).arg(
+                 currentThemeColors().textPrimary.name(),
+                 currentThemeColors().border.name(),
+                 currentThemeColors().textPrimary.name(),
+                 currentThemeColors().accent.name(),
+                 currentThemeColors().textOnAccent.name()
+             )
         );
         connect(btn, &QToolButton::clicked, onClicked);
         m_quickBarLayout->addWidget(btn);
@@ -1720,17 +1805,14 @@ void MainWindow::setupQuickBar() {
     };
 
     // Display toggles
-    addQBButton("W", "Wireframe", m_settings->isWireframe(), true, [this]() {
+    m_qbWireframe = addQBButton("W", "Wireframe", m_settings->isWireframe(), true, [this]() {
         m_settings->setWireframe(!m_settings->isWireframe());
-        updateQuickBarVisibility();
     });
-    addQBButton("G", "Ground", m_settings->isGridVisible(), true, [this]() {
+    m_qbGrid = addQBButton("G", "Ground", m_settings->isGridVisible(), true, [this]() {
         m_settings->toggleGrid(!m_settings->isGridVisible());
-        updateQuickBarVisibility();
     });
-    addQBButton("S", "Surface", m_settings->isSurfaceVisible(), true, [this]() {
+    m_qbSurface = addQBButton("S", "Surface", m_settings->isSurfaceVisible(), true, [this]() {
         m_settings->toggleSurface(!m_settings->isSurfaceVisible());
-        updateQuickBarVisibility();
     });
 
     addSeparator();
@@ -1787,20 +1869,45 @@ void MainWindow::updateQuickBarVisibility() {
     m_quickBarHandle->setVisible(hasMesh && collapsed);
 }
 
+// Keep the quick-bar display toggles in sync with settings that are changed via
+// keyboard shortcuts / View & Display checkboxes, not the quick-bar buttons themselves.
+void MainWindow::syncQuickBar() {
+    if (m_qbWireframe) m_qbWireframe->setChecked(m_settings->isWireframe());
+    if (m_qbGrid)      m_qbGrid->setChecked(m_settings->isGridVisible());
+    if (m_qbSurface)   m_qbSurface->setChecked(m_settings->isSurfaceVisible());
+}
+
 // ============================================================================
 // Keyboard shortcuts
 // ============================================================================
 void MainWindow::setupKeyboardShortcuts() {
-    new QShortcut(QKeySequence("R"), this, m_settings, &RenderSettings::resetCamera);
-    new QShortcut(QKeySequence("W"), this, [this]() { m_settings->setWireframe(!m_settings->isWireframe()); });
-    new QShortcut(QKeySequence("G"), this, [this]() { m_settings->toggleGrid(!m_settings->isGridVisible()); });
-    new QShortcut(QKeySequence("S"), this, this, &MainWindow::saveScreenshot);
-    new QShortcut(QKeySequence("Left"), this, [this]() { m_settings->azimuth(-5); });
-    new QShortcut(QKeySequence("Right"), this, [this]() { m_settings->azimuth(5); });
-    new QShortcut(QKeySequence("Up"), this, [this]() { m_settings->elevation(5); });
-    new QShortcut(QKeySequence("Down"), this, [this]() { m_settings->elevation(-5); });
-    new QShortcut(QKeySequence("Ctrl+="), this, [this]() { m_settings->dolly(1.1); });
-    new QShortcut(QKeySequence("Ctrl+-"), this, [this]() { m_settings->dolly(0.9); });
+    auto addNav = [this](const QKeySequence& ks, std::function<void()> fn) {
+        auto* sc = new QShortcut(ks, this);
+        sc->setContext(Qt::WindowShortcut);
+        m_navShortcuts.append(sc);
+        connect(sc, &QShortcut::activated, this, fn);
+    };
+    addNav(QKeySequence("R"),            [this]() { m_settings->resetCamera(); });
+    addNav(QKeySequence("W"),            [this]() { m_settings->setWireframe(!m_settings->isWireframe()); });
+    addNav(QKeySequence("G"),            [this]() { m_settings->toggleGrid(!m_settings->isGridVisible()); });
+    addNav(QKeySequence("S"),            [this]() { saveScreenshot(); });
+    addNav(QKeySequence("Left"),         [this]() { m_settings->azimuth(-5); });
+    addNav(QKeySequence("Right"),        [this]() { m_settings->azimuth(5); });
+    addNav(QKeySequence("Up"),           [this]() { m_settings->elevation(5); });
+    addNav(QKeySequence("Down"),         [this]() { m_settings->elevation(-5); });
+    addNav(QKeySequence("Ctrl+="),       [this]() { m_settings->dolly(1.1); });
+    addNav(QKeySequence("Ctrl+-"),       [this]() { m_settings->dolly(0.9); });
+
+    // Disable navigation shortcuts while an editor widget (filter boxes, combos,
+    // spin boxes) has focus so arrow keys / letters reach the editor instead of
+    // orbiting or toggling the viewport. Survives viewport recreation because the
+    // shortcuts live on the (never-recreated) MainWindow.
+    auto refreshNavState = [this]() {
+        const bool editing = navFocusIsEditor(QApplication::focusWidget());
+        for (auto* sc : m_navShortcuts) sc->setEnabled(!editing);
+    };
+    connect(qApp, &QApplication::focusChanged, this, refreshNavState);
+    refreshNavState();
 }
 
 // ============================================================================
@@ -1842,6 +1949,13 @@ void MainWindow::connectSettings() {
     // Theme changes
     connect(m_settings, &RenderSettings::themeChanged, this, [this]() {
         applyTheme(m_settings->getTheme());
+    });
+
+    // Mirror quick-bar display toggles whenever the corresponding settings change
+    // (keyboard shortcuts, View & Display checkboxes). Sync runs on every view change,
+    // but the setChecked calls only emit when the value actually differs.
+    connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags) {
+        syncQuickBar();
     });
 }
 
@@ -1990,6 +2104,8 @@ void MainWindow::applyTheme(AppTheme theme) {
 void MainWindow::rebuildSidebarStyles() {
     auto c = currentColors();
     m_sidebarWidget->setStyleSheet(QString("background-color: %1;").arg(c.panelBg.name()));
+    if (m_rightPanel)
+        m_rightPanel->setStyleSheet(QString("background-color: %1;").arg(c.panelBg.name()));
     m_panelHeader->setStyleSheet(QString("background-color: %1; border-bottom: 1px solid %2;").arg(c.panelBg.name(), c.border.name()));
     m_panelTitle->setStyleSheet(QString("font-size: 12px; font-weight: bold; color: %1; background: transparent;").arg(c.textPrimary.name()));
     m_sectionStack->setStyleSheet(QString("QStackedWidget { background: %1; }").arg(c.panelBg.name()));
@@ -2074,6 +2190,14 @@ void MainWindow::rebuildSidebarStyles() {
     m_meshInfoPage = buildMeshInfoPage();
     m_sectionStack->addWidget(m_meshInfoPage);  
 
+    // Give each page a solid theme background so labels (whose colors come from
+    // the palette / stylesheet) stay readable in both themes. Prevents the
+    // transparent-scroll-area path from showing the parent's stale background.
+    for (int i = 0; i < m_sectionStack->count(); ++i) {
+        if (auto* pg = m_sectionStack->widget(i))
+            pg->setStyleSheet(QString("background: %1;").arg(c.panelBg.name()));
+    }
+
     // Restore active section
     if (active >= 0) setSidebarSection(active);
 }
@@ -2101,8 +2225,8 @@ void MainWindow::rebuildQuickBarStyles() {
             "QToolButton:hover { background: %3; color: %4; }"
             "QToolButton:checked { background: %5; color: %6; }"
             "QFrame { color: %7; }")
-            .arg(c.panelBg.name(), c.textMuted.name(), c.border.name(),
-                 c.textPrimary.name(), c.accent.name(), c.textBright.name(),
+            .arg(c.panelBg.name(), c.textPrimary.name(), c.border.name(),
+                 c.textPrimary.name(), c.accent.name(), c.textOnAccent.name(),
                  c.border.name()));
     }
     if (m_quickBarHandle) {
