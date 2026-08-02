@@ -15,6 +15,7 @@ public:
     glm::dvec3 viewUp;
     double distance;
     double maxDistance; // upper bound on `distance` set by the renderer on reset
+    double rollAngle = 0.0; // accumulated roll in degrees
 
     // Core Transformation Methods
     void azimuth(double angle);
@@ -30,4 +31,5 @@ public:
 
     glm::dvec3 directionOfProjection() const;
     glm::mat4 getViewMatrix() const;
+    double getRollAngle() const { return rollAngle; }
 };

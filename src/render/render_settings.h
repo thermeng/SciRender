@@ -18,6 +18,7 @@
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
 #include "core/Camera.h"
+#include "ui/theme.h"
 
 // Change flags carried by the consolidated viewChanged signal so receivers
 // can distinguish which domain changed (e.g. lighting vs. colormap) without
@@ -346,6 +347,9 @@ public slots:
     void restoreStateFromSettings();
     Q_INVOKABLE void setActiveScalarField(const QString& fieldName);
 
+    AppTheme getTheme() const { return m_theme; }
+    void setTheme(AppTheme v);
+
     Q_INVOKABLE void setFpsText(const QString& text);
 
     Q_INVOKABLE QStringList getColormapNames() const;
@@ -360,6 +364,7 @@ signals:
     void screenshotRequested(const QString& targetPath);
     void fpsChanged();
     void statusMessageChanged();
+    void themeChanged();
 
 public:
     // VTK Camera forwarders (QML-invokable). Mutate the GUI-side Camera; the
@@ -367,6 +372,7 @@ public:
     Q_INVOKABLE void azimuth(double angle) { m_state.camera.azimuth(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
     Q_INVOKABLE void elevation(double angle) { m_state.camera.elevation(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
     Q_INVOKABLE void roll(double angle) { m_state.camera.roll(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
+    double getRoll() const { return m_state.camera.getRollAngle(); }
     Q_INVOKABLE void pan(double dx, double dy) { m_state.camera.pan(dx, dy); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
     Q_INVOKABLE void dolly(double factor) { m_state.camera.dolly(factor); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
 
@@ -496,7 +502,7 @@ public:
     QString getStreamlineVectorField() const { return QString::fromStdString(m_state.streamlineVectorField); }
     Q_INVOKABLE void setStreamlineVectorField(const QString& fieldName);
     bool getScreenshotTransparent() const { return m_state.screenshotTransparent; }
-    void setScreenshotTransparent(bool v) { if (m_state.screenshotTransparent != v) { m_state.screenshotTransparent = v; markStateDirty(); } }
+    void setScreenshotTransparent(bool v) { if (m_state.screenshotTransparent != v) { m_state.screenshotTransparent = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     QString getStatusMessage() const { return statusMessage; }
     Q_INVOKABLE QString generateScreenshotFilename() const {
         QString base = m_meshData.fileName.empty() ? "scene" : QString::fromStdString(m_meshData.fileName);
@@ -541,11 +547,11 @@ public:
     bool getSliceEnabledZ() const { return m_state.sliceEnabledZ; }
     void setSliceEnabledZ(bool v) { if (m_state.sliceEnabledZ != v) { m_state.sliceEnabledZ = v; markStateDirty(); emit viewChanged(ChangeFlag::Slicing); } }
     bool getInvertX() const { return m_state.invertX; }
-    void setInvertX(bool v) { if (m_state.invertX != v) { m_state.invertX = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setInvertX(bool v) { if (m_state.invertX != v) { m_state.invertX = v; markStateDirty(); emit viewChanged(ChangeFlag::Slicing); } }
     bool getInvertY() const { return m_state.invertY; }
-    void setInvertY(bool v) { if (m_state.invertY != v) { m_state.invertY = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setInvertY(bool v) { if (m_state.invertY != v) { m_state.invertY = v; markStateDirty(); emit viewChanged(ChangeFlag::Slicing); } }
     bool getInvertZ() const { return m_state.invertZ; }
-    void setInvertZ(bool v) { if (m_state.invertZ != v) { m_state.invertZ = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setInvertZ(bool v) { if (m_state.invertZ != v) { m_state.invertZ = v; markStateDirty(); emit viewChanged(ChangeFlag::Slicing); } }
     float getFilterMin() const { return m_state.filterMin; }
     void setFilterMin(float v) { if (m_state.filterMin != v) { m_state.filterMin = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     float getFilterMax() const { return m_state.filterMax; }
@@ -611,4 +617,6 @@ private:
     // on completion; onMeshParsed() compares it to m_loadToken to drop stale
     // (cancelled/superseded) results.
     std::shared_ptr<std::atomic<uint64_t>> m_taskToken;
+
+    AppTheme m_theme = AppTheme::Dark;
 };

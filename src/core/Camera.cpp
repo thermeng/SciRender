@@ -43,6 +43,7 @@ void Camera::roll(double angle) {
     glm::dvec3 dir = directionOfProjection();
     glm::dmat4 rot = glm::rotate(glm::dmat4(1.0), glm::radians(angle), dir);
     viewUp = glm::normalize(glm::dvec3(rot * glm::dvec4(viewUp, 0.0)));
+    rollAngle += angle;
 }
 
 void Camera::orthogonalizeViewUp() {
@@ -105,6 +106,7 @@ void Camera::snapToOrthoView(int axis) {
     position = target;
     viewUp = up;
     orthogonalizeViewUp();
+    rollAngle = 0.0;
 }
 
 glm::mat4 Camera::getViewMatrix() const {

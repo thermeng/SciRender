@@ -121,6 +121,7 @@ void RenderSettings::resetCamera() {
     m_state.camera.maxDistance = std::max(1000.0, m_state.camera.distance * 50.0);
     m_state.camera.position = m_state.camera.focalPoint + glm::dvec3(0.0, 0.0, m_state.camera.distance);
     m_state.camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
+    m_state.camera.rollAngle = 0.0;
     m_state.camera.orthogonalizeViewUp();
     markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
@@ -155,7 +156,17 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("vectorScale", m_state.vectorScale);
     s.setValue("vectorScaleByMagnitude", m_state.vectorScaleByMagnitude);
     s.setValue("quickBarCollapsed", quickBarCollapsed);
+    s.setValue("theme", static_cast<int>(m_theme));
     s.endGroup();
+}
+
+void RenderSettings::setTheme(AppTheme v) {
+    if (m_theme != v) {
+        m_theme = v;
+        QSettings s;
+        s.setValue("theme", static_cast<int>(v));
+        emit themeChanged();
+    }
 }
 
 void RenderSettings::restoreStateFromSettings() {
@@ -199,6 +210,9 @@ void RenderSettings::restoreStateFromSettings() {
     }
     if (s.contains("quickBarCollapsed")) {
         quickBarCollapsed = s.value("quickBarCollapsed").toBool();
+    }
+    if (s.contains("theme")) {
+        m_theme = (s.value("theme").toInt() == 1) ? AppTheme::Light : AppTheme::Dark;
     }
     s.endGroup();
 }
