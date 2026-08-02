@@ -46,6 +46,7 @@ void LightingModel::applyPreset(int preset) {
         lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;   lightKH = 0.5f;
         lightKeyIntensity = 1.0f;  lightWarm = 0.5f;
         matAmbient = 0.10f; matDiffuse = 0.78f; matSpecular = 0.25f; matShininess = 0.6f;
+        matRoughness = 0.4f; matMetallic = 0.0f;
         break;
 
     case PRESET_CADFLAT: // even, shadowless look for inspecting geometry
@@ -55,6 +56,7 @@ void LightingModel::applyPreset(int preset) {
         lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;  lightKH = 1.0f;
         lightKeyIntensity = 1.0f;  lightWarm = 0.5f;
         matAmbient = 0.45f; matDiffuse = 0.8f; matSpecular = 0.0f; matShininess = 0.0f;
+        matRoughness = 0.5f; matMetallic = 0.0f;
         break;
 
     case PRESET_SOFT: // gentle, low-contrast, warm
@@ -65,6 +67,7 @@ void LightingModel::applyPreset(int preset) {
         lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;  lightKH = 0.8f;
         lightKeyIntensity = 1.0f;  lightWarm = 0.6f;
         matAmbient = 0.20f; matDiffuse = 0.7f; matSpecular = 0.08f; matShininess = 0.3f;
+        matRoughness = 0.4f; matMetallic = 0.0f;
         break;
     }
 }
@@ -79,6 +82,7 @@ void LightingModel::reset() {
     lightBackAzimuth = 110.0f; lightBackElevation = 0.0f;
     lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;
     matAmbient = 0.08f; matDiffuse = 0.75f; matSpecular = 0.15f; matShininess = 0.5f;
+    matRoughness = 0.4f; matMetallic = 0.0f;
 }
 
 // Exposed for the gizmo light-marker overlay: kit-local dirs tinted warm.

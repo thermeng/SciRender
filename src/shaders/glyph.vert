@@ -11,6 +11,7 @@ layout(std140) uniform GlyphUBO {
     vec4  uMeshExtent_MagTransform_ViewPosY_ColorR; // x=meshExtent, y=magTransform, z=viewPos.y, w=colorR
     vec4  uLightDir_ColorGB; // xyz=lightDir, w=colorG
     vec4  uColorB_UseColormap; // x=colorB, y=useColormap(0/1), z=0, w=0
+    vec4  uPBR;              // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
 
 out vec3 vNormal;

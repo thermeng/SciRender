@@ -55,6 +55,10 @@ Renderer::~Renderer() {
         if (meshUbo) glDeleteBuffers(1, &meshUbo);
         if (glyphUbo) glDeleteBuffers(1, &glyphUbo);
         if (shaderProgram) glDeleteProgram(shaderProgram);
+        if (glyphProgram) glDeleteProgram(glyphProgram);
+        if (particleProgram) glDeleteProgram(particleProgram);
+        if (particleVao) glDeleteVertexArrays(1, &particleVao);
+        if (particleVbo) glDeleteBuffers(1, &particleVbo);
         colormap.shutdown();
         vectorGlyph.shutdown();
         streamlineSet.shutdown();
@@ -106,6 +110,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
         glyphProgram = compileProgram(sources.glyphVert.c_str(), sources.glyphFrag.c_str(), "Glyph");
         if (glyphProgram != 0) {
             glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
+            glyphViewPosLoc = glGetUniformLocation(glyphProgram, "uViewPos");
             glyphUboIndex = glGetUniformBlockIndex(glyphProgram, "GlyphUBO");
             if (glyphUboIndex != GL_INVALID_INDEX) {
                 glUniformBlockBinding(glyphProgram, glyphUboIndex, 1);
@@ -362,6 +367,89 @@ void Renderer::clearGpuMeshes() {
     m_qualityOverlay.shutdown();
 }
 
+void Renderer::reinitForNewContext() {
+    // Tear down GL resources from the previous context. In the normal Qt
+    // initializeGL path the old context is already gone, so glDelete* here are
+    // no-ops; the guard also keeps this correct for shared-context or in-place
+    // reinit where the old context may still be current.
+    const bool haveCtx = QOpenGLContext::currentContext() != nullptr;
+    if (haveCtx) {
+        if (meshUbo)         { glDeleteBuffers(1, &meshUbo); meshUbo = 0; }
+        if (glyphUbo)        { glDeleteBuffers(1, &glyphUbo); glyphUbo = 0; }
+        if (shaderProgram)   { glDeleteProgram(shaderProgram); shaderProgram = 0; }
+        if (glyphProgram)    { glDeleteProgram(glyphProgram); glyphProgram = 0; }
+        if (particleProgram) { glDeleteProgram(particleProgram); particleProgram = 0; }
+        if (particleVao)     { glDeleteVertexArrays(1, &particleVao); particleVao = 0; }
+        if (particleVbo)     { glDeleteBuffers(1, &particleVbo); particleVbo = 0; }
+        destroyPeelFbos();
+
+        // Shutdown subsystems — each deletes its own GL handles and zeros them.
+        m_grid.shutdown();
+        m_bbox.shutdown();
+        m_qualityOverlay.shutdown();
+        m_streamlines.shutdown();
+        gizmo.shutdown();
+        colorbarOverlay.shutdown();
+        colormap.shutdown();
+        vectorGlyph.shutdown();
+        streamlineSet.shutdown();
+
+        // Drop mesh geometry from the old context (previously only LOD compute
+        // was cleared, leaving stale VAO/VBO/EBO/SBO handles and stale
+        // hasMeshes()/hasFullSource()/hasDecimated() flags). fullSource_ is
+        // reset here because reinitMeshData() re-uploads from m_lastUploadedMesh.
+        meshManager.clear();
+        meshManager.cleanupLodCompute();
+    }
+
+    // Always land handle slots and integer locs at safe defaults so lazy
+    // re-creation in renderFrame()/initShaders() rebuilds them exactly once.
+    shaderProgram = 0;
+    meshUbo = 0; meshUboIndex = GL_INVALID_INDEX; lutTextureLoc = -1;
+    glyphProgram = 0;
+    glyphUbo = 0; glyphUboIndex = GL_INVALID_INDEX;
+    glyphLutLoc = -1; glyphViewPosLoc = -1;
+    particleProgram = 0;
+    particleVao = 0; particleVbo = 0; particleVertexCount = 0;
+    particleColorLoc = -1; particleLutLoc = -1;
+    particlePointSizeLoc = -1; particleUseColormapLoc = -1;
+    particleMagRangeLoc = -1;
+    m_peelProgram = 0; m_compositeProgram = 0;
+    m_peelPrevDepthLoc = -1; m_peelLayerLoc = -1;
+    m_peelFbo[0] = m_peelFbo[1] = 0;
+    m_peelColorTex[0] = m_peelColorTex[1] = 0;
+    m_peelDepthTex[0] = m_peelDepthTex[1] = 0;
+    m_peelDummyDepth = 0; m_peelDummyVao = 0;
+    m_peelFboW = 0; m_peelFboH = 0;
+
+    // Reset transient render state so a recreated context does not inherit a
+    // stale animation clock (which would leap forward on the first frame) or
+    // stale LOD/dirty flags (which could spuriously dispatch LOD compute or
+    // trigger a redundant vector-glyph rebuild).
+    m_lastFrameTime = {};
+    m_lastFrameDt = 0.0;
+    m_animationTime = 0.0;
+    cameraMoving.store(false);
+    m_wasCameraMoving = false;
+    gpuDecimationDirty.store(false);
+    vectorGlyphDirty.store(false);
+    scalarDirty.store(false);
+    m_pendingScalarSrc.reset();
+    m_lastMotion = {};
+}
+
+void Renderer::reinitMeshData() {
+    if (m_lastUploadedMesh) {
+        meshManager.upload(m_lastUploadedMesh);
+        vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride,
+                            m_state.vectorField, m_state.vectorMagTransform);
+        streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+        streamlineSet.initParticles(m_state.particleCount);
+        m_qualityOverlay.markDirty();
+    }
+    colormap.update();
+}
+
 bool Renderer::consumeScalarDirty() {
     return scalarDirty.exchange(false);
 }
@@ -380,30 +468,39 @@ bool Renderer::captureViewportToFile(const QString& path) {
         qWarning() << "Screenshot skipped: viewport FBO not available.";
         return false;
     }
+    return captureViewportFbo(m_viewportFbo->handle(), m_viewportFbo->width(),
+                              m_viewportFbo->height(), m_viewportFbo->format().samples(),
+                              path);
+}
+
+bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const QString& path) {
+    if (path.isEmpty() || fboId == 0 || w <= 0 || h <= 0) return false;
 
     const bool isPng = path.endsWith(".png", Qt::CaseInsensitive);
     const bool transparent = isPng && m_state.screenshotTransparent;
 
     // ponytail: MSAA FBOs cannot be read back with glReadPixels (undefined);
     // resolve to a single-sample target first.
-    QOpenGLFramebufferObject* live = m_viewportFbo;
-    QOpenGLFramebufferObject* readFbo = live;
-    std::unique_ptr<QOpenGLFramebufferObject> resolveHolder;
-    if (live->format().samples() > 0) {
-        QOpenGLFramebufferObjectFormat rf;
-        rf.setInternalTextureFormat(GL_RGBA8);
-        resolveHolder = std::make_unique<QOpenGLFramebufferObject>(live->size(), rf);
-        QOpenGLFramebufferObject::blitFramebuffer(resolveHolder.get(), live, GL_COLOR_BUFFER_BIT);
-        readFbo = resolveHolder.get();
+    GLuint readFbo = fboId;
+    GLuint resolveFbo = 0, resolveTex = 0;
+    if (samples > 0) {
+        glGenFramebuffers(1, &resolveFbo);
+        glGenTextures(1, &resolveTex);
+        glBindTexture(GL_TEXTURE_2D, resolveTex);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
+        glBindFramebuffer(GL_FRAMEBUFFER, resolveFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolveTex, 0);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fboId);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFbo);
+        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        readFbo = resolveFbo;
     }
 
-    const int w = readFbo->width();
-    const int h = readFbo->height();
     const int channels = transparent ? 4 : 3;
     const GLenum fmt = transparent ? GL_RGBA : GL_RGB;
     std::vector<unsigned char> raw(static_cast<size_t>(w) * h * channels);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, readFbo->handle());
+    glBindFramebuffer(GL_FRAMEBUFFER, readFbo);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, w, h, fmt, GL_UNSIGNED_BYTE, raw.data());
@@ -414,6 +511,8 @@ bool Renderer::captureViewportToFile(const QString& path) {
     for (int y = 0; y < h; ++y)
         std::memcpy(flipped.data() + static_cast<size_t>(y) * row,
                     raw.data() + static_cast<size_t>(h - 1 - y) * row, row);
+
+    if (resolveFbo) { glDeleteFramebuffers(1, &resolveFbo); glDeleteTextures(1, &resolveTex); }
 
     QImage::Format qf = transparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
     QImage img = QImage(flipped.data(), w, h, static_cast<int>(row), qf).copy();
@@ -707,6 +806,7 @@ void Renderer::renderFrame() {
         float kb = std::max(m_state.lighting.lightKB, 0.001f);
         ubo.intensities = glm::vec4(keyI, m_state.lighting.lightKitEnabled ? keyI / kf : 0.0f, m_state.lighting.lightKitEnabled ? keyI / kb : 0.0f, m_state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
         ubo.material = glm::vec4(m_state.lighting.matAmbient, m_state.lighting.matDiffuse, m_state.lighting.matSpecular, m_state.lighting.matShininess);
+        ubo.pbr = glm::vec4(m_state.lighting.matRoughness, m_state.lighting.matMetallic, 0.0f, 0.0f);
         glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
 
         if (m_state.meshHasScalars && m_state.meshUseScalarColor && colormap.scalarTexture() != 0) {
@@ -844,7 +944,9 @@ void Renderer::renderFrame() {
         ubo.meshExtent_magTransform_viewPosY_colorR = glm::vec4(vectorGlyph.meshExtent, float(m_state.vectorMagTransform), camPos.y, m_state.vectorColor[0]);
         ubo.lightDir_colorGB = glm::vec4(kDir, m_state.vectorColor[1]);
         ubo.colorB_useColormap = glm::vec4(m_state.vectorColor[2], m_state.vectorUseColormap ? 1.0f : 0.0f, 0.0f, 0.0f);
+        ubo.pbr = glm::vec4(m_state.lighting.matRoughness, m_state.lighting.matMetallic, 0.0f, 0.0f);
         glNamedBufferSubData(glyphUbo, 0, sizeof(GlyphUBOData), &ubo);
+        if (glyphViewPosLoc != -1) glUniform3fv(glyphViewPosLoc, 1, glm::value_ptr(camPos));
         if (m_state.vectorUseColormap && colormap.vectorTexture() != 0) {
             glBindTextureUnit(1, colormap.vectorTexture());
             glUniform1i(glyphLutLoc, 1);

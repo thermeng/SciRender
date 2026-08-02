@@ -26,6 +26,7 @@ layout(std140) uniform MeshUBO {
     vec4  uFilter;
     vec4  uMaterial;
     vec4  uIntensities;
+    vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
 
 out vec3 vNormal;
