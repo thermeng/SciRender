@@ -21,6 +21,9 @@ struct ThemeColors {
     QColor textMuted;
     QColor textBright;
     QColor textDisabled;
+    // Text intended to sit ON a colored/accent background (e.g. blue). White in
+    // both themes so it never collapses into black-on-blue.
+    QColor textOnAccent;
 
     // Accent
     QColor accent;
@@ -103,7 +106,8 @@ inline ThemeColors getThemeColors(AppTheme theme) {
             QColor("#1e1e1e"),       // textPrimary
             QColor("#616161"),       // textMuted
             QColor("#000000"),       // textBright
-            QColor("#aaaaaa"),       // textDisabled
+            QColor("#888888"),       // textDisabled
+            QColor("#ffffff"),       // textOnAccent
 
             // Accent
             QColor("#007acc"),       // accent
@@ -142,8 +146,8 @@ inline ThemeColors getThemeColors(AppTheme theme) {
             QColor("#e0e0e0"),       // tabHoverBg
 
             // Scrollbar
-            QColor("rgba(100,100,100,0.3)"),  // scrollbarHandle
-            QColor("rgba(100,100,100,0.5)"),  // scrollbarHandleHover
+            QColor("rgba(97,97,97,0.50)"),  // scrollbarHandle
+            QColor("rgba(97,97,97,0.85)"),  // scrollbarHandleHover
 
             // Status bar
             QColor("#007acc"),       // statusBg
@@ -186,7 +190,8 @@ inline ThemeColors getThemeColors(AppTheme theme) {
         QColor("#cccccc"),       // textPrimary
         QColor("#858585"),       // textMuted
         QColor("#ffffff"),       // textBright
-        QColor("#6c6c6c"),       // textDisabled
+        QColor("#9e9e9e"),       // textDisabled
+        QColor("#ffffff"),       // textOnAccent
 
         // Accent
         QColor("#007acc"),       // accent
@@ -280,7 +285,7 @@ inline QPalette buildPalette(const ThemeColors& c) {
     p.setColor(QPalette::ToolTipText,         c.textPrimary);
     p.setColor(QPalette::Text,                c.textPrimary);
     p.setColor(QPalette::Button,              c.buttonBg);
-    p.setColor(QPalette::ButtonText,          c.buttonText);
+    p.setColor(QPalette::ButtonText,         c.textPrimary);  // was: c.buttonText (white in light theme → invisible combo text)
     p.setColor(QPalette::BrightText,          c.textBright);
     p.setColor(QPalette::Link,                c.accent);
     p.setColor(QPalette::LinkVisited,         c.accentPressed);
@@ -370,10 +375,15 @@ inline QString scrollbarStylesheet(const ThemeColors& c) {
 
 inline QString inputStylesheet(const ThemeColors& c) {
     return QStringLiteral(R"(
-        QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
+        QComboBox, QLineEdit {
             background-color: %1; color: %2;
             border: 1px solid %3; border-radius: 2px;
             padding: 2px 6px; min-height: 20px;
+        }
+        QSpinBox, QDoubleSpinBox {
+            background-color: %1; color: %2;
+            border: 1px solid %3; border-radius: 2px;
+            padding: 2px 4px; min-height: 20px;
         }
         QComboBox:hover, QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover {
             border: 1px solid %4;
@@ -383,23 +393,31 @@ inline QString inputStylesheet(const ThemeColors& c) {
         }
         QComboBox::drop-down {
             subcontrol-origin: padding; subcontrol-position: top right;
-            width: 16px; border-left: 1px solid %3;
+            width: 22px; border: none;
+            background: transparent;
         }
         QComboBox::down-arrow {
-            border-left: 4px solid transparent; border-right: 4px solid transparent;
-            border-top: 5px solid %2; width: 0px; height: 0px; margin-right: 4px;
+            image: url(:/src/resources/icons/downarrow.svg);
+            width: 12px; height: 12px; margin-right: 6px; color: %2;
+        }
+        QComboBox::item, QComboBox::item:selected {
+            color: %2; background-color: %6;
         }
         QComboBox QAbstractItemView {
             background-color: %6; color: %2;
             selection-background-color: %7; selection-color: %8;
             border: 1px solid %3; outline: none;
         }
+        QComboBox:editable QLineEdit {
+            color: %2;
+            background-color: %1;
+        }
         QSpinBox::up-button, QDoubleSpinBox::up-button {
-            background-color: %1; border-left: 1px solid %3;
+            background-color: %1;
             border-bottom: 1px solid %3; width: 16px;
         }
         QSpinBox::down-button, QDoubleSpinBox::down-button {
-            background-color: %1; border-left: 1px solid %3; width: 16px;
+            background-color: %1; width: 16px;
         }
     )")
     .arg(c.inputBg.name())           // %1  background
@@ -454,9 +472,10 @@ inline QString buttonStylesheet(const ThemeColors& c) {
             border: 1px solid %3; border-radius: 2px;
             padding: 4px 12px; min-height: 20px;
         }
-        QPushButton:hover { background-color: %3; border: 1px solid %4; }
+        QPushButton:hover { background-color: %12; border: 1px solid %4; }
         QPushButton:pressed { background-color: %5; border: 1px solid %5; }
         QPushButton:disabled { background-color: %6; color: %7; border: 1px solid %8; }
+        QPushButton:focus { border: 1px solid %4; }
 
         QToolButton {
             background-color: transparent; color: %9;
@@ -468,15 +487,72 @@ inline QString buttonStylesheet(const ThemeColors& c) {
     )")
     .arg(c.buttonBg.name())          // %1  button bg
     .arg(c.buttonText.name())        // %2  button text (was: selectionText — WRONG)
-    .arg(c.buttonBorder.name())      // %3  button border / hover bg
-    .arg(c.accentHover.name())       // %4  hover border
+    .arg(c.buttonBorder.name())      // %3  button border
+    .arg(c.accentHover.name())       // %4  hover border / focus border
     .arg(c.buttonPressed.name())     // %5  pressed
     .arg(c.buttonDisabled.name())    // %6  disabled bg
     .arg(c.textDisabled.name())      // %7  disabled text
     .arg(c.border.name())            // %8  disabled border
     .arg(c.textPrimary.name())       // %9  tool button text
     .arg(c.hoverBg.name())           // %10 tool button hover
-    .arg(c.checkedBg.name());        // %11 tool button checked
+    .arg(c.checkedBg.name())         // %11 tool button checked
+    .arg(c.buttonHover.name());      // %12 button hover bg
+}
+
+inline QString secondaryButtonStylesheet(const ThemeColors& c) {
+    return QStringLiteral(R"(
+        QPushButton#secondaryButton {
+            background-color: transparent; color: %1;
+            border: 1px solid %2; border-radius: 2px;
+            padding: 4px 12px; min-height: 20px;
+        }
+        QPushButton#secondaryButton:hover {
+            background-color: %3; color: %1;
+            border: 1px solid %4;
+        }
+        QPushButton#secondaryButton:pressed {
+            background-color: %3; color: %1;
+            border: 1px solid %4;
+        }
+        QPushButton#secondaryButton:disabled {
+            background-color: transparent; color: %5;
+            border: 1px solid %5;
+        }
+        QPushButton#secondaryButton:focus {
+            border: 1px solid %4;
+        }
+    )")
+    .arg(c.textPrimary.name())       // %1  text
+    .arg(c.accent.name())            // %2  border
+    .arg(c.hoverBg.name())           // %3  hover bg
+    .arg(c.accentHover.name())       // %4  hover border
+    .arg(c.textDisabled.name());     // %5  disabled text
+}
+
+// Swatch buttons (color-chip rows in the Colors sections). Form-field look:
+// left-aligned 11px label on the *input* background, so it reads as a labeled
+// swatch rather than a blue command button. Centralized here so a theme toggle
+// restyles them via the global app stylesheet instead of a per-widget inline sheet.
+inline QString swatchButtonStylesheet(const ThemeColors& c) {
+    return QStringLiteral(R"(
+        QPushButton#swatchButton {
+            text-align: left; font-size: 11px;
+            background-color: %1; color: %2;
+            border: 1px solid %3; border-radius: 2px;
+            padding: 2px 6px;
+        }
+        QPushButton#swatchButton:hover {
+            border: 1px solid %4;
+        }
+        QPushButton#swatchButton:disabled {
+            background-color: %1; color: %5;
+        }
+    )")
+        .arg(c.inputBg.name())       // %1  background (matches input field)
+        .arg(c.textPrimary.name())   // %2  label text
+        .arg(c.inputBorder.name())   // %3  border
+        .arg(c.accent.name())        // %4  hover border
+        .arg(c.textDisabled.name()); // %5  disabled text
 }
 
 inline QString tabStylesheet(const ThemeColors& c) {
@@ -511,7 +587,7 @@ inline QString statusStylesheet(const ThemeColors& c) {
 
         QToolTip { background-color: %3; color: %4; border: 1px solid %5; padding: 4px 8px; }
 
-        QDockWidget { color: %4; }
+        QDockWidget { color: %4; border: none; }
         QDockWidget::title { background: %6; border-bottom: 1px solid %5; padding: 4px; }
 
         QScrollArea { border: none; background: transparent; }
@@ -537,7 +613,9 @@ inline QString buildGlobalStylesheet(const ThemeColors& c) {
         + scrollbarStylesheet(c)
         + inputStylesheet(c)
         + checkboxStylesheet(c)
-        + buttonStylesheet(c)
-        + tabStylesheet(c)
+         + buttonStylesheet(c)
+         + secondaryButtonStylesheet(c)
+         + swatchButtonStylesheet(c)
+         + tabStylesheet(c)
         + statusStylesheet(c);
 }
