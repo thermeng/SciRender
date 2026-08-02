@@ -64,6 +64,9 @@ Renderer::~Renderer() {
         m_bbox.shutdown();
         m_qualityOverlay.shutdown();
         m_streamlines.shutdown();
+        destroyPeelFbos();
+        if (m_peelProgram) { glDeleteProgram(m_peelProgram); m_peelProgram = 0; }
+        if (m_compositeProgram) { glDeleteProgram(m_compositeProgram); m_compositeProgram = 0; }
     }
 }
 #pragma GCC diagnostic pop
@@ -131,11 +134,141 @@ void Renderer::initShaders(const ShaderSources& sources) {
     m_bbox.init(sources);
     m_qualityOverlay.init(sources);
     m_streamlines.init(sources);
+
+    // depth peeling shaders for transparent surfaces
+    if (!sources.depthPeelVert.empty() && !sources.depthPeelFrag.empty()) {
+        m_peelProgram = compileProgram(sources.depthPeelVert.c_str(), sources.depthPeelFrag.c_str(), "DepthPeel");
+        if (m_peelProgram != 0) {
+            m_peelPrevDepthLoc = glGetUniformLocation(m_peelProgram, "uPrevDepth");
+            m_peelLayerLoc    = glGetUniformLocation(m_peelProgram, "uPeelLayer");
+        }
+    }
+    if (!sources.compositeVert.empty() && !sources.compositeFrag.empty()) {
+        m_compositeProgram = compileProgram(sources.compositeVert.c_str(), sources.compositeFrag.c_str(), "Composite");
+    }
 }
 
 void Renderer::initGizmo() {
     gizmo.init();
     colorbarOverlay.init();
+}
+
+// ---------------------------------------------------------------------------
+// Depth peeling — two-layer OIT for transparent surfaces
+// ---------------------------------------------------------------------------
+void Renderer::ensurePeelFbos(int w, int h) {
+    if (m_peelFboW == w && m_peelFboH == h && m_peelFbo[0] != 0) return;
+    destroyPeelFbos();
+    m_peelFboW = w; m_peelFboH = h;
+
+    for (int i = 0; i < 2; ++i) {
+        glCreateFramebuffers(1, &m_peelFbo[i]);
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_peelColorTex[i]);
+        glTextureStorage2D(m_peelColorTex[i], 1, GL_RGBA8, w, h);
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_peelDepthTex[i]);
+        glTextureStorage2D(m_peelDepthTex[i], 1, GL_DEPTH24_STENCIL8, w, h);
+
+        glNamedFramebufferTexture(m_peelFbo[i], GL_COLOR_ATTACHMENT0, m_peelColorTex[i], 0);
+        glNamedFramebufferTexture(m_peelFbo[i], GL_DEPTH_STENCIL_ATTACHMENT, m_peelDepthTex[i], 0);
+    }
+
+    // 1x1 dummy depth texture initialized to 1.0 for the first peel pass
+    glCreateTextures(GL_TEXTURE_2D, 1, &m_peelDummyDepth);
+    glTextureStorage2D(m_peelDummyDepth, 1, GL_DEPTH24_STENCIL8, 1, 1);
+    uint32_t depthOne[2] = { 0xFFFFFFFF, 0 };
+    glTextureSubImage2D(m_peelDummyDepth, 0, 0, 0, 1, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, depthOne);
+
+    // empty VAO for fullscreen triangle (composite shader uses gl_VertexID only)
+    if (!m_peelDummyVao) glCreateVertexArrays(1, &m_peelDummyVao);
+}
+
+void Renderer::destroyPeelFbos() {
+    for (int i = 0; i < 2; ++i) {
+        if (m_peelFbo[i])        { glDeleteFramebuffers(1, &m_peelFbo[i]);        m_peelFbo[i] = 0; }
+        if (m_peelColorTex[i])   { glDeleteTextures(1, &m_peelColorTex[i]);       m_peelColorTex[i] = 0; }
+        if (m_peelDepthTex[i])   { glDeleteTextures(1, &m_peelDepthTex[i]);       m_peelDepthTex[i] = 0; }
+    }
+    if (m_peelDummyDepth) { glDeleteTextures(1, &m_peelDummyDepth); m_peelDummyDepth = 0; }
+    if (m_peelDummyVao) { glDeleteVertexArrays(1, &m_peelDummyVao); m_peelDummyVao = 0; }
+    m_peelFboW = m_peelFboH = 0;
+}
+
+void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
+                                  const MeshUBOData& ubo, GLuint meshUbo,
+                                  const std::vector<std::pair<GLuint, int>>& transparentMeshes) {
+    if (m_peelProgram == 0 || m_compositeProgram == 0 || transparentMeshes.empty()) return;
+
+    int vpW = static_cast<int>(width * devicePixelRatio);
+    int vpH = static_cast<int>(height * devicePixelRatio);
+    ensurePeelFbos(vpW, vpH);
+
+    // Save the caller's FBO (QOpenGLWidget's offscreen FBO) so we can composite
+    // back to it instead of FBO 0 (the screen default framebuffer).
+    GLint prevFbo;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
+
+    glDisable(GL_CULL_FACE);
+
+    // ---- Layer 0: standard depth test into FBO 0 ----
+    glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[0]);
+    glViewport(0, 0, vpW, vpH);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
+
+    glUseProgram(m_peelProgram);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
+    glBindTextureUnit(0, m_peelDummyDepth);
+    glUniform1i(m_peelPrevDepthLoc, 0);
+    glUniform1f(m_peelLayerLoc, 0.0f);
+
+    for (const auto& mesh : transparentMeshes) {
+        glBindVertexArray(mesh.first);
+        glDrawElements(GL_TRIANGLES, mesh.second, GL_UNSIGNED_INT, 0);
+    }
+
+    // ---- Layer 1: peel against layer 0 depth into FBO 1 ----
+    glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[1]);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDepthFunc(GL_LESS);
+
+    glBindTextureUnit(0, m_peelDepthTex[0]);
+    glUniform1f(m_peelLayerLoc, 1.0f);
+
+    for (const auto& mesh : transparentMeshes) {
+        glBindVertexArray(mesh.first);
+        glDrawElements(GL_TRIANGLES, mesh.second, GL_UNSIGNED_INT, 0);
+    }
+
+    glBindVertexArray(0);
+    glUseProgram(0);
+
+    // ---- Composite: back-to-front onto the caller's framebuffer ----
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
+    glViewport(0, 0, vpW, vpH);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(m_compositeProgram);
+    glBindTextureUnit(0, m_peelColorTex[0]);
+    glUniform1i(glGetUniformLocation(m_compositeProgram, "uLayer0"), 0);
+    glBindTextureUnit(1, m_peelColorTex[1]);
+    glUniform1i(glGetUniformLocation(m_compositeProgram, "uLayer1"), 1);
+
+    glDepthMask(GL_FALSE);
+    glBindVertexArray(m_peelDummyVao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glDepthMask(GL_TRUE);
+
+    glUseProgram(0);
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glDisable(GL_CULL_FACE);
 }
 
 void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
@@ -599,41 +732,43 @@ void Renderer::renderFrame() {
         std::vector<int> drawVerts;
         meshManager.snapshotDrawList(drawList, m_state.useLod, cameraMoving.load(), drawMode, drawVerts);
 
+        std::vector<std::pair<GLuint, int>> transparentMeshes;
+
+        // --- Pass 1: opaque surfaces ---
         for (size_t di = 0; di < drawList.size(); ++di) {
             glBindVertexArray(drawList[di].first);
 
             if (m_state.showSurface) {
-                // ponytail: user cullMode toggle (0=off, 1=back, 2=front). Cull only
-                // when opaque — culling + alpha blend gives wrong results.
-                const bool opaque = m_state.surfaceOpacity >= 0.999f;
-                const bool cull = m_state.cullMode != 0 && opaque;
-                if (cull) { glEnable(GL_CULL_FACE); glCullFace(m_state.cullMode == 2 ? GL_FRONT : GL_BACK); }
-                else glDisable(GL_CULL_FACE);
-                if (!opaque) {
-                    glEnable(GL_BLEND);
-                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    glDepthMask(GL_FALSE);
-                }
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                // ponytail: push the FILL surface slightly back in depth so the
-                // coincident cell-edge GL_LINES (drawn later) win the depth test
-                // without z-fighting. Polygon offset is a no-op for GL_LINES, so
-                // offsetting the lines themselves (the old -2,-2) did nothing and
-                // the lines interleaved with the surface. FILL offset only affects
-                // triangles, leaving the wireframe GL_LINE pass untouched.
-                glEnable(GL_POLYGON_OFFSET_FILL);
-                glPolygonOffset(1.0f, 1.0f);
-                glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
-                glDisable(GL_POLYGON_OFFSET_FILL);
-                if (cull) glDisable(GL_CULL_FACE);
-                if (!opaque) {
-                    glDisable(GL_BLEND);
-                    glDepthMask(GL_TRUE);
+                const bool opaque = m_state.surfaceOpacity >= 1.0f;
+
+                if (opaque) {
+                    const bool cull = m_state.cullMode != 0;
+                    if (cull) { glEnable(GL_CULL_FACE); glCullFace(m_state.cullMode == 2 ? GL_FRONT : GL_BACK); }
+                    else glDisable(GL_CULL_FACE);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    glEnable(GL_POLYGON_OFFSET_FILL);
+                    glPolygonOffset(1.0f, 1.0f);
+                    glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
+                    glDisable(GL_POLYGON_OFFSET_FILL);
+                    if (cull) glDisable(GL_CULL_FACE);
+                } else {
+                    transparentMeshes.push_back({drawList[di].first, drawList[di].second});
                 }
             }
+        }
+
+        // --- Pass 2: batch all transparent meshes through depth peeling ---
+        if (!transparentMeshes.empty()) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            renderTransparent(view, proj, ubo, meshUbo, transparentMeshes);
+        }
+
+        // --- Pass 3: wireframe and points overlays ---
+        for (size_t di = 0; di < drawList.size(); ++di) {
+            glBindVertexArray(drawList[di].first);
 
             if (m_state.showWireframe) {
-                glLineWidth(m_state.lineWidth); // ponytail: clamped to driver GL_ALIASED_LINE_WIDTH_RANGE
+                glLineWidth(m_state.lineWidth);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 glEnable(GL_POLYGON_OFFSET_LINE);
                 glPolygonOffset(-1.0f, -1.0f);
@@ -646,7 +781,6 @@ void Renderer::renderFrame() {
                 glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
             }
 
-            // ponytail: points overlay — works for STL + VTK + POLYDATA alike
             if (m_state.showPoints && drawVerts[di] > 0) {
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

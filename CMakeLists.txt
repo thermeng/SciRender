@@ -130,6 +130,10 @@ qt_add_resources(SciRender "shaders"
         src/shaders/lod_tris.comp
         src/shaders/quality_overlay.vert
         src/shaders/quality_overlay.frag
+        src/shaders/depth_peel.vert
+        src/shaders/depth_peel.frag
+        src/shaders/composite.vert
+        src/shaders/composite.frag
 )
 
 # ---------------------------------------------------------------------------

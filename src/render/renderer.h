@@ -68,6 +68,10 @@ struct ShaderSources {
     std::string lodTrisComp;
     std::string qualityOverlayVert;
     std::string qualityOverlayFrag;
+    std::string depthPeelVert;
+    std::string depthPeelFrag;
+    std::string compositeVert;
+    std::string compositeFrag;
 };
 
 // ---------------------------------------------------------------------------
@@ -460,4 +464,24 @@ private:
     BBoxOverlay m_bbox;            // AABB wireframe overlay
     QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
     StreamlineController m_streamlines;      // streamline compute + draw + seeds
+
+    // --- Depth peeling for transparent surfaces ---
+    GLuint m_peelProgram = 0;
+    GLint  m_peelPrevDepthLoc = -1;
+    GLint  m_peelLayerLoc = -1;
+    GLuint m_compositeProgram = 0;
+
+    // FBOs for two-layer peeling: [0] = front layer, [1] = back layer
+    GLuint m_peelFbo[2] = {};
+    GLuint m_peelColorTex[2] = {};
+    GLuint m_peelDepthTex[2] = {};
+    GLuint m_peelDummyDepth = {};  // 1x1 initialized to 1.0 for first pass
+    GLuint m_peelDummyVao = {};    // empty VAO for fullscreen triangle
+    int m_peelFboW = 0, m_peelFboH = 0;
+
+    void ensurePeelFbos(int w, int h);
+    void destroyPeelFbos();
+    void renderTransparent(const glm::mat4& view, const glm::mat4& proj,
+                            const MeshUBOData& ubo, GLuint meshUbo,
+                            const std::vector<std::pair<GLuint, int>>& transparentMeshes);
 };

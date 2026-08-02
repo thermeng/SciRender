@@ -235,6 +235,8 @@ void ViewportFboRenderer::render() {
         sources.lodComp         = loadShader(":/SciRenderUI/src/shaders/lod.comp");
         sources.lodOutputComp   = loadShader(":/SciRenderUI/src/shaders/lod_output.comp");
         sources.lodTrisComp     = loadShader(":/SciRenderUI/src/shaders/lod_tris.comp");
+        sources.qualityOverlayVert = loadShader(":/SciRenderUI/src/shaders/quality_overlay.vert");
+        sources.qualityOverlayFrag = loadShader(":/SciRenderUI/src/shaders/quality_overlay.frag");
 
         m_scene->initShaders(sources);
         m_scene->initGizmo();
