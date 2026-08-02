@@ -35,6 +35,11 @@ public:
     float matDiffuse = 0.75f;
     float matSpecular = 0.15f;
     float matShininess = 16.0f;
+    // PBR microfacet parameters (used by the GGX lighting path in the surface shaders).
+    // roughness in [0,1] (higher = glossier surface; clamped in-shader to >=0.04).
+    // metallic in [0,1] (0 = dielectric, 1 = conductor; blends F0 from 0.04 to baseColor).
+    float matRoughness = 0.4f;
+    float matMetallic  = 0.0f;
 
     // Computes the five kit light directions in WORLD space given the camera
     // basis. Lights live in the camera frame and are rotated into world space,

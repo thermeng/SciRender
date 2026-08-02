@@ -72,7 +72,7 @@ void RenderSettings::setUseLod(bool enabled) {
 }
 
 void RenderSettings::setMsaaSamples(int n) {
-    n = qBound(0, n, 4); // ponytail: only 0/2/4 offered; clamp guards stray QML
+    n = (n <= 0) ? 0 : (n <= 2 ? 2 : 4); // ponytail: only 0/2/4 supported; snap odd/stray QML values
     if (msaaSamples == n) return;
     msaaSamples = n;
     markStateDirty(); emit viewChanged(ChangeFlag::Display);
@@ -147,6 +147,8 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("bgColor", QVariantList{ m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2] });
     s.setValue("matSpecular", m_state.lighting.matSpecular);
     s.setValue("matShininess", m_state.lighting.matShininess);
+    s.setValue("matRoughness", m_state.lighting.matRoughness);
+    s.setValue("matMetallic", m_state.lighting.matMetallic);
     s.setValue("lightKeyIntensity", m_state.lighting.lightKeyIntensity);
     s.setValue("lightWarm", m_state.lighting.lightWarm);
     s.setValue("lightKitEnabled", m_state.lighting.lightKitEnabled);
@@ -156,6 +158,7 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("vectorScale", m_state.vectorScale);
     s.setValue("vectorScaleByMagnitude", m_state.vectorScaleByMagnitude);
     s.setValue("quickBarCollapsed", quickBarCollapsed);
+    s.setValue("msaaSamples", msaaSamples);
     s.setValue("theme", static_cast<int>(m_theme));
     s.endGroup();
 }
@@ -193,6 +196,10 @@ void RenderSettings::restoreStateFromSettings() {
     if (s.contains("matSpecular")) {
         m_state.lighting.matSpecular = s.value("matSpecular").toFloat();
         m_state.lighting.matShininess = s.value("matShininess").toFloat();
+        if (s.contains("matRoughness")) {
+            m_state.lighting.matRoughness = s.value("matRoughness").toFloat();
+            m_state.lighting.matMetallic  = s.value("matMetallic").toFloat();
+        }
         m_state.lighting.lightKeyIntensity = s.value("lightKeyIntensity").toFloat();
         m_state.lighting.lightWarm = s.value("lightWarm").toFloat();
         m_state.lighting.lightKitEnabled = s.value("lightKitEnabled").toBool();
@@ -213,6 +220,10 @@ void RenderSettings::restoreStateFromSettings() {
     }
     if (s.contains("theme")) {
         m_theme = (s.value("theme").toInt() == 1) ? AppTheme::Light : AppTheme::Dark;
+    }
+    if (s.contains("msaaSamples")) {
+        const int n = s.value("msaaSamples").toInt();
+        msaaSamples = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
     }
     s.endGroup();
 }

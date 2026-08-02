@@ -15,7 +15,7 @@
 class ViewportWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
 public:
-    explicit ViewportWidget(QWidget* parent = nullptr);
+    explicit ViewportWidget(int msaaSamples = 0, QWidget* parent = nullptr);
     ~ViewportWidget() override;
 
     void setSettings(::RenderSettings* s);

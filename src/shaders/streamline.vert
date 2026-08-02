@@ -17,6 +17,7 @@ layout(std140, binding = 3) uniform StreamlineUBO {
     vec4  uMaterial;          // x = ambient, y = diffuse, z = specular, w = specularPower
     vec4  uRibbon;            // x = ribbonWidth, y = taperFactor, z = dashEnabled, w = dashSpeed
     vec4  uArrowParams;       // x = arrowAnimSpeed, yzw = pad
+    vec4  uPBR;               // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
 out vec3 vWorldPos;
 out vec3 vNormal;

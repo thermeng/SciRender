@@ -241,7 +241,9 @@ struct MeshUBOData {
     glm::vec4 filter;           // x = filterMin, y = filterMax, z = 0, w = 0
     glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular, w = matShininess
     glm::vec4 intensities;      // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
+    glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad (Phase 1 PBR)
 };
+static_assert(sizeof(MeshUBOData) % 16 == 0, "MeshUBOData must be std140-aligned");
 
 // CPU-side UBO layout matching the std140 GridUBO block in grid.vert/frag.
 struct GridUBOData {
@@ -261,7 +263,9 @@ struct GlyphUBOData {
     glm::vec4 meshExtent_magTransform_viewPosY_colorR; // x=meshExtent, y=magTransform, z=viewPos.y, w=colorR
     glm::vec4 lightDir_colorGB; // xyz=lightDir, w=colorG
     glm::vec4 colorB_useColormap; // x=colorB, y=useColormap(0/1), zw=pad
+    glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
+static_assert(sizeof(GlyphUBOData) % 16 == 0, "GlyphUBOData must be std140-aligned");
 
 // CPU-side UBO layout matching the std140 StreamlineUBO block in streamline.vert/frag.
 struct StreamlineUBOData {
@@ -275,7 +279,9 @@ struct StreamlineUBOData {
     glm::vec4 material;          // x = ambient, y = diffuse, z = specular, w = specularPower
     glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, z = dashEnabled, w = dashSpeed
     glm::vec4 arrowParams;       // x = arrowAnimSpeed, yzw = pad
+    glm::vec4 pbr;               // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
+static_assert(sizeof(StreamlineUBOData) % 16 == 0, "StreamlineUBOData must be std140-aligned");
 
 // ---------------------------------------------------------------------------
 // Renderer — PURE C++ backend.
@@ -345,6 +351,15 @@ public:
     // teardown happens in meshManager with a current context on the render thread).
     void clearGpuMeshes();
 
+    // Re-initialize after a GL context change (e.g. MSAA viewport recreation).
+    // Zeros stale handles and shuts down subsystems so the next initShaders()
+    // / initGizmo() call creates fresh resources.
+    void reinitForNewContext();
+
+    // Re-upload mesh geometry, vector glyphs, and colormap textures from
+    // CPU-side copies.  Call after reinitForNewContext() + initShaders().
+    void reinitMeshData();
+
     // Render-thread accessors used by ViewportFboRenderer.
     bool hasGpuMeshes() const { return meshManager.hasMeshes(); }
     // Returns the shared scalar payload (no copy); may be null if none queued.
@@ -358,6 +373,11 @@ public:
     // is supplied by the QQuickFramebufferObject renderer just before capture.
     void setViewportFbo(QOpenGLFramebufferObject* fbo) { m_viewportFbo = fbo; }
     bool captureViewportToFile(const QString& path);
+
+    // MSAA-aware capture from a raw framebuffer id (render thread, GL context
+    // current). Resolves a multisampled target into a single-sample texture
+    // before glReadPixels. `w`/`h` are the FBO's device-pixel dimensions.
+    bool captureViewportFbo(GLuint fboId, int w, int h, int samples, const QString& path);
 
     // Lighting presets resolve in pure data (no signals needed on backend).
     void applyLightingPreset(int preset);
@@ -405,6 +425,7 @@ private:
     // glyph program
     GLuint glyphProgram = 0;
     GLint glyphLutLoc = -1;
+    GLint glyphViewPosLoc = -1;
 
     // particle program
     GLuint particleProgram = 0;

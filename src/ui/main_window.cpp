@@ -282,7 +282,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_settings->restoreStateFromSettings();
 
     // Viewport (central widget)
-    m_viewport = new ViewportWidget(this);
+    m_viewport = new ViewportWidget(m_settings->getMsaaSamples(), this);
     m_viewport->setSettings(m_settings);
     setCentralWidget(m_viewport);
 
@@ -675,6 +675,14 @@ QWidget* MainWindow::buildLightingPage() {
         auto row = createLightSlider("Shininess", m_settings->getMatShininess(), 1, 100, 1, 0, [this](double v) { m_settings->setMatShininess(v); });
         layout->addWidget(row.slider->parentWidget());
     }
+    {
+        auto row = createLightSlider("Roughness", m_settings->getMatRoughness(), 0, 1, 0.01, 2, [this](double v) { m_settings->setMatRoughness(v); });
+        layout->addWidget(row.slider->parentWidget());
+    }
+    {
+        auto row = createLightSlider("Metallic", m_settings->getMatMetallic(), 0, 1, 0.01, 2, [this](double v) { m_settings->setMatMetallic(v); });
+        layout->addWidget(row.slider->parentWidget());
+    }
 
     layout->addStretch();
     scroll->setWidget(content);
@@ -914,7 +922,10 @@ QWidget* MainWindow::buildViewDisplayPage() {
     auto* msaaCombo = new QComboBox;
     msaaCombo->addItems({"Off", "2x", "4x"});
     msaaCombo->setCurrentIndex(m_settings->getMsaaSamples() / 2);
-    connect(msaaCombo, &QComboBox::activated, m_settings, [this](int idx) { m_settings->setMsaaSamples(idx * 2); });
+    connect(msaaCombo, &QComboBox::activated, this, [this, msaaCombo](int idx) {
+        m_settings->setMsaaSamples(idx * 2);
+        recreateViewport();
+    });
     msaaRow->addWidget(msaaCombo, 1);
     layout->addLayout(msaaRow);
 
@@ -1901,6 +1912,25 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
         m_quickBar->move(margin, margin);
         m_quickBarHandle->move(margin, margin);
     }
+}
+
+void MainWindow::recreateViewport() {
+    auto* old = m_viewport;
+    m_viewport = new ViewportWidget(m_settings->getMsaaSamples(), this);
+    m_viewport->setSettings(m_settings);
+    setCentralWidget(m_viewport);
+
+    // Reconnect timers
+    connect(&m_fpsTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
+    connect(&m_dashTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
+    connect(&m_particleTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
+
+    // Re-parent quick bar widgets
+    if (m_quickBar) { m_quickBar->setParent(m_viewport); m_quickBar->show(); }
+    if (m_quickBarHandle) { m_quickBarHandle->setParent(m_viewport); m_quickBarHandle->show(); }
+
+    old->deleteLater();
+    m_viewport->update();
 }
 
 // ============================================================================

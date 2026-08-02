@@ -59,6 +59,7 @@ private:
     void applyTheme(AppTheme theme);
     void rebuildSidebarStyles();
     void rebuildQuickBarStyles();
+    void recreateViewport();
     ThemeColors currentColors() const;
 
     ::RenderSettings* m_settings = nullptr;

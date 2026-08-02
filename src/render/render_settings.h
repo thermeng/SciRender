@@ -115,6 +115,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float matDiffuse READ getMatDiffuse WRITE setMatDiffuse NOTIFY viewChanged)
     Q_PROPERTY(float matSpecular READ getMatSpecular WRITE setMatSpecular NOTIFY viewChanged)
     Q_PROPERTY(float matShininess READ getMatShininess WRITE setMatShininess NOTIFY viewChanged)
+    Q_PROPERTY(float matRoughness READ getMatRoughness WRITE setMatRoughness NOTIFY viewChanged)
+    Q_PROPERTY(float matMetallic  READ getMatMetallic  WRITE setMatMetallic  NOTIFY viewChanged)
     Q_PROPERTY(float lightKeyIntensity READ getLightKeyIntensity WRITE setLightKeyIntensity NOTIFY viewChanged)
     Q_PROPERTY(float lightKF READ getLightKF WRITE setLightKF NOTIFY viewChanged)
     Q_PROPERTY(float lightKB READ getLightKB WRITE setLightKB NOTIFY viewChanged)
@@ -310,6 +312,10 @@ public:
     void setMatSpecular(float v) { m_state.lighting.matSpecular = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getMatShininess() const { return m_state.lighting.matShininess; }
     void setMatShininess(float v) { m_state.lighting.matShininess = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
+    float getMatRoughness() const { return m_state.lighting.matRoughness; }
+    void setMatRoughness(float v) { if (m_state.lighting.matRoughness != v) { m_state.lighting.matRoughness = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); } }
+    float getMatMetallic() const { return m_state.lighting.matMetallic; }
+    void setMatMetallic(float v) { if (m_state.lighting.matMetallic != v) { m_state.lighting.matMetallic = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); } }
     float getLightKeyIntensity() const { return m_state.lighting.lightKeyIntensity; }
     void setLightKeyIntensity(float v) { m_state.lighting.lightKeyIntensity = v; markStateDirty(); emit viewChanged(ChangeFlag::Lighting); }
     float getLightKF() const { return m_state.lighting.lightKF; }

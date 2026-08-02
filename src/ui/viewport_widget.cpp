@@ -11,14 +11,14 @@
 #include <QElapsedTimer>
 #include <cmath>
 
-ViewportWidget::ViewportWidget(QWidget* parent)
+ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     : QOpenGLWidget(parent) {
     QSurfaceFormat fmt;
     fmt.setRenderableType(QSurfaceFormat::OpenGL);
     fmt.setVersion(4, 6);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
     fmt.setDepthBufferSize(24);
-    fmt.setSamples(0);
+    fmt.setSamples(msaaSamples);
     setFormat(fmt);
 }
 
@@ -59,8 +59,10 @@ void ViewportWidget::initializeGL() {
     if (!scene) return;
 
     scene->initGLAD();
+    scene->reinitForNewContext();
     loadShaders();
     scene->initGizmo();
+    scene->reinitMeshData();
     m_initialized = true;
 }
 
@@ -137,14 +139,15 @@ void ViewportWidget::paintGL() {
 
     // Screenshot capture.
     if (!m_pendingScreenshot.isEmpty()) {
-        // For QOpenGLWidget, read directly from the current framebuffer.
-        QImage img = grabFramebuffer();
-        if (m_settings->getScreenshotTransparent()) {
-            // Already RGBA from the FBO
-            img.save(m_pendingScreenshot, "PNG");
-        } else {
-            img.save(m_pendingScreenshot, "PNG");
-        }
+        // For QOpenGLWidget, read the widget's default framebuffer. When MSAA is
+        // active that FBO is multisampled and glReadPixels is undefined, so the
+        // renderer resolves it into a single-sample target first.
+        const int fbW = static_cast<int>(width() * devicePixelRatio());
+        const int fbH = static_cast<int>(height() * devicePixelRatio());
+        scene->captureViewportFbo(defaultFramebufferObject(), fbW, fbH,
+                                  format().samples(), m_pendingScreenshot);
+        // Leave Qt's framebuffer binding intact for its post-paint handling.
+        glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
         m_pendingScreenshot.clear();
     }
 
