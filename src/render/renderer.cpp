@@ -573,6 +573,7 @@ void Renderer::renderFrame() {
             uploadMesh(m_pendingMesh);
             m_pendingMesh.reset();
             m_qualityOverlay.markDirty();
+            m_streamlines.requestRecompute();
         }
     }
 
@@ -581,7 +582,7 @@ void Renderer::renderFrame() {
     }
 
     if (m_streamlines.streamlineDirty.exchange(false)) {
-        // Timestamp handled inside StreamlineController::dispatchCompute
+        m_streamlines.requestRecompute();
     }
 
     // Off-thread streamline: debounce, launch compute, consume results

@@ -30,6 +30,8 @@ public:
     void cancelAndJoin();
     void shutdown();
 
+    void requestRecompute() { m_streamlineRequestTime = std::chrono::steady_clock::now(); }
+
     std::atomic<bool> streamlineDirty{false};
     std::atomic<bool> particleCountDirty{false};
 

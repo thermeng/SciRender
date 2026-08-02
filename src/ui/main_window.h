@@ -56,6 +56,10 @@ private:
     void connectSettings();
     void updateStatusBar();
     void updateQuickBarVisibility();
+    void applyTheme(AppTheme theme);
+    void rebuildSidebarStyles();
+    void rebuildQuickBarStyles();
+    ThemeColors currentColors() const;
 
     ::RenderSettings* m_settings = nullptr;
     ViewportWidget* m_viewport = nullptr;
@@ -75,6 +79,8 @@ private:
 
     // Icon strip buttons (indices 1-8 are section toggles)
     QVector<QToolButton*> m_iconButtons;
+    QWidget* m_iconStrip = nullptr;
+    QToolButton* m_closeBtn = nullptr;
 
     // Section pages
     QWidget* buildLightingPage();
@@ -115,4 +121,7 @@ private:
     QColorDialog* m_vectorColorDialog = nullptr;
     QColorDialog* m_streamlineColorDialog = nullptr;
     QColorDialog* m_seedColorDialog = nullptr;
+
+    // Theme
+    QActionGroup* m_themeGroup = nullptr;
 };
