@@ -245,7 +245,7 @@ static QComboBox* buildColormapCombo(int currentChoice, std::function<void(int)>
     combo->setItemDelegate(new PalettePreviewDelegate(combo));
     combo->setFixedHeight(kControlHeight);
     combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    combo->setMinimumWidth(kSidebarWidth - kLabelWidth - 28);
+    combo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
 
     int count = static_cast<int>(ColormapType::Count);
     for (int i = 0; i < count; ++i) {
@@ -853,6 +853,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
         slider->setRange(static_cast<int>(min * 10), static_cast<int>(max * 10));
         slider->setValue(static_cast<int>(val * 10));
         slider->setEnabled(checked && enabled);
+        slider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         connect(slider, &QSlider::valueChanged, m_settings, sliderSlot);
         connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
         rowLayout->addWidget(slider, 1);
@@ -998,6 +999,7 @@ QWidget* MainWindow::buildColormapPage() {
     m_scalarCombo->addItems(m_settings->getAvailableScalars());
     m_scalarCombo->setCurrentText(m_settings->getActiveScalarNameQml());
     m_scalarCombo->setEnabled(m_settings->hasMeshScalars());
+    m_scalarCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
     connect(m_scalarCombo, &QComboBox::activated, m_settings, [this](int idx) {
         m_settings->setActiveScalarField(m_scalarCombo->itemText(idx));
     });
@@ -1219,6 +1221,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     m_streamlineCombo = new QComboBox;
     m_streamlineCombo->addItems(m_settings->getAvailableVectors());
     m_streamlineCombo->setCurrentText(m_settings->getStreamlineVectorField());
+    m_streamlineCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
     connect(m_streamlineCombo, &QComboBox::activated, m_settings, [this](int) {
         m_settings->setStreamlineVectorField(m_streamlineCombo->currentText());
     });
@@ -1293,6 +1296,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     seedModeCombo->addItems({"Volume", "Surface", "Plane XY", "Plane XZ", "Plane YZ"});
     const QStringList modeKeys = {"Volume", "Surface", "PlaneXY", "PlaneXZ", "PlaneYZ"};
     seedModeCombo->setCurrentIndex(modeKeys.indexOf(m_settings->getSeedMode()));
+    seedModeCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
     connect(seedModeCombo, &QComboBox::activated, m_settings, [this, modeKeys](int idx) {
         m_settings->setSeedMode(modeKeys[idx]);
     });
