@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>StreamlinesPage</class>
+ <widget class="QWidget" name="StreamlinesPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QCheckBox" name="showCb">
+     <property name="text">
+      <string>Show streamlines</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="fieldHeader">
+     <property name="text">
+      <string>Field</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="streamlineCombo"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="stepSizeRow" native="true"/>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="maxStepsRow">
+     <item>
+      <widget class="QLabel" name="maxStepsLabel">
+       <property name="text">
+        <string>Max steps</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSpinBox" name="maxStepsSpin">
+       <property name="minimum">
+        <number>10</number>
+       </property>
+       <property name="maximum">
+        <number>500</number>
+       </property>
+       <property name="value">
+        <number>100</number>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QPushButton" name="integrateBtn">
+     <property name="text">
+      <string>Integrate</string>
+     </property>
+     <property name="objectName">
+      <string>secondaryButton</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="colorHeader">
+     <property name="text">
+      <string>Color</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="streamlineColorBtn">
+     <property name="text">
+      <string>Streamline</string>
+     </property>
+     <property name="objectName">
+      <string>swatchButton</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="slUseCmapCb">
+     <property name="text">
+      <string>Color by magnitude</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="slCmapCombo"/>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="slRevCb">
+     <property name="text">
+      <string>Reverse palette</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="seedingHeader">
+     <property name="text">
+      <string>Seeding</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="seedModeCombo"/>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="planePosRow">
+     <item>
+      <widget class="QLabel" name="planePosLabel">
+       <property name="text">
+        <string>Plane pos</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSlider" name="planePosSlider">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="minimum">
+        <number>0</number>
+       </property>
+       <property name="maximum">
+        <number>1000</number>
+       </property>
+       <property name="value">
+        <number>0</number>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="seedsURow">
+     <item>
+      <widget class="QLabel" name="seedsULabel">
+       <property name="text">
+        <string>Seeds U</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSpinBox" name="seedsUSpin">
+       <property name="minimum">
+        <number>1</number>
+       </property>
+       <property name="maximum">
+        <number>200</number>
+       </property>
+       <property name="value">
+        <number>10</number>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="seedsVRow">
+     <item>
+      <widget class="QLabel" name="seedsVLabel">
+       <property name="text">
+        <string>Seeds V</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSpinBox" name="seedsVSpin">
+       <property name="minimum">
+        <number>1</number>
+       </property>
+       <property name="maximum">
+        <number>200</number>
+       </property>
+       <property name="value">
+        <number>10</number>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QWidget" name="jitterRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="showSeedsCb">
+     <property name="text">
+      <string>Show seeds</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="seedSizeRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QPushButton" name="seedColorBtn">
+     <property name="text">
+      <string>Seed color</string>
+     </property>
+     <property name="objectName">
+      <string>swatchButton</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="appearanceHeader">
+     <property name="text">
+      <string>Appearance</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="opacityRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="ribbonWidthRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="taperFactorRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="dashCb">
+     <property name="text">
+      <string>Dash</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="dashSpeedRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QLabel" name="lightingHeader">
+     <property name="text">
+      <string>Lighting</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="streamlineAmbientRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="streamlineDiffuseRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="streamlineSpecularRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QSpinBox" name="specPowerSpin">
+     <property name="minimum">
+      <number>2</number>
+     </property>
+     <property name="maximum">
+      <number>128</number>
+     </property>
+     <property name="value">
+      <number>32</number>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="arrowsHeader">
+     <property name="text">
+      <string>Arrows</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="arrowsCb">
+     <property name="text">
+      <string>Show direction</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="arrowSpacingRow">
+     <item>
+      <widget class="QLabel" name="arrowSpacingLabel">
+       <property name="text">
+        <string>Arrow spacing</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSpinBox" name="arrowSpacingSpin">
+       <property name="minimum">
+        <number>2</number>
+       </property>
+       <property name="maximum">
+        <number>20</number>
+       </property>
+       <property name="value">
+        <number>5</number>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QWidget" name="arrowSizeRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QLabel" name="particlesHeader">
+     <property name="text">
+      <string>Particles</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="particlesCb">
+     <property name="text">
+      <string>Show Particles</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="particleCountRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="particleSpeedRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="particleSizeRow" native="true"/>
+   </item>
+  </layout>
+ </widget>
+</ui>

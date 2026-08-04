@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SlicingPage</class>
+ <widget class="QWidget" name="SlicingPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="slicingHeader">
+     <property name="text">
+      <string>Slicing</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="enableCb">
+     <property name="text">
+      <string>Enable slicing</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="optionsGroup" native="true">
+     <layout class="QVBoxLayout" name="optionsLayout">
+      <property name="spacing">
+       <number>4</number>
+      </property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <layout class="QHBoxLayout" name="axisRow">
+        <item>
+         <widget class="QCheckBox" name="axisX">
+          <property name="text">
+           <string>X</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="axisY">
+          <property name="text">
+           <string>Y</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="axisZ">
+          <property name="text">
+           <string>Z</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="cutLabel">
+        <property name="text">
+         <string>Cut planes (world units)</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">font-size: 11px; color: #858585;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="sliceXRow" native="true"/>
+      </item>
+      <item>
+       <widget class="QWidget" name="sliceYRow" native="true"/>
+      </item>
+      <item>
+       <widget class="QWidget" name="sliceZRow" native="true"/>
+      </item>
+      <item>
+       <widget class="QLabel" name="keepLabel">
+        <property name="text">
+         <string>Keep side</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">font-size: 11px; color: #858585;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="invRow">
+        <item>
+         <widget class="QCheckBox" name="invX">
+          <property name="text">
+           <string>Inv X</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="invY">
+          <property name="text">
+           <string>Inv Y</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="invZ">
+          <property name="text">
+           <string>Inv Z</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+</ui>

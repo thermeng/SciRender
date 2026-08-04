@@ -96,6 +96,15 @@ add_executable(SciRender
     src/ui/viewport_widget.h
     src/ui/main_window.cpp
     src/ui/main_window.h
+    src/ui/main_window.ui
+    src/ui/colormap_page.ui
+    src/ui/lighting_page.ui
+    src/ui/slicing_page.ui
+    src/ui/view_display_page.ui
+    src/ui/vectors_page.ui
+    src/ui/streamlines_page.ui
+    src/ui/screenshot_page.ui
+    src/ui/mesh_info_page.ui
     assets/app_icon.rc
 )
 

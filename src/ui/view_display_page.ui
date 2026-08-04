@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ViewDisplayPage</class>
+ <widget class="QWidget" name="ViewDisplayPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="cameraHeader">
+     <property name="text">
+      <string>Camera</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="camOptionsLayout">
+     <item>
+      <widget class="QCheckBox" name="parallelCb">
+       <property name="text">
+        <string>Parallel</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="autoRotateCb">
+       <property name="text">
+        <string>Auto-Rotate</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QPushButton" name="resetCamBtn">
+     <property name="text">
+      <string>Reset Camera</string>
+     </property>
+     <property name="objectName">
+      <string>secondaryButton</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="displayHeader">
+     <property name="text">
+      <string>Display Modes</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="wireframeRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="cellEdgeRow" native="true"/>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="flagsLayout">
+     <item>
+      <widget class="QCheckBox" name="surfaceCb">
+       <property name="text">
+        <string>Surface</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="pointsCb">
+       <property name="text">
+        <string>Points</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="refGridCb">
+       <property name="text">
+        <string>Reference Grid</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="bboxCb">
+       <property name="text">
+        <string>Bounding Box</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="defectsCb">
+       <property name="text">
+        <string>Defects</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QWidget" name="pointGroup" native="true">
+     <layout class="QVBoxLayout" name="pointLayout">
+      <property name="spacing">
+       <number>4</number>
+      </property>
+      <property name="leftMargin">
+       <number>8</number>
+      </property>
+      <property name="topMargin">
+       <number>2</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>2</number>
+      </property>
+      <item>
+       <widget class="QWidget" name="pointSizeRow" native="true"/>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="scalarCb">
+        <property name="text">
+         <string>Color by scalar</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="transparencyHeader">
+     <property name="text">
+      <string>Transparency &amp; Quality</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="surfaceOpacityRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="pointOpacityRow" native="true"/>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="subRowLayout">
+     <item>
+      <widget class="QCheckBox" name="gizmoCb">
+       <property name="text">
+        <string>Gizmo</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="fpsCb">
+       <property name="text">
+        <string>FPS HUD</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="colorsHeader">
+     <property name="text">
+      <string>Colors</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="colorLayout">
+     <item>
+      <widget class="QPushButton" name="wireframeColorBtn">
+       <property name="text">
+        <string>Wireframe</string>
+       </property>
+       <property name="objectName">
+        <string>swatchButton</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="surfaceColorBtn">
+       <property name="text">
+        <string>Surface</string>
+       </property>
+       <property name="objectName">
+        <string>swatchButton</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="bgColorBtn">
+       <property name="text">
+        <string>Background</string>
+       </property>
+       <property name="objectName">
+        <string>swatchButton</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+</ui>

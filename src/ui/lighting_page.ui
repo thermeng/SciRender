@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>LightingPage</class>
+ <widget class="QWidget" name="LightingPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QPushButton" name="resetBtn">
+     <property name="text">
+      <string>Reset</string>
+     </property>
+     <property name="objectName">
+      <string>secondaryButton</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="markersCb">
+     <property name="text">
+      <string>Light Markers</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="kitCb">
+     <property name="text">
+      <string>Light Kit</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="intensityHeader">
+     <property name="text">
+      <string>Intensity &amp; Tone</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="keyLightRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="warmthRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QLabel" name="ratiosHeader">
+     <property name="text">
+      <string>Light Ratios</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="fillKFRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="backKbRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="headKHRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QLabel" name="directionHeader">
+     <property name="text">
+      <string>Direction</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="directionTabs"/>
+   </item>
+   <item>
+    <widget class="QLabel" name="materialHeader">
+     <property name="text">
+      <string>Material</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="ambientRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="diffuseRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="specularRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="shininessRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="roughnessRow" native="true"/>
+   </item>
+   <item>
+    <widget class="QWidget" name="metallicRow" native="true"/>
+   </item>
+  </layout>
+ </widget>
+</ui>
