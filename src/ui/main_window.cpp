@@ -773,6 +773,8 @@ QWidget* MainWindow::buildLightingPage() {
         });
     }
 
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+
     scroll->setWidget(content);
 
     auto* wrapper = new QWidget;
@@ -1030,6 +1032,8 @@ QWidget* MainWindow::buildViewDisplayPage() {
     content->layout()->replaceWidget(viewUi.bgColorBtn, createColorButton("Background", m_settings->getBgColorQml(), &m_bgColorDialog, &RenderSettings::setBgColorQml));
     delete viewUi.bgColorBtn;
 
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+
     scroll->setWidget(content);
 
     auto* wrapper = new QWidget;
@@ -1158,6 +1162,8 @@ QWidget* MainWindow::buildColormapPage() {
         }
     });
 
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+
     scroll->setWidget(content);
 
     auto* wrapper = new QWidget;
@@ -1261,6 +1267,8 @@ QWidget* MainWindow::buildVectorsPage() {
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setStyleSheet("QScrollArea { border: none; }");
+    qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
+
     scroll->setWidget(page);
 
     auto* wrapper = new QWidget;
@@ -1565,6 +1573,8 @@ QWidget* MainWindow::buildStreamlinesPage() {
         });
     }
 
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+
     scroll->setWidget(content);
 
     auto* wrapper = new QWidget;
@@ -1595,6 +1605,8 @@ QWidget* MainWindow::buildScreenshotPage() {
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setStyleSheet("QScrollArea { border: none; }");
+    qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
+
     scroll->setWidget(page);
 
     auto* wrapper = new QWidget;
@@ -1658,6 +1670,8 @@ QWidget* MainWindow::buildMeshInfoPage() {
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setStyleSheet("QScrollArea { border: none; }");
+    qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
+
     scroll->setWidget(page);
 
     auto* wrapper = new QWidget;
