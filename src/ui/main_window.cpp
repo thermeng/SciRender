@@ -4,6 +4,7 @@
 #include "core/Colormaps.h"
 #include <QApplication>
 #include <QMenuBar>
+#include <QMenu>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -32,10 +33,20 @@
 #include <QActionGroup>
 #include <QAction>
 #include <QStyle>
+#include <QStyledItemDelegate>
 #include <QTimer>
 #include <QPainter>
 #include <QFile>
 #include <QTextStream>
+
+// ============================================================================
+// UI layout constants (mirrors MainWindow private members for use by free helpers)
+// ============================================================================
+static constexpr int kSidebarWidth = 220;
+static constexpr int kIconStripWidth = 48;
+static constexpr int kLabelWidth = 72;
+static constexpr int kControlHeight = 24;
+static constexpr int kValueFieldWidth = 48;
 
 // ============================================================================
 // Helper: Does a widget want typing/navigation keys (so viewport shortcuts
@@ -64,7 +75,7 @@ static SliderRow createLightSlider(const QString& label, double value, double fr
     layout->setSpacing(6);
 
     auto* lbl = new QLabel(label);
-    lbl->setFixedWidth(72);
+    lbl->    setFixedWidth(kLabelWidth);
     lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     lbl->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     lbl->setWordWrap(false);
@@ -112,7 +123,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
     layout->setSpacing(6);
 
     auto* lbl = new QLabel(label);
-    lbl->setFixedWidth(72);
+    lbl->    setFixedWidth(kLabelWidth);
     lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     lbl->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     lbl->setWordWrap(false);
@@ -125,7 +136,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
     layout->addWidget(row.slider, 1, Qt::AlignVCenter);
 
     row.field = new QLineEdit(QString::number(value, 'f', 3));
-    row.field->setFixedWidth(48);
+    row.field->    setFixedWidth(kValueFieldWidth);
     row.field->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     row.field->setStyleSheet(QString("font-size: 11px; background: %1; color: %2; border: 1px solid %1; border-radius: 2px; padding: 1px 4px;")
         .arg(currentThemeColors().inputBg.name(), currentThemeColors().textPrimary.name()));
@@ -157,7 +168,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
 // ============================================================================
 static QLabel* sectionHeader(const QString& text) {
     auto* lbl = new QLabel(text);
-    lbl->setStyleSheet(QString("font-size: 11px; font-weight: bold; color: %1; padding-top: 2px;").arg(currentThemeColors().accent.name()));
+    lbl->setStyleSheet(QString("font-size: 11px; font-weight: bold; color: %1; padding: 4px 0 2px 0;").arg(currentThemeColors().accent.name()));
     return lbl;
 }
 
@@ -166,7 +177,7 @@ static QLabel* sectionHeader(const QString& text) {
 // ============================================================================
 static QPushButton* createSwatchButton(const QString& text, const QColor& color, std::function<void()> onClicked) {
     auto* btn = new QPushButton(text);
-    btn->setFixedHeight(24);
+    btn->    setFixedHeight(kControlHeight);
     btn->setObjectName("swatchButton");
     QPixmap pix(14, 14);
     pix.fill(color);
@@ -180,78 +191,71 @@ static QPushButton* createSwatchButton(const QString& text, const QColor& color,
     return btn;
 }
 
-// ============================================================================
-// Helper: Colormap preview pixmap (gradient + name label)
-// ============================================================================
-static QPixmap generateColormapPreview(int index, int w = 100, int h = 24) {
-    QImage img(w, h, QImage::Format_RGB888);
-    ColormapType type = static_cast<ColormapType>(index);
-    for (int x = 0; x < w; ++x) {
-        float t = static_cast<float>(x) / static_cast<float>(w - 1);
-        glm::vec3 c = Colormaps::evaluate(t, type);
-        int r = static_cast<int>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
-        int g = static_cast<int>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
-        int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
-        for (int y = 0; y < h; ++y) img.setPixel(x, y, qRgb(r, g, b));
-    }
-    {
-        QPainter p(&img);
-        p.setRenderHint(QPainter::TextAntialiasing, true);
-        QFont f("Sans", 10, QFont::Bold);
-        f.setStretch(QFont::Condensed);
-        p.setFont(f);
-        QRect r(0, 0, w, h);
-        QString name = QString::fromUtf8(Colormaps::getName(type));
-        p.setPen(Qt::black);
-        p.drawText(r.translated(1, 1), Qt::AlignCenter, name);
-        p.setPen(Qt::white);
-        p.drawText(r, Qt::AlignCenter, name);
-    }
-    return QPixmap::fromImage(img);
-}
+class PalettePreviewDelegate : public QStyledItemDelegate {
+public:
+    explicit PalettePreviewDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
 
-// Helper: Build a 2-column colormap swatch grid wired to a callback
-static QGridLayout* buildColormapGrid(int currentChoice, std::function<void(int)> onChoose) {
-    auto* grid = new QGridLayout;
-    grid->setHorizontalSpacing(4);
-    grid->setVerticalSpacing(4);
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        painter->save();
+
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+
+        QStyle* style = opt.widget ? opt.widget->style() : QApplication::style();
+        style->drawPrimitive(QStyle::PE_PanelItemViewItem, &opt, painter, opt.widget);
+
+        int colormapIndex = index.row();
+        ColormapType type = static_cast<ColormapType>(colormapIndex);
+
+        int previewWidth = 56;
+        int previewHeight = 14;
+        int margin = 4;
+        QRect previewRect(opt.rect.left() + margin,
+                         opt.rect.top() + (opt.rect.height() - previewHeight) / 2,
+                         previewWidth, previewHeight);
+
+        QImage img(previewWidth, previewHeight, QImage::Format_RGB888);
+        for (int x = 0; x < previewWidth; ++x) {
+            float t = static_cast<float>(x) / static_cast<float>(previewWidth - 1);
+            glm::vec3 c = Colormaps::evaluate(t, type);
+            int r = static_cast<int>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
+            int g = static_cast<int>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
+            int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
+            for (int y = 0; y < previewHeight; ++y) img.setPixel(x, y, qRgb(r, g, b));
+        }
+        painter->drawImage(previewRect, img);
+
+        QString name = QString::fromUtf8(Colormaps::getName(type));
+        painter->setPen(opt.palette.color(QPalette::Text));
+        painter->drawText(opt.rect.adjusted(previewRect.right() + 6, 0, -margin, 0),
+                         Qt::AlignVCenter | Qt::AlignLeft, name);
+
+        painter->restore();
+    }
+
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        Q_UNUSED(option);
+        Q_UNUSED(index);
+        return QSize(180, kControlHeight);
+    }
+};
+
+static QComboBox* buildColormapCombo(int currentChoice, std::function<void(int)> onChoose) {
+    auto* combo = new QComboBox;
+    combo->setItemDelegate(new PalettePreviewDelegate(combo));
+    combo->setFixedHeight(kControlHeight);
+    combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    combo->setMinimumWidth(kSidebarWidth - kLabelWidth - 28);
+
     int count = static_cast<int>(ColormapType::Count);
     for (int i = 0; i < count; ++i) {
-        auto* btn = new QPushButton;
-        btn->setFixedSize(96, 24);
-        btn->setIcon(generateColormapPreview(i, 92, 20));
-        btn->setIconSize(QSize(92, 20));
-        btn->setCheckable(true);
-        btn->setChecked(i == currentChoice);
-        btn->setStyleSheet(
-            QString(
-            "QPushButton { border: 2px solid transparent; border-radius: 2px; padding: 0px; }"
-            "QPushButton:checked { border: 2px solid %1; }"
-            "QPushButton:hover { border: 2px solid %2; }"
-            ).arg(
-                currentThemeColors().accent.name(),
-                currentThemeColors().accentHover.name()
-            )
-        );
-        QObject::connect(btn, &QPushButton::clicked, [onChoose, i, btn, grid]() {
-            // Enforce single selection: uncheck all other buttons in this grid
-            const int n = grid->count();
-            for (int j = 0; j < n; ++j) {
-                if (QLayoutItem* item = grid->itemAt(j)) {
-                    if (QWidget* w = item->widget()) {
-                        if (QPushButton* other = qobject_cast<QPushButton*>(w)) {
-                            if (other != btn) {
-                                other->setChecked(false);
-                            }
-                        }
-                    }
-                }
-            }
-            onChoose(i);
-        });
-        grid->addWidget(btn, i / 2, i % 2);
+        combo->addItem(QString::fromUtf8(Colormaps::getName(static_cast<ColormapType>(i))));
     }
-    return grid;
+    combo->setCurrentIndex(currentChoice);
+
+    QObject::connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                     [onChoose](int idx) { if (idx >= 0) onChoose(idx); });
+    return combo;
 }
 
 // ============================================================================
@@ -549,6 +553,8 @@ void MainWindow::setupSidebar() {
     mainLayout->addWidget(m_rightPanel, 1);
 
     m_sidebarDock->setWidget(m_sidebarWidget);
+    m_sidebarDock->setMinimumWidth(kIconStripWidth);
+    m_sidebarDock->setMaximumWidth(kIconStripWidth + kSidebarWidth);
     addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
 }
 
@@ -565,7 +571,7 @@ QWidget* MainWindow::buildLightingPage() {
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(3);
+    layout->setSpacing(4);
 
     auto* resetBtn = new QPushButton("Reset");
     resetBtn->setObjectName("secondaryButton");
@@ -700,7 +706,7 @@ QWidget* MainWindow::buildSlicingPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(3);
+    layout->setSpacing(4);
 
     layout->addWidget(sectionHeader("Slicing"));
 
@@ -822,7 +828,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
 
     auto* resetCamBtn = new QPushButton("Reset All Camera Settings");
     resetCamBtn->setObjectName("secondaryButton");
-    resetCamBtn->setFixedHeight(24);
+    resetCamBtn->    setFixedHeight(kControlHeight);
     connect(resetCamBtn, &QPushButton::clicked, m_settings, &RenderSettings::resetCamera);
     layout->addWidget(resetCamBtn);
 
@@ -980,7 +986,7 @@ QWidget* MainWindow::buildColormapPage() {
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(3);
+    layout->setSpacing(4);
 
     auto* scalarColorCb = new QCheckBox("Color by scalar");
     scalarColorCb->setChecked(m_settings->getMeshUseScalarColor());
@@ -998,9 +1004,9 @@ QWidget* MainWindow::buildColormapPage() {
     layout->addWidget(m_scalarCombo);
 
     layout->addWidget(sectionHeader("Palette"));
-    auto* cmapGrid = buildColormapGrid(m_settings->getColormapChoice(),
+    auto* cmapCombo = buildColormapCombo(m_settings->getColormapChoice(),
         [this](int i) { m_settings->setColormapChoice(i); });
-    layout->addLayout(cmapGrid);
+    layout->addWidget(cmapCombo);
 
     auto* reversedCb = new QCheckBox("Reverse palette");
     reversedCb->setChecked(m_settings->getColormapReversed());
@@ -1015,7 +1021,7 @@ QWidget* MainWindow::buildColormapPage() {
     layout->addWidget(sectionHeader("Colorbar"));
     auto* ticksRow = new QHBoxLayout;
     auto* ticksLabel = new QLabel("Ticks");
-    ticksLabel->setFixedWidth(72);
+    ticksLabel->    setFixedWidth(kLabelWidth);
     ticksLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     ticksLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     ticksRow->addWidget(ticksLabel);
@@ -1092,7 +1098,7 @@ QWidget* MainWindow::buildVectorsPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(3);
+    layout->setSpacing(4);
 
     auto* showCb = new QCheckBox("Show vectors");
     showCb->setChecked(m_settings->getShowVectors());
@@ -1155,9 +1161,9 @@ QWidget* MainWindow::buildVectorsPage() {
     connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorUseColormap);
     optLayout->addWidget(useCmapCb);
 
-    auto* vCmapGrid = buildColormapGrid(m_settings->getVectorColormapChoice(),
+    auto* vCmapCombo = buildColormapCombo(m_settings->getVectorColormapChoice(),
         [this](int i) { m_settings->setVectorColormapChoice(i); });
-    optLayout->addLayout(vCmapGrid);
+    optLayout->addWidget(vCmapCombo);
 
     // Reverse palette
     auto* revCb = new QCheckBox("Reverse palette");
@@ -1198,7 +1204,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     auto* content = new QWidget;
     auto* layout = new QVBoxLayout(content);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(3);
+    layout->setSpacing(4);
 
     auto* showCb = new QCheckBox("Show streamlines");
     showCb->setChecked(m_settings->getShowStreamlines());
@@ -1225,7 +1231,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* maxStepsRow = new QHBoxLayout;
     auto* maxStepsLabel = new QLabel("Max steps");
-    maxStepsLabel->setFixedWidth(72);
+    maxStepsLabel->    setFixedWidth(kLabelWidth);
     maxStepsLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     maxStepsLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     maxStepsRow->addWidget(maxStepsLabel);
@@ -1237,7 +1243,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     layout->addLayout(maxStepsRow);
 
     auto* integrateBtn = new QPushButton("Integrate");
-    integrateBtn->setMinimumHeight(24);
+    integrateBtn->    setFixedHeight(kControlHeight);
     connect(integrateBtn, &QPushButton::clicked, this, [this]() {
         m_settings->backend()->markStreamlineDirty();
         m_viewport->update();
@@ -1269,9 +1275,9 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(slUseCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineUseColormap);
     layout->addWidget(slUseCmapCb);
 
-    auto* slCmapGrid = buildColormapGrid(m_settings->getStreamlineColormapChoice(),
+    auto* slCmapCombo = buildColormapCombo(m_settings->getStreamlineColormapChoice(),
         [this](int i) { m_settings->setStreamlineColormapChoice(i); });
-    layout->addLayout(slCmapGrid);
+    layout->addWidget(slCmapCombo);
 
     auto* slRevCb = new QCheckBox("Reverse palette");
     slRevCb->setChecked(m_settings->getStreamlineColormapReversed());
@@ -1294,7 +1300,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* planePosRow = new QHBoxLayout;
     auto* planePosLabel = new QLabel("Plane pos");
-    planePosLabel->setFixedWidth(72);
+    planePosLabel->    setFixedWidth(kLabelWidth);
     planePosLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     planePosLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     planePosRow->addWidget(planePosLabel);
@@ -1307,7 +1313,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* seedsURow = new QHBoxLayout;
     auto* seedsULabel = new QLabel("Seeds U");
-    seedsULabel->setFixedWidth(72);
+    seedsULabel->    setFixedWidth(kLabelWidth);
     seedsULabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     seedsULabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     seedsURow->addWidget(seedsULabel);
@@ -1320,7 +1326,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* seedsVRow = new QHBoxLayout;
     auto* seedsVLabel = new QLabel("Seeds V");
-    seedsVLabel->setFixedWidth(72);
+    seedsVLabel->    setFixedWidth(kLabelWidth);
     seedsVLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     seedsVLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     seedsVRow->addWidget(seedsVLabel);
@@ -1420,7 +1426,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* arrowSpacingRow = new QHBoxLayout;
     auto* arrowSpacingLabel = new QLabel("Arrow spacing");
-    arrowSpacingLabel->setFixedWidth(72);
+    arrowSpacingLabel->    setFixedWidth(kLabelWidth);
     arrowSpacingLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
     arrowSpacingLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     arrowSpacingRow->addWidget(arrowSpacingLabel);
@@ -1474,7 +1480,7 @@ QWidget* MainWindow::buildScreenshotPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(3);
+    layout->setSpacing(4);
 
     auto* saveBtn = new QPushButton("Save Screenshot");
     connect(saveBtn, &QPushButton::clicked, this, &MainWindow::saveScreenshot);
@@ -1508,13 +1514,13 @@ QWidget* MainWindow::buildMeshInfoPage() {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(3);
+    layout->setSpacing(4);
     m_meshInfoLabels.clear();
 
     auto addInfoRow = [this, layout](const QString& label, const QString& value, const QString& color = currentThemeColors().textPrimary.name()) {
         auto* row = new QHBoxLayout;
         auto* lbl = new QLabel(label);
-        lbl->setFixedWidth(72);
+        lbl->    setFixedWidth(kLabelWidth);
         lbl->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
         auto* val = new QLabel(value);
         val->setObjectName("mvp:" + label);
@@ -1655,6 +1661,7 @@ void MainWindow::setSidebarSection(int section) {
         }
     }
     m_settings->setSidebarWidth(m_sidebarExpanded ? kIconStripWidth + kSidebarWidth : kIconStripWidth);
+    m_sidebarDock->setFixedWidth(m_sidebarExpanded ? kIconStripWidth + kSidebarWidth : kIconStripWidth);
 }
 
 // ============================================================================
