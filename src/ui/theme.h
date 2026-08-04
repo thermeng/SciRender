@@ -488,7 +488,7 @@ inline QString buttonStylesheet(const ThemeColors& c) {
         QToolButton:disabled { color: %7; }
     )")
     .arg(c.buttonBg.name())          // %1  button bg
-    .arg(c.buttonText.name())        // %2  button text (was: selectionText — WRONG)
+    .arg(c.buttonText.name())        // %2  button text
     .arg(c.buttonBorder.name())      // %3  button border
     .arg(c.accentHover.name())       // %4  hover border / focus border
     .arg(c.buttonPressed.name())     // %5  pressed

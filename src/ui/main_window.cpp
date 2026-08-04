@@ -1249,7 +1249,8 @@ QWidget* MainWindow::buildStreamlinesPage() {
     layout->addLayout(maxStepsRow);
 
     auto* integrateBtn = new QPushButton("Integrate");
-    integrateBtn->    setFixedHeight(kControlHeight);
+    integrateBtn->setObjectName("secondaryButton");
+    integrateBtn->setFixedHeight(kControlHeight);
     connect(integrateBtn, &QPushButton::clicked, this, [this]() {
         m_settings->backend()->markStreamlineDirty();
         m_viewport->update();
@@ -1490,6 +1491,7 @@ QWidget* MainWindow::buildScreenshotPage() {
     layout->setSpacing(4);
 
     auto* saveBtn = new QPushButton("Save Screenshot");
+    saveBtn->setObjectName("secondaryButton");
     connect(saveBtn, &QPushButton::clicked, this, &MainWindow::saveScreenshot);
     layout->addWidget(saveBtn);
 
