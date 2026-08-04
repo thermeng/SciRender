@@ -177,7 +177,8 @@ static QLabel* sectionHeader(const QString& text) {
 // ============================================================================
 static QPushButton* createSwatchButton(const QString& text, const QColor& color, std::function<void()> onClicked) {
     auto* btn = new QPushButton(text);
-    btn->    setFixedHeight(kControlHeight);
+    btn->setFixedHeight(kControlHeight);
+    btn->setMinimumWidth(kSidebarWidth - kIconStripWidth - 36);
     btn->setObjectName("swatchButton");
     QPixmap pix(14, 14);
     pix.fill(color);
@@ -826,9 +827,9 @@ QWidget* MainWindow::buildViewDisplayPage() {
     camOptionsLayout->addWidget(rotateCb);
     layout->addLayout(camOptionsLayout);
 
-    auto* resetCamBtn = new QPushButton("Reset All Camera Settings");
+    auto* resetCamBtn = new QPushButton("Reset Camera");
     resetCamBtn->setObjectName("secondaryButton");
-    resetCamBtn->    setFixedHeight(kControlHeight);
+    resetCamBtn->setFixedHeight(kControlHeight);
     connect(resetCamBtn, &QPushButton::clicked, m_settings, &RenderSettings::resetCamera);
     layout->addWidget(resetCamBtn);
 
@@ -839,9 +840,11 @@ QWidget* MainWindow::buildViewDisplayPage() {
 
     auto createModeRow = [this](const QString& text, bool checked, bool enabled,
                                 double val, double min, double max,
-                                auto toggleSlot, auto sliderSlot) {
-        auto* rowLayout = new QHBoxLayout;
+                                auto toggleSlot, auto sliderSlot) -> QWidget* {
+        auto* rowWidget = new QWidget;
+        auto* rowLayout = new QHBoxLayout(rowWidget);
         rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(4);
 
         auto* cb = new QCheckBox(text);
         cb->setChecked(checked);
@@ -858,29 +861,29 @@ QWidget* MainWindow::buildViewDisplayPage() {
         connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
         rowLayout->addWidget(slider, 1);
 
-        return rowLayout;
+        rowWidget->setFixedHeight(kControlHeight);
+        rowWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        return rowWidget;
     };
 
     // Wireframe
-    layout->addLayout(createModeRow("Wireframe", m_settings->isWireframe(), true,
+    layout->addWidget(createModeRow("Wireframe", m_settings->isWireframe(), true,
                                     m_settings->getLineWidth(), 1.0, 10.0,
                                     &RenderSettings::setWireframe, [this](int v) { m_settings->setLineWidth(v / 10.0); }));
 
     // Cell Edge
-    layout->addLayout(createModeRow("Cell Edge", m_settings->getShowCellEdges(), m_settings->getSupportsCellGrid(),
+    layout->addWidget(createModeRow("Cell Edge", m_settings->getShowCellEdges(), m_settings->getSupportsCellGrid(),
                                     m_settings->getCellEdgeLineWidth(), 1.0, 10.0,
                                     &RenderSettings::setShowCellEdges, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); }));
 
-    // Simple checkboxes grid or vertical flow for standard toggles
-    auto* flagsLayout = new QGridLayout;
-    int flagIdx = 0;
+    // Simple checkboxes in a single-column flow to avoid overflow
+    auto* flagsLayout = new QVBoxLayout;
 
     auto addFlagCb = [&](const QString& text, bool checked, auto slot) {
         auto* cb = new QCheckBox(text);
         cb->setChecked(checked);
         connect(cb, &QCheckBox::toggled, m_settings, slot);
-        flagsLayout->addWidget(cb, flagIdx / 2, flagIdx % 2);
-        flagIdx++;
+        flagsLayout->addWidget(cb);
         return cb;
     };
 
@@ -895,7 +898,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
     // Point controls (conditional)
     auto* pointGroup = new QWidget;
     auto* pointLayout = new QVBoxLayout(pointGroup);
-    pointLayout->setContentsMargins(12, 2, 0, 2); // Indented for hierarchy
+    pointLayout->setContentsMargins(8, 2, 0, 2); // Indented for hierarchy
     {
         auto row = createLightSlider("Size", m_settings->getPointSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setPointSize(v); });
         pointLayout->addWidget(row.slider->parentWidget());
@@ -940,7 +943,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
     // 4. COLORS SECTION (Swatch Grid)
     // ==========================================
     layout->addWidget(sectionHeader("Colors"));
-    auto* colorLayout = new QHBoxLayout;
+    auto* colorLayout = new QVBoxLayout;
 
     auto createColorButton = [this](const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
         auto* btn = createSwatchButton(name, initialColor, nullptr);
