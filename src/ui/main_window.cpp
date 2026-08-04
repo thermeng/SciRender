@@ -168,7 +168,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
 // ============================================================================
 static QLabel* sectionHeader(const QString& text) {
     auto* lbl = new QLabel(text);
-    lbl->setStyleSheet(QString("font-size: 11px; font-weight: bold; color: %1; padding: 4px 0 2px 0;").arg(currentThemeColors().accent.name()));
+    lbl->setStyleSheet(QString("font-size: 11px; font-weight: bold; color: %1; padding: 4px 0 6px 0; border-bottom: 1px solid %2;").arg(currentThemeColors().accent.name(), currentThemeColors().borderLight.name()));
     return lbl;
 }
 
