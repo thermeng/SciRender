@@ -94,9 +94,13 @@ inline ThemeColors getThemeColors(AppTheme theme) {
         return {
             // Window & panels
             QColor("#f0f0f0"),       // windowBg
-            QColor("#ffffff"),       // panelBg
-            QColor("#ffffff"),       // surfaceBg
-            QColor("#ffffff"),       // tooltipBg
+            QColor("#f0f0f0"),
+            QColor("#f0f0f0"),
+            QColor("#f0f0f0"),
+
+            // QColor("#ffffff"),       // panelBg
+            // QColor("#ffffff"),       // surfaceBg
+            // QColor("#ffffff"),       // tooltipBg
 
             // Borders
             QColor("#d0d0d0"),       // border

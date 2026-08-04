@@ -92,7 +92,7 @@
       <item>
        <widget class="QLabel" name="cutLabel">
         <property name="styleSheet">
-         <string notr="true">font-size: 11px; color: #858585;</string>
+         <string notr="true">font-size: 11px; </string>
         </property>
         <property name="text">
          <string>Cut planes (world units)</string>
@@ -153,7 +153,7 @@
       <item>
        <widget class="QLabel" name="keepLabel">
         <property name="styleSheet">
-         <string notr="true">font-size: 11px; color: #858585;</string>
+         <string notr="true">font-size: 11px; </string>
         </property>
         <property name="text">
          <string>Keep side</string>
