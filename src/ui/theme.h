@@ -275,30 +275,8 @@ inline QString rgbaStr(const QColor& c) {
         .arg(c.red()).arg(c.green()).arg(c.blue()).arg(c.alphaF(), 0, 'f', 2);
 }
 
-inline QPalette buildPalette(const ThemeColors& c) {
-    QPalette p;
-    p.setColor(QPalette::Window,              c.windowBg);
-    p.setColor(QPalette::WindowText,          c.textPrimary);
-    p.setColor(QPalette::Base,                c.surfaceBg);
-    p.setColor(QPalette::AlternateBase,       c.panelBg);
-    p.setColor(QPalette::ToolTipBase,         c.tooltipBg);
-    p.setColor(QPalette::ToolTipText,         c.textPrimary);
-    p.setColor(QPalette::Text,                c.textPrimary);
-    p.setColor(QPalette::Button,              c.buttonBg);
-    p.setColor(QPalette::ButtonText,         c.textPrimary);  // was: c.buttonText (white in light theme → invisible combo text)
-    p.setColor(QPalette::BrightText,          c.textBright);
-    p.setColor(QPalette::Link,                c.accent);
-    p.setColor(QPalette::LinkVisited,         c.accentPressed);
-    p.setColor(QPalette::Highlight,           c.selectionBg);
-    p.setColor(QPalette::HighlightedText,     c.selectionText);
-    p.setColor(QPalette::Mid,                 c.border);
-    p.setColor(QPalette::Dark,                c.border);
-    p.setColor(QPalette::Light,               c.borderLight);
-    p.setColor(QPalette::Shadow,              c.border);
-    p.setColor(QPalette::Disabled, QPalette::WindowText, c.textDisabled);
-    p.setColor(QPalette::Disabled, QPalette::Text,      c.textDisabled);
-    p.setColor(QPalette::Disabled, QPalette::ButtonText, c.textDisabled);
-    return p;
+inline QPalette buildPalette(const ThemeColors&) {
+    return QPalette();
 }
 
 // ---------------------------------------------------------------------------
@@ -600,15 +578,6 @@ inline QString statusStylesheet(const ThemeColors& c) {
 // ---------------------------------------------------------------------------
 // Public entry point — concatenates all chunk helpers.
 // ---------------------------------------------------------------------------
-inline QString buildGlobalStylesheet(const ThemeColors& c) {
-    return menuStylesheet(c)
-        + sliderStylesheet(c)
-        + scrollbarStylesheet(c)
-        + inputStylesheet(c)
-        + checkboxStylesheet(c)
-         + buttonStylesheet(c)
-         + secondaryButtonStylesheet(c)
-         + swatchButtonStylesheet(c)
-         + tabStylesheet(c)
-        + statusStylesheet(c);
+inline QString buildGlobalStylesheet(const ThemeColors&) {
+    return {};
 }
