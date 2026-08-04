@@ -12,7 +12,7 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="spacing">
-    <number>4</number>
+    <number>7</number>
    </property>
    <property name="leftMargin">
     <number>10</number>
@@ -26,17 +26,20 @@
    <property name="bottomMargin">
     <number>8</number>
    </property>
-   <item>
+   <item alignment="Qt::AlignmentFlag::AlignTop">
     <widget class="QLabel" name="slicingHeader">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
      <property name="text">
       <string>Slicing</string>
      </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     <property name="alignment">
+      <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
      </property>
     </widget>
    </item>
-   <item>
+   <item alignment="Qt::AlignmentFlag::AlignTop">
     <widget class="QCheckBox" name="enableCb">
      <property name="text">
       <string>Enable slicing</string>
@@ -88,19 +91,16 @@
       </item>
       <item>
        <widget class="QLabel" name="cutLabel">
-        <property name="text">
-         <string>Cut planes (world units)</string>
-        </property>
         <property name="styleSheet">
          <string notr="true">font-size: 11px; color: #858585;</string>
+        </property>
+        <property name="text">
+         <string>Cut planes (world units)</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QSlider" name="sliceXSlider">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
         <property name="minimum">
          <number>0</number>
         </property>
@@ -109,14 +109,17 @@
         </property>
         <property name="value">
          <number>0</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="invertedAppearance">
+         <bool>false</bool>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QSlider" name="sliceYSlider">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
         <property name="minimum">
          <number>0</number>
         </property>
@@ -125,14 +128,14 @@
         </property>
         <property name="value">
          <number>0</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QSlider" name="sliceZSlider">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
         <property name="minimum">
          <number>0</number>
         </property>
@@ -142,15 +145,18 @@
         <property name="value">
          <number>0</number>
         </property>
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
        </widget>
       </item>
       <item>
        <widget class="QLabel" name="keepLabel">
-        <property name="text">
-         <string>Keep side</string>
-        </property>
         <property name="styleSheet">
          <string notr="true">font-size: 11px; color: #858585;</string>
+        </property>
+        <property name="text">
+         <string>Keep side</string>
         </property>
        </widget>
       </item>
@@ -184,4 +190,6 @@
    </item>
   </layout>
  </widget>
+ <resources/>
+ <connections/>
 </ui>

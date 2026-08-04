@@ -6,12 +6,9 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1024</width>
-    <height>768</height>
+    <width>879</width>
+    <height>590</height>
    </rect>
-  </property>
-  <property name="windowTitle">
-   <string>SciRender</string>
   </property>
   <property name="minimumSize">
    <size>
@@ -19,19 +16,24 @@
     <height>480</height>
    </size>
   </property>
+  <property name="windowTitle">
+   <string>SciRender</string>
+  </property>
   <widget class="QWidget" name="centralwidget"/>
   <widget class="QDockWidget" name="sidebarDock">
-   <property name="allowedAreas">
-    <set>Qt::LeftDockWidgetArea</set>
-   </property>
    <property name="features">
-    <set>QDockWidget::DockWidgetMovable</set>
-    <set>QDockWidget::DockWidgetFloatable</set>
+    <set>QDockWidget::DockWidgetFeature::DockWidgetFloatable</set>
+   </property>
+   <property name="allowedAreas">
+    <set>Qt::DockWidgetArea::LeftDockWidgetArea</set>
    </property>
    <property name="windowTitle">
     <string>Sidebar</string>
    </property>
-   <widget class="QWidget" name="sidebarContents" native="true">
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="sidebarContents">
     <layout class="QHBoxLayout" name="sidebarLayout">
      <property name="spacing">
       <number>0</number>
@@ -69,17 +71,14 @@
      </item>
     </layout>
    </widget>
-   <attribute name="dockWidgetArea">
-    <number>1</number>
-   </attribute>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1024</width>
-     <height>22</height>
+     <width>879</width>
+     <height>25</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
