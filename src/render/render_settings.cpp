@@ -121,7 +121,6 @@ void RenderSettings::resetCamera() {
     m_state.camera.maxDistance = std::max(1000.0, m_state.camera.distance * 50.0);
     m_state.camera.position = m_state.camera.focalPoint + glm::dvec3(0.0, 0.0, m_state.camera.distance);
     m_state.camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
-    m_state.camera.rollAngle = 0.0;
     m_state.camera.orthogonalizeViewUp();
     markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }

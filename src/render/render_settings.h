@@ -377,8 +377,6 @@ public:
     // next synchronize() copies it into the render-thread snapshot.
     Q_INVOKABLE void azimuth(double angle) { m_state.camera.azimuth(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
     Q_INVOKABLE void elevation(double angle) { m_state.camera.elevation(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
-    Q_INVOKABLE void roll(double angle) { m_state.camera.roll(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
-    double getRoll() const { return m_state.camera.getRollAngle(); }
     Q_INVOKABLE void pan(double dx, double dy) { m_state.camera.pan(dx, dy); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
     Q_INVOKABLE void dolly(double factor) { m_state.camera.dolly(factor); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
 

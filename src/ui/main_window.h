@@ -116,6 +116,12 @@ private:
     QComboBox* m_vectorCombo = nullptr;
     QComboBox* m_streamlineCombo = nullptr;
 
+    // Filter sliders (Colormap page)
+    QSlider* m_filterMinSlider = nullptr;
+    QLineEdit* m_filterMinField = nullptr;
+    QSlider* m_filterMaxSlider = nullptr;
+    QLineEdit* m_filterMaxField = nullptr;
+
     // Mesh info page (rebuilt on mesh load)
     QWidget* m_meshInfoPage = nullptr;
 
