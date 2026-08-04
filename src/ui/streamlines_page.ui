@@ -47,7 +47,38 @@
     <widget class="QComboBox" name="streamlineCombo"/>
    </item>
    <item>
-    <widget class="QWidget" name="stepSizeRow" native="true"/>
+    <widget class="QWidget" name="stepSizeRow">
+     <layout class="QHBoxLayout" name="stepSizeLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="stepSizeLabel">
+        <property name="text"><string>Step size</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="stepSizeSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="stepSizeValue">
+        <property name="text"><string>0.010</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <layout class="QHBoxLayout" name="maxStepsRow">
@@ -281,7 +312,38 @@
     </layout>
    </item>
    <item>
-    <widget class="QWidget" name="jitterRow" native="true"/>
+    <widget class="QWidget" name="jitterRow">
+     <layout class="QHBoxLayout" name="jitterLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="jitterLabel">
+        <property name="text"><string>Jitter</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="jitterSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="jitterValue">
+        <property name="text"><string>0.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QCheckBox" name="showSeedsCb">
@@ -291,7 +353,38 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="seedSizeRow" native="true"/>
+    <widget class="QWidget" name="seedSizeRow">
+     <layout class="QHBoxLayout" name="seedSizeLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="seedSizeLabel">
+        <property name="text"><string>Seed size</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="seedSizeSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="seedSizeValue">
+        <property name="text"><string>3.0</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QPushButton" name="seedColorBtn">
@@ -314,13 +407,106 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="opacityRow" native="true"/>
+    <widget class="QWidget" name="opacityRow">
+     <layout class="QHBoxLayout" name="opacityLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="opacityLabel">
+        <property name="text"><string>Opacity</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="opacitySlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="opacityValue">
+        <property name="text"><string>1.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="ribbonWidthRow" native="true"/>
+    <widget class="QWidget" name="ribbonWidthRow">
+     <layout class="QHBoxLayout" name="ribbonWidthLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="ribbonWidthLabel">
+        <property name="text"><string>Ribbon width</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="ribbonWidthSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="ribbonWidthValue">
+        <property name="text"><string>0.010</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="taperFactorRow" native="true"/>
+    <widget class="QWidget" name="taperFactorRow">
+     <layout class="QHBoxLayout" name="taperFactorLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="taperFactorLabel">
+        <property name="text"><string>Taper factor</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="taperFactorSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="taperFactorValue">
+        <property name="text"><string>0.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QCheckBox" name="dashCb">
@@ -330,7 +516,38 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="dashSpeedRow" native="true"/>
+    <widget class="QWidget" name="dashSpeedRow">
+     <layout class="QHBoxLayout" name="dashSpeedLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="dashSpeedLabel">
+        <property name="text"><string>Dash speed</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="dashSpeedSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="dashSpeedValue">
+        <property name="text"><string>1.0</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QLabel" name="lightingHeader">
@@ -343,13 +560,106 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="streamlineAmbientRow" native="true"/>
+    <widget class="QWidget" name="streamlineAmbientRow">
+     <layout class="QHBoxLayout" name="streamlineAmbientLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="streamlineAmbientLabel">
+        <property name="text"><string>Ambient</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="streamlineAmbientSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="streamlineAmbientValue">
+        <property name="text"><string>0.50</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="streamlineDiffuseRow" native="true"/>
+    <widget class="QWidget" name="streamlineDiffuseRow">
+     <layout class="QHBoxLayout" name="streamlineDiffuseLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="streamlineDiffuseLabel">
+        <property name="text"><string>Diffuse</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="streamlineDiffuseSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="streamlineDiffuseValue">
+        <property name="text"><string>0.50</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="streamlineSpecularRow" native="true"/>
+    <widget class="QWidget" name="streamlineSpecularRow">
+     <layout class="QHBoxLayout" name="streamlineSpecularLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="streamlineSpecularLabel">
+        <property name="text"><string>Specular</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="streamlineSpecularSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="streamlineSpecularValue">
+        <property name="text"><string>0.50</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QSpinBox" name="specPowerSpin">
@@ -424,7 +734,38 @@
     </layout>
    </item>
    <item>
-    <widget class="QWidget" name="arrowSizeRow" native="true"/>
+    <widget class="QWidget" name="arrowSizeRow">
+     <layout class="QHBoxLayout" name="arrowSizeLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="arrowSizeLabel">
+        <property name="text"><string>Arrow size</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="arrowSizeSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="arrowSizeValue">
+        <property name="text"><string>0.10</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QLabel" name="particlesHeader">
@@ -444,13 +785,106 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="particleCountRow" native="true"/>
+    <widget class="QWidget" name="particleCountRow">
+     <layout class="QHBoxLayout" name="particleCountLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="particleCountLabel">
+        <property name="text"><string>Particle count</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="particleCountSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="particleCountValue">
+        <property name="text"><string>500</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="particleSpeedRow" native="true"/>
+    <widget class="QWidget" name="particleSpeedRow">
+     <layout class="QHBoxLayout" name="particleSpeedLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="particleSpeedLabel">
+        <property name="text"><string>Particle speed</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="particleSpeedSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="particleSpeedValue">
+        <property name="text"><string>10.0</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="particleSizeRow" native="true"/>
+    <widget class="QWidget" name="particleSizeRow">
+     <layout class="QHBoxLayout" name="particleSizeLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="particleSizeLabel">
+        <property name="text"><string>Particle size</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="particleSizeSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="particleSizeValue">
+        <property name="text"><string>3.0</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
   </layout>
  </widget>
