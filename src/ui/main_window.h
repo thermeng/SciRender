@@ -77,6 +77,9 @@ private:
     bool m_sidebarExpanded = false;
     static constexpr int kSidebarWidth = 220;
     static constexpr int kIconStripWidth = 48;
+    static constexpr int kLabelWidth = 72;
+    static constexpr int kControlHeight = 24;
+    static constexpr int kValueFieldWidth = 48;
 
     // Panel header
     QWidget* m_panelHeader = nullptr;
