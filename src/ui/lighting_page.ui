@@ -56,7 +56,7 @@
       <string>Intensity &amp; Tone</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -73,7 +73,7 @@
         <property name="text"><string>Key Light</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -87,7 +87,7 @@
         <property name="text"><string>1.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -107,7 +107,7 @@
         <property name="text"><string>Warmth</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -121,7 +121,7 @@
         <property name="text"><string>0.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -134,7 +134,7 @@
       <string>Light Ratios</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -151,7 +151,7 @@
         <property name="text"><string>Fill K/F</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -165,7 +165,7 @@
         <property name="text"><string>5.0</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -185,7 +185,7 @@
         <property name="text"><string>Back K/B</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -199,7 +199,7 @@
         <property name="text"><string>5.0</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -219,7 +219,7 @@
         <property name="text"><string>Head K/H</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -233,7 +233,7 @@
         <property name="text"><string>5.0</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -246,7 +246,7 @@
       <string>Direction</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -259,7 +259,7 @@
       <string>Material</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -276,7 +276,7 @@
         <property name="text"><string>Ambient</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -290,7 +290,7 @@
         <property name="text"><string>0.50</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -310,7 +310,7 @@
         <property name="text"><string>Diffuse</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -324,7 +324,7 @@
         <property name="text"><string>0.50</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -344,7 +344,7 @@
         <property name="text"><string>Specular</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -358,7 +358,7 @@
         <property name="text"><string>0.50</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -378,7 +378,7 @@
         <property name="text"><string>Shininess</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -392,7 +392,7 @@
         <property name="text"><string>32</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -412,7 +412,7 @@
         <property name="text"><string>Roughness</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -426,7 +426,7 @@
         <property name="text"><string>0.50</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -446,7 +446,7 @@
         <property name="text"><string>Metallic</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -460,7 +460,7 @@
         <property name="text"><string>0.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>

@@ -39,7 +39,7 @@
    <item>
     <widget class="QLabel" name="fieldHeader">
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
      <property name="text">
       <string>Field</string>
@@ -52,7 +52,7 @@
    <item>
     <widget class="QLabel" name="paletteHeader">
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
      <property name="text">
       <string>Palette</string>
@@ -82,7 +82,7 @@
    <item>
     <widget class="QLabel" name="colorbarHeader">
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
      <property name="text">
       <string>Colorbar</string>
@@ -106,7 +106,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="text">
         <string>Ticks</string>
@@ -134,7 +134,7 @@
    <item>
     <widget class="QLabel" name="filterHeader">
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
      <property name="text">
       <string>Filter</string>
@@ -173,7 +173,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="text">
         <string>Min</string>
@@ -205,7 +205,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="text">
         <string>0.000</string>
@@ -249,7 +249,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="text">
         <string>Max</string>
@@ -281,7 +281,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="text">
         <string>1.000</string>
@@ -296,7 +296,7 @@
    <item>
     <widget class="QPushButton" name="resetFilterBtn">
      <property name="styleSheet">
-      <string notr="true">QPushButton { background: transparent; color: #cccccc; border: none; text-decoration: underline; font-size: 11px; padding: 2px 4px; } QPushButton:hover { color: #007acc; } QPushButton:pressed { color: #007acc; }</string>
+      <string notr="true">QPushButton { background: transparent;  border: none; text-decoration: underline; font-size: 11px; padding: 2px 4px; } QPushButton:hover {  } QPushButton:pressed {  }</string>
      </property>
      <property name="text">
       <string>Reset</string>

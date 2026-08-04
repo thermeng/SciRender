@@ -32,7 +32,7 @@
       <string>Camera</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -70,7 +70,7 @@
       <string>Display Modes</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -186,7 +186,7 @@
            <property name="text"><string>Size</string></property>
            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-           <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+           <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
            <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
           </widget>
          </item>
@@ -200,7 +200,7 @@
            <property name="text"><string>3.0</string></property>
            <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
            <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-           <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+           <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
           </widget>
          </item>
@@ -223,7 +223,7 @@
       <string>Transparency &amp; Quality</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -240,7 +240,7 @@
         <property name="text"><string>Surface Opacity</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -254,7 +254,7 @@
         <property name="text"><string>1.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -274,7 +274,7 @@
         <property name="text"><string>Point Opacity</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -288,7 +288,7 @@
         <property name="text"><string>1.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
@@ -319,7 +319,7 @@
       <string>Colors</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>

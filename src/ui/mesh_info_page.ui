@@ -32,7 +32,7 @@
       <string>Source</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -56,7 +56,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -72,7 +72,7 @@
         <string>mvp:Type</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -98,7 +98,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -114,7 +114,7 @@
         <string>mvp:Format</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -126,7 +126,7 @@
       <string>Geometry</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -150,7 +150,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -166,7 +166,7 @@
         <string>mvp:Triangles</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -192,7 +192,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -208,7 +208,7 @@
         <string>mvp:Points</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -220,7 +220,7 @@
       <string>Quality</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -244,7 +244,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -260,7 +260,7 @@
         <string>mvp:Degenerate</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #ff6666;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -286,7 +286,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -302,7 +302,7 @@
         <string>mvp:Open edges</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #ffaa44;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -328,7 +328,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -344,7 +344,7 @@
         <string>mvp:Non-manifold E</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #ff44ff;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -370,7 +370,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -386,7 +386,7 @@
         <string>mvp:Non-manifold V</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #ff44ff;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -412,7 +412,7 @@
         </size>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
        <property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
@@ -428,7 +428,7 @@
         <string>mvp:Watertight</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #ff6666;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -440,7 +440,7 @@
       <string>Bounding box</string>
      </property>
      <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>
     </widget>
    </item>
@@ -461,7 +461,7 @@
         <set>Qt::AlignCenter</set>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 10px; color: #858585;</string>
+        <string notr="true">font-size: 10px; </string>
        </property>
       </widget>
      </item>
@@ -474,7 +474,7 @@
         <set>Qt::AlignCenter</set>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 10px; color: #858585;</string>
+        <string notr="true">font-size: 10px; </string>
        </property>
       </widget>
      </item>
@@ -487,7 +487,7 @@
         <set>Qt::AlignCenter</set>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 10px; color: #858585;</string>
+        <string notr="true">font-size: 10px; </string>
        </property>
       </widget>
      </item>
@@ -497,7 +497,7 @@
         <string>Min</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -510,7 +510,7 @@
         <string>mvp:BB:Min:0</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -523,7 +523,7 @@
         <string>mvp:BB:Min:1</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -536,7 +536,7 @@
         <string>mvp:BB:Min:2</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -546,7 +546,7 @@
         <string>Max</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -559,7 +559,7 @@
         <string>mvp:BB:Max:0</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -572,7 +572,7 @@
         <string>mvp:BB:Max:1</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -585,7 +585,7 @@
         <string>mvp:BB:Max:2</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -595,7 +595,7 @@
         <string>Delta</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #858585;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -608,7 +608,7 @@
         <string>mvp:BB:Delta:0</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -621,7 +621,7 @@
         <string>mvp:BB:Delta:1</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
@@ -634,7 +634,7 @@
         <string>mvp:BB:Delta:2</string>
        </property>
        <property name="styleSheet">
-        <string notr="true">font-size: 11px; color: #cccccc;</string>
+        <string notr="true">font-size: 11px; </string>
        </property>
       </widget>
      </item>
