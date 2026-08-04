@@ -414,14 +414,11 @@ inline QString inputStylesheet(const ThemeColors& c) {
         }
         QSpinBox::up-button, QDoubleSpinBox::up-button {
             subcontrol-origin: padding; subcontrol-position: top right;
-            background-color: %1;
             border-bottom: 1px solid %3; width: 16px; height: 16px;
-            image: url(:/src/resources/icons/uparrow.svg);
         }
         QSpinBox::down-button, QDoubleSpinBox::down-button {
             subcontrol-origin: padding; subcontrol-position: bottom right;
-            background-color: %1; width: 16px; height: 16px;
-            image: url(:/src/resources/icons/downarrow.svg);
+            width: 16px; height: 16px;
         }
     )")
     .arg(c.inputBg.name())           // %1  background
