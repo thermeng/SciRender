@@ -600,6 +600,15 @@ inline QString statusStylesheet(const ThemeColors& c) {
 // ---------------------------------------------------------------------------
 // Public entry point — concatenates all chunk helpers.
 // ---------------------------------------------------------------------------
-inline QString buildGlobalStylesheet(const ThemeColors&) {
-    return {};
+inline QString buildGlobalStylesheet(const ThemeColors& c) {
+    return QStringLiteral(R"(
+        QWidget { color: %1; }
+        QMainWindow, QWidget { background-color: %2; }
+        QScrollArea { background-color: %2; border: none; }
+        QMenuBar, QMenu, QStatusBar, QDockWidget { background-color: %2; color: %1; }
+        QDockWidget::title { color: %1; }
+        QToolTip { color: %1; background-color: %2; }
+    )")
+    .arg(c.textPrimary.name())
+    .arg(c.windowBg.name());
 }
