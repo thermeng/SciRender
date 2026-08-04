@@ -75,10 +75,46 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="wireframeRow" native="true"/>
+    <widget class="QWidget" name="wireframeRow">
+     <layout class="QHBoxLayout" name="wireframeLayout">
+      <property name="spacing"><number>4</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QCheckBox" name="wireframeCb">
+        <property name="text"><string>Wireframe</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="wireframeSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="cellEdgeRow" native="true"/>
+    <widget class="QWidget" name="cellEdgeRow">
+     <layout class="QHBoxLayout" name="cellEdgeLayout">
+      <property name="spacing"><number>4</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QCheckBox" name="cellEdgeCb">
+        <property name="text"><string>Cell Edge</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="cellEdgeSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <layout class="QVBoxLayout" name="flagsLayout">
@@ -138,7 +174,38 @@
        <number>2</number>
       </property>
       <item>
-       <widget class="QWidget" name="pointSizeRow" native="true"/>
+       <widget class="QWidget" name="pointSizeRow">
+        <layout class="QHBoxLayout" name="pointSizeLayout">
+         <property name="spacing"><number>6</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QLabel" name="pointSizeLabel">
+           <property name="text"><string>Size</string></property>
+           <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+           <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+           <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSlider" name="pointSizeSlider">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="pointSizeValue">
+           <property name="text"><string>3.0</string></property>
+           <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+           <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+           <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
       </item>
       <item>
        <widget class="QCheckBox" name="scalarCb">
@@ -161,10 +228,72 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="surfaceOpacityRow" native="true"/>
+    <widget class="QWidget" name="surfaceOpacityRow">
+     <layout class="QHBoxLayout" name="surfaceOpacityLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="surfaceOpacityLabel">
+        <property name="text"><string>Surface Opacity</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="surfaceOpacitySlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="surfaceOpacityValue">
+        <property name="text"><string>1.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="pointOpacityRow" native="true"/>
+    <widget class="QWidget" name="pointOpacityRow">
+     <layout class="QHBoxLayout" name="pointOpacityLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="pointOpacityLabel">
+        <property name="text"><string>Point Opacity</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="pointOpacitySlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="pointOpacityValue">
+        <property name="text"><string>1.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <layout class="QHBoxLayout" name="subRowLayout">

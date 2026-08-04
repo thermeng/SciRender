@@ -61,10 +61,72 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="keyLightRow" native="true"/>
+    <widget class="QWidget" name="keyLightRow">
+     <layout class="QHBoxLayout" name="keyLightLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="keyLightLabel">
+        <property name="text"><string>Key Light</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="keyLightSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="keyLightValue">
+        <property name="text"><string>1.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="warmthRow" native="true"/>
+    <widget class="QWidget" name="warmthRow">
+     <layout class="QHBoxLayout" name="warmthLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="warmthLabel">
+        <property name="text"><string>Warmth</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="warmthSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="warmthValue">
+        <property name="text"><string>0.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QLabel" name="ratiosHeader">
@@ -77,13 +139,106 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="fillKFRow" native="true"/>
+    <widget class="QWidget" name="fillKFRow">
+     <layout class="QHBoxLayout" name="fillKFLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="fillKFLabel">
+        <property name="text"><string>Fill K/F</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="fillKfSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="fillKFValue">
+        <property name="text"><string>5.0</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="backKbRow" native="true"/>
+    <widget class="QWidget" name="backKbRow">
+     <layout class="QHBoxLayout" name="backKbLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="backKbLabel">
+        <property name="text"><string>Back K/B</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="backKbSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="backKbValue">
+        <property name="text"><string>5.0</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="headKHRow" native="true"/>
+    <widget class="QWidget" name="headKHRow">
+     <layout class="QHBoxLayout" name="headKHLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="headKHLabel">
+        <property name="text"><string>Head K/H</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="headKhSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="headKHValue">
+        <property name="text"><string>5.0</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QLabel" name="directionHeader">
@@ -109,22 +264,208 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="ambientRow" native="true"/>
+    <widget class="QWidget" name="ambientRow">
+     <layout class="QHBoxLayout" name="ambientLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="ambientLabel">
+        <property name="text"><string>Ambient</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="ambientSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="ambientValue">
+        <property name="text"><string>0.50</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="diffuseRow" native="true"/>
+    <widget class="QWidget" name="diffuseRow">
+     <layout class="QHBoxLayout" name="diffuseLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="diffuseLabel">
+        <property name="text"><string>Diffuse</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="diffuseSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="diffuseValue">
+        <property name="text"><string>0.50</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="specularRow" native="true"/>
+    <widget class="QWidget" name="specularRow">
+     <layout class="QHBoxLayout" name="specularLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="specularLabel">
+        <property name="text"><string>Specular</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="specularSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="specularValue">
+        <property name="text"><string>0.50</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="shininessRow" native="true"/>
+    <widget class="QWidget" name="shininessRow">
+     <layout class="QHBoxLayout" name="shininessLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="shininessLabel">
+        <property name="text"><string>Shininess</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="shininessSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="shininessValue">
+        <property name="text"><string>32</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="roughnessRow" native="true"/>
+    <widget class="QWidget" name="roughnessRow">
+     <layout class="QHBoxLayout" name="roughnessLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="roughnessLabel">
+        <property name="text"><string>Roughness</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="roughnessSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="roughnessValue">
+        <property name="text"><string>0.50</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="metallicRow" native="true"/>
+    <widget class="QWidget" name="metallicRow">
+     <layout class="QHBoxLayout" name="metallicLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="metallicLabel">
+        <property name="text"><string>Metallic</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="metallicSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="metallicValue">
+        <property name="text"><string>0.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 10px; color: #858585;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
   </layout>
  </widget>

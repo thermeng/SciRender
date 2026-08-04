@@ -142,10 +142,72 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="minFilterRow" native="true"/>
+    <widget class="QWidget" name="minFilterRow">
+     <layout class="QHBoxLayout" name="minFilterLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="minFilterLabel">
+        <property name="text"><string>Min</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="minFilterSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="minFilterField">
+        <property name="text"><string>0.000</string></property>
+        <property name="minimumSize"><size><width>52</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>52</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
-    <widget class="QWidget" name="maxFilterRow" native="true"/>
+    <widget class="QWidget" name="maxFilterRow">
+     <layout class="QHBoxLayout" name="maxFilterLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="maxFilterLabel">
+        <property name="text"><string>Max</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="maxFilterSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="maxFilterField">
+        <property name="text"><string>1.000</string></property>
+        <property name="minimumSize"><size><width>52</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>52</width><height>16777215</height></size></property>
+        <property name="styleSheet"><string notr="true">font-size: 11px; color: #cccccc;</string></property>
+        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QPushButton" name="resetFilterBtn">

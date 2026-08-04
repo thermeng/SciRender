@@ -600,17 +600,62 @@ QWidget* MainWindow::buildLightingPage() {
     kitCb->setChecked(m_settings->getLightKitEnabled());
     connect(kitCb, &QCheckBox::toggled, m_settings, &RenderSettings::setLightKitEnabled);
 
-    auto replaceRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
-        auto row = createLightSlider(label, value, from, to, step, decimals, cb);
-        content->layout()->replaceWidget(placeholder, row.slider->parentWidget());
-        delete placeholder;
-    };
 
-    replaceRow(lightingUi.keyLightRow, "Key Light", m_settings->getLightKeyIntensity(), 0, 1, 0.01, 1, [this](double v) { m_settings->setLightKeyIntensity(v); });
-    replaceRow(lightingUi.warmthRow, "Warmth", m_settings->getLightWarm(), 0, 1, 0.01, 1, [this](double v) { m_settings->setLightWarm(v); });
-    replaceRow(lightingUi.fillKFRow, "Fill K/F", m_settings->getLightKF(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKF(v); });
-    replaceRow(lightingUi.backKbRow, "Back K/B", m_settings->getLightKB(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKB(v); });
-    replaceRow(lightingUi.headKHRow, "Head K/H", m_settings->getLightKH(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKH(v); });
+        {
+        auto* slider = lightingUi.keyLightSlider;
+        auto* valueLabel = lightingUi.keyLightValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getLightKeyIntensity() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setLightKeyIntensity(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.warmthSlider;
+        auto* valueLabel = lightingUi.warmthValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getLightWarm() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setLightWarm(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.fillKfSlider;
+        auto* valueLabel = lightingUi.fillKFValue;
+        slider->setRange(1000, 15000);
+        slider->setValue(static_cast<int>(m_settings->getLightKF() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setLightKF(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.backKbSlider;
+        auto* valueLabel = lightingUi.backKbValue;
+        slider->setRange(1000, 15000);
+        slider->setValue(static_cast<int>(m_settings->getLightKB() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setLightKB(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.headKhSlider;
+        auto* valueLabel = lightingUi.headKHValue;
+        slider->setRange(1000, 15000);
+        slider->setValue(static_cast<int>(m_settings->getLightKH() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setLightKH(v);
+        });
+    }
 
     auto* tabWidget = lightingUi.directionTabs;
     tabWidget->setStyleSheet(
@@ -661,12 +706,72 @@ QWidget* MainWindow::buildLightingPage() {
         tabWidget->addTab(tab, QString::fromUtf8(lightNames[i]));
     }
 
-    replaceRow(lightingUi.ambientRow, "Ambient", m_settings->getMatAmbient(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatAmbient(v); });
-    replaceRow(lightingUi.diffuseRow, "Diffuse", m_settings->getMatDiffuse(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatDiffuse(v); });
-    replaceRow(lightingUi.specularRow, "Specular", m_settings->getMatSpecular(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatSpecular(v); });
-    replaceRow(lightingUi.shininessRow, "Shininess", m_settings->getMatShininess(), 1, 100, 1, 0, [this](double v) { m_settings->setMatShininess(v); });
-    replaceRow(lightingUi.roughnessRow, "Roughness", m_settings->getMatRoughness(), 0, 1, 0.01, 2, [this](double v) { m_settings->setMatRoughness(v); });
-    replaceRow(lightingUi.metallicRow, "Metallic", m_settings->getMatMetallic(), 0, 1, 0.01, 2, [this](double v) { m_settings->setMatMetallic(v); });
+        {
+        auto* slider = lightingUi.ambientSlider;
+        auto* valueLabel = lightingUi.ambientValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getMatAmbient() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setMatAmbient(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.diffuseSlider;
+        auto* valueLabel = lightingUi.diffuseValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getMatDiffuse() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setMatDiffuse(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.specularSlider;
+        auto* valueLabel = lightingUi.specularValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getMatSpecular() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setMatSpecular(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.shininessSlider;
+        auto* valueLabel = lightingUi.shininessValue;
+        slider->setRange(1000, 100000);
+        slider->setValue(static_cast<int>(m_settings->getMatShininess() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 0));
+            m_settings->setMatShininess(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.roughnessSlider;
+        auto* valueLabel = lightingUi.roughnessValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getMatRoughness() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setMatRoughness(v);
+        });
+    }
+        {
+        auto* slider = lightingUi.metallicSlider;
+        auto* valueLabel = lightingUi.metallicValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getMatMetallic() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setMatMetallic(v);
+        });
+    }
 
     scroll->setWidget(content);
 
@@ -699,18 +804,33 @@ QWidget* MainWindow::buildSlicingPage() {
     connect(cbY, &QCheckBox::toggled, m_settings, &RenderSettings::setSliceEnabledY);
     connect(cbZ, &QCheckBox::toggled, m_settings, &RenderSettings::setSliceEnabledZ);
 
-    auto replaceRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, std::function<void(double)> cb) {
-        auto row = createClipSlider(label, value, from, to, cb);
-        slicingUi.optionsGroup->layout()->replaceWidget(placeholder, row.slider->parentWidget());
-        delete placeholder;
-    };
-
-    replaceRow(slicingUi.sliceXRow, "Slice X", m_settings->getSliceX(), m_settings->getWorldMinX(), m_settings->getWorldMaxX(),
-        [this](double v) { m_settings->setSliceX(v); });
-    replaceRow(slicingUi.sliceYRow, "Slice Y", m_settings->getSliceY(), m_settings->getWorldMinY(), m_settings->getWorldMaxY(),
-        [this](double v) { m_settings->setSliceY(v); });
-    replaceRow(slicingUi.sliceZRow, "Slice Z", m_settings->getSliceZ(), m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(),
-        [this](double v) { m_settings->setSliceZ(v); });
+    {
+        auto* slider = slicingUi.sliceXSlider;
+        slider->setRange(static_cast<int>(m_settings->getWorldMinX() * 1000), static_cast<int>(m_settings->getWorldMaxX() * 1000));
+        slider->setValue(static_cast<int>(m_settings->getSliceX() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [this](int raw) {
+            double v = raw / 1000.0;
+            m_settings->setSliceX(v);
+        });
+    }
+    {
+        auto* slider = slicingUi.sliceYSlider;
+        slider->setRange(static_cast<int>(m_settings->getWorldMinY() * 1000), static_cast<int>(m_settings->getWorldMaxY() * 1000));
+        slider->setValue(static_cast<int>(m_settings->getSliceY() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [this](int raw) {
+            double v = raw / 1000.0;
+            m_settings->setSliceY(v);
+        });
+    }
+    {
+        auto* slider = slicingUi.sliceZSlider;
+        slider->setRange(static_cast<int>(m_settings->getWorldMinZ() * 1000), static_cast<int>(m_settings->getWorldMaxZ() * 1000));
+        slider->setValue(static_cast<int>(m_settings->getSliceZ() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [this](int raw) {
+            double v = raw / 1000.0;
+            m_settings->setSliceZ(v);
+        });
+    }
 
     auto* invX = slicingUi.invX;
     auto* invY = slicingUi.invY;
@@ -795,20 +915,32 @@ QWidget* MainWindow::buildViewDisplayPage() {
         return rowWidget;
     };
 
-    auto replaceModeRow = [&](QWidget* placeholder, const QString& text, bool checked, bool enabled,
-                              double val, double min, double max,
-                              auto toggleSlot, auto sliderSlot) {
-        auto rowWidget = createModeRow(text, checked, enabled, val, min, max, toggleSlot, sliderSlot);
-        content->layout()->replaceWidget(placeholder, rowWidget);
-        delete placeholder;
-    };
-
-    replaceModeRow(viewUi.wireframeRow, "Wireframe", m_settings->isWireframe(), true,
-                   m_settings->getLineWidth(), 1.0, 10.0,
-                   &RenderSettings::setWireframe, [this](int v) { m_settings->setLineWidth(v / 10.0); });
-    replaceModeRow(viewUi.cellEdgeRow, "Cell Edge", m_settings->getShowCellEdges(), m_settings->getSupportsCellGrid(),
-                   m_settings->getCellEdgeLineWidth(), 1.0, 10.0,
-                   &RenderSettings::setShowCellEdges, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); });
+    {
+        auto* cb = viewUi.wireframeCb;
+        auto* slider = viewUi.wireframeSlider;
+        cb->setChecked(m_settings->isWireframe());
+        cb->setEnabled(true);
+        connect(cb, &QCheckBox::toggled, m_settings, &RenderSettings::setWireframe);
+        slider->setRange(10, 100);
+        slider->setValue(static_cast<int>(m_settings->getLineWidth() * 10));
+        slider->setEnabled(m_settings->isWireframe());
+        slider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        connect(slider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setLineWidth(v / 10.0); });
+        connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
+    }
+    {
+        auto* cb = viewUi.cellEdgeCb;
+        auto* slider = viewUi.cellEdgeSlider;
+        cb->setChecked(m_settings->getShowCellEdges());
+        cb->setEnabled(m_settings->getSupportsCellGrid());
+        connect(cb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowCellEdges);
+        slider->setRange(10, 100);
+        slider->setValue(static_cast<int>(m_settings->getCellEdgeLineWidth() * 10));
+        slider->setEnabled(m_settings->getShowCellEdges() && m_settings->getSupportsCellGrid());
+        slider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        connect(slider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); });
+        connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
+    }
 
     auto* surfaceCb = viewUi.surfaceCb;
     auto* pointsCb = viewUi.pointsCb;
@@ -823,13 +955,17 @@ QWidget* MainWindow::buildViewDisplayPage() {
     viewUi.defectsCb->setChecked(m_settings->getShowQualityOverlay());
     connect(viewUi.defectsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowQualityOverlay);
 
-    auto replaceSliderRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
-        auto row = createLightSlider(label, value, from, to, step, decimals, cb);
-        content->layout()->replaceWidget(placeholder, row.slider->parentWidget());
-        delete placeholder;
-    };
-
-    replaceSliderRow(viewUi.pointSizeRow, "Size", m_settings->getPointSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setPointSize(v); });
+    {
+        auto* slider = viewUi.pointSizeSlider;
+        auto* valueLabel = viewUi.pointSizeValue;
+        slider->setRange(static_cast<int>(1 * 1000), static_cast<int>(20 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getPointSize() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setPointSize(v);
+        });
+    }
 
     auto* scalarCb = viewUi.scalarCb;
     scalarCb->setChecked(m_settings->getPointUseScalar());
@@ -838,8 +974,28 @@ QWidget* MainWindow::buildViewDisplayPage() {
     connect(pointsCb, &QCheckBox::toggled, viewUi.pointGroup, &QWidget::setVisible);
     viewUi.pointGroup->setVisible(m_settings->getShowPoints());
 
-    replaceSliderRow(viewUi.surfaceOpacityRow, "Surface Opacity", m_settings->getSurfaceOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setSurfaceOpacity(v); });
-    replaceSliderRow(viewUi.pointOpacityRow, "Point Opacity", m_settings->getPointOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setPointOpacity(v); });
+    {
+        auto* slider = viewUi.surfaceOpacitySlider;
+        auto* valueLabel = viewUi.surfaceOpacityValue;
+        slider->setRange(static_cast<int>(0.1 * 1000), static_cast<int>(1 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getSurfaceOpacity() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setSurfaceOpacity(v);
+        });
+    }
+    {
+        auto* slider = viewUi.pointOpacitySlider;
+        auto* valueLabel = viewUi.pointOpacityValue;
+        slider->setRange(static_cast<int>(0.1 * 1000), static_cast<int>(1 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getPointOpacity() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setPointOpacity(v);
+        });
+    }
 
     auto* gizmoCb = viewUi.gizmoCb;
     gizmoCb->setChecked(m_settings->isGizmoVisible());
@@ -927,22 +1083,53 @@ QWidget* MainWindow::buildColormapPage() {
     ticksSpin->setValue(m_settings->getColorbarTicks());
     connect(ticksSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setColorbarTicks);
 
-    // Replace filter row placeholders with actual sliders
     {
-        auto row = createClipSlider("Min", m_settings->getFilterMin(), m_settings->getDataScalarMinQml(), m_settings->getDataScalarMaxQml(),
-            [this](double v) { m_settings->setFilterMin(v); });
-        m_filterMinSlider = row.slider;
-        m_filterMinField = row.field;
-        content->layout()->replaceWidget(colormapUi.minFilterRow, row.slider->parentWidget());
-        delete colormapUi.minFilterRow;
+        auto* slider = colormapUi.minFilterSlider;
+        auto* field = colormapUi.minFilterField;
+        double minVal = m_settings->getDataScalarMinQml();
+        double maxVal = m_settings->getDataScalarMaxQml();
+        slider->setRange(static_cast<int>(minVal * 1000), static_cast<int>(maxVal * 1000));
+        slider->setValue(static_cast<int>(m_settings->getFilterMin() * 1000));
+        field->setText(QString::number(m_settings->getFilterMin(), 'f', 3));
+        m_filterMinSlider = slider;
+        m_filterMinField = field;
+        connect(slider, &QSlider::valueChanged, this, [field, this](int raw) {
+            double v = raw / 1000.0;
+            field->setText(QString::number(v, 'f', 3));
+            m_settings->setFilterMin(v);
+        });
+        connect(field, &QLineEdit::editingFinished, this, [field, slider, this]() {
+            bool ok = false;
+            double v = field->text().toDouble(&ok);
+            if (!ok) v = m_settings->getFilterMin();
+            v = qBound(m_settings->getDataScalarMinQml(), v, m_settings->getDataScalarMaxQml());
+            slider->setValue(static_cast<int>(v * 1000));
+            m_settings->setFilterMin(v);
+        });
     }
     {
-        auto row = createClipSlider("Max", m_settings->getFilterMax(), m_settings->getDataScalarMinQml(), m_settings->getDataScalarMaxQml(),
-            [this](double v) { m_settings->setFilterMax(v); });
-        m_filterMaxSlider = row.slider;
-        m_filterMaxField = row.field;
-        content->layout()->replaceWidget(colormapUi.maxFilterRow, row.slider->parentWidget());
-        delete colormapUi.maxFilterRow;
+        auto* slider = colormapUi.maxFilterSlider;
+        auto* field = colormapUi.maxFilterField;
+        double minVal = m_settings->getDataScalarMinQml();
+        double maxVal = m_settings->getDataScalarMaxQml();
+        slider->setRange(static_cast<int>(minVal * 1000), static_cast<int>(maxVal * 1000));
+        slider->setValue(static_cast<int>(m_settings->getFilterMax() * 1000));
+        field->setText(QString::number(m_settings->getFilterMax(), 'f', 3));
+        m_filterMaxSlider = slider;
+        m_filterMaxField = field;
+        connect(slider, &QSlider::valueChanged, this, [field, this](int raw) {
+            double v = raw / 1000.0;
+            field->setText(QString::number(v, 'f', 3));
+            m_settings->setFilterMax(v);
+        });
+        connect(field, &QLineEdit::editingFinished, this, [field, slider, this]() {
+            bool ok = false;
+            double v = field->text().toDouble(&ok);
+            if (!ok) v = m_settings->getFilterMax();
+            v = qBound(m_settings->getDataScalarMinQml(), v, m_settings->getDataScalarMaxQml());
+            slider->setValue(static_cast<int>(v * 1000));
+            m_settings->setFilterMax(v);
+        });
     }
 
     auto* resetFilterBtn = colormapUi.resetFilterBtn;
@@ -997,19 +1184,33 @@ QWidget* MainWindow::buildVectorsPage() {
         m_settings->setActiveVectorField(m_vectorCombo->currentText());
     });
 
-    auto replaceSliderRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
-        auto row = createLightSlider(label, value, from, to, step, decimals, cb);
-        vectorsUi.optionsGroup->layout()->replaceWidget(placeholder, row.slider->parentWidget());
-        delete placeholder;
-    };
-
-    replaceSliderRow(vectorsUi.scaleRow, "Scale", m_settings->getVectorScale(), 0.01, 5.0, 0.01, 2, [this](double v) { m_settings->setVectorScale(v); });
+    {
+        auto* slider = vectorsUi.scaleSlider;
+        auto* valueLabel = vectorsUi.scaleValue;
+        slider->setRange(static_cast<int>(0.01 * 1000), static_cast<int>(5.0 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getVectorScale() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setVectorScale(v);
+        });
+    }
 
     auto* scaleMagCb = vectorsUi.scaleMagCb;
     scaleMagCb->setChecked(m_settings->getVectorScaleByMagnitude());
     connect(scaleMagCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorScaleByMagnitude);
 
-    replaceSliderRow(vectorsUi.strideRow, "Stride", m_settings->getVectorStride(), 1, 20, 1, 0, [this](double v) { m_settings->setVectorStride(static_cast<int>(v)); });
+    {
+        auto* slider = vectorsUi.strideSlider;
+        auto* valueLabel = vectorsUi.strideValue;
+        slider->setRange(static_cast<int>(1 * 1000), static_cast<int>(20 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getVectorStride() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 0));
+            m_settings->setVectorStride(static_cast<int>(v));
+        });
+    }
 
     auto* magCombo = vectorsUi.magCombo;
     magCombo->addItems({"Linear", "Square root", "Logarithmic"});
@@ -1092,13 +1293,17 @@ QWidget* MainWindow::buildStreamlinesPage() {
         m_settings->setStreamlineVectorField(m_streamlineCombo->currentText());
     });
 
-    auto replaceSliderRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
-        auto row = createLightSlider(label, value, from, to, step, decimals, cb);
-        content->layout()->replaceWidget(placeholder, row.slider->parentWidget());
-        delete placeholder;
-    };
-
-    replaceSliderRow(slUi.stepSizeRow, "Step size", m_settings->getStreamlineStepSize(), 0.005, 0.1, 0.001, 3, [this](double v) { m_settings->setStreamlineStepSize(v); });
+    {
+        auto* slider = slUi.stepSizeSlider;
+        auto* valueLabel = slUi.stepSizeValue;
+        slider->setRange(static_cast<int>(0.005 * 1000), static_cast<int>(0.1 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineStepSize() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 3));
+            m_settings->setStreamlineStepSize(v);
+        });
+    }
 
     auto* maxStepsSpin = slUi.maxStepsSpin;
     maxStepsSpin->setRange(10, 500);
@@ -1165,13 +1370,33 @@ QWidget* MainWindow::buildStreamlinesPage() {
     seedsVSpin->setValue(m_settings->getSeedPlaneCountV());
     connect(seedsVSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setSeedPlaneCountV);
 
-    replaceSliderRow(slUi.jitterRow, "Jitter", m_settings->getSeedJitter(), 0, 1, 0.01, 2, [this](double v) { m_settings->setSeedJitter(v); });
+    {
+        auto* slider = slUi.jitterSlider;
+        auto* valueLabel = slUi.jitterValue;
+        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getSeedJitter() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setSeedJitter(v);
+        });
+    }
 
     auto* showSeedsCb = slUi.showSeedsCb;
     showSeedsCb->setChecked(m_settings->getShowSeeds());
     connect(showSeedsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowSeeds);
 
-    replaceSliderRow(slUi.seedSizeRow, "Seed size", m_settings->getSeedPointSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setSeedPointSize(v); });
+    {
+        auto* slider = slUi.seedSizeSlider;
+        auto* valueLabel = slUi.seedSizeValue;
+        slider->setRange(static_cast<int>(1 * 1000), static_cast<int>(20 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getSeedPointSize() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setSeedPointSize(v);
+        });
+    }
 
     {
         auto* btn = createSwatchButton("Seed color", m_settings->getSeedPointColorQml(), nullptr);
@@ -1189,19 +1414,89 @@ QWidget* MainWindow::buildStreamlinesPage() {
         delete slUi.seedColorBtn;
     }
 
-    replaceSliderRow(slUi.opacityRow, "Opacity", m_settings->getStreamlineOpacity(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineOpacity(v); });
-    replaceSliderRow(slUi.ribbonWidthRow, "Ribbon width", m_settings->getStreamlineRibbonWidth(), 0.001, 0.05, 0.001, 3, [this](double v) { m_settings->setStreamlineRibbonWidth(v); });
-    replaceSliderRow(slUi.taperFactorRow, "Taper factor", m_settings->getStreamlineTaperFactor(), 0, 0.8, 0.01, 2, [this](double v) { m_settings->setStreamlineTaperFactor(v); });
+    {
+        auto* slider = slUi.opacitySlider;
+        auto* valueLabel = slUi.opacityValue;
+        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineOpacity() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setStreamlineOpacity(v);
+        });
+    }
+    {
+        auto* slider = slUi.ribbonWidthSlider;
+        auto* valueLabel = slUi.ribbonWidthValue;
+        slider->setRange(static_cast<int>(0.001 * 1000), static_cast<int>(0.05 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineRibbonWidth() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 3));
+            m_settings->setStreamlineRibbonWidth(v);
+        });
+    }
+    {
+        auto* slider = slUi.taperFactorSlider;
+        auto* valueLabel = slUi.taperFactorValue;
+        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(0.8 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineTaperFactor() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setStreamlineTaperFactor(v);
+        });
+    }
 
     auto* dashCb = slUi.dashCb;
     dashCb->setChecked(m_settings->getStreamlineDashEnabled());
     connect(dashCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineDashEnabled);
 
-    replaceSliderRow(slUi.dashSpeedRow, "Dash speed", m_settings->getStreamlineDashSpeed(), 0.1, 5.0, 0.1, 1, [this](double v) { m_settings->setStreamlineDashSpeed(v); });
+    {
+        auto* slider = slUi.dashSpeedSlider;
+        auto* valueLabel = slUi.dashSpeedValue;
+        slider->setRange(static_cast<int>(0.1 * 1000), static_cast<int>(5.0 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineDashSpeed() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setStreamlineDashSpeed(v);
+        });
+    }
 
-    replaceSliderRow(slUi.streamlineAmbientRow, "Ambient", m_settings->getStreamlineAmbient(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineAmbient(v); });
-    replaceSliderRow(slUi.streamlineDiffuseRow, "Diffuse", m_settings->getStreamlineDiffuse(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineDiffuse(v); });
-    replaceSliderRow(slUi.streamlineSpecularRow, "Specular", m_settings->getStreamlineSpecular(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineSpecular(v); });
+    {
+        auto* slider = slUi.streamlineAmbientSlider;
+        auto* valueLabel = slUi.streamlineAmbientValue;
+        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineAmbient() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setStreamlineAmbient(v);
+        });
+    }
+    {
+        auto* slider = slUi.streamlineDiffuseSlider;
+        auto* valueLabel = slUi.streamlineDiffuseValue;
+        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineDiffuse() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setStreamlineDiffuse(v);
+        });
+    }
+    {
+        auto* slider = slUi.streamlineSpecularSlider;
+        auto* valueLabel = slUi.streamlineSpecularValue;
+        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineSpecular() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setStreamlineSpecular(v);
+        });
+    }
 
     auto* specPowerSpin = slUi.specPowerSpin;
     specPowerSpin->setRange(2, 128);
@@ -1217,15 +1512,55 @@ QWidget* MainWindow::buildStreamlinesPage() {
     arrowSpacingSpin->setValue(m_settings->getStreamlineArrowSpacing());
     connect(arrowSpacingSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineArrowSpacing);
 
-    replaceSliderRow(slUi.arrowSizeRow, "Arrow size", m_settings->getStreamlineArrowSize(), 0.01, 0.2, 0.01, 2, [this](double v) { m_settings->setStreamlineArrowSize(v); });
+    {
+        auto* slider = slUi.arrowSizeSlider;
+        auto* valueLabel = slUi.arrowSizeValue;
+        slider->setRange(static_cast<int>(0.01 * 1000), static_cast<int>(0.2 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getStreamlineArrowSize() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 2));
+            m_settings->setStreamlineArrowSize(v);
+        });
+    }
 
     auto* particlesCb = slUi.particlesCb;
     particlesCb->setChecked(m_settings->getShowParticles());
     connect(particlesCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowParticles);
 
-    replaceSliderRow(slUi.particleCountRow, "Particle count", m_settings->getParticleCount(), 10, 5000, 10, 0, [this](double v) { m_settings->setParticleCount(static_cast<int>(v)); });
-    replaceSliderRow(slUi.particleSpeedRow, "Particle speed", m_settings->getParticleSpeed(), 0.1, 100, 0.1, 1, [this](double v) { m_settings->setParticleSpeed(v); });
-    replaceSliderRow(slUi.particleSizeRow, "Particle size", m_settings->getParticleSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setParticleSize(v); });
+    {
+        auto* slider = slUi.particleCountSlider;
+        auto* valueLabel = slUi.particleCountValue;
+        slider->setRange(static_cast<int>(10 * 1000), static_cast<int>(5000 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getParticleCount() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 0));
+            m_settings->setParticleCount(static_cast<int>(v));
+        });
+    }
+    {
+        auto* slider = slUi.particleSpeedSlider;
+        auto* valueLabel = slUi.particleSpeedValue;
+        slider->setRange(static_cast<int>(0.1 * 1000), static_cast<int>(100 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getParticleSpeed() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setParticleSpeed(v);
+        });
+    }
+    {
+        auto* slider = slUi.particleSizeSlider;
+        auto* valueLabel = slUi.particleSizeValue;
+        slider->setRange(static_cast<int>(1 * 1000), static_cast<int>(20 * 1000));
+        slider->setValue(static_cast<int>(m_settings->getParticleSize() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setParticleSize(v);
+        });
+    }
 
     scroll->setWidget(content);
 
