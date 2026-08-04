@@ -1,5 +1,14 @@
 #include "main_window.h"
 #include "theme.h"
+#include "ui_main_window.h"
+#include "ui_lighting_page.h"
+#include "ui_slicing_page.h"
+#include "ui_view_display_page.h"
+#include "ui_colormap_page.h"
+#include "ui_vectors_page.h"
+#include "ui_streamlines_page.h"
+#include "ui_screenshot_page.h"
+#include "ui_mesh_info_page.h"
 #include "render/render_config.h"
 #include "core/Colormaps.h"
 #include <QApplication>
@@ -263,10 +272,9 @@ static QComboBox* buildColormapCombo(int currentChoice, std::function<void(int)>
 // MainWindow
 // ============================================================================
 MainWindow::MainWindow(QWidget* parent)
-    : QMainWindow(parent) {
-    setWindowTitle("SciRender");
-    resize(1024, 768);
-    setMinimumSize(640, 480);
+    : QMainWindow(parent)
+    , ui(new Ui::MainWindow) {
+    ui->setupUi(this);
 
     m_settings = new RenderSettings(this);
     m_settings->restoreStateFromSettings();
@@ -292,7 +300,9 @@ MainWindow::MainWindow(QWidget* parent)
     connect(qApp, &QCoreApplication::aboutToQuit, m_settings, &RenderSettings::saveStateToSettings);
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    delete ui;
+}
 
 // ============================================================================
 // Menus
@@ -392,23 +402,25 @@ void MainWindow::setupMenus() {
 // Sidebar
 // ============================================================================
 void MainWindow::setupSidebar() {
-    m_sidebarDock = new QDockWidget(this);
+    m_sidebarDock = ui->sidebarDock;
     m_sidebarDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     m_sidebarDock->setAllowedAreas(Qt::LeftDockWidgetArea);
     m_sidebarDock->setTitleBarWidget(new QWidget); // hide default title bar
 
-    m_sidebarWidget = new QWidget;
+    m_sidebarWidget = ui->sidebarContents;
     m_sidebarWidget->setStyleSheet(QString("background-color: %1;").arg(currentThemeColors().panelBg.name()));
-    auto* mainLayout = new QHBoxLayout(m_sidebarWidget);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(0);
+    auto* mainLayout = qobject_cast<QHBoxLayout*>(m_sidebarWidget->layout());
+    if (!mainLayout) {
+        mainLayout = new QHBoxLayout(m_sidebarWidget);
+        mainLayout->setContentsMargins(0, 0, 0, 0);
+        mainLayout->setSpacing(0);
+    }
 
     // --- Icon strip (left edge, 48px) ---
-    auto* iconStrip = new QWidget;
-    m_iconStrip = iconStrip;
-    iconStrip->setFixedWidth(kIconStripWidth);
-    iconStrip->setStyleSheet(QString("background-color: %1;").arg(currentThemeColors().panelBg.name()));
-    auto* iconLayout = new QVBoxLayout(iconStrip);
+    m_iconStrip = ui->iconStrip;
+    m_iconStrip->setFixedWidth(kIconStripWidth);
+    m_iconStrip->setStyleSheet(QString("background-color: %1;").arg(currentThemeColors().panelBg.name()));
+    auto* iconLayout = new QVBoxLayout(m_iconStrip);
     iconLayout->setContentsMargins(0, 4, 0, 4);
     iconLayout->setSpacing(0);
 
@@ -493,11 +505,14 @@ void MainWindow::setupSidebar() {
     iconLayout->addStretch();
 
     // --- Section stack with panel header ---
-    m_rightPanel = new QWidget;
+    m_rightPanel = ui->rightPanel;
     m_rightPanel->setStyleSheet(QString("background-color: %1;").arg(currentThemeColors().panelBg.name()));
-    auto* rightLayout = new QVBoxLayout(m_rightPanel);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(0);
+    auto* rightLayout = qobject_cast<QVBoxLayout*>(m_rightPanel->layout());
+    if (!rightLayout) {
+        rightLayout = new QVBoxLayout(m_rightPanel);
+        rightLayout->setContentsMargins(0, 0, 0, 0);
+        rightLayout->setSpacing(0);
+    }
 
     // Panel header (title bar for the expanded panel)
     m_panelHeader = new QWidget;
@@ -550,7 +565,7 @@ void MainWindow::setupSidebar() {
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
 
-    mainLayout->addWidget(iconStrip);
+    mainLayout->addWidget(m_iconStrip);
     mainLayout->addWidget(m_rightPanel, 1);
 
     m_sidebarDock->setWidget(m_sidebarWidget);
@@ -570,51 +585,34 @@ QWidget* MainWindow::buildLightingPage() {
     scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
-    auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    Ui::LightingPage lightingUi;
+    lightingUi.setupUi(content);
 
-    auto* resetBtn = new QPushButton("Reset");
+    auto* resetBtn = lightingUi.resetBtn;
     resetBtn->setObjectName("secondaryButton");
     connect(resetBtn, &QPushButton::clicked, m_settings, &RenderSettings::resetLighting);
-    layout->addWidget(resetBtn);
 
-    auto* markersCb = new QCheckBox("Light Markers");
+    auto* markersCb = lightingUi.markersCb;
     markersCb->setChecked(m_settings->getShowLightMarkers());
     connect(markersCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowLightMarkers);
-    layout->addWidget(markersCb);
 
-    auto* kitCb = new QCheckBox("Light Kit");
+    auto* kitCb = lightingUi.kitCb;
     kitCb->setChecked(m_settings->getLightKitEnabled());
     connect(kitCb, &QCheckBox::toggled, m_settings, &RenderSettings::setLightKitEnabled);
-    layout->addWidget(kitCb);
 
-    layout->addWidget(sectionHeader("Intensity & Tone"));
-    {
-        auto row = createLightSlider("Key Light", m_settings->getLightKeyIntensity(), 0, 1, 0.01, 1, [this](double v) { m_settings->setLightKeyIntensity(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Warmth", m_settings->getLightWarm(), 0, 1, 0.01, 1, [this](double v) { m_settings->setLightWarm(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    auto replaceRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
+        auto row = createLightSlider(label, value, from, to, step, decimals, cb);
+        content->layout()->replaceWidget(placeholder, row.slider->parentWidget());
+        delete placeholder;
+    };
 
-    layout->addWidget(sectionHeader("Light Ratios"));
-    {
-        auto row = createLightSlider("Fill K/F", m_settings->getLightKF(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKF(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Back K/B", m_settings->getLightKB(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKB(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Head K/H", m_settings->getLightKH(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKH(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    replaceRow(lightingUi.keyLightRow, "Key Light", m_settings->getLightKeyIntensity(), 0, 1, 0.01, 1, [this](double v) { m_settings->setLightKeyIntensity(v); });
+    replaceRow(lightingUi.warmthRow, "Warmth", m_settings->getLightWarm(), 0, 1, 0.01, 1, [this](double v) { m_settings->setLightWarm(v); });
+    replaceRow(lightingUi.fillKFRow, "Fill K/F", m_settings->getLightKF(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKF(v); });
+    replaceRow(lightingUi.backKbRow, "Back K/B", m_settings->getLightKB(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKB(v); });
+    replaceRow(lightingUi.headKHRow, "Head K/H", m_settings->getLightKH(), 1, 15, 0.1, 1, [this](double v) { m_settings->setLightKH(v); });
 
-    layout->addWidget(sectionHeader("Direction"));
-    auto* tabWidget = new QTabWidget;
+    auto* tabWidget = lightingUi.directionTabs;
     tabWidget->setStyleSheet(
         QString(
         "QTabBar::tab {"
@@ -662,35 +660,14 @@ QWidget* MainWindow::buildLightingPage() {
         tabLayout->addStretch();
         tabWidget->addTab(tab, QString::fromUtf8(lightNames[i]));
     }
-    layout->addWidget(tabWidget);
 
-    layout->addWidget(sectionHeader("Material"));
-    {
-        auto row = createLightSlider("Ambient", m_settings->getMatAmbient(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatAmbient(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Diffuse", m_settings->getMatDiffuse(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatDiffuse(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Specular", m_settings->getMatSpecular(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatSpecular(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Shininess", m_settings->getMatShininess(), 1, 100, 1, 0, [this](double v) { m_settings->setMatShininess(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Roughness", m_settings->getMatRoughness(), 0, 1, 0.01, 2, [this](double v) { m_settings->setMatRoughness(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Metallic", m_settings->getMatMetallic(), 0, 1, 0.01, 2, [this](double v) { m_settings->setMatMetallic(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    replaceRow(lightingUi.ambientRow, "Ambient", m_settings->getMatAmbient(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatAmbient(v); });
+    replaceRow(lightingUi.diffuseRow, "Diffuse", m_settings->getMatDiffuse(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatDiffuse(v); });
+    replaceRow(lightingUi.specularRow, "Specular", m_settings->getMatSpecular(), 0, 1, 0.01, 1, [this](double v) { m_settings->setMatSpecular(v); });
+    replaceRow(lightingUi.shininessRow, "Shininess", m_settings->getMatShininess(), 1, 100, 1, 0, [this](double v) { m_settings->setMatShininess(v); });
+    replaceRow(lightingUi.roughnessRow, "Roughness", m_settings->getMatRoughness(), 0, 1, 0.01, 2, [this](double v) { m_settings->setMatRoughness(v); });
+    replaceRow(lightingUi.metallicRow, "Metallic", m_settings->getMatMetallic(), 0, 1, 0.01, 2, [this](double v) { m_settings->setMatMetallic(v); });
 
-    layout->addStretch();
     scroll->setWidget(content);
 
     auto* wrapper = new QWidget;
@@ -705,78 +682,48 @@ QWidget* MainWindow::buildLightingPage() {
 // ============================================================================
 QWidget* MainWindow::buildSlicingPage() {
     auto* page = new QWidget;
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    Ui::SlicingPage slicingUi;
+    slicingUi.setupUi(page);
 
-    layout->addWidget(sectionHeader("Slicing"));
-
-    auto* enableCb = new QCheckBox("Enable slicing");
+    auto* enableCb = slicingUi.enableCb;
     enableCb->setChecked(m_settings->getClipEnabled());
     connect(enableCb, &QCheckBox::toggled, m_settings, &RenderSettings::setClipEnabled);
-    layout->addWidget(enableCb);
 
-    auto* optionsGroup = new QWidget;
-    auto* optLayout = new QVBoxLayout(optionsGroup);
-    optLayout->setContentsMargins(0, 0, 0, 0);
-
-    auto* axisRow = new QHBoxLayout;
-    for (const char* axis : {"X", "Y", "Z"}) {
-        auto* cb = new QCheckBox(QString::fromUtf8(axis));
-        axisRow->addWidget(cb);
-    }
-    auto* cbX = qobject_cast<QCheckBox*>(axisRow->itemAt(0)->widget());
-    auto* cbY = qobject_cast<QCheckBox*>(axisRow->itemAt(1)->widget());
-    auto* cbZ = qobject_cast<QCheckBox*>(axisRow->itemAt(2)->widget());
+    auto* cbX = slicingUi.axisX;
+    auto* cbY = slicingUi.axisY;
+    auto* cbZ = slicingUi.axisZ;
     cbX->setChecked(m_settings->getSliceEnabledX());
     cbY->setChecked(m_settings->getSliceEnabledY());
     cbZ->setChecked(m_settings->getSliceEnabledZ());
     connect(cbX, &QCheckBox::toggled, m_settings, &RenderSettings::setSliceEnabledX);
     connect(cbY, &QCheckBox::toggled, m_settings, &RenderSettings::setSliceEnabledY);
     connect(cbZ, &QCheckBox::toggled, m_settings, &RenderSettings::setSliceEnabledZ);
-    optLayout->addLayout(axisRow);
 
-    auto* cutLabel = new QLabel("Cut planes (world units)");
-    cutLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
-    optLayout->addWidget(cutLabel);
+    auto replaceRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, std::function<void(double)> cb) {
+        auto row = createClipSlider(label, value, from, to, cb);
+        page->layout()->replaceWidget(placeholder, row.slider->parentWidget());
+        delete placeholder;
+    };
 
-    {
-        auto row = createClipSlider("Slice X", m_settings->getSliceX(), m_settings->getWorldMinX(), m_settings->getWorldMaxX(),
-            [this](double v) { m_settings->setSliceX(v); });
-        optLayout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createClipSlider("Slice Y", m_settings->getSliceY(), m_settings->getWorldMinY(), m_settings->getWorldMaxY(),
-            [this](double v) { m_settings->setSliceY(v); });
-        optLayout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createClipSlider("Slice Z", m_settings->getSliceZ(), m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(),
-            [this](double v) { m_settings->setSliceZ(v); });
-        optLayout->addWidget(row.slider->parentWidget());
-    }
+    replaceRow(slicingUi.sliceXRow, "Slice X", m_settings->getSliceX(), m_settings->getWorldMinX(), m_settings->getWorldMaxX(),
+        [this](double v) { m_settings->setSliceX(v); });
+    replaceRow(slicingUi.sliceYRow, "Slice Y", m_settings->getSliceY(), m_settings->getWorldMinY(), m_settings->getWorldMaxY(),
+        [this](double v) { m_settings->setSliceY(v); });
+    replaceRow(slicingUi.sliceZRow, "Slice Z", m_settings->getSliceZ(), m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(),
+        [this](double v) { m_settings->setSliceZ(v); });
 
-    auto* keepLabel = new QLabel("Keep side");
-    keepLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
-    optLayout->addWidget(keepLabel);
-    auto* invRow = new QHBoxLayout;
-    auto* invX = new QCheckBox("Inv X");
-    auto* invY = new QCheckBox("Inv Y");
-    auto* invZ = new QCheckBox("Inv Z");
+    auto* invX = slicingUi.invX;
+    auto* invY = slicingUi.invY;
+    auto* invZ = slicingUi.invZ;
     invX->setChecked(m_settings->getInvertX());
     invY->setChecked(m_settings->getInvertY());
     invZ->setChecked(m_settings->getInvertZ());
     connect(invX, &QCheckBox::toggled, m_settings, &RenderSettings::setInvertX);
     connect(invY, &QCheckBox::toggled, m_settings, &RenderSettings::setInvertY);
     connect(invZ, &QCheckBox::toggled, m_settings, &RenderSettings::setInvertZ);
-    invRow->addWidget(invX); invRow->addWidget(invY); invRow->addWidget(invZ);
-    optLayout->addLayout(invRow);
 
-    layout->addWidget(optionsGroup);
-    connect(enableCb, &QCheckBox::toggled, optionsGroup, &QWidget::setEnabled);
-    optionsGroup->setEnabled(m_settings->getClipEnabled());
-
-    layout->addStretch();
+    connect(enableCb, &QCheckBox::toggled, slicingUi.optionsGroup, &QWidget::setEnabled);
+    slicingUi.optionsGroup->setEnabled(m_settings->getClipEnabled());
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
@@ -805,38 +752,20 @@ QWidget* MainWindow::buildViewDisplayPage() {
     scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
-    auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(6); // Section breathing room
+    Ui::ViewDisplayPage viewUi;
+    viewUi.setupUi(content);
 
-    // ==========================================
-    // 1. CAMERA SECTION
-    // ==========================================
-    layout->addWidget(sectionHeader("Camera"));
-
-    // Compact Checkbox Row (Parallel View + Auto-Rotate)
-    auto* camOptionsLayout = new QHBoxLayout;
-    auto* orthoCb = new QCheckBox("Parallel");
+    auto* orthoCb = viewUi.parallelCb;
     orthoCb->setChecked(m_settings->getOrthographic());
     connect(orthoCb, &QCheckBox::toggled, m_settings, &RenderSettings::setOrthographic);
-    camOptionsLayout->addWidget(orthoCb);
 
-    auto* rotateCb = new QCheckBox("Auto-Rotate");
+    auto* rotateCb = viewUi.autoRotateCb;
     rotateCb->setChecked(m_settings->getAutoRotate());
     connect(rotateCb, &QCheckBox::toggled, m_settings, &RenderSettings::setAutoRotate);
-    camOptionsLayout->addWidget(rotateCb);
-    layout->addLayout(camOptionsLayout);
 
-    auto* resetCamBtn = new QPushButton("Reset Camera");
+    auto* resetCamBtn = viewUi.resetCamBtn;
     resetCamBtn->setObjectName("secondaryButton");
-    resetCamBtn->setFixedHeight(kControlHeight);
     connect(resetCamBtn, &QPushButton::clicked, m_settings, &RenderSettings::resetCamera);
-    layout->addWidget(resetCamBtn);
-
-    // ==========================================
-    // 2. DISPLAY & RENDERING SECTION
-    // ==========================================
-    layout->addWidget(sectionHeader("Display Modes"));
 
     auto createModeRow = [this](const QString& text, bool checked, bool enabled,
                                 double val, double min, double max,
@@ -866,84 +795,59 @@ QWidget* MainWindow::buildViewDisplayPage() {
         return rowWidget;
     };
 
-    // Wireframe
-    layout->addWidget(createModeRow("Wireframe", m_settings->isWireframe(), true,
-                                    m_settings->getLineWidth(), 1.0, 10.0,
-                                    &RenderSettings::setWireframe, [this](int v) { m_settings->setLineWidth(v / 10.0); }));
-
-    // Cell Edge
-    layout->addWidget(createModeRow("Cell Edge", m_settings->getShowCellEdges(), m_settings->getSupportsCellGrid(),
-                                    m_settings->getCellEdgeLineWidth(), 1.0, 10.0,
-                                    &RenderSettings::setShowCellEdges, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); }));
-
-    // Simple checkboxes in a single-column flow to avoid overflow
-    auto* flagsLayout = new QVBoxLayout;
-
-    auto addFlagCb = [&](const QString& text, bool checked, auto slot) {
-        auto* cb = new QCheckBox(text);
-        cb->setChecked(checked);
-        connect(cb, &QCheckBox::toggled, m_settings, slot);
-        flagsLayout->addWidget(cb);
-        return cb;
+    auto replaceModeRow = [&](QWidget* placeholder, const QString& text, bool checked, bool enabled,
+                              double val, double min, double max,
+                              auto toggleSlot, auto sliderSlot) {
+        auto rowWidget = createModeRow(text, checked, enabled, val, min, max, toggleSlot, sliderSlot);
+        content->layout()->replaceWidget(placeholder, rowWidget);
+        delete placeholder;
     };
 
-    auto* surfaceCb = addFlagCb("Surface", m_settings->isSurfaceVisible(), &RenderSettings::toggleSurface);
-    auto* pointsCb  = addFlagCb("Points", m_settings->getShowPoints(), &RenderSettings::setShowPoints);
-    addFlagCb("Reference Grid", m_settings->isGridVisible(), &RenderSettings::toggleGrid);
-    addFlagCb("Bounding Box", m_settings->getShowBounds(), &RenderSettings::setShowBounds);
-    addFlagCb("Defects", m_settings->getShowQualityOverlay(), &RenderSettings::setShowQualityOverlay);
+    replaceModeRow(viewUi.wireframeRow, "Wireframe", m_settings->isWireframe(), true,
+                   m_settings->getLineWidth(), 1.0, 10.0,
+                   &RenderSettings::setWireframe, [this](int v) { m_settings->setLineWidth(v / 10.0); });
+    replaceModeRow(viewUi.cellEdgeRow, "Cell Edge", m_settings->getShowCellEdges(), m_settings->getSupportsCellGrid(),
+                   m_settings->getCellEdgeLineWidth(), 1.0, 10.0,
+                   &RenderSettings::setShowCellEdges, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); });
 
-    layout->addLayout(flagsLayout);
+    auto* surfaceCb = viewUi.surfaceCb;
+    auto* pointsCb = viewUi.pointsCb;
+    surfaceCb->setChecked(m_settings->isSurfaceVisible());
+    pointsCb->setChecked(m_settings->getShowPoints());
+    connect(surfaceCb, &QCheckBox::toggled, m_settings, &RenderSettings::toggleSurface);
+    connect(pointsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowPoints);
+    viewUi.refGridCb->setChecked(m_settings->isGridVisible());
+    connect(viewUi.refGridCb, &QCheckBox::toggled, m_settings, &RenderSettings::toggleGrid);
+    viewUi.bboxCb->setChecked(m_settings->getShowBounds());
+    connect(viewUi.bboxCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowBounds);
+    viewUi.defectsCb->setChecked(m_settings->getShowQualityOverlay());
+    connect(viewUi.defectsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowQualityOverlay);
 
-    // Point controls (conditional)
-    auto* pointGroup = new QWidget;
-    auto* pointLayout = new QVBoxLayout(pointGroup);
-    pointLayout->setContentsMargins(8, 2, 0, 2); // Indented for hierarchy
-    {
-        auto row = createLightSlider("Size", m_settings->getPointSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setPointSize(v); });
-        pointLayout->addWidget(row.slider->parentWidget());
-    }
-    auto* scalarCb = new QCheckBox("Color by scalar");
+    auto replaceSliderRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
+        auto row = createLightSlider(label, value, from, to, step, decimals, cb);
+        content->layout()->replaceWidget(placeholder, row.slider->parentWidget());
+        delete placeholder;
+    };
+
+    replaceSliderRow(viewUi.pointSizeRow, "Size", m_settings->getPointSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setPointSize(v); });
+
+    auto* scalarCb = viewUi.scalarCb;
     scalarCb->setChecked(m_settings->getPointUseScalar());
     connect(scalarCb, &QCheckBox::toggled, m_settings, &RenderSettings::setPointUseScalar);
-    pointLayout->addWidget(scalarCb);
-    layout->addWidget(pointGroup);
 
-    connect(pointsCb, &QCheckBox::toggled, pointGroup, &QWidget::setVisible);
-    pointGroup->setVisible(m_settings->getShowPoints());
+    connect(pointsCb, &QCheckBox::toggled, viewUi.pointGroup, &QWidget::setVisible);
+    viewUi.pointGroup->setVisible(m_settings->getShowPoints());
 
-    // ==========================================
-    // 3. TRANSPARENCY & APPEARANCE
-    // ==========================================
-    layout->addWidget(sectionHeader("Transparency & Quality"));
-    {
-        auto row = createLightSlider("Surface Opacity", m_settings->getSurfaceOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setSurfaceOpacity(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Point Opacity", m_settings->getPointOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setPointOpacity(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    replaceSliderRow(viewUi.surfaceOpacityRow, "Surface Opacity", m_settings->getSurfaceOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setSurfaceOpacity(v); });
+    replaceSliderRow(viewUi.pointOpacityRow, "Point Opacity", m_settings->getPointOpacity(), 0.1, 1, 0.05, 2, [this](double v) { m_settings->setPointOpacity(v); });
 
-    // HUD / Gizmo + FPS compact row
-    auto* subRowLayout = new QHBoxLayout;
-    auto* gizmoCb = new QCheckBox("Gizmo");
+    auto* gizmoCb = viewUi.gizmoCb;
     gizmoCb->setChecked(m_settings->isGizmoVisible());
     connect(gizmoCb, &QCheckBox::toggled, m_settings, &RenderSettings::setGizmoVisible);
-    subRowLayout->addWidget(gizmoCb);
 
-    auto* fpsCb = new QCheckBox("FPS HUD");
+    auto* fpsCb = viewUi.fpsCb;
     fpsCb->setChecked(m_settings->getShowFps());
     connect(fpsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowFps);
-    subRowLayout->addWidget(fpsCb);
-
-    layout->addLayout(subRowLayout);
-
-    // ==========================================
-    // 4. COLORS SECTION (Swatch Grid)
-    // ==========================================
-    layout->addWidget(sectionHeader("Colors"));
-    auto* colorLayout = new QVBoxLayout;
 
     auto createColorButton = [this](const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
         auto* btn = createSwatchButton(name, initialColor, nullptr);
@@ -961,13 +865,13 @@ QWidget* MainWindow::buildViewDisplayPage() {
         return btn;
     };
 
-    colorLayout->addWidget(createColorButton("Wireframe", m_settings->getMeshColorQml(), &m_meshColorDialog, &RenderSettings::setMeshColorQml));
-    colorLayout->addWidget(createColorButton("Surface", m_settings->getSurfaceColorQml(), &m_surfaceColorDialog, &RenderSettings::setSurfaceColorQml));
-    colorLayout->addWidget(createColorButton("Background", m_settings->getBgColorQml(), &m_bgColorDialog, &RenderSettings::setBgColorQml));
+    content->layout()->replaceWidget(viewUi.wireframeColorBtn, createColorButton("Wireframe", m_settings->getMeshColorQml(), &m_meshColorDialog, &RenderSettings::setMeshColorQml));
+    delete viewUi.wireframeColorBtn;
+    content->layout()->replaceWidget(viewUi.surfaceColorBtn, createColorButton("Surface", m_settings->getSurfaceColorQml(), &m_surfaceColorDialog, &RenderSettings::setSurfaceColorQml));
+    delete viewUi.surfaceColorBtn;
+    content->layout()->replaceWidget(viewUi.bgColorBtn, createColorButton("Background", m_settings->getBgColorQml(), &m_bgColorDialog, &RenderSettings::setBgColorQml));
+    delete viewUi.bgColorBtn;
 
-    layout->addLayout(colorLayout);
-
-    layout->addStretch();
     scroll->setWidget(content);
 
     auto* wrapper = new QWidget;
@@ -988,17 +892,15 @@ QWidget* MainWindow::buildColormapPage() {
     scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
-    auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    Ui::ColormapPage colormapUi;
+    colormapUi.setupUi(content);
 
-    auto* scalarColorCb = new QCheckBox("Color by scalar");
+    // Wire up static controls from .ui file
+    auto* scalarColorCb = colormapUi.colorByScalar;
     scalarColorCb->setChecked(m_settings->getMeshUseScalarColor());
     connect(scalarColorCb, &QCheckBox::toggled, m_settings, &RenderSettings::setMeshUseScalarColor);
-    layout->addWidget(scalarColorCb);
 
-    layout->addWidget(sectionHeader("Field"));
-    m_scalarCombo = new QComboBox;
+    m_scalarCombo = colormapUi.scalarCombo;
     m_scalarCombo->addItems(m_settings->getAvailableScalars());
     m_scalarCombo->setCurrentText(m_settings->getActiveScalarNameQml());
     m_scalarCombo->setEnabled(m_settings->hasMeshScalars());
@@ -1006,62 +908,44 @@ QWidget* MainWindow::buildColormapPage() {
     connect(m_scalarCombo, &QComboBox::activated, m_settings, [this](int idx) {
         m_settings->setActiveScalarField(m_scalarCombo->itemText(idx));
     });
-    layout->addWidget(m_scalarCombo);
 
-    layout->addWidget(sectionHeader("Palette"));
-    auto* cmapCombo = buildColormapCombo(m_settings->getColormapChoice(),
+    auto* paletteCombo = buildColormapCombo(m_settings->getColormapChoice(),
         [this](int i) { m_settings->setColormapChoice(i); });
-    layout->addWidget(cmapCombo);
+    paletteCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    content->layout()->replaceWidget(colormapUi.paletteCombo, paletteCombo);
+    delete colormapUi.paletteCombo;
 
-    auto* reversedCb = new QCheckBox("Reverse palette");
+    auto* reversedCb = colormapUi.reversePalette;
     reversedCb->setChecked(m_settings->getColormapReversed());
     connect(reversedCb, &QCheckBox::toggled, m_settings, &RenderSettings::setColormapReversed);
-    layout->addWidget(reversedCb);
 
-    auto* showBarCb = new QCheckBox("Show colorbar");
+    auto* showBarCb = colormapUi.showColorbar;
     showBarCb->setChecked(m_settings->getShowScalarColorbar());
     connect(showBarCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowScalarColorbar);
-    layout->addWidget(showBarCb);
 
-    layout->addWidget(sectionHeader("Colorbar"));
-    auto* ticksRow = new QHBoxLayout;
-    auto* ticksLabel = new QLabel("Ticks");
-    ticksLabel->    setFixedWidth(kLabelWidth);
-    ticksLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-    ticksLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ticksRow->addWidget(ticksLabel);
-    auto* ticksSpin = new QSpinBox;
-    ticksSpin->setRange(2, 20);
+    auto* ticksSpin = colormapUi.ticksSpin;
     ticksSpin->setValue(m_settings->getColorbarTicks());
     connect(ticksSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setColorbarTicks);
-    ticksRow->addWidget(ticksSpin, 1);
-    layout->addLayout(ticksRow);
 
-    layout->addWidget(sectionHeader("Filter"));
+    // Replace filter row placeholders with actual sliders
     {
         auto row = createClipSlider("Min", m_settings->getFilterMin(), m_settings->getDataScalarMinQml(), m_settings->getDataScalarMaxQml(),
             [this](double v) { m_settings->setFilterMin(v); });
         m_filterMinSlider = row.slider;
         m_filterMinField = row.field;
-        layout->addWidget(row.slider->parentWidget());
+        content->layout()->replaceWidget(colormapUi.minFilterRow, row.slider->parentWidget());
+        delete colormapUi.minFilterRow;
     }
     {
         auto row = createClipSlider("Max", m_settings->getFilterMax(), m_settings->getDataScalarMinQml(), m_settings->getDataScalarMaxQml(),
             [this](double v) { m_settings->setFilterMax(v); });
         m_filterMaxSlider = row.slider;
         m_filterMaxField = row.field;
-        layout->addWidget(row.slider->parentWidget());
+        content->layout()->replaceWidget(colormapUi.maxFilterRow, row.slider->parentWidget());
+        delete colormapUi.maxFilterRow;
     }
 
-    auto* resetFilterBtn = new QPushButton("Reset");
-    resetFilterBtn->setStyleSheet(
-        "QPushButton {"
-        "  background: transparent; color: palette(text); border: none;"
-        "  text-decoration: underline; font-size: 11px; padding: 2px 4px;"
-        "}"
-        "QPushButton:hover { color: palette(highlight); }"
-        "QPushButton:pressed { color: palette(highlight); }"
-    );
+    auto* resetFilterBtn = colormapUi.resetFilterBtn;
     connect(resetFilterBtn, &QPushButton::clicked, m_settings, [this]() {
         double minVal = m_settings->getDataScalarMinQml();
         double maxVal = m_settings->getDataScalarMaxQml();
@@ -1084,9 +968,7 @@ QWidget* MainWindow::buildColormapPage() {
             m_filterMaxField->setText(QString::number(maxVal, 'f', 3));
         }
     });
-    layout->addWidget(resetFilterBtn);
 
-    layout->addStretch();
     scroll->setWidget(content);
 
     auto* wrapper = new QWidget;
@@ -1101,86 +983,74 @@ QWidget* MainWindow::buildColormapPage() {
 // ============================================================================
 QWidget* MainWindow::buildVectorsPage() {
     auto* page = new QWidget;
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    Ui::VectorsPage vectorsUi;
+    vectorsUi.setupUi(page);
 
-    auto* showCb = new QCheckBox("Show vectors");
+    auto* showCb = vectorsUi.showCb;
     showCb->setChecked(m_settings->getShowVectors());
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVectors);
-    layout->addWidget(showCb);
 
-    auto* optionsGroup = new QWidget;
-    auto* optLayout = new QVBoxLayout(optionsGroup);
-    optLayout->setContentsMargins(0, 0, 0, 0);
-
-    optLayout->addWidget(sectionHeader("Field & Scale"));
-    m_vectorCombo = new QComboBox;
+    m_vectorCombo = vectorsUi.vectorCombo;
     m_vectorCombo->addItems(m_settings->getAvailableVectors());
     m_vectorCombo->setCurrentText(m_settings->getVectorField());
     connect(m_vectorCombo, &QComboBox::activated, m_settings, [this](int) {
         m_settings->setActiveVectorField(m_vectorCombo->currentText());
     });
-    optLayout->addWidget(m_vectorCombo);
 
-    {
-        auto row = createLightSlider("Scale", m_settings->getVectorScale(), 0.01, 5.0, 0.01, 2, [this](double v) { m_settings->setVectorScale(v); });
-        optLayout->addWidget(row.slider->parentWidget());
-    }
+    auto replaceSliderRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
+        auto row = createLightSlider(label, value, from, to, step, decimals, cb);
+        page->layout()->replaceWidget(placeholder, row.slider->parentWidget());
+        delete placeholder;
+    };
 
-    auto* scaleMagCb = new QCheckBox("Scale by magnitude");
+    replaceSliderRow(vectorsUi.scaleRow, "Scale", m_settings->getVectorScale(), 0.01, 5.0, 0.01, 2, [this](double v) { m_settings->setVectorScale(v); });
+
+    auto* scaleMagCb = vectorsUi.scaleMagCb;
     scaleMagCb->setChecked(m_settings->getVectorScaleByMagnitude());
     connect(scaleMagCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorScaleByMagnitude);
-    optLayout->addWidget(scaleMagCb);
 
-    {
-        auto row = createLightSlider("Stride", m_settings->getVectorStride(), 1, 20, 1, 0, [this](double v) { m_settings->setVectorStride(static_cast<int>(v)); });
-        optLayout->addWidget(row.slider->parentWidget());
-    }
+    replaceSliderRow(vectorsUi.strideRow, "Stride", m_settings->getVectorStride(), 1, 20, 1, 0, [this](double v) { m_settings->setVectorStride(static_cast<int>(v)); });
 
-    optLayout->addWidget(sectionHeader("Magnitude"));
-    auto* magCombo = new QComboBox;
+    auto* magCombo = vectorsUi.magCombo;
     magCombo->addItems({"Linear", "Square root", "Logarithmic"});
     magCombo->setCurrentIndex(m_settings->getVectorMagTransform());
     connect(magCombo, &QComboBox::activated, m_settings, [this](int idx) { m_settings->setVectorMagTransform(idx); });
-    optLayout->addWidget(magCombo);
 
-    optLayout->addWidget(sectionHeader("Color"));
-    {
-        auto* btn = createSwatchButton("Vector", m_settings->getVectorColorQml(), nullptr);
-        connect(btn, &QPushButton::clicked, this, [this, btn]() {
-            if (!m_vectorColorDialog) {
-                m_vectorColorDialog = new QColorDialog(m_settings->getVectorColorQml(), this);
-                connect(m_vectorColorDialog, &QColorDialog::colorSelected, m_settings, &RenderSettings::setVectorColorQml);
-                connect(m_vectorColorDialog, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
+    auto createColorButton = [this](const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
+        auto* btn = createSwatchButton(name, initialColor, nullptr);
+        connect(btn, &QPushButton::clicked, this, [this, btn, name, initialColor, dialogPtr, setterMember]() {
+            if (!*dialogPtr) {
+                *dialogPtr = new QColorDialog(initialColor, this);
+                (*dialogPtr)->setOption(QColorDialog::ShowAlphaChannel, false);
+                connect(*dialogPtr, &QColorDialog::colorSelected, m_settings, setterMember);
+                connect(*dialogPtr, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
                     QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
                 });
             }
-            m_vectorColorDialog->open();
+            (*dialogPtr)->open();
         });
-        optLayout->addWidget(btn);
-    }
+        return btn;
+    };
 
-    auto* useCmapCb = new QCheckBox("Color by magnitude");
+    page->layout()->replaceWidget(vectorsUi.vectorColorBtn, createColorButton("Vector", m_settings->getVectorColorQml(), &m_vectorColorDialog, &RenderSettings::setVectorColorQml));
+    delete vectorsUi.vectorColorBtn;
+
+    auto* useCmapCb = vectorsUi.useCmapCb;
     useCmapCb->setChecked(m_settings->getVectorUseColormap());
     connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorUseColormap);
-    optLayout->addWidget(useCmapCb);
 
     auto* vCmapCombo = buildColormapCombo(m_settings->getVectorColormapChoice(),
         [this](int i) { m_settings->setVectorColormapChoice(i); });
-    optLayout->addWidget(vCmapCombo);
+    vCmapCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    page->layout()->replaceWidget(vectorsUi.vCmapCombo, vCmapCombo);
+    delete vectorsUi.vCmapCombo;
 
-    // Reverse palette
-    auto* revCb = new QCheckBox("Reverse palette");
+    auto* revCb = vectorsUi.revCb;
     revCb->setChecked(m_settings->getVectorColormapReversed());
     connect(revCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorColormapReversed);
-    optLayout->addWidget(revCb);
 
-    layout->addWidget(optionsGroup);
-    connect(showCb, &QCheckBox::toggled, optionsGroup, &QWidget::setEnabled);
-    optionsGroup->setEnabled(m_settings->getShowVectors());
-
-    layout->addStretch();
+    connect(showCb, &QCheckBox::toggled, vectorsUi.optionsGroup, &QWidget::setEnabled);
+    vectorsUi.optionsGroup->setEnabled(m_settings->getShowVectors());
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
@@ -1207,60 +1077,40 @@ QWidget* MainWindow::buildStreamlinesPage() {
     scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
-    auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    Ui::StreamlinesPage slUi;
+    slUi.setupUi(content);
 
-    auto* showCb = new QCheckBox("Show streamlines");
+    auto* showCb = slUi.showCb;
     showCb->setChecked(m_settings->getShowStreamlines());
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowStreamlines);
-    layout->addWidget(showCb);
 
-    // ==========================================
-    // Field
-    // ==========================================
-    layout->addWidget(sectionHeader("Field"));
-
-    m_streamlineCombo = new QComboBox;
+    m_streamlineCombo = slUi.streamlineCombo;
     m_streamlineCombo->addItems(m_settings->getAvailableVectors());
     m_streamlineCombo->setCurrentText(m_settings->getStreamlineVectorField());
     m_streamlineCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
     connect(m_streamlineCombo, &QComboBox::activated, m_settings, [this](int) {
         m_settings->setStreamlineVectorField(m_streamlineCombo->currentText());
     });
-    layout->addWidget(m_streamlineCombo);
 
-    {
-        auto row = createLightSlider("Step size", m_settings->getStreamlineStepSize(), 0.005, 0.1, 0.001, 3, [this](double v) { m_settings->setStreamlineStepSize(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    auto replaceSliderRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
+        auto row = createLightSlider(label, value, from, to, step, decimals, cb);
+        content->layout()->replaceWidget(placeholder, row.slider->parentWidget());
+        delete placeholder;
+    };
 
-    auto* maxStepsRow = new QHBoxLayout;
-    auto* maxStepsLabel = new QLabel("Max steps");
-    maxStepsLabel->    setFixedWidth(kLabelWidth);
-    maxStepsLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-    maxStepsLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    maxStepsRow->addWidget(maxStepsLabel);
-    auto* maxStepsSpin = new QSpinBox;
+    replaceSliderRow(slUi.stepSizeRow, "Step size", m_settings->getStreamlineStepSize(), 0.005, 0.1, 0.001, 3, [this](double v) { m_settings->setStreamlineStepSize(v); });
+
+    auto* maxStepsSpin = slUi.maxStepsSpin;
     maxStepsSpin->setRange(10, 500);
     maxStepsSpin->setValue(m_settings->getStreamlineMaxSteps());
     connect(maxStepsSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineMaxSteps);
-    maxStepsRow->addWidget(maxStepsSpin, 1);
-    layout->addLayout(maxStepsRow);
 
-    auto* integrateBtn = new QPushButton("Integrate");
+    auto* integrateBtn = slUi.integrateBtn;
     integrateBtn->setObjectName("secondaryButton");
-    integrateBtn->setFixedHeight(kControlHeight);
     connect(integrateBtn, &QPushButton::clicked, this, [this]() {
         m_settings->backend()->markStreamlineDirty();
         m_viewport->update();
     });
-    layout->addWidget(integrateBtn);
-
-    // ==========================================
-    // Color
-    // ==========================================
-    layout->addWidget(sectionHeader("Color"));
 
     {
         auto* btn = createSwatchButton("Streamline", m_settings->getStreamlineColorQml(), nullptr);
@@ -1274,29 +1124,24 @@ QWidget* MainWindow::buildStreamlinesPage() {
             }
             m_streamlineColorDialog->open();
         });
-        layout->addWidget(btn);
+        content->layout()->replaceWidget(slUi.streamlineColorBtn, btn);
+        delete slUi.streamlineColorBtn;
     }
 
-    auto* slUseCmapCb = new QCheckBox("Color by magnitude");
+    auto* slUseCmapCb = slUi.slUseCmapCb;
     slUseCmapCb->setChecked(m_settings->getStreamlineUseColormap());
     connect(slUseCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineUseColormap);
-    layout->addWidget(slUseCmapCb);
 
     auto* slCmapCombo = buildColormapCombo(m_settings->getStreamlineColormapChoice(),
         [this](int i) { m_settings->setStreamlineColormapChoice(i); });
-    layout->addWidget(slCmapCombo);
+    content->layout()->replaceWidget(slUi.slCmapCombo, slCmapCombo);
+    delete slUi.slCmapCombo;
 
-    auto* slRevCb = new QCheckBox("Reverse palette");
+    auto* slRevCb = slUi.slRevCb;
     slRevCb->setChecked(m_settings->getStreamlineColormapReversed());
     connect(slRevCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineColormapReversed);
-    layout->addWidget(slRevCb);
 
-    // ==========================================
-    // Seeding
-    // ==========================================
-    layout->addWidget(sectionHeader("Seeding"));
-
-    auto* seedModeCombo = new QComboBox;
+    auto* seedModeCombo = slUi.seedModeCombo;
     seedModeCombo->addItems({"Volume", "Surface", "Plane XY", "Plane XZ", "Plane YZ"});
     const QStringList modeKeys = {"Volume", "Surface", "PlaneXY", "PlaneXZ", "PlaneYZ"};
     seedModeCombo->setCurrentIndex(modeKeys.indexOf(m_settings->getSeedMode()));
@@ -1304,61 +1149,29 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(seedModeCombo, &QComboBox::activated, m_settings, [this, modeKeys](int idx) {
         m_settings->setSeedMode(modeKeys[idx]);
     });
-    layout->addWidget(seedModeCombo);
 
-    auto* planePosRow = new QHBoxLayout;
-    auto* planePosLabel = new QLabel("Plane pos");
-    planePosLabel->    setFixedWidth(kLabelWidth);
-    planePosLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-    planePosLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    planePosRow->addWidget(planePosLabel);
-    auto* planePosSlider = new QSlider(Qt::Horizontal);
+    auto* planePosSlider = slUi.planePosSlider;
     planePosSlider->setRange(0, 1000);
     planePosSlider->setValue(static_cast<int>(m_settings->getSeedPlanePos() * 1000));
     connect(planePosSlider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setSeedPlanePos(v / 1000.0); });
-    planePosRow->addWidget(planePosSlider, 1);
-    layout->addLayout(planePosRow);
 
-    auto* seedsURow = new QHBoxLayout;
-    auto* seedsULabel = new QLabel("Seeds U");
-    seedsULabel->    setFixedWidth(kLabelWidth);
-    seedsULabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-    seedsULabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    seedsURow->addWidget(seedsULabel);
-    auto* seedsUSpin = new QSpinBox;
+    auto* seedsUSpin = slUi.seedsUSpin;
     seedsUSpin->setRange(1, 200);
     seedsUSpin->setValue(m_settings->getSeedPlaneCountU());
     connect(seedsUSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setSeedPlaneCountU);
-    seedsURow->addWidget(seedsUSpin, 1);
-    layout->addLayout(seedsURow);
 
-    auto* seedsVRow = new QHBoxLayout;
-    auto* seedsVLabel = new QLabel("Seeds V");
-    seedsVLabel->    setFixedWidth(kLabelWidth);
-    seedsVLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-    seedsVLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    seedsVRow->addWidget(seedsVLabel);
-    auto* seedsVSpin = new QSpinBox;
+    auto* seedsVSpin = slUi.seedsVSpin;
     seedsVSpin->setRange(1, 200);
     seedsVSpin->setValue(m_settings->getSeedPlaneCountV());
     connect(seedsVSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setSeedPlaneCountV);
-    seedsVRow->addWidget(seedsVSpin, 1);
-    layout->addLayout(seedsVRow);
 
-    {
-        auto row = createLightSlider("Jitter", m_settings->getSeedJitter(), 0, 1, 0.01, 2, [this](double v) { m_settings->setSeedJitter(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    replaceSliderRow(slUi.jitterRow, "Jitter", m_settings->getSeedJitter(), 0, 1, 0.01, 2, [this](double v) { m_settings->setSeedJitter(v); });
 
-    auto* showSeedsCb = new QCheckBox("Show seeds");
+    auto* showSeedsCb = slUi.showSeedsCb;
     showSeedsCb->setChecked(m_settings->getShowSeeds());
     connect(showSeedsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowSeeds);
-    layout->addWidget(showSeedsCb);
 
-    {
-        auto row = createLightSlider("Seed size", m_settings->getSeedPointSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setSeedPointSize(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    replaceSliderRow(slUi.seedSizeRow, "Seed size", m_settings->getSeedPointSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setSeedPointSize(v); });
 
     {
         auto* btn = createSwatchButton("Seed color", m_settings->getSeedPointColorQml(), nullptr);
@@ -1372,106 +1185,48 @@ QWidget* MainWindow::buildStreamlinesPage() {
             }
             m_seedColorDialog->open();
         });
-        layout->addWidget(btn);
+        content->layout()->replaceWidget(slUi.seedColorBtn, btn);
+        delete slUi.seedColorBtn;
     }
 
-    // ==========================================
-    // Appearance
-    // ==========================================
-    layout->addWidget(sectionHeader("Appearance"));
+    replaceSliderRow(slUi.opacityRow, "Opacity", m_settings->getStreamlineOpacity(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineOpacity(v); });
+    replaceSliderRow(slUi.ribbonWidthRow, "Ribbon width", m_settings->getStreamlineRibbonWidth(), 0.001, 0.05, 0.001, 3, [this](double v) { m_settings->setStreamlineRibbonWidth(v); });
+    replaceSliderRow(slUi.taperFactorRow, "Taper factor", m_settings->getStreamlineTaperFactor(), 0, 0.8, 0.01, 2, [this](double v) { m_settings->setStreamlineTaperFactor(v); });
 
-    {
-        auto row = createLightSlider("Opacity", m_settings->getStreamlineOpacity(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineOpacity(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Ribbon width", m_settings->getStreamlineRibbonWidth(), 0.001, 0.05, 0.001, 3, [this](double v) { m_settings->setStreamlineRibbonWidth(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Taper factor", m_settings->getStreamlineTaperFactor(), 0, 0.8, 0.01, 2, [this](double v) { m_settings->setStreamlineTaperFactor(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    auto* dashCb = new QCheckBox("Dash");
+    auto* dashCb = slUi.dashCb;
     dashCb->setChecked(m_settings->getStreamlineDashEnabled());
     connect(dashCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineDashEnabled);
-    layout->addWidget(dashCb);
-    {
-        auto row = createLightSlider("Dash speed", m_settings->getStreamlineDashSpeed(), 0.1, 5.0, 0.1, 1, [this](double v) { m_settings->setStreamlineDashSpeed(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
 
-    // ==========================================
-    // Lighting
-    // ==========================================
-    layout->addWidget(sectionHeader("Lighting"));
+    replaceSliderRow(slUi.dashSpeedRow, "Dash speed", m_settings->getStreamlineDashSpeed(), 0.1, 5.0, 0.1, 1, [this](double v) { m_settings->setStreamlineDashSpeed(v); });
 
-    {
-        auto row = createLightSlider("Ambient", m_settings->getStreamlineAmbient(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineAmbient(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Diffuse", m_settings->getStreamlineDiffuse(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineDiffuse(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Specular", m_settings->getStreamlineSpecular(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineSpecular(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    auto* specPowerSpin = new QSpinBox;
+    replaceSliderRow(slUi.streamlineAmbientRow, "Ambient", m_settings->getStreamlineAmbient(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineAmbient(v); });
+    replaceSliderRow(slUi.streamlineDiffuseRow, "Diffuse", m_settings->getStreamlineDiffuse(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineDiffuse(v); });
+    replaceSliderRow(slUi.streamlineSpecularRow, "Specular", m_settings->getStreamlineSpecular(), 0, 1, 0.01, 2, [this](double v) { m_settings->setStreamlineSpecular(v); });
+
+    auto* specPowerSpin = slUi.specPowerSpin;
     specPowerSpin->setRange(2, 128);
     specPowerSpin->setValue(m_settings->getStreamlineSpecularPower());
     connect(specPowerSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineSpecularPower);
-    layout->addWidget(specPowerSpin);
 
-    // ==========================================
-    // Arrows
-    // ==========================================
-    auto* arrowsCb = new QCheckBox("Show direction");
+    auto* arrowsCb = slUi.arrowsCb;
     arrowsCb->setChecked(m_settings->getShowStreamlineArrows());
     connect(arrowsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowStreamlineArrows);
-    layout->addWidget(arrowsCb);
 
-    auto* arrowSpacingRow = new QHBoxLayout;
-    auto* arrowSpacingLabel = new QLabel("Arrow spacing");
-    arrowSpacingLabel->    setFixedWidth(kLabelWidth);
-    arrowSpacingLabel->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-    arrowSpacingLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    arrowSpacingRow->addWidget(arrowSpacingLabel);
-    auto* arrowSpacingSpin = new QSpinBox;
+    auto* arrowSpacingSpin = slUi.arrowSpacingSpin;
     arrowSpacingSpin->setRange(2, 20);
     arrowSpacingSpin->setValue(m_settings->getStreamlineArrowSpacing());
     connect(arrowSpacingSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineArrowSpacing);
-    arrowSpacingRow->addWidget(arrowSpacingSpin, 1);
-    layout->addLayout(arrowSpacingRow);
 
-    {
-        auto row = createLightSlider("Arrow size", m_settings->getStreamlineArrowSize(), 0.01, 0.2, 0.01, 2, [this](double v) { m_settings->setStreamlineArrowSize(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    replaceSliderRow(slUi.arrowSizeRow, "Arrow size", m_settings->getStreamlineArrowSize(), 0.01, 0.2, 0.01, 2, [this](double v) { m_settings->setStreamlineArrowSize(v); });
 
-    // ==========================================
-    // Particles
-    // ==========================================
-    auto* particlesCb = new QCheckBox("Show Particles");
+    auto* particlesCb = slUi.particlesCb;
     particlesCb->setChecked(m_settings->getShowParticles());
     connect(particlesCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowParticles);
-    layout->addWidget(particlesCb);
 
-    {
-        auto row = createLightSlider("Particle count", m_settings->getParticleCount(), 10, 5000, 10, 0, [this](double v) { m_settings->setParticleCount(static_cast<int>(v)); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Particle speed", m_settings->getParticleSpeed(), 0.1, 100, 0.1, 1, [this](double v) { m_settings->setParticleSpeed(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
-    {
-        auto row = createLightSlider("Particle size", m_settings->getParticleSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setParticleSize(v); });
-        layout->addWidget(row.slider->parentWidget());
-    }
+    replaceSliderRow(slUi.particleCountRow, "Particle count", m_settings->getParticleCount(), 10, 5000, 10, 0, [this](double v) { m_settings->setParticleCount(static_cast<int>(v)); });
+    replaceSliderRow(slUi.particleSpeedRow, "Particle speed", m_settings->getParticleSpeed(), 0.1, 100, 0.1, 1, [this](double v) { m_settings->setParticleSpeed(v); });
+    replaceSliderRow(slUi.particleSizeRow, "Particle size", m_settings->getParticleSize(), 1, 20, 0.5, 1, [this](double v) { m_settings->setParticleSize(v); });
 
-    layout->addStretch();
     scroll->setWidget(content);
 
     auto* wrapper = new QWidget;
@@ -1486,21 +1241,16 @@ QWidget* MainWindow::buildStreamlinesPage() {
 // ============================================================================
 QWidget* MainWindow::buildScreenshotPage() {
     auto* page = new QWidget;
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    Ui::ScreenshotPage ssUi;
+    ssUi.setupUi(page);
 
-    auto* saveBtn = new QPushButton("Save Screenshot");
+    auto* saveBtn = ssUi.saveBtn;
     saveBtn->setObjectName("secondaryButton");
     connect(saveBtn, &QPushButton::clicked, this, &MainWindow::saveScreenshot);
-    layout->addWidget(saveBtn);
 
-    auto* transCb = new QCheckBox("Transparent (PNG)");
+    auto* transCb = ssUi.transCb;
     transCb->setChecked(m_settings->getScreenshotTransparent());
     connect(transCb, &QCheckBox::toggled, m_settings, &RenderSettings::setScreenshotTransparent);
-    layout->addWidget(transCb);
-
-    layout->addStretch();
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
@@ -1521,71 +1271,49 @@ QWidget* MainWindow::buildScreenshotPage() {
 // ============================================================================
 QWidget* MainWindow::buildMeshInfoPage() {
     auto* page = new QWidget;
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(4);
+    Ui::MeshInfoPage meshUi;
+    meshUi.setupUi(page);
     m_meshInfoLabels.clear();
 
-    auto addInfoRow = [this, layout](const QString& label, const QString& value, const QString& color = currentThemeColors().textPrimary.name()) {
-        auto* row = new QHBoxLayout;
-        auto* lbl = new QLabel(label);
-        lbl->    setFixedWidth(kLabelWidth);
-        lbl->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
-        auto* val = new QLabel(value);
-        val->setObjectName("mvp:" + label);
-        val->setStyleSheet(QString("font-size: 11px; color: %1;").arg(color));
-        row->addWidget(lbl);
-        row->addWidget(val);
-        layout->addLayout(row);
-        m_meshInfoLabels[label] = val;
+    auto addInfoRow = [this, &meshUi](const QString& label, QLabel* valueWidget, const QString& value, const QString& color = currentThemeColors().textPrimary.name()) {
+        valueWidget->setText(value);
+        valueWidget->setStyleSheet(QString("font-size: 11px; color: %1;").arg(color));
+        m_meshInfoLabels[label] = valueWidget;
     };
 
-    layout->addWidget(sectionHeader("Source"));
-    addInfoRow("Type", m_settings->getMeshDataType());
-    addInfoRow("Format", m_settings->getMeshFormat());
+    addInfoRow("Type", meshUi.typeValue, m_settings->getMeshDataType());
+    addInfoRow("Format", meshUi.formatValue, m_settings->getMeshFormat());
 
-    layout->addWidget(sectionHeader("Geometry"));
-    addInfoRow("Triangles", QString::number(m_settings->getTriangleCount()));
-    addInfoRow("Points", QString::number(m_settings->getPointCount()));
+    addInfoRow("Triangles", meshUi.trianglesValue, QString::number(m_settings->getTriangleCount()));
+    addInfoRow("Points", meshUi.pointsValue, QString::number(m_settings->getPointCount()));
 
-    layout->addWidget(sectionHeader("Quality"));
-    addInfoRow("Degenerate", QString::number(m_settings->getDegenerateFaces()), "#ff6666");
-    addInfoRow("Open edges", QString::number(m_settings->getOpenEdges()), "#ffaa44");
-    addInfoRow("Non-manifold E", QString::number(m_settings->getNonManifoldEdges()), "#ff44ff");
-    addInfoRow("Non-manifold V", QString::number(m_settings->getNonManifoldVerts()), "#ff44ff");
-    addInfoRow("Watertight", m_settings->getWatertight() ? "yes" : "no", m_settings->getWatertight() ? "#66dd66" : "#ff6666");
+    addInfoRow("Degenerate", meshUi.degenerateValue, QString::number(m_settings->getDegenerateFaces()), "#ff6666");
+    addInfoRow("Open edges", meshUi.openEdgesValue, QString::number(m_settings->getOpenEdges()), "#ffaa44");
+    addInfoRow("Non-manifold E", meshUi.nonManifoldEValue, QString::number(m_settings->getNonManifoldEdges()), "#ff44ff");
+    addInfoRow("Non-manifold V", meshUi.nonManifoldVValue, QString::number(m_settings->getNonManifoldVerts()), "#ff44ff");
+    addInfoRow("Watertight", meshUi.watertightValue, m_settings->getWatertight() ? "yes" : "no", m_settings->getWatertight() ? "#66dd66" : "#ff6666");
 
-    layout->addWidget(sectionHeader("Bounding box"));
-    auto* bbGrid = new QGridLayout;
-    bbGrid->setHorizontalSpacing(4);
-    const char* xyz[] = {"X", "Y", "Z"};
-    for (int i = 0; i < 3; ++i) {
-        auto* h = new QLabel(QString::fromUtf8(xyz[i]));
-        h->setStyleSheet(QString("font-size: 10px; color: %1;").arg(currentThemeColors().textMuted.name()));
-        bbGrid->addWidget(h, 0, i + 1);
-    }
-    auto addBBRow = [this, &bbGrid](int row, const QString& lbl, auto getter) {
-        auto* l = new QLabel(lbl);
-        l->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textMuted.name()));
-        bbGrid->addWidget(l, row, 0);
-        for (int i = 0; i < 3; ++i) {
-            auto* v = new QLabel(QString::number(getter(i), 'f', 3));
-            v->setObjectName(QString("mvp:BB:%1:%2").arg(lbl).arg(i));
-            v->setStyleSheet(QString("font-size: 11px; color: %1;").arg(currentThemeColors().textPrimary.name()));
-            bbGrid->addWidget(v, row, i + 1);
-            m_meshInfoLabels[QString("BB:%1:%2").arg(lbl).arg(i)] = v;
+    auto addBB = [&](const QString& row, int axis, double v) {
+        QString key = QString("BB:%1:%2").arg(row).arg(axis);
+        QLabel* widget = nullptr;
+        if (row == "Min") widget = axis == 0 ? meshUi.bbMinX : axis == 1 ? meshUi.bbMinY : meshUi.bbMinZ;
+        else if (row == "Max") widget = axis == 0 ? meshUi.bbMaxX : axis == 1 ? meshUi.bbMaxY : meshUi.bbMaxZ;
+        else widget = axis == 0 ? meshUi.bbDeltaX : axis == 1 ? meshUi.bbDeltaY : meshUi.bbDeltaZ;
+        if (widget) {
+            widget->setText(QString::number(v, 'f', 3));
+            m_meshInfoLabels[key] = widget;
         }
     };
-    addBBRow(1, "Min", [&](int i) { return i == 0 ? m_settings->getWorldMinX() : i == 1 ? m_settings->getWorldMinY() : m_settings->getWorldMinZ(); });
-    addBBRow(2, "Max", [&](int i) { return i == 0 ? m_settings->getWorldMaxX() : i == 1 ? m_settings->getWorldMaxY() : m_settings->getWorldMaxZ(); });
-    addBBRow(3, "Delta", [&](int i) {
-        return i == 0 ? m_settings->getWorldMaxX() - m_settings->getWorldMinX()
-             : i == 1 ? m_settings->getWorldMaxY() - m_settings->getWorldMinY()
-                      : m_settings->getWorldMaxZ() - m_settings->getWorldMinZ();
-    });
-    layout->addLayout(bbGrid);
 
-    layout->addStretch();
+    addBB("Min", 0, m_settings->getWorldMinX());
+    addBB("Min", 1, m_settings->getWorldMinY());
+    addBB("Min", 2, m_settings->getWorldMinZ());
+    addBB("Max", 0, m_settings->getWorldMaxX());
+    addBB("Max", 1, m_settings->getWorldMaxY());
+    addBB("Max", 2, m_settings->getWorldMaxZ());
+    addBB("Delta", 0, m_settings->getWorldMaxX() - m_settings->getWorldMinX());
+    addBB("Delta", 1, m_settings->getWorldMaxY() - m_settings->getWorldMinY());
+    addBB("Delta", 2, m_settings->getWorldMaxZ() - m_settings->getWorldMinZ());
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);

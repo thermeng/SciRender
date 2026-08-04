@@ -1,0 +1,645 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MeshInfoPage</class>
+ <widget class="QWidget" name="MeshInfoPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="sourceHeader">
+     <property name="text">
+      <string>Source</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="typeRow">
+     <item>
+      <widget class="QLabel" name="typeLabel">
+       <property name="text">
+        <string>Type</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="typeValue">
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Type</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="formatRow">
+     <item>
+      <widget class="QLabel" name="formatLabel">
+       <property name="text">
+        <string>Format</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="formatValue">
+       <property name="text">
+        <string>-</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Format</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="geometryHeader">
+     <property name="text">
+      <string>Geometry</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="trianglesRow">
+     <item>
+      <widget class="QLabel" name="trianglesLabel">
+       <property name="text">
+        <string>Triangles</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="trianglesValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Triangles</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="pointsRow">
+     <item>
+      <widget class="QLabel" name="pointsLabel">
+       <property name="text">
+        <string>Points</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="pointsValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Points</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="qualityHeader">
+     <property name="text">
+      <string>Quality</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="degenerateRow">
+     <item>
+      <widget class="QLabel" name="degenerateLabel">
+       <property name="text">
+        <string>Degenerate</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="degenerateValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Degenerate</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #ff6666;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="openEdgesRow">
+     <item>
+      <widget class="QLabel" name="openEdgesLabel">
+       <property name="text">
+        <string>Open edges</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="openEdgesValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Open edges</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #ffaa44;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="nonManifoldERow">
+     <item>
+      <widget class="QLabel" name="nonManifoldELabel">
+       <property name="text">
+        <string>Non-manifold E</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="nonManifoldEValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Non-manifold E</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #ff44ff;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="nonManifoldVRow">
+     <item>
+      <widget class="QLabel" name="nonManifoldVLabel">
+       <property name="text">
+        <string>Non-manifold V</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="nonManifoldVValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Non-manifold V</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #ff44ff;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="watertightRow">
+     <item>
+      <widget class="QLabel" name="watertightLabel">
+       <property name="text">
+        <string>Watertight</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>72</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>72</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="watertightValue">
+       <property name="text">
+        <string>no</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:Watertight</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #ff6666;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="bboxHeader">
+     <property name="text">
+      <string>Bounding box</string>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QGridLayout" name="bbGrid">
+     <property name="spacing">
+      <number>4</number>
+     </property>
+     <item row="0" column="0">
+      <widget class="QLabel" name="bbEmpty"/>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLabel" name="bbX">
+       <property name="text">
+        <string>X</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 10px; color: #858585;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="2">
+      <widget class="QLabel" name="bbY">
+       <property name="text">
+        <string>Y</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 10px; color: #858585;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="3">
+      <widget class="QLabel" name="bbZ">
+       <property name="text">
+        <string>Z</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 10px; color: #858585;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QLabel" name="minLabel">
+       <property name="text">
+        <string>Min</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QLabel" name="bbMinX">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Min:0</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="2">
+      <widget class="QLabel" name="bbMinY">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Min:1</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="3">
+      <widget class="QLabel" name="bbMinZ">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Min:2</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="0">
+      <widget class="QLabel" name="maxLabel">
+       <property name="text">
+        <string>Max</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="1">
+      <widget class="QLabel" name="bbMaxX">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Max:0</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="2">
+      <widget class="QLabel" name="bbMaxY">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Max:1</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="3">
+      <widget class="QLabel" name="bbMaxZ">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Max:2</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="0">
+      <widget class="QLabel" name="deltaLabel">
+       <property name="text">
+        <string>Delta</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #858585;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="1">
+      <widget class="QLabel" name="bbDeltaX">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Delta:0</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="2">
+      <widget class="QLabel" name="bbDeltaY">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Delta:1</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="3">
+      <widget class="QLabel" name="bbDeltaZ">
+       <property name="text">
+        <string>0.000</string>
+       </property>
+       <property name="objectName">
+        <string>mvp:BB:Delta:2</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; color: #cccccc;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+</ui>

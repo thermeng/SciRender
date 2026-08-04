@@ -29,6 +29,18 @@
 #include "viewport_widget.h"
 #include "render/render_settings.h"
 
+namespace Ui {
+    class MainWindow;
+    class LightingPage;
+    class SlicingPage;
+    class ViewDisplayPage;
+    class ColormapPage;
+    class VectorsPage;
+    class StreamlinesPage;
+    class ScreenshotPage;
+    class MeshInfoPage;
+}
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -67,6 +79,8 @@ private:
 
     ::RenderSettings* m_settings = nullptr;
     ViewportWidget* m_viewport = nullptr;
+
+    Ui::MainWindow* ui = nullptr;
 
     // Sidebar
     QDockWidget* m_sidebarDock = nullptr;

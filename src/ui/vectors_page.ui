@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VectorsPage</class>
+ <widget class="QWidget" name="VectorsPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QCheckBox" name="showCb">
+     <property name="text">
+      <string>Show vectors</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="optionsGroup" native="true">
+     <layout class="QVBoxLayout" name="optionsLayout">
+      <property name="spacing">
+       <number>4</number>
+      </property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="fieldScaleHeader">
+        <property name="text">
+         <string>Field &amp; Scale</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="vectorCombo"/>
+      </item>
+      <item>
+       <widget class="QWidget" name="scaleRow" native="true"/>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="scaleMagCb">
+        <property name="text">
+         <string>Scale by magnitude</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="strideRow" native="true"/>
+      </item>
+      <item>
+       <widget class="QLabel" name="magnitudeHeader">
+        <property name="text">
+         <string>Magnitude</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="magCombo"/>
+      </item>
+      <item>
+       <widget class="QLabel" name="colorHeader">
+        <property name="text">
+         <string>Color</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">font-size: 11px; font-weight: bold; color: #007acc; padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="vectorColorBtn">
+        <property name="text">
+         <string>Vector</string>
+        </property>
+        <property name="objectName">
+         <string>swatchButton</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="useCmapCb">
+        <property name="text">
+         <string>Color by magnitude</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="vCmapCombo"/>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="revCb">
+        <property name="text">
+         <string>Reverse palette</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+</ui>
