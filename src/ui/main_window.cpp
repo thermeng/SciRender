@@ -701,7 +701,7 @@ QWidget* MainWindow::buildSlicingPage() {
 
     auto replaceRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, std::function<void(double)> cb) {
         auto row = createClipSlider(label, value, from, to, cb);
-        page->layout()->replaceWidget(placeholder, row.slider->parentWidget());
+        slicingUi.optionsGroup->layout()->replaceWidget(placeholder, row.slider->parentWidget());
         delete placeholder;
     };
 
@@ -999,7 +999,7 @@ QWidget* MainWindow::buildVectorsPage() {
 
     auto replaceSliderRow = [&](QWidget* placeholder, const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
         auto row = createLightSlider(label, value, from, to, step, decimals, cb);
-        page->layout()->replaceWidget(placeholder, row.slider->parentWidget());
+        vectorsUi.optionsGroup->layout()->replaceWidget(placeholder, row.slider->parentWidget());
         delete placeholder;
     };
 
@@ -1032,7 +1032,7 @@ QWidget* MainWindow::buildVectorsPage() {
         return btn;
     };
 
-    page->layout()->replaceWidget(vectorsUi.vectorColorBtn, createColorButton("Vector", m_settings->getVectorColorQml(), &m_vectorColorDialog, &RenderSettings::setVectorColorQml));
+    vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vectorColorBtn, createColorButton("Vector", m_settings->getVectorColorQml(), &m_vectorColorDialog, &RenderSettings::setVectorColorQml));
     delete vectorsUi.vectorColorBtn;
 
     auto* useCmapCb = vectorsUi.useCmapCb;
@@ -1042,7 +1042,7 @@ QWidget* MainWindow::buildVectorsPage() {
     auto* vCmapCombo = buildColormapCombo(m_settings->getVectorColormapChoice(),
         [this](int i) { m_settings->setVectorColormapChoice(i); });
     vCmapCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
-    page->layout()->replaceWidget(vectorsUi.vCmapCombo, vCmapCombo);
+    vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vCmapCombo, vCmapCombo);
     delete vectorsUi.vCmapCombo;
 
     auto* revCb = vectorsUi.revCb;
