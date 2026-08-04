@@ -845,6 +845,8 @@ QWidget* MainWindow::buildSlicingPage() {
     connect(enableCb, &QCheckBox::toggled, slicingUi.optionsGroup, &QWidget::setEnabled);
     slicingUi.optionsGroup->setEnabled(m_settings->getClipEnabled());
 
+    qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
+
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1180,6 +1182,7 @@ QWidget* MainWindow::buildVectorsPage() {
     m_vectorCombo = vectorsUi.vectorCombo;
     m_vectorCombo->addItems(m_settings->getAvailableVectors());
     m_vectorCombo->setCurrentText(m_settings->getVectorField());
+    m_vectorCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
     connect(m_vectorCombo, &QComboBox::activated, m_settings, [this](int) {
         m_settings->setActiveVectorField(m_vectorCombo->currentText());
     });
