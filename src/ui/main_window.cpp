@@ -311,7 +311,7 @@ void MainWindow::setupMenus() {
     auto* menuBar = this->menuBar();
 
     // File menu
-    auto* fileMenu = menuBar->addMenu("&File");
+    auto* fileMenu = ui->menuFile;
     fileMenu->addAction("&Open Mesh...", this, &MainWindow::openMesh);
 
     auto* recentMenu = fileMenu->addMenu("Open &Recent");
@@ -329,7 +329,7 @@ void MainWindow::setupMenus() {
     fileMenu->addAction("E&xit", qApp, &QApplication::quit);
 
     // View menu
-    auto* viewMenu = menuBar->addMenu("&View");
+    auto* viewMenu = ui->menuView;
     viewMenu->addAction("&Lighting", this, [this]() { setSidebarSection(0); });
     viewMenu->addAction("&Slicing", this, [this]() { setSidebarSection(1); });
     viewMenu->addSeparator();
@@ -391,7 +391,7 @@ void MainWindow::setupMenus() {
     connect(lightAction, &QAction::triggered, this, [this]() { m_settings->setTheme(AppTheme::Light); });
 
     // Help menu
-    auto* helpMenu = menuBar->addMenu("&Help");
+    auto* helpMenu = ui->menuHelp;
     helpMenu->addAction("&Keyboard Shortcuts", this, &MainWindow::showShortcuts);
     helpMenu->addAction("&About SciRender", this, &MainWindow::showAbout);
     helpMenu->addSeparator();
