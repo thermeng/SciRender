@@ -46,6 +46,8 @@
 #include "render/MeshPass.h"
 #include "render/GlyphPass.h"
 #include "render/ParticlePass.h"
+#include "render/ColormapSync.h"
+#include "render/LodScheduler.h"
 
 #include <QOpenGLFramebufferObject>
 
@@ -422,10 +424,6 @@ private:
     double nearPlane = 0.1;
     double farPlane = 100.0;
 
-    std::atomic<bool> cameraMoving{false};
-    std::atomic<bool> gpuDecimationDirty{false};
-    bool m_wasCameraMoving = false;
-
     std::atomic<bool> vectorGlyphDirty{false};
 
     bool m_destroying = false;
@@ -443,8 +441,6 @@ private:
     mutable std::mutex meshQueueMutex;
     std::shared_ptr<const std::vector<float>> m_pendingScalarSrc; // scalar handoff (zero-copy)
 
-    std::chrono::steady_clock::time_point m_lastMotion;
-
     // Deep-copied snapshot; the ONLY source of truth renderFrame() reads.
     RenderRenderState m_state;
 
@@ -456,12 +452,14 @@ private:
 
     // --- extracted responsibility helpers -------------------------------------
     ColormapManager colormap;     // scalar + vector LUT textures & choices
+    ColormapSync colormapSync;     // batches colormap choice→LUT updates per frame
     VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
     StreamlineSet streamlineSet;  // GL_LINES streamline GPU resources + mag range
     MeshGLManager meshManager;     // full + decimated GPU meshes & upload
     MeshPass meshPass;             // mesh shader program + UBO + surface draw passes
     GlyphPass glyphPass;           // vector glyph shader program + UBO + draw
     ParticlePass particlePass;     // particle shader program + VAO/VBO + draw
+    LodScheduler lodScheduler;     // LOD debounce + GPU compute dispatch
     GridRenderer m_grid;           // procedural ray-cast ground plane
     BBoxOverlay m_bbox;            // AABB wireframe overlay
     QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
