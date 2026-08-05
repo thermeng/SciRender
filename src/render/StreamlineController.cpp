@@ -33,6 +33,7 @@ void StreamlineController::init(const ShaderSources& sources) {
 void StreamlineController::dispatchCompute(const RenderRenderState& state,
                                             std::shared_ptr<const RenderMesh> mesh,
                                             StreamlineSet& streamlineSet) {
+    if (!state.showStreamlines) return;
     auto dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_streamlineRequestTime).count();
     if (dt >= kStreamlineDebounceSec && m_streamlineRequestTime.time_since_epoch().count() > 0
         && mesh
@@ -97,7 +98,7 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
                                  double animationTime, const glm::vec3& lightDir) {
     // Streamlines
     if ((state.showStreamlines && !streamlineSet.empty()) ||
-        (state.showStreamlineArrows && streamlineSet.arrowVao.has() && streamlineSet.arrowCount > 0)) {
+        (state.showStreamlineArrows && streamlineSet.arrowVao.has() && streamlineSet.arrowCount > 0 && state.showStreamlines)) {
         if (m_streamlineProgram.has()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             glUseProgram(m_streamlineProgram);
@@ -143,7 +144,7 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
     }
 
     // Seed points
-    if (state.showSeeds && !streamlineSet.seedsEmpty() && m_seedProgram.has()) {
+    if (state.showStreamlines && state.showSeeds && !streamlineSet.seedsEmpty() && m_seedProgram.has()) {
         glUseProgram(m_seedProgram);
         GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
         GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
