@@ -1,5 +1,6 @@
 #include "render/gizmo.h"
 
+#include <glad/gl.h>
 #include <vector>
 #include <cstring>
 #include <algorithm>
@@ -181,19 +182,19 @@ bool Gizmo::buildAtlas() {
         }
     }
 
-    glCreateTextures(GL_TEXTURE_2D, 1, &glyphTex);
+    glCreateTextures(GL_TEXTURE_2D, 1, glyphTex.ptr());
     glTextureStorage2D(glyphTex, 1, GL_RGBA8, glyphAtlasW, glyphAtlasH);
     glTextureSubImage2D(glyphTex, 0, 0, 0, glyphAtlasW, glyphAtlasH, GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
     glTextureParameteri(glyphTex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTextureParameteri(glyphTex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTextureParameteri(glyphTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTextureParameteri(glyphTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    return glyphTex != 0;
+    return glyphTex.has();
 }
 
 bool Gizmo::buildAALineProgram() {
-    aaLineProgram = linkProgram(aaLineVS, aaLineFS);
-    if (!aaLineProgram) return false;
+    aaLineProgram.reset(linkProgram(aaLineVS, aaLineFS));
+    if (!aaLineProgram.has()) return false;
     aaLineMvpLoc       = glGetUniformLocation(aaLineProgram, "uMVP");
     aaLineHalfWidthLoc = glGetUniformLocation(aaLineProgram, "uHalfWidth");
     aaLinePosLoc       = glGetAttribLocation(aaLineProgram, "aPos");
@@ -204,16 +205,16 @@ bool Gizmo::buildAALineProgram() {
 }
 
 bool Gizmo::buildCapProgram() {
-    capProgram = linkProgram(capVS, capFS);
-    if (!capProgram) return false;
+    capProgram.reset(linkProgram(capVS, capFS));
+    if (!capProgram.has()) return false;
     capMvpLoc   = glGetUniformLocation(capProgram, "uMVP");
     capColorLoc = glGetUniformLocation(capProgram, "uColor");
     return capMvpLoc >= 0 && capColorLoc >= 0;
 }
 
 bool Gizmo::buildLightMarkProgram() {
-    lightMarkProgram = linkProgram(lightMarkVS, lightMarkFS);
-    if (!lightMarkProgram) return false;
+    lightMarkProgram.reset(linkProgram(lightMarkVS, lightMarkFS));
+    if (!lightMarkProgram.has()) return false;
     lightMarkMvpLoc = glGetUniformLocation(lightMarkProgram, "uMVP");
     GLint posLoc = glGetAttribLocation(lightMarkProgram, "aPos");
     GLint colLoc = glGetAttribLocation(lightMarkProgram, "aColor");
@@ -221,8 +222,8 @@ bool Gizmo::buildLightMarkProgram() {
 }
 
 bool Gizmo::buildTextProgram() {
-    textProgram = linkProgram(textVS, textFS);
-    if (!textProgram) return false;
+    textProgram.reset(linkProgram(textVS, textFS));
+    if (!textProgram.has()) return false;
     textMvpLoc   = glGetUniformLocation(textProgram, "uMVP");
     textColorLoc = glGetUniformLocation(textProgram, "uColor");
     textTexLoc   = glGetUniformLocation(textProgram, "uTex");
@@ -239,8 +240,8 @@ bool Gizmo::init() {
 
     // ---- AA line VBO (dynamic): 3 axes × 4 verts × (vec2 pos + vec3 col + float dist) ----
     {
-        glCreateVertexArrays(1, &aaLineVAO);
-        glCreateBuffers(1, &aaLineVBO);
+        glCreateVertexArrays(1, aaLineVAO.ptr());
+        glCreateBuffers(1, aaLineVBO.ptr());
         glEnableVertexArrayAttrib(aaLineVAO, aaLinePosLoc);
         glVertexArrayAttribFormat(aaLineVAO, aaLinePosLoc, 2, GL_FLOAT, GL_FALSE, 0);
         glVertexArrayAttribBinding(aaLineVAO, aaLinePosLoc, 0);
@@ -318,8 +319,8 @@ bool Gizmo::init() {
             }
         }
 
-        glCreateVertexArrays(1, &capVAO);
-        glCreateBuffers(1, &capVBO);
+        glCreateVertexArrays(1, capVAO.ptr());
+        glCreateBuffers(1, capVBO.ptr());
         GLint capPosLoc = 0, capNormLoc = 1;
         glEnableVertexArrayAttrib(capVAO, capPosLoc);
         glVertexArrayAttribFormat(capVAO, capPosLoc, 3, GL_FLOAT, GL_FALSE, 0);
@@ -350,8 +351,8 @@ bool Gizmo::init() {
             };
             verts.insert(verts.end(), v, v + 18);
         }
-        glCreateVertexArrays(1, &originVAO);
-        glCreateBuffers(1, &originVBO);
+        glCreateVertexArrays(1, originVAO.ptr());
+        glCreateBuffers(1, originVBO.ptr());
         GLint lmPosLoc2 = glGetAttribLocation(lightMarkProgram, "aPos");
         GLint lmColLoc2 = glGetAttribLocation(lightMarkProgram, "aColor");
         glEnableVertexArrayAttrib(originVAO, lmPosLoc2);
@@ -365,8 +366,8 @@ bool Gizmo::init() {
     }
 
     // ---- Text quad VBO (dynamic): 3 chars × 6 verts × vec4(px.xy, uv.zw) ----
-    glCreateVertexArrays(1, &textVAO);
-    glCreateBuffers(1, &textVBO);
+    glCreateVertexArrays(1, textVAO.ptr());
+    glCreateBuffers(1, textVBO.ptr());
     glEnableVertexArrayAttrib(textVAO, textPosLoc);
     glVertexArrayAttribFormat(textVAO, textPosLoc, 4, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(textVAO, textPosLoc, 0);
@@ -375,8 +376,8 @@ bool Gizmo::init() {
 
     // ---- Light-marker disc VBO (dynamic): 5 lights × 6 verts × vec6(px.xy + rgb) ----
     {
-        glCreateVertexArrays(1, &lightMarkVAO);
-        glCreateBuffers(1, &lightMarkVBO);
+        glCreateVertexArrays(1, lightMarkVAO.ptr());
+        glCreateBuffers(1, lightMarkVBO.ptr());
         GLint lmPosLoc = glGetAttribLocation(lightMarkProgram, "aPos");
         GLint lmColLoc = glGetAttribLocation(lightMarkProgram, "aColor");
         glEnableVertexArrayAttrib(lightMarkVAO, lmPosLoc);
@@ -394,24 +395,12 @@ bool Gizmo::init() {
 
 void Gizmo::shutdown() {
     if (!QOpenGLContext::currentContext()) return;
-    if (aaLineVAO)       glDeleteVertexArrays(1, &aaLineVAO);
-    if (aaLineVBO)       glDeleteBuffers(1, &aaLineVBO);
-    if (aaLineProgram)   glDeleteProgram(aaLineProgram);
-    if (capVAO)          glDeleteVertexArrays(1, &capVAO);
-    if (capVBO)          glDeleteBuffers(1, &capVBO);
-    if (capProgram)      glDeleteProgram(capProgram);
-    if (originVAO)       glDeleteVertexArrays(1, &originVAO);
-    if (originVBO)       glDeleteBuffers(1, &originVBO);
-    if (lightMarkVAO)    glDeleteVertexArrays(1, &lightMarkVAO);
-    if (lightMarkVBO)    glDeleteBuffers(1, &lightMarkVBO);
-    if (lightMarkProgram)glDeleteProgram(lightMarkProgram);
-    if (textVAO)         glDeleteVertexArrays(1, &textVAO);
-    if (textVBO)         glDeleteBuffers(1, &textVBO);
-    if (textProgram)     glDeleteProgram(textProgram);
-    if (glyphTex)        glDeleteTextures(1, &glyphTex);
-    aaLineVAO = aaLineVBO = capVAO = capVBO = originVAO = originVBO = 0;
-    lightMarkVAO = lightMarkVBO = textVAO = textVBO = glyphTex = 0;
-    aaLineProgram = capProgram = lightMarkProgram = textProgram = 0;
+    aaLineVAO.reset(); aaLineVBO.reset(); aaLineProgram.reset();
+    capVAO.reset(); capVBO.reset(); capProgram.reset();
+    originVAO.reset(); originVBO.reset();
+    lightMarkVAO.reset(); lightMarkVBO.reset(); lightMarkProgram.reset();
+    textVAO.reset(); textVBO.reset(); textProgram.reset();
+    glyphTex.reset();
 }
 
 void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
