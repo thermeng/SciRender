@@ -76,6 +76,10 @@ add_library(RenderLib STATIC
     src/render/GlyphPass.h
     src/render/ParticlePass.cpp
     src/render/ParticlePass.h
+    src/render/ColormapSync.cpp
+    src/render/ColormapSync.h
+    src/render/LodScheduler.cpp
+    src/render/LodScheduler.h
     src/render/gizmo.cpp
     src/render/gizmo.h
     src/render/colorbar_overlay.cpp

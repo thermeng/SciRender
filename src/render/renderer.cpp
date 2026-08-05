@@ -255,8 +255,7 @@ void Renderer::setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh) {
 }
 
 void Renderer::markCameraMoving() {
-    cameraMoving = true;
-    m_lastMotion = std::chrono::steady_clock::now();
+    lodScheduler.setCameraMoving();
 }
 
 void Renderer::computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head) {
@@ -381,13 +380,10 @@ void Renderer::reinitForNewContext() {
     m_lastFrameTime = {};
     m_lastFrameDt = 0.0;
     m_animationTime = 0.0;
-    cameraMoving.store(false);
-    m_wasCameraMoving = false;
-    gpuDecimationDirty.store(false);
+    lodScheduler.reset();
     vectorGlyphDirty.store(false);
     scalarDirty.store(false);
     m_pendingScalarSrc.reset();
-    m_lastMotion = {};
 }
 
 void Renderer::reinitMeshData() {
@@ -600,21 +596,8 @@ void Renderer::renderFrame() {
         m_animationTime += dt;
     }
 
-    // LOD debounce: once 140 ms have elapsed since the last camera motion, clear
-    // the moving flag so the next frame uses the full-resolution mesh.
-    if (cameraMoving.load()) {
-        auto now = std::chrono::steady_clock::now();
-        auto dt = std::chrono::duration<double>(now - m_lastMotion).count();
-        if (dt >= RenderConfig::defaults().lodDebounceSeconds) cameraMoving = false;
-    }
-
-    // Compute LOD throttle: only re-dispatch once per camera-motion burst.
-    // Without this, every frame during a 140 ms camera-moving window would
-    // run the full 3-pass compute pipeline plus read-back, causing driver stalls.
-    if (cameraMoving.load() && !m_wasCameraMoving) {
-        gpuDecimationDirty = true;
-    }
-    m_wasCameraMoving = cameraMoving.load();
+    // LOD debounce, throttle, and compute dispatch (owned by LodScheduler).
+    lodScheduler.tick(m_state, meshManager);
 
     // Consume a pending mesh handoff from the GUI thread (shared_ptr; no copy).
     // Uploading here keeps all GL work inside render() with the context current.
@@ -705,35 +688,14 @@ void Renderer::renderFrame() {
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = proj * view * model;
 
-    // Push the colormap choice/reversed snapshot into the GPU LUT manager.
-    colormap.setScalarChoice(m_state.colormapChoice);
-    colormap.setScalarReversed(m_state.colormapReversed);
-    colormap.setVectorChoice(m_state.vectorColormapChoice);
-    colormap.setVectorReversed(m_state.vectorColormapReversed);
-    colormap.setStreamlineChoice(m_state.streamlineColormapChoice);
-    colormap.setStreamlineReversed(m_state.streamlineColormapReversed);
-    colormap.update();
+    // Push colormap choices into the GPU LUT manager.
+    colormapSync.apply(m_state, colormap);
 
-    const bool useLod = m_state.useLod;
     if (meshManager.hasMeshes() && meshPass.hasProgram()) {
-        if (useLod && gpuDecimationDirty.load() && meshManager.hasDecimated() && meshManager.hasFullSource()) {
-            Mesh newDec;
-            if (meshManager.dispatchLodCompute(*meshManager.getFullSource(), newDec)) {
-                meshManager.replaceDecimatedMesh(0, newDec);
-            } else {
-                QString err = QString::fromStdString(meshManager.lastLodError());
-                if (err.isEmpty())
-                    qWarning() << "[LOD] GPU compute decimation failed, using CPU fallback";
-                else
-                    qWarning().noquote() << "[LOD] GPU compute decimation failed:\n" + err.trimmed();
-            }
-            gpuDecimationDirty = false;
-        }
-
         std::vector<std::pair<GLuint, int>> drawList;
         std::vector<int> drawMode;
         std::vector<int> drawVerts;
-        meshManager.snapshotDrawList(drawList, m_state.useLod, cameraMoving.load(), drawMode, drawVerts);
+        meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawMode, drawVerts);
 
         auto result = meshPass.draw(m_state, view, proj, model, drawList, drawVerts, meshManager, colormap);
         if (!result.transparentMeshes.empty()) {
