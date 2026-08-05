@@ -5,8 +5,8 @@
 #include <memory>
 #include <mutex>
 #include <thread>
-#include <glad/gl.h>
 #include <glm/glm.hpp>
+#include "render/gl_raii.h"
 #include "render/StreamlineSet.h"
 
 struct RenderRenderState;
@@ -36,11 +36,11 @@ public:
     std::atomic<bool> particleCountDirty{false};
 
 private:
-    GLuint m_streamlineProgram = 0;
-    GLuint m_streamlineUbo = 0;
+    GlProgram m_streamlineProgram;
+    GlBuffer m_streamlineUbo;
     GLint m_streamlineLutLoc = -1;
 
-    GLuint m_seedProgram = 0;
+    GlProgram m_seedProgram;
     GLint m_seedMvpLoc = -1;
     GLint m_seedModelLoc = -1;
     GLint m_seedColorLoc = -1;

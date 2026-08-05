@@ -8,19 +8,19 @@
 
 void StreamlineController::init(const ShaderSources& sources) {
     if (!sources.streamlineVert.empty() && !sources.streamlineFrag.empty()) {
-        m_streamlineProgram = compileProgram(sources.streamlineVert.c_str(), sources.streamlineFrag.c_str(), "Streamline");
-        if (m_streamlineProgram != 0) {
+        m_streamlineProgram.reset(compileProgram(sources.streamlineVert.c_str(), sources.streamlineFrag.c_str(), "Streamline"));
+        if (m_streamlineProgram.has()) {
             m_streamlineLutLoc = glGetUniformLocation(m_streamlineProgram, "uColormapLUT");
-            if (m_streamlineUbo == 0) {
-                glCreateBuffers(1, &m_streamlineUbo);
+            if (!m_streamlineUbo.has()) {
+                glCreateBuffers(1, m_streamlineUbo.ptr());
                 glNamedBufferData(m_streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
             }
         }
     }
 
     if (!sources.seedVert.empty() && !sources.seedFrag.empty()) {
-        m_seedProgram = compileProgram(sources.seedVert.c_str(), sources.seedFrag.c_str(), "Seed");
-        if (m_seedProgram != 0) {
+        m_seedProgram.reset(compileProgram(sources.seedVert.c_str(), sources.seedFrag.c_str(), "Seed"));
+        if (m_seedProgram.has()) {
             m_seedMvpLoc = glGetUniformLocation(m_seedProgram, "uMVP");
             m_seedModelLoc = glGetUniformLocation(m_seedProgram, "uModel");
             m_seedColorLoc = glGetUniformLocation(m_seedProgram, "uColor");
@@ -96,15 +96,15 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
                                  double animationTime, const glm::vec3& lightDir) {
     // Streamlines
     if ((state.showStreamlines && !streamlineSet.empty()) ||
-        (state.showStreamlineArrows && streamlineSet.arrowVao != 0 && streamlineSet.arrowCount > 0)) {
-        if (m_streamlineProgram != 0) {
+        (state.showStreamlineArrows && streamlineSet.arrowVao.has() && streamlineSet.arrowCount > 0)) {
+        if (m_streamlineProgram.has()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             glUseProgram(m_streamlineProgram);
             GLboolean blendWas = glIsEnabled(GL_BLEND);
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            if (m_streamlineUbo == 0) {
-                glCreateBuffers(1, &m_streamlineUbo);
+            if (!m_streamlineUbo.has()) {
+                glCreateBuffers(1, m_streamlineUbo.ptr());
                 glNamedBufferData(m_streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
             }
             glm::vec3 camPos = glm::vec3(state.camera.position);
@@ -131,7 +131,7 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
                 glDrawArrays(GL_TRIANGLES, 0, streamlineSet.lineCount);
                 glBindVertexArray(0);
             }
-            if (state.showStreamlineArrows && streamlineSet.arrowVao != 0 && streamlineSet.arrowCount > 0) {
+            if (state.showStreamlineArrows && streamlineSet.arrowVao.has() && streamlineSet.arrowCount > 0) {
                 glBindVertexArray(streamlineSet.arrowVao);
                 glDrawArrays(GL_TRIANGLES, 0, streamlineSet.arrowCount);
                 glBindVertexArray(0);
@@ -142,7 +142,7 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
     }
 
     // Seed points
-    if (state.showSeeds && !streamlineSet.seedsEmpty() && m_seedProgram != 0) {
+    if (state.showSeeds && !streamlineSet.seedsEmpty() && m_seedProgram.has()) {
         glUseProgram(m_seedProgram);
         GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
         GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
@@ -171,7 +171,7 @@ void StreamlineController::cancelAndJoin() {
 
 void StreamlineController::shutdown() {
     cancelAndJoin();
-    if (m_streamlineUbo) { glDeleteBuffers(1, &m_streamlineUbo); m_streamlineUbo = 0; }
-    if (m_streamlineProgram) { glDeleteProgram(m_streamlineProgram); m_streamlineProgram = 0; }
-    if (m_seedProgram) { glDeleteProgram(m_seedProgram); m_seedProgram = 0; }
+    m_streamlineUbo.reset();
+    m_streamlineProgram.reset();
+    m_seedProgram.reset();
 }
