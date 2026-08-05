@@ -2,8 +2,6 @@
 
 in vec3 vWorldPos;
 in vec3 vNormal;
-in float vDashFlag;
-in float vU;
 in float vMag;
 
 layout(std140, binding = 3) uniform StreamlineUBO {
@@ -15,9 +13,9 @@ layout(std140, binding = 3) uniform StreamlineUBO {
     vec4  uColor_UseColormap;  // xyz: fallback color, w: use colormap flag (0.0 or 1.0)
     vec4  uMagRange;           // x: minMag, y: maxMag
     vec4  uMaterial;           // x: ambient, y: diffuse, z: specular, w: specularPower
-    vec4  uRibbon;            // x = ribbonWidth, y = taperFactor, z = dashEnabled, w = dashSpeed
+    vec4  uRibbon;            // x = ribbonWidth, y = taperFactor, zw = pad
     vec4  uArrowParams;       // x = arrowAnimSpeed, yzw = pad
-    vec4  uPBR;               // x = matRoughness, y = matMetallic, z = pad, w = pad
+    vec4  uPBR;               // x = matRoughness, y = matMetallic, zw = pad
 };
 
 uniform sampler1D uColormapLUT;
@@ -57,7 +55,6 @@ void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
 }
 
 void main() {
-    // 1. Color evaluation
     bool useColormap = uColor_UseColormap.w > 0.5;
     float magMin = uMagRange.x;
     float magMax = uMagRange.y;
@@ -66,7 +63,6 @@ void main() {
 
     vec3 baseColor = useColormap ? texture(uColormapLUT, normMag).rgb : uColor_UseColormap.xyz;
 
-    // 2. Lighting (microfacet GGX, camera-relative key light)
     vec3 N = normalize(vNormal);
     vec3 L = normalize(uLightDir.xyz);
     vec3 V = normalize(uViewPos.xyz - vWorldPos);
@@ -76,14 +72,7 @@ void main() {
     vec3 totalSpecular = vec3(0.0);
     lightContributionPBR(L, N, 1.0, vec3(1.0), V, baseColor, totalDiffuse, totalSpecular);
 
-    // Dashing/Striping control
-    float dash = 1.0;
-    if (uRibbon.z > 0.5 && vDashFlag > 0.5) {
-        dash = step(0.5, fract(vU * 20.0 - uTime_Opacity.x * uRibbon.w * 1.5));
-    }
-
-    float dashAlpha = mix(1.0, dash, 0.7);
-    float alpha = dashAlpha * uTime_Opacity.y;
+    float alpha = uTime_Opacity.y;
     vec3 color = baseColor * uMatAmbient() + totalDiffuse + totalSpecular;
 
     FragColor = vec4(color, alpha);

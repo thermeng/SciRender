@@ -132,7 +132,7 @@ void ViewportWidget::paintGL() {
     m_settings->publishRenderState(scene);
 
     const bool continuous = (scene->autoRotate() || scene->showFps()
-                             || scene->isDashAnimating() || scene->isParticlesAnimating());
+                             || scene->isParticlesAnimating());
     if (!m_dirty && !continuous && m_pendingScreenshot.isEmpty()) return;
 
     // Scalar-only re-upload if needed.

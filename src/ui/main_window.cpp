@@ -1468,22 +1468,6 @@ QWidget* MainWindow::buildStreamlinesPage() {
         });
     }
 
-    auto* dashCb = slUi.dashCb;
-    dashCb->setChecked(m_settings->getStreamlineDashEnabled());
-    connect(dashCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineDashEnabled);
-
-    {
-        auto* slider = slUi.dashSpeedSlider;
-        auto* valueLabel = slUi.dashSpeedValue;
-        slider->setRange(static_cast<int>(0.1 * 1000), static_cast<int>(5.0 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineDashSpeed() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 1));
-            m_settings->setStreamlineDashSpeed(v);
-        });
-    }
-
     {
         auto* slider = slUi.streamlineAmbientSlider;
         auto* valueLabel = slUi.streamlineAmbientValue;
@@ -1784,15 +1768,6 @@ void MainWindow::setupTimers() {
         else if (!shouldRun && m_fpsTimer.isActive()) m_fpsTimer.stop();
     });
 
-    // Dash animation
-    connect(&m_dashTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
-    m_dashTimer.setInterval(16);
-    connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags) {
-        bool shouldRun = m_settings->getStreamlineDashEnabled() && m_settings->getShowStreamlines();
-        if (shouldRun && !m_dashTimer.isActive()) m_dashTimer.start();
-        else if (!shouldRun && m_dashTimer.isActive()) m_dashTimer.stop();
-    });
-
     // Particle animation
     connect(&m_particleTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
     m_particleTimer.setInterval(16);
@@ -2089,7 +2064,6 @@ void MainWindow::recreateViewport() {
 
     // Reconnect timers
     connect(&m_fpsTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
-    connect(&m_dashTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
     connect(&m_particleTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
 
     // Re-parent quick bar widgets
