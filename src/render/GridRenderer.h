@@ -1,6 +1,6 @@
 #pragma once
 
-#include <glad/gl.h>
+#include "render/gl_raii.h"
 #include <glm/glm.hpp>
 
 struct RenderRenderState;
@@ -15,10 +15,10 @@ public:
 private:
     void updateUbo(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj);
 
-    GLuint m_vao = 0;
-    GLuint m_vbo = 0;
-    GLuint m_program = 0;
-    GLuint m_ubo = 0;
-    GLuint m_uboIndex = GL_INVALID_INDEX;
+    GlVao m_vao;
+    GlBuffer m_vbo;
+    GlProgram m_program;
+    GlBuffer m_ubo;
+    GLuint m_uboIndex = ~0u;
     double m_planeY = 0.0;
 };

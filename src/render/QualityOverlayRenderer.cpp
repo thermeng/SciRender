@@ -7,21 +7,20 @@
 void QualityOverlayRenderer::init(const ShaderSources& sources) {
     if (sources.qualityOverlayVert.empty() || sources.qualityOverlayFrag.empty()) return;
 
-    m_program = compileProgram(sources.qualityOverlayVert.c_str(),
-                               sources.qualityOverlayFrag.c_str(), "QualityOverlay");
-    if (m_program != 0) {
+    m_program.reset(compileProgram(sources.qualityOverlayVert.c_str(),
+                               sources.qualityOverlayFrag.c_str(), "QualityOverlay"));
+    if (m_program.has()) {
         m_mvpLoc   = glGetUniformLocation(m_program, "uMVP");
         m_colorLoc = glGetUniformLocation(m_program, "uColor");
     }
 }
 
 void QualityOverlayRenderer::rebuild(const RenderRenderState& state) {
-    auto buildOne = [&](GLuint& vao, GLuint& vbo, const std::shared_ptr<const std::vector<float>>& vertsPtr) {
-        if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }
-        if (vbo) { glDeleteBuffers(1, &vbo); vbo = 0; }
+    auto buildOne = [&](GlVao& vao, GlBuffer& vbo, const std::shared_ptr<const std::vector<float>>& vertsPtr) {
+        vao.reset(); vbo.reset();
         if (!vertsPtr || vertsPtr->empty()) return;
-        glCreateVertexArrays(1, &vao);
-        glCreateBuffers(1, &vbo);
+        glCreateVertexArrays(1, vao.ptr());
+        glCreateBuffers(1, vbo.ptr());
         glEnableVertexArrayAttrib(vao, 0);
         glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
         glVertexArrayAttribBinding(vao, 0, 0);
@@ -35,7 +34,7 @@ void QualityOverlayRenderer::rebuild(const RenderRenderState& state) {
 }
 
 void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* viewPtr, const float* projPtr) {
-    if (!state.showQualityOverlay || m_program == 0) return;
+    if (!state.showQualityOverlay || !m_program.has()) return;
 
     if (m_dirty) rebuild(state);
 
@@ -47,7 +46,7 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
         !hasData(state.qualityNonManifoldEdges)) return;
 
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-    GLenum depthFuncWas = glGetError(); // dummy, we'll save real state below
+    GLenum depthFuncWas = glGetError();
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_CULL_FACE);
@@ -58,8 +57,8 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
     glUseProgram(m_program);
     glUniformMatrix4fv(m_mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
 
-    auto drawOne = [&](GLuint vao, GLsizei count, const float* color) {
-        if (vao == 0 || count <= 0) return;
+    auto drawOne = [&](const GlVao& vao, GLsizei count, const float* color) {
+        if (!vao.has() || count <= 0) return;
         glUniform4f(m_colorLoc, color[0], color[1], color[2], color[3]);
         glBindVertexArray(vao);
         glDrawArrays(GL_LINES, 0, count);
@@ -94,12 +93,8 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
 }
 
 void QualityOverlayRenderer::shutdown() {
-    if (m_program) { glDeleteProgram(m_program); m_program = 0; }
-    auto del = [](GLuint& vao, GLuint& vbo) {
-        if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }
-        if (vbo) { glDeleteBuffers(1, &vbo); vbo = 0; }
-    };
-    del(m_openEdgesVao, m_openEdgesVbo);
-    del(m_nonManifoldVao, m_nonManifoldVbo);
-    del(m_degenerateVao, m_degenerateVbo);
+    m_program.reset();
+    m_openEdgesVao.reset(); m_openEdgesVbo.reset();
+    m_nonManifoldVao.reset(); m_nonManifoldVbo.reset();
+    m_degenerateVao.reset(); m_degenerateVbo.reset();
 }

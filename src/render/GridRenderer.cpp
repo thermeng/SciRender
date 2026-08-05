@@ -6,11 +6,11 @@
 void GridRenderer::init(const ShaderSources& sources) {
     if (sources.gridVert.empty() || sources.gridFrag.empty()) return;
 
-    m_program = compileProgram(sources.gridVert.c_str(), sources.gridFrag.c_str(), "Grid");
+    m_program.reset(compileProgram(sources.gridVert.c_str(), sources.gridFrag.c_str(), "Grid"));
 
     const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f, 1.0f, 1.0f };
-    glCreateVertexArrays(1, &m_vao);
-    glCreateBuffers(1, &m_vbo);
+    glCreateVertexArrays(1, m_vao.ptr());
+    glCreateBuffers(1, m_vbo.ptr());
     glEnableVertexArrayAttrib(m_vao, 0);
     glVertexArrayAttribFormat(m_vao, 0, 2, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(m_vao, 0, 0);
@@ -19,17 +19,17 @@ void GridRenderer::init(const ShaderSources& sources) {
 }
 
 void GridRenderer::updateUbo(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj) {
-    if (m_program == 0) return;
-    if (m_ubo == 0) {
+    if (!m_program.has()) return;
+    if (!m_ubo.has()) {
         m_uboIndex = glGetUniformBlockIndex(m_program, "GridUBO");
-        if (m_uboIndex != GL_INVALID_INDEX) {
+        if (m_uboIndex != ~0u) {
             glUniformBlockBinding(m_program, m_uboIndex, 2);
-            glCreateBuffers(1, &m_ubo);
+            glCreateBuffers(1, m_ubo.ptr());
             glNamedBufferData(m_ubo, sizeof(GridUBOData), nullptr, GL_DYNAMIC_DRAW);
             glBindBufferBase(GL_UNIFORM_BUFFER, 2, m_ubo);
         }
     }
-    if (m_ubo == 0) return;
+    if (!m_ubo.has()) return;
     GridUBOData ubo{};
     ubo.invView = glm::inverse(view);
     ubo.invProj = glm::inverse(proj);
@@ -45,7 +45,7 @@ void GridRenderer::updateUbo(const RenderRenderState& state, const glm::mat4& vi
 }
 
 void GridRenderer::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj) {
-    if (!state.showGrid || m_program == 0) return;
+    if (!state.showGrid || !m_program.has()) return;
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -62,8 +62,8 @@ void GridRenderer::draw(const RenderRenderState& state, const glm::mat4& view, c
 }
 
 void GridRenderer::shutdown() {
-    if (m_ubo) { glDeleteBuffers(1, &m_ubo); m_ubo = 0; }
-    if (m_program) { glDeleteProgram(m_program); m_program = 0; }
-    if (m_vao) { glDeleteVertexArrays(1, &m_vao); m_vao = 0; }
-    if (m_vbo) { glDeleteBuffers(1, &m_vbo); m_vbo = 0; }
+    m_ubo.reset();
+    m_program.reset();
+    m_vao.reset();
+    m_vbo.reset();
 }
