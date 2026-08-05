@@ -44,6 +44,8 @@
 #include "render/QualityOverlayRenderer.h"
 #include "render/StreamlineController.h"
 #include "render/MeshPass.h"
+#include "render/GlyphPass.h"
+#include "render/ParticlePass.h"
 
 #include <QOpenGLFramebufferObject>
 
@@ -414,26 +416,6 @@ private:
     Gizmo gizmo;
     ColorbarOverlay colorbarOverlay;
 
-    // glyph program
-    GLuint glyphProgram = 0;
-    GLuint glyphUbo = 0;
-    GLuint glyphUboIndex = GL_INVALID_INDEX;
-    GLint glyphLutLoc = -1;
-    GLint glyphViewPosLoc = -1;
-
-    // particle program
-    GLuint particleProgram = 0;
-    GLint particleColorLoc = -1;
-    GLint particleLutLoc = -1;
-    GLint particlePointSizeLoc = -1;
-    GLint particleUseColormapLoc = -1;
-    GLint particleMagRangeLoc = -1;
-
-    // particle VAO/VBO
-    GLuint particleVao = 0;
-    GLuint particleVbo = 0;
-    int particleVertexCount = 0;
-
     double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
 
     double camDistance = 3.0;
@@ -478,6 +460,8 @@ private:
     StreamlineSet streamlineSet;  // GL_LINES streamline GPU resources + mag range
     MeshGLManager meshManager;     // full + decimated GPU meshes & upload
     MeshPass meshPass;             // mesh shader program + UBO + surface draw passes
+    GlyphPass glyphPass;           // vector glyph shader program + UBO + draw
+    ParticlePass particlePass;     // particle shader program + VAO/VBO + draw
     GridRenderer m_grid;           // procedural ray-cast ground plane
     BBoxOverlay m_bbox;            // AABB wireframe overlay
     QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
