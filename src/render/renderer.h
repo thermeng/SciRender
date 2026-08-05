@@ -466,17 +466,17 @@ private:
     StreamlineController m_streamlines;      // streamline compute + draw + seeds
 
     // --- Depth peeling for transparent surfaces ---
-    GLuint m_peelProgram = 0;
+    GlProgram m_peelProgram;
     GLint  m_peelPrevDepthLoc = -1;
     GLint  m_peelLayerLoc = -1;
-    GLuint m_compositeProgram = 0;
+    GlProgram m_compositeProgram;
 
     // FBOs for two-layer peeling: [0] = front layer, [1] = back layer
-    GLuint m_peelFbo[2] = {};
-    GLuint m_peelColorTex[2] = {};
-    GLuint m_peelDepthTex[2] = {};
-    GLuint m_peelDummyDepth = {};  // 1x1 initialized to 1.0 for first pass
-    GLuint m_peelDummyVao = {};    // empty VAO for fullscreen triangle
+    GlFramebuffer m_peelFbo[2];
+    GlTexture m_peelColorTex[2];
+    GlTexture m_peelDepthTex[2];
+    GlTexture m_peelDummyDepth;  // 1x1 initialized to 1.0 for first pass
+    GlVao m_peelDummyVao;    // empty VAO for fullscreen triangle
     int m_peelFboW = 0, m_peelFboH = 0;
 
     void ensurePeelFbos(int w, int h);
