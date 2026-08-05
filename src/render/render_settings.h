@@ -434,7 +434,7 @@ public:
     QColor getVectorColorQml() const { return QColor::fromRgbF(m_state.vectorColor[0], m_state.vectorColor[1], m_state.vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { m_state.vectorColor[0] = c.redF(); m_state.vectorColor[1] = c.greenF(); m_state.vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); }
     bool getShowStreamlines() const { return m_state.showStreamlines; }
-    void setShowStreamlines(bool v) { if (m_state.showStreamlines != v) { m_state.showStreamlines = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setShowStreamlines(bool v) { if (m_state.showStreamlines != v) { m_state.showStreamlines = v; if (v) { m_renderer.markStreamlineDirty(); m_renderer.markParticleCountDirty(); } markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getStreamlineSeedCount() const { return m_state.streamlineSeedCount; }
     void setStreamlineSeedCount(int v) { if (m_state.streamlineSeedCount != v) { m_state.streamlineSeedCount = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineStepSize() const { return m_state.streamlineStepSize; }

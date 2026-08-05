@@ -21,8 +21,7 @@ void ParticlePass::draw(const RenderRenderState& state,
                         float frameDt,
                         StreamlineSet& streamlines,
                         const ColormapManager& colormap) {
-    if (!state.showParticles || streamlines.empty() || !particleProgram.has()) return;
-
+    if (!state.showParticles || !state.showStreamlines || streamlines.empty() || !particleProgram.has()) return;
     streamlines.updateParticles(frameDt, state.particleSpeed);
 
     std::vector<float> particleVerts;
