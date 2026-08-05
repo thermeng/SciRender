@@ -21,6 +21,11 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     fmt.setSamples(msaaSamples);
     setFormat(fmt);
 
+    m_fpsLabel = new QLabel(this);
+    m_fpsLabel->setStyleSheet("background: rgba(0,0,0,120); color: #7CFC00; padding: 4px 8px; font: 12px \"Consolas\", \"Menlo\", monospace; border-radius: 4px;");
+    m_fpsLabel->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
+    m_fpsLabel->hide();
+
     // FPS HUD samples elapsed() in paintGL(); start the clock or the first
     // frame delta is always 0 and the HUD never updates.
     m_fpsClock.start();
@@ -123,6 +128,10 @@ void ViewportWidget::resizeGL(int w, int h) {
     scene->resizeViewport(w, h);
     m_dirty = true;
     update();
+
+    if (m_fpsLabel) {
+        m_fpsLabel->move(8, height() - m_fpsLabel->height() - 8);
+    }
 }
 
 void ViewportWidget::paintGL() {
@@ -180,6 +189,10 @@ void ViewportWidget::paintGL() {
                 m_settings->setFpsText(QString("FPS: %1").arg(fps));
             }
         }
+        m_fpsLabel->setText(m_settings->getFpsText());
+        m_fpsLabel->show();
+    } else {
+        m_fpsLabel->hide();
     }
 }
 

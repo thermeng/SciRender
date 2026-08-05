@@ -8,6 +8,7 @@
 #include <QPoint>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QLabel>
 #include <memory>
 #include "render/renderer.h"
 #include "render/render_settings.h"
@@ -48,4 +49,6 @@ private:
     double m_fpsLast = 0.0;
     double m_fpsSmoothed = 0.0;
     double m_fpsAccum = 0.0;
+
+    QLabel* m_fpsLabel = nullptr;
 };

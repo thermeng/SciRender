@@ -39,6 +39,7 @@ void VolumePass::init(const ShaderSources& sources) {
 void VolumePass::uploadVolume(const RenderRenderState& state, const std::vector<float>& scalars, int dimX, int dimY, int dimZ, const glm::vec3& boxMin, const glm::vec3& boxMax) {
     if (dimX <= 0 || dimY <= 0 || dimZ <= 0 || scalars.empty()) return;
 
+    bool dimsChanged = (dimX_ != dimX || dimY_ != dimY || dimZ_ != dimZ);
     dimX_ = dimX;
     dimY_ = dimY;
     dimZ_ = dimZ;
@@ -46,17 +47,20 @@ void VolumePass::uploadVolume(const RenderRenderState& state, const std::vector<
     boxMax_ = boxMax;
 
     GLuint raw = volumeTex_.get();
-    if (!raw) {
+    if (!raw || dimsChanged) {
+        if (raw) {
+            volumeTex_.reset();
+        }
         glCreateTextures(GL_TEXTURE_3D, 1, &raw);
+        glTextureStorage3D(raw, 1, GL_R32F, dimX, dimY, dimZ);
+        glTextureParameteri(raw, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(raw, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(raw, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(raw, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(raw, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        volumeTex_.reset(raw);
     }
-    glTextureStorage3D(raw, 1, GL_R32F, dimX, dimY, dimZ);
     glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, scalars.data());
-    glTextureParameteri(raw, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(raw, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(raw, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(raw, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTextureParameteri(raw, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    volumeTex_.reset(raw);
 
     if (!vaoInitialized_) {
         glCreateVertexArrays(1, quadVao_.ptr());
