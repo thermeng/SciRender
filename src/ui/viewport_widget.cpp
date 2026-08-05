@@ -141,6 +141,10 @@ void ViewportWidget::paintGL() {
     if (scene->consumeScalarDirty() && scene->hasGpuMeshes()) {
         auto scalars = scene->cachedScalars();
         if (scalars) scene->updateScalarsOnGPU(scalars);
+        if (scene->consumeVolumeDirty() && scene->hasVolumeData()) {
+            auto volMesh = scene->cachedVolumeMesh();
+            if (volMesh) scene->uploadVolumeFromScalarDirty(m_settings->snapshot(), scalars, volMesh);
+        }
     }
 
     scene->renderFrame();

@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VolumePage</class>
+ <widget class="QWidget" name="VolumePage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>7</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QCheckBox" name="showVolumeCb">
+     <property name="text">
+      <string>Enable Volume Rendering</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="volumeFieldHeader">
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+     <property name="text">
+      <string>Scalar Field</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="volumeFieldCombo"/>
+   </item>
+   <item>
+    <widget class="QLabel" name="volumePaletteHeader">
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+     <property name="text">
+      <string>Colormap</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="volumePaletteCombo"/>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="volumeReverseCb">
+     <property name="text">
+      <string>Reverse palette</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="stepHeader">
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+     <property name="text">
+      <string>Step Size</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="stepRow">
+     <item>
+      <widget class="QSlider" name="stepSlider">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="stepValue">
+       <property name="minimumSize">
+        <size>
+         <width>36</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>36</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; </string>
+       </property>
+       <property name="text">
+        <string>0.010</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="opacityHeader">
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
+     </property>
+     <property name="text">
+      <string>Opacity</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="opacityRow">
+     <item>
+      <widget class="QSlider" name="opacitySlider">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="opacityValue">
+       <property name="minimumSize">
+        <size>
+         <width>36</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>36</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font-size: 11px; </string>
+       </property>
+       <property name="text">
+        <string>1.000</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="volumeBottomSpacer">
+     <property name="orientation">
+      <enum>Qt::Orientation::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>20</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

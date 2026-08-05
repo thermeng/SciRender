@@ -444,6 +444,8 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
 
     // Trigger a SCALAR-ONLY re-upload on the render thread (shared_ptr, no copy).
     m_renderer.markScalarDirty(payload);
+    if (m_meshData.loadedMesh)
+        m_renderer.markVolumeDirty(m_meshData.loadedMesh);
     markStateDirty(); emit meshDataUpdated();
     // NOTE: do NOT emit meshLoadStateChanged() here — load state
     // (hasMeshLoaded / meshHasScalars) is unchanged; activeScalarName is

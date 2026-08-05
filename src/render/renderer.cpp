@@ -415,6 +415,21 @@ bool Renderer::consumeScalarDirty() {
     return scalarDirty.exchange(false);
 }
 
+bool Renderer::consumeVolumeDirty() {
+    return volumeDirty.exchange(false);
+}
+
+void Renderer::uploadVolumeFromScalarDirty(const RenderRenderState& state,
+    std::shared_ptr<const std::vector<float>> scalars,
+    std::shared_ptr<const RenderMesh> mesh) {
+    if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0
+        || !scalars || scalars->empty()) return;
+    glm::vec3 boxMin(mesh->bounds.minX, mesh->bounds.minY, mesh->bounds.minZ);
+    glm::vec3 boxMax(mesh->bounds.maxX, mesh->bounds.maxY, mesh->bounds.maxZ);
+    m_volume.uploadVolume(state, *scalars, mesh->gridDimX, mesh->gridDimY, mesh->gridDimZ,
+                          boxMin, boxMax);
+}
+
 void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars) {
     {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
@@ -591,6 +606,21 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         for (int i = 0; i < tickCount; ++i) {
             const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
             const float v = sMin + sRange * frac;
+            d.tickLabels.append(QString::number(v, 'f', 3));
+        }
+        bars.push_back(d);
+    }
+
+    // Volume bar
+    if (m_state.showVolume && m_state.volumeUseColormap && m_state.hasMeshLoaded) {
+        ColorbarData d;
+        d.visible = true;
+        d.title = QString::fromStdString(m_state.activeScalarName);
+        d.stops = stopsFor(m_state.volumeColormapChoice, m_state.volumeColormapReversed);
+        const float range = m_state.dataScalarMax - m_state.dataScalarMin;
+        for (int i = 0; i < tickCount; ++i) {
+            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+            const float v = m_state.dataScalarMin + range * frac;
             d.tickLabels.append(QString::number(v, 'f', 3));
         }
         bars.push_back(d);
