@@ -1,6 +1,7 @@
 #include "render/StreamlineSet.h"
 #include "core/mesh_loader.h"
 
+#include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <cmath>
@@ -581,15 +582,15 @@ void StreamlineSet::teardownParticles() {
 }
 
 void StreamlineSet::teardownGL() {
-    if (vao) glDeleteVertexArrays(1, &vao);
-    if (vbo) glDeleteBuffers(1, &vbo);
-    if (seedVao) glDeleteVertexArrays(1, &seedVao);
-    if (seedVbo) glDeleteBuffers(1, &seedVbo);
-    if (arrowVao) glDeleteVertexArrays(1, &arrowVao);
-    if (arrowVbo) glDeleteBuffers(1, &arrowVbo);
-    vao = 0; vbo = 0; lineCount = 0;
-    seedVao = 0; seedVbo = 0; seedCount = 0;
-    arrowVao = 0; arrowVbo = 0; arrowCount = 0;
+    vao.reset();
+    vbo.reset();
+    seedVao.reset();
+    seedVbo.reset();
+    arrowVao.reset();
+    arrowVbo.reset();
+    lineCount = 0;
+    seedCount = 0;
+    arrowCount = 0;
 }
 
 void StreamlineSet::shutdown() {
@@ -918,8 +919,8 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
     particles.clear();
 
     if (!res.verts.empty()) {
-        glCreateVertexArrays(1, &vao);
-        glCreateBuffers(1, &vbo);
+        glCreateVertexArrays(1, vao.ptr());
+        glCreateBuffers(1, vbo.ptr());
 
         glEnableVertexArrayAttrib(vao, 0);
         glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
@@ -946,8 +947,8 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
     }
 
     if (!res.seedVerts.empty()) {
-        glCreateVertexArrays(1, &seedVao);
-        glCreateBuffers(1, &seedVbo);
+        glCreateVertexArrays(1, seedVao.ptr());
+        glCreateBuffers(1, seedVbo.ptr());
         glEnableVertexArrayAttrib(seedVao, 0);
         glVertexArrayAttribFormat(seedVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
         glVertexArrayAttribBinding(seedVao, 0, 0);
@@ -958,8 +959,8 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
     if (showArrows && !res.arrowVerts.empty()) {
         arrowCount = res.arrowCount;
 
-        glCreateVertexArrays(1, &arrowVao);
-        glCreateBuffers(1, &arrowVbo);
+        glCreateVertexArrays(1, arrowVao.ptr());
+        glCreateBuffers(1, arrowVbo.ptr());
 
         glEnableVertexArrayAttrib(arrowVao, 0);
         glVertexArrayAttribFormat(arrowVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
