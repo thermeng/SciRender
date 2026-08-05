@@ -7,8 +7,8 @@
 void MeshPass::init(const ShaderSources& sources) {
     if (sources.meshVert.empty() || sources.meshFrag.empty()) return;
 
-    shaderProgram = compileProgram(sources.meshVert.c_str(), sources.meshFrag.c_str(), "Mesh");
-    if (shaderProgram != 0) {
+    shaderProgram.reset(compileProgram(sources.meshVert.c_str(), sources.meshFrag.c_str(), "Mesh"));
+    if (shaderProgram.has()) {
         meshUboIndex = glGetUniformBlockIndex(shaderProgram, "MeshUBO");
         glUniformBlockBinding(shaderProgram, meshUboIndex, 0);
         lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
@@ -25,13 +25,12 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
                                const ColormapManager& colormap) {
     MeshPassResult result;
 
-    if (!meshManager.hasMeshes() || shaderProgram == 0) return result;
+    if (!meshManager.hasMeshes() || !shaderProgram.has()) return result;
 
     glUseProgram(shaderProgram);
 
-    if (meshUbo == 0) {
-        glCreateBuffers(1, &meshUbo);
-        glNamedBufferData(meshUbo, sizeof(MeshUBOData), nullptr, GL_DYNAMIC_DRAW);
+    if (!meshUbo.has()) {
+        glCreateBuffers(1, meshUbo.ptr());
     }
     if (meshUboIndex != GL_INVALID_INDEX)
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
@@ -154,7 +153,7 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
     glBindVertexArray(0);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-    if (state.showCellEdges && shaderProgram != 0) {
+    if (state.showCellEdges && shaderProgram.has()) {
         auto ce = meshManager.getCellEdgeLine();
         if (ce.first != 0 && ce.second > 0) {
             glEnable(GL_DEPTH_TEST);
@@ -168,8 +167,8 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
 }
 
 void MeshPass::shutdown() {
-    if (shaderProgram) { glDeleteProgram(shaderProgram); shaderProgram = 0; }
-    if (meshUbo) { glDeleteBuffers(1, &meshUbo); meshUbo = 0; }
+    shaderProgram.reset();
+    meshUbo.reset();
     meshUboIndex = GL_INVALID_INDEX;
     lutTextureLoc = -1;
 }

@@ -7,8 +7,8 @@
 void ParticlePass::init(const ShaderSources& sources) {
     if (sources.particleVert.empty() || sources.particleFrag.empty()) return;
 
-    particleProgram = compileProgram(sources.particleVert.c_str(), sources.particleFrag.c_str(), "Particle");
-    if (particleProgram != 0) {
+    particleProgram.reset(compileProgram(sources.particleVert.c_str(), sources.particleFrag.c_str(), "Particle"));
+    if (particleProgram.has()) {
         particleColorLoc = glGetUniformLocation(particleProgram, "uColor");
         particleLutLoc = glGetUniformLocation(particleProgram, "uColormapLUT");
         particlePointSizeLoc = glGetUniformLocation(particleProgram, "uPointSize");
@@ -21,7 +21,7 @@ void ParticlePass::draw(const RenderRenderState& state,
                         float frameDt,
                         StreamlineSet& streamlines,
                         const ColormapManager& colormap) {
-    if (!state.showParticles || streamlines.empty() || particleProgram == 0) return;
+    if (!state.showParticles || streamlines.empty() || !particleProgram.has()) return;
 
     streamlines.updateParticles(frameDt, state.particleSpeed);
 
@@ -30,9 +30,9 @@ void ParticlePass::draw(const RenderRenderState& state,
 
     if (particleVerts.empty()) return;
 
-    if (particleVao == 0) {
-        glCreateVertexArrays(1, &particleVao);
-        glCreateBuffers(1, &particleVbo);
+    if (!particleVao.has()) {
+        glCreateVertexArrays(1, particleVao.ptr());
+        glCreateBuffers(1, particleVbo.ptr());
         glEnableVertexArrayAttrib(particleVao, 0);
         glVertexArrayAttribFormat(particleVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
         glVertexArrayAttribBinding(particleVao, 0, 0);
@@ -82,9 +82,9 @@ void ParticlePass::draw(const RenderRenderState& state,
 }
 
 void ParticlePass::shutdown() {
-    if (particleProgram) { glDeleteProgram(particleProgram); particleProgram = 0; }
-    if (particleVao) { glDeleteVertexArrays(1, &particleVao); particleVao = 0; }
-    if (particleVbo) { glDeleteBuffers(1, &particleVbo); particleVbo = 0; }
+    particleProgram.reset();
+    particleVao.reset();
+    particleVbo.reset();
     m_particleVertexCount = 0;
     particleColorLoc = -1;
     particleLutLoc = -1;
