@@ -319,7 +319,7 @@ void Renderer::clearGpuMeshes() {
     m_streamlines.cancelAndJoin();
 
     meshManager.clear();
-    vectorGlyph = VectorGlyphSet{};
+    vectorGlyph.shutdown();
     streamlineSet.shutdown();
     m_lastUploadedMesh.reset();
     m_pendingMesh.reset();
