@@ -361,6 +361,27 @@ public:
     }
     void updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars);
 
+    // Volume scalar-switch handoff. When the active scalar field changes and the
+    // mesh has structured-grid volume data, the render loop re-uploads the 3D
+    // texture in the same tick (same GL context) as the surface scalar SBO update.
+    bool consumeVolumeDirty();
+    void markVolumeDirty(std::shared_ptr<const RenderMesh> mesh) {
+        {
+            std::lock_guard<std::mutex> lock(meshQueueMutex);
+            m_pendingVolumeMesh = mesh;
+        }
+        volumeDirty = true;
+    }
+    std::shared_ptr<const RenderMesh> cachedVolumeMesh() const {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        return m_pendingVolumeMesh;
+    }
+    bool hasVolumeData() const { return m_lastUploadedMesh && !m_lastUploadedMesh->scalars.empty()
+                                         && m_lastUploadedMesh->gridDimX > 0; }
+    void uploadVolumeFromScalarDirty(const RenderRenderState& state,
+        std::shared_ptr<const std::vector<float>> scalars,
+        std::shared_ptr<const RenderMesh> mesh);
+
     // Drop all GPU meshes (GUI-thread request, safe to call any time; real GL
     // teardown happens in meshManager with a current context on the render thread).
     void clearGpuMeshes();
@@ -449,6 +470,11 @@ private:
     std::shared_ptr<const RenderMesh> m_lastUploadedMesh;   // kept for deferred vector-glyph rebuilds
     mutable std::mutex meshQueueMutex;
     std::shared_ptr<const std::vector<float>> m_pendingScalarSrc; // scalar handoff (zero-copy)
+
+    // Volume-specific scalar-switch handoff. Paired with markVolumeDirty() /
+    // consumeVolumeDirty() and guarded by the same meshQueueMutex.
+    std::atomic<bool> volumeDirty{false};
+    std::shared_ptr<const RenderMesh> m_pendingVolumeMesh;
 
     // Deep-copied snapshot; the ONLY source of truth renderFrame() reads.
     RenderRenderState m_state;

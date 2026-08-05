@@ -39,6 +39,7 @@ namespace Ui {
     class StreamlinesPage;
     class ScreenshotPage;
     class MeshInfoPage;
+    class VolumePage;
 }
 
 class MainWindow : public QMainWindow {
@@ -113,6 +114,7 @@ private:
     QWidget* buildStreamlinesPage();
     QWidget* buildScreenshotPage();
     QWidget* buildMeshInfoPage();
+    QWidget* buildVolumePage();
     void refreshMeshInfoPage();
     QHash<QString, QLabel*> m_meshInfoLabels;
 
@@ -134,6 +136,7 @@ private:
     QComboBox* m_vectorCombo = nullptr;
     QComboBox* m_streamlineCombo = nullptr;
     QComboBox* m_streamlineDirectionCombo = nullptr;
+    QComboBox* m_volumeFieldCombo = nullptr;
 
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;

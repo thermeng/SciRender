@@ -27,7 +27,7 @@ void ColormapManager::update() {
     if (!scalarTex_.has() || scalarChoice_ != lastScalarChoice_ || scalarReversed_ != lastScalarReversed_) {
         GLuint raw = scalarTex_.get();
         uploadLUT(raw, scalarChoice_, scalarReversed_);
-        scalarTex_.reset(raw);
+        if (raw != scalarTex_.get()) scalarTex_.reset(raw);
         lastScalarChoice_ = scalarChoice_;
         lastScalarReversed_ = scalarReversed_;
     }
@@ -36,7 +36,7 @@ void ColormapManager::update() {
         vectorChoice_ != lastVectorChoice_ || vectorReversed_ != lastVectorReversed_) {
         GLuint raw = vectorTex_.get();
         uploadLUT(raw, vectorChoice_, vectorReversed_);
-        vectorTex_.reset(raw);
+        if (raw != vectorTex_.get()) vectorTex_.reset(raw);
         lastVectorChoice_ = vectorChoice_;
         lastVectorReversed_ = vectorReversed_;
         vectorLutDirty_ = false;
@@ -46,7 +46,7 @@ void ColormapManager::update() {
         streamlineChoice_ != lastStreamlineChoice_ || streamlineReversed_ != lastStreamlineReversed_) {
         GLuint raw = streamlineTex_.get();
         uploadLUT(raw, streamlineChoice_, streamlineReversed_);
-        streamlineTex_.reset(raw);
+        if (raw != streamlineTex_.get()) streamlineTex_.reset(raw);
         lastStreamlineChoice_ = streamlineChoice_;
         lastStreamlineReversed_ = streamlineReversed_;
         streamlineLutDirty_ = false;
@@ -56,7 +56,7 @@ void ColormapManager::update() {
         volumeChoice_ != lastVolumeChoice_ || volumeReversed_ != lastVolumeReversed_) {
         GLuint raw = volumeTex_.get();
         uploadLUT(raw, volumeChoice_, volumeReversed_);
-        volumeTex_.reset(raw);
+        if (raw != volumeTex_.get()) volumeTex_.reset(raw);
         lastVolumeChoice_ = volumeChoice_;
         lastVolumeReversed_ = volumeReversed_;
         volumeLutDirty_ = false;

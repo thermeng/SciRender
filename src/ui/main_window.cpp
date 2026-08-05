@@ -9,6 +9,7 @@
 #include "ui_streamlines_page.h"
 #include "ui_screenshot_page.h"
 #include "ui_mesh_info_page.h"
+#include "ui_volume_page.h"
 #include "render/render_config.h"
 #include "core/Colormaps.h"
 #include <QApplication>
@@ -439,10 +440,11 @@ void MainWindow::setupSidebar() {
         {"\u{1F30D}", "Streamlines", 5},
         {"\u{1F4F7}", "Screenshot", 6},
         {"\u{1F4CA}", "Mesh Info", 7},
+        {"\u{1F52C}", "Volume Rendering", 8},
     };
 
     m_iconButtons.clear();
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < 10; ++i) {
         auto* btn = new QToolButton;
         btn->setText(QString::fromUtf8(icons[i].icon));
         btn->setToolTip(QString::fromUtf8(icons[i].tooltip));
@@ -561,6 +563,7 @@ void MainWindow::setupSidebar() {
     m_sectionStack->addWidget(buildScreenshotPage());   // 6
     m_meshInfoPage = buildMeshInfoPage();
     m_sectionStack->addWidget(m_meshInfoPage);           // 7
+    m_sectionStack->addWidget(buildVolumePage());        // 8
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -1674,11 +1677,82 @@ QWidget* MainWindow::buildMeshInfoPage() {
     return wrapper;
 }
 
+// ============================================================================
+// Section: Volume Rendering (8)
+// ============================================================================
+QWidget* MainWindow::buildVolumePage() {
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { border: none; }");
+
+    auto* content = new QWidget;
+    Ui::VolumePage volumeUi;
+    volumeUi.setupUi(content);
+
+    auto* showCb = volumeUi.showVolumeCb;
+    showCb->setChecked(m_settings->getShowVolume());
+    connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolume);
+
+    m_volumeFieldCombo = volumeUi.volumeFieldCombo;
+    m_volumeFieldCombo->addItems(m_settings->getAvailableScalars());
+    m_volumeFieldCombo->setCurrentText(m_settings->getActiveScalarNameQml());
+    m_volumeFieldCombo->setEnabled(m_settings->hasMeshScalars());
+    m_volumeFieldCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    connect(m_volumeFieldCombo, &QComboBox::activated, m_settings, [this](int idx) {
+        m_volumeFieldCombo->setCurrentIndex(idx);
+        m_settings->setActiveScalarField(m_volumeFieldCombo->itemText(idx));
+    });
+
+    auto* paletteCombo = buildColormapCombo(m_settings->getVolumeColormapChoice(),
+        [this](int i) { m_settings->setVolumeColormapChoice(i); });
+    paletteCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    content->layout()->replaceWidget(volumeUi.volumePaletteCombo, paletteCombo);
+    delete volumeUi.volumePaletteCombo;
+
+    auto* reversedCb = volumeUi.volumeReverseCb;
+    reversedCb->setChecked(m_settings->getVolumeColormapReversed());
+    connect(reversedCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeColormapReversed);
+
+    {
+        auto* slider = volumeUi.stepSlider;
+        auto* valueLabel = volumeUi.stepValue;
+        slider->setRange(1, 1000);
+        slider->setValue(static_cast<int>(m_settings->getVolumeStepSize() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 3));
+            m_settings->setVolumeStepSize(v);
+        });
+    }
+
+    {
+        auto* slider = volumeUi.opacitySlider;
+        auto* valueLabel = volumeUi.opacityValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getVolumeOpacity() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 3));
+            m_settings->setVolumeOpacity(v);
+        });
+    }
+
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+
+    scroll->setWidget(content);
+
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(scroll);
+    return wrapper;
+}
+
 void MainWindow::refreshMeshInfoPage() {
     if (!m_meshInfoPage) return;
 
-    // Update existing value labels in place instead of tearing the page down
-    // (preserves scroll position and avoids re-layout churn on every mesh change).
     auto setInfo = [&](const QString& label, const QString& value, const QString& color) {
         auto it = m_meshInfoLabels.find(label);
         if (it == m_meshInfoLabels.end()) return;
@@ -1717,7 +1791,7 @@ void MainWindow::refreshMeshInfoPage() {
 // ============================================================================
 static const char* sectionNames[] = {
     "Lighting", "Slicing", "View & Display", "Colormap",
-    "Vectors", "Streamlines", "Screenshot", "Mesh Info"
+    "Vectors", "Streamlines", "Screenshot", "Mesh Info", "Volume Rendering"
 };
 
 void MainWindow::setSidebarSection(int section) {
@@ -1976,6 +2050,14 @@ void MainWindow::connectSettings() {
             m_streamlineDirectionCombo->setCurrentText(m_settings->getStreamlineDirection());
             m_streamlineDirectionCombo->blockSignals(false);
         }
+        if (m_volumeFieldCombo) {
+            m_volumeFieldCombo->blockSignals(true);
+            m_volumeFieldCombo->clear();
+            m_volumeFieldCombo->addItems(scalars);
+            m_volumeFieldCombo->setCurrentText(m_settings->getActiveScalarNameQml());
+            m_volumeFieldCombo->setEnabled(m_settings->hasMeshScalars());
+            m_volumeFieldCombo->blockSignals(false);
+        }
     });
 
     // Theme changes
@@ -2220,6 +2302,7 @@ void MainWindow::rebuildSidebarStyles() {
     m_sectionStack->addWidget(buildScreenshotPage());   // 6
     m_meshInfoPage = buildMeshInfoPage();
     m_sectionStack->addWidget(m_meshInfoPage);  
+    m_sectionStack->addWidget(buildVolumePage());        // 8
 
     // Give each page a solid theme background so labels (whose colors come from
     // the palette / stylesheet) stay readable in both themes. Prevents the
