@@ -46,6 +46,7 @@
 #include "render/MeshPass.h"
 #include "render/GlyphPass.h"
 #include "render/ParticlePass.h"
+#include "render/VolumePass.h"
 #include "render/ColormapSync.h"
 #include "render/LodScheduler.h"
 
@@ -77,6 +78,8 @@ struct ShaderSources {
     std::string depthPeelFrag;
     std::string compositeVert;
     std::string compositeFrag;
+    std::string volumeVert;
+    std::string volumeFrag;
 };
 
 // ---------------------------------------------------------------------------
@@ -213,6 +216,14 @@ struct RenderRenderState {
     int particleCount = 500;
     float particleSpeed = 1.0f;
     float particleSize = 4.0f;
+
+    // Volume rendering
+    bool showVolume = false;
+    bool volumeUseColormap = true;
+    int  volumeColormapChoice = 3;
+    bool volumeColormapReversed = false;
+    float volumeStepSize = 0.01f;
+    float volumeOpacity = 1.0f;
 
     // Screenshot export options
     bool screenshotTransparent = false;
@@ -462,6 +473,7 @@ private:
     BBoxOverlay m_bbox;            // AABB wireframe overlay
     QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
     StreamlineController m_streamlines;      // streamline compute + draw + seeds
+    VolumePass m_volume;                      // volume ray-march pass
 
     // --- Depth peeling for transparent surfaces ---
     GlProgram m_peelProgram;

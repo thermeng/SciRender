@@ -51,10 +51,21 @@ void ColormapManager::update() {
         lastStreamlineReversed_ = streamlineReversed_;
         streamlineLutDirty_ = false;
     }
+
+    if (!volumeTex_.has() || volumeLutDirty_ ||
+        volumeChoice_ != lastVolumeChoice_ || volumeReversed_ != lastVolumeReversed_) {
+        GLuint raw = volumeTex_.get();
+        uploadLUT(raw, volumeChoice_, volumeReversed_);
+        volumeTex_.reset(raw);
+        lastVolumeChoice_ = volumeChoice_;
+        lastVolumeReversed_ = volumeReversed_;
+        volumeLutDirty_ = false;
+    }
 }
 
 void ColormapManager::shutdown() {
     scalarTex_.reset();
     vectorTex_.reset();
     streamlineTex_.reset();
+    volumeTex_.reset();
 }

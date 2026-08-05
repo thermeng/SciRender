@@ -52,10 +52,11 @@ Renderer::~Renderer() {
     m_streamlines.cancelAndJoin();
 
     if (QOpenGLContext::currentContext()) {
-        meshPass.shutdown();
-        glyphPass.shutdown();
-        particlePass.shutdown();
-        colormap.shutdown();
+    meshPass.shutdown();
+    glyphPass.shutdown();
+    particlePass.shutdown();
+    m_volume.shutdown();
+    colormap.shutdown();
         vectorGlyph.shutdown();
         streamlineSet.shutdown();
         gizmo.shutdown();
@@ -96,6 +97,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
     meshPass.init(sources);
     glyphPass.init(sources);
     particlePass.init(sources);
+    m_volume.init(sources);
 
     meshManager.setComputeShaderSources(sources.lodComp, sources.lodOutputComp, sources.lodTrisComp);
 
@@ -244,6 +246,12 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     m_lastUploadedMesh = renderMesh;
     vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform);
     streamlineSet.rebuild(*renderMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+
+    if (renderMesh->gridDimX > 0 && renderMesh->gridDimY > 0 && renderMesh->gridDimZ > 0 && !renderMesh->scalars.empty()) {
+        glm::vec3 boxMin(renderMesh->bounds.minX, renderMesh->bounds.minY, renderMesh->bounds.minZ);
+        glm::vec3 boxMax(renderMesh->bounds.maxX, renderMesh->bounds.maxY, renderMesh->bounds.maxZ);
+        m_volume.uploadVolume(m_state, renderMesh->scalars, renderMesh->gridDimX, renderMesh->gridDimY, renderMesh->gridDimZ, boxMin, boxMax);
+    }
 }
 
 void Renderer::setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh) {
@@ -338,6 +346,7 @@ void Renderer::reinitForNewContext() {
         meshPass.shutdown();
         glyphPass.shutdown();
         particlePass.shutdown();
+        m_volume.shutdown();
         destroyPeelFbos();
         m_peelProgram.reset();
         m_compositeProgram.reset();
@@ -392,6 +401,12 @@ void Renderer::reinitMeshData() {
         streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
         streamlineSet.initParticles(m_state.particleCount);
         m_qualityOverlay.markDirty();
+
+        if (m_lastUploadedMesh->gridDimX > 0 && m_lastUploadedMesh->gridDimY > 0 && m_lastUploadedMesh->gridDimZ > 0 && !m_lastUploadedMesh->scalars.empty()) {
+            glm::vec3 boxMin(m_lastUploadedMesh->bounds.minX, m_lastUploadedMesh->bounds.minY, m_lastUploadedMesh->bounds.minZ);
+            glm::vec3 boxMax(m_lastUploadedMesh->bounds.maxX, m_lastUploadedMesh->bounds.maxY, m_lastUploadedMesh->bounds.maxZ);
+            m_volume.uploadVolume(m_state, m_lastUploadedMesh->scalars, m_lastUploadedMesh->gridDimX, m_lastUploadedMesh->gridDimY, m_lastUploadedMesh->gridDimZ, boxMin, boxMax);
+        }
     }
     colormap.update();
 }
@@ -717,6 +732,8 @@ void Renderer::renderFrame() {
     particlePass.draw(m_state, static_cast<float>(m_lastFrameDt), streamlineSet, colormap);
 
     if (!m_state.screenshotTransparent) m_grid.draw(m_state, view, proj);
+
+    m_volume.draw(m_state, view, proj, colormap);
 
     if (m_state.showGizmo) drawGizmo();
 

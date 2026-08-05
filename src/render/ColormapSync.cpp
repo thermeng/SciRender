@@ -9,5 +9,7 @@ void ColormapSync::apply(const RenderRenderState& state, ColormapManager& colorm
     colormap.setVectorReversed(state.vectorColormapReversed);
     colormap.setStreamlineChoice(state.streamlineColormapChoice);
     colormap.setStreamlineReversed(state.streamlineColormapReversed);
+    colormap.setVolumeChoice(state.volumeColormapChoice);
+    colormap.setVolumeReversed(state.volumeColormapReversed);
     colormap.update();
 }
