@@ -119,7 +119,7 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
             ubo.color_useColormap = glm::vec4(state.streamlineColor[0], state.streamlineColor[1], state.streamlineColor[2], state.streamlineUseColormap ? 1.0f : 0.0f);
             ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
             ubo.material = glm::vec4(state.streamlineAmbient, state.streamlineDiffuse, state.streamlineSpecular, static_cast<float>(state.streamlineSpecularPower));
-            ubo.ribbon = glm::vec4(state.streamlineRibbonWidth, state.streamlineTaperFactor, state.streamlineDashEnabled ? 1.0f : 0.0f, state.streamlineDashSpeed);
+            ubo.ribbon = glm::vec4(state.streamlineRibbonWidth, state.streamlineTaperFactor, 0.0f, 0.0f);
             ubo.arrowParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
             ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
             glBindBufferBase(GL_UNIFORM_BUFFER, 3, m_streamlineUbo);

@@ -190,8 +190,6 @@ struct RenderRenderState {
     float streamlineOpacity = 1.0f;
     float streamlineRibbonWidth = 0.005f;
     float streamlineTaperFactor = 0.3f;
-    bool streamlineDashEnabled = false;
-    float streamlineDashSpeed = 1.0f;
     float streamlineAmbient = 0.35f;
     float streamlineDiffuse = 0.55f;
     float streamlineSpecular = 0.25f;
@@ -283,7 +281,7 @@ struct StreamlineUBOData {
     glm::vec4 color_useColormap; // xyz = color, w = useColormap(0/1)
     glm::vec4 magRange;          // x = magMin, y = magMax, zw = pad
     glm::vec4 material;          // x = ambient, y = diffuse, z = specular, w = specularPower
-    glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, z = dashEnabled, w = dashSpeed
+    glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, zw = pad
     glm::vec4 arrowParams;       // x = arrowAnimSpeed, yzw = pad
     glm::vec4 pbr;               // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
@@ -320,7 +318,6 @@ public:
     // Snapshot accessors used by the FBO renderer (drawn state only).
     bool autoRotate() const { return m_state.autoRotate; }
     bool showFps() const { return m_state.showFps; }
-    bool isDashAnimating() const { return m_state.streamlineDashEnabled; }
     bool isParticlesAnimating() const { return m_state.showParticles; }
 
     // Uploads CPU geometry to the GPU. Safe to call on the render thread.
@@ -429,7 +426,7 @@ private:
 
     bool m_destroying = false;
 
-    // Animation clock (drives dash / arrow animation independent of frame rate)
+    // Animation clock (drives arrow animation independent of frame rate)
     double m_animationTime = 0.0;
     double m_lastFrameDt = 0.0;
     std::chrono::steady_clock::time_point m_lastFrameTime;

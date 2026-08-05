@@ -146,7 +146,6 @@ private:
     // Timers
     QTimer m_autoRotateTimer;
     QTimer m_fpsTimer;
-    QTimer m_dashTimer;
     QTimer m_particleTimer;
 
     // Dialogs

@@ -476,14 +476,12 @@ std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const 
         base.push_back(baseCenter + (frame[0] * std::cos(angle) + frame[1] * std::sin(angle)) * radius);
     }
 
-    // Arrowhead verts carry dashFlag=0.0 and u=0.0 so the fragment shader
-    // skips dashing for arrowheads regardless of the global dash setting.
     auto push = [&](const glm::vec3& p, const glm::vec3& n) {
         verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
         verts.push_back(mag);
         verts.push_back(n.x); verts.push_back(n.y); verts.push_back(n.z);
-        verts.push_back(0.0f); // dashFlag
-        verts.push_back(0.0f); // u
+        verts.push_back(0.0f);
+        verts.push_back(0.0f);
     };
 
     glm::vec3 coneDir = glm::normalize(dir);
@@ -883,12 +881,12 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
             currentLength += segLen;
             float uB = currentLength / totalLength;
 
-            auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u) {
+            auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float /*u*/) {
                 result.verts.push_back(p.x); result.verts.push_back(p.y); result.verts.push_back(p.z);
                 result.verts.push_back(rawMag);
                 result.verts.push_back(normal.x); result.verts.push_back(normal.y); result.verts.push_back(normal.z);
-                result.verts.push_back(1.0f);
-                result.verts.push_back(u);
+                result.verts.push_back(0.0f);
+                result.verts.push_back(0.0f);
                 if (rawMag < mn) mn = rawMag;
                 if (rawMag > mx) mx = rawMag;
             };

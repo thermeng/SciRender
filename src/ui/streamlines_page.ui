@@ -530,50 +530,9 @@
       </item>
      </layout>
     </widget>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="dashCb">
-     <property name="text">
-      <string>Dash</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QWidget" name="dashSpeedRow">
-     <layout class="QHBoxLayout" name="dashSpeedLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="dashSpeedLabel">
-        <property name="text"><string>Dash speed</string></property>
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QSlider" name="dashSpeedSlider">
-        <property name="orientation"><enum>Qt::Horizontal</enum></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="dashSpeedValue">
-        <property name="text"><string>1.0</string></property>
-        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="lightingHeader">
+    </item>
+    <item>
+     <widget class="QLabel" name="lightingHeader">
      <property name="text">
       <string>Lighting</string>
      </property>

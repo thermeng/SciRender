@@ -585,7 +585,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
 }
 
 void Renderer::renderFrame() {
-    // Advance animation clock with real elapsed time (drives dash/arrow animation).
+    // Advance animation clock with real elapsed time (drives arrow animation).
     {
         auto now = std::chrono::steady_clock::now();
         if (m_lastFrameTime.time_since_epoch().count() == 0) m_lastFrameTime = now;
