@@ -422,55 +422,58 @@ private:
         std::vector<float> readScalars(activeElementCount);
 
       
-        bool binaryReadOk = true;
-      
+        bool binaryReadOk = false;
         bool badField = false;
 
         if (isBinary) {
             if (dataType == "DOUBLE") {
                 std::vector<double> tempDouble(readScalars.size());
-                if (!readBinaryArray(file, tempDouble.size(), tempDouble)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempDouble.size(); ++i) readScalars[i] = static_cast<float>(tempDouble[i]);
+                if (readBinaryArray(file, tempDouble.size(), tempDouble)) {
+                    for (size_t i = 0; i < tempDouble.size(); ++i) readScalars[i] = static_cast<float>(tempDouble[i]);
+                    binaryReadOk = true;
+                }
             }
             else if (dataType == "FLOAT") {
-                if (!readBinaryArray(file, readScalars.size(), readScalars)) binaryReadOk = false;
+                if (readBinaryArray(file, readScalars.size(), readScalars)) binaryReadOk = true;
             }
             else if (dataType == "INT" || dataType == "UNSIGNED_INT" || dataType == "LONG") {
                 std::vector<int32_t> tempInts(readScalars.size());
-                if (!readBinaryArray(file, tempInts.size(), tempInts)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempInts.size(); ++i) readScalars[i] = static_cast<float>(tempInts[i]);
+                if (readBinaryArray(file, tempInts.size(), tempInts)) {
+                    for (size_t i = 0; i < tempInts.size(); ++i) readScalars[i] = static_cast<float>(tempInts[i]);
+                    binaryReadOk = true;
+                }
             }
             else if (dataType == "LONG_LONG" || dataType == "UNSIGNED_LONG_LONG") {
                 std::vector<int64_t> tempLongs(readScalars.size());
-                if (!readBinaryArray(file, tempLongs.size(), tempLongs)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempLongs.size(); ++i) readScalars[i] = static_cast<float>(tempLongs[i]);
+                if (readBinaryArray(file, tempLongs.size(), tempLongs)) {
+                    for (size_t i = 0; i < tempLongs.size(); ++i) readScalars[i] = static_cast<float>(tempLongs[i]);
+                    binaryReadOk = true;
+                }
             }
             else if (dataType == "SHORT" || dataType == "UNSIGNED_SHORT") {
                 std::vector<int16_t> tempShorts(readScalars.size());
-                if (!readBinaryArray(file, tempShorts.size(), tempShorts)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempShorts.size(); ++i) readScalars[i] = static_cast<float>(tempShorts[i]);
+                if (readBinaryArray(file, tempShorts.size(), tempShorts)) {
+                    for (size_t i = 0; i < tempShorts.size(); ++i) readScalars[i] = static_cast<float>(tempShorts[i]);
+                    binaryReadOk = true;
+                }
             }
             else if (dataType == "UNSIGNED_CHAR") {
                 std::vector<uint8_t> tempBytes(readScalars.size());
-                if (!readBinaryArray(file, tempBytes.size(), tempBytes)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempBytes.size(); ++i) readScalars[i] = static_cast<float>(tempBytes[i]);
-            }
-            if (binaryReadOk) {
-                for (float v : readScalars) {
-                    if (!std::isfinite(v)) { badField = true; break; }
+                if (readBinaryArray(file, tempBytes.size(), tempBytes)) {
+                    for (size_t i = 0; i < tempBytes.size(); ++i) readScalars[i] = static_cast<float>(tempBytes[i]);
+                    binaryReadOk = true;
                 }
             }
             else {
                 std::cerr << "VTK Parser Warning: unsupported SCALARS type '" << dataType
                           << "' for binary data; skipping field." << std::endl;
-                binaryReadOk = false;
             }
 
             if (!binaryReadOk) {
                 std::cerr << "VTK Parser Warning: short read on binary SCALARS '" << scalarName
                           << "'; skipping field to avoid stream desync." << std::endl;
                 if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
-                if (readingPointData) mesh.attributes->pointScalars[scalarName]; // ensure key exists, empty
+                if (readingPointData) mesh.attributes->pointScalars[scalarName];
                 else { mesh.attributes->cellScalars[scalarName]; cellScalarsStorage[scalarName]; }
                 return;
             }

@@ -351,8 +351,6 @@ void Renderer::reinitForNewContext() {
         colorbarOverlay.shutdown();
         colormap.shutdown();
         vectorGlyph.shutdown();
-        glyphPass.shutdown();
-        particlePass.shutdown();
         streamlineSet.shutdown();
 
         // Drop mesh geometry from the old context (previously only LOD compute

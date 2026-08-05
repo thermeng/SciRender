@@ -31,6 +31,7 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
 
     if (!meshUbo.has()) {
         glCreateBuffers(1, meshUbo.ptr());
+        glNamedBufferData(meshUbo, sizeof(MeshUBOData), nullptr, GL_DYNAMIC_DRAW);
     }
     if (meshUboIndex != GL_INVALID_INDEX)
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);

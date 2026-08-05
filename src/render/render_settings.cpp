@@ -112,10 +112,8 @@ void RenderSettings::resetCamera() {
     const double dz = m_state.worldMaxZ - m_state.worldMinZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     const double fitRadius = diag * 0.5;
-    const double aspect = 1.0;
     const double fov = glm::radians(45.0);
-    const double effFov = fov;
-    double dist = fitRadius / std::tan(effFov * 0.5);
+    double dist = fitRadius / std::tan(fov * 0.5);
     dist *= RenderConfig::defaults().cameraFitMultiplier;
     m_state.camera.distance = dist < 1.0 ? 1.0 : dist;
     m_state.camera.maxDistance = std::max(1000.0, m_state.camera.distance * 50.0);
