@@ -80,6 +80,8 @@ add_library(RenderLib STATIC
     src/render/ColormapSync.h
     src/render/LodScheduler.cpp
     src/render/LodScheduler.h
+    src/render/gl_raii.cpp
+    src/render/gl_raii.h
     src/render/gizmo.cpp
     src/render/gizmo.h
     src/render/colorbar_overlay.cpp

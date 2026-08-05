@@ -1,6 +1,7 @@
 #pragma once
 
-#include <glad/gl.h>
+#include "render/gl_raii.h"
+
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -28,7 +29,7 @@ public:
                          const ColormapManager& colormap);
     void shutdown();
 
-    bool hasProgram() const { return shaderProgram != 0; }
+    bool hasProgram() const { return shaderProgram.has(); }
     GLuint uboHandle() const { return meshUbo; }
 
 private:
@@ -39,8 +40,8 @@ private:
                       const std::vector<int>& drawVerts,
                       const MeshGLManager& meshManager);
 
-    GLuint shaderProgram = 0;
-    GLuint meshUbo = 0;
-    GLuint meshUboIndex = GL_INVALID_INDEX;
+    GlProgram shaderProgram;
+    GlBuffer meshUbo;
+    GLuint meshUboIndex = ~0u;
     GLint lutTextureLoc = -1;
 };

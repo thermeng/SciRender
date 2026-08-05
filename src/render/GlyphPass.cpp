@@ -7,14 +7,14 @@
 void GlyphPass::init(const ShaderSources& sources) {
     if (sources.glyphVert.empty() || sources.glyphFrag.empty()) return;
 
-    glyphProgram = compileProgram(sources.glyphVert.c_str(), sources.glyphFrag.c_str(), "Glyph");
-    if (glyphProgram != 0) {
+    glyphProgram.reset(compileProgram(sources.glyphVert.c_str(), sources.glyphFrag.c_str(), "Glyph"));
+    if (glyphProgram.has()) {
         glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
         glyphViewPosLoc = glGetUniformLocation(glyphProgram, "uViewPos");
         glyphUboIndex = glGetUniformBlockIndex(glyphProgram, "GlyphUBO");
         if (glyphUboIndex != GL_INVALID_INDEX) {
             glUniformBlockBinding(glyphProgram, glyphUboIndex, 1);
-            glCreateBuffers(1, &glyphUbo);
+            glCreateBuffers(1, glyphUbo.ptr());
             glNamedBufferData(glyphUbo, sizeof(GlyphUBOData), nullptr, GL_DYNAMIC_DRAW);
             glBindBufferBase(GL_UNIFORM_BUFFER, 1, glyphUbo);
         }
@@ -55,8 +55,8 @@ void GlyphPass::draw(const RenderRenderState& state,
 }
 
 void GlyphPass::shutdown() {
-    if (glyphProgram) { glDeleteProgram(glyphProgram); glyphProgram = 0; }
-    if (glyphUbo) { glDeleteBuffers(1, &glyphUbo); glyphUbo = 0; }
+    glyphProgram.reset();
+    glyphUbo.reset();
     glyphUboIndex = GL_INVALID_INDEX;
     glyphLutLoc = -1;
     glyphViewPosLoc = -1;

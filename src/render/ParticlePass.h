@@ -1,6 +1,7 @@
 #pragma once
 
-#include <glad/gl.h>
+#include "render/gl_raii.h"
+
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -20,12 +21,12 @@ public:
     void shutdown();
     void resetCount() { m_particleVertexCount = 0; }
 
-    bool hasProgram() const { return particleProgram != 0; }
+    bool hasProgram() const { return particleProgram.has(); }
 
 private:
-    GLuint particleProgram = 0;
-    GLuint particleVao = 0;
-    GLuint particleVbo = 0;
+    GlProgram particleProgram;
+    GlVao particleVao;
+    GlBuffer particleVbo;
     int m_particleVertexCount = 0;
     GLint particleColorLoc = -1;
     GLint particleLutLoc = -1;

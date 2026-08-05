@@ -1,6 +1,7 @@
 #pragma once
 
-#include <glad/gl.h>
+#include "render/gl_raii.h"
+
 #include <glm/glm.hpp>
 
 #include <string>
@@ -20,12 +21,12 @@ public:
               const ColormapManager& colormap);
     void shutdown();
 
-    bool hasProgram() const { return glyphProgram != 0; }
+    bool hasProgram() const { return glyphProgram.has(); }
 
 private:
-    GLuint glyphProgram = 0;
-    GLuint glyphUbo = 0;
-    GLuint glyphUboIndex = GL_INVALID_INDEX;
+    GlProgram glyphProgram;
+    GlBuffer glyphUbo;
+    GLuint glyphUboIndex = ~0u;
     GLint glyphLutLoc = -1;
     GLint glyphViewPosLoc = -1;
 };
