@@ -76,6 +76,8 @@ add_library(RenderLib STATIC
     src/render/GlyphPass.h
     src/render/ParticlePass.cpp
     src/render/ParticlePass.h
+    src/render/VolumePass.cpp
+    src/render/VolumePass.h
     src/render/ColormapSync.cpp
     src/render/ColormapSync.h
     src/render/LodScheduler.cpp
@@ -146,6 +148,8 @@ qt_add_resources(SciRender "shaders"
         src/shaders/seed.frag
         src/shaders/particle.vert
         src/shaders/particle.frag
+        src/shaders/volume.vert
+        src/shaders/volume.frag
         src/shaders/lod.comp
         src/shaders/lod_output.comp
         src/shaders/lod_tris.comp

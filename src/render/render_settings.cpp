@@ -152,6 +152,12 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("colormapChoice", m_state.colormapChoice);
     s.setValue("colormapReversed", m_state.colormapReversed);
     s.setValue("meshUseScalarColor", m_state.meshUseScalarColor);
+    s.setValue("showVolume", m_state.showVolume);
+    s.setValue("volumeUseColormap", m_state.volumeUseColormap);
+    s.setValue("volumeColormapChoice", m_state.volumeColormapChoice);
+    s.setValue("volumeColormapReversed", m_state.volumeColormapReversed);
+    s.setValue("volumeStepSize", m_state.volumeStepSize);
+    s.setValue("volumeOpacity", m_state.volumeOpacity);
     s.setValue("vectorScale", m_state.vectorScale);
     s.setValue("vectorScaleByMagnitude", m_state.vectorScaleByMagnitude);
     s.setValue("quickBarCollapsed", quickBarCollapsed);
@@ -207,6 +213,19 @@ void RenderSettings::restoreStateFromSettings() {
     if (s.contains("colormapChoice")) {
         m_state.colormapChoice = s.value("colormapChoice").toInt();
         m_state.colormapReversed = s.value("colormapReversed").toBool();
+    }
+    if (s.contains("showVolume")) {
+        m_state.showVolume = s.value("showVolume").toBool();
+    }
+    if (s.contains("volumeStepSize")) {
+        m_state.volumeStepSize = s.value("volumeStepSize").toFloat();
+    }
+    if (s.contains("volumeOpacity")) {
+        m_state.volumeOpacity = s.value("volumeOpacity").toFloat();
+    }
+    if (s.contains("volumeColormapChoice")) {
+        m_state.volumeColormapChoice = s.value("volumeColormapChoice").toInt();
+        m_state.volumeColormapReversed = s.value("volumeColormapReversed").toBool();
     }
     if (s.contains("vectorScale")) {
         m_state.vectorScale = s.value("vectorScale").toFloat();
@@ -385,6 +404,7 @@ void RenderSettings::clearMeshes() {
     m_state.streamlineVectorField.clear();
     m_state.hasMeshLoaded = false;
     m_state.meshHasScalars = false;
+    m_state.showVolume = false;
     markStateDirty();
     m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();
     emit meshLoadStateChanged();

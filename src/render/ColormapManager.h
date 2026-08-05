@@ -12,6 +12,7 @@ public:
     GLuint scalarTexture() const { return scalarTex_; }
     GLuint vectorTexture() const { return vectorTex_; }
     GLuint streamlineTexture() const { return streamlineTex_; }
+    GLuint volumeTexture() const { return volumeTex_; }
 
     int   scalarChoice() const { return scalarChoice_; }
     bool  scalarReversed() const { return scalarReversed_; }
@@ -29,6 +30,12 @@ public:
     void  setStreamlineChoice(int c) { streamlineChoice_ = c; }
     void  setStreamlineReversed(bool r) { streamlineReversed_ = r; }
     void  markStreamlineLutDirty() { streamlineLutDirty_ = true; }
+
+    int   volumeChoice() const { return volumeChoice_; }
+    bool  volumeReversed() const { return volumeReversed_; }
+    void  setVolumeChoice(int c) { volumeChoice_ = c; }
+    void  setVolumeReversed(bool r) { volumeReversed_ = r; }
+    void  markVolumeLutDirty() { volumeLutDirty_ = true; }
 
     void update();
     void shutdown();
@@ -62,4 +69,11 @@ private:
     int   lastStreamlineChoice_ = -1;
     bool  lastStreamlineReversed_ = false;
     bool  streamlineLutDirty_ = true;
+
+    int   volumeChoice_ = 3;
+    bool  volumeReversed_ = false;
+    GlTexture volumeTex_;
+    int   lastVolumeChoice_ = -1;
+    bool  lastVolumeReversed_ = false;
+    bool  volumeLutDirty_ = true;
 };

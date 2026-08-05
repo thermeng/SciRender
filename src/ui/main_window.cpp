@@ -1837,6 +1837,9 @@ void MainWindow::setupQuickBar() {
     m_qbSurface = addQBButton("S", "Surface", m_settings->isSurfaceVisible(), true, [this]() {
         m_settings->toggleSurface(!m_settings->isSurfaceVisible());
     });
+    m_qbVolume = addQBButton("V", "Volume", m_settings->getShowVolume(), true, [this]() {
+        m_settings->setShowVolume(!m_settings->getShowVolume());
+    });
 
     addSeparator();
 
@@ -1898,6 +1901,7 @@ void MainWindow::syncQuickBar() {
     if (m_qbWireframe) m_qbWireframe->setChecked(m_settings->isWireframe());
     if (m_qbGrid)      m_qbGrid->setChecked(m_settings->isGridVisible());
     if (m_qbSurface)   m_qbSurface->setChecked(m_settings->isSurfaceVisible());
+    if (m_qbVolume)    m_qbVolume->setChecked(m_settings->getShowVolume());
 }
 
 // ============================================================================

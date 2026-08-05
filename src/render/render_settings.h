@@ -212,6 +212,12 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int particleCount READ getParticleCount WRITE setParticleCount NOTIFY viewChanged)
     Q_PROPERTY(double particleSpeed READ getParticleSpeed WRITE setParticleSpeed NOTIFY viewChanged)
     Q_PROPERTY(double particleSize READ getParticleSize WRITE setParticleSize NOTIFY viewChanged)
+    Q_PROPERTY(bool showVolume READ getShowVolume WRITE setShowVolume NOTIFY viewChanged)
+    Q_PROPERTY(bool volumeUseColormap READ getVolumeUseColormap WRITE setVolumeUseColormap NOTIFY viewChanged)
+    Q_PROPERTY(int volumeColormapChoice READ getVolumeColormapChoice WRITE setVolumeColormapChoice NOTIFY viewChanged)
+    Q_PROPERTY(bool volumeColormapReversed READ getVolumeColormapReversed WRITE setVolumeColormapReversed NOTIFY viewChanged)
+    Q_PROPERTY(double volumeStepSize READ getVolumeStepSize WRITE setVolumeStepSize NOTIFY viewChanged)
+    Q_PROPERTY(double volumeOpacity READ getVolumeOpacity WRITE setVolumeOpacity NOTIFY viewChanged)
 
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
@@ -493,6 +499,19 @@ public:
     void setParticleSpeed(double v) { if (m_state.particleSpeed != v) { m_state.particleSpeed = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getParticleSize() const { return m_state.particleSize; }
     void setParticleSize(double v) { if (m_state.particleSize != v) { m_state.particleSize = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getShowVolume() const { return m_state.showVolume; }
+    void setShowVolume(bool v) { if (m_state.showVolume != v) { m_state.showVolume = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getVolumeUseColormap() const { return m_state.volumeUseColormap; }
+    void setVolumeUseColormap(bool v) { if (m_state.volumeUseColormap != v) { m_state.volumeUseColormap = v; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+    int getVolumeColormapChoice() const { return m_state.volumeColormapChoice; }
+    void setVolumeColormapChoice(int c) { if (m_state.volumeColormapChoice != c) { m_state.volumeColormapChoice = c; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+    bool getVolumeColormapReversed() const { return m_state.volumeColormapReversed; }
+    void setVolumeColormapReversed(bool v) { if (m_state.volumeColormapReversed != v) { m_state.volumeColormapReversed = v; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+    double getVolumeStepSize() const { return m_state.volumeStepSize; }
+    void setVolumeStepSize(double v) { if (m_state.volumeStepSize != v) { m_state.volumeStepSize = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    double getVolumeOpacity() const { return m_state.volumeOpacity; }
+    void setVolumeOpacity(double v) { if (m_state.volumeOpacity != v) { m_state.volumeOpacity = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+
     bool getVectorUseColormap() const { return m_state.vectorUseColormap; }
     void setVectorUseColormap(bool v) { if (m_state.vectorUseColormap != v) { m_state.vectorUseColormap = v; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
     int getVectorColormapChoice() const { return m_state.vectorColormapChoice; }

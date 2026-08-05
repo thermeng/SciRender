@@ -99,6 +99,8 @@ void ViewportWidget::loadShaders() {
     sources.seedFrag        = loadShader(":/src/shaders/seed.frag");
     sources.particleVert    = loadShader(":/src/shaders/particle.vert");
     sources.particleFrag    = loadShader(":/src/shaders/particle.frag");
+    sources.volumeVert      = loadShader(":/src/shaders/volume.vert");
+    sources.volumeFrag      = loadShader(":/src/shaders/volume.frag");
     sources.lodComp         = loadShader(":/src/shaders/lod.comp");
     sources.lodOutputComp   = loadShader(":/src/shaders/lod_output.comp");
     sources.lodTrisComp     = loadShader(":/src/shaders/lod_tris.comp");

@@ -123,6 +123,7 @@ private:
     QToolButton* m_qbWireframe = nullptr;
     QToolButton* m_qbGrid = nullptr;
     QToolButton* m_qbSurface = nullptr;
+    QToolButton* m_qbVolume = nullptr;
 
     // Navigation shortcuts (lives on MainWindow so it survives viewport rebuilds);
     // disabled while an editor widget has focus (see setupKeyboardShortcuts).
