@@ -203,6 +203,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double streamlineTaperFactor READ getStreamlineTaperFactor WRITE setStreamlineTaperFactor NOTIFY viewChanged)
     Q_PROPERTY(bool streamlineDashEnabled READ getStreamlineDashEnabled WRITE setStreamlineDashEnabled NOTIFY viewChanged)
     Q_PROPERTY(double streamlineDashSpeed READ getStreamlineDashSpeed WRITE setStreamlineDashSpeed NOTIFY viewChanged)
+    Q_PROPERTY(QString streamlineDirection READ getStreamlineDirection WRITE setStreamlineDirection NOTIFY viewChanged)
     Q_PROPERTY(double streamlineAmbient READ getStreamlineAmbient WRITE setStreamlineAmbient NOTIFY viewChanged)
     Q_PROPERTY(double streamlineDiffuse READ getStreamlineDiffuse WRITE setStreamlineDiffuse NOTIFY viewChanged)
     Q_PROPERTY(double streamlineSpecular READ getStreamlineSpecular WRITE setStreamlineSpecular NOTIFY viewChanged)
@@ -475,7 +476,9 @@ public:
     bool getStreamlineDashEnabled() const { return m_state.streamlineDashEnabled; }
     void setStreamlineDashEnabled(bool v) { if (m_state.streamlineDashEnabled != v) { m_state.streamlineDashEnabled = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineDashSpeed() const { return m_state.streamlineDashSpeed; }
-    void setStreamlineDashSpeed(double v) { if (m_state.streamlineDashSpeed != v) { m_state.streamlineDashSpeed = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineDashSpeed(double v) { if (m_state.streamlineDashSpeed != v) { m_state.streamlineDashSpeed = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    QString getStreamlineDirection() const { return QString::fromStdString(m_state.streamlineDirection); }
+    void setStreamlineDirection(const QString& v) { if (m_state.streamlineDirection != v.toStdString()) { m_state.streamlineDirection = v.toStdString(); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineAmbient() const { return m_state.streamlineAmbient; }
     void setStreamlineAmbient(double v) { if (m_state.streamlineAmbient != v) { m_state.streamlineAmbient = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineDiffuse() const { return m_state.streamlineDiffuse; }

@@ -60,7 +60,7 @@ public:
     };
 
     StreamlineResult compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
-                             const std::string& fieldName, const std::string& mode,
+                             const std::string& fieldName, const std::string& mode, const std::string& direction,
                              double planePos, double jitter, int planeCountU, int planeCountV,
                              bool showArrows, int arrowSpacing, float arrowSize,
                              float ribbonWidth, float taperFactor);
@@ -68,7 +68,7 @@ public:
     void uploadGL(StreamlineResult&& result, bool showArrows, float arrowSize);
 
     void rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
-                 const std::string& fieldName, const std::string& mode,
+                 const std::string& fieldName, const std::string& mode, const std::string& direction,
                  double planePos, double jitter, int planeCountU, int planeCountV,
                  bool showArrows, int arrowSpacing, float arrowSize,
                  float ribbonWidth, float taperFactor);

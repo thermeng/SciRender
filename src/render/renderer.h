@@ -200,6 +200,7 @@ struct RenderRenderState {
     float seedPointColor[3] = { 1.0f, 0.2f, 0.2f };
 
     std::string seedMode = "Volume";
+    std::string streamlineDirection = "Both";
     double seedPlanePos = 0.5;
     int seedPlaneCountU = 10;
     int seedPlaneCountV = 10;

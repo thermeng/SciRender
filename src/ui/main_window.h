@@ -132,6 +132,7 @@ private:
     QComboBox* m_scalarCombo = nullptr;
     QComboBox* m_vectorCombo = nullptr;
     QComboBox* m_streamlineCombo = nullptr;
+    QComboBox* m_streamlineDirectionCombo = nullptr;
 
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;
