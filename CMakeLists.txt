@@ -72,6 +72,10 @@ add_library(RenderLib STATIC
     src/render/MeshGLManager.h
     src/render/MeshPass.cpp
     src/render/MeshPass.h
+    src/render/GlyphPass.cpp
+    src/render/GlyphPass.h
+    src/render/ParticlePass.cpp
+    src/render/ParticlePass.h
     src/render/gizmo.cpp
     src/render/gizmo.h
     src/render/colorbar_overlay.cpp

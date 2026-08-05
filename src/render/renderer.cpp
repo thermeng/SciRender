@@ -53,11 +53,8 @@ Renderer::~Renderer() {
 
     if (QOpenGLContext::currentContext()) {
         meshPass.shutdown();
-        if (glyphUbo) glDeleteBuffers(1, &glyphUbo);
-        if (glyphProgram) glDeleteProgram(glyphProgram);
-        if (particleProgram) glDeleteProgram(particleProgram);
-        if (particleVao) glDeleteVertexArrays(1, &particleVao);
-        if (particleVbo) glDeleteBuffers(1, &particleVbo);
+        glyphPass.shutdown();
+        particlePass.shutdown();
         colormap.shutdown();
         vectorGlyph.shutdown();
         streamlineSet.shutdown();
@@ -97,34 +94,8 @@ void Renderer::initShaders(const ShaderSources& sources) {
     }
 
     meshPass.init(sources);
-
-    // instanced vector glyph program
-    if (!sources.glyphVert.empty() && !sources.glyphFrag.empty()) {
-        glyphProgram = compileProgram(sources.glyphVert.c_str(), sources.glyphFrag.c_str(), "Glyph");
-        if (glyphProgram != 0) {
-            glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
-            glyphViewPosLoc = glGetUniformLocation(glyphProgram, "uViewPos");
-            glyphUboIndex = glGetUniformBlockIndex(glyphProgram, "GlyphUBO");
-            if (glyphUboIndex != GL_INVALID_INDEX) {
-                glUniformBlockBinding(glyphProgram, glyphUboIndex, 1);
-                glCreateBuffers(1, &glyphUbo);
-                glNamedBufferData(glyphUbo, sizeof(GlyphUBOData), nullptr, GL_DYNAMIC_DRAW);
-                glBindBufferBase(GL_UNIFORM_BUFFER, 1, glyphUbo);
-            }
-        }
-    }
-
-    // particle program
-    if (!sources.particleVert.empty() && !sources.particleFrag.empty()) {
-        particleProgram = compileProgram(sources.particleVert.c_str(), sources.particleFrag.c_str(), "Particle");
-        if (particleProgram != 0) {
-            particleColorLoc = glGetUniformLocation(particleProgram, "uColor");
-            particleLutLoc = glGetUniformLocation(particleProgram, "uColormapLUT");
-            particlePointSizeLoc = glGetUniformLocation(particleProgram, "uPointSize");
-            particleUseColormapLoc = glGetUniformLocation(particleProgram, "uUseColormap");
-            particleMagRangeLoc = glGetUniformLocation(particleProgram, "uParticleMagRange");
-        }
-    }
+    glyphPass.init(sources);
+    particlePass.init(sources);
 
     meshManager.setComputeShaderSources(sources.lodComp, sources.lodOutputComp, sources.lodTrisComp);
 
@@ -368,11 +339,8 @@ void Renderer::reinitForNewContext() {
     const bool haveCtx = QOpenGLContext::currentContext() != nullptr;
     if (haveCtx) {
         meshPass.shutdown();
-        if (glyphUbo)        { glDeleteBuffers(1, &glyphUbo); glyphUbo = 0; }
-        if (glyphProgram)    { glDeleteProgram(glyphProgram); glyphProgram = 0; }
-        if (particleProgram) { glDeleteProgram(particleProgram); particleProgram = 0; }
-        if (particleVao)     { glDeleteVertexArrays(1, &particleVao); particleVao = 0; }
-        if (particleVbo)     { glDeleteBuffers(1, &particleVbo); particleVbo = 0; }
+        glyphPass.shutdown();
+        particlePass.shutdown();
         destroyPeelFbos();
 
         // Shutdown subsystems — each deletes its own GL handles and zeros them.
@@ -384,6 +352,8 @@ void Renderer::reinitForNewContext() {
         colorbarOverlay.shutdown();
         colormap.shutdown();
         vectorGlyph.shutdown();
+        glyphPass.shutdown();
+        particlePass.shutdown();
         streamlineSet.shutdown();
 
         // Drop mesh geometry from the old context (previously only LOD compute
@@ -396,14 +366,6 @@ void Renderer::reinitForNewContext() {
 
     // Always land handle slots and integer locs at safe defaults so lazy
     // re-creation in renderFrame()/initShaders() rebuilds them exactly once.
-    glyphProgram = 0;
-    glyphUbo = 0; glyphUboIndex = GL_INVALID_INDEX;
-    glyphLutLoc = -1; glyphViewPosLoc = -1;
-    particleProgram = 0;
-    particleVao = 0; particleVbo = 0; particleVertexCount = 0;
-    particleColorLoc = -1; particleLutLoc = -1;
-    particlePointSizeLoc = -1; particleUseColormapLoc = -1;
-    particleMagRangeLoc = -1;
     m_peelProgram = 0; m_compositeProgram = 0;
     m_peelPrevDepthLoc = -1; m_peelLayerLoc = -1;
     m_peelFbo[0] = m_peelFbo[1] = 0;
@@ -680,7 +642,7 @@ void Renderer::renderFrame() {
 
     if (m_streamlines.particleCountDirty.exchange(false)) {
         streamlineSet.initParticles(m_state.particleCount);
-        particleVertexCount = 0;
+        particlePass.resetCount();
     }
 
     glEnable(GL_DEPTH_TEST);
@@ -782,35 +744,7 @@ void Renderer::renderFrame() {
 
     m_bbox.draw(m_state, view, proj, meshManager.hasMeshes());
 
-    if (m_state.showVectors && vectorGlyph.instanceCount > 0 && glyphProgram != 0) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glUseProgram(glyphProgram);
-        if (glyphUbo == 0 && glyphUboIndex != GL_INVALID_INDEX) {
-            glCreateBuffers(1, &glyphUbo);
-            glNamedBufferData(glyphUbo, sizeof(GlyphUBOData), nullptr, GL_DYNAMIC_DRAW);
-            glBindBufferBase(GL_UNIFORM_BUFFER, 1, glyphUbo);
-        }
-        glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
-        computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-        glm::vec3 camPos = glm::vec3(m_state.camera.position);
-        GlyphUBOData ubo{};
-        ubo.mvp = mvp;
-        ubo.scale_magMin_magMax_scaleByMag = glm::vec4(m_state.vectorScale, vectorGlyph.magMin, vectorGlyph.magMax, m_state.vectorScaleByMagnitude ? 1.0f : 0.0f);
-        ubo.meshExtent_magTransform_viewPosY_colorR = glm::vec4(vectorGlyph.meshExtent, float(m_state.vectorMagTransform), camPos.y, m_state.vectorColor[0]);
-        ubo.lightDir_colorGB = glm::vec4(kDir, m_state.vectorColor[1]);
-        ubo.colorB_useColormap = glm::vec4(m_state.vectorColor[2], m_state.vectorUseColormap ? 1.0f : 0.0f, 0.0f, 0.0f);
-        ubo.pbr = glm::vec4(m_state.lighting.matRoughness, m_state.lighting.matMetallic, 0.0f, 0.0f);
-        glNamedBufferSubData(glyphUbo, 0, sizeof(GlyphUBOData), &ubo);
-        if (glyphViewPosLoc != -1) glUniform3fv(glyphViewPosLoc, 1, glm::value_ptr(camPos));
-        if (m_state.vectorUseColormap && colormap.vectorTexture() != 0) {
-            glBindTextureUnit(1, colormap.vectorTexture());
-            glUniform1i(glyphLutLoc, 1);
-        }
-        glBindVertexArray(vectorGlyph.vao);
-        glDrawElementsInstanced(GL_TRIANGLES, vectorGlyph.glyphIndexCount, GL_UNSIGNED_INT, 0, vectorGlyph.instanceCount);
-        glBindVertexArray(0);
-        glUseProgram(0);
-    }
+    glyphPass.draw(m_state, view, proj, vectorGlyph, colormap);
 
     // Streamlines + seeds (delegated to StreamlineController)
     {
@@ -819,65 +753,7 @@ void Renderer::renderFrame() {
         m_streamlines.draw(m_state, streamlineSet, colormap, mvp, m_animationTime, kDir);
     }
 
-    // Particle rendering pass
-    if (m_state.showParticles && !streamlineSet.empty() && particleProgram != 0) {
-        streamlineSet.updateParticles(static_cast<float>(m_lastFrameDt), m_state.particleSpeed);
-
-        std::vector<float> particleVerts;
-        streamlineSet.buildParticleVertices(particleVerts);
-
-        if (!particleVerts.empty()) {
-            if (particleVao == 0) {
-                glCreateVertexArrays(1, &particleVao);
-                glCreateBuffers(1, &particleVbo);
-                glEnableVertexArrayAttrib(particleVao, 0);
-                glVertexArrayAttribFormat(particleVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-                glVertexArrayAttribBinding(particleVao, 0, 0);
-                glEnableVertexArrayAttrib(particleVao, 1);
-                glVertexArrayAttribFormat(particleVao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-                glVertexArrayAttribBinding(particleVao, 1, 0);
-                glVertexArrayVertexBuffer(particleVao, 0, particleVbo, 0, 4 * sizeof(float));
-            }
-
-            particleVertexCount = static_cast<int>(particleVerts.size() / 4);
-            glNamedBufferData(particleVbo, particleVerts.size() * sizeof(float), particleVerts.data(), GL_DYNAMIC_DRAW);
-
-            glUseProgram(particleProgram);
-            GLboolean blendWas = glIsEnabled(GL_BLEND);
-            GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
-            GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-            GLboolean depthMaskWas;
-            glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMaskWas);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glEnable(GL_PROGRAM_POINT_SIZE);
-            glEnable(GL_DEPTH_TEST);
-            glDepthMask(GL_FALSE);
-
-            glUniform1f(particlePointSizeLoc, m_state.particleSize);
-
-            if (m_state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
-                glBindTextureUnit(1, colormap.streamlineTexture());
-                glUniform1i(particleLutLoc, 1);
-                glUniform1i(particleUseColormapLoc, 1);
-            } else {
-                glm::vec4 pc(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2], 1.0f);
-                glUniform4fv(particleColorLoc, 1, glm::value_ptr(pc));
-                glUniform1i(particleUseColormapLoc, 0);
-            }
-            glUniform2f(particleMagRangeLoc, streamlineSet.magMin, streamlineSet.magMax);
-
-            glBindVertexArray(particleVao);
-            glDrawArrays(GL_POINTS, 0, particleVertexCount);
-            glBindVertexArray(0);
-
-            if (!blendWas) glDisable(GL_BLEND);
-            if (!pointSizeWas) glDisable(GL_PROGRAM_POINT_SIZE);
-            if (depthWas) glEnable(GL_DEPTH_TEST);
-            glDepthMask(depthMaskWas);
-            glUseProgram(0);
-        }
-    }
+    particlePass.draw(m_state, static_cast<float>(m_lastFrameDt), streamlineSet, colormap);
 
     if (!m_state.screenshotTransparent) m_grid.draw(m_state, view, proj);
 
