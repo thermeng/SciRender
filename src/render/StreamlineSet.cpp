@@ -599,10 +599,10 @@ void StreamlineSet::shutdown() {
 }
 
 StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
-                                const std::string& fieldName, const std::string& mode,
-                                double planePos, double jitter, int planeCountU, int planeCountV,
-                                bool showArrows, int arrowSpacing, float arrowSize,
-                                float ribbonWidth, float taperFactor) {
+                                 const std::string& fieldName, const std::string& mode, const std::string& direction,
+                                 double planePos, double jitter, int planeCountU, int planeCountV,
+                                 bool showArrows, int arrowSpacing, float arrowSize,
+                                 float ribbonWidth, float taperFactor) {
     StreamlineResult result;
 
     if (mesh.pointVectorsData.empty()) return result;
@@ -729,34 +729,37 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
         result.seedVerts.push_back(seed.y);
         result.seedVerts.push_back(seed.z);
 
-        for (int dir = -1; dir <= 1; dir += 2) {
+        std::vector<glm::vec3> forwardPts;
+        std::vector<glm::vec3> forwardFieldVecs;
+        std::vector<glm::vec3> backwardPts;
+        std::vector<glm::vec3> backwardFieldVecs;
+
+        auto integrateDir = [&](int dir, std::vector<glm::vec3>& outPts, std::vector<glm::vec3>& outFieldVecs) {
             glm::vec3 pos = seed;
-            std::vector<glm::vec3> pts;
-            std::vector<glm::vec3> fieldVecs;
-            pts.push_back(pos);
-            fieldVecs.push_back(evalField(pos));
+            outPts.push_back(pos);
+            outFieldVecs.push_back(evalField(pos));
 
             for (int iter = 0; iter < maxSteps; ++iter) {
-                auto direction = [&](const glm::vec3& p) -> glm::vec3 {
+                auto stepDir = [&](const glm::vec3& p) -> glm::vec3 {
                     glm::vec3 v = evalField(p);
                     float m = std::sqrt(magSq(v));
                     if (m < magThresh) return glm::vec3(0.0f);
                     return static_cast<float>(dir) * (v / m);
                 };
 
-                glm::vec3 k1 = direction(pos);
+                glm::vec3 k1 = stepDir(pos);
                 if (glm::length(k1) < 1e-12f) break;
 
                 glm::vec3 p2 = pos + 0.5f * h * k1;
-                glm::vec3 k2 = direction(p2);
+                glm::vec3 k2 = stepDir(p2);
                 if (glm::length(k2) < 1e-12f) break;
 
                 glm::vec3 p3 = pos + 0.5f * h * k2;
-                glm::vec3 k3 = direction(p3);
+                glm::vec3 k3 = stepDir(p3);
                 if (glm::length(k3) < 1e-12f) break;
 
                 glm::vec3 p4 = pos + h * k3;
-                glm::vec3 k4 = direction(p4);
+                glm::vec3 k4 = stepDir(p4);
                 if (glm::length(k4) < 1e-12f) break;
 
                 glm::vec3 newPos = pos + (h / 6.0f) * (k1 + 2.0f * k2 + 2.0f * k3 + k4);
@@ -774,110 +777,139 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
 
                     if (hasGrid && !isInsideDomain(grid, newPos)) break;
 
-                    fieldVecs.push_back(nv);
+                    outFieldVecs.push_back(nv);
                 }
 
-                pts.push_back(newPos);
+                outPts.push_back(newPos);
                 pos = newPos;
             }
+        };
 
-            if (pts.size() < 3) continue;
+        bool doForward = (direction == "Forward" || direction == "Both");
+        bool doBackward = (direction == "Backward" || direction == "Both");
 
-            std::vector<glm::vec3> sampled = std::move(pts);
+        if (doForward) {
+            integrateDir(+1, forwardPts, forwardFieldVecs);
+        }
+        if (doBackward) {
+            integrateDir(-1, backwardPts, backwardFieldVecs);
+        }
 
-            float totalLength = 0.0f;
-            for (size_t i = 0; i + 1 < sampled.size(); ++i) {
-                totalLength += glm::length(sampled[i + 1] - sampled[i]);
+        std::vector<glm::vec3> mergedPts;
+        std::vector<float> mergedSpeeds;
+        std::vector<glm::vec3> mergedFieldVecs;
+
+        if (direction == "Both" && !forwardPts.empty() && !backwardPts.empty()) {
+            mergedPts.reserve(backwardPts.size() + forwardPts.size() - 1);
+            mergedPts.insert(mergedPts.end(), backwardPts.rbegin() + 1, backwardPts.rend());
+            mergedPts.insert(mergedPts.end(), forwardPts.begin(), forwardPts.end());
+
+            auto speedsFromField = [&](const std::vector<glm::vec3>& fv) {
+                std::vector<float> s;
+                s.reserve(fv.size());
+                for (const auto& v : fv) s.push_back(std::sqrt(magSq(v)));
+                return s;
+            };
+
+            std::vector<float> backwardSpeeds = speedsFromField(backwardFieldVecs);
+            std::vector<float> forwardSpeeds = speedsFromField(forwardFieldVecs);
+
+            mergedSpeeds.reserve(backwardSpeeds.size() + forwardSpeeds.size() - 1);
+            mergedSpeeds.insert(mergedSpeeds.end(), backwardSpeeds.rbegin() + 1, backwardSpeeds.rend());
+            mergedSpeeds.insert(mergedSpeeds.end(), forwardSpeeds.begin(), forwardSpeeds.end());
+
+            mergedFieldVecs.reserve(backwardFieldVecs.size() + forwardFieldVecs.size() - 1);
+            mergedFieldVecs.insert(mergedFieldVecs.end(), backwardFieldVecs.rbegin() + 1, backwardFieldVecs.rend());
+            mergedFieldVecs.insert(mergedFieldVecs.end(), forwardFieldVecs.begin(), forwardFieldVecs.end());
+        } else if (!forwardPts.empty()) {
+            mergedPts = forwardPts;
+            for (const auto& fv : forwardFieldVecs) {
+                mergedSpeeds.push_back(std::sqrt(magSq(fv)));
             }
-            if (totalLength < 1e-6f) totalLength = 1.0f;
-
-            std::vector<float> speedAtPoint;
-            speedAtPoint.reserve(fieldVecs.size());
-            for (const auto& fv : fieldVecs) {
-                speedAtPoint.push_back(std::sqrt(magSq(fv)));
+            mergedFieldVecs = forwardFieldVecs;
+        } else if (!backwardPts.empty()) {
+            mergedPts = backwardPts;
+            for (const auto& fv : backwardFieldVecs) {
+                mergedSpeeds.push_back(std::sqrt(magSq(fv)));
             }
+            mergedFieldVecs = backwardFieldVecs;
+        }
 
-            if (dir == 1) {
-                result.paths.push_back({ sampled, speedAtPoint, totalLength });
-            } else {
-                std::vector<glm::vec3> reversed(sampled.rbegin(), sampled.rend());
-                std::vector<float> reversedSpeed(speedAtPoint.rbegin(), speedAtPoint.rend());
-                result.paths.push_back({ reversed, reversedSpeed, totalLength });
+        if (mergedPts.size() < 3) continue;
+
+        float totalLength = 0.0f;
+        for (size_t i = 0; i + 1 < mergedPts.size(); ++i) {
+            totalLength += glm::length(mergedPts[i + 1] - mergedPts[i]);
+        }
+        if (totalLength < 1e-6f) totalLength = 1.0f;
+
+        result.paths.push_back({ mergedPts, mergedSpeeds, totalLength });
+
+        float currentLength = 0.0f;
+        const float baseWidth = static_cast<float>(extent * ribbonWidth);
+
+        for (size_t i = 0; i + 1 < mergedPts.size(); ++i) {
+            glm::vec3 a = mergedPts[i];
+            glm::vec3 b = mergedPts[i + 1];
+            glm::vec3 tangent = b - a;
+            float segLen = glm::length(tangent);
+            if (segLen < 1e-12f) continue;
+            tangent /= segLen;
+
+            float tY = std::abs(tangent.y);
+            float upThreshold = 0.9f;
+            glm::vec3 side = tY < upThreshold ?
+                glm::normalize(glm::cross(tangent, glm::vec3(0.0f, 1.0f, 0.0f))) :
+                glm::normalize(glm::cross(tangent, glm::vec3(1.0f, 0.0f, 0.0f)));
+            if (std::abs(glm::length(side)) < 1e-12f) {
+                side = glm::vec3(0.0f, 0.0f, 1.0f);
             }
+            glm::vec3 normal = glm::normalize(glm::cross(tangent, side));
 
-            float currentLength = 0.0f;
-            const float baseWidth = static_cast<float>(extent * ribbonWidth);
+            float magA = mergedSpeeds[i];
+            float magB = mergedSpeeds[i + 1];
 
-            for (size_t i = 0; i + 1 < sampled.size(); ++i) {
-                glm::vec3 a = sampled[i];
-                glm::vec3 b = sampled[i + 1];
-                glm::vec3 tangent = b - a;
-                float segLen = glm::length(tangent);
-                if (segLen < 1e-12f) continue;
-                tangent /= segLen;
+            float tA = (i) / static_cast<float>(mergedPts.size());
+            float tB = (i + 1) / static_cast<float>(mergedPts.size());
+            float taperA = 1.0f - taperFactor * std::abs(2.0f * tA - 1.0f);
+            float taperB = 1.0f - taperFactor * std::abs(2.0f * tB - 1.0f);
 
-                float tY = std::abs(tangent.y);
-                float upThreshold = 0.9f;
-                glm::vec3 side = tY < upThreshold ?
-                    glm::normalize(glm::cross(tangent, glm::vec3(0.0f, 1.0f, 0.0f))) :
-                    glm::normalize(glm::cross(tangent, glm::vec3(1.0f, 0.0f, 0.0f)));
-                if (std::abs(glm::length(side)) < 1e-12f) {
-                    side = glm::vec3(0.0f, 0.0f, 1.0f);
-                }
-                glm::vec3 normal = glm::normalize(glm::cross(tangent, side));
+            glm::vec3 va = a - side * (baseWidth * taperA);
+            glm::vec3 vb = a + side * (baseWidth * taperA);
+            glm::vec3 vc = b - side * (baseWidth * taperB);
+            glm::vec3 vd = b + side * (baseWidth * taperB);
 
-                float magA = speedAtPoint[i];
-                float magB = speedAtPoint[i + 1];
+            float uA = currentLength / totalLength;
+            currentLength += segLen;
+            float uB = currentLength / totalLength;
 
-                float tA = (i) / static_cast<float>(sampled.size());
-                float tB = (i + 1) / static_cast<float>(sampled.size());
-                float taperA = 1.0f - taperFactor * std::abs(2.0f * tA - 1.0f);
-                float taperB = 1.0f - taperFactor * std::abs(2.0f * tB - 1.0f);
+            auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u) {
+                result.verts.push_back(p.x); result.verts.push_back(p.y); result.verts.push_back(p.z);
+                result.verts.push_back(rawMag);
+                result.verts.push_back(normal.x); result.verts.push_back(normal.y); result.verts.push_back(normal.z);
+                result.verts.push_back(1.0f);
+                result.verts.push_back(u);
+                if (rawMag < mn) mn = rawMag;
+                if (rawMag > mx) mx = rawMag;
+            };
 
-                glm::vec3 va = a - side * (baseWidth * taperA);
-                glm::vec3 vb = a + side * (baseWidth * taperA);
-                glm::vec3 vc = b - side * (baseWidth * taperB);
-                glm::vec3 vd = b + side * (baseWidth * taperB);
+            pushQuadVertex(va, magA, uA);
+            pushQuadVertex(vb, magA, uA);
+            pushQuadVertex(vc, magB, uB);
 
-                float uA, uB;
-                if (dir == 1) {
-                    uA = currentLength / totalLength;
-                    currentLength += segLen;
-                    uB = currentLength / totalLength;
-                } else {
-                    uA = 1.0f - currentLength / totalLength;
-                    currentLength += segLen;
-                    uB = 1.0f - currentLength / totalLength;
-                }
+            pushQuadVertex(vb, magA, uA);
+            pushQuadVertex(vd, magB, uB);
+            pushQuadVertex(vc, magB, uB);
+        }
 
-                auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float u) {
-                    result.verts.push_back(p.x); result.verts.push_back(p.y); result.verts.push_back(p.z);
-                    result.verts.push_back(rawMag);
-                    result.verts.push_back(normal.x); result.verts.push_back(normal.y); result.verts.push_back(normal.z);
-                    result.verts.push_back(1.0f);
-                    result.verts.push_back(u);
-                    if (rawMag < mn) mn = rawMag;
-                    if (rawMag > mx) mx = rawMag;
-                };
-
-                pushQuadVertex(va, magA, uA);
-                pushQuadVertex(vb, magA, uA);
-                pushQuadVertex(vc, magB, uB);
-
-                pushQuadVertex(vb, magA, uA);
-                pushQuadVertex(vd, magB, uB);
-                pushQuadVertex(vc, magB, uB);
-            }
-
-            if (showArrows && arrowSpacing > 0 && sampled.size() > static_cast<size_t>(arrowSpacing + 1)) {
-                for (size_t i = arrowSpacing; i + 1 < sampled.size(); i += arrowSpacing) {
-                    const glm::vec3& fieldVal = fieldVecs[i];
-                    float mag = speedAtPoint[i];
-                    if (mag > 1e-12f) {
-                        arrowPositions.push_back(sampled[i]);
-                        arrowDirections.push_back(fieldVal / mag);
-                        arrowMagnitudes.push_back(mag);
-                    }
+        if (showArrows && arrowSpacing > 0 && mergedPts.size() > static_cast<size_t>(arrowSpacing + 1)) {
+            for (size_t i = arrowSpacing; i + 1 < mergedPts.size(); i += arrowSpacing) {
+                const glm::vec3& fieldVal = mergedFieldVecs[i];
+                float mag = mergedSpeeds[i];
+                if (mag > 1e-12f) {
+                    arrowPositions.push_back(mergedPts[i]);
+                    arrowDirections.push_back(fieldVal / mag);
+                    arrowMagnitudes.push_back(mag);
                 }
             }
         }
@@ -988,11 +1020,11 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
 }
 
 void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
-                                const std::string& fieldName, const std::string& mode,
-                                double planePos, double jitter, int planeCountU, int planeCountV,
-                                bool showArrows, int arrowSpacing, float arrowSize,
-                                float ribbonWidth, float taperFactor) {
-    auto result = compute(mesh, seedCountParam, stepSize, maxSteps, fieldName, mode,
+                                 const std::string& fieldName, const std::string& mode, const std::string& direction,
+                                 double planePos, double jitter, int planeCountU, int planeCountV,
+                                 bool showArrows, int arrowSpacing, float arrowSize,
+                                 float ribbonWidth, float taperFactor) {
+    auto result = compute(mesh, seedCountParam, stepSize, maxSteps, fieldName, mode, direction,
                           planePos, jitter, planeCountU, planeCountV,
                           showArrows, arrowSpacing, arrowSize, ribbonWidth, taperFactor);
     uploadGL(std::move(result), showArrows, arrowSize);

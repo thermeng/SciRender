@@ -1328,6 +1328,15 @@ QWidget* MainWindow::buildStreamlinesPage() {
         m_viewport->update();
     });
 
+    auto* directionCombo = slUi.streamlineDirectionCombo;
+    directionCombo->addItems({"Forward", "Backward", "Both"});
+    directionCombo->setCurrentText(m_settings->getStreamlineDirection());
+    directionCombo->setFixedWidth(100);
+    m_streamlineDirectionCombo = directionCombo;
+    connect(directionCombo, &QComboBox::activated, m_settings, [this, directionCombo](int) {
+        m_settings->setStreamlineDirection(directionCombo->currentText());
+    });
+
     {
         auto* btn = createSwatchButton("Streamline", m_settings->getStreamlineColorQml(), nullptr);
         connect(btn, &QPushButton::clicked, this, [this, btn]() {
@@ -1982,6 +1991,11 @@ void MainWindow::connectSettings() {
             m_streamlineCombo->addItems(vectors);
             m_streamlineCombo->setCurrentText(m_settings->getStreamlineVectorField());
             m_streamlineCombo->blockSignals(false);
+        }
+        if (m_streamlineDirectionCombo) {
+            m_streamlineDirectionCombo->blockSignals(true);
+            m_streamlineDirectionCombo->setCurrentText(m_settings->getStreamlineDirection());
+            m_streamlineDirectionCombo->blockSignals(false);
         }
     });
 

@@ -131,12 +131,35 @@
       <string>secondaryButton</string>
      </property>
     </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="colorHeader">
-     <property name="text">
-      <string>Color</string>
-     </property>
+    </item>
+    <item>
+     <widget class="QWidget" name="directionRow">
+      <layout class="QHBoxLayout" name="directionLayout">
+       <property name="spacing"><number>6</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QLabel" name="directionLabel">
+         <property name="text"><string>Direction</string></property>
+         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+         <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
+         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="streamlineDirectionCombo"/>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="colorHeader">
+      <property name="text">
+       <string>Color</string>
+      </property>
      <property name="styleSheet">
       <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
      </property>

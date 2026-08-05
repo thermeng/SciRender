@@ -48,6 +48,7 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
         int   maxSteps      = state.streamlineMaxSteps;
         std::string field   = state.streamlineVectorField;
         std::string mode    = state.seedMode;
+        std::string direction = state.streamlineDirection;
         double planePos     = state.seedPlanePos;
         double jitter       = state.seedJitter;
         int   planeCountU   = state.seedPlaneCountU;
@@ -60,11 +61,11 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
 
         m_computeRunning = true;
         m_worker = std::thread(
-            [this, &streamlineSet, meshCopy, seedCount, stepSize, maxSteps, field, mode, planePos,
-             jitter, planeCountU, planeCountV, showArrows, arrowSpacing,
+            [this, &streamlineSet, meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
+             planePos, jitter, planeCountU, planeCountV, showArrows, arrowSpacing,
              arrowSize, ribbonWidth, taperFactor]() {
                 auto result = streamlineSet.compute(
-                    *meshCopy, seedCount, stepSize, maxSteps, field, mode,
+                    *meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
                     planePos, jitter, planeCountU, planeCountV,
                     showArrows, arrowSpacing, arrowSize, ribbonWidth, taperFactor);
 
