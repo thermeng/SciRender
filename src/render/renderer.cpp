@@ -65,8 +65,8 @@ Renderer::~Renderer() {
         m_qualityOverlay.shutdown();
         m_streamlines.shutdown();
         destroyPeelFbos();
-        if (m_peelProgram) { glDeleteProgram(m_peelProgram); m_peelProgram = 0; }
-        if (m_compositeProgram) { glDeleteProgram(m_compositeProgram); m_compositeProgram = 0; }
+        m_peelProgram.reset();
+        m_compositeProgram.reset();
     }
 }
 #pragma GCC diagnostic pop
@@ -106,14 +106,14 @@ void Renderer::initShaders(const ShaderSources& sources) {
 
     // depth peeling shaders for transparent surfaces
     if (!sources.depthPeelVert.empty() && !sources.depthPeelFrag.empty()) {
-        m_peelProgram = compileProgram(sources.depthPeelVert.c_str(), sources.depthPeelFrag.c_str(), "DepthPeel");
-        if (m_peelProgram != 0) {
+        m_peelProgram.reset(compileProgram(sources.depthPeelVert.c_str(), sources.depthPeelFrag.c_str(), "DepthPeel"));
+        if (m_peelProgram.has()) {
             m_peelPrevDepthLoc = glGetUniformLocation(m_peelProgram, "uPrevDepth");
             m_peelLayerLoc    = glGetUniformLocation(m_peelProgram, "uPeelLayer");
         }
     }
     if (!sources.compositeVert.empty() && !sources.compositeFrag.empty()) {
-        m_compositeProgram = compileProgram(sources.compositeVert.c_str(), sources.compositeFrag.c_str(), "Composite");
+        m_compositeProgram.reset(compileProgram(sources.compositeVert.c_str(), sources.compositeFrag.c_str(), "Composite"));
     }
 }
 
@@ -126,46 +126,44 @@ void Renderer::initGizmo() {
 // Depth peeling — two-layer OIT for transparent surfaces
 // ---------------------------------------------------------------------------
 void Renderer::ensurePeelFbos(int w, int h) {
-    if (m_peelFboW == w && m_peelFboH == h && m_peelFbo[0] != 0) return;
+    if (m_peelFboW == w && m_peelFboH == h && m_peelFbo[0].has()) return;
     destroyPeelFbos();
     m_peelFboW = w; m_peelFboH = h;
 
     for (int i = 0; i < 2; ++i) {
-        glCreateFramebuffers(1, &m_peelFbo[i]);
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_peelColorTex[i]);
+        glCreateFramebuffers(1, m_peelFbo[i].ptr());
+        glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
         glTextureStorage2D(m_peelColorTex[i], 1, GL_RGBA8, w, h);
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_peelDepthTex[i]);
+        glCreateTextures(GL_TEXTURE_2D, 1, m_peelDepthTex[i].ptr());
         glTextureStorage2D(m_peelDepthTex[i], 1, GL_DEPTH24_STENCIL8, w, h);
 
         glNamedFramebufferTexture(m_peelFbo[i], GL_COLOR_ATTACHMENT0, m_peelColorTex[i], 0);
         glNamedFramebufferTexture(m_peelFbo[i], GL_DEPTH_STENCIL_ATTACHMENT, m_peelDepthTex[i], 0);
     }
 
-    // 1x1 dummy depth texture initialized to 1.0 for the first peel pass
-    glCreateTextures(GL_TEXTURE_2D, 1, &m_peelDummyDepth);
+    glCreateTextures(GL_TEXTURE_2D, 1, m_peelDummyDepth.ptr());
     glTextureStorage2D(m_peelDummyDepth, 1, GL_DEPTH24_STENCIL8, 1, 1);
     uint32_t depthOne[2] = { 0xFFFFFFFF, 0 };
     glTextureSubImage2D(m_peelDummyDepth, 0, 0, 0, 1, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, depthOne);
 
-    // empty VAO for fullscreen triangle (composite shader uses gl_VertexID only)
-    if (!m_peelDummyVao) glCreateVertexArrays(1, &m_peelDummyVao);
+    if (!m_peelDummyVao.has()) glCreateVertexArrays(1, m_peelDummyVao.ptr());
 }
 
 void Renderer::destroyPeelFbos() {
     for (int i = 0; i < 2; ++i) {
-        if (m_peelFbo[i])        { glDeleteFramebuffers(1, &m_peelFbo[i]);        m_peelFbo[i] = 0; }
-        if (m_peelColorTex[i])   { glDeleteTextures(1, &m_peelColorTex[i]);       m_peelColorTex[i] = 0; }
-        if (m_peelDepthTex[i])   { glDeleteTextures(1, &m_peelDepthTex[i]);       m_peelDepthTex[i] = 0; }
+        m_peelFbo[i].reset();
+        m_peelColorTex[i].reset();
+        m_peelDepthTex[i].reset();
     }
-    if (m_peelDummyDepth) { glDeleteTextures(1, &m_peelDummyDepth); m_peelDummyDepth = 0; }
-    if (m_peelDummyVao) { glDeleteVertexArrays(1, &m_peelDummyVao); m_peelDummyVao = 0; }
+    m_peelDummyDepth.reset();
+    m_peelDummyVao.reset();
     m_peelFboW = m_peelFboH = 0;
 }
 
 void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
                                   GLuint meshUbo,
                                   const std::vector<std::pair<GLuint, int>>& transparentMeshes) {
-    if (m_peelProgram == 0 || m_compositeProgram == 0 || transparentMeshes.empty()) return;
+    if (!m_peelProgram.has() || !m_compositeProgram.has() || transparentMeshes.empty()) return;
 
     int vpW = static_cast<int>(width * devicePixelRatio);
     int vpH = static_cast<int>(height * devicePixelRatio);
@@ -341,6 +339,8 @@ void Renderer::reinitForNewContext() {
         glyphPass.shutdown();
         particlePass.shutdown();
         destroyPeelFbos();
+        m_peelProgram.reset();
+        m_compositeProgram.reset();
 
         // Shutdown subsystems — each deletes its own GL handles and zeros them.
         m_grid.shutdown();
@@ -365,12 +365,12 @@ void Renderer::reinitForNewContext() {
 
     // Always land handle slots and integer locs at safe defaults so lazy
     // re-creation in renderFrame()/initShaders() rebuilds them exactly once.
-    m_peelProgram = 0; m_compositeProgram = 0;
+    m_peelProgram.reset(); m_compositeProgram.reset();
     m_peelPrevDepthLoc = -1; m_peelLayerLoc = -1;
-    m_peelFbo[0] = m_peelFbo[1] = 0;
-    m_peelColorTex[0] = m_peelColorTex[1] = 0;
-    m_peelDepthTex[0] = m_peelDepthTex[1] = 0;
-    m_peelDummyDepth = 0; m_peelDummyVao = 0;
+    for (auto& fbo : m_peelFbo) fbo.reset();
+    for (auto& tex : m_peelColorTex) tex.reset();
+    for (auto& tex : m_peelDepthTex) tex.reset();
+    m_peelDummyDepth.reset(); m_peelDummyVao.reset();
     m_peelFboW = 0; m_peelFboH = 0;
 
     // Reset transient render state so a recreated context does not inherit a
@@ -430,10 +430,11 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
     // ponytail: MSAA FBOs cannot be read back with glReadPixels (undefined);
     // resolve to a single-sample target first.
     GLuint readFbo = fboId;
-    GLuint resolveFbo = 0, resolveTex = 0;
+    GlFramebuffer resolveFbo;
+    GlTexture resolveTex;
     if (samples > 0) {
-        glGenFramebuffers(1, &resolveFbo);
-        glGenTextures(1, &resolveTex);
+        glGenFramebuffers(1, resolveFbo.ptr());
+        glGenTextures(1, resolveTex.ptr());
         glBindTexture(GL_TEXTURE_2D, resolveTex);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
         glBindFramebuffer(GL_FRAMEBUFFER, resolveFbo);
@@ -460,7 +461,7 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
         std::memcpy(flipped.data() + static_cast<size_t>(y) * row,
                     raw.data() + static_cast<size_t>(h - 1 - y) * row, row);
 
-    if (resolveFbo) { glDeleteFramebuffers(1, &resolveFbo); glDeleteTextures(1, &resolveTex); }
+    if (resolveFbo.has()) { resolveFbo.reset(); resolveTex.reset(); }
 
     QImage::Format qf = transparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
     QImage img = QImage(flipped.data(), w, h, static_cast<int>(row), qf).copy();
