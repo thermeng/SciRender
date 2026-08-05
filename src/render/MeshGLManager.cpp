@@ -138,24 +138,15 @@ bool surfaceDecimationSafe(const RenderMesh& in) {
 }
 } // namespace
 
-void MeshGLManager::destroyMesh(Mesh& mesh) {
-    glDeleteVertexArrays(1, &mesh.vao);
-    glDeleteBuffers(1, &mesh.vbo);
-    glDeleteBuffers(1, &mesh.nbo);
-    glDeleteBuffers(1, &mesh.ebo);
-    if (mesh.sbo) glDeleteBuffers(1, &mesh.sbo);
-    if (mesh.lineVao) { glDeleteVertexArrays(1, &mesh.lineVao); glDeleteBuffers(1, &mesh.lineVbo); }
-}
-
 void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out) {
     Mesh mesh;
     mesh.indexCount = static_cast<int>(renderMesh.indices.size());
     mesh.vertexCount = static_cast<int>(renderMesh.vertices.size() / 3);
 
-    glCreateVertexArrays(1, &mesh.vao);
-    glCreateBuffers(1, &mesh.vbo);
-    glCreateBuffers(1, &mesh.nbo);
-    glCreateBuffers(1, &mesh.ebo);
+    glCreateVertexArrays(1, mesh.vao.ptr());
+    glCreateBuffers(1, mesh.vbo.ptr());
+    glCreateBuffers(1, mesh.nbo.ptr());
+    glCreateBuffers(1, mesh.ebo.ptr());
 
     glEnableVertexArrayAttrib(mesh.vao, 0);
     glVertexArrayAttribFormat(mesh.vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
@@ -178,14 +169,14 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
     glVertexArrayVertexBuffer(mesh.vao, 1, mesh.nbo, 0, 3 * sizeof(float));
 
     if (!renderMesh.scalars.empty()) {
-        glCreateBuffers(1, &mesh.sbo);
+        glCreateBuffers(1, mesh.sbo.ptr());
         glEnableVertexArrayAttrib(mesh.vao, 2);
         glVertexArrayAttribFormat(mesh.vao, 2, 1, GL_FLOAT, GL_FALSE, 0);
         glVertexArrayAttribBinding(mesh.vao, 2, 2);
         glVertexArrayVertexBuffer(mesh.vao, 2, mesh.sbo, 0, sizeof(float));
         glNamedBufferData(mesh.sbo, renderMesh.scalars.size() * sizeof(float), renderMesh.scalars.data(), GL_STATIC_DRAW);
     } else {
-        mesh.sbo = 0;
+        mesh.sbo.reset();
     }
 
     glNamedBufferData(mesh.ebo, renderMesh.indices.size() * sizeof(unsigned int), renderMesh.indices.data(), GL_STATIC_DRAW);
@@ -193,8 +184,8 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
 
     // ponytail: per-cell boundary edges (cellEdges) -> dedicated line VBO
     if (!renderMesh.cellEdges.empty()) {
-        glCreateVertexArrays(1, &mesh.lineVao);
-        glCreateBuffers(1, &mesh.lineVbo);
+        glCreateVertexArrays(1, mesh.lineVao.ptr());
+        glCreateBuffers(1, mesh.lineVbo.ptr());
         glEnableVertexArrayAttrib(mesh.lineVao, 0);
         glVertexArrayAttribFormat(mesh.lineVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
         glVertexArrayAttribBinding(mesh.lineVao, 0, 0);
@@ -203,7 +194,7 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
         mesh.lineCount = static_cast<int>(renderMesh.cellEdges.size() / 3);
     }
 
-    out.push_back(mesh);
+    out.push_back(std::move(mesh));
 }
 
 RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
@@ -332,9 +323,7 @@ void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
     // Guarded by the mutex so it cannot race with clear() on the UI thread.
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& m : meshes_) destroyMesh(m);
         meshes_.clear();
-        for (auto& m : decimatedMeshes_) destroyMesh(m);
         decimatedMeshes_.clear();
 
         meshes_ = std::move(newFull);
@@ -348,9 +337,7 @@ void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
 void MeshGLManager::clear() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& m : meshes_) destroyMesh(m);
         meshes_.clear();
-        for (auto& m : decimatedMeshes_) destroyMesh(m);
         decimatedMeshes_.clear();
         hasDecimated_ = false;
         hasFullSource_ = false;
@@ -433,8 +420,8 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
     auto reupload = [&](std::vector<Mesh>& meshes, const std::vector<float>& data) {
         for (auto& m : meshes) {
             if (!data.empty()) {
-                if (m.sbo == 0) {
-                    glCreateBuffers(1, &m.sbo);
+                if (!m.sbo.has()) {
+                    glCreateBuffers(1, m.sbo.ptr());
                     glEnableVertexArrayAttrib(m.vao, 2);
                     glVertexArrayAttribFormat(m.vao, 2, 1, GL_FLOAT, GL_FALSE, 0);
                     glVertexArrayAttribBinding(m.vao, 2, 2);
@@ -443,9 +430,8 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
                 const size_t bytes = data.size() * sizeof(float);
                 glNamedBufferData(m.sbo, bytes, nullptr, GL_STATIC_DRAW);
                 glNamedBufferSubData(m.sbo, 0, bytes, data.data());
-            } else if (m.sbo != 0) {
-                glDeleteBuffers(1, &m.sbo);
-                m.sbo = 0;
+            } else if (m.sbo.has()) {
+                m.sbo.reset();
             }
         }
     };
@@ -464,7 +450,7 @@ void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
     outMode.reserve(src.size());
     outVerts.reserve(src.size());
     for (const auto& m : src) {
-        out.push_back({m.vao, m.indexCount});
+        out.push_back({m.vao.get(), m.indexCount});
         outMode.push_back(0);          // triangles handled by indexCount path
         outVerts.push_back(m.vertexCount);
     }
@@ -506,7 +492,7 @@ GLuint linkCompute(GLuint s, const char* label, std::string& errOut) {
 }
 
 void MeshGLManager::initLodCompute(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc) {
-    if (lodProgramAccum) return;
+    if (lodProgramAccum.has()) return;
 
     lastLodError_.clear();
 
@@ -514,30 +500,30 @@ void MeshGLManager::initLodCompute(const std::string& accumSrc, const std::strin
     GLuint sOutput = compileCompute(outputSrc.c_str(), "output", lastLodError_);
     GLuint sTris = compileCompute(trisSrc.c_str(), "tris", lastLodError_);
 
-    lodProgramAccum = sAccum ? linkCompute(sAccum, "accum", lastLodError_) : 0;
-    lodProgramOutput = sOutput ? linkCompute(sOutput, "output", lastLodError_) : 0;
-    lodProgramTris = sTris ? linkCompute(sTris, "tris", lastLodError_) : 0;
+    lodProgramAccum.reset(sAccum ? linkCompute(sAccum, "accum", lastLodError_) : 0);
+    lodProgramOutput.reset(sOutput ? linkCompute(sOutput, "output", lastLodError_) : 0);
+    lodProgramTris.reset(sTris ? linkCompute(sTris, "tris", lastLodError_) : 0);
 
-    if (!lodProgramAccum || !lodProgramOutput || !lodProgramTris) {
+    if (!lodProgramAccum.has() || !lodProgramOutput.has() || !lodProgramTris.has()) {
         cleanupLodCompute();
         return;
     }
 
-    glCreateBuffers(1, &lodCellSsbo);
-    glCreateBuffers(1, &lodRemapSsbo);
-    glCreateBuffers(1, &lodCounterSsbo);
-    glCreateBuffers(1, &lodParamsUbo);
+    glCreateBuffers(1, lodCellSsbo.ptr());
+    glCreateBuffers(1, lodRemapSsbo.ptr());
+    glCreateBuffers(1, lodCounterSsbo.ptr());
+    glCreateBuffers(1, lodParamsUbo.ptr());
     lodGpuDecimationReady = true;
 }
 
 void MeshGLManager::cleanupLodCompute() {
-    if (lodProgramAccum) { glDeleteProgram(lodProgramAccum); lodProgramAccum = 0; }
-    if (lodProgramOutput) { glDeleteProgram(lodProgramOutput); lodProgramOutput = 0; }
-    if (lodProgramTris) { glDeleteProgram(lodProgramTris); lodProgramTris = 0; }
-    if (lodCellSsbo) { glDeleteBuffers(1, &lodCellSsbo); lodCellSsbo = 0; }
-    if (lodRemapSsbo) { glDeleteBuffers(1, &lodRemapSsbo); lodRemapSsbo = 0; }
-    if (lodCounterSsbo) { glDeleteBuffers(1, &lodCounterSsbo); lodCounterSsbo = 0; }
-    if (lodParamsUbo) { glDeleteBuffers(1, &lodParamsUbo); lodParamsUbo = 0; }
+    lodProgramAccum.reset();
+    lodProgramOutput.reset();
+    lodProgramTris.reset();
+    lodCellSsbo.reset();
+    lodRemapSsbo.reset();
+    lodCounterSsbo.reset();
+    lodParamsUbo.reset();
     lodGpuDecimationReady = false;
     lodCellsPerAxis = 0;
 }
@@ -550,7 +536,7 @@ void MeshGLManager::setComputeShaderSources(const std::string& accumSrc, const s
 
 bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimated) {
     if (!lodGpuDecimationReady) initLodCompute(lodAccumSrc_, lodOutputSrc_, lodTrisSrc_);
-    if (!lodProgramAccum || !lodProgramOutput || !lodProgramTris) {
+    if (!lodProgramAccum.has() || !lodProgramOutput.has() || !lodProgramTris.has()) {
         if (lastLodError_.empty()) lastLodError_ = "[LOD] compute programs not ready";
         return false;
     }
@@ -616,21 +602,21 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     glNamedBufferSubData(lodCounterSsbo, 0, sizeof(unsigned int), &zero);
     glNamedBufferSubData(lodCounterSsbo, sizeof(unsigned int), sizeof(unsigned int), &zero);
 
-    GLuint inPosSsbo = 0, inNormSsbo = 0, inScalSsbo = 0, inIdxSsbo = 0;
-    glCreateBuffers(1, &inPosSsbo);
-    glCreateBuffers(1, &inNormSsbo);
-    glCreateBuffers(1, &inScalSsbo);
-    glCreateBuffers(1, &inIdxSsbo);
+    GlBuffer inPosSsbo, inNormSsbo, inScalSsbo, inIdxSsbo;
+    glCreateBuffers(1, inPosSsbo.ptr());
+    glCreateBuffers(1, inNormSsbo.ptr());
+    glCreateBuffers(1, inScalSsbo.ptr());
+    glCreateBuffers(1, inIdxSsbo.ptr());
     glNamedBufferData(inPosSsbo, mesh.vertices.size() * sizeof(float), mesh.vertices.data(), GL_STATIC_DRAW);
     glNamedBufferData(inNormSsbo, std::max<size_t>(1, mesh.normals.size()) * sizeof(float), mesh.normals.empty() ? nullptr : mesh.normals.data(), GL_STATIC_DRAW);
     glNamedBufferData(inScalSsbo, std::max<size_t>(1, mesh.scalars.size()) * sizeof(float), mesh.scalars.empty() ? nullptr : mesh.scalars.data(), GL_STATIC_DRAW);
     glNamedBufferData(inIdxSsbo, mesh.indices.size() * sizeof(unsigned int), mesh.indices.data(), GL_STATIC_DRAW);
 
-    GLuint outPosSsbo = 0, outNormSsbo = 0, outScalSsbo = 0, outIdxSsbo = 0;
-    glCreateBuffers(1, &outPosSsbo);
-    glCreateBuffers(1, &outNormSsbo);
-    glCreateBuffers(1, &outScalSsbo);
-    glCreateBuffers(1, &outIdxSsbo);
+    GlBuffer outPosSsbo, outNormSsbo, outScalSsbo, outIdxSsbo;
+    glCreateBuffers(1, outPosSsbo.ptr());
+    glCreateBuffers(1, outNormSsbo.ptr());
+    glCreateBuffers(1, outScalSsbo.ptr());
+    glCreateBuffers(1, outIdxSsbo.ptr());
     glNamedBufferData(outPosSsbo, mesh.vertices.size() * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
     glNamedBufferData(outNormSsbo, std::max<size_t>(1, mesh.normals.size()) * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
     glNamedBufferData(outScalSsbo, std::max<size_t>(1, mesh.scalars.size()) * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
@@ -695,10 +681,6 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
             + std::to_string(cellSample[4]) + "," + std::to_string(cellSample[5]) + ","
             + std::to_string(cellSample[6]) + "," + std::to_string(cellSample[7])
             + ", glErr=0x" + [&]() { char buf[8]; std::snprintf(buf, sizeof(buf), "%X", errAccum | errOutput | errTris); return std::string(buf); }() + ")";
-        glDeleteBuffers(1, &inPosSsbo); glDeleteBuffers(1, &inNormSsbo);
-        glDeleteBuffers(1, &inScalSsbo); glDeleteBuffers(1, &inIdxSsbo);
-        glDeleteBuffers(1, &outPosSsbo); glDeleteBuffers(1, &outNormSsbo);
-        glDeleteBuffers(1, &outScalSsbo); glDeleteBuffers(1, &outIdxSsbo);
         return false;
     }
 
@@ -712,19 +694,14 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     glGetNamedBufferSubData(outScalSsbo, 0, outScalars.size() * sizeof(float), outScalars.data());
     glGetNamedBufferSubData(outIdxSsbo, 0, outIndices.size() * sizeof(unsigned int), outIndices.data());
 
-    glDeleteBuffers(1, &inPosSsbo); glDeleteBuffers(1, &inNormSsbo);
-    glDeleteBuffers(1, &inScalSsbo); glDeleteBuffers(1, &inIdxSsbo);
-    glDeleteBuffers(1, &outPosSsbo); glDeleteBuffers(1, &outNormSsbo);
-    glDeleteBuffers(1, &outScalSsbo); glDeleteBuffers(1, &outIdxSsbo);
-
     outDecimated = Mesh{};
     outDecimated.vertexCount = static_cast<int>(outVertCount);
     outDecimated.indexCount = static_cast<int>(outIndices.size());
 
-    glCreateBuffers(1, &outDecimated.vbo);
-    glCreateBuffers(1, &outDecimated.nbo);
-    glCreateBuffers(1, &outDecimated.ebo);
-    if (!outScalars.empty()) glCreateBuffers(1, &outDecimated.sbo);
+    glCreateBuffers(1, outDecimated.vbo.ptr());
+    glCreateBuffers(1, outDecimated.nbo.ptr());
+    glCreateBuffers(1, outDecimated.ebo.ptr());
+    if (!outScalars.empty()) glCreateBuffers(1, outDecimated.sbo.ptr());
 
     glNamedBufferData(outDecimated.vbo, outVerts.size() * sizeof(float), outVerts.data(), GL_STATIC_DRAW);
     glNamedBufferData(outDecimated.nbo, outNorms.size() * sizeof(float), outNorms.data(), GL_STATIC_DRAW);
@@ -733,7 +710,7 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
         glNamedBufferData(outDecimated.sbo, outScalars.size() * sizeof(float), outScalars.data(), GL_STATIC_DRAW);
     }
 
-    glCreateVertexArrays(1, &outDecimated.vao);
+    glCreateVertexArrays(1, outDecimated.vao.ptr());
     glEnableVertexArrayAttrib(outDecimated.vao, 0);
     glVertexArrayAttribFormat(outDecimated.vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(outDecimated.vao, 0, 0);

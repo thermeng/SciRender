@@ -1,25 +1,34 @@
 #pragma once
 
+#include "render/gl_raii.h"
+
 #include <glad/gl.h>
 
 #include <vector>
 #include <string>
 #include <mutex>
 #include <atomic>
+#include <memory>
 
 #include "core/mesh_loader.h"
 
 struct Mesh {
-    GLuint vao = 0;
-    GLuint vbo = 0;
-    GLuint nbo = 0;
-    GLuint ebo = 0;
-    GLuint sbo = 0;
-    GLuint lineVao = 0;
-    GLuint lineVbo = 0;
+    GlVao vao;
+    GlBuffer vbo;
+    GlBuffer nbo;
+    GlBuffer ebo;
+    GlBuffer sbo;
+    GlVao lineVao;
+    GlBuffer lineVbo;
     int indexCount = 0;
     int vertexCount = 0;
     int lineCount = 0;
+
+    Mesh() = default;
+    Mesh(Mesh&&) = default;
+    Mesh& operator=(Mesh&&) = default;
+    Mesh(const Mesh&) = delete;
+    Mesh& operator=(const Mesh&) = delete;
 };
 
 // Owns the full-resolution and decimated (LOD) GPU meshes plus the meshChanged
@@ -86,7 +95,6 @@ public:
     void replaceDecimatedMesh(int index, Mesh newMesh) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (index < 0 || index >= static_cast<int>(decimatedMeshes_.size())) return;
-        destroyMesh(decimatedMeshes_[index]);
         decimatedMeshes_[index] = std::move(newMesh);
     }
 
@@ -95,7 +103,6 @@ public:
 
 private:
     void buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out);
-    void destroyMesh(Mesh& mesh);
     // Coarse vertex-clustering decimation; empty result when not worthwhile.
     static RenderMesh decimate(const RenderMesh& in);
 
@@ -118,13 +125,13 @@ private:
     mutable std::mutex mutex_;
 
     // Compute shader LOD (GPU-side vertex clustering)
-    GLuint lodProgramAccum = 0;
-    GLuint lodProgramOutput = 0;
-    GLuint lodProgramTris = 0;
-    GLuint lodCellSsbo = 0;
-    GLuint lodRemapSsbo = 0;
-    GLuint lodParamsUbo = 0;
-    GLuint lodCounterSsbo = 0;
+    GlProgram lodProgramAccum;
+    GlProgram lodProgramOutput;
+    GlProgram lodProgramTris;
+    GlBuffer lodCellSsbo;
+    GlBuffer lodRemapSsbo;
+    GlBuffer lodParamsUbo;
+    GlBuffer lodCounterSsbo;
     int lodCellsPerAxis = 0;
     bool lodGpuDecimationReady = false;
     std::string lodAccumSrc_;

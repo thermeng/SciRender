@@ -25,7 +25,7 @@ bool LodScheduler::tick(const RenderRenderState& state, MeshGLManager& meshManag
     if (useLod && gpuDecimationDirty.load() && meshManager.hasDecimated() && meshManager.hasFullSource()) {
         Mesh newDec;
         if (meshManager.dispatchLodCompute(*meshManager.getFullSource(), newDec)) {
-            meshManager.replaceDecimatedMesh(0, newDec);
+            meshManager.replaceDecimatedMesh(0, std::move(newDec));
         } else {
             QString err = QString::fromStdString(meshManager.lastLodError());
             if (err.isEmpty())
