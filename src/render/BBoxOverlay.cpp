@@ -6,15 +6,15 @@
 void BBoxOverlay::init(const ShaderSources& sources) {
     if (sources.bboxVert.empty() || sources.bboxFrag.empty()) return;
 
-    m_program = compileProgram(sources.bboxVert.c_str(), sources.bboxFrag.c_str(), "BBox");
-    if (m_program != 0) {
+    m_program.reset(compileProgram(sources.bboxVert.c_str(), sources.bboxFrag.c_str(), "BBox"));
+    if (m_program.has()) {
         m_mvpLoc = glGetUniformLocation(m_program, "uMVP");
         m_colorLoc = glGetUniformLocation(m_program, "uColor");
     }
 }
 
 void BBoxOverlay::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, bool hasMeshes) {
-    if (!state.showBounds || m_program == 0) return;
+    if (!state.showBounds || !m_program.has()) return;
     if (!hasMeshes) return;
 
     // 12 edges of a unit cube centered at origin, coords -0.5..0.5
@@ -32,9 +32,9 @@ void BBoxOverlay::draw(const RenderRenderState& state, const glm::mat4& view, co
          0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
         -0.5f, 0.5f,-0.5f, -0.5f, 0.5f, 0.5f
     };
-    if (m_vao == 0) {
-        glCreateVertexArrays(1, &m_vao);
-        glCreateBuffers(1, &m_vbo);
+    if (!m_vao.has()) {
+        glCreateVertexArrays(1, m_vao.ptr());
+        glCreateBuffers(1, m_vbo.ptr());
         glEnableVertexArrayAttrib(m_vao, 0);
         glVertexArrayAttribFormat(m_vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
         glVertexArrayAttribBinding(m_vao, 0, 0);
@@ -73,7 +73,7 @@ void BBoxOverlay::draw(const RenderRenderState& state, const glm::mat4& view, co
 }
 
 void BBoxOverlay::shutdown() {
-    if (m_program) { glDeleteProgram(m_program); m_program = 0; }
-    if (m_vao) { glDeleteVertexArrays(1, &m_vao); m_vao = 0; }
-    if (m_vbo) { glDeleteBuffers(1, &m_vbo); m_vbo = 0; }
+    m_program.reset();
+    m_vao.reset();
+    m_vbo.reset();
 }

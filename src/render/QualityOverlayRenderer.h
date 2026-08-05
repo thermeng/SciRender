@@ -1,6 +1,6 @@
 #pragma once
 
-#include <glad/gl.h>
+#include "render/gl_raii.h"
 
 struct RenderRenderState;
 struct ShaderSources;
@@ -15,12 +15,15 @@ public:
 private:
     void rebuild(const RenderRenderState& state);
 
-    GLuint m_program = 0;
+    GlProgram m_program;
     GLint m_mvpLoc = -1;
     GLint m_colorLoc = -1;
 
-    GLuint m_openEdgesVao = 0, m_openEdgesVbo = 0;
-    GLuint m_nonManifoldVao = 0, m_nonManifoldVbo = 0;
-    GLuint m_degenerateVao = 0, m_degenerateVbo = 0;
+    GlVao m_openEdgesVao;
+    GlBuffer m_openEdgesVbo;
+    GlVao m_nonManifoldVao;
+    GlBuffer m_nonManifoldVbo;
+    GlVao m_degenerateVao;
+    GlBuffer m_degenerateVbo;
     bool m_dirty = true;
 };

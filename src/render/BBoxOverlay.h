@@ -1,6 +1,6 @@
 #pragma once
 
-#include <glad/gl.h>
+#include "render/gl_raii.h"
 #include <glm/glm.hpp>
 
 struct RenderRenderState;
@@ -13,9 +13,9 @@ public:
     void shutdown();
 
 private:
-    GLuint m_program = 0;
+    GlProgram m_program;
     GLint m_mvpLoc = -1;
     GLint m_colorLoc = -1;
-    GLuint m_vao = 0;
-    GLuint m_vbo = 0;
+    GlVao m_vao;
+    GlBuffer m_vbo;
 };

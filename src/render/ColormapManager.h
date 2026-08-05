@@ -1,50 +1,38 @@
 #pragma once
 
-#include <glad/gl.h>
+#include "render/gl_raii.h"
 
 #include <string>
 
-// Owns the scalar and vector-magnitude colormap LUTs (1D textures) plus the
-// active palette choice/reversed state for each. Handles GL texture upload and
-// lazy re-upload when the choice or reversal changes. Holds no rendering loop
-// logic; renderFrame() queries the uploaded texture handles via accessors.
 class ColormapManager {
 public:
     ColormapManager() = default;
     ~ColormapManager() = default;
 
-    // --- scalar (surface) LUT -------------------------------------------------
+    GLuint scalarTexture() const { return scalarTex_; }
+    GLuint vectorTexture() const { return vectorTex_; }
+    GLuint streamlineTexture() const { return streamlineTex_; }
+
     int   scalarChoice() const { return scalarChoice_; }
     bool  scalarReversed() const { return scalarReversed_; }
     void  setScalarChoice(int c) { scalarChoice_ = c; }
     void  setScalarReversed(bool r) { scalarReversed_ = r; }
-    GLuint scalarTexture() const { return scalarTex_; }
 
-    // --- vector magnitude LUT (independent of scalar) -------------------------
     int   vectorChoice() const { return vectorChoice_; }
     bool  vectorReversed() const { return vectorReversed_; }
     void  setVectorChoice(int c) { vectorChoice_ = c; }
     void  setVectorReversed(bool r) { vectorReversed_ = r; }
-    GLuint vectorTexture() const { return vectorTex_; }
     void  markVectorLutDirty() { vectorLutDirty_ = true; }
 
-    // --- streamline magnitude LUT (independent of vector) ---------------------
     int   streamlineChoice() const { return streamlineChoice_; }
     bool  streamlineReversed() const { return streamlineReversed_; }
     void  setStreamlineChoice(int c) { streamlineChoice_ = c; }
     void  setStreamlineReversed(bool r) { streamlineReversed_ = r; }
-    GLuint streamlineTexture() const { return streamlineTex_; }
     void  markStreamlineLutDirty() { streamlineLutDirty_ = true; }
 
-    // Ensures both LUT textures reflect the current choice/reversed state.
-    // Uploads only when something changed (choice, reversal, or dirty flag).
     void update();
-
-    // Deletes GL textures. Call only with a current GL context.
     void shutdown();
 
-    // QML legend helpers (sample the active palette into [t,r,g,b] stops).
-    // `reversed` is folded in so the legend matches the uploaded texture.
     int scalarChoiceForStops() const { return scalarChoice_; }
     bool scalarReversedForStops() const { return scalarReversed_; }
     int vectorChoiceForStops() const { return vectorChoice_; }
@@ -53,25 +41,25 @@ public:
     bool streamlineReversedForStops() const { return streamlineReversed_; }
 
 private:
-    int   scalarChoice_ = 3; // default CoolWarm
+    void uploadLUT(GLuint& tex, int choice, bool reversed) const;
+
+    int   scalarChoice_ = 3;
     bool  scalarReversed_ = false;
-    GLuint scalarTex_ = 0;
+    GlTexture scalarTex_;
     int   lastScalarChoice_ = -1;
     bool  lastScalarReversed_ = false;
 
     int   vectorChoice_ = 3;
     bool  vectorReversed_ = false;
-    GLuint vectorTex_ = 0;
+    GlTexture vectorTex_;
     int   lastVectorChoice_ = -1;
     bool  lastVectorReversed_ = false;
     bool  vectorLutDirty_ = true;
 
     int   streamlineChoice_ = 3;
     bool  streamlineReversed_ = false;
-    GLuint streamlineTex_ = 0;
+    GlTexture streamlineTex_;
     int   lastStreamlineChoice_ = -1;
     bool  lastStreamlineReversed_ = false;
     bool  streamlineLutDirty_ = true;
-
-    void uploadLUT(GLuint& tex, int choice, bool reversed) const;
 };

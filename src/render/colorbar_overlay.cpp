@@ -1,5 +1,6 @@
 #include "render/colorbar_overlay.h"
 
+#include <glad/gl.h>
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
@@ -64,9 +65,7 @@ bool ColorbarOverlay::init() {
     if (isInitialized()) return true;
     if (!buildProgram()) return false;
 
-    // Fullscreen quad (two triangles) in clip space, with UVs.
     const float verts[6][4] = {
-        // x,   y,    u, v
         {-1, -1, 0, 0},
         { 1, -1, 1, 0},
         {-1,  1, 0, 1},
@@ -74,8 +73,8 @@ bool ColorbarOverlay::init() {
         { 1, -1, 1, 0},
         { 1,  1, 1, 1},
     };
-    glCreateVertexArrays(1, &vao_);
-    glCreateBuffers(1, &vbo_);
+    glCreateVertexArrays(1, vao_.ptr());
+    glCreateBuffers(1, vbo_.ptr());
     glEnableVertexArrayAttrib(vao_, 0);
     glVertexArrayAttribFormat(vao_, 0, 2, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(vao_, 0, 0);
@@ -85,7 +84,7 @@ bool ColorbarOverlay::init() {
     glNamedBufferData(vbo_, sizeof(verts), verts, GL_STATIC_DRAW);
     glVertexArrayVertexBuffer(vao_, 0, vbo_, 0, 4 * sizeof(float));
 
-    glCreateTextures(GL_TEXTURE_2D, 1, &tex_);
+    glCreateTextures(GL_TEXTURE_2D, 1, tex_.ptr());
     glTextureParameteri(tex_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTextureParameteri(tex_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTextureParameteri(tex_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -94,19 +93,18 @@ bool ColorbarOverlay::init() {
 }
 
 bool ColorbarOverlay::buildProgram() {
-    program_ = link(vsSrc, fsSrc);
-    if (!program_) return false;
+    program_.reset(link(vsSrc, fsSrc));
+    if (!program_.has()) return false;
     samplerLoc_ = glGetUniformLocation(program_, "uTex");
     return true;
 }
 
 void ColorbarOverlay::shutdown() {
     if (!QOpenGLContext::currentContext()) return;
-    if (vao_) glDeleteVertexArrays(1, &vao_);
-    if (vbo_) glDeleteBuffers(1, &vbo_);
-    if (tex_) glDeleteTextures(1, &tex_);
-    if (program_) glDeleteProgram(program_);
-    vao_ = vbo_ = tex_ = program_ = 0;
+    vao_.reset();
+    vbo_.reset();
+    tex_.reset();
+    program_.reset();
     samplerLoc_ = -1;
     texW_ = texH_ = 0;
     imageCacheValid_ = false;
@@ -219,16 +217,11 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
 
 void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH) {
     QImage gl = img.convertToFormat(QImage::Format_RGBA8888);
-    // QImage rows are top-to-bottom, but GL texture coordinate v=0 is the FIRST
-    // uploaded row and is sampled at clip-space BOTTOM. Without flipping, the
-    // fullscreen blit renders the legend upside-down in the FBO; captureFBO's
-    // row-flip then bakes that inversion into the saved image. Mirror vertically
-    // so the on-screen/window-space layout (top = max) is preserved in the PNG.
     gl = gl.flipped(Qt::Vertical);
 
     if (gl.width() != texW_ || gl.height() != texH_) {
-        if (tex_) glDeleteTextures(1, &tex_);
-        glCreateTextures(GL_TEXTURE_2D, 1, &tex_);
+        tex_.reset();
+        glCreateTextures(GL_TEXTURE_2D, 1, tex_.ptr());
         glTextureParameteri(tex_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTextureParameteri(tex_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTextureParameteri(tex_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -259,12 +252,10 @@ void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
                                 const std::vector<ColorbarData>& bars) {
     if (!isInitialized() || deviceW <= 0 || deviceH <= 0) return;
 
-    // Check if any bar is visible.
     bool anyVisible = false;
     for (const auto& b : bars) { if (b.visible) { anyVisible = true; break; } }
     if (!anyVisible) return;
 
-    // Cache check: rebuild when params change.
     bool paramsChanged = !imageCacheValid_ || cachedDpr_ != dpr ||
                          cachedW_ != deviceW || cachedH_ != deviceH ||
                          cachedBars_.size() != bars.size();
