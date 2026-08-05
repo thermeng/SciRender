@@ -14,6 +14,7 @@
 
 struct ColorbarData {
     QString title;
+    QString subtitle;
     QVariantList stops;
     QStringList tickLabels;
     bool visible = false;

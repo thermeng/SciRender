@@ -556,6 +556,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         ColorbarData d;
         d.visible = true;
         d.title = QString::fromStdString(m_state.activeScalarName);
+        d.subtitle = "Scalar";
         d.stops = stopsFor(m_state.colormapChoice, m_state.colormapReversed);
         const float range = m_state.dataScalarMax - m_state.dataScalarMin;
         for (int i = 0; i < tickCount; ++i) {
@@ -571,6 +572,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         ColorbarData d;
         d.visible = true;
         d.title = QString::fromStdString(m_state.vectorField) + QChar(0x27A1);
+        d.subtitle = "Vector";
         d.stops = stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed);
         auto txMag = [&](float m) -> float {
             if (m_state.vectorMagTransform == 1) return std::sqrt(std::max(m, 0.0f));
@@ -599,6 +601,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         ColorbarData d;
         d.visible = true;
         d.title = QString::fromStdString(m_state.streamlineVectorField) + QChar(0x27A1);
+        d.subtitle = "Streamline";
         d.stops = stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed);
         const float sMin = streamlineSet.magMin;
         const float sMax = streamlineSet.magMax;
@@ -616,6 +619,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         ColorbarData d;
         d.visible = true;
         d.title = QString::fromStdString(m_state.activeScalarName);
+        d.subtitle = "Volume";
         d.stops = stopsFor(m_state.volumeColormapChoice, m_state.volumeColormapReversed);
         const float range = m_state.dataScalarMax - m_state.dataScalarMin;
         for (int i = 0; i < tickCount; ++i) {
