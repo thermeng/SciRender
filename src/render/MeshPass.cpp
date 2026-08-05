@@ -91,7 +91,7 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
         }
     }
 
-    drawOverlays(state, drawList, drawVerts, meshManager);
+    drawOverlays(state, ubo, drawList, drawVerts, meshManager);
 
     glUseProgram(0);
 
@@ -117,9 +117,10 @@ void MeshPass::drawOpaque(const RenderRenderState& state,
 }
 
 void MeshPass::drawOverlays(const RenderRenderState& state,
-                             const std::vector<std::pair<GLuint, int>>& drawList,
-                             const std::vector<int>& drawVerts,
-                             const MeshGLManager& meshManager) {
+                            const MeshUBOData& ubo,
+                            const std::vector<std::pair<GLuint, int>>& drawList,
+                            const std::vector<int>& drawVerts,
+                            const MeshGLManager& meshManager) {
     for (size_t di = 0; di < drawList.size(); ++di) {
         glBindVertexArray(drawList[di].first);
 
@@ -155,6 +156,7 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
     if (state.showCellEdges && shaderProgram.has()) {
+        glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
         auto ce = meshManager.getCellEdgeLine();
         if (ce.first != 0 && ce.second > 0) {
             glEnable(GL_DEPTH_TEST);

@@ -9,6 +9,7 @@
 
 struct RenderRenderState;
 struct ShaderSources;
+struct MeshUBOData;
 class MeshGLManager;
 class ColormapManager;
 
@@ -36,6 +37,7 @@ private:
     void drawOpaque(const RenderRenderState& state,
                     const std::vector<std::pair<GLuint, int>>& drawList);
     void drawOverlays(const RenderRenderState& state,
+                      const MeshUBOData& ubo,
                       const std::vector<std::pair<GLuint, int>>& drawList,
                       const std::vector<int>& drawVerts,
                       const MeshGLManager& meshManager);
