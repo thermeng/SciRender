@@ -1649,9 +1649,9 @@ QWidget* MainWindow::buildMeshInfoPage() {
     addInfoRow("Points", meshUi.pointsValue, QString::number(m_settings->getPointCount()));
 
     addInfoRow("Degenerate", meshUi.degenerateValue, QString::number(m_settings->getDegenerateFaces()), "#ff6666");
-    addInfoRow("Open edges", meshUi.openEdgesValue, QString::number(m_settings->getOpenEdges()), "#ffaa44");
-    addInfoRow("Non-manifold E", meshUi.nonManifoldEValue, QString::number(m_settings->getNonManifoldEdges()), "#ff44ff");
-    addInfoRow("Non-manifold V", meshUi.nonManifoldVValue, QString::number(m_settings->getNonManifoldVerts()), "#ff44ff");
+    addInfoRow("Open Edges", meshUi.openEdgesValue, QString::number(m_settings->getOpenEdges()), "#ffaa44");
+    addInfoRow("Non-manifold Edge", meshUi.nonManifoldEValue, QString::number(m_settings->getNonManifoldEdges()), "#ff44ff");
+    addInfoRow("Non-manifold Vertex", meshUi.nonManifoldVValue, QString::number(m_settings->getNonManifoldVerts()), "#ff44ff");
     addInfoRow("Watertight", meshUi.watertightValue, m_settings->getWatertight() ? "yes" : "no", m_settings->getWatertight() ? "#66dd66" : "#ff6666");
 
     auto addBB = [&](const QString& row, int axis, double v) {

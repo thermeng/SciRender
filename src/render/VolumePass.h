@@ -14,6 +14,7 @@ public:
     void uploadVolume(const RenderRenderState& state, const std::vector<float>& scalars, int dimX, int dimY, int dimZ, const glm::vec3& boxMin, const glm::vec3& boxMax);
     void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, const ColormapManager& colormap);
     void shutdown();
+    void clearVolume();
     bool hasVolume() const { return volumeTex_.has(); }
 
 private:
