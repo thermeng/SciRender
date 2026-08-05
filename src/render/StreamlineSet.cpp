@@ -480,8 +480,6 @@ std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const 
         verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
         verts.push_back(mag);
         verts.push_back(n.x); verts.push_back(n.y); verts.push_back(n.z);
-        verts.push_back(0.0f);
-        verts.push_back(0.0f);
     };
 
     glm::vec3 coneDir = glm::normalize(dir);
@@ -843,7 +841,6 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
 
         result.paths.push_back({ mergedPts, mergedSpeeds, totalLength });
 
-        float currentLength = 0.0f;
         const float baseWidth = static_cast<float>(extent * ribbonWidth);
 
         for (size_t i = 0; i + 1 < mergedPts.size(); ++i) {
@@ -877,27 +874,21 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
             glm::vec3 vc = b - side * (baseWidth * taperB);
             glm::vec3 vd = b + side * (baseWidth * taperB);
 
-            float uA = currentLength / totalLength;
-            currentLength += segLen;
-            float uB = currentLength / totalLength;
-
-            auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, float /*u*/) {
+            auto pushQuadVertex = [&](const glm::vec3& p, float rawMag) {
                 result.verts.push_back(p.x); result.verts.push_back(p.y); result.verts.push_back(p.z);
                 result.verts.push_back(rawMag);
                 result.verts.push_back(normal.x); result.verts.push_back(normal.y); result.verts.push_back(normal.z);
-                result.verts.push_back(0.0f);
-                result.verts.push_back(0.0f);
                 if (rawMag < mn) mn = rawMag;
                 if (rawMag > mx) mx = rawMag;
             };
 
-            pushQuadVertex(va, magA, uA);
-            pushQuadVertex(vb, magA, uA);
-            pushQuadVertex(vc, magB, uB);
+            pushQuadVertex(va, magA);
+            pushQuadVertex(vb, magA);
+            pushQuadVertex(vc, magB);
 
-            pushQuadVertex(vb, magA, uA);
-            pushQuadVertex(vd, magB, uB);
-            pushQuadVertex(vc, magB, uB);
+            pushQuadVertex(vb, magA);
+            pushQuadVertex(vd, magB);
+            pushQuadVertex(vc, magB);
         }
 
         if (showArrows && arrowSpacing > 0 && mergedPts.size() > static_cast<size_t>(arrowSpacing + 1)) {
@@ -932,7 +923,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
             auto piece = generateArrowhead(arrowPositions[i], arrowDirections[i], arrowHeight, arrowRadius, segments, arrowMagnitudes[i]);
             result.arrowVerts.insert(result.arrowVerts.end(), piece.begin(), piece.end());
         }
-        result.arrowCount = static_cast<int>(result.arrowVerts.size() / 9);
+        result.arrowCount = static_cast<int>(result.arrowVerts.size() / 7);
     }
 
     return result;
@@ -964,16 +955,8 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
         glVertexArrayAttribFormat(vao, 2, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
         glVertexArrayAttribBinding(vao, 2, 0);
 
-        glEnableVertexArrayAttrib(vao, 3);
-        glVertexArrayAttribFormat(vao, 3, 1, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
-        glVertexArrayAttribBinding(vao, 3, 0);
-
-        glEnableVertexArrayAttrib(vao, 4);
-        glVertexArrayAttribFormat(vao, 4, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float));
-        glVertexArrayAttribBinding(vao, 4, 0);
-
         glNamedBufferData(vbo, res.verts.size() * sizeof(float), res.verts.data(), GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(vao, 0, vbo, 0, 9 * sizeof(float));
+        glVertexArrayVertexBuffer(vao, 0, vbo, 0, 7 * sizeof(float));
     }
 
     if (!res.seedVerts.empty()) {
@@ -1004,16 +987,8 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
         glVertexArrayAttribFormat(arrowVao, 2, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
         glVertexArrayAttribBinding(arrowVao, 2, 0);
 
-        glEnableVertexArrayAttrib(arrowVao, 3);
-        glVertexArrayAttribFormat(arrowVao, 3, 1, GL_FLOAT, GL_FALSE, 7 * sizeof(float));
-        glVertexArrayAttribBinding(arrowVao, 3, 0);
-
-        glEnableVertexArrayAttrib(arrowVao, 4);
-        glVertexArrayAttribFormat(arrowVao, 4, 1, GL_FLOAT, GL_FALSE, 8 * sizeof(float));
-        glVertexArrayAttribBinding(arrowVao, 4, 0);
-
         glNamedBufferData(arrowVbo, res.arrowVerts.size() * sizeof(float), res.arrowVerts.data(), GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(arrowVao, 0, arrowVbo, 0, 9 * sizeof(float));
+        glVertexArrayVertexBuffer(arrowVao, 0, arrowVbo, 0, 7 * sizeof(float));
     }
 }
 
