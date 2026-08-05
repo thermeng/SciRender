@@ -934,6 +934,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
         slider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         connect(slider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setLineWidth(v / 10.0); });
         connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
+        m_vdWireframeCb = cb;
     }
     {
         auto* cb = viewUi.cellEdgeCb;
@@ -947,6 +948,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
         slider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         connect(slider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); });
         connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
+        m_vdCellEdgeCb = cb;
     }
 
     auto* surfaceCb = viewUi.surfaceCb;
@@ -955,12 +957,17 @@ QWidget* MainWindow::buildViewDisplayPage() {
     pointsCb->setChecked(m_settings->getShowPoints());
     connect(surfaceCb, &QCheckBox::toggled, m_settings, &RenderSettings::toggleSurface);
     connect(pointsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowPoints);
+    m_vdSurfaceCb = surfaceCb;
+    m_vdPointsCb = pointsCb;
     viewUi.refGridCb->setChecked(m_settings->isGridVisible());
     connect(viewUi.refGridCb, &QCheckBox::toggled, m_settings, &RenderSettings::toggleGrid);
+    m_vdGridCb = viewUi.refGridCb;
     viewUi.bboxCb->setChecked(m_settings->getShowBounds());
     connect(viewUi.bboxCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowBounds);
+    m_vdBboxCb = viewUi.bboxCb;
     viewUi.defectsCb->setChecked(m_settings->getShowQualityOverlay());
     connect(viewUi.defectsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowQualityOverlay);
+    m_vdDefectsCb = viewUi.defectsCb;
 
     {
         auto* slider = viewUi.pointSizeSlider;
@@ -977,6 +984,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
     auto* scalarCb = viewUi.scalarCb;
     scalarCb->setChecked(m_settings->getPointUseScalar());
     connect(scalarCb, &QCheckBox::toggled, m_settings, &RenderSettings::setPointUseScalar);
+    m_vdScalarCb = scalarCb;
 
     connect(pointsCb, &QCheckBox::toggled, viewUi.pointGroup, &QWidget::setVisible);
     viewUi.pointGroup->setVisible(m_settings->getShowPoints());
@@ -1007,10 +1015,17 @@ QWidget* MainWindow::buildViewDisplayPage() {
     auto* gizmoCb = viewUi.gizmoCb;
     gizmoCb->setChecked(m_settings->isGizmoVisible());
     connect(gizmoCb, &QCheckBox::toggled, m_settings, &RenderSettings::setGizmoVisible);
+    m_vdGizmoCb = gizmoCb;
 
     auto* fpsCb = viewUi.fpsCb;
     fpsCb->setChecked(m_settings->getShowFps());
     connect(fpsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowFps);
+    m_vdFpsCb = fpsCb;
+
+    auto* parallelCb = viewUi.parallelCb;
+    parallelCb->setChecked(m_settings->getOrthographic());
+    connect(parallelCb, &QCheckBox::toggled, m_settings, &RenderSettings::setOrthographic);
+    m_vdParallelCb = parallelCb;
 
     auto createColorButton = [this](const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
         auto* btn = createSwatchButton(name, initialColor, nullptr);
@@ -1978,6 +1993,22 @@ void MainWindow::syncQuickBar() {
     if (m_qbVolume)    m_qbVolume->setChecked(m_settings->getShowVolume());
 }
 
+// Keep the View & Display checkboxes in sync when settings are changed from the
+// quick-bar buttons or keyboard shortcuts, so both UIs reflect the same state.
+void MainWindow::syncViewDisplayPage() {
+    if (m_vdWireframeCb) m_vdWireframeCb->setChecked(m_settings->isWireframe());
+    if (m_vdGridCb)      m_vdGridCb->setChecked(m_settings->isGridVisible());
+    if (m_vdSurfaceCb)   m_vdSurfaceCb->setChecked(m_settings->isSurfaceVisible());
+    if (m_vdPointsCb)    m_vdPointsCb->setChecked(m_settings->getShowPoints());
+    if (m_vdBboxCb)      m_vdBboxCb->setChecked(m_settings->getShowBounds());
+    if (m_vdDefectsCb)   m_vdDefectsCb->setChecked(m_settings->getShowQualityOverlay());
+    if (m_vdCellEdgeCb)  m_vdCellEdgeCb->setChecked(m_settings->getShowCellEdges());
+    if (m_vdScalarCb)    m_vdScalarCb->setChecked(m_settings->getPointUseScalar());
+    if (m_vdGizmoCb)     m_vdGizmoCb->setChecked(m_settings->isGizmoVisible());
+    if (m_vdFpsCb)       m_vdFpsCb->setChecked(m_settings->getShowFps());
+    if (m_vdParallelCb)  m_vdParallelCb->setChecked(m_settings->getOrthographic());
+}
+
 // ============================================================================
 // Keyboard shortcuts
 // ============================================================================
@@ -2065,11 +2096,13 @@ void MainWindow::connectSettings() {
         applyTheme(m_settings->getTheme());
     });
 
-    // Mirror quick-bar display toggles whenever the corresponding settings change
-    // (keyboard shortcuts, View & Display checkboxes). Sync runs on every view change,
-    // but the setChecked calls only emit when the value actually differs.
+    // Mirror quick-bar and View & Display toggles whenever the corresponding
+    // settings change (keyboard shortcuts, quick-bar buttons, side-panel checkboxes).
+    // Sync runs on every view change, but the setChecked calls only emit when the
+    // value actually differs.
     connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags) {
         syncQuickBar();
+        syncViewDisplayPage();
     });
 }
 

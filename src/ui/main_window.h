@@ -72,6 +72,7 @@ private:
     void updateStatusBar();
     void updateQuickBarVisibility();
     void syncQuickBar();
+    void syncViewDisplayPage();
     void applyTheme(AppTheme theme);
     void rebuildSidebarStyles();
     void rebuildQuickBarStyles();
@@ -126,6 +127,19 @@ private:
     QToolButton* m_qbGrid = nullptr;
     QToolButton* m_qbSurface = nullptr;
     QToolButton* m_qbVolume = nullptr;
+
+    // View & Display page checkboxes (synced with quick bar / keyboard shortcuts)
+    QCheckBox* m_vdWireframeCb = nullptr;
+    QCheckBox* m_vdGridCb = nullptr;
+    QCheckBox* m_vdSurfaceCb = nullptr;
+    QCheckBox* m_vdPointsCb = nullptr;
+    QCheckBox* m_vdBboxCb = nullptr;
+    QCheckBox* m_vdDefectsCb = nullptr;
+    QCheckBox* m_vdCellEdgeCb = nullptr;
+    QCheckBox* m_vdScalarCb = nullptr;
+    QCheckBox* m_vdGizmoCb = nullptr;
+    QCheckBox* m_vdFpsCb = nullptr;
+    QCheckBox* m_vdParallelCb = nullptr;
 
     // Navigation shortcuts (lives on MainWindow so it survives viewport rebuilds);
     // disabled while an editor widget has focus (see setupKeyboardShortcuts).
