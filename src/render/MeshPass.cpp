@@ -117,7 +117,7 @@ void MeshPass::drawOpaque(const RenderRenderState& state,
 }
 
 void MeshPass::drawOverlays(const RenderRenderState& state,
-                            const MeshUBOData& ubo,
+                            MeshUBOData& ubo,
                             const std::vector<std::pair<GLuint, int>>& drawList,
                             const std::vector<int>& drawVerts,
                             const MeshGLManager& meshManager) {
@@ -129,7 +129,6 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             glEnable(GL_POLYGON_OFFSET_LINE);
             glPolygonOffset(-1.0f, -1.0f);
-            MeshUBOData ubo{};
             ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 1.0f);
             glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
             glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
@@ -143,7 +142,6 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            MeshUBOData ubo{};
             ubo.point_clip.x = 1.0f;
             glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
             glDrawArrays(GL_POINTS, 0, drawVerts[di]);

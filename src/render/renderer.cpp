@@ -251,6 +251,8 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
         glm::vec3 boxMin(renderMesh->bounds.minX, renderMesh->bounds.minY, renderMesh->bounds.minZ);
         glm::vec3 boxMax(renderMesh->bounds.maxX, renderMesh->bounds.maxY, renderMesh->bounds.maxZ);
         m_volume.uploadVolume(m_state, renderMesh->scalars, renderMesh->gridDimX, renderMesh->gridDimY, renderMesh->gridDimZ, boxMin, boxMax);
+    } else {
+        m_volume.clearVolume();
     }
 }
 
@@ -455,6 +457,20 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
     const bool isPng = path.endsWith(".png", Qt::CaseInsensitive);
     const bool transparent = isPng && m_state.screenshotTransparent;
 
+    // Save GL state that will be modified.
+    GLint readFboBinding = 0, drawFboBinding = 0, fboBinding = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &readFboBinding);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &drawFboBinding);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fboBinding);
+    GLint activeTex = 0;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTex);
+    GLint readBuffer = GL_NONE;
+    glGetIntegerv(GL_READ_BUFFER, &readBuffer);
+    GLint packAlign = 4;
+    glGetIntegerv(GL_PACK_ALIGNMENT, &packAlign);
+    GLint boundTex2d = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTex2d);
+
     // ponytail: MSAA FBOs cannot be read back with glReadPixels (undefined);
     // resolve to a single-sample target first.
     GLuint readFbo = fboId;
@@ -463,12 +479,16 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
     if (samples > 0) {
         glGenFramebuffers(1, resolveFbo.ptr());
         glGenTextures(1, resolveTex.ptr());
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, resolveTex);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glBindFramebuffer(GL_FRAMEBUFFER, resolveFbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolveTex, 0);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, fboId);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFbo);
+        glReadBuffer(fboId == 0 ? GL_BACK : GL_COLOR_ATTACHMENT0);
         glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         readFbo = resolveFbo;
     }
@@ -478,8 +498,9 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
     std::vector<unsigned char> raw(static_cast<size_t>(w) * h * channels);
 
     glBindFramebuffer(GL_FRAMEBUFFER, readFbo);
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glReadBuffer(readFbo == 0 ? GL_BACK : GL_COLOR_ATTACHMENT0);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glFinish(); // Ensure rendering is complete before readback.
     glReadPixels(0, 0, w, h, fmt, GL_UNSIGNED_BYTE, raw.data());
 
     // Flip vertically (GL origin is bottom-left).
@@ -490,6 +511,15 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
                     raw.data() + static_cast<size_t>(h - 1 - y) * row, row);
 
     if (resolveFbo.has()) { resolveFbo.reset(); resolveTex.reset(); }
+
+    // Restore GL state.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFboBinding);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFboBinding);
+    glBindFramebuffer(GL_FRAMEBUFFER, fboBinding);
+    glActiveTexture(activeTex);
+    glReadBuffer(readBuffer);
+    glPixelStorei(GL_PACK_ALIGNMENT, packAlign);
+    glBindTexture(GL_TEXTURE_2D, boundTex2d);
 
     QImage::Format qf = transparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
     QImage img = QImage(flipped.data(), w, h, static_cast<int>(row), qf).copy();

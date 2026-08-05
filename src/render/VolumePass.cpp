@@ -138,6 +138,11 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glUseProgram(0);
 }
 
+void VolumePass::clearVolume() {
+    volumeTex_.reset();
+    dimX_ = dimY_ = dimZ_ = 0;
+}
+
 void VolumePass::shutdown() {
     program_.reset();
     volumeTex_.reset();
