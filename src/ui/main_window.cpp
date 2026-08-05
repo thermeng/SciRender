@@ -2085,7 +2085,7 @@ void MainWindow::updateStatusBar() {
             .arg(m_settings->getPointCount())
             .arg(m_settings->getTriangleCount()));
     } else {
-        sb->showMessage("No mesh loaded | drag a .stl / .vtk / .obj file, or use File > Open Mesh");
+        sb->showMessage("No mesh loaded | drag a .stl / .vtk / .obj / .vtu / .vts / .vti / .vtp / .vtr file, or use File > Open Mesh");
     }
 }
 
@@ -2094,7 +2094,7 @@ void MainWindow::updateStatusBar() {
 // ============================================================================
 void MainWindow::openMesh() {
     QString path = QFileDialog::getOpenFileName(this, "Load Mesh", QString(),
-        "Mesh files (*.stl *.vtk *.obj);;All files (*)");
+        "Mesh files (*.stl *.vtk *.obj *.vtu *.vts *.vti *.vtp *.vtr);;All files (*)");
     if (!path.isEmpty()) m_settings->loadMesh(path);
 }
 

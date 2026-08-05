@@ -135,12 +135,18 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
     const QFontMetrics labelFm(labelFont);
     const int labelH = labelFm.height();
 
+    QFont subtitleFont;
+    subtitleFont.setPixelSize(static_cast<int>(9 * dpr));
+    const QFontMetrics subtitleFm(subtitleFont);
+    const int subtitleH = subtitleFm.height();
+
     QFont tickFont;
     tickFont.setPixelSize(static_cast<int>(9 * dpr));
     const QFontMetrics tickFm(tickFont);
     const int tickH = tickFm.height();
 
-    const int blockH = labelH + gap + barH + gap + tickH;
+    const int subtitleGap = 2;
+    const int blockH = subtitleH + subtitleGap + labelH + gap + barH + gap + tickH;
 
     // Stack bars bottom-right, first bar at the bottom.
     int y = deviceH - margin;
@@ -153,14 +159,24 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
         const int blockX = deviceW - margin - barW;
         const int blockY = y;
 
+        // ---- Subtitle (type annotation, centered above title) ----
+        int titleY = blockY;
+        if (!data.subtitle.isEmpty()) {
+            p.setFont(subtitleFont);
+            p.setPen(QColor("#999999"));
+            const QRect subtitleRect(blockX, titleY, barW, subtitleH);
+            p.drawText(subtitleRect, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, data.subtitle);
+            titleY += subtitleH + subtitleGap;
+        }
+
         // ---- Title (centered above bar) ----
         p.setFont(labelFont);
         p.setPen(QColor("#e8e8e8"));
-        const QRect titleRect(blockX, blockY, barW, labelH);
+        const QRect titleRect(blockX, titleY, barW, labelH);
         p.drawText(titleRect, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, data.title);
 
         const int barX = blockX;
-        const int barY = blockY + labelH + gap;
+        const int barY = titleY + labelH + gap;
 
         // ---- Horizontal gradient bar ----
         {
@@ -262,6 +278,7 @@ void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
     if (!paramsChanged) {
         for (size_t i = 0; i < bars.size(); ++i) {
             if (cachedBars_[i].title != bars[i].title ||
+                cachedBars_[i].subtitle != bars[i].subtitle ||
                 cachedBars_[i].stops != bars[i].stops ||
                 cachedBars_[i].tickLabels != bars[i].tickLabels ||
                 cachedBars_[i].visible != bars[i].visible) {
