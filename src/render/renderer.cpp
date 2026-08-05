@@ -52,9 +52,8 @@ Renderer::~Renderer() {
     m_streamlines.cancelAndJoin();
 
     if (QOpenGLContext::currentContext()) {
-        if (meshUbo) glDeleteBuffers(1, &meshUbo);
+        meshPass.shutdown();
         if (glyphUbo) glDeleteBuffers(1, &glyphUbo);
-        if (shaderProgram) glDeleteProgram(shaderProgram);
         if (glyphProgram) glDeleteProgram(glyphProgram);
         if (particleProgram) glDeleteProgram(particleProgram);
         if (particleVao) glDeleteVertexArrays(1, &particleVao);
@@ -97,13 +96,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
         return;
     }
 
-    // mesh program
-    shaderProgram = compileProgram(sources.meshVert.c_str(), sources.meshFrag.c_str(), "Mesh");
-    if (shaderProgram != 0) {
-        meshUboIndex = glGetUniformBlockIndex(shaderProgram, "MeshUBO");
-        glUniformBlockBinding(shaderProgram, meshUboIndex, 0);
-        lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
-    }
+    meshPass.init(sources);
 
     // instanced vector glyph program
     if (!sources.glyphVert.empty() && !sources.glyphFrag.empty()) {
@@ -199,7 +192,7 @@ void Renderer::destroyPeelFbos() {
 }
 
 void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
-                                  const MeshUBOData& ubo, GLuint meshUbo,
+                                  GLuint meshUbo,
                                   const std::vector<std::pair<GLuint, int>>& transparentMeshes) {
     if (m_peelProgram == 0 || m_compositeProgram == 0 || transparentMeshes.empty()) return;
 
@@ -374,9 +367,8 @@ void Renderer::reinitForNewContext() {
     // reinit where the old context may still be current.
     const bool haveCtx = QOpenGLContext::currentContext() != nullptr;
     if (haveCtx) {
-        if (meshUbo)         { glDeleteBuffers(1, &meshUbo); meshUbo = 0; }
+        meshPass.shutdown();
         if (glyphUbo)        { glDeleteBuffers(1, &glyphUbo); glyphUbo = 0; }
-        if (shaderProgram)   { glDeleteProgram(shaderProgram); shaderProgram = 0; }
         if (glyphProgram)    { glDeleteProgram(glyphProgram); glyphProgram = 0; }
         if (particleProgram) { glDeleteProgram(particleProgram); particleProgram = 0; }
         if (particleVao)     { glDeleteVertexArrays(1, &particleVao); particleVao = 0; }
@@ -404,8 +396,6 @@ void Renderer::reinitForNewContext() {
 
     // Always land handle slots and integer locs at safe defaults so lazy
     // re-creation in renderFrame()/initShaders() rebuilds them exactly once.
-    shaderProgram = 0;
-    meshUbo = 0; meshUboIndex = GL_INVALID_INDEX; lutTextureLoc = -1;
     glyphProgram = 0;
     glyphUbo = 0; glyphUboIndex = GL_INVALID_INDEX;
     glyphLutLoc = -1; glyphViewPosLoc = -1;
@@ -763,57 +753,7 @@ void Renderer::renderFrame() {
     colormap.update();
 
     const bool useLod = m_state.useLod;
-    if (meshManager.hasMeshes() && shaderProgram != 0) {
-        glUseProgram(shaderProgram);
-
-        if (meshUbo == 0) {
-            glCreateBuffers(1, &meshUbo);
-            glNamedBufferData(meshUbo, sizeof(MeshUBOData), nullptr, GL_DYNAMIC_DRAW);
-        }
-        if (meshUboIndex != GL_INVALID_INDEX)
-            glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
-        MeshUBOData ubo{};
-        ubo.mvp = mvp;
-        ubo.model = model;
-        ubo.viewPos_ps = glm::vec4(glm::vec3(m_state.camera.position), m_state.pointSize);
-        ubo.meshColor_wire = glm::vec4(m_state.meshColor[0], m_state.meshColor[1], m_state.meshColor[2], 0.0f);
-        ubo.surfaceColor_sop = glm::vec4(m_state.surfaceColor[0], m_state.surfaceColor[1], m_state.surfaceColor[2], m_state.surfaceOpacity);
-        ubo.point_clip = glm::vec4(0.0f, m_state.pointUseScalar ? 1.0f : 0.0f, m_state.pointOpacity, m_state.clipEnabled ? 1.0f : 0.0f);
-        glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
-        computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-        ubo.lightDir = glm::vec4(kDir, 0.0f);
-        ubo.lightFill = glm::vec4(fDir, 0.0f);
-        ubo.lightBack1 = glm::vec4(b1Dir, 0.0f);
-        ubo.lightBack2 = glm::vec4(b2Dir, 0.0f);
-        ubo.lightHead = glm::vec4(hDir, 0.0f);
-        auto warmTint = [](float w) -> glm::vec3 {
-            if (w < 0.5f) return glm::mix(glm::vec3(0.6f,0.7f,1.0f), glm::vec3(1.0f), w/0.5f);
-            return glm::mix(glm::vec3(1.0f), glm::vec3(1.0f,0.85f,0.7f), (w-0.5f)/0.5f);
-        };
-        glm::vec3 tint = warmTint(m_state.lighting.lightWarm);
-        ubo.keyColor = glm::vec4(tint, 0.0f);
-        ubo.fillColor = glm::vec4(tint * glm::vec3(0.90f, 0.92f, 1.00f), 0.0f);
-        ubo.backColor = glm::vec4(tint * glm::vec3(0.95f, 0.95f, 0.98f), 0.0f);
-        ubo.headColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
-        ubo.scalars = glm::vec4(m_state.scalarMin, m_state.scalarMax, (m_state.meshHasScalars && m_state.meshUseScalarColor) ? 1.0f : 0.0f, 0.0f);
-        ubo.sliceY = glm::vec4(m_state.sliceHeightX, m_state.sliceHeightY, m_state.sliceHeightZ, 0.0f);
-        ubo.sliceEn = glm::vec4(m_state.sliceEnabledX ? 1.0f : 0.0f, m_state.sliceEnabledY ? 1.0f : 0.0f, m_state.sliceEnabledZ ? 1.0f : 0.0f, 0.0f);
-        ubo.invert = glm::vec4(m_state.invertX ? 1.0f : 0.0f, m_state.invertY ? 1.0f : 0.0f, m_state.invertZ ? 1.0f : 0.0f, 0.0f);
-        ubo.filter = glm::vec4(m_state.filterMin, m_state.filterMax, 0.0f, 0.0f);
-        float keyI = m_state.lighting.lightKitEnabled ? m_state.lighting.lightKeyIntensity : 0.0f;
-        float kf = std::max(m_state.lighting.lightKF, 0.001f);
-        float kh = std::max(m_state.lighting.lightKH, 0.001f);
-        float kb = std::max(m_state.lighting.lightKB, 0.001f);
-        ubo.intensities = glm::vec4(keyI, m_state.lighting.lightKitEnabled ? keyI / kf : 0.0f, m_state.lighting.lightKitEnabled ? keyI / kb : 0.0f, m_state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
-        ubo.material = glm::vec4(m_state.lighting.matAmbient, m_state.lighting.matDiffuse, m_state.lighting.matSpecular, m_state.lighting.matShininess);
-        ubo.pbr = glm::vec4(m_state.lighting.matRoughness, m_state.lighting.matMetallic, 0.0f, 0.0f);
-        glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-
-        if (m_state.meshHasScalars && m_state.meshUseScalarColor && colormap.scalarTexture() != 0) {
-            glBindTextureUnit(0, colormap.scalarTexture());
-            glUniform1i(lutTextureLoc, 0);
-        }
-
+    if (meshManager.hasMeshes() && meshPass.hasProgram()) {
         if (useLod && gpuDecimationDirty.load() && meshManager.hasDecimated() && meshManager.hasFullSource()) {
             Mesh newDec;
             if (meshManager.dispatchLodCompute(*meshManager.getFullSource(), newDec)) {
@@ -833,96 +773,11 @@ void Renderer::renderFrame() {
         std::vector<int> drawVerts;
         meshManager.snapshotDrawList(drawList, m_state.useLod, cameraMoving.load(), drawMode, drawVerts);
 
-        std::vector<std::pair<GLuint, int>> transparentMeshes;
-
-        // --- Pass 1: opaque surfaces ---
-        for (size_t di = 0; di < drawList.size(); ++di) {
-            glBindVertexArray(drawList[di].first);
-
-            if (m_state.showSurface) {
-                const bool opaque = m_state.surfaceOpacity >= 1.0f;
-
-                if (opaque) {
-                    const bool cull = m_state.cullMode != 0;
-                    if (cull) { glEnable(GL_CULL_FACE); glCullFace(m_state.cullMode == 2 ? GL_FRONT : GL_BACK); }
-                    else glDisable(GL_CULL_FACE);
-                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                    glEnable(GL_POLYGON_OFFSET_FILL);
-                    glPolygonOffset(1.0f, 1.0f);
-                    glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
-                    glDisable(GL_POLYGON_OFFSET_FILL);
-                    if (cull) glDisable(GL_CULL_FACE);
-                } else {
-                    transparentMeshes.push_back({drawList[di].first, drawList[di].second});
-                }
-            }
-        }
-
-        // --- Pass 2: batch all transparent meshes through depth peeling ---
-        if (!transparentMeshes.empty()) {
+        auto result = meshPass.draw(m_state, view, proj, model, drawList, drawVerts, meshManager, colormap);
+        if (!result.transparentMeshes.empty()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            renderTransparent(view, proj, ubo, meshUbo, transparentMeshes);
+            renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);
         }
-
-        // --- Pass 3: wireframe and points overlays ---
-        for (size_t di = 0; di < drawList.size(); ++di) {
-            glBindVertexArray(drawList[di].first);
-
-            if (m_state.showWireframe) {
-                glLineWidth(m_state.lineWidth);
-                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-                glEnable(GL_POLYGON_OFFSET_LINE);
-                glPolygonOffset(-1.0f, -1.0f);
-                ubo.meshColor_wire.w = 1.0f;
-                glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-                glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
-                glDisable(GL_POLYGON_OFFSET_LINE);
-                glLineWidth(1.0f);
-                ubo.meshColor_wire.w = 0.0f;
-                glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-            }
-
-            if (m_state.showPoints && drawVerts[di] > 0) {
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                ubo.point_clip.x = 1.0f;
-                glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-                glDrawArrays(GL_POINTS, 0, drawVerts[di]);
-                ubo.point_clip.x = 0.0f;
-                glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-                glDisable(GL_BLEND);
-            }
-        }
-        glBindVertexArray(0);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-        // ponytail: ParaView-style cell edges — true per-cell boundaries (quads
-        // without the triangle diagonal). Drawn from the per-mesh line VBO built
-        // at load from globalCellToVertices. Reuses mesh shader + wireframe color.
-        if (m_state.showCellEdges && shaderProgram != 0) {
-            auto ce = meshManager.getCellEdgeLine();
-            if (ce.first != 0 && ce.second > 0) {
-                glEnable(GL_DEPTH_TEST);
-                // ponytail: surface is pushed back via GL_POLYGON_OFFSET_FILL in
-                // the fill pass, so these lines (at true depth) win cleanly.
-                // A polygon offset here would be a no-op for GL_LINES.
-                glLineWidth(m_state.cellEdgeLineWidth); // ponytail: own thickness, not wireframe's
-                glBindVertexArray(ce.first);
-                glDrawArrays(GL_LINES, 0, ce.second);
-                glBindVertexArray(0);
-                glLineWidth(1.0f);
-                // depth test left enabled (it was on for the surface pass above);
-                // no GL_LINES polygon offset to clear.
-            }
-        }
-
-        // ponytail: mesh-quality highlight overlay — degenerate faces (red fill)
-        // + open edges (amber) + non-manifold edges (magenta), drawn ON TOP of
-        // the mesh with a slight depth bias.
-        m_qualityOverlay.draw(m_state, glm::value_ptr(view), glm::value_ptr(proj));
-
-        glUseProgram(0);
     }
 
     m_bbox.draw(m_state, view, proj, meshManager.hasMeshes());

@@ -70,6 +70,8 @@ add_library(RenderLib STATIC
     src/render/StreamlineSet.h
     src/render/MeshGLManager.cpp
     src/render/MeshGLManager.h
+    src/render/MeshPass.cpp
+    src/render/MeshPass.h
     src/render/gizmo.cpp
     src/render/gizmo.h
     src/render/colorbar_overlay.cpp

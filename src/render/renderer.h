@@ -43,6 +43,7 @@
 #include "render/BBoxOverlay.h"
 #include "render/QualityOverlayRenderer.h"
 #include "render/StreamlineController.h"
+#include "render/MeshPass.h"
 
 #include <QOpenGLFramebufferObject>
 
@@ -413,17 +414,10 @@ private:
     Gizmo gizmo;
     ColorbarOverlay colorbarOverlay;
 
-    GLuint shaderProgram = 0;
-    GLuint meshUbo = 0;
-    GLuint meshUboIndex = GL_INVALID_INDEX;
-    GLuint glyphUbo = 0;
-    GLuint glyphUboIndex = GL_INVALID_INDEX;
-    GLint lutTextureLoc = -1;
-
-    double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
-
     // glyph program
     GLuint glyphProgram = 0;
+    GLuint glyphUbo = 0;
+    GLuint glyphUboIndex = GL_INVALID_INDEX;
     GLint glyphLutLoc = -1;
     GLint glyphViewPosLoc = -1;
 
@@ -439,6 +433,8 @@ private:
     GLuint particleVao = 0;
     GLuint particleVbo = 0;
     int particleVertexCount = 0;
+
+    double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
 
     double camDistance = 3.0;
     double nearPlane = 0.1;
@@ -481,6 +477,7 @@ private:
     VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
     StreamlineSet streamlineSet;  // GL_LINES streamline GPU resources + mag range
     MeshGLManager meshManager;     // full + decimated GPU meshes & upload
+    MeshPass meshPass;             // mesh shader program + UBO + surface draw passes
     GridRenderer m_grid;           // procedural ray-cast ground plane
     BBoxOverlay m_bbox;            // AABB wireframe overlay
     QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
@@ -503,6 +500,6 @@ private:
     void ensurePeelFbos(int w, int h);
     void destroyPeelFbos();
     void renderTransparent(const glm::mat4& view, const glm::mat4& proj,
-                            const MeshUBOData& ubo, GLuint meshUbo,
+                            GLuint meshUbo,
                             const std::vector<std::pair<GLuint, int>>& transparentMeshes);
 };
