@@ -35,7 +35,7 @@ namespace Ui {
     class LightingPage;
     class SlicingPage;
     class ViewDisplayPage;
-    class ColormapPage;
+    class ScalarPage;
     class VectorsPage;
     class StreamlinesPage;
     class ScreenshotPage;
@@ -112,7 +112,7 @@ private:
     QWidget* buildLightingPage();
     QWidget* buildSlicingPage();
     QWidget* buildViewDisplayPage();
-    QWidget* buildColormapPage();
+    QWidget* buildScalarPage();
     QWidget* buildVectorsPage();
     QWidget* buildStreamlinesPage();
     QWidget* buildScreenshotPage();
