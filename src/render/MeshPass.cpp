@@ -139,6 +139,9 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
         }
 
         if (state.showPoints && drawVerts[di] > 0) {
+            GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
+            glEnable(GL_PROGRAM_POINT_SIZE);
+
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -148,6 +151,8 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
             ubo.point_clip.x = 0.0f;
             glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
             glDisable(GL_BLEND);
+
+            if (pointSizeWas) glEnable(GL_PROGRAM_POINT_SIZE); else glDisable(GL_PROGRAM_POINT_SIZE);
         }
     }
     glBindVertexArray(0);
