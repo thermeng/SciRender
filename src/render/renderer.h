@@ -104,7 +104,6 @@ struct RenderRenderState {
     bool useLod = true;
     float pointSize = 4.0f; // ponytail: CPU-driven gl_PointSize for point clouds
     float lineWidth = 1.0f; // ponytail: wireframe glLineWidth in px
-    float cellEdgeLineWidth = 1.0f; // ponytail: separate thickness for cell-edge overlay
     bool showPoints = false; // ponytail: draw vertices as GL_POINTS
     bool pointUseScalar = true;  // ponytail: color points by scalar; else solid
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
@@ -112,7 +111,6 @@ struct RenderRenderState {
     int cullMode = 0;              // ponytail: 0=off by default — mirror of settings default
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
-    bool showCellEdges = false;      // ponytail: ParaView-style per-cell boundary edges
     // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
     // shared_ptr so RenderRenderState copies are O(1) instead of O(n)
     std::shared_ptr<const std::vector<float>> qualityDegenerateTris;

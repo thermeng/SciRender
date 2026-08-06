@@ -18,11 +18,8 @@ struct Mesh {
     GlBuffer nbo;
     GlBuffer ebo;
     GlBuffer sbo;
-    GlVao lineVao;
-    GlBuffer lineVbo;
     int indexCount = 0;
     int vertexCount = 0;
-    int lineCount = 0;
 
     Mesh() = default;
     Mesh(Mesh&&) = default;
@@ -76,13 +73,6 @@ public:
     bool hasFullSource() const { return hasFullSource_; }
 
     const RenderMesh* getFullSource() const { return fullSource_.get(); }
-
-    // ponytail: returns the primary full mesh's cell-edge line VBO + vertex count
-    // (0 count when no cell edges). Used by the renderer's "Cell edges" overlay.
-    std::pair<GLuint, int> getCellEdgeLine() const {
-        if (meshes_.empty()) return {0, 0};
-        return {meshes_.front().lineVao, meshes_.front().lineCount};
-    }
 
     // GPU compute shader LOD helpers
     void setComputeShaderSources(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc);

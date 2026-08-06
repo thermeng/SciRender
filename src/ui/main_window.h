@@ -137,7 +137,6 @@ private:
     QCheckBox* m_vdPointsCb = nullptr;
     QCheckBox* m_vdBboxCb = nullptr;
     QCheckBox* m_vdDefectsCb = nullptr;
-    QCheckBox* m_vdCellEdgeCb = nullptr;
     QCheckBox* m_vdScalarCb = nullptr;
     QCheckBox* m_vdGizmoCb = nullptr;
     QCheckBox* m_vdFpsCb = nullptr;

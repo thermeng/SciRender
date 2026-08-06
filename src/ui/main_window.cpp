@@ -953,21 +953,6 @@ QWidget* MainWindow::buildViewDisplayPage() {
         connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
         m_vdWireframeCb = cb;
     }
-    {
-        auto* cb = viewUi.cellEdgeCb;
-        auto* slider = viewUi.cellEdgeSlider;
-        cb->setChecked(m_settings->getShowCellEdges());
-        cb->setEnabled(m_settings->getSupportsCellGrid());
-        connect(cb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowCellEdges);
-        slider->setRange(10, 100);
-        slider->setValue(static_cast<int>(m_settings->getCellEdgeLineWidth() * 10));
-        slider->setEnabled(m_settings->getShowCellEdges() && m_settings->getSupportsCellGrid());
-        slider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        connect(slider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setCellEdgeLineWidth(v / 10.0); });
-        connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
-        m_vdCellEdgeCb = cb;
-    }
-
     auto* surfaceCb = viewUi.surfaceCb;
     auto* pointsCb = viewUi.pointsCb;
     surfaceCb->setChecked(m_settings->isSurfaceVisible());
@@ -2019,10 +2004,6 @@ void MainWindow::syncViewDisplayPage() {
     if (m_vdPointsCb)    m_vdPointsCb->setChecked(m_settings->getShowPoints());
     if (m_vdBboxCb)      m_vdBboxCb->setChecked(m_settings->getShowBounds());
     if (m_vdDefectsCb)   m_vdDefectsCb->setChecked(m_settings->getShowQualityOverlay());
-    if (m_vdCellEdgeCb) {
-        m_vdCellEdgeCb->setChecked(m_settings->getShowCellEdges());
-        m_vdCellEdgeCb->setEnabled(m_settings->getSupportsCellGrid());
-    }
     if (m_vdScalarCb)    m_vdScalarCb->setChecked(m_settings->getPointUseScalar());
     if (m_vdGizmoCb)     m_vdGizmoCb->setChecked(m_settings->isGizmoVisible());
     if (m_vdFpsCb)       m_vdFpsCb->setChecked(m_settings->getShowFps());

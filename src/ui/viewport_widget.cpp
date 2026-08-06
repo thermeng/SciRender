@@ -160,14 +160,18 @@ void ViewportWidget::paintGL() {
 
     // Screenshot capture.
     if (!m_pendingScreenshot.isEmpty()) {
-        // For QOpenGLWidget, read the widget's default framebuffer. When MSAA is
-        // active that FBO is multisampled and glReadPixels is undefined, so the
-        // renderer resolves it into a single-sample target first.
+        // Read from the framebuffer that is actually bound after renderFrame().
+        // This is the FBO that contains the rendered content, which may differ
+        // from defaultFramebufferObject() if internal passes rebind FBOs.
+        GLint currentFbo = 0;
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFbo);
         const int fbW = static_cast<int>(width() * devicePixelRatio());
         const int fbH = static_cast<int>(height() * devicePixelRatio());
-        scene->captureViewportFbo(defaultFramebufferObject(), fbW, fbH,
-                                  format().samples(), m_pendingScreenshot);
-        // Leave Qt's framebuffer binding intact for its post-paint handling.
+        const bool ok = scene->captureViewportFbo(static_cast<GLuint>(currentFbo),
+                                  fbW, fbH, format().samples(), m_pendingScreenshot);
+        if (!ok) qWarning() << "Screenshot capture failed for:" << m_pendingScreenshot;
+        if (m_settings) m_settings->screenshotCaptured(ok ? m_pendingScreenshot : QString());
+        // Restore Qt's expected framebuffer binding for post-paint compositing.
         glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
         m_pendingScreenshot.clear();
     }

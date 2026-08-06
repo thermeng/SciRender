@@ -33,12 +33,6 @@ public:
     bool hasProgram() const { return shaderProgram.has(); }
     GLuint uboHandle() const { return meshUbo; }
 
-    void drawCellEdges(const RenderRenderState& state,
-                       const glm::mat4& view,
-                       const glm::mat4& proj,
-                       const glm::mat4& model,
-                       const MeshGLManager& meshManager);
-
 private:
     void drawOpaque(const RenderRenderState& state,
                     const std::vector<std::pair<GLuint, int>>& drawList);

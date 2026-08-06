@@ -50,7 +50,6 @@ struct RenderMesh {
     // Core GPU arrays (float for GPU upload)
     std::vector<float> vertices;   // x,y,z interleaved
     std::vector<uint32_t> indices; // Triangle indices (32-bit, matches GL_UNSIGNED_INT)
-    std::vector<float> cellEdges;   // ponytail: per-cell boundary edges as xyz line verts (no triangle diagonal)
     std::vector<float> normals;    // nx,ny,nz interleaved
     std::vector<float> scalars;    // Active scalar field (per-vertex, optional)
     std::string scalarName = "";   // Name of active scalar field
@@ -100,10 +99,6 @@ struct RenderMesh {
     // GL_POINTS instead of requiring triangle topology.
     bool renderAsPoints = false;
 
-    // ponytail: cell-grid (ParaView-style quad cell edges) is only meaningful
-    // for structured/rectilinear/unstructured grids; false for POLYDATA/STL.
-    bool supportsCellGrid = false;
-
     // Structured grid dimensions (set for STRUCTURED_GRID / RECTILINEAR_GRID /
     // IMAGEDATA). Zero for unstructured/polydata meshes.
     int gridDimX = 0, gridDimY = 0, gridDimZ = 0;
@@ -151,11 +146,6 @@ namespace mesh_utils {
 
     // Computes smooth per-vertex normals from indexed geometry configurations
     void computeNormals(RenderMesh& mesh);
-
-    // Emits a single line segment (a,b) into the cell-edge buffer using
-    // interleaved xyz vertex data. Used by both VTK parsers for the
-    // ParaView-style per-cell boundary overlay.
-    void emitCellEdge(std::vector<float>& edges, const std::vector<float>& vertices, uint32_t a, uint32_t b);
 }
 
 // ── VTK XML Parser Definition ───────────────────────────────────────────────

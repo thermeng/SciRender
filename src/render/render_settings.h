@@ -65,9 +65,8 @@ struct MeshData {
     std::string meshFormat;
     int triangleCount = 0;
     int pointCount = 0;
-    bool supportsCellGrid = false;
 
-    // Quality counts (informational; overlay geometry vectors live in m_state)
+    // Quality counts
     int degenerateFaces = 0;
     int openEdges = 0;
     int nonManifoldEdges = 0;
@@ -222,15 +221,12 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
     Q_PROPERTY(float pointSize READ getPointSize WRITE setPointSize NOTIFY viewChanged)
     Q_PROPERTY(float lineWidth READ getLineWidth WRITE setLineWidth NOTIFY viewChanged)
-    Q_PROPERTY(float cellEdgeLineWidth READ getCellEdgeLineWidth WRITE setCellEdgeLineWidth NOTIFY viewChanged)
     Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
     Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
     Q_PROPERTY(int cullMode READ getCullMode WRITE setCullMode NOTIFY viewChanged) // 0=off 1=back 2=front
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
     Q_PROPERTY(bool showQualityOverlay READ getShowQualityOverlay WRITE setShowQualityOverlay NOTIFY viewChanged)
-    Q_PROPERTY(bool showCellEdges READ getShowCellEdges WRITE setShowCellEdges NOTIFY viewChanged)
-    Q_PROPERTY(bool supportsCellGrid READ getSupportsCellGrid NOTIFY meshDataUpdated)
     Q_PROPERTY(bool orthographic READ getOrthographic WRITE setOrthographic NOTIFY viewChanged)
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
@@ -398,8 +394,6 @@ public:
     void setPointSize(float v) { if (m_state.pointSize != v) { m_state.pointSize = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     float getLineWidth() const { return m_state.lineWidth; }
     void setLineWidth(float v) { if (m_state.lineWidth != v) { m_state.lineWidth = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-    float getCellEdgeLineWidth() const { return m_state.cellEdgeLineWidth; }
-    void setCellEdgeLineWidth(float v) { if (m_state.cellEdgeLineWidth != v) { m_state.cellEdgeLineWidth = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     bool getPointUseScalar() const { return m_state.pointUseScalar; }
     void setPointUseScalar(bool v) { if (m_state.pointUseScalar != v) { m_state.pointUseScalar = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     float getPointOpacity() const { return m_state.pointOpacity; }
@@ -412,9 +406,6 @@ public:
     void setShowBounds(bool v) { if (m_state.showBounds != v) { m_state.showBounds = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     bool getShowQualityOverlay() const { return m_state.showQualityOverlay; }
     void setShowQualityOverlay(bool v) { if (m_state.showQualityOverlay != v) { m_state.showQualityOverlay = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-    bool getShowCellEdges() const { return m_state.showCellEdges; }
-    void setShowCellEdges(bool v) { if (m_state.showCellEdges != v) { m_state.showCellEdges = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-    bool getSupportsCellGrid() const { return m_meshData.supportsCellGrid; }
     bool getOrthographic() const { return m_state.orthographic; }
     void setOrthographic(bool v) { if (m_state.orthographic != v) { m_state.orthographic = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     QColor getMeshColorQml() const { return QColor::fromRgbF(m_state.meshColor[0], m_state.meshColor[1], m_state.meshColor[2]); }

@@ -458,11 +458,21 @@ bool Renderer::captureViewportToFile(const QString& path) {
                               path);
 }
 
+static bool checkGlError(const char* op) {
+    GLenum err = glGetError();
+    if (err == GL_NO_ERROR) return false;
+    qWarning() << "GL error after" << op << ": 0x" << Qt::hex << err;
+    return true;
+}
+
 bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const QString& path) {
     if (path.isEmpty() || fboId == 0 || w <= 0 || h <= 0) return false;
 
     const bool isPng = path.endsWith(".png", Qt::CaseInsensitive);
     const bool transparent = isPng && m_state.screenshotTransparent;
+    const int channels = transparent ? 4 : 3;
+    const GLenum fmt = transparent ? GL_RGBA : GL_RGB;
+    const size_t stride = (static_cast<size_t>(w) * channels + 3) & ~size_t(3);
 
     // Save GL state that will be modified.
     GLint readFboBinding = 0, drawFboBinding = 0, fboBinding = 0;
@@ -478,7 +488,7 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
     GLint boundTex2d = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTex2d);
 
-    // ponytail: MSAA FBOs cannot be read back with glReadPixels (undefined);
+    // MSAA FBOs cannot be read back with glReadPixels directly;
     // resolve to a single-sample target first.
     GLuint readFbo = fboId;
     GlFramebuffer resolveFbo;
@@ -493,29 +503,50 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glBindFramebuffer(GL_FRAMEBUFFER, resolveFbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolveTex, 0);
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            qWarning() << "Screenshot resolve FBO incomplete: 0x" << Qt::hex << status;
+            resolveFbo.reset(); resolveTex.reset();
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, readFboBinding);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFboBinding);
+            glBindFramebuffer(GL_FRAMEBUFFER, fboBinding);
+            return false;
+        }
+
         glBindFramebuffer(GL_READ_FRAMEBUFFER, fboId);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFbo);
-        glReadBuffer(fboId == 0 ? GL_BACK : GL_COLOR_ATTACHMENT0);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
         glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        checkGlError("glBlitFramebuffer");
         readFbo = resolveFbo;
     }
 
-    const int channels = transparent ? 4 : 3;
-    const GLenum fmt = transparent ? GL_RGBA : GL_RGB;
-    std::vector<unsigned char> raw(static_cast<size_t>(w) * h * channels);
-
+    // Validate the FBO we are about to read from.
     glBindFramebuffer(GL_FRAMEBUFFER, readFbo);
-    glReadBuffer(readFbo == 0 ? GL_BACK : GL_COLOR_ATTACHMENT0);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glFinish(); // Ensure rendering is complete before readback.
-    glReadPixels(0, 0, w, h, fmt, GL_UNSIGNED_BYTE, raw.data());
+    GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
+        qWarning() << "Screenshot source FBO incomplete: 0x" << Qt::hex << fbStatus;
+        if (resolveFbo.has()) { resolveFbo.reset(); resolveTex.reset(); }
+        glBindFramebuffer(GL_FRAMEBUFFER, fboBinding);
+        return false;
+    }
 
-    // Flip vertically (GL origin is bottom-left).
-    std::vector<unsigned char> flipped(raw.size());
-    const size_t row = static_cast<size_t>(w) * channels;
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glFinish();
+
+    // Read into a packed buffer, then repad into a stride-aligned buffer for QImage.
+    const size_t rawRow = static_cast<size_t>(w) * channels;
+    std::vector<unsigned char> raw(rawRow * static_cast<size_t>(h));
+    glReadPixels(0, 0, w, h, fmt, GL_UNSIGNED_BYTE, raw.data());
+    checkGlError("glReadPixels");
+
+    // Flip vertically (GL origin is bottom-left) into a stride-aligned buffer.
+    std::vector<unsigned char> flipped(stride * static_cast<size_t>(h), 0);
     for (int y = 0; y < h; ++y)
-        std::memcpy(flipped.data() + static_cast<size_t>(y) * row,
-                    raw.data() + static_cast<size_t>(h - 1 - y) * row, row);
+        std::memcpy(flipped.data() + static_cast<size_t>(y) * stride,
+                    raw.data() + static_cast<size_t>(h - 1 - y) * rawRow, rawRow);
 
     if (resolveFbo.has()) { resolveFbo.reset(); resolveTex.reset(); }
 
@@ -529,7 +560,7 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
     glBindTexture(GL_TEXTURE_2D, boundTex2d);
 
     QImage::Format qf = transparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
-    QImage img = QImage(flipped.data(), w, h, static_cast<int>(row), qf).copy();
+    QImage img = QImage(flipped.data(), w, h, static_cast<int>(stride), qf).copy();
 
     const char* token = isPng ? "PNG"
                                : (path.endsWith(".bmp", Qt::CaseInsensitive) ? "BMP" : "JPG");
@@ -782,12 +813,11 @@ void Renderer::renderFrame() {
         std::vector<int> drawVerts;
         meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawMode, drawVerts);
 
-        auto result = meshPass.draw(m_state, view, proj, model, drawList, drawVerts, meshManager, colormap);
+        auto result =         meshPass.draw(m_state, view, proj, model, drawList, drawVerts, meshManager, colormap);
         if (!result.transparentMeshes.empty()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);
         }
-        meshPass.drawCellEdges(m_state, view, proj, model, meshManager);
     }
 
     m_bbox.draw(m_state, view, proj, meshManager.hasMeshes());

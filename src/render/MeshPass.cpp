@@ -159,36 +159,6 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-void MeshPass::drawCellEdges(const RenderRenderState& state,
-                              const glm::mat4& view,
-                              const glm::mat4& proj,
-                              const glm::mat4& model,
-                              const MeshGLManager& meshManager) {
-    if (!state.showCellEdges || !shaderProgram.has()) return;
-
-    auto ce = meshManager.getCellEdgeLine();
-    if (ce.first == 0 || ce.second <= 0) return;
-
-    MeshUBOData ubo{};
-    glm::mat4 mvp = proj * view * model;
-    ubo.mvp = mvp;
-    ubo.model = model;
-    ubo.viewPos_ps = glm::vec4(glm::vec3(state.camera.position), state.pointSize);
-    ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 1.0f);
-    ubo.surfaceColor_sop = glm::vec4(state.surfaceColor[0], state.surfaceColor[1], state.surfaceColor[2], 1.0f);
-    glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-
-    glUseProgram(shaderProgram);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
-
-    glEnable(GL_DEPTH_TEST);
-    glLineWidth(state.cellEdgeLineWidth);
-    glBindVertexArray(ce.first);
-    glDrawArrays(GL_LINES, 0, ce.second);
-    glBindVertexArray(0);
-    glLineWidth(1.0f);
-}
-
 void MeshPass::shutdown() {
     shaderProgram.reset();
     meshUbo.reset();

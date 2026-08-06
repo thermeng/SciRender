@@ -321,13 +321,4 @@ void computeNormals(RenderMesh& mesh) {
     }
 }
 
-void emitCellEdge(std::vector<float>& edges, const std::vector<float>& vertices, uint32_t a, uint32_t b) {
-    edges.push_back(vertices[3 * a + 0]);
-    edges.push_back(vertices[3 * a + 1]);
-    edges.push_back(vertices[3 * a + 2]);
-    edges.push_back(vertices[3 * b + 0]);
-    edges.push_back(vertices[3 * b + 1]);
-    edges.push_back(vertices[3 * b + 2]);
 }
-
-} // namespace mesh_utils
