@@ -86,14 +86,9 @@ void main() {
     clipped = clipped || filterScalar;
     if (clipped) discard;
 
-    if (uPeelLayer < 0.5) {
-        // Layer 0: standard depth test (GL_LESS handled by GL state)
-    } else {
-        // Layer 1+: peel against previous layer's depth
-        ivec2 pix = ivec2(gl_FragCoord.xy);
-        float prevDepth = texelFetch(uPrevDepth, pix, 0).r;
-        if (gl_FragCoord.z >= prevDepth) discard;
-    }
+    ivec2 pix = ivec2(gl_FragCoord.xy);
+    float prevDepth = texelFetch(uPrevDepth, pix, 0).r;
+    if (gl_FragCoord.z >= prevDepth) discard;
 
     vec3 norm = normalize(vNormal);
     if (!gl_FrontFacing) norm = -norm;

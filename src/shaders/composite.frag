@@ -17,5 +17,5 @@ void main() {
         outRGB = (front.rgb * front.a + back.rgb * back.a * (1.0 - front.a)) / outA;
     else
         outRGB = vec3(0.0);
-    FragColor = vec4(outRGB, outA);
+    FragColor = vec4(outRGB * outA, outA);
 }

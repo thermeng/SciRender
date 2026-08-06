@@ -2019,7 +2019,10 @@ void MainWindow::syncViewDisplayPage() {
     if (m_vdPointsCb)    m_vdPointsCb->setChecked(m_settings->getShowPoints());
     if (m_vdBboxCb)      m_vdBboxCb->setChecked(m_settings->getShowBounds());
     if (m_vdDefectsCb)   m_vdDefectsCb->setChecked(m_settings->getShowQualityOverlay());
-    if (m_vdCellEdgeCb)  m_vdCellEdgeCb->setChecked(m_settings->getShowCellEdges());
+    if (m_vdCellEdgeCb) {
+        m_vdCellEdgeCb->setChecked(m_settings->getShowCellEdges());
+        m_vdCellEdgeCb->setEnabled(m_settings->getSupportsCellGrid());
+    }
     if (m_vdScalarCb)    m_vdScalarCb->setChecked(m_settings->getPointUseScalar());
     if (m_vdGizmoCb)     m_vdGizmoCb->setChecked(m_settings->isGizmoVisible());
     if (m_vdFpsCb)       m_vdFpsCb->setChecked(m_settings->getShowFps());

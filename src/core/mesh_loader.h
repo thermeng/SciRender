@@ -151,6 +151,11 @@ namespace mesh_utils {
 
     // Computes smooth per-vertex normals from indexed geometry configurations
     void computeNormals(RenderMesh& mesh);
+
+    // Emits a single line segment (a,b) into the cell-edge buffer using
+    // interleaved xyz vertex data. Used by both VTK parsers for the
+    // ParaView-style per-cell boundary overlay.
+    void emitCellEdge(std::vector<float>& edges, const std::vector<float>& vertices, uint32_t a, uint32_t b);
 }
 
 // ── VTK XML Parser Definition ───────────────────────────────────────────────
