@@ -411,6 +411,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glGetIntegerv(GL_VIEWPORT, prevVP);
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
     GLboolean blendWas = glIsEnabled(GL_BLEND);
+    GLboolean cullWas = glIsEnabled(GL_CULL_FACE);
     GLint polyMode[2];
     glGetIntegerv(GL_POLYGON_MODE, polyMode);
     GLenum prevClipOrigin;
@@ -550,9 +551,10 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glUseProgram(0);
 
     // ---- State handover ----
-    glClipControl(prevClipOrigin, prevClipDepthMode);
+    glClipControl(prevClipOrigin, GL_NEGATIVE_ONE_TO_ONE);
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    if (cullWas) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
     glPolygonMode(GL_FRONT, static_cast<GLenum>(polyMode[0]));
     glPolygonMode(GL_BACK, static_cast<GLenum>(polyMode[1]));
     glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
@@ -566,6 +568,7 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     glGetIntegerv(GL_VIEWPORT, prevVP);
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
     GLboolean blendWas = glIsEnabled(GL_BLEND);
+    GLboolean cullWas = glIsEnabled(GL_CULL_FACE);
     GLint polyMode[2];
     glGetIntegerv(GL_POLYGON_MODE, polyMode);
     GLenum prevClipOrigin;
@@ -615,6 +618,7 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     glClipControl(prevClipOrigin, prevClipDepthMode);
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    if (cullWas) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
     glPolygonMode(GL_FRONT, static_cast<GLenum>(polyMode[0]));
     glPolygonMode(GL_BACK, static_cast<GLenum>(polyMode[1]));
     glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
