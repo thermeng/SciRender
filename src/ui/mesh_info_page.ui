@@ -227,22 +227,22 @@
    <item>
     <layout class="QHBoxLayout" name="degenerateRow">
      <item>
-      <widget class="QLabel" name="degenerateLabel">
-       <property name="text">
-        <string>Degenerate</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="degenerateLabel">
+        <property name="text">
+         <string>Degenerate</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
@@ -269,22 +269,22 @@
    <item>
     <layout class="QHBoxLayout" name="openEdgesRow">
      <item>
-      <widget class="QLabel" name="openEdgesLabel">
-       <property name="text">
-        <string>Open edges</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="openEdgesLabel">
+        <property name="text">
+         <string>Open edges</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
@@ -311,22 +311,22 @@
    <item>
     <layout class="QHBoxLayout" name="nonManifoldERow">
      <item>
-      <widget class="QLabel" name="nonManifoldELabel">
-       <property name="text">
-        <string>Non-manifold E</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="nonManifoldELabel">
+        <property name="text">
+         <string>Non-manifold E</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
@@ -353,22 +353,22 @@
    <item>
     <layout class="QHBoxLayout" name="nonManifoldVRow">
      <item>
-      <widget class="QLabel" name="nonManifoldVLabel">
-       <property name="text">
-        <string>Non-manifold V</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="nonManifoldVLabel">
+        <property name="text">
+         <string>Non-manifold V</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
@@ -395,22 +395,22 @@
    <item>
     <layout class="QHBoxLayout" name="watertightRow">
      <item>
-      <widget class="QLabel" name="watertightLabel">
-       <property name="text">
-        <string>Watertight</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="watertightLabel">
+        <property name="text">
+         <string>Watertight</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
