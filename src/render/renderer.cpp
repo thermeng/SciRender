@@ -148,6 +148,9 @@ void Renderer::ensurePeelFbos(int w, int h) {
     uint32_t depthOne[2] = { 0xFFFFFFFF, 0 };
     glTextureSubImage2D(m_peelDummyDepth, 0, 0, 0, 1, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, depthOne);
 
+    glCreateTextures(GL_TEXTURE_2D, 1, m_peelMainDepth.ptr());
+    glTextureStorage2D(m_peelMainDepth, 1, GL_DEPTH24_STENCIL8, w, h);
+
     if (!m_peelDummyVao.has()) glCreateVertexArrays(1, m_peelDummyVao.ptr());
 }
 
@@ -176,9 +179,13 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     GLint prevFbo;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
 
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
+    glBindTexture(GL_TEXTURE_2D, m_peelMainDepth);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, vpW, vpH);
+
     glDisable(GL_CULL_FACE);
 
-    // ---- Layer 0: standard depth test into FBO 0 ----
+    // ---- Layer 0: depth-tested against opaque geometry ----
     glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[0]);
     glViewport(0, 0, vpW, vpH);
     glClearColor(0, 0, 0, 0);
@@ -189,7 +196,7 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
 
     glUseProgram(m_peelProgram);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
-    glBindTextureUnit(0, m_peelDummyDepth);
+    glBindTextureUnit(0, m_peelMainDepth);
     glUniform1i(m_peelPrevDepthLoc, 0);
     glUniform1f(m_peelLayerLoc, 0.0f);
 
@@ -219,7 +226,7 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glViewport(0, 0, vpW, vpH);
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(m_compositeProgram);
     glBindTextureUnit(0, m_peelColorTex[0]);
@@ -379,7 +386,7 @@ void Renderer::reinitForNewContext() {
     for (auto& fbo : m_peelFbo) fbo.reset();
     for (auto& tex : m_peelColorTex) tex.reset();
     for (auto& tex : m_peelDepthTex) tex.reset();
-    m_peelDummyDepth.reset(); m_peelDummyVao.reset();
+    m_peelDummyDepth.reset(); m_peelMainDepth.reset(); m_peelDummyVao.reset();
     m_peelFboW = 0; m_peelFboH = 0;
 
     // Reset transient render state so a recreated context does not inherit a
@@ -780,6 +787,7 @@ void Renderer::renderFrame() {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);
         }
+        meshPass.drawCellEdges(m_state, view, proj, model, meshManager);
     }
 
     m_bbox.draw(m_state, view, proj, meshManager.hasMeshes());

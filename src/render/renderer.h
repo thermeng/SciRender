@@ -512,6 +512,7 @@ private:
     GlTexture m_peelColorTex[2];
     GlTexture m_peelDepthTex[2];
     GlTexture m_peelDummyDepth;  // 1x1 initialized to 1.0 for first pass
+    GlTexture m_peelMainDepth;   // opaque geometry depth copied from main FBO
     GlVao m_peelDummyVao;    // empty VAO for fullscreen triangle
     int m_peelFboW = 0, m_peelFboH = 0;
 

@@ -353,6 +353,7 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
                 uint32_t h5 = static_cast<uint32_t>(rawCellData[idx + 5]);
                 uint32_t h6 = static_cast<uint32_t>(rawCellData[idx + 7]);
                 uint32_t h7 = static_cast<uint32_t>(rawCellData[idx + 6]);
+                cellToVertices[c] = {h0, h1, h2, h3, h4, h5, h6, h7};
                 mesh.indices.insert(mesh.indices.end(), {
                     h0, h3, h1, h1, h3, h2, h4, h5, h7, h5, h6, h7,
                     h0, h1, h4, h1, h5, h4, h2, h3, h6, h3, h7, h6,
@@ -599,20 +600,37 @@ public:
         buildTopology();
         finalizeMeshData();
 
-        // Emit cell edges for grid datasets
+        // Emit cell edges for grid datasets.
+        // Triangles are skipped because they come from triangulated quads/polys
+        // and their cyclic emission would draw the interior diagonal. Quads emit
+        // their 4 perimeter edges; hexahedra emit the full 12-edge wireframe.
         if (mesh.supportsCellGrid) {
             for (const auto& cell : globalCellToVertices) {
                 const size_t n = cell.size();
-                if (n < 2) continue;
-                for (size_t k = 0; k < n; ++k) {
-                    const uint32_t a = cell[k];
-                    const uint32_t b = cell[(k + 1) % n];
-                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 0]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 1]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 2]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 0]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 1]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 2]);
+                if (n == 4) {
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[0], cell[1]);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[1], cell[2]);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[2], cell[3]);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[3], cell[0]);
+                } else if (n == 8) {
+                    const uint32_t i0 = cell[0], i1 = cell[1], i2 = cell[2], i3 = cell[3];
+                    const uint32_t i4 = cell[4], i5 = cell[5], i6 = cell[6], i7 = cell[7];
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i0, i1);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i1, i2);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i2, i3);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i3, i0);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i4, i5);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i5, i6);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i6, i7);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i7, i4);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i0, i4);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i1, i5);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i2, i6);
+                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i3, i7);
+                } else if (n >= 3) {
+                    for (size_t k = 0; k < n; ++k) {
+                        mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[k], cell[(k + 1) % n]);
+                    }
                 }
             }
         }
