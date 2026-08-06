@@ -365,42 +365,8 @@
      </layout>
     </widget>
    </item>
-   <item>
-    <widget class="QWidget" name="shininessRow">
-     <layout class="QHBoxLayout" name="shininessLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="shininessLabel">
-        <property name="text"><string>Shininess</string></property>
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QSlider" name="shininessSlider">
-        <property name="orientation"><enum>Qt::Horizontal</enum></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="shininessValue">
-        <property name="text"><string>32</string></property>
-        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QWidget" name="roughnessRow">
+    <item>
+     <widget class="QWidget" name="roughnessRow">
      <layout class="QHBoxLayout" name="roughnessLayout">
       <property name="spacing"><number>6</number></property>
       <property name="leftMargin"><number>0</number></property>

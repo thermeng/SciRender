@@ -598,15 +598,19 @@ QWidget* MainWindow::buildLightingPage() {
     auto* markersCb = lightingUi.markersCb;
     markersCb->setChecked(m_settings->getShowLightMarkers());
     connect(markersCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowLightMarkers);
+    m_lightingMarkersCb = markersCb;
 
     auto* kitCb = lightingUi.kitCb;
     kitCb->setChecked(m_settings->getLightKitEnabled());
     connect(kitCb, &QCheckBox::toggled, m_settings, &RenderSettings::setLightKitEnabled);
+    m_lightingKitCb = kitCb;
 
 
         {
         auto* slider = lightingUi.keyLightSlider;
         auto* valueLabel = lightingUi.keyLightValue;
+        m_lightingKeySlider = slider;
+        m_lightingKeyValue = valueLabel;
         slider->setRange(0, 1000);
         slider->setValue(static_cast<int>(m_settings->getLightKeyIntensity() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -618,6 +622,8 @@ QWidget* MainWindow::buildLightingPage() {
         {
         auto* slider = lightingUi.warmthSlider;
         auto* valueLabel = lightingUi.warmthValue;
+        m_lightingWarmthSlider = slider;
+        m_lightingWarmthValue = valueLabel;
         slider->setRange(0, 1000);
         slider->setValue(static_cast<int>(m_settings->getLightWarm() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -629,6 +635,8 @@ QWidget* MainWindow::buildLightingPage() {
         {
         auto* slider = lightingUi.fillKfSlider;
         auto* valueLabel = lightingUi.fillKFValue;
+        m_lightingFillKfSlider = slider;
+        m_lightingFillKfValue = valueLabel;
         slider->setRange(1000, 15000);
         slider->setValue(static_cast<int>(m_settings->getLightKF() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -640,6 +648,8 @@ QWidget* MainWindow::buildLightingPage() {
         {
         auto* slider = lightingUi.backKbSlider;
         auto* valueLabel = lightingUi.backKbValue;
+        m_lightingBackKbSlider = slider;
+        m_lightingBackKbValue = valueLabel;
         slider->setRange(1000, 15000);
         slider->setValue(static_cast<int>(m_settings->getLightKB() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -651,6 +661,8 @@ QWidget* MainWindow::buildLightingPage() {
         {
         auto* slider = lightingUi.headKhSlider;
         auto* valueLabel = lightingUi.headKHValue;
+        m_lightingHeadKhSlider = slider;
+        m_lightingHeadKhValue = valueLabel;
         slider->setRange(1000, 15000);
         slider->setValue(static_cast<int>(m_settings->getLightKH() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -691,6 +703,7 @@ QWidget* MainWindow::buildLightingPage() {
     void (RenderSettings::*azSetters[])(float) = { &RenderSettings::setLightKeyAzimuth, &RenderSettings::setLightFillAzimuth, &RenderSettings::setLightBackAzimuth, &RenderSettings::setLightHeadAzimuth };
     void (RenderSettings::*elSetters[])(float) = { &RenderSettings::setLightKeyElevation, &RenderSettings::setLightFillElevation, &RenderSettings::setLightBackElevation, &RenderSettings::setLightHeadElevation };
 
+    m_lightDirTabs.resize(4);
     for (int i = 0; i < 4; ++i) {
         auto* tab = new QWidget;
         auto* tabLayout = new QVBoxLayout(tab);
@@ -698,20 +711,27 @@ QWidget* MainWindow::buildLightingPage() {
         {
             auto row = createLightSlider("Azimuth", (m_settings->*azGetters[i])(), -180, 180, 1, 0,
                 [this, i, azSetters](double v) { (m_settings->*azSetters[i])(v); });
+            m_lightDirTabs[i].azimuthSlider = row.slider;
+            m_lightDirTabs[i].azimuthValue = row.valueLabel;
             tabLayout->addWidget(row.slider->parentWidget());
         }
         {
             auto row = createLightSlider("Elevation", (m_settings->*elGetters[i])(), -90, 90, 1, 0,
                 [this, i, elSetters](double v) { (m_settings->*elSetters[i])(v); });
+            m_lightDirTabs[i].elevationSlider = row.slider;
+            m_lightDirTabs[i].elevationValue = row.valueLabel;
             tabLayout->addWidget(row.slider->parentWidget());
         }
         tabLayout->addStretch();
         tabWidget->addTab(tab, QString::fromUtf8(lightNames[i]));
     }
+    m_lightingDirectionTabs = tabWidget;
 
         {
         auto* slider = lightingUi.ambientSlider;
         auto* valueLabel = lightingUi.ambientValue;
+        m_lightingAmbientSlider = slider;
+        m_lightingAmbientValue = valueLabel;
         slider->setRange(0, 1000);
         slider->setValue(static_cast<int>(m_settings->getMatAmbient() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -723,6 +743,8 @@ QWidget* MainWindow::buildLightingPage() {
         {
         auto* slider = lightingUi.diffuseSlider;
         auto* valueLabel = lightingUi.diffuseValue;
+        m_lightingDiffuseSlider = slider;
+        m_lightingDiffuseValue = valueLabel;
         slider->setRange(0, 1000);
         slider->setValue(static_cast<int>(m_settings->getMatDiffuse() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -734,6 +756,8 @@ QWidget* MainWindow::buildLightingPage() {
         {
         auto* slider = lightingUi.specularSlider;
         auto* valueLabel = lightingUi.specularValue;
+        m_lightingSpecularSlider = slider;
+        m_lightingSpecularValue = valueLabel;
         slider->setRange(0, 1000);
         slider->setValue(static_cast<int>(m_settings->getMatSpecular() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -743,19 +767,10 @@ QWidget* MainWindow::buildLightingPage() {
         });
     }
         {
-        auto* slider = lightingUi.shininessSlider;
-        auto* valueLabel = lightingUi.shininessValue;
-        slider->setRange(1000, 100000);
-        slider->setValue(static_cast<int>(m_settings->getMatShininess() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 0));
-            m_settings->setMatShininess(v);
-        });
-    }
-        {
         auto* slider = lightingUi.roughnessSlider;
         auto* valueLabel = lightingUi.roughnessValue;
+        m_lightingRoughnessSlider = slider;
+        m_lightingRoughnessValue = valueLabel;
         slider->setRange(0, 1000);
         slider->setValue(static_cast<int>(m_settings->getMatRoughness() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -767,6 +782,8 @@ QWidget* MainWindow::buildLightingPage() {
         {
         auto* slider = lightingUi.metallicSlider;
         auto* valueLabel = lightingUi.metallicValue;
+        m_lightingMetallicSlider = slider;
+        m_lightingMetallicValue = valueLabel;
         slider->setRange(0, 1000);
         slider->setValue(static_cast<int>(m_settings->getMatMetallic() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -2009,6 +2026,41 @@ void MainWindow::syncViewDisplayPage() {
     if (m_vdParallelCb)  m_vdParallelCb->setChecked(m_settings->getOrthographic());
 }
 
+void MainWindow::syncLightingPage() {
+    if (m_lightingMarkersCb) m_lightingMarkersCb->setChecked(m_settings->getShowLightMarkers());
+    if (m_lightingKitCb)    m_lightingKitCb->setChecked(m_settings->getLightKitEnabled());
+
+    auto syncSlider = [this](QSlider* slider, QLabel* label, double value, int decimals) {
+        if (!slider) return;
+        slider->blockSignals(true);
+        slider->setValue(static_cast<int>(value * 1000));
+        slider->blockSignals(false);
+        if (label) label->setText(QString::number(value, 'f', decimals));
+    };
+
+    syncSlider(m_lightingKeySlider, m_lightingKeyValue, m_settings->getLightKeyIntensity(), 1);
+    syncSlider(m_lightingWarmthSlider, m_lightingWarmthValue, m_settings->getLightWarm(), 1);
+    syncSlider(m_lightingFillKfSlider, m_lightingFillKfValue, m_settings->getLightKF(), 1);
+    syncSlider(m_lightingBackKbSlider, m_lightingBackKbValue, m_settings->getLightKB(), 1);
+    syncSlider(m_lightingHeadKhSlider, m_lightingHeadKhValue, m_settings->getLightKH(), 1);
+
+    using GetterFn = float (RenderSettings::*)() const;
+    static const GetterFn azGetters[] = { &RenderSettings::getLightKeyAzimuth, &RenderSettings::getLightFillAzimuth, &RenderSettings::getLightBackAzimuth, &RenderSettings::getLightHeadAzimuth };
+    static const GetterFn elGetters[] = { &RenderSettings::getLightKeyElevation, &RenderSettings::getLightFillElevation, &RenderSettings::getLightBackElevation, &RenderSettings::getLightHeadElevation };
+
+    for (int i = 0; i < 4 && i < m_lightDirTabs.size(); ++i) {
+        const auto& tab = m_lightDirTabs[i];
+        syncSlider(tab.azimuthSlider, tab.azimuthValue, (m_settings->*azGetters[i])(), 0);
+        syncSlider(tab.elevationSlider, tab.elevationValue, (m_settings->*elGetters[i])(), 0);
+    }
+
+    syncSlider(m_lightingAmbientSlider, m_lightingAmbientValue, m_settings->getMatAmbient(), 1);
+    syncSlider(m_lightingDiffuseSlider, m_lightingDiffuseValue, m_settings->getMatDiffuse(), 1);
+    syncSlider(m_lightingSpecularSlider, m_lightingSpecularValue, m_settings->getMatSpecular(), 1);
+    syncSlider(m_lightingRoughnessSlider, m_lightingRoughnessValue, m_settings->getMatRoughness(), 2);
+    syncSlider(m_lightingMetallicSlider, m_lightingMetallicValue, m_settings->getMatMetallic(), 2);
+}
+
 // ============================================================================
 // Keyboard shortcuts
 // ============================================================================
@@ -2100,7 +2152,8 @@ void MainWindow::connectSettings() {
     // settings change (keyboard shortcuts, quick-bar buttons, side-panel checkboxes).
     // Sync runs on every view change, but the setChecked calls only emit when the
     // value actually differs.
-    connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags) {
+    connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags flags) {
+        if (flags.testFlag(ChangeFlag::Lighting)) syncLightingPage();
         syncQuickBar();
         syncViewDisplayPage();
     });

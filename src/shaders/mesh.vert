@@ -24,7 +24,7 @@ layout(std140) uniform MeshUBO {
     vec4  uSliceEn;         // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
     vec4  uInvert;          // x = invertX, y = invertY, z = invertZ, w = 0
     vec4  uFilter;          // x = filterMin, y = filterMax, z = 0, w = 0
-    vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular, w = matShininess
+    vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular
     vec4  uIntensities;     // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
     vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
 };

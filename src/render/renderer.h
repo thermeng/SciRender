@@ -254,7 +254,7 @@ struct MeshUBOData {
     glm::vec4 sliceEn;          // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
     glm::vec4 invert;           // x = invertX, y = invertY, z = invertZ, w = 0
     glm::vec4 filter;           // x = filterMin, y = filterMax, z = 0, w = 0
-    glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular, w = matShininess
+    glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular
     glm::vec4 intensities;      // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
     glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad (Phase 1 PBR)
 };
