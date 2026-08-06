@@ -1652,7 +1652,7 @@ QWidget* MainWindow::buildMeshInfoPage() {
     addInfoRow("Open Edges", meshUi.openEdgesValue, QString::number(m_settings->getOpenEdges()), "#ffaa44");
     addInfoRow("Non-manifold Edge", meshUi.nonManifoldEValue, QString::number(m_settings->getNonManifoldEdges()), "#ff44ff");
     addInfoRow("Non-manifold Vertex", meshUi.nonManifoldVValue, QString::number(m_settings->getNonManifoldVerts()), "#ff44ff");
-    addInfoRow("Watertight", meshUi.watertightValue, m_settings->getWatertight() ? "yes" : "no", m_settings->getWatertight() ? "#66dd66" : "#ff6666");
+    addInfoRow("Watertight", meshUi.watertightValue, m_settings->getWatertight() ? "Yes" : "No", m_settings->getWatertight() ? "#66dd66" : "#ff6666");
 
     auto addBB = [&](const QString& row, int axis, double v) {
         QString key = QString("BB:%1:%2").arg(row).arg(axis);
