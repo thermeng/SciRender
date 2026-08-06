@@ -73,7 +73,7 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
     float kh = std::max(state.lighting.lightKH, 0.001f);
     float kb = std::max(state.lighting.lightKB, 0.001f);
     ubo.intensities = glm::vec4(keyI, state.lighting.lightKitEnabled ? keyI / kf : 0.0f, state.lighting.lightKitEnabled ? keyI / kb : 0.0f, state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
-    ubo.material = glm::vec4(state.lighting.matAmbient, state.lighting.matDiffuse, state.lighting.matSpecular, state.lighting.matShininess);
+    ubo.material = glm::vec4(state.lighting.matAmbient, state.lighting.matDiffuse, state.lighting.matSpecular, 0.0f);
     ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
     glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
 

@@ -21,13 +21,13 @@ layout(std140) uniform MeshUBO {
     vec4  uSliceEn;         // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
     vec4  uInvert;          // x = invertX, y = invertY, z = invertZ, w = 0
     vec4  uFilter;          // x = filterMin, y = filterMax, z = 0, w = 0
-    vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular, w = matShininess
+    vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular
     vec4  uIntensities;     // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
     vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
 
 in vec3 vNormal;
-in vec3 vWorldPos; 
+in vec3 vWorldPos;
 in float vScalar;
 
 uniform sampler1D uColormapLUT;
@@ -38,7 +38,6 @@ out vec4 FragColor;
 vec3  uMatAmbient()    { return vec3(uMaterial.x); }
 float uMatDiffuse()    { return uMaterial.y; }
 float uMatSpecular()   { return uMaterial.z; }
-float uMatShininess()  { return uMaterial.w; }
 
 // Light kit intensities
 float uKeyIntensity()   { return uIntensities.x; }
@@ -51,9 +50,8 @@ float uMatRoughness() { return uPBR.x; }
 float uMatMetallic()  { return uPBR.y; }
 
 // Microfacet (GGX normal distribution + Smith geometry + Schlick Fresnel),
-// energy-conserving. uMatDiffuse/uMatSpecular are kept as gain knobs (defaults
-// ~0.75/0.15) so existing presets reproduce their prior energy with metallic=0.
-// baseColor is the full reflectance (albedo for dielectrics; F0 tint for metals).
+// energy-conserving. baseColor is the full reflectance (albedo for dielectrics;
+// F0 tint for metals).
 void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
                           vec3 lightColor, vec3 viewDir, vec3 baseColor,
                           inout vec3 diffuse, inout vec3 specular) {
@@ -66,12 +64,12 @@ void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
     float NdotH = max(dot(norm, H), 0.0);
     float VdotH = max(dot(viewDir, H), 0.0);
 
-    float a  = clamp(uMatRoughness(), 0.04, 1.0);
+    float a  = clamp(uMatRoughness() * uMatRoughness(), 0.04, 1.0);
     float a2 = a * a;
     float d  = NdotH * NdotH * (a2 - 1.0) + 1.0;
     float D  = a2 / (3.14159265 * d * d);
 
-    float k  = (a + 1.0) * (a + 1.0) / 24.0;        // direct-light Smith k'
+    float k  = (a + 1.0) * (a + 1.0) / 8.0;
     float Gl = NdotL / (NdotL * (1.0 - k) + k);
     float Gv = NdotV / (NdotV * (1.0 - k) + k);
     float G  = Gl * Gv;
@@ -79,7 +77,7 @@ void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
     vec3  F0 = mix(vec3(0.04), baseColor, uMatMetallic());
     vec3  F  = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
 
-    float specFactor = D * G * VdotH / (4.0 * NdotL * NdotV + 1e-4);
+    float specFactor = D * G / (4.0 * NdotL * NdotV + 1e-4);
     specular += lightColor * F * specFactor * intensity * uMatSpecular();
 
     vec3 kD = (1.0 - F) * (1.0 - uMatMetallic());

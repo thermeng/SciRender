@@ -39,7 +39,6 @@ out vec4 FragColor;
 vec3  uMatAmbient()    { return vec3(uMaterial.x); }
 float uMatDiffuse()    { return uMaterial.y; }
 float uMatSpecular()   { return uMaterial.z; }
-float uMatShininess()  { return uMaterial.w; }
 float uKeyIntensity()   { return uIntensities.x; }
 float uFillIntensity()  { return uIntensities.y; }
 float uBackIntensity()  { return uIntensities.z; }

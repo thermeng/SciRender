@@ -25,6 +25,7 @@
 #include <QActionGroup>
 #include <QHash>
 #include <QList>
+#include <QVector>
 
 #include "viewport_widget.h"
 #include "render/render_settings.h"
@@ -73,6 +74,7 @@ private:
     void updateQuickBarVisibility();
     void syncQuickBar();
     void syncViewDisplayPage();
+    void syncLightingPage();
     void applyTheme(AppTheme theme);
     void rebuildSidebarStyles();
     void rebuildQuickBarStyles();
@@ -140,6 +142,38 @@ private:
     QCheckBox* m_vdGizmoCb = nullptr;
     QCheckBox* m_vdFpsCb = nullptr;
     QCheckBox* m_vdParallelCb = nullptr;
+
+    // Lighting page widgets (for backend→UI sync)
+    struct LightDirTabData {
+        QSlider* azimuthSlider = nullptr;
+        QLabel* azimuthValue = nullptr;
+        QSlider* elevationSlider = nullptr;
+        QLabel* elevationValue = nullptr;
+    };
+    QCheckBox* m_lightingMarkersCb = nullptr;
+    QCheckBox* m_lightingKitCb = nullptr;
+    QSlider* m_lightingKeySlider = nullptr;
+    QLabel* m_lightingKeyValue = nullptr;
+    QSlider* m_lightingWarmthSlider = nullptr;
+    QLabel* m_lightingWarmthValue = nullptr;
+    QSlider* m_lightingFillKfSlider = nullptr;
+    QLabel* m_lightingFillKfValue = nullptr;
+    QSlider* m_lightingBackKbSlider = nullptr;
+    QLabel* m_lightingBackKbValue = nullptr;
+    QSlider* m_lightingHeadKhSlider = nullptr;
+    QLabel* m_lightingHeadKhValue = nullptr;
+    QTabWidget* m_lightingDirectionTabs = nullptr;
+    QVector<LightDirTabData> m_lightDirTabs;
+    QSlider* m_lightingAmbientSlider = nullptr;
+    QLabel* m_lightingAmbientValue = nullptr;
+    QSlider* m_lightingDiffuseSlider = nullptr;
+    QLabel* m_lightingDiffuseValue = nullptr;
+    QSlider* m_lightingSpecularSlider = nullptr;
+    QLabel* m_lightingSpecularValue = nullptr;
+    QSlider* m_lightingRoughnessSlider = nullptr;
+    QLabel* m_lightingRoughnessValue = nullptr;
+    QSlider* m_lightingMetallicSlider = nullptr;
+    QLabel* m_lightingMetallicValue = nullptr;
 
     // Navigation shortcuts (lives on MainWindow so it survives viewport rebuilds);
     // disabled while an editor widget has focus (see setupKeyboardShortcuts).

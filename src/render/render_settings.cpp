@@ -143,7 +143,6 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("camUp", QVariantList{ m_state.camera.viewUp.x, m_state.camera.viewUp.y, m_state.camera.viewUp.z });
     s.setValue("bgColor", QVariantList{ m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2] });
     s.setValue("matSpecular", m_state.lighting.matSpecular);
-    s.setValue("matShininess", m_state.lighting.matShininess);
     s.setValue("matRoughness", m_state.lighting.matRoughness);
     s.setValue("matMetallic", m_state.lighting.matMetallic);
     s.setValue("lightKeyIntensity", m_state.lighting.lightKeyIntensity);
@@ -198,7 +197,6 @@ void RenderSettings::restoreStateFromSettings() {
     readFColor("bgColor", m_state.bgColor);
     if (s.contains("matSpecular")) {
         m_state.lighting.matSpecular = s.value("matSpecular").toFloat();
-        m_state.lighting.matShininess = s.value("matShininess").toFloat();
         if (s.contains("matRoughness")) {
             m_state.lighting.matRoughness = s.value("matRoughness").toFloat();
             m_state.lighting.matMetallic  = s.value("matMetallic").toFloat();
