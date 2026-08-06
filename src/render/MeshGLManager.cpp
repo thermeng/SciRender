@@ -182,43 +182,6 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
     glNamedBufferData(mesh.ebo, renderMesh.indices.size() * sizeof(unsigned int), renderMesh.indices.data(), GL_STATIC_DRAW);
     glVertexArrayElementBuffer(mesh.vao, mesh.ebo);
 
-    if (!renderMesh.cellEdges.empty()) {
-        glCreateVertexArrays(1, mesh.lineVao.ptr());
-        glCreateBuffers(1, mesh.lineVbo.ptr());
-
-        std::vector<float> interleaved;
-        const size_t vertCount = renderMesh.cellEdges.size() / 3;
-        interleaved.reserve(vertCount * 7);
-        for (size_t i = 0; i < vertCount; ++i) {
-            interleaved.push_back(renderMesh.cellEdges[i * 3 + 0]);
-            interleaved.push_back(renderMesh.cellEdges[i * 3 + 1]);
-            interleaved.push_back(renderMesh.cellEdges[i * 3 + 2]);
-            interleaved.push_back(0.0f);
-            interleaved.push_back(0.0f);
-            interleaved.push_back(1.0f);
-            interleaved.push_back(0.0f);
-        }
-        glNamedBufferData(mesh.lineVbo, interleaved.size() * sizeof(float), interleaved.data(), GL_STATIC_DRAW);
-
-        constexpr int kStride = 7 * sizeof(float);
-        glEnableVertexArrayAttrib(mesh.lineVao, 0);
-        glVertexArrayAttribFormat(mesh.lineVao, 0, 3, GL_FLOAT, GL_FALSE, kStride);
-        glVertexArrayAttribBinding(mesh.lineVao, 0, 0);
-        glVertexArrayVertexBuffer(mesh.lineVao, 0, mesh.lineVbo, 0, kStride);
-
-        glEnableVertexArrayAttrib(mesh.lineVao, 1);
-        glVertexArrayAttribFormat(mesh.lineVao, 1, 3, GL_FLOAT, GL_FALSE, kStride);
-        glVertexArrayAttribBinding(mesh.lineVao, 1, 0);
-        glVertexArrayVertexBuffer(mesh.lineVao, 1, mesh.lineVbo, 3 * sizeof(float), kStride);
-
-        glEnableVertexArrayAttrib(mesh.lineVao, 2);
-        glVertexArrayAttribFormat(mesh.lineVao, 2, 1, GL_FLOAT, GL_FALSE, kStride);
-        glVertexArrayAttribBinding(mesh.lineVao, 2, 0);
-        glVertexArrayVertexBuffer(mesh.lineVao, 2, mesh.lineVbo, 6 * sizeof(float), kStride);
-
-        mesh.lineCount = static_cast<int>(vertCount);
-    }
-
     out.push_back(std::move(mesh));
 }
 

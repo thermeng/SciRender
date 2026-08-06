@@ -23,7 +23,7 @@
 
 | # | Issue | Location |
 |---|---|---|
-| H1r | **`Renderer` still owns mesh draw loop + particles + UBOs**: After extraction, `Renderer` is 397 header + 702 impl lines (~1099 total). Remaining responsibilities: mesh UBO fill, mesh draw loop (surface/wireframe/points/cell-edges), vector glyph draw, particle draw, screenshot capture, camera reset, gizmo/colorbar orchestration, animation clock. Still ~20 raw `GLuint` members. | `renderer.h:375-463`, `renderer.cpp` (702 lines) |
+| H1r | **`Renderer` still owns mesh draw loop + particles + UBOs**: After extraction, `Renderer` is 397 header + 702 impl lines (~1099 total). Remaining responsibilities: mesh UBO fill, mesh draw loop (surface/wireframe/points), vector glyph draw, particle draw, screenshot capture, camera reset, gizmo/colorbar orchestration, animation clock. Still ~20 raw `GLuint` members. | `renderer.h:375-463`, `renderer.cpp` (702 lines) |
 | H2 | **Q_PROPERTY bloat**: 136 `Q_PROPERTY` declarations. Each requires 4-site manual synchronization: (a) `RenderRenderState` struct, (b) `RenderSettings` member, (c) `Q_PROPERTY` block, (d) `publishRenderState()`. Adding any new setting requires touching all 4. Flag wiring is now correct (H2 fix) but the structural duplication remains. | `render_settings.h:90-255` |
 | H3 | **Duplicated state (`RenderSettings` ↔ `RenderRenderState`)**: `RenderSettings` holds GUI-thread mirrors of every field in `RenderRenderState` (136+ properties). `publishRenderState()` performs a deep value-copy of the entire struct on every property change. The `RenderRenderState` struct itself contains heap-allocated `std::vector<float>` quality overlay data that is copied into the render-thread state — expensive for large meshes. | `render_settings.h:580-609`, `renderer.h:75-206` |
 | H4 | **No RAII for GL resources**: All resource-owning classes (`StreamlineSet`, `VectorGlyphSet`, `ColormapManager`, `MeshGLManager`, `Gizmo`, `ColorbarOverlay`, `GridRenderer`, `BBoxOverlay`, `QualityOverlayRenderer`, `StreamlineController`) use manual `shutdown()` calls. Only `ColorbarOverlay` calls `shutdown()` from its destructor. If `shutdown()` is missed, GL handles leak silently. | `StreamlineSet.h:85`, `VectorGlyphSet.h:50`, `ColormapManager.h:44`, `gizmo.h:19`, `colorbar_overlay.h:25-28` |
@@ -124,7 +124,7 @@ renderFrame()
 ├── m_streamlines.consumeResult()    ← StreamlineController
 ├── GL state setup + projection matrix
 ├── Colormap update
-├── Mesh UBO fill + draw loop (surface/wireframe/points/cell-edges)
+├── Mesh UBO fill + draw loop (surface/wireframe/points)
 ├── m_qualityOverlay.draw()          ← QualityOverlayRenderer
 ├── m_bbox.draw()                    ← BBoxOverlay
 ├── Vector glyph draw

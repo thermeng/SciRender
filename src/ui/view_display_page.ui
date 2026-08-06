@@ -95,29 +95,8 @@
      </layout>
     </widget>
    </item>
-   <item>
-    <widget class="QWidget" name="cellEdgeRow">
-     <layout class="QHBoxLayout" name="cellEdgeLayout">
-      <property name="spacing"><number>4</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QCheckBox" name="cellEdgeCb">
-        <property name="text"><string>Cell Edge</string></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QSlider" name="cellEdgeSlider">
-        <property name="orientation"><enum>Qt::Horizontal</enum></property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <layout class="QVBoxLayout" name="flagsLayout">
+    <item>
+     <layout class="QVBoxLayout" name="flagsLayout">
      <item>
       <widget class="QCheckBox" name="surfaceCb">
        <property name="text">

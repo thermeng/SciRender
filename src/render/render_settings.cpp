@@ -331,7 +331,6 @@ void RenderSettings::onMeshParsed() {
         : static_cast<int>(loaded->vertices.size() / 3);
     m_meshData.datasetType = loaded->datasetType;
     m_meshData.meshFormat = loaded->fileFormat;
-    m_meshData.supportsCellGrid = loaded->supportsCellGrid;
     m_state.hasMeshLoaded = true;
 
     // Reset per-mesh vector state.

@@ -600,41 +600,6 @@ public:
         buildTopology();
         finalizeMeshData();
 
-        // Emit cell edges for grid datasets.
-        // Triangles are skipped because they come from triangulated quads/polys
-        // and their cyclic emission would draw the interior diagonal. Quads emit
-        // their 4 perimeter edges; hexahedra emit the full 12-edge wireframe.
-        if (mesh.supportsCellGrid) {
-            for (const auto& cell : globalCellToVertices) {
-                const size_t n = cell.size();
-                if (n == 4) {
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[0], cell[1]);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[1], cell[2]);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[2], cell[3]);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[3], cell[0]);
-                } else if (n == 8) {
-                    const uint32_t i0 = cell[0], i1 = cell[1], i2 = cell[2], i3 = cell[3];
-                    const uint32_t i4 = cell[4], i5 = cell[5], i6 = cell[6], i7 = cell[7];
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i0, i1);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i1, i2);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i2, i3);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i3, i0);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i4, i5);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i5, i6);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i6, i7);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i7, i4);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i0, i4);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i1, i5);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i2, i6);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i3, i7);
-                } else if (n >= 3) {
-                    for (size_t k = 0; k < n; ++k) {
-                        mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[k], cell[(k + 1) % n]);
-                    }
-                }
-            }
-        }
-
         mesh.datasetType = datasetType;
         mesh.fileFormat = "VTKXML";
         if (datasetType == "STRUCTUREDGRID" || datasetType == "IMAGEDATA" || datasetType == "RECTILINEARGRID") {
@@ -1047,7 +1012,6 @@ private:
             }
             int totalCells = static_cast<int>(offsets.size());
             globalCellToVertices = triangulateUnstructuredCells(mesh, legacyCells, cellTypes, totalCells);
-            mesh.supportsCellGrid = true;
         } else if (datasetType == "STRUCTUREDGRID" && !points.empty()) {
             mesh.vertices = points;
             int dX = wholeExtent[1] - wholeExtent[0] + 1;
@@ -1057,26 +1021,6 @@ private:
             if (dY <= 0) dY = 1;
             if (dZ <= 0) dZ = 1;
             generateStructuredGridSurface(mesh, dX, dY, dZ);
-            globalCellToVertices.reserve(static_cast<size_t>(std::max(1, dX - 1)) *
-                                         std::max(1, dY - 1) *
-                                         std::max(1, dZ - 1));
-            // Reconstruct cellToVertices for cell edges
-            auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
-            int cx = std::max(1, dX - 1), cy = std::max(1, dY - 1), cz = std::max(1, dZ - 1);
-            for (int z = 0; z + 1 < dZ; ++z)
-                for (int y = 0; y + 1 < dY; ++y)
-                    for (int x = 0; x + 1 < dX; ++x) {
-                        uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
-                        uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
-                        uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
-                        uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
-                        uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
-                        uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
-                        uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
-                        uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
-                        globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
-                    }
-            mesh.supportsCellGrid = true;
         } else if (datasetType == "IMAGEDATA") {
             int dX = wholeExtent[1] - wholeExtent[0] + 1;
             int dY = wholeExtent[3] - wholeExtent[2] + 1;
@@ -1114,9 +1058,8 @@ private:
                         uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
                         uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
                         uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
-                        globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
-                    }
-            mesh.supportsCellGrid = true;
+                         globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
+                     }
             mesh.renderAsPoints = true;
         } else if (datasetType == "RECTILINEARGRID" && !rectX.empty() && !rectY.empty() && !rectZ.empty()) {
             int dX = static_cast<int>(rectX.size());
@@ -1149,22 +1092,18 @@ private:
                         uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
                         uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
                         uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
-                        globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
-                    }
-            mesh.supportsCellGrid = true;
+                         globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
+                     }
         } else if (datasetType == "POLYDATA") {
             mesh.vertices = points;
             if (!polys.empty()) {
                 globalCellToVertices = triangulatePolygons(mesh, polys, numPolys);
-                mesh.supportsCellGrid = true;
             }
             if (!lines.empty()) {
                 triangulateLines(mesh, lines, numLines);
-                mesh.supportsCellGrid = true;
             }
             if (!strips.empty()) {
                 triangulateTriangleStrips(mesh, strips, numStrips);
-                mesh.supportsCellGrid = true;
             }
             if (mesh.indices.empty() && !mesh.vertices.empty()) {
                 std::cerr << "VTK XML Parser Warning: POLYDATA has points but no polys/lines/strips; rendering points only." << std::endl;

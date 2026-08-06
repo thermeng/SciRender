@@ -70,41 +70,6 @@ public:
         buildTopology();
         finalizeMeshData();
 
-        // ponytail: ParaView-style cell boundaries — emit each cell's cyclic
-        // edges (v0-v1, v1-v2, ... vN-1-v0). Quads => 4 edges, no diagonal;
-        // hexahedra => full 12-edge wireframe; triangles => 3 (same as wireframe).
-        // Gated to grid datasets only (supportsCellGrid); POLYDATA/STL get no
-        // quad cell grid.
-        if (mesh.supportsCellGrid) {
-            for (const auto& cell : globalCellToVertices) {
-                const size_t n = cell.size();
-                if (n == 4) {
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[0], cell[1]);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[1], cell[2]);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[2], cell[3]);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[3], cell[0]);
-                } else if (n == 8) {
-                    const uint32_t i0 = cell[0], i1 = cell[1], i2 = cell[2], i3 = cell[3];
-                    const uint32_t i4 = cell[4], i5 = cell[5], i6 = cell[6], i7 = cell[7];
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i0, i1);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i1, i2);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i2, i3);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i3, i0);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i4, i5);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i5, i6);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i6, i7);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i7, i4);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i0, i4);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i1, i5);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i2, i6);
-                    mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, i3, i7);
-                } else if (n >= 3) {
-                    for (size_t k = 0; k < n; ++k) {
-                        mesh_utils::emitCellEdge(mesh.cellEdges, mesh.vertices, cell[k], cell[(k + 1) % n]);
-                    }
-                }
-            }
-        }
         mesh.datasetType = datasetType.empty() ? "UNKNOWN" : datasetType;
         mesh.fileFormat = "VTK";
         if (datasetType == "STRUCTURED_POINTS" || datasetType == "STRUCTURED_GRID" || datasetType == "RECTILINEAR_GRID") {
@@ -664,40 +629,32 @@ private:
 
     void buildTopology() {
         if (datasetType == "STRUCTURED_POINTS") {
-            // ponytail: regular lattice — build the 6-face surface so it renders
-            // as a mesh; keep the point geometry + renderAsPoints so showPoints
-            // can also draw it as a cloud.
             generateStructuredPointsGeometry();
-            globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+            generateStructuredGridSurface(dimX, dimY, dimZ);
+            globalCellToVertices = generateStructuredGridCells(dimX, dimY, dimZ);
             numCells = static_cast<int>(globalCellToVertices.size());
-            mesh.supportsCellGrid = true;
             mesh.renderAsPoints = true;
         }
         else if (datasetType == "RECTILINEAR_GRID" && !rectX.empty() && !rectY.empty() && !rectZ.empty()) {
             generateRectilinearGridGeometry();
-            globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+            generateStructuredGridSurface(dimX, dimY, dimZ);
+            globalCellToVertices = generateStructuredGridCells(dimX, dimY, dimZ);
             numCells = static_cast<int>(globalCellToVertices.size());
-            mesh.supportsCellGrid = true;
         }
         else if (datasetType == "UNSTRUCTURED_GRID" && !rawCellData.empty()) {
             globalCellToVertices = triangulateUnstructuredCells(rawCellData, cellTypes, numCells);
-            mesh.supportsCellGrid = true;
         }
         else if (datasetType == "STRUCTURED_GRID") {
-            // Curvilinear grid: point positions come from the POINTS block (parsed
-            // separately); we only build the surface tessellation here.
             if (!mesh.vertices.empty()) {
-                globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+                generateStructuredGridSurface(dimX, dimY, dimZ);
+                globalCellToVertices = generateStructuredGridCells(dimX, dimY, dimZ);
                 numCells = static_cast<int>(globalCellToVertices.size());
-                mesh.supportsCellGrid = true;
             }
         }
         else if (datasetType == "POLYDATA") {
             if (mesh.indices.empty() && !mesh.vertices.empty()) {
                 std::cerr << "VTK Parser Warning: POLYDATA has points but no VERTICES/LINES/POLYGONS/TRIANGLE_STRIPS; rendering points only." << std::endl;
                 mesh.renderAsPoints = true; // ponytail: mark as point cloud
-            } else if (!mesh.indices.empty()) {
-                mesh.supportsCellGrid = true;
             }
         }
     }
@@ -786,52 +743,60 @@ private:
 
         const bool is3D = (dX > 1 && dY > 1 && dZ > 1);
         if (is3D) {
-            // All six faces are wound CCW as seen from OUTSIDE the box (i.e. the
-            // triangle (a,b,c) of each addQuad has its geometric normal pointing
-            // along the face's outward direction). This makes the surface robust
-            // to GL_CULL_FACE ever being enabled (S1).
-
-            // Bottom (z = 0, outward -Z): CCW seen from -Z
             for (int y = 0; y < cy; ++y)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, y, 0), idx(x, y + 1, 0), idx(x + 1, y + 1, 0), idx(x + 1, y, 0));
-            // Top (z = dZ-1, outward +Z): CCW seen from +Z
             for (int y = 0; y < cy; ++y)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, y, dZ - 1), idx(x + 1, y, dZ - 1), idx(x + 1, y + 1, dZ - 1), idx(x, y + 1, dZ - 1));
-            // Left (x = 0, outward -X): CCW seen from -X
             for (int z = 0; z < cz; ++z)
                 for (int y = 0; y < cy; ++y)
                     addQuad(idx(0, y, z), idx(0, y, z + 1), idx(0, y + 1, z + 1), idx(0, y + 1, z));
-            // Right (x = dX-1, outward +X): CCW seen from +X
             for (int z = 0; z < cz; ++z)
                 for (int y = 0; y < cy; ++y)
                     addQuad(idx(dX - 1, y, z), idx(dX - 1, y + 1, z), idx(dX - 1, y + 1, z + 1), idx(dX - 1, y, z + 1));
-            // Back (y = 0, outward -Y): CCW seen from -Y
             for (int z = 0; z < cz; ++z)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
-            // Front (y = dY-1, outward +Y): CCW seen from +Y
             for (int z = 0; z < cz; ++z)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, dY - 1, z), idx(x, dY - 1, z + 1), idx(x + 1, dY - 1, z + 1), idx(x + 1, dY - 1, z));
         } else if (dZ == 1) {
-            // dY>1 && dX>1 (a planar sheet). Clamp the inner loop bounds so we
-            // never index a non-existent row (y+1) or column (x+1).
             for (int y = 0; y + 1 < dY; ++y)
                 for (int x = 0; x + 1 < dX; ++x)
                     addQuad(idx(x, y, 0), idx(x + 1, y, 0), idx(x + 1, y + 1, 0), idx(x, y + 1, 0));
         } else if (dY == 1) {
-            // dZ>1 && dX>1 (a wall in the XZ plane). No Y dimension to step in.
             for (int z = 0; z + 1 < dZ; ++z)
                 for (int x = 0; x + 1 < dX; ++x)
                     addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
         } else if (dX == 1) {
-            // dZ>1 && dY>1 (a wall in the YZ plane). No X dimension to step in.
             for (int z = 0; z + 1 < dZ; ++z)
                 for (int y = 0; y + 1 < dY; ++y)
                     addQuad(idx(0, y, z), idx(0, y + 1, z), idx(0, y + 1, z + 1), idx(0, y, z + 1));
         }
+        return cellToVertices;
+    }
+
+    std::vector<std::vector<uint32_t>> generateStructuredGridCells(int dX, int dY, int dZ) {
+        std::vector<std::vector<uint32_t>> cellToVertices;
+        auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
+        const int cx = std::max(1, dX - 1);
+        const int cy = std::max(1, dY - 1);
+        const int cz = std::max(1, dZ - 1);
+        cellToVertices.reserve(static_cast<size_t>(cx) * cy * cz);
+        for (int z = 0; z + 1 < dZ; ++z)
+            for (int y = 0; y + 1 < dY; ++y)
+                for (int x = 0; x + 1 < dX; ++x) {
+                    uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
+                    uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
+                    uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
+                    uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
+                    uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
+                    uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
+                    uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
+                    uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
+                    cellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
+                }
         return cellToVertices;
     }
 
