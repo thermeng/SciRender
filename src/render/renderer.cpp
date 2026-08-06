@@ -784,6 +784,8 @@ void Renderer::renderFrame() {
 
     m_bbox.draw(m_state, view, proj, meshManager.hasMeshes());
 
+    m_qualityOverlay.draw(m_state, glm::value_ptr(view), glm::value_ptr(proj));
+
     glyphPass.draw(m_state, view, proj, vectorGlyph, colormap);
 
     // Streamlines + seeds (delegated to StreamlineController)
