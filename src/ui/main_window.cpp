@@ -4,7 +4,7 @@
 #include "ui_lighting_page.h"
 #include "ui_slicing_page.h"
 #include "ui_view_display_page.h"
-#include "ui_colormap_page.h"
+#include "ui_scalar_page.h"
 #include "ui_vectors_page.h"
 #include "ui_streamlines_page.h"
 #include "ui_screenshot_page.h"
@@ -557,7 +557,7 @@ void MainWindow::setupSidebar() {
     m_sectionStack->addWidget(buildLightingPage());     // 0
     m_sectionStack->addWidget(buildSlicingPage());      // 1
     m_sectionStack->addWidget(buildViewDisplayPage());  // 2
-    m_sectionStack->addWidget(buildColormapPage());     // 3
+    m_sectionStack->addWidget(buildScalarPage());     // 3
     m_sectionStack->addWidget(buildVectorsPage());      // 4
     m_sectionStack->addWidget(buildStreamlinesPage());  // 5
     m_sectionStack->addWidget(buildScreenshotPage());   // 6
@@ -1081,7 +1081,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
 // ============================================================================
 // Section: Colormap (3)
 // ============================================================================
-QWidget* MainWindow::buildColormapPage() {
+QWidget* MainWindow::buildScalarPage() {
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1089,15 +1089,15 @@ QWidget* MainWindow::buildColormapPage() {
     scroll->setStyleSheet("QScrollArea { border: none; }");
 
     auto* content = new QWidget;
-    Ui::ColormapPage colormapUi;
-    colormapUi.setupUi(content);
+    Ui::ScalarPage scalarUi;
+    scalarUi.setupUi(content);
 
     // Wire up static controls from .ui file
-    auto* scalarColorCb = colormapUi.colorByScalar;
+    auto* scalarColorCb = scalarUi.colorByScalar;
     scalarColorCb->setChecked(m_settings->getMeshUseScalarColor());
     connect(scalarColorCb, &QCheckBox::toggled, m_settings, &RenderSettings::setMeshUseScalarColor);
 
-    m_scalarCombo = colormapUi.scalarCombo;
+    m_scalarCombo = scalarUi.scalarCombo;
     m_scalarCombo->addItems(m_settings->getAvailableScalars());
     m_scalarCombo->setCurrentText(m_settings->getActiveScalarNameQml());
     m_scalarCombo->setEnabled(m_settings->hasMeshScalars());
@@ -1109,24 +1109,24 @@ QWidget* MainWindow::buildColormapPage() {
     auto* paletteCombo = buildColormapCombo(m_settings->getColormapChoice(),
         [this](int i) { m_settings->setColormapChoice(i); });
     paletteCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
-    content->layout()->replaceWidget(colormapUi.paletteCombo, paletteCombo);
-    delete colormapUi.paletteCombo;
+    content->layout()->replaceWidget(scalarUi.paletteCombo, paletteCombo);
+    delete scalarUi.paletteCombo;
 
-    auto* reversedCb = colormapUi.reversePalette;
+    auto* reversedCb = scalarUi.reversePalette;
     reversedCb->setChecked(m_settings->getColormapReversed());
     connect(reversedCb, &QCheckBox::toggled, m_settings, &RenderSettings::setColormapReversed);
 
-    auto* showBarCb = colormapUi.showColorbar;
+    auto* showBarCb = scalarUi.showColorbar;
     showBarCb->setChecked(m_settings->getShowScalarColorbar());
     connect(showBarCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowScalarColorbar);
 
-    auto* ticksSpin = colormapUi.ticksSpin;
+    auto* ticksSpin = scalarUi.ticksSpin;
     ticksSpin->setValue(m_settings->getColorbarTicks());
     connect(ticksSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setColorbarTicks);
 
     {
-        auto* slider = colormapUi.minFilterSlider;
-        auto* field = colormapUi.minFilterField;
+        auto* slider = scalarUi.minFilterSlider;
+        auto* field = scalarUi.minFilterField;
         double minVal = m_settings->getDataScalarMinQml();
         double maxVal = m_settings->getDataScalarMaxQml();
         slider->setRange(static_cast<int>(minVal * 1000), static_cast<int>(maxVal * 1000));
@@ -1149,8 +1149,8 @@ QWidget* MainWindow::buildColormapPage() {
         });
     }
     {
-        auto* slider = colormapUi.maxFilterSlider;
-        auto* field = colormapUi.maxFilterField;
+        auto* slider = scalarUi.maxFilterSlider;
+        auto* field = scalarUi.maxFilterField;
         double minVal = m_settings->getDataScalarMinQml();
         double maxVal = m_settings->getDataScalarMaxQml();
         slider->setRange(static_cast<int>(minVal * 1000), static_cast<int>(maxVal * 1000));
@@ -1173,7 +1173,7 @@ QWidget* MainWindow::buildColormapPage() {
         });
     }
 
-    auto* resetFilterBtn = colormapUi.resetFilterBtn;
+    auto* resetFilterBtn = scalarUi.resetFilterBtn;
     connect(resetFilterBtn, &QPushButton::clicked, m_settings, [this]() {
         double minVal = m_settings->getDataScalarMinQml();
         double maxVal = m_settings->getDataScalarMaxQml();
@@ -1822,7 +1822,7 @@ void MainWindow::refreshMeshInfoPage() {
 // Sidebar section switching
 // ============================================================================
 static const char* sectionNames[] = {
-    "Lighting", "Slicing", "View & Display", "Colormap",
+    "Lighting", "Slicing", "View & Display", "Scalar",
     "Vectors", "Streamlines", "Screenshot", "Mesh Info", "Volume Rendering"
 };
 
@@ -2382,7 +2382,7 @@ void MainWindow::rebuildSidebarStyles() {
     m_sectionStack->addWidget(buildLightingPage());     // 0
     m_sectionStack->addWidget(buildSlicingPage());      // 1
     m_sectionStack->addWidget(buildViewDisplayPage());  // 2
-    m_sectionStack->addWidget(buildColormapPage());     // 3
+    m_sectionStack->addWidget(buildScalarPage());     // 3
     m_sectionStack->addWidget(buildVectorsPage());      // 4
     m_sectionStack->addWidget(buildStreamlinesPage());  // 5
     m_sectionStack->addWidget(buildScreenshotPage());   // 6
