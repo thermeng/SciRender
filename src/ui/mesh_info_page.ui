@@ -39,22 +39,22 @@
    <item>
     <layout class="QHBoxLayout" name="typeRow">
      <item>
-      <widget class="QLabel" name="typeLabel">
-       <property name="text">
-        <string>Type</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="typeLabel">
+        <property name="text">
+         <string>Type</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
@@ -81,22 +81,22 @@
    <item>
     <layout class="QHBoxLayout" name="formatRow">
      <item>
-      <widget class="QLabel" name="formatLabel">
-       <property name="text">
-        <string>Format</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="formatLabel">
+        <property name="text">
+         <string>Format</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
@@ -133,22 +133,22 @@
    <item>
     <layout class="QHBoxLayout" name="trianglesRow">
      <item>
-      <widget class="QLabel" name="trianglesLabel">
-       <property name="text">
-        <string>Triangles</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="trianglesLabel">
+        <property name="text">
+         <string>Triangles</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
@@ -175,22 +175,22 @@
    <item>
     <layout class="QHBoxLayout" name="pointsRow">
      <item>
-      <widget class="QLabel" name="pointsLabel">
-       <property name="text">
-        <string>Points</string>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property>
+       <widget class="QLabel" name="pointsLabel">
+        <property name="text">
+         <string>Points</string>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>100</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>100</width>
+          <height>16777215</height>
+         </size>
+        </property>
        <property name="styleSheet">
         <string notr="true">font-size: 11px; </string>
        </property>
