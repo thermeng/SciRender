@@ -1239,6 +1239,7 @@ QWidget* MainWindow::buildVectorsPage() {
     vectorsUi.setupUi(page);
 
     auto* showCb = vectorsUi.showCb;
+    m_vecShowCb = showCb;
     showCb->setChecked(m_settings->getShowVectors());
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVectors);
 
@@ -1350,6 +1351,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     slUi.setupUi(content);
 
     auto* showCb = slUi.showCb;
+    m_slShowCb = showCb;
     showCb->setChecked(m_settings->getShowStreamlines());
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowStreamlines);
 
@@ -2121,6 +2123,17 @@ void MainWindow::setupKeyboardShortcuts() {
 void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateQuickBarVisibility);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this]() {
+        const bool hasVectors = m_settings->hasMeshVectors();
+        if (m_slShowCb) {
+            m_slShowCb->setEnabled(hasVectors);
+            if (!hasVectors) m_slShowCb->setChecked(false);
+        }
+        if (m_vecShowCb) {
+            m_vecShowCb->setEnabled(hasVectors);
+            if (!hasVectors) m_vecShowCb->setChecked(false);
+        }
+    });
     connect(m_settings, &RenderSettings::meshDataUpdated, this, &MainWindow::refreshMeshInfoPage);
 
     // Repopulate field combos when mesh data changes

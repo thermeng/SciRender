@@ -337,6 +337,12 @@ void RenderSettings::onMeshParsed() {
     m_meshData.meshFormat = loaded->fileFormat;
     m_state.hasMeshLoaded = true;
 
+    // Vector field availability gate for colorbars / UI.
+    m_state.meshHasVectors = !loaded->pointVectorsData.empty();
+    if (!m_state.meshHasVectors) {
+        m_state.showStreamlines = false;
+    }
+
     // Reset per-mesh vector state.
     m_state.showVectors = false;
     m_state.vectorUseColormap = false;
@@ -405,6 +411,9 @@ void RenderSettings::clearMeshes() {
     m_state.streamlineVectorField.clear();
     m_state.hasMeshLoaded = false;
     m_state.meshHasScalars = false;
+    m_state.meshHasVectors = false;
+    m_state.showVectors = false;
+    m_state.showStreamlines = false;
     m_state.showVolume = false;
     markStateDirty();
     m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();

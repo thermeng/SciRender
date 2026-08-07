@@ -227,6 +227,7 @@ struct RenderRenderState {
     bool screenshotTransparent = false;
 
     bool hasMeshLoaded = false;
+    bool meshHasVectors = false;
     bool flatShading = true;
 };
 
