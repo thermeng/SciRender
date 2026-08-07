@@ -227,6 +227,7 @@ struct RenderRenderState {
     bool screenshotTransparent = false;
 
     bool hasMeshLoaded = false;
+    bool flatShading = true;
 };
 
 // CPU-side UBO layout matching the std140 MeshUBO block in mesh.vert/frag.
@@ -255,6 +256,7 @@ struct MeshUBOData {
     glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular
     glm::vec4 intensities;      // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
     glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad (Phase 1 PBR)
+    glm::vec4 shadingMode;      // x = 0.0 smooth, 1.0 flat
 };
 static_assert(sizeof(MeshUBOData) % 16 == 0, "MeshUBOData must be std140-aligned");
 

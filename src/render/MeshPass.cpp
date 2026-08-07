@@ -75,6 +75,7 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
     ubo.intensities = glm::vec4(keyI, state.lighting.lightKitEnabled ? keyI / kf : 0.0f, state.lighting.lightKitEnabled ? keyI / kb : 0.0f, state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
     ubo.material = glm::vec4(state.lighting.matAmbient, state.lighting.matDiffuse, state.lighting.matSpecular, 0.0f);
     ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
+    ubo.shadingMode = glm::vec4(state.flatShading ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
     glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
 
     if (state.meshHasScalars && state.meshUseScalarColor && colormap.scalarTexture() != 0) {
