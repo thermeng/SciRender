@@ -160,9 +160,6 @@ void ViewportWidget::paintGL() {
 
     // Screenshot capture.
     if (!m_pendingScreenshot.isEmpty()) {
-        // Read from the framebuffer that is actually bound after renderFrame().
-        // This is the FBO that contains the rendered content, which may differ
-        // from defaultFramebufferObject() if internal passes rebind FBOs.
         GLint currentFbo = 0;
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFbo);
         const int fbW = static_cast<int>(width() * devicePixelRatio());
@@ -171,7 +168,6 @@ void ViewportWidget::paintGL() {
                                   fbW, fbH, format().samples(), m_pendingScreenshot);
         if (!ok) qWarning() << "Screenshot capture failed for:" << m_pendingScreenshot;
         if (m_settings) m_settings->screenshotCaptured(ok ? m_pendingScreenshot : QString());
-        // Restore Qt's expected framebuffer binding for post-paint compositing.
         glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
         m_pendingScreenshot.clear();
     }
