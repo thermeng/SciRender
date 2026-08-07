@@ -164,7 +164,6 @@ bool Gizmo::buildAtlas() {
         p.setPen(Qt::white);
         QFont f;
         f.setPointSize(33);
-        //f.setBold(true);
         p.setFont(f);
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setRenderHint(QPainter::TextAntialiasing, true);

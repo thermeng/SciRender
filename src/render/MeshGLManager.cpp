@@ -429,17 +429,14 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
 
 void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
                                       bool useLod, bool cameraMoving,
-                                      std::vector<int>& outMode,
                                       std::vector<int>& outVerts) const {
     std::lock_guard<std::mutex> lock(mutex_);
     const std::vector<Mesh>& src =
         (useLod && cameraMoving && hasDecimated_) ? decimatedMeshes_ : meshes_;
     out.reserve(src.size());
-    outMode.reserve(src.size());
     outVerts.reserve(src.size());
     for (const auto& m : src) {
         out.push_back({m.vao.get(), m.indexCount});
-        outMode.push_back(0);          // triangles handled by indexCount path
         outVerts.push_back(m.vertexCount);
     }
 }
@@ -568,7 +565,6 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
         int hasScalars;
     };
     Params params;
-    //params.cellsPerAxis = glm::ivec4(cellsPerAxis, 0, 0, 0);
     params.cellsPerAxis = glm::ivec4(cellsPerAxis, cellsPerAxis, cellsPerAxis, 0);
     params.boundsMin = glm::vec4(static_cast<float>(mesh.bounds.minX), static_cast<float>(mesh.bounds.minY), static_cast<float>(mesh.bounds.minZ), 0.0f);
     params.boundsMax = glm::vec4(static_cast<float>(mesh.bounds.maxX), static_cast<float>(mesh.bounds.maxY), static_cast<float>(mesh.bounds.maxZ), 0.0f);
