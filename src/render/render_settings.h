@@ -100,6 +100,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY viewChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
     Q_PROPERTY(bool meshHasScalars READ hasMeshScalars NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(bool hasMeshVectors READ hasMeshVectors NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString currentMeshName READ getCurrentMeshNameQStr NOTIFY meshLoadStateChanged)
 
     Q_PROPERTY(float lightKeyAzimuth READ getLightKeyAzimuth WRITE setLightKeyAzimuth NOTIFY viewChanged)
@@ -533,6 +534,7 @@ public:
     QString getFpsText() const { return fpsText; }
 
     bool hasMeshScalars() const { return m_state.meshHasScalars; }
+    bool hasMeshVectors() const { return m_state.meshHasVectors; }
     Q_INVOKABLE QString getActiveScalarNameQml() const { return QString::fromStdString(m_state.activeScalarName); }
     Q_INVOKABLE float getDataScalarMinQml() const { return m_state.dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return m_state.dataScalarMax; }

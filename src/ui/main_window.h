@@ -186,6 +186,10 @@ private:
     QComboBox* m_streamlineDirectionCombo = nullptr;
     QComboBox* m_volumeFieldCombo = nullptr;
 
+    // "Show" checkboxes for vector/streamline pages (gated on vector data)
+    QCheckBox* m_slShowCb = nullptr;
+    QCheckBox* m_vecShowCb = nullptr;
+
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;
     QLineEdit* m_filterMinField = nullptr;

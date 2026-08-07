@@ -616,7 +616,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     }
 
     // Vector bar
-    if (m_state.showVectors && m_state.vectorUseColormap && m_state.hasMeshLoaded) {
+    if (m_state.showVectors && m_state.vectorUseColormap && m_state.meshHasVectors && m_state.hasMeshLoaded) {
         ColorbarData d;
         d.visible = true;
         d.title = QString::fromStdString(m_state.vectorField) + QChar(0x27A1);
@@ -645,7 +645,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     }
 
     // Streamline bar
-    if (m_state.showStreamlines && m_state.streamlineUseColormap && m_state.hasMeshLoaded) {
+    if (m_state.showStreamlines && m_state.streamlineUseColormap && m_state.meshHasVectors && m_state.hasMeshLoaded) {
         ColorbarData d;
         d.visible = true;
         d.title = QString::fromStdString(m_state.streamlineVectorField) + QChar(0x27A1);
