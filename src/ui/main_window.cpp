@@ -842,33 +842,52 @@ QWidget* MainWindow::buildSlicingPage() {
     connect(cbY, &QCheckBox::toggled, m_settings, &RenderSettings::setSliceEnabledY);
     connect(cbZ, &QCheckBox::toggled, m_settings, &RenderSettings::setSliceEnabledZ);
 
-    {
-        auto* slider = slicingUi.sliceXSlider;
-        slider->setRange(static_cast<int>(m_settings->getWorldMinX() * 1000), static_cast<int>(m_settings->getWorldMaxX() * 1000));
-        slider->setValue(static_cast<int>(m_settings->getSliceX() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [this](int raw) {
+    auto* refreshBtn = slicingUi.refreshBtn;
+    connect(refreshBtn, &QToolButton::clicked, this, [cbX, cbY, cbZ]() {
+        cbX->setChecked(false);
+        cbY->setChecked(false);
+        cbZ->setChecked(false);
+    });
+
+    auto setupAxisSlider = [this](QSlider* slider, QLineEdit* field, double from, double to, double val, std::function<void(double)> setter) {
+        int minI = static_cast<int>(from * 1000);
+        int maxI = static_cast<int>(to * 1000);
+        slider->setRange(minI, maxI);
+        slider->setValue(static_cast<int>(val * 1000));
+
+        field->setFixedWidth(36);
+        field->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        field->setStyleSheet(QString("font-size: 11px; background: %1; color: %2; border: 1px solid %1; border-radius: 2px; padding: 1px 4px;")
+            .arg(currentThemeColors().inputBg.name(), currentThemeColors().textPrimary.name()));
+        field->setText(QString::number(val, 'f', 3));
+        field->setValidator(new QDoubleValidator(from, to, 3, field));
+
+        auto syncFromSlider = [field](int raw) {
             double v = raw / 1000.0;
-            m_settings->setSliceX(v);
+            field->setText(QString::number(v, 'f', 3));
+        };
+        auto commitFromField = [slider, field, from, to, setter]() {
+            double v = field->text().toDouble();
+            v = qBound(from, v, to);
+            slider->setValue(static_cast<int>(v * 1000));
+            setter(v);
+        };
+        QObject::connect(slider, &QSlider::valueChanged, this, [syncFromSlider, setter](int raw) {
+            syncFromSlider(raw);
+            setter(raw / 1000.0);
         });
-    }
-    {
-        auto* slider = slicingUi.sliceYSlider;
-        slider->setRange(static_cast<int>(m_settings->getWorldMinY() * 1000), static_cast<int>(m_settings->getWorldMaxY() * 1000));
-        slider->setValue(static_cast<int>(m_settings->getSliceY() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [this](int raw) {
-            double v = raw / 1000.0;
-            m_settings->setSliceY(v);
-        });
-    }
-    {
-        auto* slider = slicingUi.sliceZSlider;
-        slider->setRange(static_cast<int>(m_settings->getWorldMinZ() * 1000), static_cast<int>(m_settings->getWorldMaxZ() * 1000));
-        slider->setValue(static_cast<int>(m_settings->getSliceZ() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [this](int raw) {
-            double v = raw / 1000.0;
-            m_settings->setSliceZ(v);
-        });
-    }
+        QObject::connect(field, &QLineEdit::editingFinished, commitFromField);
+    };
+
+    setupAxisSlider(slicingUi.sliceXSlider, slicingUi.xField,
+                    m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getSliceX(),
+                    [this](double v) { m_settings->setSliceX(v); });
+    setupAxisSlider(slicingUi.sliceYSlider, slicingUi.yField,
+                    m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getSliceY(),
+                    [this](double v) { m_settings->setSliceY(v); });
+    setupAxisSlider(slicingUi.sliceZSlider, slicingUi.zField,
+                    m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ(),
+                    [this](double v) { m_settings->setSliceZ(v); });
 
     auto* invX = slicingUi.invX;
     auto* invY = slicingUi.invY;
@@ -882,6 +901,8 @@ QWidget* MainWindow::buildSlicingPage() {
 
     connect(enableCb, &QCheckBox::toggled, slicingUi.optionsGroup, &QWidget::setEnabled);
     slicingUi.optionsGroup->setEnabled(m_settings->getClipEnabled());
+
+    slicingUi.slicingHeader->setStyleSheet(QString("font-size: 11px; font-weight: bold; color: %1; padding: 4px 0 6px 0; border-bottom: 1px solid %2;").arg(currentThemeColors().accent.name(), currentThemeColors().borderLight.name()));
 
     qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
 
