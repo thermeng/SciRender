@@ -29,7 +29,7 @@
    <item>
     <widget class="QCheckBox" name="colorByScalar">
      <property name="text">
-      <string>Color by scalar</string>
+      <string>Color by Scalar</string>
      </property>
      <property name="checked">
       <bool>true</bool>
@@ -65,7 +65,7 @@
    <item>
     <widget class="QCheckBox" name="reversePalette">
      <property name="text">
-      <string>Reverse palette</string>
+      <string>Reverse Palette</string>
      </property>
     </widget>
    </item>
