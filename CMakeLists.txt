@@ -105,6 +105,8 @@ add_library(RenderLib STATIC
     src/render/QualityOverlayRenderer.h
     src/render/StreamlineController.cpp
     src/render/StreamlineController.h
+    src/render/screenshot_capture.cpp
+    src/render/screenshot_capture.h
 )
 target_include_directories(RenderLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(RenderLib PUBLIC CoreLib glad OpenGL::GL

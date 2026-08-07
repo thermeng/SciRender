@@ -405,11 +405,6 @@ public:
         return m_pendingScalarSrc;
     }
 
-    // MSAA-aware capture from a raw framebuffer id (render thread, GL context
-    // current). Resolves a multisampled target into a single-sample texture
-    // before glReadPixels. `w`/`h` are the FBO's device-pixel dimensions.
-    bool captureViewportFbo(GLuint fboId, int w, int h, int samples, const QString& path);
-
     // Lighting presets resolve in pure data (no signals needed on backend).
     void applyLightingPreset(int preset);
     void resetLighting();

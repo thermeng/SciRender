@@ -12,6 +12,7 @@
 #include <memory>
 #include "render/renderer.h"
 #include "render/render_settings.h"
+#include "render/screenshot_capture.h"
 
 class ViewportWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
@@ -43,6 +44,7 @@ private:
     bool m_isRightClick = false;
 
     QString m_pendingScreenshot;
+    ScreenshotCapture m_screenshotCapture;
     bool m_dirty = true;
 
     QElapsedTimer m_fpsClock;
