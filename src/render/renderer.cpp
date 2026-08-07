@@ -448,6 +448,8 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
     if (path.isEmpty() || fboId == 0 || w <= 0 || h <= 0) return false;
 
     const bool isPng = path.endsWith(".png", Qt::CaseInsensitive);
+    const bool isJpeg = path.endsWith(".jpg", Qt::CaseInsensitive) || path.endsWith(".jpeg", Qt::CaseInsensitive);
+    const bool isBmp = path.endsWith(".bmp", Qt::CaseInsensitive);
     const bool transparent = isPng && m_state.screenshotTransparent;
     const int channels = transparent ? 4 : 3;
     const GLenum fmt = transparent ? GL_RGBA : GL_RGB;
@@ -541,8 +543,7 @@ bool Renderer::captureViewportFbo(GLuint fboId, int w, int h, int samples, const
     QImage::Format qf = transparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
     QImage img = QImage(flipped.data(), w, h, static_cast<int>(stride), qf).copy();
 
-    const char* token = isPng ? "PNG"
-                               : (path.endsWith(".bmp", Qt::CaseInsensitive) ? "BMP" : "JPG");
+    const char* token = isPng ? "PNG" : (isBmp ? "BMP" : "JPEG");
     const bool ok = img.save(path, token, -1);
     if (!ok) qWarning() << "Screenshot save failed:" << path;
     return ok;

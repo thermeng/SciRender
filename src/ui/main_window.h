@@ -57,6 +57,7 @@ private slots:
     void showAbout();
     void showShortcuts();
     void setSidebarSection(int section);
+    void onScreenshotCaptured(const QString& path);
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
@@ -201,7 +202,6 @@ private:
 
     // Dialogs
     QFileDialog* m_openDialog = nullptr;
-    QFileDialog* m_screenshotDialog = nullptr;
     QColorDialog* m_bgColorDialog = nullptr;
     QColorDialog* m_meshColorDialog = nullptr;
     QColorDialog* m_surfaceColorDialog = nullptr;

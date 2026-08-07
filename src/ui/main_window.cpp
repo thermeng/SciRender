@@ -452,11 +452,11 @@ void MainWindow::setupSidebar() {
         {"\u{2702}", "Slicing", 1},
         {"\u{1F441}", "View & Display", 2},
         {"\u{1F3A8}", "Colormap", 3},
-        {"\u{27A1}", "Vectors", 4},
-        {"\u{1F30D}", "Streamlines", 5},
-        {"\u{1F4F7}", "Screenshot", 6},
+        {"♒︎", "Vectors", 4},
+        {"🌀", "Streamlines", 5},
+        {"🧊", "Volume Rendering", 6},
         {"\u{1F4CA}", "Mesh Info", 7},
-        {"\u{1F52C}", "Volume Rendering", 8},
+        {"\u{1F4F7}", "Screenshot", 8},
     };
 
     m_iconButtons.clear();
@@ -576,10 +576,10 @@ void MainWindow::setupSidebar() {
     m_sectionStack->addWidget(buildScalarPage());     // 3
     m_sectionStack->addWidget(buildVectorsPage());      // 4
     m_sectionStack->addWidget(buildStreamlinesPage());  // 5
-    m_sectionStack->addWidget(buildScreenshotPage());   // 6
+    m_sectionStack->addWidget(buildVolumePage());       // 6
     m_meshInfoPage = buildMeshInfoPage();
-    m_sectionStack->addWidget(m_meshInfoPage);           // 7
-    m_sectionStack->addWidget(buildVolumePage());        // 8
+    m_sectionStack->addWidget(m_meshInfoPage);            // 7
+    m_sectionStack->addWidget(buildScreenshotPage());   // 8
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -1635,7 +1635,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 }
 
 // ============================================================================
-// Section: Screenshot (6)
+// Section: Volume Rendering (6)
 // ============================================================================
 QWidget* MainWindow::buildScreenshotPage() {
     auto* page = new QWidget;
@@ -1732,7 +1732,7 @@ QWidget* MainWindow::buildMeshInfoPage() {
 }
 
 // ============================================================================
-// Section: Volume Rendering (8)
+// Section: Screenshot (8)
 // ============================================================================
 QWidget* MainWindow::buildVolumePage() {
     auto* scroll = new QScrollArea;
@@ -1845,7 +1845,7 @@ void MainWindow::refreshMeshInfoPage() {
 // ============================================================================
 static const char* sectionNames[] = {
     "Lighting", "Slicing", "View & Display", "Scalar",
-    "Vectors", "Streamlines", "Screenshot", "Mesh Info", "Volume Rendering"
+    "Vectors", "Streamlines", "Volume Rendering", "Mesh Info", "Screenshot"
 };
 
 void MainWindow::setSidebarSection(int section) {
@@ -2178,6 +2178,8 @@ void MainWindow::connectSettings() {
         syncQuickBar();
         syncViewDisplayPage();
     });
+
+    connect(m_settings, &RenderSettings::screenshotCaptured, this, &MainWindow::onScreenshotCaptured);
 }
 
 // ============================================================================
@@ -2213,7 +2215,27 @@ void MainWindow::saveScreenshot() {
     QString filename = m_settings->generateScreenshotFilename();
     QString path = QFileDialog::getSaveFileName(this, "Save Screenshot", filename,
         "PNG Images (*.png);;JPEG Images (*.jpg *.jpeg);;BMP Images (*.bmp);;All files (*)");
-    if (!path.isEmpty()) m_settings->requestScreenshot(path);
+    if (path.isEmpty()) return;
+    if (QFileInfo::exists(path)) {
+        auto reply = QMessageBox::question(this, "Overwrite file?",
+            QString("The file \"%1\" already exists. Overwrite?").arg(path),
+            QMessageBox::Yes | QMessageBox::No);
+        if (reply != QMessageBox::Yes) return;
+    }
+    m_settings->requestScreenshot(path);
+}
+
+void MainWindow::onScreenshotCaptured(const QString& savedPath) {
+    QTimer::singleShot(0, this, [this, savedPath]() {
+        if (savedPath.isEmpty()) {
+            QMessageBox::warning(this, "Screenshot failed",
+                "Could not capture the screenshot. The OpenGL framebuffer readback failed.\n"
+                "Try a smaller window or a different graphics driver.");
+        } else {
+            QMessageBox::information(this, "Screenshot saved",
+                QString("Screenshot saved to:\n%1").arg(savedPath));
+        }
+    });
 }
 
 void MainWindow::clearMeshes() {
@@ -2406,10 +2428,10 @@ void MainWindow::rebuildSidebarStyles() {
     m_sectionStack->addWidget(buildScalarPage());     // 3
     m_sectionStack->addWidget(buildVectorsPage());      // 4
     m_sectionStack->addWidget(buildStreamlinesPage());  // 5
-    m_sectionStack->addWidget(buildScreenshotPage());   // 6
+    m_sectionStack->addWidget(buildVolumePage());       // 6
     m_meshInfoPage = buildMeshInfoPage();
-    m_sectionStack->addWidget(m_meshInfoPage);  
-    m_sectionStack->addWidget(buildVolumePage());        // 8
+    m_sectionStack->addWidget(m_meshInfoPage);
+    m_sectionStack->addWidget(buildScreenshotPage());   // 8
 
     // Give each page a solid theme background so labels (whose colors come from
     // the palette / stylesheet) stay readable in both themes. Prevents the
