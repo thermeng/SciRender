@@ -29,7 +29,7 @@
    <item>
     <widget class="QCheckBox" name="showCb">
      <property name="text">
-      <string>Show vectors</string>
+      <string>Show Vectors</string>
      </property>
     </widget>
    </item>
@@ -185,7 +185,7 @@
       <item>
        <widget class="QCheckBox" name="revCb">
         <property name="text">
-         <string>Reverse palette</string>
+         <string>Reverse Palette</string>
         </property>
        </widget>
       </item>

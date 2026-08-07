@@ -62,7 +62,7 @@
    <item>
     <widget class="QCheckBox" name="volumeReverseCb">
      <property name="text">
-      <string>Reverse palette</string>
+      <string>Reverse Palette</string>
      </property>
     </widget>
    </item>
