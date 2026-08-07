@@ -1,7 +1,6 @@
 #include <glad/gl.h>
 #include "viewport_widget.h"
 #include "render/render_config.h"
-#include <QOpenGLFramebufferObject>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QDebug>
@@ -164,10 +163,12 @@ void ViewportWidget::paintGL() {
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFbo);
         const int fbW = static_cast<int>(width() * devicePixelRatio());
         const int fbH = static_cast<int>(height() * devicePixelRatio());
-        const bool ok = scene->captureViewportFbo(static_cast<GLuint>(currentFbo),
-                                  fbW, fbH, format().samples(), m_pendingScreenshot);
-        if (!ok) qWarning() << "Screenshot capture failed for:" << m_pendingScreenshot;
-        if (m_settings) m_settings->screenshotCaptured(ok ? m_pendingScreenshot : QString());
+        ScreenshotCapture::Options opts;
+        opts.transparent = m_settings->getScreenshotTransparent();
+        auto result = m_screenshotCapture.capture(static_cast<GLuint>(currentFbo),
+                           fbW, fbH, format().samples(), opts, m_pendingScreenshot);
+        if (!result.success) qWarning() << "Screenshot capture failed for:" << m_pendingScreenshot;
+        if (m_settings) m_settings->screenshotCaptured(result.success ? m_pendingScreenshot : QString());
         glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
         m_pendingScreenshot.clear();
     }
