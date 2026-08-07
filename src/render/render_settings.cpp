@@ -162,6 +162,7 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("quickBarCollapsed", quickBarCollapsed);
     s.setValue("msaaSamples", msaaSamples);
     s.setValue("theme", static_cast<int>(m_theme));
+    s.setValue("flatShading", m_state.flatShading);
     s.endGroup();
 }
 
@@ -238,6 +239,9 @@ void RenderSettings::restoreStateFromSettings() {
     if (s.contains("msaaSamples")) {
         const int n = s.value("msaaSamples").toInt();
         msaaSamples = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
+    }
+    if (s.contains("flatShading")) {
+        m_state.flatShading = s.value("flatShading").toBool();
     }
     s.endGroup();
 }

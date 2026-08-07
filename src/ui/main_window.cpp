@@ -351,6 +351,24 @@ void MainWindow::setupMenus() {
     connect(cullFront, &QAction::triggered, m_settings, [this]() { m_settings->setCullMode(2); });
 
     viewMenu->addSeparator();
+
+    auto* shadingGroup = new QActionGroup(this);
+    shadingGroup->setExclusive(true);
+
+    auto* flatAction = shadingGroup->addAction("Flat Shading");
+    flatAction->setCheckable(true);
+    flatAction->setChecked(m_settings->getFlatShading());
+    connect(flatAction, &QAction::triggered, m_settings, [this]() { m_settings->setFlatShading(true); });
+
+    auto* smoothAction = shadingGroup->addAction("Smooth Shading");
+    smoothAction->setCheckable(true);
+    smoothAction->setChecked(!m_settings->getFlatShading());
+    connect(smoothAction, &QAction::triggered, m_settings, [this]() { m_settings->setFlatShading(false); });
+
+    m_shadingGroup = shadingGroup;
+    viewMenu->addActions(shadingGroup->actions());
+    viewMenu->addSeparator();
+
     viewMenu->addAction("&Reset Camera", m_settings, &RenderSettings::resetCamera);
 
     auto* lodAction = viewMenu->addAction("&Level of detail (LOD)");

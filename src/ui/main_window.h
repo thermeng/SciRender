@@ -211,4 +211,5 @@ private:
 
     // Theme
     QActionGroup* m_themeGroup = nullptr;
+    QActionGroup* m_shadingGroup = nullptr;
 };

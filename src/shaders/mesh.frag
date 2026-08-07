@@ -24,6 +24,7 @@ layout(std140) uniform MeshUBO {
     vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular
     vec4  uIntensities;     // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
     vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
+    vec4  uShadingMode;     // x = 0.0 smooth, 1.0 flat
 };
 
 in vec3 vNormal;
@@ -118,7 +119,9 @@ void main() {
         return;
     }
 
-    vec3 norm = normalize(sphereNormal);
+    vec3 faceNorm = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    if (!gl_FrontFacing) faceNorm = -faceNorm;
+    vec3 norm = uShadingMode.x > 0.5 ? faceNorm : normalize(sphereNormal);
     if (!gl_FrontFacing) {
         norm = -norm;
     }

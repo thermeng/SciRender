@@ -232,6 +232,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
     Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
+    Q_PROPERTY(bool flatShading READ getFlatShading WRITE setFlatShading NOTIFY viewChanged)
     Q_PROPERTY(QString statusMessage READ getStatusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool showFps READ getShowFps WRITE setShowFps NOTIFY viewChanged)
     Q_PROPERTY(bool quickBarCollapsed READ getQuickBarCollapsed WRITE setQuickBarCollapsed NOTIFY quickBarCollapsedChanged)
@@ -511,6 +512,8 @@ public:
     Q_INVOKABLE void setStreamlineVectorField(const QString& fieldName);
     bool getScreenshotTransparent() const { return m_state.screenshotTransparent; }
     void setScreenshotTransparent(bool v) { if (m_state.screenshotTransparent != v) { m_state.screenshotTransparent = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getFlatShading() const { return m_state.flatShading; }
+    void setFlatShading(bool v) { if (m_state.flatShading != v) { m_state.flatShading = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     QString getStatusMessage() const { return statusMessage; }
     Q_INVOKABLE QString generateScreenshotFilename() const {
         QString base = m_meshData.fileName.empty() ? "scene" : QString::fromStdString(m_meshData.fileName);
