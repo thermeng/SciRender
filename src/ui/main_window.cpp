@@ -46,8 +46,6 @@
 #include <QStyledItemDelegate>
 #include <QTimer>
 #include <QPainter>
-#include <QFile>
-#include <QTextStream>
 
 // ============================================================================
 // UI layout constants (mirrors MainWindow private members for use by free helpers)

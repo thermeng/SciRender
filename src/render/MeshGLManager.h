@@ -65,7 +65,6 @@ public:
     // `outVerts` carries the raw vertex count per entry for GL_POINTS draws.
     void snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
                           bool useLod, bool cameraMoving,
-                          std::vector<int>& outMode,
                           std::vector<int>& outVerts) const;
 
     bool hasMeshes() const { return !meshes_.empty(); }

@@ -98,10 +98,6 @@ inline ThemeColors getThemeColors(AppTheme theme) {
             QColor("#f0f0f0"),
             QColor("#f0f0f0"),
 
-            // QColor("#ffffff"),       // panelBg
-            // QColor("#ffffff"),       // surfaceBg
-            // QColor("#ffffff"),       // tooltipBg
-
             // Borders
             QColor("#d0d0d0"),       // border
             QColor("#e0e0e0"),       // borderLight

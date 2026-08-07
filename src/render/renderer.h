@@ -402,11 +402,6 @@ public:
         return m_pendingScalarSrc;
     }
 
-    // Screenshot capture (render thread, GL context current). The viewport FBO
-    // is supplied by the QQuickFramebufferObject renderer just before capture.
-    void setViewportFbo(QOpenGLFramebufferObject* fbo) { m_viewportFbo = fbo; }
-    bool captureViewportToFile(const QString& path);
-
     // MSAA-aware capture from a raw framebuffer id (render thread, GL context
     // current). Resolves a multisampled target into a single-sample texture
     // before glReadPixels. `w`/`h` are the FBO's device-pixel dimensions.
@@ -476,12 +471,6 @@ private:
 
     // Deep-copied snapshot; the ONLY source of truth renderFrame() reads.
     RenderRenderState m_state;
-
-    // Lifetime: transient pointer to the Qt-owned viewport FBO, set only
-    // during screenshot capture via setViewportFbo(). Not dereferenced
-    // outside captureViewportToFile() on the render thread. Null-checked
-    // before use (see renderer.cpp:419).
-    QOpenGLFramebufferObject* m_viewportFbo = nullptr;
 
     // --- extracted responsibility helpers -------------------------------------
     ColormapManager colormap;     // scalar + vector LUT textures & choices

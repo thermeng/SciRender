@@ -9,26 +9,16 @@
 
 #include <cstring>
 #include <cmath>
-#include <cstdio>
-#include <ctime>
 #include <memory>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include <vector>
 #include <algorithm>
 #include <limits>
-#include <unordered_map>
 #include <QImage>
 #include <QBuffer>
 #include <QTimer>
 #include <QPainter>
 #include <QFont>
 
-#include <QDir>
-#include <QDateTime>
-#include <QRegularExpression>
-#include <QFileInfo>
 #include <QOpenGLContext>
 #include <QSettings>
 
@@ -447,17 +437,6 @@ void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scal
     meshManager.updateScalars(scalars);
 }
 
-bool Renderer::captureViewportToFile(const QString& path) {
-    if (path.isEmpty()) return false;
-    if (!m_viewportFbo || !m_viewportFbo->isValid()) {
-        qWarning() << "Screenshot skipped: viewport FBO not available.";
-        return false;
-    }
-    return captureViewportFbo(m_viewportFbo->handle(), m_viewportFbo->width(),
-                              m_viewportFbo->height(), m_viewportFbo->format().samples(),
-                              path);
-}
-
 static bool checkGlError(const char* op) {
     GLenum err = glGetError();
     if (err == GL_NO_ERROR) return false;
@@ -809,9 +788,8 @@ void Renderer::renderFrame() {
 
     if (meshManager.hasMeshes() && meshPass.hasProgram()) {
         std::vector<std::pair<GLuint, int>> drawList;
-        std::vector<int> drawMode;
         std::vector<int> drawVerts;
-        meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawMode, drawVerts);
+        meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawVerts);
 
         auto result =         meshPass.draw(m_state, view, proj, model, drawList, drawVerts, meshManager, colormap);
         if (!result.transparentMeshes.empty()) {
