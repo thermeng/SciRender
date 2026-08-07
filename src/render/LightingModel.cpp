@@ -24,17 +24,17 @@ void LightingModel::computeDirections(const glm::dvec3& camPos,
                                       glm::vec3& back1, glm::vec3& back2,
                                       glm::vec3& head) const {
     glm::dvec3 fwd   = glm::normalize(camPos - camFocal); // toward camera
-    glm::dvec3 right = glm::normalize(glm::cross(fwd, camUp));
+    glm::dvec3 right = glm::normalize(glm::cross(camUp, fwd));
     glm::dvec3 up    = glm::cross(fwd, right);
     glm::dmat3 M(right, up, fwd); // right-handed kit basis: X->right, Y->up, Z->toward camera
     auto kitDir = [&](float az, float el) -> glm::vec3 {
         return glm::vec3(glm::normalize(M * kitDirection(az, el)));
     };
-    key  = -kitDir(lightKeyAzimuth,  lightKeyElevation);
-    fill = -kitDir(lightFillAzimuth, lightFillElevation);
-    back1 = -kitDir(lightBackAzimuth,  lightBackElevation);
-    back2 = -kitDir(lightBackAzimuth + 180.0f, -lightBackElevation);
-    head = -kitDir(lightHeadAzimuth,  lightHeadElevation);
+    key  = kitDir(lightKeyAzimuth,  lightKeyElevation);
+    fill = kitDir(lightFillAzimuth, lightFillElevation);
+    back1 = kitDir(lightBackAzimuth,  lightBackElevation);
+    back2 = kitDir(lightBackAzimuth + 180.0f, -lightBackElevation);
+    head = kitDir(lightHeadAzimuth,  lightHeadElevation);
 }
 
 void LightingModel::applyPreset(int preset) {
@@ -81,7 +81,7 @@ void LightingModel::reset() {
     lightFillAzimuth = -10.0f; lightFillElevation = -75.0f;
     lightBackAzimuth = 110.0f; lightBackElevation = 0.0f;
     lightHeadAzimuth = 0.0f;   lightHeadElevation = 0.0f;
-    matAmbient = 0.08f; matDiffuse = 0.75f; matSpecular = 0.0f;
+    matAmbient = 0.2f; matDiffuse = 0.75f; matSpecular = 0.0f;
     matRoughness = 0.4f; matMetallic = 0.0f;
 }
 
