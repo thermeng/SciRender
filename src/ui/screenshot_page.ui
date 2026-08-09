@@ -29,21 +29,101 @@
    <property name="bottomMargin">
     <number>8</number>
    </property>
-    <item>
-     <widget class="QPushButton" name="saveBtn">
-      <property name="text">
-       <string>Save Screenshot</string>
-      </property>
-      <property name="objectName">
-       <string>secondaryButton</string>
-      </property>
-     </widget>
-    </item>
+   <item>
+    <widget class="QPushButton" name="saveBtn">
+     <property name="text">
+      <string>Save Screenshot</string>
+     </property>
+     <property name="objectName">
+      <string>secondaryButton</string>
+     </property>
+    </widget>
+   </item>
    <item>
     <widget class="QCheckBox" name="transCb">
      <property name="text">
       <string>Transparent (PNG)</string>
      </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="resLabel">
+     <property name="text">
+      <string>Resolution</string>
+     </property>
+     <property name="styleSheet">
+      <string>font-size: 11px; color: %1;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="resCombo">
+     <property name="fixedHeight">
+      <number>24</number>
+     </property>
+     <property name="minimumWidth">
+      <number>160</number>
+     </property>
+     <item>
+      <property name="text">
+       <string>Current Viewport</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>HD (1280×720)</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Full HD (1920×1080)</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>2K (2560×1440)</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>4K (3840×2160)</string>
+      </property>
+     </item>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="aaLabel">
+     <property name="text">
+      <string>Anti-Aliasing</string>
+     </property>
+     <property name="styleSheet">
+      <string>font-size: 11px; color: %1;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="aaCombo">
+     <property name="fixedHeight">
+      <number>24</number>
+     </property>
+     <property name="minimumWidth">
+      <number>160</number>
+     </property>
+     <item>
+      <property name="text">
+       <string>Off</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>2x</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>4x</string>
+      </property>
+     </item>
     </widget>
    </item>
   </layout>

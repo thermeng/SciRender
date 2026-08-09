@@ -98,3 +98,22 @@ public:
     bool has() const { return m_id != 0; }
     operator GLuint() const { return m_id; }
 };
+
+class GlRenderbuffer {
+    GLuint m_id = 0;
+public:
+    GlRenderbuffer() = default;
+    explicit GlRenderbuffer(GLuint id) : m_id(id) {}
+    ~GlRenderbuffer();
+    GlRenderbuffer(GlRenderbuffer&& o) noexcept : m_id(o.m_id) { o.m_id = 0; }
+    GlRenderbuffer& operator=(GlRenderbuffer&& o) noexcept { reset(); m_id = o.m_id; o.m_id = 0; return *this; }
+    GlRenderbuffer(const GlRenderbuffer&) = delete;
+    GlRenderbuffer& operator=(const GlRenderbuffer&) = delete;
+
+    GLuint get() const { return m_id; }
+    GLuint* ptr() { return &m_id; }
+    GLuint release() { GLuint r = m_id; m_id = 0; return r; }
+    void reset(GLuint id = 0);
+    bool has() const { return m_id != 0; }
+    operator GLuint() const { return m_id; }
+};

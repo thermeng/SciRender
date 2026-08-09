@@ -175,6 +175,10 @@ private:
     QSlider* m_lightingMetallicSlider = nullptr;
     QLabel* m_lightingMetallicValue = nullptr;
 
+    // Screenshot page controls
+    QComboBox* m_ssResCombo = nullptr;
+    QComboBox* m_ssAaCombo = nullptr;
+
     // Navigation shortcuts (lives on MainWindow so it survives viewport rebuilds);
     // disabled while an editor widget has focus (see setupKeyboardShortcuts).
     QList<QShortcut*> m_navShortcuts;

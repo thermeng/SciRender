@@ -6,6 +6,8 @@
 #include <cstring>
 #include <vector>
 
+#include "render/renderer.h"
+
 ScreenshotCapture::GlState ScreenshotCapture::saveState() {
     GlState s;
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &s.readFboBinding);
@@ -15,6 +17,17 @@ ScreenshotCapture::GlState ScreenshotCapture::saveState() {
     glGetIntegerv(GL_READ_BUFFER, &s.readBuffer);
     glGetIntegerv(GL_PACK_ALIGNMENT, &s.packAlignment);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &s.textureBinding2D);
+    glGetIntegerv(GL_VIEWPORT, s.viewport);
+    glGetIntegerv(GL_SCISSOR_BOX, s.scissorBox);
+    s.depthTest = glIsEnabled(GL_DEPTH_TEST);
+    s.blend = glIsEnabled(GL_BLEND);
+    s.cullFace = glIsEnabled(GL_CULL_FACE);
+    s.scissorTest = glIsEnabled(GL_SCISSOR_TEST);
+    glGetIntegerv(GL_DEPTH_FUNC, &s.depthFunc);
+    glGetIntegerv(GL_DEPTH_WRITEMASK, &s.depthMask);
+    glGetIntegerv(GL_BLEND_SRC, &s.blendSrc);
+    glGetIntegerv(GL_BLEND_DST, &s.blendDst);
+    glGetIntegerv(GL_POLYGON_MODE, s.polygonMode);
     return s;
 }
 
@@ -26,63 +39,25 @@ void ScreenshotCapture::restoreState(const GlState& s) {
     glReadBuffer(s.readBuffer);
     glPixelStorei(GL_PACK_ALIGNMENT, s.packAlignment);
     glBindTexture(GL_TEXTURE_2D, s.textureBinding2D);
+    glViewport(s.viewport[0], s.viewport[1], s.viewport[2], s.viewport[3]);
+    glScissor(s.scissorBox[0], s.scissorBox[1], s.scissorBox[2], s.scissorBox[3]);
+    if (s.depthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    if (s.blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    if (s.cullFace) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+    if (s.scissorTest) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
+    glDepthFunc(s.depthFunc);
+    glDepthMask(static_cast<GLboolean>(s.depthMask));
+    glBlendFunc(s.blendSrc, s.blendDst);
+    glPolygonMode(GL_FRONT, s.polygonMode[0]);
+    glPolygonMode(GL_BACK, s.polygonMode[1]);
 }
 
-GLuint ScreenshotCapture::resolveMsaa(GLuint srcFbo, int w, int h, GlTexture& resolveTex, GlFramebuffer& resolveFbo) {
-    glGenFramebuffers(1, resolveFbo.ptr());
-    glGenTextures(1, resolveTex.ptr());
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, resolveTex);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glBindFramebuffer(GL_FRAMEBUFFER, resolveFbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, resolveTex, 0);
-
-    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    if (status != GL_FRAMEBUFFER_COMPLETE) {
-        qWarning() << "Screenshot resolve FBO incomplete: 0x" << Qt::hex << status;
-        resolveFbo.reset();
-        resolveTex.reset();
-        return 0;
-    }
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFbo);
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-    return resolveFbo.get();
-}
-
-ScreenshotCapture::Result ScreenshotCapture::saveImage(const QImage& img, const QString& path) {
+ScreenshotCapture::Result ScreenshotCapture::renderAndCapture(::Renderer* renderer, int w, int h, int samples,
+                                                                const Options& opts, const QString& path) {
     Result result;
     result.savedPath = path;
 
-    const bool isPng  = path.endsWith(".png", Qt::CaseInsensitive);
-    const bool isJpeg = path.endsWith(".jpg", Qt::CaseInsensitive) || path.endsWith(".jpeg", Qt::CaseInsensitive);
-    const bool isBmp  = path.endsWith(".bmp", Qt::CaseInsensitive);
-
-    if (!isPng && !isJpeg && !isBmp) {
-        qWarning() << "Screenshot unsupported format:" << path;
-        result.success = false;
-        return result;
-    }
-
-    const char* token = isPng ? "PNG" : (isBmp ? "BMP" : "JPEG");
-    result.success = img.save(path, token, -1);
-    if (!result.success) {
-        qWarning() << "Screenshot save failed:" << path;
-    }
-    return result;
-}
-
-ScreenshotCapture::Result ScreenshotCapture::capture(GLuint fboId, int w, int h, int samples,
-                                                      const Options& opts, const QString& path) {
-    Result result;
-    result.savedPath = path;
-
-    if (path.isEmpty() || fboId == 0 || w <= 0 || h <= 0) {
+    if (!renderer || path.isEmpty() || w <= 0 || h <= 0) {
         return result;
     }
 
@@ -95,44 +70,98 @@ ScreenshotCapture::Result ScreenshotCapture::capture(GLuint fboId, int w, int h,
     }
 
     const bool transparent = isPng && opts.transparent;
-    const int channels = transparent ? 4 : 3;
-    const GLenum fmt = transparent ? GL_RGBA : GL_RGB;
-    const size_t stride = (static_cast<size_t>(w) * channels + 3) & ~size_t(3);
 
     GlState state = saveState();
 
-    GLuint readFbo = fboId;
-    GlFramebuffer resolveFbo;
-    GlTexture resolveTex;
+    // --- Offscreen color + depth-stencil renderbuffers + FBO ---
+    GlRenderbuffer colorRbo;
+    GlRenderbuffer depthRbo;
+    GlFramebuffer offscreenFbo;
 
+    glGenRenderbuffers(1, colorRbo.ptr());
+    glBindRenderbuffer(GL_RENDERBUFFER, colorRbo);
     if (samples > 0) {
-        GLuint resolved = resolveMsaa(fboId, w, h, resolveTex, resolveFbo);
-        if (resolved == 0) {
-            restoreState(state);
-            return result;
-        }
-        readFbo = resolved;
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+    } else {
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, readFbo);
+    glGenRenderbuffers(1, depthRbo.ptr());
+    glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
+    if (samples > 0) {
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, w, h);
+    } else {
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+    }
+
+    glGenFramebuffers(1, offscreenFbo.ptr());
+    glBindFramebuffer(GL_FRAMEBUFFER, offscreenFbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorRbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
+
     GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
-        qWarning() << "Screenshot source FBO incomplete: 0x" << Qt::hex << fbStatus;
+        qWarning() << "Screenshot offscreen FBO incomplete: 0x" << Qt::hex << fbStatus;
         restoreState(state);
         return result;
     }
 
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    // --- Resolve FBO for MSAA (color-only, non-multisampled) ---
+    GlFramebuffer resolveFbo;
+    GlRenderbuffer resolveColorRbo;
+    GLuint readFboId = offscreenFbo;
+
+    if (samples > 0) {
+        glGenRenderbuffers(1, resolveColorRbo.ptr());
+        glBindRenderbuffer(GL_RENDERBUFFER, resolveColorRbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+
+        glGenFramebuffers(1, resolveFbo.ptr());
+        glBindFramebuffer(GL_FRAMEBUFFER, resolveFbo);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, resolveColorRbo);
+
+        GLenum resolveStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (resolveStatus != GL_FRAMEBUFFER_COMPLETE) {
+            qWarning() << "Screenshot resolve FBO incomplete: 0x" << Qt::hex << resolveStatus;
+            restoreState(state);
+            return result;
+        }
+    }
+
+    // --- Drain display pipeline before touching GL state ---
     glFinish();
 
+    // --- Render scene into the offscreen FBO ---
+    glBindFramebuffer(GL_FRAMEBUFFER, offscreenFbo);
+    glViewport(0, 0, w, h);
+    renderer->renderFrame();
+
+    // --- Drain offscreen render before readback ---
+    glFinish();
+
+    // --- MSAA resolve via blit ---
+    if (samples > 0) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, offscreenFbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFbo);
+        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        readFboId = resolveFbo;
+    }
+
+    // --- Readback ---
+    glBindFramebuffer(GL_FRAMEBUFFER, readFboId);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
+    const int channels = transparent ? 4 : 3;
     const size_t rawRow = static_cast<size_t>(w) * channels;
     std::vector<unsigned char> raw(rawRow * static_cast<size_t>(h));
-    glReadPixels(0, 0, w, h, fmt, GL_UNSIGNED_BYTE, raw.data());
+    glReadPixels(0, 0, w, h, transparent ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, raw.data());
 
+    // --- Restore Qt-expected GL state ---
     restoreState(state);
 
-    // Flip vertically (GL origin is bottom-left) into a stride-aligned buffer.
+    // --- Flip vertically (GL origin is bottom-left) into a stride-aligned buffer ---
+    const size_t stride = (rawRow + 3) & ~size_t(3);
     std::vector<unsigned char> flipped(stride * static_cast<size_t>(h), 0);
     for (int y = 0; y < h; ++y) {
         std::memcpy(flipped.data() + static_cast<size_t>(y) * stride,

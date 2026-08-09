@@ -15,3 +15,6 @@ void GlProgram::reset(GLuint id) { if (m_id) glDeleteProgram(m_id); m_id = id; }
 
 GlFramebuffer::~GlFramebuffer() { if (m_id) glDeleteFramebuffers(1, &m_id); }
 void GlFramebuffer::reset(GLuint id) { if (m_id) glDeleteFramebuffers(1, &m_id); m_id = id; }
+
+GlRenderbuffer::~GlRenderbuffer() { if (m_id) glDeleteRenderbuffers(1, &m_id); }
+void GlRenderbuffer::reset(GLuint id) { if (m_id) glDeleteRenderbuffers(1, &m_id); m_id = id; }
