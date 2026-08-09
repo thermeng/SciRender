@@ -233,6 +233,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
     Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
+    Q_PROPERTY(int screenshotResolution READ getScreenshotResolution WRITE setScreenshotResolution NOTIFY viewChanged)
+    Q_PROPERTY(int screenshotAASamples READ getScreenshotAASamples WRITE setScreenshotAASamples NOTIFY viewChanged)
     Q_PROPERTY(bool flatShading READ getFlatShading WRITE setFlatShading NOTIFY viewChanged)
     Q_PROPERTY(QString statusMessage READ getStatusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool showFps READ getShowFps WRITE setShowFps NOTIFY viewChanged)
@@ -513,6 +515,10 @@ public:
     Q_INVOKABLE void setStreamlineVectorField(const QString& fieldName);
     bool getScreenshotTransparent() const { return m_state.screenshotTransparent; }
     void setScreenshotTransparent(bool v) { if (m_state.screenshotTransparent != v) { m_state.screenshotTransparent = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    int getScreenshotResolution() const { return m_screenshotResolution; }
+    void setScreenshotResolution(int v);
+    int getScreenshotAASamples() const { return m_screenshotAASamples; }
+    void setScreenshotAASamples(int v);
     bool getFlatShading() const { return m_state.flatShading; }
     void setFlatShading(bool v) { if (m_state.flatShading != v) { m_state.flatShading = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     QString getStatusMessage() const { return statusMessage; }
@@ -603,6 +609,8 @@ private:
     // ---- GUI-side view / state ----
     float sidebarWidth = 0.0f;
     int msaaSamples = 0;         // ponytail: FBO MSAA (0=off, 2, 4); 0 default for iGPU
+    int m_screenshotResolution = 0; // 0=Current Viewport, 1=HD, 2=FHD, 3=2K, 4=4K
+    int m_screenshotAASamples = 0;  // 0=Off, 2=2x, 4=4x
 
     QString statusMessage;
     QString fpsText = "FPS: --";

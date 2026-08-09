@@ -78,6 +78,20 @@ void RenderSettings::setMsaaSamples(int n) {
     markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 
+void RenderSettings::setScreenshotResolution(int v) {
+    v = qBound(0, v, 4);
+    if (m_screenshotResolution == v) return;
+    m_screenshotResolution = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+
+void RenderSettings::setScreenshotAASamples(int n) {
+    n = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
+    if (m_screenshotAASamples == n) return;
+    m_screenshotAASamples = n;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+
 void RenderSettings::toggleGrid(bool visible) {
     if (m_state.showGrid == visible) return;
     m_state.showGrid = visible;
@@ -161,6 +175,8 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("vectorScaleByMagnitude", m_state.vectorScaleByMagnitude);
     s.setValue("quickBarCollapsed", quickBarCollapsed);
     s.setValue("msaaSamples", msaaSamples);
+    s.setValue("screenshotResolution", m_screenshotResolution);
+    s.setValue("screenshotAASamples", m_screenshotAASamples);
     s.setValue("theme", static_cast<int>(m_theme));
     s.setValue("flatShading", m_state.flatShading);
     s.endGroup();
@@ -239,6 +255,13 @@ void RenderSettings::restoreStateFromSettings() {
     if (s.contains("msaaSamples")) {
         const int n = s.value("msaaSamples").toInt();
         msaaSamples = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
+    }
+    if (s.contains("screenshotResolution")) {
+        m_screenshotResolution = qBound(0, s.value("screenshotResolution").toInt(), 4);
+    }
+    if (s.contains("screenshotAASamples")) {
+        const int n = s.value("screenshotAASamples").toInt();
+        m_screenshotAASamples = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
     }
     if (s.contains("flatShading")) {
         m_state.flatShading = s.value("flatShading").toBool();

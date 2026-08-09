@@ -1652,6 +1652,19 @@ QWidget* MainWindow::buildScreenshotPage() {
     transCb->setChecked(m_settings->getScreenshotTransparent());
     connect(transCb, &QCheckBox::toggled, m_settings, &RenderSettings::setScreenshotTransparent);
 
+    m_ssResCombo = ssUi.resCombo;
+    m_ssResCombo->setCurrentIndex(m_settings->getScreenshotResolution());
+    connect(m_ssResCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setScreenshotResolution);
+
+    m_ssAaCombo = ssUi.aaCombo;
+    m_ssAaCombo->setCurrentIndex(m_settings->getScreenshotAASamples() <= 0 ? 0 : m_settings->getScreenshotAASamples() <= 2 ? 1 : 2);
+    connect(m_ssAaCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int idx) {
+                const int samples = idx == 0 ? 0 : (idx == 1 ? 2 : 4);
+                m_settings->setScreenshotAASamples(samples);
+            });
+
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);

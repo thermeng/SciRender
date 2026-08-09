@@ -53,4 +53,7 @@ private:
     double m_fpsAccum = 0.0;
 
     QLabel* m_fpsLabel = nullptr;
+
+private slots:
+    void deferredCapture(const QString& path);
 };

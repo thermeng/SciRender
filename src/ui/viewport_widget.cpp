@@ -157,22 +157,6 @@ void ViewportWidget::paintGL() {
 
     scene->renderFrame();
 
-    // Screenshot capture.
-    if (!m_pendingScreenshot.isEmpty()) {
-        GLint currentFbo = 0;
-        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFbo);
-        const int fbW = static_cast<int>(width() * devicePixelRatio());
-        const int fbH = static_cast<int>(height() * devicePixelRatio());
-        ScreenshotCapture::Options opts;
-        opts.transparent = m_settings->getScreenshotTransparent();
-        auto result = m_screenshotCapture.capture(static_cast<GLuint>(currentFbo),
-                           fbW, fbH, format().samples(), opts, m_pendingScreenshot);
-        if (!result.success) qWarning() << "Screenshot capture failed for:" << m_pendingScreenshot;
-        if (m_settings) m_settings->screenshotCaptured(result.success ? m_pendingScreenshot : QString());
-        glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
-        m_pendingScreenshot.clear();
-    }
-
     m_dirty = continuous;
 
     // FPS measurement.
@@ -195,6 +179,60 @@ void ViewportWidget::paintGL() {
     } else {
         m_fpsLabel->hide();
     }
+
+    // Deferred screenshot: schedule offscreen render after Qt composites the
+    // displayed frame, decoupling GL state thrashing from paintGL's draw cycle.
+    if (!m_pendingScreenshot.isEmpty()) {
+        QString path = m_pendingScreenshot;
+        m_pendingScreenshot.clear();
+        QTimer::singleShot(0, this, [this, path]() { deferredCapture(path); });
+    }
+}
+
+void ViewportWidget::deferredCapture(const QString& path) {
+    if (!m_settings) return;
+
+    if (!context()) {
+        m_settings->screenshotCaptured(QString());
+        return;
+    }
+    makeCurrent();
+
+    ::Renderer* scene = m_settings->backend();
+    if (!scene) {
+        doneCurrent();
+        m_settings->screenshotCaptured(QString());
+        return;
+    }
+
+    m_settings->publishRenderState(scene);
+
+    int fbW = 0;
+    int fbH = 0;
+    const int resMode = m_settings->getScreenshotResolution();
+    if (resMode == 0) {
+        fbW = static_cast<int>(width() * devicePixelRatioF());
+        fbH = static_cast<int>(height() * devicePixelRatioF());
+    } else if (resMode == 1) {
+        fbW = 1280; fbH = 720;
+    } else if (resMode == 2) {
+        fbW = 1920; fbH = 1080;
+    } else if (resMode == 3) {
+        fbW = 2560; fbH = 1440;
+    } else {
+        fbW = 3840; fbH = 2160;
+    }
+
+    const int samples = m_settings->getScreenshotAASamples();
+
+    ScreenshotCapture::Options opts;
+    opts.transparent = m_settings->getScreenshotTransparent();
+
+    auto result = m_screenshotCapture.renderAndCapture(
+        scene, fbW, fbH, samples, opts, path);
+
+    doneCurrent();
+    m_settings->screenshotCaptured(result.success ? path : QString());
 }
 
 void ViewportWidget::mousePressEvent(QMouseEvent* event) {
