@@ -645,7 +645,7 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
     // GL_BUFFER_UPDATE_BARRIER_BIT (plus glFinish for a hard sync point). Without
     // it, drivers may return stale zeros from the SSBOs.
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
-    glFinish();
+    glFlush();
 
     GLuint outVertCount = 0, outTriCount = 0;
     glGetNamedBufferSubData(lodCounterSsbo, 0, sizeof(unsigned int), &outVertCount);

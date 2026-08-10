@@ -12,6 +12,8 @@ public:
     void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj);
     void shutdown();
 
+    void setZeroToOne(bool enabled) { m_useZeroToOne = enabled; }
+
 private:
     void updateUbo(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj);
 
@@ -21,4 +23,5 @@ private:
     GlBuffer m_ubo;
     GLuint m_uboIndex = ~0u;
     double m_planeY = 0.0;
+    bool m_useZeroToOne = false;
 };

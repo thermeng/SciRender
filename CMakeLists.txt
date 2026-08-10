@@ -117,6 +117,7 @@ target_link_libraries(RenderLib PUBLIC CoreLib glad OpenGL::GL
 # ---------------------------------------------------------------------------
 add_executable(SciRender
     src/app/main.cpp
+    src/app/gpu_preference.cpp
     src/ui/viewport_widget.cpp
     src/ui/viewport_widget.h
     src/ui/main_window.cpp

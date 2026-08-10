@@ -270,6 +270,7 @@ struct GridUBOData {
     glm::vec4 camPos_colorR;    // xyz = camPos, w = colorR
     glm::vec4 colorBG_falloff;  // xyz = colorG+B, w = falloff
     glm::vec4 planeY_pad;       // x = planeY, yzw = pad
+    glm::vec4 flags;            // x = useZeroToOne (1.0 or 0.0)
 };
 
 // CPU-side UBO layout matching the std140 GlyphUBO block in glyph.vert/frag.
@@ -349,6 +350,11 @@ public:
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
 
+    // Temporary viewport override for screenshot re-render at arbitrary resolution.
+    // Pass {0,0} to clear the override and revert to the widget dimensions.
+    void setViewportOverride(int deviceW, int deviceH) { m_overrideDeviceW = deviceW; m_overrideDeviceH = deviceH; }
+    void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; }
+
     // Scalar-only re-upload handoff. The payload is a shared_ptr (zero-copy).
     // m_pendingScalarSrc is guarded by meshQueueMutex so the GUI-thread write
     // and the render-thread read in cachedScalars() cannot race.
@@ -396,6 +402,9 @@ public:
     // CPU-side copies.  Call after reinitForNewContext() + initShaders().
     void reinitMeshData();
 
+    void setClipControlAvailable(bool available) { m_clipControlAvailable = available; }
+    bool clipControlAvailable() const { return m_clipControlAvailable; }
+
     // Render-thread accessors used by ViewportFboRenderer.
     bool hasGpuMeshes() const { return meshManager.hasMeshes(); }
     // Returns the shared scalar payload (no copy); may be null if none queued.
@@ -434,6 +443,8 @@ private:
     int width = 800;
     int height = 600;
     float devicePixelRatio = 1.0f;
+    int m_overrideDeviceW = 0;
+    int m_overrideDeviceH = 0;
 
     // Viewport Core Transform Tracking
     Gizmo gizmo;
@@ -469,6 +480,8 @@ private:
 
     // Deep-copied snapshot; the ONLY source of truth renderFrame() reads.
     RenderRenderState m_state;
+
+    bool m_clipControlAvailable = false;
 
     // --- extracted responsibility helpers -------------------------------------
     ColormapManager colormap;     // scalar + vector LUT textures & choices

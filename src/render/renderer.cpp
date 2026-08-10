@@ -70,9 +70,27 @@ void Renderer::initGLAD() {
         qFatal("Fatal: GLAD failed to load core OpenGL functions.");
     }
 
+    m_clipControlAvailable = GLAD_GL_ARB_clip_control;
+
+    GLint maxSsboBindings = 0;
+    glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxSsboBindings);
+    GLint maxWorkGroupSize[3] = {0, 0, 0};
+    glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_SIZE, maxWorkGroupSize);
+    GLint maxInvocations = 0;
+    glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &maxInvocations);
+
+    if (maxSsboBindings < 12) {
+        qWarning() << "[GL CAPABILITY] GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS ="
+                   << maxSsboBindings << "(below minimum 12; GPU LOD compute may fail)";
+    }
+    qDebug() << "[GL CAPABILITY] SSBO bindings:" << maxSsboBindings
+             << "| Max workgroup size:" << maxWorkGroupSize[0] << "x" << maxWorkGroupSize[1] << "x" << maxWorkGroupSize[2]
+             << "| Max invocations:" << maxInvocations;
+
     qDebug() << "[GL DIAGNOSTIC] VERSION:" << (const char*)glGetString(GL_VERSION)
              << "| RENDERER:" << (const char*)glGetString(GL_RENDERER)
-             << "| GLSL:" << (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION);
+             << "| GLSL:" << (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION)
+             << "| CLIP_CONTROL:" << m_clipControlAvailable;
 }
 
 void Renderer::initShaders(const ShaderSources& sources) {
@@ -167,8 +185,19 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-    glBindTexture(GL_TEXTURE_2D, m_peelMainDepth);
-    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, vpW, vpH);
+    GLint samples = 0;
+    glGetIntegerv(GL_SAMPLES, &samples);
+    if (samples > 0) {
+        GlFramebuffer tempFbo;
+        glCreateFramebuffers(1, tempFbo.ptr());
+        glNamedFramebufferTexture(tempFbo, GL_DEPTH_STENCIL_ATTACHMENT, m_peelMainDepth, 0);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, tempFbo);
+        glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, m_peelMainDepth);
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, vpW, vpH);
+    }
 
     glDisable(GL_CULL_FACE);
 
@@ -613,13 +642,23 @@ void Renderer::renderFrame() {
     glDepthFunc(GL_LESS);
     glDisable(GL_CULL_FACE);
 
+    if (m_clipControlAvailable) {
+        glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+    }
+    m_grid.setZeroToOne(m_clipControlAvailable);
+
+    int deviceW = m_overrideDeviceW > 0 ? m_overrideDeviceW
+                 : static_cast<int>(width * devicePixelRatio);
+    int deviceH = m_overrideDeviceH > 0 ? m_overrideDeviceH
+                 : static_cast<int>(height * devicePixelRatio);
+    glViewport(0, 0, deviceW, deviceH);
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_SCISSOR_TEST);
+
     const float clearAlpha = m_state.screenshotTransparent ? 0.0f : 1.0f;
     glClearColor(m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2], clearAlpha);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    int deviceW = static_cast<int>(width * devicePixelRatio);
-    int deviceH = static_cast<int>(height * devicePixelRatio);
-    glViewport(0, 0, deviceW, deviceH);
 
     glm::mat4 view = m_state.camera.getViewMatrix();
 
@@ -629,8 +668,6 @@ void Renderer::renderFrame() {
 
     // Clip control: switch post-projection NDC to Vulkan-style [0,1] depth so the
     // grid shader can skip manual gl_FragDepth remap and gain 24-bit extra precision.
-    glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
-
     glm::mat4 proj = m_state.orthographic
         ? [&]() {
             if (m_orthoRefDist <= 0.0) m_orthoRefDist = std::max(m_state.camera.distance, 1e-6);

@@ -13,6 +13,7 @@ layout(std140) uniform GridUBO {
     vec4  uCamPos_Color;
     vec4  uColorBg_Falloff;
     vec4  uPlaneY_Pad;
+    vec4  uFlags;
 };
 
 out vec4 fragColor;
@@ -49,5 +50,8 @@ void main() {
 
     vec4 clip = uProj * uView * vec4(worldPos, 1.0);
     float ndcDepth = clip.z / clip.w;
+    if (uFlags.x < 0.5) {
+        ndcDepth = ndcDepth * 0.5 + 0.5;
+    }
     gl_FragDepth = clamp(ndcDepth, 0.0, 1.0);
 }
