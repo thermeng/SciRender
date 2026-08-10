@@ -8,6 +8,146 @@
 
 #include "render/renderer.h"
 
+// ---------------------------------------------------------------------------
+// Persistent FBO helpers
+// ---------------------------------------------------------------------------
+void ScreenshotCapture::ensureDisplayFbo(int w, int h, int samples) {
+    if (m_displayW == w && m_displayH == h && m_displaySamples == samples && m_displayFbo.has())
+        return;
+
+    m_displayFbo.reset();
+    m_displayColor.reset();
+    m_displayDepth.reset();
+
+    m_displayW = w;
+    m_displayH = h;
+    m_displaySamples = samples;
+
+    glGenRenderbuffers(1, m_displayColor.ptr());
+    glBindRenderbuffer(GL_RENDERBUFFER, m_displayColor);
+    if (samples > 0)
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+    else
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+
+    glGenRenderbuffers(1, m_displayDepth.ptr());
+    glBindRenderbuffer(GL_RENDERBUFFER, m_displayDepth);
+    if (samples > 0)
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, w, h);
+    else
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+
+    glGenFramebuffers(1, m_displayFbo.ptr());
+    glBindFramebuffer(GL_FRAMEBUFFER, m_displayFbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, m_displayColor);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_displayDepth);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        qWarning() << "Display FBO incomplete: 0x" << Qt::hex << glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        m_displayFbo.reset();
+        m_displayColor.reset();
+        m_displayDepth.reset();
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void ScreenshotCapture::ensureScreenshotFbo(int w, int h, int samples) {
+    if (m_screenshotW == w && m_screenshotH == h && m_screenshotSamples == samples && m_screenshotFbo.has())
+        return;
+
+    m_screenshotFbo.reset();
+    m_screenshotColor.reset();
+    m_screenshotDepth.reset();
+
+    m_screenshotW = w;
+    m_screenshotH = h;
+    m_screenshotSamples = samples;
+
+    glGenRenderbuffers(1, m_screenshotColor.ptr());
+    glBindRenderbuffer(GL_RENDERBUFFER, m_screenshotColor);
+    if (samples > 0)
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+    else
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+
+    glGenRenderbuffers(1, m_screenshotDepth.ptr());
+    glBindRenderbuffer(GL_RENDERBUFFER, m_screenshotDepth);
+    if (samples > 0)
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, w, h);
+    else
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+
+    glGenFramebuffers(1, m_screenshotFbo.ptr());
+    glBindFramebuffer(GL_FRAMEBUFFER, m_screenshotFbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, m_screenshotColor);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_screenshotDepth);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        qWarning() << "Screenshot FBO incomplete: 0x" << Qt::hex << glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        m_screenshotFbo.reset();
+        m_screenshotColor.reset();
+        m_screenshotDepth.reset();
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void ScreenshotCapture::ensureResolveFbo(int w, int h) {
+    if (m_resolveW == w && m_resolveH == h && m_resolveFbo.has())
+        return;
+
+    m_resolveFbo.reset();
+    m_resolveColor.reset();
+
+    m_resolveW = w;
+    m_resolveH = h;
+
+    glGenRenderbuffers(1, m_resolveColor.ptr());
+    glBindRenderbuffer(GL_RENDERBUFFER, m_resolveColor);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+
+    glGenFramebuffers(1, m_resolveFbo.ptr());
+    glBindFramebuffer(GL_FRAMEBUFFER, m_resolveFbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, m_resolveColor);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        qWarning() << "Resolve FBO incomplete: 0x" << Qt::hex << glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        m_resolveFbo.reset();
+        m_resolveColor.reset();
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// ---------------------------------------------------------------------------
+// PBO double-buffer for async readback
+// ---------------------------------------------------------------------------
+void ScreenshotCapture::ensurePbos(size_t bytes) {
+    if (m_pboCapacity >= bytes && m_pboIds[0] && m_pboIds[1])
+        return;
+
+    destroyPbos();
+    m_pboCapacity = bytes;
+    m_pboReady = false;
+
+    glGenBuffers(2, m_pboIds);
+    for (int i = 0; i < 2; ++i) {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pboIds[i]);
+        glBufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(bytes), nullptr, GL_STREAM_READ);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+}
+
+void ScreenshotCapture::destroyPbos() {
+    if (m_pboIds[0] || m_pboIds[1]) {
+        glDeleteBuffers(2, m_pboIds);
+        m_pboIds[0] = m_pboIds[1] = 0;
+    }
+    m_pboCapacity = 0;
+    m_pboReady = false;
+}
+
+// ---------------------------------------------------------------------------
+// GL state save/restore (complete)
+// ---------------------------------------------------------------------------
 ScreenshotCapture::GlState ScreenshotCapture::saveState() {
     GlState s;
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &s.readFboBinding);
@@ -27,7 +167,17 @@ ScreenshotCapture::GlState ScreenshotCapture::saveState() {
     glGetIntegerv(GL_DEPTH_WRITEMASK, &s.depthMask);
     glGetIntegerv(GL_BLEND_SRC, &s.blendSrc);
     glGetIntegerv(GL_BLEND_DST, &s.blendDst);
+    glGetIntegerv(GL_BLEND_EQUATION_RGB, &s.blendEquationRgb);
+    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &s.blendEquationAlpha);
     glGetIntegerv(GL_POLYGON_MODE, s.polygonMode);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &s.currentProgram);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &s.vertexArrayBinding);
+    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &s.elementArrayBuffer);
+    s.stencilTest = glIsEnabled(GL_STENCIL_TEST);
+    s.framebufferSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
+    glGetIntegerv(GL_DEPTH_FUNC, &s.depthFunc);
+    glGetIntegerv(GL_CLIP_ORIGIN, &s.clipControlLower);
+    glGetIntegerv(GL_CLIP_DEPTH_MODE, &s.clipControlDepth);
     return s;
 }
 
@@ -48,18 +198,29 @@ void ScreenshotCapture::restoreState(const GlState& s) {
     glDepthFunc(s.depthFunc);
     glDepthMask(static_cast<GLboolean>(s.depthMask));
     glBlendFunc(s.blendSrc, s.blendDst);
+    glBlendEquationSeparate(s.blendEquationRgb, s.blendEquationAlpha);
     glPolygonMode(GL_FRONT, s.polygonMode[0]);
     glPolygonMode(GL_BACK, s.polygonMode[1]);
+    glUseProgram(s.currentProgram);
+    glBindVertexArray(s.vertexArrayBinding);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s.elementArrayBuffer);
+    if (s.stencilTest) glEnable(GL_STENCIL_TEST); else glDisable(GL_STENCIL_TEST);
+    if (s.framebufferSrgb) glEnable(GL_FRAMEBUFFER_SRGB); else glDisable(GL_FRAMEBUFFER_SRGB);
+    if (GLAD_GL_ARB_clip_control) glClipControl(s.clipControlLower, s.clipControlDepth);
 }
 
-ScreenshotCapture::Result ScreenshotCapture::renderAndCapture(::Renderer* renderer, int w, int h, int samples,
-                                                                const Options& opts, const QString& path) {
+// ---------------------------------------------------------------------------
+// Main readback + save
+// ---------------------------------------------------------------------------
+ScreenshotCapture::Result ScreenshotCapture::readFboAndSave(
+    GLuint fboId, int w, int h, int samples,
+    bool transparent, const QString& path) {
+
     Result result;
     result.savedPath = path;
 
-    if (!renderer || path.isEmpty() || w <= 0 || h <= 0) {
+    if (fboId == 0 || path.isEmpty() || w <= 0 || h <= 0)
         return result;
-    }
 
     const bool isPng  = path.endsWith(".png", Qt::CaseInsensitive);
     const bool isJpeg = path.endsWith(".jpg", Qt::CaseInsensitive) || path.endsWith(".jpeg", Qt::CaseInsensitive);
@@ -69,98 +230,69 @@ ScreenshotCapture::Result ScreenshotCapture::renderAndCapture(::Renderer* render
         return result;
     }
 
-    const bool transparent = isPng && opts.transparent;
+    const bool readTransparent = isPng && transparent;
+    const int channels = readTransparent ? 4 : 3;
+    const GLenum format = readTransparent ? GL_RGBA : GL_RGB;
 
     GlState state = saveState();
 
-    // --- Offscreen color + depth-stencil renderbuffers + FBO ---
-    GlRenderbuffer colorRbo;
-    GlRenderbuffer depthRbo;
-    GlFramebuffer offscreenFbo;
-
-    glGenRenderbuffers(1, colorRbo.ptr());
-    glBindRenderbuffer(GL_RENDERBUFFER, colorRbo);
+    // --- MSAA resolve: blit to non-MSAA FBO if source is multisampled ---
+    GLuint readFboId = fboId;
     if (samples > 0) {
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
-    } else {
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
-    }
-
-    glGenRenderbuffers(1, depthRbo.ptr());
-    glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
-    if (samples > 0) {
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, w, h);
-    } else {
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
-    }
-
-    glGenFramebuffers(1, offscreenFbo.ptr());
-    glBindFramebuffer(GL_FRAMEBUFFER, offscreenFbo);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorRbo);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
-
-    GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
-        qWarning() << "Screenshot offscreen FBO incomplete: 0x" << Qt::hex << fbStatus;
-        restoreState(state);
-        return result;
-    }
-
-    // --- Resolve FBO for MSAA (color-only, non-multisampled) ---
-    GlFramebuffer resolveFbo;
-    GlRenderbuffer resolveColorRbo;
-    GLuint readFboId = offscreenFbo;
-
-    if (samples > 0) {
-        glGenRenderbuffers(1, resolveColorRbo.ptr());
-        glBindRenderbuffer(GL_RENDERBUFFER, resolveColorRbo);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
-
-        glGenFramebuffers(1, resolveFbo.ptr());
-        glBindFramebuffer(GL_FRAMEBUFFER, resolveFbo);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, resolveColorRbo);
-
-        GLenum resolveStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        if (resolveStatus != GL_FRAMEBUFFER_COMPLETE) {
-            qWarning() << "Screenshot resolve FBO incomplete: 0x" << Qt::hex << resolveStatus;
-            restoreState(state);
-            return result;
-        }
-    }
-
-    // --- Drain display pipeline before touching GL state ---
-    glFinish();
-
-    // --- Render scene into the offscreen FBO ---
-    glBindFramebuffer(GL_FRAMEBUFFER, offscreenFbo);
-    glViewport(0, 0, w, h);
-    renderer->renderFrame();
-
-    // --- Drain offscreen render before readback ---
-    glFinish();
-
-    // --- MSAA resolve via blit ---
-    if (samples > 0) {
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, offscreenFbo);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolveFbo);
+        ensureResolveFbo(w, h);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fboId);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_resolveFbo);
         glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-        readFboId = resolveFbo;
+        readFboId = m_resolveFbo;
     }
 
-    // --- Readback ---
+    // --- Async readback via PBO double-buffer ---
     glBindFramebuffer(GL_FRAMEBUFFER, readFboId);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
-    const int channels = transparent ? 4 : 3;
     const size_t rawRow = static_cast<size_t>(w) * channels;
-    std::vector<unsigned char> raw(rawRow * static_cast<size_t>(h));
-    glReadPixels(0, 0, w, h, transparent ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, raw.data());
+    const size_t rawSize = rawRow * static_cast<size_t>(h);
 
-    // --- Restore Qt-expected GL state ---
+    ensurePbos(rawSize);
+
+    // Write to PBO[current]
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pboIds[m_pboIdx]);
+    glReadPixels(0, 0, w, h, format, GL_UNSIGNED_BYTE, 0);
+    glFlush();
+
+    std::vector<unsigned char> raw(rawSize, 0);
+
+    if (m_pboReady) {
+        // Read from PBO[previous] (data ready from last call)
+        const int prevIdx = m_pboIdx ^ 1;
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pboIds[prevIdx]);
+        auto* ptr = static_cast<GLubyte*>(glMapBufferRange(
+            GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(rawSize), GL_MAP_READ_BIT));
+        if (ptr) {
+            std::memcpy(raw.data(), ptr, rawSize);
+            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        } else {
+            // Fallback: synchronous read
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, readFboId);
+            glReadPixels(0, 0, w, h, format, GL_UNSIGNED_BYTE, raw.data());
+        }
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    } else {
+        // First time: synchronous read (no previous PBO data yet)
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, readFboId);
+        glReadPixels(0, 0, w, h, format, GL_UNSIGNED_BYTE, raw.data());
+        m_pboReady = true;
+    }
+
+    m_pboIdx ^= 1;
+
+    // --- Restore GL state ---
     restoreState(state);
 
-    // --- Flip vertically (GL origin is bottom-left) into a stride-aligned buffer ---
+    // --- Flip vertically (GL origin is bottom-left) ---
     const size_t stride = (rawRow + 3) & ~size_t(3);
     std::vector<unsigned char> flipped(stride * static_cast<size_t>(h), 0);
     for (int y = 0; y < h; ++y) {
@@ -168,7 +300,7 @@ ScreenshotCapture::Result ScreenshotCapture::renderAndCapture(::Renderer* render
                     raw.data() + static_cast<size_t>(h - 1 - y) * rawRow, rawRow);
     }
 
-    QImage::Format qf = transparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
+    QImage::Format qf = readTransparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
     QImage img = QImage(flipped.data(), w, h, static_cast<int>(stride), qf).copy();
 
     const char* token = isPng ? "PNG" : (isBmp ? "BMP" : "JPEG");
@@ -177,4 +309,25 @@ ScreenshotCapture::Result ScreenshotCapture::renderAndCapture(::Renderer* render
         qWarning() << "Screenshot save failed:" << path;
     }
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// Cleanup
+// ---------------------------------------------------------------------------
+void ScreenshotCapture::destroyAll() {
+    m_displayFbo.reset();
+    m_displayColor.reset();
+    m_displayDepth.reset();
+    m_displayW = m_displayH = m_displaySamples = 0;
+
+    m_screenshotFbo.reset();
+    m_screenshotColor.reset();
+    m_screenshotDepth.reset();
+    m_screenshotW = m_screenshotH = m_screenshotSamples = 0;
+
+    m_resolveFbo.reset();
+    m_resolveColor.reset();
+    m_resolveW = m_resolveH = 0;
+
+    destroyPbos();
 }

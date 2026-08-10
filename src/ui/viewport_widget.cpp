@@ -11,7 +11,7 @@
 #include <cmath>
 
 ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
-    : QOpenGLWidget(parent) {
+    : QOpenGLWidget(parent), m_msaaSamples(msaaSamples) {
     QSurfaceFormat fmt;
     fmt.setRenderableType(QSurfaceFormat::OpenGL);
     fmt.setVersion(4, 6);
@@ -155,7 +155,28 @@ void ViewportWidget::paintGL() {
         }
     }
 
+    // Ensure the persistent display FBO matches the current viewport.
+    const int fbW = static_cast<int>(width() * devicePixelRatioF());
+    const int fbH = static_cast<int>(height() * devicePixelRatioF());
+    m_screenshotCapture.ensureDisplayFbo(fbW, fbH, m_msaaSamples);
+
+    // Render into the persistent display FBO.
+    glBindFramebuffer(GL_FRAMEBUFFER, m_screenshotCapture.displayFboId());
     scene->renderFrame();
+
+    // Blit the display FBO to the default framebuffer for on-screen display.
+    // MSAA resolve happens automatically if the display FBO is multisampled.
+    const GLuint defaultFbo = static_cast<GLuint>(defaultFramebufferObject());
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, defaultFbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_screenshotCapture.displayFboId());
+    while (glGetError() != GL_NO_ERROR) {}
+    glBlitFramebuffer(0, 0, fbW, fbH, 0, 0, fbW, fbH,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    GLenum blitErr = glGetError();
+    if (blitErr != GL_NO_ERROR) {
+        qWarning() << "glBlitFramebuffer error: 0x" << Qt::hex << blitErr;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, defaultFbo);
 
     m_dirty = continuous;
 
@@ -180,8 +201,7 @@ void ViewportWidget::paintGL() {
         m_fpsLabel->hide();
     }
 
-    // Deferred screenshot: schedule offscreen render after Qt composites the
-    // displayed frame, decoupling GL state thrashing from paintGL's draw cycle.
+    // Deferred screenshot: schedule capture after Qt composites the displayed frame.
     if (!m_pendingScreenshot.isEmpty()) {
         QString path = m_pendingScreenshot;
         m_pendingScreenshot.clear();
@@ -207,29 +227,53 @@ void ViewportWidget::deferredCapture(const QString& path) {
 
     m_settings->publishRenderState(scene);
 
+    static constexpr struct { int w, h; } kResolutions[] = {
+        {0, 0},       // [0] current viewport (special case)
+        {1280, 720},  // [1] HD
+        {1920, 1080}, // [2] Full HD
+        {2560, 1440}, // [3] 2K
+        {3840, 2160}, // [4] 4K
+    };
+
+    const int resMode = m_settings->getScreenshotResolution();
+    const bool viewportRes = (resMode == 0);
+
     int fbW = 0;
     int fbH = 0;
-    const int resMode = m_settings->getScreenshotResolution();
-    if (resMode == 0) {
+    if (viewportRes) {
         fbW = static_cast<int>(width() * devicePixelRatioF());
         fbH = static_cast<int>(height() * devicePixelRatioF());
-    } else if (resMode == 1) {
-        fbW = 1280; fbH = 720;
-    } else if (resMode == 2) {
-        fbW = 1920; fbH = 1080;
-    } else if (resMode == 3) {
-        fbW = 2560; fbH = 1440;
     } else {
-        fbW = 3840; fbH = 2160;
+        const int idx = (resMode >= 1 && resMode <= 4) ? resMode : 0;
+        fbW = kResolutions[idx].w;
+        fbH = kResolutions[idx].h;
     }
 
     const int samples = m_settings->getScreenshotAASamples();
+    const bool transparent = m_settings->getScreenshotTransparent();
 
-    ScreenshotCapture::Options opts;
-    opts.transparent = m_settings->getScreenshotTransparent();
+    ScreenshotCapture::Result result;
 
-    auto result = m_screenshotCapture.renderAndCapture(
-        scene, fbW, fbH, samples, opts, path);
+    if (viewportRes) {
+        // Viewport resolution: read directly from the persistent display FBO (no re-render).
+        result = m_screenshotCapture.readFboAndSave(
+            m_screenshotCapture.displayFboId(),
+            fbW, fbH, m_screenshotCapture.displayFboSamples(),
+            transparent, path);
+    } else {
+        // Higher resolution: re-render into the persistent screenshot FBO.
+        m_screenshotCapture.ensureScreenshotFbo(fbW, fbH, samples);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, m_screenshotCapture.screenshotFboId());
+        scene->setViewportOverride(fbW, fbH);
+        scene->renderFrame();
+        scene->clearViewportOverride();
+
+        result = m_screenshotCapture.readFboAndSave(
+            m_screenshotCapture.screenshotFboId(),
+            fbW, fbH, samples,
+            transparent, path);
+    }
 
     doneCurrent();
     m_settings->screenshotCaptured(result.success ? path : QString());

@@ -9,6 +9,7 @@ layout(std140) uniform GridUBO {
     vec4  uCamPos_Color;
     vec4  uColorBg_Falloff;
     vec4  uPlaneY_Pad;
+    vec4  uFlags;
 };
 
 out vec3 vNear;

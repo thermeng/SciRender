@@ -40,6 +40,7 @@ private:
 
     ::RenderSettings* m_settings = nullptr;
     bool m_initialized = false;
+    int m_msaaSamples = 0;
     QPoint m_lastMousePos;
     bool m_isRightClick = false;
 
