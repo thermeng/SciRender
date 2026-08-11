@@ -21,8 +21,6 @@ public:
               const ColormapManager& colormap);
     void shutdown();
 
-    bool hasProgram() const { return glyphProgram.has(); }
-
 private:
     GlProgram glyphProgram;
     GlBuffer glyphUbo;

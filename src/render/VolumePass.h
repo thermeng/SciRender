@@ -15,7 +15,6 @@ public:
     void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, const ColormapManager& colormap);
     void shutdown();
     void clearVolume();
-    bool hasVolume() const { return volumeTex_.has(); }
 
 private:
     GlProgram program_;

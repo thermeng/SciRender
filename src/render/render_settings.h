@@ -153,10 +153,6 @@ class RenderSettings : public QObject {
 
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY viewChanged)
     Q_PROPERTY(bool colormapReversed READ getColormapReversed WRITE setColormapReversed NOTIFY viewChanged)
-    Q_PROPERTY(QVariantList colormapStops READ getColormapStops NOTIFY viewChanged)
-    Q_PROPERTY(QVariantList vectorColormapStops READ getVectorColormapStops NOTIFY viewChanged)
-    Q_PROPERTY(float vectorMagMin READ getVectorMagMin NOTIFY viewChanged)
-    Q_PROPERTY(float vectorMagMax READ getVectorMagMax NOTIFY viewChanged)
     Q_PROPERTY(double worldMinX READ getWorldMinX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMaxX READ getWorldMaxX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMinY READ getWorldMinY NOTIFY meshLoadStateChanged)
@@ -360,10 +356,7 @@ public slots:
 
     Q_INVOKABLE void setFpsText(const QString& text);
 
-    Q_INVOKABLE QStringList getColormapNames() const;
-    Q_INVOKABLE QString getColormapPreviewUri(int index) const;
-
-signals:
+    signals:
     void viewChanged(ChangeFlags flags = ChangeFlag::All);
     void meshLoadStateChanged();
     void meshDataUpdated();
@@ -583,11 +576,6 @@ public:
     double getWorldMinZ() const { return m_state.worldMinZ; }
     double getWorldMaxZ() const { return m_state.worldMaxZ; }
 
-    Q_INVOKABLE QVariantList getColormapStops() const;
-    Q_INVOKABLE QVariantList getVectorColormapStops() const;
-    float getVectorMagMin() const { return m_renderer.vectorMagMin(); }
-    float getVectorMagMax() const { return m_renderer.vectorMagMax(); }
-
 private:
     void setStatus(const QString& msg);
     void recomputeScalarRange();
@@ -621,8 +609,6 @@ private:
     // Mesh-derived data (separate from display settings so the
     // QML facade stays focused on user preferences).
     MeshData m_meshData;
-
-    mutable std::map<int, QString> m_colormapPreviewCache;
 
     // Async parse watcher (GUI thread). Parsing runs off the GUI thread via
     // QtConcurrent::run; the finished result is delivered here and handed to the

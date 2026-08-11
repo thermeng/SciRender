@@ -2,10 +2,7 @@
 
 #include <glad/gl.h>
 #include <string>
-#include <fstream>
-#include <sstream>
 #include <iostream>
-
 inline GLuint compileProgram(const char* vertSrc, const char* fragSrc, const char* label) {
     auto compile = [&label](GLuint type, const char* src) -> GLuint {
         GLuint s = glCreateShader(type);
@@ -45,15 +42,4 @@ inline GLuint compileProgram(const char* vertSrc, const char* fragSrc, const cha
         return 0;
     }
     return prog;
-}
-
-inline std::string readShaderFile(const std::string& filePath) {
-    std::ifstream file(filePath);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open shader source file: " << filePath << std::endl;
-        return "";
-    }
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
 }
