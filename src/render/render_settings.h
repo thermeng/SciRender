@@ -18,7 +18,6 @@
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
 #include "core/Camera.h"
-#include "ui/theme.h"
 
 // Change flags carried by the consolidated viewChanged signal so receivers
 // can distinguish which domain changed (e.g. lighting vs. colormap) without
@@ -351,9 +350,6 @@ public slots:
     void restoreStateFromSettings();
     Q_INVOKABLE void setActiveScalarField(const QString& fieldName);
 
-    AppTheme getTheme() const { return m_theme; }
-    void setTheme(AppTheme v);
-
     Q_INVOKABLE void setFpsText(const QString& text);
 
     signals:
@@ -365,7 +361,6 @@ public slots:
     void screenshotRequested(const QString& targetPath);
     void fpsChanged();
     void statusMessageChanged();
-    void themeChanged();
 
 public:
     // VTK Camera forwarders (QML-invokable). Mutate the GUI-side Camera; the
@@ -626,6 +621,4 @@ private:
     // on completion; onMeshParsed() compares it to m_loadToken to drop stale
     // (cancelled/superseded) results.
     std::shared_ptr<std::atomic<uint64_t>> m_taskToken;
-
-    AppTheme m_theme = AppTheme::Dark;
 };

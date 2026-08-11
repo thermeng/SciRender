@@ -173,18 +173,8 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("msaaSamples", msaaSamples);
     s.setValue("screenshotResolution", m_screenshotResolution);
     s.setValue("screenshotAASamples", m_screenshotAASamples);
-    s.setValue("theme", static_cast<int>(m_theme));
     s.setValue("flatShading", m_state.flatShading);
     s.endGroup();
-}
-
-void RenderSettings::setTheme(AppTheme v) {
-    if (m_theme != v) {
-        m_theme = v;
-        QSettings s;
-        s.setValue("theme", static_cast<int>(v));
-        emit themeChanged();
-    }
 }
 
 void RenderSettings::restoreStateFromSettings() {
@@ -244,9 +234,6 @@ void RenderSettings::restoreStateFromSettings() {
     }
     if (s.contains("quickBarCollapsed")) {
         quickBarCollapsed = s.value("quickBarCollapsed").toBool();
-    }
-    if (s.contains("theme")) {
-        m_theme = (s.value("theme").toInt() == 1) ? AppTheme::Light : AppTheme::Dark;
     }
     if (s.contains("msaaSamples")) {
         const int n = s.value("msaaSamples").toInt();

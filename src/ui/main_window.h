@@ -77,11 +77,7 @@ private:
     void syncQuickBar();
     void syncViewDisplayPage();
     void syncLightingPage();
-    void applyTheme(AppTheme theme);
-    void rebuildSidebarStyles();
-    void rebuildQuickBarStyles();
     void recreateViewport();
-    ThemeColors currentColors() const;
 
     ::RenderSettings* m_settings = nullptr;
     ViewportWidget* m_viewport = nullptr;
@@ -234,6 +230,5 @@ private:
     QColorDialog* m_seedColorDialog = nullptr;
 
     // Theme
-    QActionGroup* m_themeGroup = nullptr;
     QActionGroup* m_shadingGroup = nullptr;
 };

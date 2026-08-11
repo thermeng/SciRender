@@ -37,11 +37,7 @@
     <widget class="QLabel" name="fieldHeader">
      <property name="text">
       <string>Field</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QComboBox" name="streamlineCombo"/>
@@ -58,9 +54,7 @@
        <widget class="QLabel" name="stepSizeLabel">
         <property name="text"><string>Step size</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -72,9 +66,7 @@
        <widget class="QLabel" name="stepSizeValue">
         <property name="text"><string>0.010</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -98,11 +90,7 @@
          <width>72</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="alignment">
+       </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -126,11 +114,7 @@
     <widget class="QPushButton" name="integrateBtn">
      <property name="text">
       <string>Integrate</string>
-     </property>
-     <property name="objectName">
-      <string>secondaryButton</string>
-     </property>
-    </widget>
+     </property></widget>
     </item>
     <item>
      <widget class="QWidget" name="directionRow">
@@ -144,9 +128,7 @@
         <widget class="QLabel" name="directionLabel">
          <property name="text"><string>Direction</string></property>
          <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-         <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-         <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
         </widget>
        </item>
        <item>
@@ -159,21 +141,13 @@
      <widget class="QLabel" name="colorHeader">
       <property name="text">
        <string>Color</string>
-      </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+      </property></widget>
    </item>
    <item>
     <widget class="QPushButton" name="streamlineColorBtn">
      <property name="text">
       <string>Streamline</string>
-     </property>
-     <property name="objectName">
-      <string>swatchButton</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QCheckBox" name="slUseCmapCb">
@@ -196,11 +170,7 @@
     <widget class="QLabel" name="seedingHeader">
      <property name="text">
       <string>Seeding</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QComboBox" name="seedModeCombo"/>
@@ -223,11 +193,7 @@
          <width>72</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="alignment">
+       </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -268,11 +234,7 @@
          <width>72</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="alignment">
+       </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -310,11 +272,7 @@
          <width>72</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="alignment">
+       </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -346,9 +304,7 @@
        <widget class="QLabel" name="jitterLabel">
         <property name="text"><string>Jitter</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -360,9 +316,7 @@
        <widget class="QLabel" name="jitterValue">
         <property name="text"><string>0.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -387,9 +341,7 @@
        <widget class="QLabel" name="seedSizeLabel">
         <property name="text"><string>Seed size</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -401,9 +353,7 @@
        <widget class="QLabel" name="seedSizeValue">
         <property name="text"><string>3.0</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -413,21 +363,13 @@
     <widget class="QPushButton" name="seedColorBtn">
      <property name="text">
       <string>Seed color</string>
-     </property>
-     <property name="objectName">
-      <string>swatchButton</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QLabel" name="appearanceHeader">
      <property name="text">
       <string>Appearance</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QWidget" name="opacityRow">
@@ -441,9 +383,7 @@
        <widget class="QLabel" name="opacityLabel">
         <property name="text"><string>Opacity</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -455,9 +395,7 @@
        <widget class="QLabel" name="opacityValue">
         <property name="text"><string>1.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -475,9 +413,7 @@
        <widget class="QLabel" name="ribbonWidthLabel">
         <property name="text"><string>Ribbon width</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -489,9 +425,7 @@
        <widget class="QLabel" name="ribbonWidthValue">
         <property name="text"><string>0.010</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -509,9 +443,7 @@
        <widget class="QLabel" name="taperFactorLabel">
         <property name="text"><string>Taper factor</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -523,9 +455,7 @@
        <widget class="QLabel" name="taperFactorValue">
         <property name="text"><string>0.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -535,11 +465,7 @@
      <widget class="QLabel" name="lightingHeader">
      <property name="text">
       <string>Lighting</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QWidget" name="streamlineAmbientRow">
@@ -553,9 +479,7 @@
        <widget class="QLabel" name="streamlineAmbientLabel">
         <property name="text"><string>Ambient</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -567,9 +491,7 @@
        <widget class="QLabel" name="streamlineAmbientValue">
         <property name="text"><string>0.50</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -587,9 +509,7 @@
        <widget class="QLabel" name="streamlineDiffuseLabel">
         <property name="text"><string>Diffuse</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -601,9 +521,7 @@
        <widget class="QLabel" name="streamlineDiffuseValue">
         <property name="text"><string>0.50</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -621,9 +539,7 @@
        <widget class="QLabel" name="streamlineSpecularLabel">
         <property name="text"><string>Specular</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -635,9 +551,7 @@
        <widget class="QLabel" name="streamlineSpecularValue">
         <property name="text"><string>0.50</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -660,11 +574,7 @@
     <widget class="QLabel" name="arrowsHeader">
      <property name="text">
       <string>Arrows</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QCheckBox" name="arrowsCb">
@@ -691,11 +601,7 @@
          <width>72</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="alignment">
+       </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -727,9 +633,7 @@
        <widget class="QLabel" name="arrowSizeLabel">
         <property name="text"><string>Arrow size</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -741,9 +645,7 @@
        <widget class="QLabel" name="arrowSizeValue">
         <property name="text"><string>0.10</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -753,11 +655,7 @@
     <widget class="QLabel" name="particlesHeader">
      <property name="text">
       <string>Particles</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QCheckBox" name="particlesCb">
@@ -778,9 +676,7 @@
        <widget class="QLabel" name="particleCountLabel">
         <property name="text"><string>Particle count</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -792,9 +688,7 @@
        <widget class="QLabel" name="particleCountValue">
         <property name="text"><string>500</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -812,9 +706,7 @@
        <widget class="QLabel" name="particleSpeedLabel">
         <property name="text"><string>Particle speed</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -826,9 +718,7 @@
        <widget class="QLabel" name="particleSpeedValue">
         <property name="text"><string>10.0</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -846,9 +736,7 @@
        <widget class="QLabel" name="particleSizeLabel">
         <property name="text"><string>Particle size</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -860,9 +748,7 @@
        <widget class="QLabel" name="particleSizeValue">
         <property name="text"><string>3.0</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>

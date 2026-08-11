@@ -37,11 +37,7 @@
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="fieldHeader">
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-     <property name="text">
+    <widget class="QLabel" name="fieldHeader"><property name="text">
       <string>Field</string>
      </property>
     </widget>
@@ -50,11 +46,7 @@
     <widget class="QComboBox" name="scalarCombo"/>
    </item>
    <item>
-    <widget class="QLabel" name="paletteHeader">
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-     <property name="text">
+    <widget class="QLabel" name="paletteHeader"><property name="text">
       <string>Palette</string>
      </property>
     </widget>
@@ -80,11 +72,7 @@
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="colorbarHeader">
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-     <property name="text">
+    <widget class="QLabel" name="colorbarHeader"><property name="text">
        <string>Scalar</string>
      </property>
     </widget>
@@ -104,11 +92,7 @@
          <width>72</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="text">
+       </property><property name="text">
         <string>Ticks</string>
        </property>
        <property name="alignment">
@@ -132,11 +116,7 @@
     </layout>
    </item>
    <item>
-    <widget class="QLabel" name="filterHeader">
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-     <property name="text">
+    <widget class="QLabel" name="filterHeader"><property name="text">
       <string>Filter</string>
      </property>
     </widget>
@@ -171,11 +151,7 @@
          <width>72</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="text">
+       </property><property name="text">
         <string>Min</string>
        </property>
        <property name="alignment">
@@ -203,11 +179,7 @@
          <width>52</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="text">
+       </property><property name="text">
         <string>0.000</string>
        </property>
        <property name="alignment">
@@ -247,11 +219,7 @@
          <width>72</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="text">
+       </property><property name="text">
         <string>Max</string>
        </property>
        <property name="alignment">
@@ -279,11 +247,7 @@
          <width>52</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="text">
+       </property><property name="text">
         <string>1.000</string>
        </property>
        <property name="alignment">
@@ -294,11 +258,7 @@
     </layout>
    </item>
    <item>
-    <widget class="QPushButton" name="resetFilterBtn">
-     <property name="styleSheet">
-      <string notr="true">QPushButton { background: transparent;  border: none; text-decoration: underline; font-size: 11px; padding: 2px 4px; } QPushButton:hover {  } QPushButton:pressed {  }</string>
-     </property>
-     <property name="text">
+    <widget class="QPushButton" name="resetFilterBtn"><property name="text">
       <string>Reset</string>
      </property>
     </widget>
