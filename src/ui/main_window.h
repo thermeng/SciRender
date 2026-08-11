@@ -194,6 +194,7 @@ private:
     // "Show" checkboxes for vector/streamline pages (gated on vector data)
     QCheckBox* m_slShowCb = nullptr;
     QCheckBox* m_vecShowCb = nullptr;
+    QCheckBox* m_volumeShowCb = nullptr;
 
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;

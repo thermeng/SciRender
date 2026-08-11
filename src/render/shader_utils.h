@@ -1,7 +1,6 @@
 #pragma once
 
 #include <glad/gl.h>
-#include <string>
 #include <iostream>
 inline GLuint compileProgram(const char* vertSrc, const char* fragSrc, const char* label) {
     auto compile = [&label](GLuint type, const char* src) -> GLuint {
