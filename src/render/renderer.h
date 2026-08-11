@@ -353,7 +353,7 @@ public:
     // Temporary viewport override for screenshot re-render at arbitrary resolution.
     // Pass {0,0} to clear the override and revert to the widget dimensions.
     void setViewportOverride(int deviceW, int deviceH) { m_overrideDeviceW = deviceW; m_overrideDeviceH = deviceH; }
-    void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; }
+    void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; colorbarOverlay.markDirty(); }
 
     // Scalar-only re-upload handoff. The payload is a shared_ptr (zero-copy).
     // m_pendingScalarSrc is guarded by meshQueueMutex so the GUI-thread write

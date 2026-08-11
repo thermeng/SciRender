@@ -74,6 +74,7 @@ private:
         GLint activeTexture = 0;
         GLint readBuffer = GL_NONE;
         GLint packAlignment = 4;
+        GLint pboBinding = 0;
         GLint textureBinding2D = 0;
         GLint viewport[4] = {0, 0, 0, 0};
         GLint scissorBox[4] = {0, 0, 0, 0};

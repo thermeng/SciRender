@@ -12,6 +12,8 @@
 // Persistent FBO helpers
 // ---------------------------------------------------------------------------
 void ScreenshotCapture::ensureDisplayFbo(int w, int h, int samples) {
+    if (w <= 0 || h <= 0) return;
+
     if (m_displayW == w && m_displayH == h && m_displaySamples == samples && m_displayFbo.has())
         return;
 
@@ -52,6 +54,8 @@ void ScreenshotCapture::ensureDisplayFbo(int w, int h, int samples) {
 }
 
 void ScreenshotCapture::ensureScreenshotFbo(int w, int h, int samples) {
+    if (w <= 0 || h <= 0) return;
+
     if (m_screenshotW == w && m_screenshotH == h && m_screenshotSamples == samples && m_screenshotFbo.has())
         return;
 
@@ -92,6 +96,8 @@ void ScreenshotCapture::ensureScreenshotFbo(int w, int h, int samples) {
 }
 
 void ScreenshotCapture::ensureResolveFbo(int w, int h) {
+    if (w <= 0 || h <= 0) return;
+
     if (m_resolveW == w && m_resolveH == h && m_resolveFbo.has())
         return;
 
@@ -156,6 +162,7 @@ ScreenshotCapture::GlState ScreenshotCapture::saveState() {
     glGetIntegerv(GL_ACTIVE_TEXTURE, &s.activeTexture);
     glGetIntegerv(GL_READ_BUFFER, &s.readBuffer);
     glGetIntegerv(GL_PACK_ALIGNMENT, &s.packAlignment);
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &s.pboBinding);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &s.textureBinding2D);
     glGetIntegerv(GL_VIEWPORT, s.viewport);
     glGetIntegerv(GL_SCISSOR_BOX, s.scissorBox);
@@ -188,6 +195,7 @@ void ScreenshotCapture::restoreState(const GlState& s) {
     glActiveTexture(s.activeTexture);
     glReadBuffer(s.readBuffer);
     glPixelStorei(GL_PACK_ALIGNMENT, s.packAlignment);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, s.pboBinding);
     glBindTexture(GL_TEXTURE_2D, s.textureBinding2D);
     glViewport(s.viewport[0], s.viewport[1], s.viewport[2], s.viewport[3]);
     glScissor(s.scissorBox[0], s.scissorBox[1], s.scissorBox[2], s.scissorBox[3]);
@@ -242,52 +250,22 @@ ScreenshotCapture::Result ScreenshotCapture::readFboAndSave(
         ensureResolveFbo(w, h);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, fboId);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_resolveFbo);
-        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
         readFboId = m_resolveFbo;
     }
 
-    // --- Async readback via PBO double-buffer ---
-    glBindFramebuffer(GL_FRAMEBUFFER, readFboId);
+    glFinish();
+
+    // --- Readback ---
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFboId);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
     const size_t rawRow = static_cast<size_t>(w) * channels;
     const size_t rawSize = rawRow * static_cast<size_t>(h);
 
-    ensurePbos(rawSize);
-
-    // Write to PBO[current]
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pboIds[m_pboIdx]);
-    glReadPixels(0, 0, w, h, format, GL_UNSIGNED_BYTE, 0);
-    glFlush();
-
     std::vector<unsigned char> raw(rawSize, 0);
-
-    if (m_pboReady) {
-        // Read from PBO[previous] (data ready from last call)
-        const int prevIdx = m_pboIdx ^ 1;
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pboIds[prevIdx]);
-        auto* ptr = static_cast<GLubyte*>(glMapBufferRange(
-            GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(rawSize), GL_MAP_READ_BIT));
-        if (ptr) {
-            std::memcpy(raw.data(), ptr, rawSize);
-            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-        } else {
-            // Fallback: synchronous read
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-            glBindFramebuffer(GL_FRAMEBUFFER, readFboId);
-            glReadPixels(0, 0, w, h, format, GL_UNSIGNED_BYTE, raw.data());
-        }
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    } else {
-        // First time: synchronous read (no previous PBO data yet)
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-        glBindFramebuffer(GL_FRAMEBUFFER, readFboId);
-        glReadPixels(0, 0, w, h, format, GL_UNSIGNED_BYTE, raw.data());
-        m_pboReady = true;
-    }
-
-    m_pboIdx ^= 1;
+    glReadPixels(0, 0, w, h, format, GL_UNSIGNED_BYTE, raw.data());
 
     // --- Restore GL state ---
     restoreState(state);
