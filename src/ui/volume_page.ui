@@ -34,11 +34,7 @@
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="volumeFieldHeader">
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-     <property name="text">
+    <widget class="QLabel" name="volumeFieldHeader"><property name="text">
       <string>Scalar Field</string>
      </property>
     </widget>
@@ -47,11 +43,7 @@
     <widget class="QComboBox" name="volumeFieldCombo"/>
    </item>
    <item>
-    <widget class="QLabel" name="volumePaletteHeader">
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-     <property name="text">
+    <widget class="QLabel" name="volumePaletteHeader"><property name="text">
       <string>Colormap</string>
      </property>
     </widget>
@@ -67,11 +59,7 @@
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="stepHeader">
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-     <property name="text">
+    <widget class="QLabel" name="stepHeader"><property name="text">
       <string>Step Size</string>
      </property>
     </widget>
@@ -98,11 +86,7 @@
          <width>36</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="text">
+       </property><property name="text">
         <string>0.010</string>
        </property>
        <property name="alignment">
@@ -113,11 +97,7 @@
     </layout>
    </item>
    <item>
-    <widget class="QLabel" name="opacityHeader">
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 2px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-     <property name="text">
+    <widget class="QLabel" name="opacityHeader"><property name="text">
       <string>Opacity</string>
      </property>
     </widget>
@@ -144,11 +124,7 @@
          <width>36</width>
          <height>16777215</height>
         </size>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">font-size: 11px; </string>
-       </property>
-       <property name="text">
+       </property><property name="text">
         <string>1.000</string>
        </property>
        <property name="alignment">

@@ -25,7 +25,6 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     setAttribute(Qt::WA_NoSystemBackground, true);
 
     m_fpsLabel = new QLabel(this);
-    m_fpsLabel->setStyleSheet("background: rgba(0,0,0,120); color: #7CFC00; padding: 4px 8px; font: 12px \"Consolas\", \"Menlo\", monospace; border-radius: 4px;");
     m_fpsLabel->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
     m_fpsLabel->hide();
 

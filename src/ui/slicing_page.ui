@@ -136,11 +136,7 @@
              <width>28</width>
              <height>16777215</height>
             </size>
-           </property>
-           <property name="styleSheet">
-            <string notr="true">font-weight: bold; color: #e74c3c;</string>
-           </property>
-           <property name="text">
+           </property><property name="text">
             <string>X</string>
            </property>
           </widget>
@@ -224,11 +220,7 @@
              <width>28</width>
              <height>16777215</height>
             </size>
-           </property>
-           <property name="styleSheet">
-            <string notr="true">font-weight: bold; color: #2ecc71;</string>
-           </property>
-           <property name="text">
+           </property><property name="text">
             <string>Y</string>
            </property>
           </widget>
@@ -312,11 +304,7 @@
              <width>28</width>
              <height>16777215</height>
             </size>
-           </property>
-           <property name="styleSheet">
-            <string notr="true">font-weight: bold; color: #3498db;</string>
-           </property>
-           <property name="text">
+           </property><property name="text">
             <string>Z</string>
            </property>
           </widget>

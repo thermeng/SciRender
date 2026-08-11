@@ -55,11 +55,7 @@
        <widget class="QLabel" name="fieldScaleHeader">
         <property name="text">
          <string>Field &amp; Scale</string>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-        </property>
-       </widget>
+        </property></widget>
       </item>
       <item>
        <widget class="QComboBox" name="vectorCombo"/>
@@ -76,9 +72,7 @@
           <widget class="QLabel" name="scaleLabel">
            <property name="text"><string>Scale</string></property>
            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-           <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-           <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
           </widget>
          </item>
          <item>
@@ -90,9 +84,7 @@
           <widget class="QLabel" name="scaleValue">
            <property name="text"><string>1.00</string></property>
            <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-           <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-           <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
           </widget>
          </item>
         </layout>
@@ -117,9 +109,7 @@
           <widget class="QLabel" name="strideLabel">
            <property name="text"><string>Stride</string></property>
            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-           <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-           <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
           </widget>
          </item>
          <item>
@@ -131,9 +121,7 @@
           <widget class="QLabel" name="strideValue">
            <property name="text"><string>5</string></property>
            <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-           <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-           <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
           </widget>
          </item>
         </layout>
@@ -143,11 +131,7 @@
        <widget class="QLabel" name="magnitudeHeader">
         <property name="text">
          <string>Magnitude</string>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-        </property>
-       </widget>
+        </property></widget>
       </item>
       <item>
        <widget class="QComboBox" name="magCombo"/>
@@ -156,21 +140,13 @@
        <widget class="QLabel" name="colorHeader">
         <property name="text">
          <string>Color</string>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-        </property>
-       </widget>
+        </property></widget>
       </item>
       <item>
        <widget class="QPushButton" name="vectorColorBtn">
         <property name="text">
          <string>Vector</string>
-        </property>
-        <property name="objectName">
-         <string>swatchButton</string>
-        </property>
-       </widget>
+        </property></widget>
       </item>
       <item>
        <widget class="QCheckBox" name="useCmapCb">

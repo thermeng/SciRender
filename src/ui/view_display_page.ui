@@ -30,11 +30,7 @@
     <widget class="QLabel" name="cameraHeader">
      <property name="text">
       <string>Camera</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <layout class="QHBoxLayout" name="camOptionsLayout">
@@ -58,21 +54,13 @@
     <widget class="QPushButton" name="resetCamBtn">
      <property name="text">
       <string>Reset Camera</string>
-     </property>
-     <property name="objectName">
-      <string>secondaryButton</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QLabel" name="displayHeader">
      <property name="text">
       <string>Display Modes</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QWidget" name="wireframeRow">
@@ -164,9 +152,7 @@
           <widget class="QLabel" name="pointSizeLabel">
            <property name="text"><string>Size</string></property>
            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-           <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-           <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
           </widget>
          </item>
          <item>
@@ -178,9 +164,7 @@
           <widget class="QLabel" name="pointSizeValue">
            <property name="text"><string>3.0</string></property>
            <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-           <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-           <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
           </widget>
          </item>
         </layout>
@@ -200,11 +184,7 @@
     <widget class="QLabel" name="transparencyHeader">
      <property name="text">
       <string>Transparency &amp; Quality</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <widget class="QWidget" name="surfaceOpacityRow">
@@ -218,9 +198,7 @@
        <widget class="QLabel" name="surfaceOpacityLabel">
         <property name="text"><string>Surface</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -232,9 +210,7 @@
        <widget class="QLabel" name="surfaceOpacityValue">
         <property name="text"><string>1.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -252,9 +228,7 @@
        <widget class="QLabel" name="pointOpacityLabel">
         <property name="text"><string>Point</string></property>
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 11px; </string></property>
-        <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
@@ -266,9 +240,7 @@
        <widget class="QLabel" name="pointOpacityValue">
         <property name="text"><string>1.00</string></property>
         <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-        <property name="styleSheet"><string notr="true">font-size: 10px; </string></property>
-        <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
        </widget>
       </item>
      </layout>
@@ -296,11 +268,7 @@
     <widget class="QLabel" name="colorsHeader">
      <property name="text">
       <string>Colors</string>
-     </property>
-     <property name="styleSheet">
-      <string notr="true">font-size: 11px; font-weight: bold;  padding: 4px 0 6px 0; border-bottom: 1px solid #3c3c3c;</string>
-     </property>
-    </widget>
+     </property></widget>
    </item>
    <item>
     <layout class="QVBoxLayout" name="colorLayout">
@@ -308,31 +276,19 @@
       <widget class="QPushButton" name="wireframeColorBtn">
        <property name="text">
         <string>Wireframe</string>
-       </property>
-       <property name="objectName">
-        <string>swatchButton</string>
-       </property>
-      </widget>
+       </property></widget>
      </item>
      <item>
       <widget class="QPushButton" name="surfaceColorBtn">
        <property name="text">
         <string>Surface</string>
-       </property>
-       <property name="objectName">
-        <string>swatchButton</string>
-       </property>
-      </widget>
+       </property></widget>
      </item>
      <item>
       <widget class="QPushButton" name="bgColorBtn">
        <property name="text">
         <string>Background</string>
-       </property>
-       <property name="objectName">
-        <string>swatchButton</string>
-       </property>
-      </widget>
+       </property></widget>
      </item>
     </layout>
    </item>
