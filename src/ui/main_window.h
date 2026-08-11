@@ -204,6 +204,16 @@ private:
     // Mesh info page (rebuilt on mesh load)
     QWidget* m_meshInfoPage = nullptr;
 
+    // Slicing page widgets (for bounds refresh on mesh load)
+    QSlider* m_sliceXSlider = nullptr;
+    QLineEdit* m_sliceXField = nullptr;
+    QSlider* m_sliceYSlider = nullptr;
+    QLineEdit* m_sliceYField = nullptr;
+    QSlider* m_sliceZSlider = nullptr;
+    QLineEdit* m_sliceZField = nullptr;
+
+    void refreshSlicingPageBounds();
+
     // Timers
     QTimer m_autoRotateTimer;
     QTimer m_fpsTimer;
