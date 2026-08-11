@@ -21,8 +21,6 @@ public:
     void shutdown();
     void resetCount() { m_particleVertexCount = 0; }
 
-    bool hasProgram() const { return particleProgram.has(); }
-
 private:
     GlProgram particleProgram;
     GlVao particleVao;

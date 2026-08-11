@@ -10,10 +10,6 @@
 #include <iterator>
 #include <QFileInfo>
 #include <QSettings>
-#include <QImage>
-#include <QBuffer>
-#include <QPainter>
-#include <QFont>
 
 RenderSettings::RenderSettings(QObject* parent)
     : QObject(parent) {
@@ -549,75 +545,3 @@ QStringList RenderSettings::getAvailableScalars() const {
     return list;
 }
 
-QStringList RenderSettings::getColormapNames() const {
-    QStringList list;
-    for (int i = 0; i < static_cast<int>(ColormapType::Count); ++i)
-        list.append(QString::fromUtf8(Colormaps::getName(static_cast<ColormapType>(i))));
-    return list;
-}
-
-QString RenderSettings::getColormapPreviewUri(int index) const {
-    auto it = m_colormapPreviewCache.find(index);
-    if (it != m_colormapPreviewCache.end()) return it->second;
-
-    const int w = 100, h = 32;
-    QImage img(w, h, QImage::Format_RGB888);
-    ColormapType type = static_cast<ColormapType>(index);
-    for (int x = 0; x < w; ++x) {
-        float t = static_cast<float>(x) / static_cast<float>(w - 1);
-        glm::vec3 c = Colormaps::evaluate(t, type);
-        int r = static_cast<int>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
-        int g = static_cast<int>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
-        int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
-        for (int y = 0; y < h; ++y) img.setPixel(x, y, qRgb(r, g, b));
-    }
-    {
-        QPainter p(&img);
-        p.setRenderHint(QPainter::TextAntialiasing, true);
-        QFont f("Sans", 10, QFont::Bold);
-        f.setStretch(QFont::Condensed);
-        f.setStyleStrategy(QFont::PreferAntialias);
-        p.setFont(f);
-        QRect r(0, 0, w, h);
-        QString name = QString::fromUtf8(Colormaps::getName(type));
-        p.setPen(Qt::black);
-        p.drawText(r.translated(1, 1), Qt::AlignCenter, name);
-        p.setPen(Qt::white);
-        p.drawText(r, Qt::AlignCenter, name);
-    }
-    QByteArray ba;
-    QBuffer buf(&ba);
-    buf.open(QIODevice::WriteOnly);
-    img.save(&buf, "PNG");
-    QString uri = QString("data:image/png;base64,") + QString::fromLatin1(ba.toBase64());
-    m_colormapPreviewCache[index] = uri;
-    return uri;
-}
-
-QVariantList RenderSettings::getColormapStops() const {
-    QVariantList out;
-    const int steps = 16;
-    for (int i = 0; i <= steps; ++i) {
-        float t = static_cast<float>(i) / static_cast<float>(steps);
-        float s = m_state.colormapReversed ? (1.0f - t) : t;
-        glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(m_state.colormapChoice));
-        QVariantList stop;
-        stop << t << c.r << c.g << c.b;
-        out.append(QVariant(stop));
-    }
-    return out;
-}
-
-QVariantList RenderSettings::getVectorColormapStops() const {
-    QVariantList out;
-    const int steps = 16;
-    for (int i = 0; i <= steps; ++i) {
-        float t = static_cast<float>(i) / static_cast<float>(steps);
-        float s = m_state.vectorColormapReversed ? (1.0f - t) : t;
-        glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(m_state.vectorColormapChoice));
-        QVariantList stop;
-        stop << t << c.r << c.g << c.b;
-        out.append(QVariant(stop));
-    }
-    return out;
-}

@@ -40,13 +40,6 @@ public:
     void update();
     void shutdown();
 
-    int scalarChoiceForStops() const { return scalarChoice_; }
-    bool scalarReversedForStops() const { return scalarReversed_; }
-    int vectorChoiceForStops() const { return vectorChoice_; }
-    bool vectorReversedForStops() const { return vectorReversed_; }
-    int streamlineChoiceForStops() const { return streamlineChoice_; }
-    bool streamlineReversedForStops() const { return streamlineReversed_; }
-
 private:
     void uploadLUT(GLuint& tex, int choice, bool reversed) const;
 
