@@ -58,11 +58,15 @@ static constexpr int kControlHeight = 24;
 static constexpr int kValueFieldWidth = 48;
 
 static QString formatSliderValue(double value) {
-    if (value < 0) value = -value;
-    if (value < 10.0) return QString::number(value, 'f', 3);
-    if (value < 100.0) return QString::number(value, 'f', 2);
-    if (value < 1000.0) return QString::number(value, 'f', 1);
-    return QString::number(value, 'f', 0);
+    bool neg = value < 0;
+    if (neg) value = -value;
+    QString s = [&] {
+        if (value < 10.0) return QString::number(value, 'f', 3);
+        if (value < 100.0) return QString::number(value, 'f', 2);
+        if (value < 1000.0) return QString::number(value, 'f', 1);
+        return QString::number(value, 'f', 0);
+    }();
+    return neg ? "-" + s : s;
 }
 
 // ============================================================================
@@ -842,12 +846,16 @@ QWidget* MainWindow::buildSlicingPage() {
     slicingUi.setupUi(page);
 
     auto* enableCb = slicingUi.enableCb;
+    m_sliceEnableCb = enableCb;
     enableCb->setChecked(m_settings->getClipEnabled());
     connect(enableCb, &QCheckBox::toggled, m_settings, &RenderSettings::setClipEnabled);
 
     auto* cbX = slicingUi.axisX;
     auto* cbY = slicingUi.axisY;
     auto* cbZ = slicingUi.axisZ;
+    m_sliceAxisXCb = cbX;
+    m_sliceAxisYCb = cbY;
+    m_sliceAxisZCb = cbZ;
     cbX->setChecked(m_settings->getSliceEnabledX());
     cbY->setChecked(m_settings->getSliceEnabledY());
     cbZ->setChecked(m_settings->getSliceEnabledZ());
@@ -1880,13 +1888,19 @@ void MainWindow::refreshMeshInfoPage() {
 }
 
 void MainWindow::refreshSlicingPageBounds() {
+    if (m_sliceEnableCb) m_sliceEnableCb->setChecked(m_settings->getClipEnabled());
+    if (m_sliceAxisXCb)  m_sliceAxisXCb->setChecked(m_settings->getSliceEnabledX());
+    if (m_sliceAxisYCb)  m_sliceAxisYCb->setChecked(m_settings->getSliceEnabledY());
+    if (m_sliceAxisZCb)  m_sliceAxisZCb->setChecked(m_settings->getSliceEnabledZ());
+
     auto updateSlider = [this](QSlider* slider, QLineEdit* field, double from, double to, double val) {
         if (!slider || !field) return;
         int minI = static_cast<int>(from * 1000);
         int maxI = static_cast<int>(to * 1000);
         slider->setRange(minI, maxI);
-        slider->setValue(static_cast<int>(val * 1000));
-        field->setText(formatSliderValue(val));
+        double center = (from + to) * 0.5;
+        slider->setValue(static_cast<int>(center * 1000));
+        field->setText(formatSliderValue(center));
         QFontMetrics fm(field->font());
         QString maxText = formatSliderValue(qMax(qAbs(from), qAbs(to)));
         if (qMin(from, to) < 0) maxText = "-" + maxText;

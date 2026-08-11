@@ -211,6 +211,10 @@ private:
     QLineEdit* m_sliceYField = nullptr;
     QSlider* m_sliceZSlider = nullptr;
     QLineEdit* m_sliceZField = nullptr;
+    QCheckBox* m_sliceEnableCb = nullptr;
+    QCheckBox* m_sliceAxisXCb = nullptr;
+    QCheckBox* m_sliceAxisYCb = nullptr;
+    QCheckBox* m_sliceAxisZCb = nullptr;
 
     void refreshSlicingPageBounds();
 
