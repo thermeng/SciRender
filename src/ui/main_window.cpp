@@ -46,6 +46,7 @@
 #include <QStyledItemDelegate>
 #include <QTimer>
 #include <QPainter>
+#include <QFontMetrics>
 
 // ============================================================================
 // UI layout constants (mirrors MainWindow private members for use by free helpers)
@@ -55,6 +56,14 @@ static constexpr int kIconStripWidth = 48;
 static constexpr int kLabelWidth = 72;
 static constexpr int kControlHeight = 24;
 static constexpr int kValueFieldWidth = 48;
+
+static QString formatSliderValue(double value) {
+    if (value < 0) value = -value;
+    if (value < 10.0) return QString::number(value, 'f', 3);
+    if (value < 100.0) return QString::number(value, 'f', 2);
+    if (value < 1000.0) return QString::number(value, 'f', 1);
+    return QString::number(value, 'f', 0);
+}
 
 // ============================================================================
 // Helper: Does a widget want typing/navigation keys (so viewport shortcuts
@@ -143,8 +152,12 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
     row.slider->setValue(static_cast<int>(value * 1000));
     layout->addWidget(row.slider, 1, Qt::AlignVCenter);
 
-    row.field = new QLineEdit(QString::number(value, 'f', 3));
-    row.field->    setFixedWidth(kValueFieldWidth);
+    row.field = new QLineEdit(formatSliderValue(value));
+    QFontMetrics fm(row.field->font());
+    QString maxText = formatSliderValue(qMax(qAbs(from), qAbs(to)));
+    if (qMin(from, to) < 0) maxText = "-" + maxText;
+    int textWidth = fm.horizontalAdvance(maxText) + 12;
+    row.field->setFixedWidth(qMax(36, textWidth));
     row.field->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     row.field->setStyleSheet(QString("font-size: 11px; background: %1; color: %2; border: 1px solid %1; border-radius: 2px; padding: 1px 4px;")
         .arg(currentThemeColors().inputBg.name(), currentThemeColors().textPrimary.name()));
@@ -155,7 +168,7 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
     row.callback = cb;
     auto syncFromSlider = [row](int raw) {
         double v = raw / 1000.0;
-        row.field->setText(QString::number(v, 'f', 3));
+        row.field->setText(formatSliderValue(v));
     };
     auto commitFromField = [row, from, to]() {
         double v = row.field->text().toDouble();
@@ -855,16 +868,20 @@ QWidget* MainWindow::buildSlicingPage() {
         slider->setRange(minI, maxI);
         slider->setValue(static_cast<int>(val * 1000));
 
-        field->setFixedWidth(36);
+        QFontMetrics fm(field->font());
+        QString maxText = formatSliderValue(qMax(qAbs(from), qAbs(to)));
+        if (qMin(from, to) < 0) maxText = "-" + maxText;
+        int textWidth = fm.horizontalAdvance(maxText) + 12;
+        field->setFixedWidth(qMax(36, textWidth));
         field->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         field->setStyleSheet(QString("font-size: 11px; background: %1; color: %2; border: 1px solid %1; border-radius: 2px; padding: 1px 4px;")
             .arg(currentThemeColors().inputBg.name(), currentThemeColors().textPrimary.name()));
-        field->setText(QString::number(val, 'f', 3));
+        field->setText(formatSliderValue(val));
         field->setValidator(new QDoubleValidator(from, to, 3, field));
 
         auto syncFromSlider = [field](int raw) {
             double v = raw / 1000.0;
-            field->setText(QString::number(v, 'f', 3));
+            field->setText(formatSliderValue(v));
         };
         auto commitFromField = [slider, field, from, to, setter]() {
             double v = field->text().toDouble();
@@ -879,13 +896,20 @@ QWidget* MainWindow::buildSlicingPage() {
         QObject::connect(field, &QLineEdit::editingFinished, commitFromField);
     };
 
-    setupAxisSlider(slicingUi.sliceXSlider, slicingUi.xField,
+    m_sliceXSlider = slicingUi.sliceXSlider;
+    m_sliceXField  = slicingUi.xField;
+    m_sliceYSlider = slicingUi.sliceYSlider;
+    m_sliceYField  = slicingUi.yField;
+    m_sliceZSlider = slicingUi.sliceZSlider;
+    m_sliceZField  = slicingUi.zField;
+
+    setupAxisSlider(m_sliceXSlider, m_sliceXField,
                     m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getSliceX(),
                     [this](double v) { m_settings->setSliceX(v); });
-    setupAxisSlider(slicingUi.sliceYSlider, slicingUi.yField,
+    setupAxisSlider(m_sliceYSlider, m_sliceYField,
                     m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getSliceY(),
                     [this](double v) { m_settings->setSliceY(v); });
-    setupAxisSlider(slicingUi.sliceZSlider, slicingUi.zField,
+    setupAxisSlider(m_sliceZSlider, m_sliceZField,
                     m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ(),
                     [this](double v) { m_settings->setSliceZ(v); });
 
@@ -1855,6 +1879,28 @@ void MainWindow::refreshMeshInfoPage() {
     }
 }
 
+void MainWindow::refreshSlicingPageBounds() {
+    auto updateSlider = [this](QSlider* slider, QLineEdit* field, double from, double to, double val) {
+        if (!slider || !field) return;
+        int minI = static_cast<int>(from * 1000);
+        int maxI = static_cast<int>(to * 1000);
+        slider->setRange(minI, maxI);
+        slider->setValue(static_cast<int>(val * 1000));
+        field->setText(formatSliderValue(val));
+        QFontMetrics fm(field->font());
+        QString maxText = formatSliderValue(qMax(qAbs(from), qAbs(to)));
+        if (qMin(from, to) < 0) maxText = "-" + maxText;
+        int textWidth = fm.horizontalAdvance(maxText) + 12;
+        field->setFixedWidth(qMax(36, textWidth));
+    };
+    updateSlider(m_sliceXSlider, m_sliceXField,
+                 m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getSliceX());
+    updateSlider(m_sliceYSlider, m_sliceYField,
+                 m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getSliceY());
+    updateSlider(m_sliceZSlider, m_sliceZField,
+                 m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ());
+}
+
 // ============================================================================
 // Sidebar section switching
 // ============================================================================
@@ -2136,6 +2182,7 @@ void MainWindow::setupKeyboardShortcuts() {
 void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateQuickBarVisibility);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshSlicingPageBounds);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this]() {
         const bool hasVectors = m_settings->hasMeshVectors();
         if (m_slShowCb) {
