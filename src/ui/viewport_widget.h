@@ -24,16 +24,19 @@ public:
     ::RenderSettings* settings() const { return m_settings; }
 
     void requestScreenshot(const QString& path);
+    void forceRepaint() { m_dirty = true; update(); }
 
 protected:
     void initializeGL() override;
     void resizeGL(int w, int h) override;
     void paintGL() override;
 
+    void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    bool event(QEvent* event) override;
 
 private:
     void loadShaders();

@@ -2297,6 +2297,15 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
     }
 }
 
+void MainWindow::changeEvent(QEvent* ev) {
+    QMainWindow::changeEvent(ev);
+    if (!m_viewport) return;
+    if (ev->type() == QEvent::Show
+        || (ev->type() == QEvent::WindowStateChange && !isMinimized() && isVisible())) {
+        m_viewport->forceRepaint();
+    }
+}
+
 void MainWindow::recreateViewport() {
     auto* old = m_viewport;
     m_viewport = new ViewportWidget(m_settings->getMsaaSamples(), this);

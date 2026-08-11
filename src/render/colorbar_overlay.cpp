@@ -250,6 +250,14 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glTextureSubImage2D(tex_, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
     textureCacheValid_ = true;
 
+    GLboolean prevDepthTest = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean prevBlend = glIsEnabled(GL_BLEND);
+    GLint prevBlendSrc = 0, prevBlendDst = 0;
+    glGetIntegerv(GL_BLEND_SRC, &prevBlendSrc);
+    glGetIntegerv(GL_BLEND_DST, &prevBlendDst);
+    GLint prevViewport[4] = {0, 0, 0, 0};
+    glGetIntegerv(GL_VIEWPORT, prevViewport);
+
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -262,6 +270,11 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
     glUseProgram(0);
+
+    if (prevDepthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glBlendFunc(prevBlendSrc, prevBlendDst);
+    glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
 }
 
 void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
@@ -301,6 +314,14 @@ void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
     if (!textureCacheValid_) {
         uploadAndDraw(cachedImage_, deviceW, deviceH);
     } else {
+        GLboolean prevDepthTest = glIsEnabled(GL_DEPTH_TEST);
+        GLboolean prevBlend = glIsEnabled(GL_BLEND);
+        GLint prevBlendSrc = 0, prevBlendDst = 0;
+        glGetIntegerv(GL_BLEND_SRC, &prevBlendSrc);
+        glGetIntegerv(GL_BLEND_DST, &prevBlendDst);
+        GLint prevViewport[4] = {0, 0, 0, 0};
+        glGetIntegerv(GL_VIEWPORT, prevViewport);
+
         glBindTextureUnit(0, tex_);
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND);
@@ -313,5 +334,10 @@ void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
         glUseProgram(0);
+
+        if (prevDepthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+        if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+        glBlendFunc(prevBlendSrc, prevBlendDst);
+        glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
     }
 }

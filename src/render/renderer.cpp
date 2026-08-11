@@ -192,7 +192,7 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
         glCreateFramebuffers(1, tempFbo.ptr());
         glNamedFramebufferTexture(tempFbo, GL_DEPTH_STENCIL_ATTACHMENT, m_peelMainDepth, 0);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, tempFbo);
-        glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_LINEAR);
         glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
     } else {
         glBindTexture(GL_TEXTURE_2D, m_peelMainDepth);
@@ -490,11 +490,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     if (deviceW <= 0 || deviceH <= 0) return;
     const float dpr = static_cast<float>(devicePixelRatio);
 
-    const int maxLegendW = static_cast<int>(width * dpr);
-    const int maxLegendH = static_cast<int>(height * dpr);
-    if (deviceW > maxLegendW) deviceW = maxLegendW;
-    if (deviceH > maxLegendH) deviceH = maxLegendH;
-    if (deviceW <= 0 || deviceH <= 0) return;
+    // deviceW/deviceH are already the actual render target dimensions from renderFrame
+    // (Qt widget size for live rendering, override size for screenshots).
 
     const auto stopsFor = [&](int choice, bool reversed) {
         QVariantList out;

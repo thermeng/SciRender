@@ -2,6 +2,7 @@
 #include "viewport_widget.h"
 #include "render/render_config.h"
 #include <QMouseEvent>
+#include <QPaintEvent>
 #include <QWheelEvent>
 #include <QDebug>
 #include <QFile>
@@ -19,6 +20,9 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     fmt.setDepthBufferSize(24);
     fmt.setSamples(msaaSamples);
     setFormat(fmt);
+
+    setAttribute(Qt::WA_OpaquePaintEvent, true);
+    setAttribute(Qt::WA_NoSystemBackground, true);
 
     m_fpsLabel = new QLabel(this);
     m_fpsLabel->setStyleSheet("background: rgba(0,0,0,120); color: #7CFC00; padding: 4px 8px; font: 12px \"Consolas\", \"Menlo\", monospace; border-radius: 4px;");
@@ -169,13 +173,8 @@ void ViewportWidget::paintGL() {
     const GLuint defaultFbo = static_cast<GLuint>(defaultFramebufferObject());
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, defaultFbo);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, m_screenshotCapture.displayFboId());
-    while (glGetError() != GL_NO_ERROR) {}
     glBlitFramebuffer(0, 0, fbW, fbH, 0, 0, fbW, fbH,
                       GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    GLenum blitErr = glGetError();
-    if (blitErr != GL_NO_ERROR) {
-        qWarning() << "glBlitFramebuffer error: 0x" << Qt::hex << blitErr;
-    }
     glBindFramebuffer(GL_FRAMEBUFFER, defaultFbo);
 
     m_dirty = continuous;
@@ -256,6 +255,7 @@ void ViewportWidget::deferredCapture(const QString& path) {
 
     if (viewportRes) {
         // Viewport resolution: read directly from the persistent display FBO (no re-render).
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_screenshotCapture.displayFboId());
         result = m_screenshotCapture.readFboAndSave(
             m_screenshotCapture.displayFboId(),
             fbW, fbH, m_screenshotCapture.displayFboSamples(),
@@ -269,12 +269,17 @@ void ViewportWidget::deferredCapture(const QString& path) {
         scene->renderFrame();
         scene->clearViewportOverride();
 
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_screenshotCapture.screenshotFboId());
         result = m_screenshotCapture.readFboAndSave(
             m_screenshotCapture.screenshotFboId(),
             fbW, fbH, samples,
             transparent, path);
     }
 
+    const GLuint defaultFbo = static_cast<GLuint>(defaultFramebufferObject());
+    glBindFramebuffer(GL_FRAMEBUFFER, defaultFbo);
+
+    glFinish();
     doneCurrent();
     m_settings->screenshotCaptured(result.success ? path : QString());
 }
@@ -319,4 +324,17 @@ void ViewportWidget::wheelEvent(QWheelEvent* event) {
         update();
     });
     event->accept();
+}
+
+void ViewportWidget::paintEvent(QPaintEvent* event) {
+    m_dirty = true;
+    QOpenGLWidget::paintEvent(event);
+}
+
+bool ViewportWidget::event(QEvent* event) {
+    if (event->type() == QEvent::Expose || event->type() == QEvent::WindowActivate) {
+        m_dirty = true;
+        update();
+    }
+    return QOpenGLWidget::event(event);
 }
