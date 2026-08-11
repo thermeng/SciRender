@@ -1793,7 +1793,10 @@ QWidget* MainWindow::buildVolumePage() {
     volumeUi.setupUi(content);
 
     auto* showCb = volumeUi.showVolumeCb;
+    m_volumeShowCb = showCb;
     showCb->setChecked(m_settings->getShowVolume());
+    showCb->setEnabled(m_settings->hasVolumeData());
+    if (!m_settings->hasVolumeData()) showCb->setChecked(false);
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolume);
 
     m_volumeFieldCombo = volumeUi.volumeFieldCombo;
@@ -2206,6 +2209,11 @@ void MainWindow::connectSettings() {
         if (m_vecShowCb) {
             m_vecShowCb->setEnabled(hasVectors);
             if (!hasVectors) m_vecShowCb->setChecked(false);
+        }
+        if (m_volumeShowCb) {
+            bool ok = m_settings->hasVolumeData();
+            m_volumeShowCb->setEnabled(ok);
+            if (!ok) m_volumeShowCb->setChecked(false);
         }
     });
     connect(m_settings, &RenderSettings::meshDataUpdated, this, &MainWindow::refreshMeshInfoPage);
