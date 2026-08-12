@@ -23,14 +23,15 @@
 Qt 6 + OpenGL scientific mesh rendering toolkit. Loads VTK
 `STRUCTURED_GRID` (curvilinear), `RECTILINEAR_GRID`, `STRUCTURED_POINTS`,
 `POLYDATA`, `UNSTRUCTURED_GRID`, STL & OBJ files, maps scalar
-data to surface colormaps, and draws instanced vector-field arrow glyphs.
-A Lighting system, axis triad, clipping, Level-of-Detail (LOD)
-and screenshot export, all driven from a QML control panel.
+data to surface colormaps, draws instanced vector-field arrow glyphs,
+integrated streamlines, particle traces, and volume ray-marching.
+A PBR lighting system, axis triad, clipping/slicing planes, level-of-detail (LOD),
+depth-peel transparency, screenshot export, and a rich Qt Widgets sidebar.
 
 ## Build
 
-Requires **Qt 6** (Core, Gui, Qml, Quick, QuickControls2, OpenGLWidgets),
-**OpenGL**, a C++20 compiler, CMake ≥ 3.16, and GLAD/GLM (vendored under
+Requires **Qt 6** (Core, Gui, Widgets, OpenGLWidgets), **OpenGL**,
+a C++20 compiler, CMake ≥ 3.16, and GLAD/GLM (vendored under
 `vendor/`, no install needed).
 
 ```bash
@@ -44,18 +45,25 @@ the program can run from the build directory.
 ## Features
 
 - Loads VTK `STRUCTURED_GRID` (curvilinear), `RECTILINEAR_GRID`,
-  `STRUCTURED_POINTS`, `POLYDATA`, `UNSTRUCTURED_GRID` and STL
+  `STRUCTURED_POINTS`, `POLYDATA`, `UNSTRUCTURED_GRID`, STL and OBJ
 - Scalar surface coloring with colormaps; per-dataset **surface** tessellation
   for curvilinear grids (boundary shell, not the full volume)
 - Vector field arrow glyphs with user-controllable density and scaling
+- **Streamline integration** with configurable step size, max steps, direction,
+  seeding modes (volume/surface/plane), jitter, and particle appearance
+- **Particle traces** with count, speed, and size controls
+- **Volume ray-marching** with step size, opacity, and colormap controls
 - **Colorbar legend:** clean gradient bar with a user-controllable number of
   tick labels (`colorbarTicks`, 2–20) spread across the live data range;
-  applies to both the scalar and vector-magnitude bars
+  applies to scalar, vector-magnitude, and volume colorbars
 - **Lighting system:** key/fill/back/head lights that track the view,
-  key intensity + K-ratios, kit-wide warm tint
+  key intensity + K-ratios, kit-wide warm tint, material roughness/metallic/specular
+- **Slicing & clipping:** axis-aligned clip planes with bounds-aware sliders
 - Axis triad + light-direction markers in a corner overlay
 - FPS Head up Display (HUD)
-- Screenshot export (PNG/JPEG/BMP), optional transparency
+- **Quality overlays:** degenerate triangle, open-edge, and non-manifold edge visualization
+- **Screenshot export** (PNG/JPEG/BMP), optional transparency, resolution and AA presets
+- **Depth-peel transparency** for correct rendering of translucent surfaces
 - **Robust mesh loading:** exact vertex dedup, and level-of-detail (LOD)
   that is safe for multi-shell surfaces while orbiting
 
@@ -77,11 +85,11 @@ full detail when motion stops. It is used only when all of the following hold:
 
 | Path | Purpose |
 |------|---------|
-| `src/app/` | Qt/QML application entry point (`main.cpp`) |
+| `src/app/` | Application entry point (`main.cpp`, GPU preference) |
 | `src/core/` | VTK/STL parsers, mesh loading, mesh-quality analysis, camera, colormap definitions |
-| `src/render/` | OpenGL renderer, lighting, mesh/LOD upload, vector glyphs, colorbar, axis triad |
-| `src/shaders/` | GLSL vertex/fragment shaders |
-| `src/ui/` | Custom QML viewport item |
+| `src/render/` | OpenGL renderer, lighting, mesh/LOD upload, vector glyphs, streamlines, particles, volume pass, colorbar, axis triad, screenshot capture |
+| `src/shaders/` | GLSL vertex/fragment/compute shaders |
+| `src/ui/` | Qt Widgets main window, sidebar pages, viewport widget |
 | `tests/` | Standalone parser regression harness (`parse_regression.cpp` + `run_tests.{bat,sh}`) |
 | `samples/` | VTK/STL fixture files used by the regression harness |
 | `assets/` | Application icon |
