@@ -1,5 +1,6 @@
 #include "render/colorbar_overlay.h"
 
+#include <glad/gl.h>
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
@@ -10,7 +11,7 @@
 namespace {
 
 const char* vsSrc = R"(
-#version 330 core
+#version 460 core
 layout(location = 0) in vec2 aPos;   // clip-space xy
 layout(location = 1) in vec2 aUV;   // texture uv
 out vec2 vUV;
@@ -21,7 +22,7 @@ void main() {
 )";
 
 const char* fsSrc = R"(
-#version 330 core
+#version 460 core
 in vec2 vUV;
 uniform sampler2D uTex;
 out vec4 frag;
@@ -64,11 +65,7 @@ bool ColorbarOverlay::init() {
     if (isInitialized()) return true;
     if (!buildProgram()) return false;
 
-    // Fullscreen quad (two triangles) in clip space, with UVs.
-    // Quad covers the whole viewport; the QImage already has the colorbar
-    // drawn at the correct screen location, so we just blit it.
     const float verts[6][4] = {
-        // x,   y,    u, v
         {-1, -1, 0, 0},
         { 1, -1, 1, 0},
         {-1,  1, 0, 1},
@@ -76,144 +73,159 @@ bool ColorbarOverlay::init() {
         { 1, -1, 1, 0},
         { 1,  1, 1, 1},
     };
-    glGenVertexArrays(1, &vao_);
-    glGenBuffers(1, &vbo_);
-    glBindVertexArray(vao_);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glBindVertexArray(0);
+    glCreateVertexArrays(1, vao_.ptr());
+    glCreateBuffers(1, vbo_.ptr());
+    glEnableVertexArrayAttrib(vao_, 0);
+    glVertexArrayAttribFormat(vao_, 0, 2, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao_, 0, 0);
+    glEnableVertexArrayAttrib(vao_, 1);
+    glVertexArrayAttribFormat(vao_, 1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float));
+    glVertexArrayAttribBinding(vao_, 1, 0);
+    glNamedBufferData(vbo_, sizeof(verts), verts, GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(vao_, 0, vbo_, 0, 4 * sizeof(float));
 
-    glGenTextures(1, &tex_);
+    glCreateTextures(GL_TEXTURE_2D, 1, tex_.ptr());
+    glTextureParameteri(tex_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(tex_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(tex_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(tex_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     return true;
 }
 
 bool ColorbarOverlay::buildProgram() {
-    program_ = link(vsSrc, fsSrc);
-    if (!program_) return false;
-    mvpLoc_ = glGetUniformLocation(program_, "uTex"); // only sampler used
-    texLoc_ = glGetUniformLocation(program_, "uTex");
+    program_.reset(link(vsSrc, fsSrc));
+    if (!program_.has()) return false;
+    samplerLoc_ = glGetUniformLocation(program_, "uTex");
     return true;
 }
 
 void ColorbarOverlay::shutdown() {
     if (!QOpenGLContext::currentContext()) return;
-    if (vao_) glDeleteVertexArrays(1, &vao_);
-    if (vbo_) glDeleteBuffers(1, &vbo_);
-    if (tex_) glDeleteTextures(1, &tex_);
-    if (program_) glDeleteProgram(program_);
-    vao_ = vbo_ = tex_ = program_ = 0;
+    vao_.reset();
+    vbo_.reset();
+    tex_.reset();
+    program_.reset();
+    samplerLoc_ = -1;
+    texW_ = texH_ = 0;
+    imageCacheValid_ = false;
+    textureCacheValid_ = false;
+    cachedImage_ = QImage();
 }
 
 QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
-                                     const ColorbarData& data, int corner) const {
+                                    const std::vector<ColorbarData>& bars) const {
     QImage img(deviceW, deviceH, QImage::Format_ARGB32);
     img.fill(Qt::transparent);
 
-    if (!data.visible || data.stops.isEmpty() || data.title.isEmpty()) {
-        return img;
-    }
+    if (bars.empty()) return img;
 
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
 
-    // ---- Layout (all scaled by device pixel ratio for crisp text) ----
-    const int margin    = static_cast<int>(14 * dpr);
-    const int barW      = static_cast<int>(18 * dpr);
-    const int barH      = static_cast<int>(220 * dpr);
-    const int spacing   = static_cast<int>(8 * dpr);
-    const int tickLen   = static_cast<int>(6 * dpr);
+    const int margin = static_cast<int>(14 * dpr);
+    const int barW   = static_cast<int>(220 * dpr);
+    const int barH   = static_cast<int>(14 * dpr);
+    const int gap    = static_cast<int>(4 * dpr);
+    const int tickLen = static_cast<int>(6 * dpr);
+    const int stackGap = static_cast<int>(8 * dpr);
 
-    // Title font/metrics -> dynamic title height and width.
-    QFont titleFont;
-    titleFont.setPointSizeF(10 * dpr);
-    const QFontMetrics titleFm(titleFont);
-    const int titleH   = titleFm.height();
-    const int titleW   = titleFm.horizontalAdvance(data.title);
-    const int titleGap = static_cast<int>(8 * dpr); // gap between title and bar
+    QFont labelFont;
+    labelFont.setPixelSize(static_cast<int>(11 * dpr));
+    const QFontMetrics labelFm(labelFont);
+    const int labelH = labelFm.height();
 
-    // Tick label font/metrics -> dynamic width from the longest label.
+    QFont subtitleFont;
+    subtitleFont.setPixelSize(static_cast<int>(9 * dpr));
+    const QFontMetrics subtitleFm(subtitleFont);
+    const int subtitleH = subtitleFm.height();
+
     QFont tickFont;
-    tickFont.setPointSizeF(9 * dpr);
+    tickFont.setPixelSize(static_cast<int>(9 * dpr));
     const QFontMetrics tickFm(tickFont);
-    int maxLabelW = 0;
-    for (const QVariant& lbl : data.tickLabels) {
-        maxLabelW = qMax(maxLabelW, tickFm.horizontalAdvance(lbl.toString()));
-    }
-    if (maxLabelW == 0) maxLabelW = tickFm.horizontalAdvance("0.0");
+    const int tickH = tickFm.height();
 
-    // Content widths: bar + gap + label block. blockW takes the max of the
-    // label block and the title so a long title never overflows the right edge.
-    const int labelW = maxLabelW;
-    const int labelBlockW = barW + spacing + labelW;
-    const int blockW = qMax(labelBlockW, titleW);
-    const int blockH = titleH + titleGap + barH;
+    const int subtitleGap = 2;
+    const int blockH = subtitleH + subtitleGap + labelH + gap + barH + gap + tickH;
 
-    int x, y;
-    if (corner == 0) {
-        // bottom-right
-        x = deviceW - margin - blockW;
-        y = deviceH - margin - blockH;
-    } else {
-        // top-right
-        x = deviceW - margin - blockW;
-        y = margin;
-    }
+    // Stack bars bottom-right, first bar at the bottom.
+    int y = deviceH - margin;
 
-    // ---- Title (left-aligned, above the bar, with a gap) ----
-    p.setFont(titleFont);
-    p.setPen(QColor("#e8e8e8"));
-    const QRect titleRect(x, y, blockW, titleH);
-    p.drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, data.title);
+    for (int bi = 0; bi < bars.size(); ++bi) {
+        const auto& data = bars[bi];
+        if (!data.visible || data.stops.isEmpty() || data.title.isEmpty()) continue;
 
-    const int barX = x;
-    const int barY = y + titleH + titleGap;
+        y -= blockH;
+        const int blockX = deviceW - margin - barW;
+        const int blockY = y;
 
-    // ---- Gradient bar: smooth vertical fill from the stops ----
-    // Stops are [t, r, g, b] with t ascending 0..1, and the legend top is t=1
-    // (max). So a gradient stop at position p (0=top) maps to color(t = 1 - p).
-    {
-        QLinearGradient grad(0.0, barY, 0.0, barY + barH);
-        const int n = data.stops.size();
-        for (int i = 0; i < n; ++i) {
-            const QVariantList s = data.stops[i].toList();
-            const float t = s[0].toFloat();
-            const qreal p = qreal(1.0) - qreal(t); // top -> max
-            grad.setColorAt(p, QColor::fromRgbF(
-                qBound(0.0, s[1].toDouble(), 1.0),
-                qBound(0.0, s[2].toDouble(), 1.0),
-                qBound(0.0, s[3].toDouble(), 1.0)));
+        // ---- Subtitle (type annotation, centered above title) ----
+        int titleY = blockY;
+        if (!data.subtitle.isEmpty()) {
+            p.setFont(subtitleFont);
+            p.setPen(QColor("#999999"));
+            const QRect subtitleRect(blockX, titleY, barW, subtitleH);
+            p.drawText(subtitleRect, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, data.subtitle);
+            titleY += subtitleH + subtitleGap;
         }
-        p.fillRect(barX, barY, barW, barH, grad);
-    }
 
-    // ---- Bar outline (crisp 1px edge) ----
-    p.setPen(QColor(0, 0, 0, 180));
-    p.setBrush(Qt::NoBrush);
-    p.drawRect(barX, barY, barW, barH);
+        // ---- Title (centered above bar) ----
+        p.setFont(labelFont);
+        p.setPen(QColor("#e8e8e8"));
+        const QRect titleRect(blockX, titleY, barW, labelH);
+        p.drawText(titleRect, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, data.title);
 
-    // ---- Tick marks + numeric labels ----
-    p.setFont(tickFont);
-    p.setPen(QColor("#e8e8e8"));
+        const int barX = blockX;
+        const int barY = titleY + labelH + gap;
 
-    const int tickCount = data.tickLabels.size();
-    const int labX = barX + barW + spacing;
-    for (int i = 0; i < tickCount; ++i) {
-        // i = 0 -> top of bar (max); frac = i/(count-1) measures top->bottom.
-        const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-        const int ty = barY + static_cast<int>(frac * barH);
+        // ---- Horizontal gradient bar ----
+        {
+            QLinearGradient grad(static_cast<qreal>(barX), 0.0,
+                                 static_cast<qreal>(barX + barW), 0.0);
+            const int n = data.stops.size();
+            for (int i = 0; i < n; ++i) {
+                const QVariantList s = data.stops[i].toList();
+                const float t = s[0].toFloat();
+                grad.setColorAt(static_cast<qreal>(t), QColor::fromRgbF(
+                    qBound(0.0, s[1].toDouble(), 1.0),
+                    qBound(0.0, s[2].toDouble(), 1.0),
+                    qBound(0.0, s[3].toDouble(), 1.0)));
+            }
+            p.fillRect(barX, barY, barW, barH, grad);
+        }
 
-        // tick mark on the right edge of the bar, pointing outward
-        p.drawLine(barX + barW, ty, barX + barW + tickLen, ty);
+        // ---- Bar outline ----
+        p.setPen(QColor(0, 0, 0, 180));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(barX, barY, barW, barH);
 
-        // numeric label, left-aligned against the bar edge, vertically centered
-        const QRect labRect(labX, ty - static_cast<int>(tickFm.height() * 0.5),
-                            labelW, tickFm.height());
-        p.drawText(labRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, data.tickLabels[i]);
+        // ---- Tick marks + labels (below bar, evenly spaced left-to-right) ----
+        p.setFont(tickFont);
+        p.setPen(QColor("#e8e8e8"));
+
+        const int tickCount = data.tickLabels.size();
+        if (tickCount > 0) {
+            const int tickY = barY + barH;
+            for (int i = 0; i < tickCount; ++i) {
+                const float frac = tickCount > 1
+                    ? static_cast<float>(i) / static_cast<float>(tickCount - 1)
+                    : 0.0f;
+                const int tx = barX + static_cast<int>(frac * barW);
+
+                // tick mark downward from bar bottom edge
+                p.drawLine(tx, tickY, tx, tickY + tickLen);
+
+                // label centered under tick
+                const QRect lblRect(tx - static_cast<int>(tickFm.horizontalAdvance(data.tickLabels[i]) * 0.5),
+                                    tickY + tickLen,
+                                    tickFm.horizontalAdvance(data.tickLabels[i]),
+                                    tickH);
+                p.drawText(lblRect, Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine,
+                           data.tickLabels[i]);
+            }
+        }
+
+        y -= stackGap;
     }
 
     return img;
@@ -221,45 +233,111 @@ QImage ColorbarOverlay::buildImage(float dpr, int deviceW, int deviceH,
 
 void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH) {
     QImage gl = img.convertToFormat(QImage::Format_RGBA8888);
-    // QImage rows are top-to-bottom, but GL texture coordinate v=0 is the FIRST
-    // uploaded row and is sampled at clip-space BOTTOM. Without flipping, the
-    // fullscreen blit renders the legend upside-down in the FBO; captureFBO's
-    // row-flip then bakes that inversion into the saved image. Mirror vertically
-    // so the on-screen/window-space layout (top = max) is preserved in the PNG.
     gl = gl.flipped(Qt::Vertical);
 
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, tex_);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gl.width(), gl.height(), 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (gl.width() != texW_ || gl.height() != texH_) {
+        tex_.reset();
+        glCreateTextures(GL_TEXTURE_2D, 1, tex_.ptr());
+        glTextureParameteri(tex_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(tex_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(tex_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(tex_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        texW_ = gl.width();
+        texH_ = gl.height();
+    }
+    glBindTextureUnit(0, tex_);
+    glTextureStorage2D(tex_, 1, GL_RGBA8, gl.width(), gl.height());
+    glTextureSubImage2D(tex_, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
+    textureCacheValid_ = true;
+
+    GLboolean prevDepthTest = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean prevBlend = glIsEnabled(GL_BLEND);
+    GLint prevBlendSrc = 0, prevBlendDst = 0;
+    glGetIntegerv(GL_BLEND_SRC, &prevBlendSrc);
+    glGetIntegerv(GL_BLEND_DST, &prevBlendDst);
+    GLint prevViewport[4] = {0, 0, 0, 0};
+    glGetIntegerv(GL_VIEWPORT, prevViewport);
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    // The colorbar is a full-viewport blit: always draw into the full FBO
-    // viewport, since a prior pass (e.g. gizmo light markers) may have left a
-    // smaller viewport bound. Without this the legend would be squashed.
     glViewport(0, 0, deviceW, deviceH);
 
     glUseProgram(program_);
-    glUniform1i(texLoc_, 0);
+    glUniform1i(samplerLoc_, 0);
     glBindVertexArray(vao_);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
-    glBindTexture(GL_TEXTURE_2D, 0);
     glUseProgram(0);
+
+    if (prevDepthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glBlendFunc(prevBlendSrc, prevBlendDst);
+    glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
 }
 
-void ColorbarOverlay::draw(float dpr, int deviceW, int deviceH,
-                           const ColorbarData& data, int corner) {
+void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
+                                const std::vector<ColorbarData>& bars) {
     if (!isInitialized() || deviceW <= 0 || deviceH <= 0) return;
-    if (!data.visible) return;
 
-    QImage img = buildImage(dpr, deviceW, deviceH, data, corner);
-    uploadAndDraw(img, deviceW, deviceH);
+    bool anyVisible = false;
+    for (const auto& b : bars) { if (b.visible) { anyVisible = true; break; } }
+    if (!anyVisible) return;
+
+    bool paramsChanged = !imageCacheValid_ || cachedDpr_ != dpr ||
+                         cachedW_ != deviceW || cachedH_ != deviceH ||
+                         cachedBars_.size() != bars.size();
+    if (!paramsChanged) {
+        for (size_t i = 0; i < bars.size(); ++i) {
+            if (cachedBars_[i].title != bars[i].title ||
+                cachedBars_[i].subtitle != bars[i].subtitle ||
+                cachedBars_[i].stops != bars[i].stops ||
+                cachedBars_[i].tickLabels != bars[i].tickLabels ||
+                cachedBars_[i].visible != bars[i].visible) {
+                paramsChanged = true;
+                break;
+            }
+        }
+    }
+
+    if (paramsChanged) {
+        cachedImage_ = buildImage(dpr, deviceW, deviceH, bars);
+        cachedBars_ = bars;
+        cachedDpr_ = dpr;
+        cachedW_ = deviceW;
+        cachedH_ = deviceH;
+        imageCacheValid_ = true;
+        textureCacheValid_ = false;
+    }
+
+    if (!textureCacheValid_) {
+        uploadAndDraw(cachedImage_, deviceW, deviceH);
+    } else {
+        GLboolean prevDepthTest = glIsEnabled(GL_DEPTH_TEST);
+        GLboolean prevBlend = glIsEnabled(GL_BLEND);
+        GLint prevBlendSrc = 0, prevBlendDst = 0;
+        glGetIntegerv(GL_BLEND_SRC, &prevBlendSrc);
+        glGetIntegerv(GL_BLEND_DST, &prevBlendDst);
+        GLint prevViewport[4] = {0, 0, 0, 0};
+        glGetIntegerv(GL_VIEWPORT, prevViewport);
+
+        glBindTextureUnit(0, tex_);
+        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glViewport(0, 0, deviceW, deviceH);
+        glUseProgram(program_);
+        glUniform1i(samplerLoc_, 0);
+        glBindVertexArray(vao_);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+        glUseProgram(0);
+
+        if (prevDepthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+        if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+        glBlendFunc(prevBlendSrc, prevBlendDst);
+        glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+    }
 }

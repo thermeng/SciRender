@@ -50,7 +50,6 @@ struct RenderMesh {
     // Core GPU arrays (float for GPU upload)
     std::vector<float> vertices;   // x,y,z interleaved
     std::vector<uint32_t> indices; // Triangle indices (32-bit, matches GL_UNSIGNED_INT)
-    std::vector<float> cellEdges;   // ponytail: per-cell boundary edges as xyz line verts (no triangle diagonal)
     std::vector<float> normals;    // nx,ny,nz interleaved
     std::vector<float> scalars;    // Active scalar field (per-vertex, optional)
     std::string scalarName = "";   // Name of active scalar field
@@ -100,9 +99,9 @@ struct RenderMesh {
     // GL_POINTS instead of requiring triangle topology.
     bool renderAsPoints = false;
 
-    // ponytail: cell-grid (ParaView-style quad cell edges) is only meaningful
-    // for structured/rectilinear/unstructured grids; false for POLYDATA/STL.
-    bool supportsCellGrid = false;
+    // Structured grid dimensions (set for STRUCTURED_GRID / RECTILINEAR_GRID /
+    // IMAGEDATA). Zero for unstructured/polydata meshes.
+    int gridDimX = 0, gridDimY = 0, gridDimZ = 0;
 
     // Raw per-face corner positions (9 floats per triangle), captured BEFORE
     // the parser's position dedup. The mesh-quality analyzer welds these at
@@ -134,6 +133,7 @@ namespace mesh_utils {
     void byteSwap(float* val);
     void byteSwap(double* val);
     void byteSwap(int* val);
+    void byteSwap(uint32_t* val);
     void byteSwap(int16_t* val);
     void byteSwap(uint16_t* val);
     void byteSwap(uint8_t* val);
@@ -148,7 +148,12 @@ namespace mesh_utils {
     void computeNormals(RenderMesh& mesh);
 }
 
-// ── VTK Parser Definition ───────────────────────────────────────────────────
+// ── VTK XML Parser Definition ───────────────────────────────────────────────
+// Parses VTK XML formats (.vtu / .vts / .vti / .vtp / .vtr) — ASCII and binary
+// (inline base64 or appended base64).
+RenderMesh parseVTKXML(const std::string& filePath);
+
+// ── VTK Legacy Parser Definition ────────────────────────────────────────────
 // Parses Legacy VTK formats (supporting ASCII/BINARY and UNSTRUCTURED/STRUCTURED grids)
 RenderMesh parseVTK(const std::string& filePath);
 

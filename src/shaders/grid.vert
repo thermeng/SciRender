@@ -1,11 +1,16 @@
-#version 330 core
-// full-screen quad proxy; NDC position flows straight to gl_Position.
-// near/far world points are reconstructed via inverse view/proj so the fragment
-// shader can cast a ray to the ground plane at height uPlaneY.
+#version 460 core
 layout(location = 0) in vec2 aPos;
 
-uniform mat4 uInvView;
-uniform mat4 uInvProj;
+layout(std140) uniform GridUBO {
+    mat4  uInvView;
+    mat4  uInvProj;
+    mat4  uView;
+    mat4  uProj;
+    vec4  uCamPos_Color;
+    vec4  uColorBg_Falloff;
+    vec4  uPlaneY_Pad;
+    vec4  uFlags;
+};
 
 out vec3 vNear;
 out vec3 vFar;

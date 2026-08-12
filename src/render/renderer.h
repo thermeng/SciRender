@@ -12,8 +12,8 @@
 // Raw OpenGL / math dependencies only. NO Qt Object macros: this class runs
 // strictly on the QSG render thread and must never be touched from the GUI
 // thread. All view/visual state arrives via a deep-copied RenderRenderState
-// produced on the GUI thread by RenderSettings::buildRenderState().
-#include <glad/glad.h>
+// produced on the GUI thread by RenderSettings::publishRenderState().
+#include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -26,6 +26,8 @@
 #include <optional>
 #include <chrono>
 #include <map>
+#include <thread>
+#include <memory>
 
 #include "core/mesh_loader.h"
 #include "render/gizmo.h"
@@ -35,9 +37,50 @@
 #include "render/LightingModel.h"
 #include "render/ColormapManager.h"
 #include "render/VectorGlyphSet.h"
+#include "render/StreamlineSet.h"
 #include "render/MeshGLManager.h"
+#include "render/GridRenderer.h"
+#include "render/BBoxOverlay.h"
+#include "render/QualityOverlayRenderer.h"
+#include "render/StreamlineController.h"
+#include "render/MeshPass.h"
+#include "render/GlyphPass.h"
+#include "render/ParticlePass.h"
+#include "render/VolumePass.h"
+#include "render/ColormapSync.h"
+#include "render/LodScheduler.h"
 
-class QOpenGLFramebufferObject;
+#include <QOpenGLFramebufferObject>
+
+// Shader source bundle — loaded by the caller (which has Qt resource access)
+// and passed to Renderer::initShaders() so the Renderer stays Qt-free.
+struct ShaderSources {
+    std::string meshVert;
+    std::string meshFrag;
+    std::string gridVert;
+    std::string gridFrag;
+    std::string glyphVert;
+    std::string glyphFrag;
+    std::string bboxVert;
+    std::string bboxFrag;
+    std::string streamlineVert;
+    std::string streamlineFrag;
+    std::string seedVert;
+    std::string seedFrag;
+    std::string particleVert;
+    std::string particleFrag;
+    std::string lodComp;
+    std::string lodOutputComp;
+    std::string lodTrisComp;
+    std::string qualityOverlayVert;
+    std::string qualityOverlayFrag;
+    std::string depthPeelVert;
+    std::string depthPeelFrag;
+    std::string compositeVert;
+    std::string compositeFrag;
+    std::string volumeVert;
+    std::string volumeFrag;
+};
 
 // ---------------------------------------------------------------------------
 // RenderRenderState
@@ -61,7 +104,6 @@ struct RenderRenderState {
     bool useLod = true;
     float pointSize = 4.0f; // ponytail: CPU-driven gl_PointSize for point clouds
     float lineWidth = 1.0f; // ponytail: wireframe glLineWidth in px
-    float cellEdgeLineWidth = 1.0f; // ponytail: separate thickness for cell-edge overlay
     bool showPoints = false; // ponytail: draw vertices as GL_POINTS
     bool pointUseScalar = true;  // ponytail: color points by scalar; else solid
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
@@ -69,11 +111,11 @@ struct RenderRenderState {
     int cullMode = 0;              // ponytail: 0=off by default — mirror of settings default
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
-    bool showCellEdges = false;      // ponytail: ParaView-style per-cell boundary edges
     // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
-    std::vector<float> qualityDegenerateTris;
-    std::vector<float> qualityOpenEdges;
-    std::vector<float> qualityNonManifoldEdges;
+    // shared_ptr so RenderRenderState copies are O(1) instead of O(n)
+    std::shared_ptr<const std::vector<float>> qualityDegenerateTris;
+    std::shared_ptr<const std::vector<float>> qualityOpenEdges;
+    std::shared_ptr<const std::vector<float>> qualityNonManifoldEdges;
     bool orthographic = false;    // ponytail: orthographic (parallel) projection
 
     // Colors
@@ -133,11 +175,130 @@ struct RenderRenderState {
     int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
     std::string vectorField;
 
+    // Streamline vector field (independent from vector glyphs)
+    std::string streamlineVectorField;
+
+    // Streamlines
+    bool showStreamlines = false;
+    int streamlineSeedCount = 25;
+    float streamlineStepSize = 0.02f;
+    int streamlineMaxSteps = 100;
+    bool streamlineUseColormap = false;
+    int streamlineColormapChoice = 3;
+    bool streamlineColormapReversed = false;
+    float streamlineColor[3] = { 0.2f, 0.6f, 1.0f };
+
+    float streamlineOpacity = 1.0f;
+    float streamlineRibbonWidth = 0.005f;
+    float streamlineTaperFactor = 0.3f;
+    float streamlineAmbient = 0.35f;
+    float streamlineDiffuse = 0.55f;
+    float streamlineSpecular = 0.25f;
+    int streamlineSpecularPower = 32;
+    float seedPointSize = 6.0f;
+    float seedPointColor[3] = { 1.0f, 0.2f, 0.2f };
+
+    std::string seedMode = "Volume";
+    std::string streamlineDirection = "Both";
+    double seedPlanePos = 0.5;
+    int seedPlaneCountU = 10;
+    int seedPlaneCountV = 10;
+    double seedJitter = 0.0;
+    bool showSeeds = false;
+    bool showStreamlineArrows = false;
+    int streamlineArrowSpacing = 4;
+    float streamlineArrowSize = 0.05f;
+
+    // Particles
+    bool showParticles = false;
+    int particleCount = 500;
+    float particleSpeed = 1.0f;
+    float particleSize = 4.0f;
+
+    // Volume rendering
+    bool showVolume = false;
+    bool volumeUseColormap = true;
+    int  volumeColormapChoice = 3;
+    bool volumeColormapReversed = false;
+    float volumeStepSize = 0.01f;
+    float volumeOpacity = 1.0f;
+
     // Screenshot export options
     bool screenshotTransparent = false;
 
     bool hasMeshLoaded = false;
+    bool meshHasVectors = false;
+    bool flatShading = true;
 };
+
+// CPU-side UBO layout matching the std140 MeshUBO block in mesh.vert/frag.
+// Members are padded to 16 bytes per std140 rules by using glm::vec4.
+struct MeshUBOData {
+    glm::mat4 mvp;
+    glm::mat4 model;
+    glm::vec4 viewPos_ps;       // xyz = viewPos, w = pointSize
+    glm::vec4 meshColor_wire;   // xyz = meshColor, w = wireframe(0/1)
+    glm::vec4 surfaceColor_sop; // xyz = surfaceColor, w = surfaceOpacity
+    glm::vec4 point_clip;       // x = isPoint, y = pointUseScalar, z = pointOpacity, w = clipEnabled
+    glm::vec4 lightDir;
+    glm::vec4 lightFill;
+    glm::vec4 lightBack1;
+    glm::vec4 lightBack2;
+    glm::vec4 lightHead;
+    glm::vec4 keyColor;
+    glm::vec4 fillColor;
+    glm::vec4 backColor;
+    glm::vec4 headColor;
+    glm::vec4 scalars;          // x = scalarMin, y = scalarMax, z = hasScalars(0/1), w = 0
+    glm::vec4 sliceY;           // x = sliceHeightX, y = sliceHeightY, z = sliceHeightZ, w = 0
+    glm::vec4 sliceEn;          // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
+    glm::vec4 invert;           // x = invertX, y = invertY, z = invertZ, w = 0
+    glm::vec4 filter;           // x = filterMin, y = filterMax, z = 0, w = 0
+    glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular
+    glm::vec4 intensities;      // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
+    glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad (Phase 1 PBR)
+    glm::vec4 shadingMode;      // x = 0.0 smooth, 1.0 flat
+};
+static_assert(sizeof(MeshUBOData) % 16 == 0, "MeshUBOData must be std140-aligned");
+
+// CPU-side UBO layout matching the std140 GridUBO block in grid.vert/frag.
+struct GridUBOData {
+    glm::mat4 invView;
+    glm::mat4 invProj;
+    glm::mat4 view;
+    glm::mat4 proj;
+    glm::vec4 camPos_colorR;    // xyz = camPos, w = colorR
+    glm::vec4 colorBG_falloff;  // xyz = colorG+B, w = falloff
+    glm::vec4 planeY_pad;       // x = planeY, yzw = pad
+    glm::vec4 flags;            // x = useZeroToOne (1.0 or 0.0)
+};
+
+// CPU-side UBO layout matching the std140 GlyphUBO block in glyph.vert/frag.
+struct GlyphUBOData {
+    glm::mat4 mvp;
+    glm::vec4 scale_magMin_magMax_scaleByMag; // x=scale, y=magMin, z=magMax, w=scaleByMag
+    glm::vec4 meshExtent_magTransform_viewPosY_colorR; // x=meshExtent, y=magTransform, z=viewPos.y, w=colorR
+    glm::vec4 lightDir_colorGB; // xyz=lightDir, w=colorG
+    glm::vec4 colorB_useColormap; // x=colorB, y=useColormap(0/1), zw=pad
+    glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad
+};
+static_assert(sizeof(GlyphUBOData) % 16 == 0, "GlyphUBOData must be std140-aligned");
+
+// CPU-side UBO layout matching the std140 StreamlineUBO block in streamline.vert/frag.
+struct StreamlineUBOData {
+    glm::mat4 mvp;
+    glm::mat4 model;
+    glm::vec4 viewPos;           // xyz = viewPos
+    glm::vec4 lightDir;          // xyz = lightDir
+    glm::vec4 time_opacity;      // x = uTime, y = opacity
+    glm::vec4 color_useColormap; // xyz = color, w = useColormap(0/1)
+    glm::vec4 magRange;          // x = magMin, y = magMax, zw = pad
+    glm::vec4 material;          // x = ambient, y = diffuse, z = specular, w = specularPower
+    glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, zw = pad
+    glm::vec4 arrowParams;       // x = arrowAnimSpeed, yzw = pad
+    glm::vec4 pbr;               // x = matRoughness, y = matMetallic, z = pad, w = pad
+};
+static_assert(sizeof(StreamlineUBOData) % 16 == 0, "StreamlineUBOData must be std140-aligned");
 
 // ---------------------------------------------------------------------------
 // Renderer — PURE C++ backend.
@@ -160,8 +321,7 @@ public:
 
     // Core Initialization & Graphics Lifecycle Routines (render thread).
     void initGLAD();
-    void initShaders();
-    void initGrid();
+    void initShaders(const ShaderSources& sources);
     void initGizmo();
     void renderFrame();
 
@@ -171,10 +331,10 @@ public:
     // Snapshot accessors used by the FBO renderer (drawn state only).
     bool autoRotate() const { return m_state.autoRotate; }
     bool showFps() const { return m_state.showFps; }
+    bool isParticlesAnimating() const { return m_state.showParticles; }
 
     // Uploads CPU geometry to the GPU. Safe to call on the render thread.
     void uploadMesh(std::shared_ptr<const RenderMesh> renderMesh);
-    void drawGrid(const glm::mat4& view, const glm::mat4& proj);
 
     // Pending mesh handoff (GUI -> render thread). setPendingMesh() stores a
     // shared_ptr (no copy) plus a dirty flag; renderFrame() consumes it and
@@ -184,9 +344,16 @@ public:
     // Mark the camera as moving and (re)start the LOD debounce timer.
     void markCameraMoving();
     void markVectorGlyphDirty() { vectorGlyphDirty = true; }
+    void markStreamlineDirty() { m_streamlines.streamlineDirty = true; }
+    void markParticleCountDirty() { m_streamlines.particleCountDirty = true; }
     void resizeViewport(int width, int height);
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
+
+    // Temporary viewport override for screenshot re-render at arbitrary resolution.
+    // Pass {0,0} to clear the override and revert to the widget dimensions.
+    void setViewportOverride(int deviceW, int deviceH) { m_overrideDeviceW = deviceW; m_overrideDeviceH = deviceH; }
+    void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; colorbarOverlay.markDirty(); }
 
     // Scalar-only re-upload handoff. The payload is a shared_ptr (zero-copy).
     // m_pendingScalarSrc is guarded by meshQueueMutex so the GUI-thread write
@@ -201,9 +368,42 @@ public:
     }
     void updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars);
 
+    // Volume scalar-switch handoff. When the active scalar field changes and the
+    // mesh has structured-grid volume data, the render loop re-uploads the 3D
+    // texture in the same tick (same GL context) as the surface scalar SBO update.
+    bool consumeVolumeDirty();
+    void markVolumeDirty(std::shared_ptr<const RenderMesh> mesh) {
+        {
+            std::lock_guard<std::mutex> lock(meshQueueMutex);
+            m_pendingVolumeMesh = mesh;
+        }
+        volumeDirty = true;
+    }
+    std::shared_ptr<const RenderMesh> cachedVolumeMesh() const {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        return m_pendingVolumeMesh;
+    }
+    bool hasVolumeData() const { return m_lastUploadedMesh && !m_lastUploadedMesh->scalars.empty()
+                                         && m_lastUploadedMesh->gridDimX > 0; }
+    void uploadVolumeFromScalarDirty(const RenderRenderState& state,
+        std::shared_ptr<const std::vector<float>> scalars,
+        std::shared_ptr<const RenderMesh> mesh);
+
     // Drop all GPU meshes (GUI-thread request, safe to call any time; real GL
     // teardown happens in meshManager with a current context on the render thread).
     void clearGpuMeshes();
+
+    // Re-initialize after a GL context change (e.g. MSAA viewport recreation).
+    // Zeros stale handles and shuts down subsystems so the next initShaders()
+    // / initGizmo() call creates fresh resources.
+    void reinitForNewContext();
+
+    // Re-upload mesh geometry, vector glyphs, and colormap textures from
+    // CPU-side copies.  Call after reinitForNewContext() + initShaders().
+    void reinitMeshData();
+
+    void setClipControlAvailable(bool available) { m_clipControlAvailable = available; }
+    bool clipControlAvailable() const { return m_clipControlAvailable; }
 
     // Render-thread accessors used by ViewportFboRenderer.
     bool hasGpuMeshes() const { return meshManager.hasMeshes(); }
@@ -213,11 +413,6 @@ public:
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         return m_pendingScalarSrc;
     }
-
-    // Screenshot capture (render thread, GL context current). The viewport FBO
-    // is supplied by the QQuickFramebufferObject renderer just before capture.
-    void setViewportFbo(QOpenGLFramebufferObject* fbo) { m_viewportFbo = fbo; }
-    bool captureViewportToFile(const QString& path);
 
     // Lighting presets resolve in pure data (no signals needed on backend).
     void applyLightingPreset(int preset);
@@ -235,106 +430,40 @@ public:
     float vectorMagMin() const { return vectorGlyph.magMin; }
     float vectorMagMax() const { return vectorGlyph.magMax; }
 
+    // Streamline magnitude range (rebuilt by StreamlineSet).
+    float streamlineMagMin() const { return streamlineSet.magMin; }
+    float streamlineMagMax() const { return streamlineSet.magMax; }
+
 private:
     void drawGizmo();
     void drawColorbarLegends(int deviceW, int deviceH);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
-    std::string readShaderFile(const std::string& filePath);
 
     // Display Dimension Registers
     int width = 800;
     int height = 600;
     float devicePixelRatio = 1.0f;
+    int m_overrideDeviceW = 0;
+    int m_overrideDeviceH = 0;
 
     // Viewport Core Transform Tracking
     Gizmo gizmo;
     ColorbarOverlay colorbarOverlay;
 
-    GLuint shaderProgram = 0;
-    GLuint vao = 0, vbo = 0, ebo = 0;
-
-    // Shader uniform cache registry
-    GLint mvpLoc = -1;
-    GLint modelLoc = -1;
-    GLint viewLoc = -1;
-    GLint lightDirLoc = -1;
-    GLint viewPosLoc = -1;
-    GLint wireframeLoc = -1;
-    GLint colorLoc = -1;
-    GLint surfaceColorLoc = -1;
-    GLint meshColorLoc = -1;
-    GLint pointSizeLoc = -1; // ponytail: CPU-driven gl_PointSize for point-cloud draw
-    GLint isPointLoc = -1;    // ponytail: frag sphere-shading for point sprites
-    GLint pointUseScalarLoc = -1;
-    GLint pointOpacityLoc = -1;
-    GLint surfaceOpacityLoc = -1;
     double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
-    GLint lightFillLoc = -1;
-    GLint lightBack1Loc = -1;
-    GLint lightBack2Loc = -1;
-    GLint lightHeadLoc = -1;
-    GLint matAmbientLoc = -1;
-    GLint matDiffuseLoc = -1;
-    GLint matSpecularLoc = -1;
-    GLint matShininessLoc = -1;
-    GLint keyIntensityLoc = -1;
-    GLint fillIntensityLoc = -1;
-    GLint headIntensityLoc = -1;
-    GLint backIntensityLoc = -1;
-
-    GLint keyColorLoc = -1;
-    GLint fillColorLoc = -1;
-    GLint backColorLoc = -1;
-    GLint headColorLoc = -1;
-
-    GLint sliceHeightXLoc = -1;
-    GLint sliceHeightYLoc = -1;
-    GLint sliceHeightZLoc = -1;
-    GLint sliceEnabledXLoc = -1;
-    GLint sliceEnabledYLoc = -1;
-    GLint sliceEnabledZLoc = -1;
-    GLint invertXLoc = -1;
-    GLint invertYLoc = -1;
-    GLint invertZLoc = -1;
-    GLint filterMinLoc = -1;
-    GLint filterMaxLoc = -1;
-    GLint clipEnabledLoc = -1;
-    GLint scalarMinLoc = -1;
-    GLint scalarMaxLoc = -1;
-    GLint hasScalarsLoc = -1;
-    GLint lutTextureLoc = -1;
-
-    // glyph program + uniform cache
-    GLuint glyphProgram = 0;
-    GLint glyphMvpLoc = -1;
-    GLint glyphScaleLoc = -1;
-    GLint glyphLightDirLoc = -1;
-    GLint glyphViewPosLoc = -1;
-    GLint glyphColorLoc = -1;
-    GLint glyphUseColormapLoc = -1;
-    GLint glyphMagMinLoc = -1;
-    GLint glyphMagMaxLoc = -1;
-    GLint glyphLutLoc = -1;
-    GLint glyphScaleByMagLoc = -1;
-    GLint glyphMeshExtentLoc = -1;
-    GLint glyphMagTransformLoc = -1;
 
     double camDistance = 3.0;
     double nearPlane = 0.1;
     double farPlane = 100.0;
-    std::atomic<bool> cameraMoving{false};
-
-    // grid (procedural ray-cast ground plane)
-    GLuint gridVAO = 0, gridVBO = 0;
-    GLuint gridProgram = 0;
-    double gridPlaneY = 0.0;
-    GLint gridInvViewLoc = -1, gridInvProjLoc = -1;
-    GLint gridViewLoc = -1, gridProjLoc = -1;
-    GLint gridCamPosLoc = -1, gridColorLoc = -1, gridBgLoc = -1, gridFalloffLoc = -1, gridPlaneYLoc = -1;
 
     std::atomic<bool> vectorGlyphDirty{false};
 
     bool m_destroying = false;
+
+    // Animation clock (drives arrow animation independent of frame rate)
+    double m_animationTime = 0.0;
+    double m_lastFrameDt = 0.0;
+    std::chrono::steady_clock::time_point m_lastFrameTime;
 
     // Scalar-field switch signal: set on the GUI thread and consumed here.
     std::atomic<bool> scalarDirty{false};
@@ -344,18 +473,50 @@ private:
     mutable std::mutex meshQueueMutex;
     std::shared_ptr<const std::vector<float>> m_pendingScalarSrc; // scalar handoff (zero-copy)
 
-    std::chrono::steady_clock::time_point m_lastMotion;
+    // Volume-specific scalar-switch handoff. Paired with markVolumeDirty() /
+    // consumeVolumeDirty() and guarded by the same meshQueueMutex.
+    std::atomic<bool> volumeDirty{false};
+    std::shared_ptr<const RenderMesh> m_pendingVolumeMesh;
 
     // Deep-copied snapshot; the ONLY source of truth renderFrame() reads.
     RenderRenderState m_state;
 
-    // Viewport FBO handed in by the QQuickFramebufferObject renderer before a
-    // screenshot capture (so captureViewportToFile can read back the live view).
-    QOpenGLFramebufferObject* m_viewportFbo = nullptr;
+    bool m_clipControlAvailable = false;
 
     // --- extracted responsibility helpers -------------------------------------
-    LightingModel lighting;       // 4-point light kit params, presets, dir math
     ColormapManager colormap;     // scalar + vector LUT textures & choices
+    ColormapSync colormapSync;     // batches colormap choice→LUT updates per frame
     VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
+    StreamlineSet streamlineSet;  // GL_LINES streamline GPU resources + mag range
     MeshGLManager meshManager;     // full + decimated GPU meshes & upload
+    MeshPass meshPass;             // mesh shader program + UBO + surface draw passes
+    GlyphPass glyphPass;           // vector glyph shader program + UBO + draw
+    ParticlePass particlePass;     // particle shader program + VAO/VBO + draw
+    LodScheduler lodScheduler;     // LOD debounce + GPU compute dispatch
+    GridRenderer m_grid;           // procedural ray-cast ground plane
+    BBoxOverlay m_bbox;            // AABB wireframe overlay
+    QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
+    StreamlineController m_streamlines;      // streamline compute + draw + seeds
+    VolumePass m_volume;                      // volume ray-march pass
+
+    // --- Depth peeling for transparent surfaces ---
+    GlProgram m_peelProgram;
+    GLint  m_peelPrevDepthLoc = -1;
+    GLint  m_peelLayerLoc = -1;
+    GlProgram m_compositeProgram;
+
+    // FBOs for two-layer peeling: [0] = front layer, [1] = back layer
+    GlFramebuffer m_peelFbo[2];
+    GlTexture m_peelColorTex[2];
+    GlTexture m_peelDepthTex[2];
+    GlTexture m_peelDummyDepth;  // 1x1 initialized to 1.0 for first pass
+    GlTexture m_peelMainDepth;   // opaque geometry depth copied from main FBO
+    GlVao m_peelDummyVao;    // empty VAO for fullscreen triangle
+    int m_peelFboW = 0, m_peelFboH = 0;
+
+    void ensurePeelFbos(int w, int h);
+    void destroyPeelFbos();
+    void renderTransparent(const glm::mat4& view, const glm::mat4& proj,
+                            GLuint meshUbo,
+                            const std::vector<std::pair<GLuint, int>>& transparentMeshes);
 };

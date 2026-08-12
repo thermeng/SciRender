@@ -1,112 +1,45 @@
-#include <QGuiApplication>
-#include <QPalette>
-#include <QQmlApplicationEngine>
-#include <QtQml/QQmlContext>
-#include <QQuickStyle>
-#include <QQuickWindow>
-#include <QDebug> // Required for logging output streams
-#include <QTimer>
-#include <QFile>
+#include <QApplication>
+#include <QDebug>
 #include <QIcon>
+#include <QFile>
+#include <QSurfaceFormat>
 
-#include "render/renderer.h"
-#include "render/render_settings.h"
-#include "ui/custom_viewport_item.h"
+#include "ui/main_window.h"
 
 int main(int argc, char *argv[]) {
-    // Checkpoint 1: Application initialization entry point reached
-    qDebug() << "[LAUNCH DIAGNOSTIC 1/6] Main entry executed. Allocating resources...";
+    qDebug() << "[LAUNCH DIAGNOSTIC 1/4] Main entry executed. Allocating resources...";
 
-    // 1. Force a real DESKTOP OpenGL 3.3 context. Our shaders are
-    //    "#version 330 core" (desktop GL). On Windows, the default QSG
-    //    "OpenGL" path resolves to ANGLE -> an OpenGL ES 3.0 context, which
-    //    rejects #version 330 and silently yields blank FBO output.
-    QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
-    QSurfaceFormat glFormat;
-    glFormat.setRenderableType(QSurfaceFormat::OpenGL);
-    glFormat.setVersion(3, 3);
-    glFormat.setProfile(QSurfaceFormat::CoreProfile);
-    glFormat.setDepthBufferSize(24);
-    glFormat.setSamples(4);
-    QSurfaceFormat::setDefaultFormat(glFormat);
-
-    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
-    qDebug() << "[LAUNCH DIAGNOSTIC 2/6] Graphics API bound to desktop OpenGL 3.3 Core.";
-
-    // 2. Override default styling rules to prevent customizable control runtime crashes
-    QQuickStyle::setStyle("Fusion");
-    qDebug() << "[LAUNCH DIAGNOSTIC 3/6] Engine fallback UI style forced to 'Fusion'.";
-
-    QGuiApplication app(argc, argv);
-
-    // Window icon. The .exe already embeds it on Windows via assets/app_icon.rc;
-    // this also covers the running window and non-Windows builds.
-    {
-        const QString exeIcon = QCoreApplication::applicationDirPath() + "/app_icon.ico";
-        QIcon icon(QFile::exists(exeIcon) ? exeIcon
-                                          : QStringLiteral(APP_ICON_SRC));
-        if (!icon.isNull()) app.setWindowIcon(icon);
-    }
-
-    // Stable QSettings scope so recent files / view state persist cross-platform.
+    // Stable QSettings scope (must be set before any QSettings access)
     QCoreApplication::setOrganizationName("SciRender");
     QCoreApplication::setApplicationName("SciRender");
 
-    // Match the native (Fusion) menu bar / dropdown menus to the left rail color
-    // (#262626) so the chrome is consistent. QML controls that set their own
-    // explicit colors are unaffected; only the palette-driven menu widgets change.
-    QPalette pal = app.palette();
-    const QColor rail(0x26, 0x26, 0x26);
-    pal.setColor(QPalette::Window, rail);
-    pal.setColor(QPalette::Button, rail);
-    pal.setColor(QPalette::Base, rail);
-    pal.setColor(QPalette::AlternateBase, rail.lighter(110));
-    pal.setColor(QPalette::Highlight, QColor(0x3a, 0x3a, 0x3a));
-    pal.setColor(QPalette::WindowText, QColor(0xdd, 0xdd, 0xdd));
-    pal.setColor(QPalette::ButtonText, QColor(0xdd, 0xdd, 0xdd));
-    pal.setColor(QPalette::Text, QColor(0xdd, 0xdd, 0xdd));
-    app.setPalette(pal);
+    // Force desktop OpenGL 4.6 Core profile
+    QSurfaceFormat glFormat;
+    glFormat.setRenderableType(QSurfaceFormat::OpenGL);
+    glFormat.setVersion(4, 6);
+    glFormat.setProfile(QSurfaceFormat::CoreProfile);
+    glFormat.setDepthBufferSize(24);
+    glFormat.setSamples(0);
+    QSurfaceFormat::setDefaultFormat(glFormat);
 
-    // Register your viewport item within the exact module namespace defined in CMake
-    qmlRegisterType<ViewportVisualizer>("SciRenderUI", 1, 0, "ViewportVisualizer");
-    qDebug() << "[LAUNCH DIAGNOSTIC 4/6] C++ CustomViewportItem exposed to QML runtime module mapping.";
+    qDebug() << "[LAUNCH DIAGNOSTIC 2/4] Graphics API bound to desktop OpenGL 4.6 Core.";
 
-    QQmlApplicationEngine engine;
+    QApplication app(argc, argv);
+    app.setStyle("modernwindows");
 
-    // Connect an explicit listener to trap inner compilation or syntax errors within QML files
-    QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app, [](const QList<QQmlError> &warnings) {
-        for (const auto &error : warnings) {
-            qCritical() << "[QML COMPILE WARNING/ERROR]:" << error.toString();
-        }
-    });
+    // Window icon
+    {
+        const QString exeIcon = QApplication::applicationDirPath() + "/app_icon.ico";
+        QIcon icon(QFile::exists(exeIcon) ? exeIcon : QStringLiteral(APP_ICON_SRC));
+        if (!icon.isNull()) app.setWindowIcon(icon);
+    }
 
-    // Inject your settings (GUI-thread facade) instance globally.
-    RenderSettings backendSettings;
-    backendSettings.restoreStateFromSettings();
-    engine.rootContext()->setContextProperty("backendSettings", &backendSettings);
-    qDebug() << "[LAUNCH DIAGNOSTIC 5/6] Global backendSettings instance context property successfully injected.";
+    qDebug() << "[LAUNCH DIAGNOSTIC 3/4] Ready.";
 
-    // Persist view/lighting/colormap/vector state when the app exits.
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, &backendSettings, [&backendSettings]() {
-        backendSettings.saveStateToSettings();
-    });
+    MainWindow window;
+    window.show();
 
-    // Load from the exact resource URL generated by qt_add_qml_module
-    const QUrl url(QStringLiteral("qrc:/SciRenderUI/ui/Main.qml"));
-    qDebug() << "[LAUNCH DIAGNOSTIC 6/6] Requesting QQmlApplicationEngine to parse asset track URL:" << url.toString();
-
-
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
-                     &app, [url](QObject *obj, const QUrl &objUrl) {
-                         if (!obj && url == objUrl) {
-                             qCritical() << "[FATAL LIFECYCLE BREAK]: QML Engine failed to compile or instantiate root object window framework.";
-                             QCoreApplication::exit(-1);
-                         } else {
-                             qDebug() << "[SUCCESS]: Root UI window object created successfully. Main window event loop spinning up...";
-                         }
-                     }, Qt::QueuedConnection);
-
-    engine.load(url);
+    qDebug() << "[LAUNCH DIAGNOSTIC 4/4] MainWindow created and shown.";
 
     return app.exec();
 }

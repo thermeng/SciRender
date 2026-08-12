@@ -7,7 +7,12 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include <filesystem>
+#include <fstream>
+
+static bool fileExists(const std::string& path) {
+    std::ifstream f(path);
+    return f.good();
+}
 
 static int failures = 0;
 static std::vector<std::string> failedFiles;
@@ -27,15 +32,19 @@ static const Gold GOLD[] = {
     {"UNSTRUCTURED_GRID_cube_MultipleScalar_ascii.vtk",     12, 1, 0},
     {"UNSTRUCTURED_GRID_cube_MultipleScalar_binary.vtk",    12, 1, 0},
     {"cube_ascii.stl",                                     12, 1, 0},
-    {"cube_binary.stl",                                    12, 1, 0}
+    {"cube_binary.stl",                                    12, 1, 0},
+    {"STRUCTURED_GRID_xml_ascii.vts",                      12, 1, 0},
+    {"IMAGE_DATA_xml_ascii.vti",                           12, 1, 0},
+    {"POLYDATA_xml_ascii.vtp",                              1, 0, 3},
+    {"UNSTRUCTURED_GRID_xml_ascii.vtu",                     4, 1, 0},
+    {"RECTILINEAR_GRID_xml_ascii.vtr",                     12, 1, 0}
 };
 
 int main(){
-    namespace fs = std::filesystem;
     const std::string samples = "../samples/";   // run from tests/
     for (const auto& g : GOLD) {
         std::string path = samples + g.name;
-        if (!fs::exists(path)) { printf("SKIP (missing): %s\n", g.name); continue; }
+        if (!fileExists(path)) { printf("SKIP (missing): %s\n", g.name); continue; }
         RenderMesh m = loadMeshFile(path);
         uint32_t vc = (uint32_t)(m.vertices.size()/3);
         uint32_t mx = 0; for (uint32_t x : m.indices) mx = (x>mx)?x:mx;

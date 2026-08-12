@@ -70,28 +70,13 @@ public:
         buildTopology();
         finalizeMeshData();
 
-        // ponytail: ParaView-style cell boundaries — emit each cell's cyclic
-        // edges (v0-v1, v1-v2, ... vN-1-v0). Quads => 4 edges, no diagonal;
-        // triangles => 3 (same as wireframe). Gated to grid datasets only
-        // (supportsCellGrid); POLYDATA/STL get no quad cell grid.
-        if (mesh.supportsCellGrid) {
-            for (const auto& cell : globalCellToVertices) {
-                const size_t n = cell.size();
-                if (n < 2) continue;
-                for (size_t k = 0; k < n; ++k) {
-                    const uint32_t a = cell[k];
-                    const uint32_t b = cell[(k + 1) % n];
-                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 0]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 1]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * a + 2]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 0]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 1]);
-                    mesh.cellEdges.push_back(mesh.vertices[3 * b + 2]);
-                }
-            }
-        }
         mesh.datasetType = datasetType.empty() ? "UNKNOWN" : datasetType;
         mesh.fileFormat = "VTK";
+        if (datasetType == "STRUCTURED_POINTS" || datasetType == "STRUCTURED_GRID" || datasetType == "RECTILINEAR_GRID") {
+            mesh.gridDimX = dimX;
+            mesh.gridDimY = dimY;
+            mesh.gridDimZ = dimZ;
+        }
         return mesh;
     }
 
@@ -417,55 +402,58 @@ private:
         std::vector<float> readScalars(activeElementCount);
 
       
-        bool binaryReadOk = true;
-      
+        bool binaryReadOk = false;
         bool badField = false;
 
         if (isBinary) {
             if (dataType == "DOUBLE") {
                 std::vector<double> tempDouble(readScalars.size());
-                if (!readBinaryArray(file, tempDouble.size(), tempDouble)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempDouble.size(); ++i) readScalars[i] = static_cast<float>(tempDouble[i]);
+                if (readBinaryArray(file, tempDouble.size(), tempDouble)) {
+                    for (size_t i = 0; i < tempDouble.size(); ++i) readScalars[i] = static_cast<float>(tempDouble[i]);
+                    binaryReadOk = true;
+                }
             }
             else if (dataType == "FLOAT") {
-                if (!readBinaryArray(file, readScalars.size(), readScalars)) binaryReadOk = false;
+                if (readBinaryArray(file, readScalars.size(), readScalars)) binaryReadOk = true;
             }
             else if (dataType == "INT" || dataType == "UNSIGNED_INT" || dataType == "LONG") {
                 std::vector<int32_t> tempInts(readScalars.size());
-                if (!readBinaryArray(file, tempInts.size(), tempInts)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempInts.size(); ++i) readScalars[i] = static_cast<float>(tempInts[i]);
+                if (readBinaryArray(file, tempInts.size(), tempInts)) {
+                    for (size_t i = 0; i < tempInts.size(); ++i) readScalars[i] = static_cast<float>(tempInts[i]);
+                    binaryReadOk = true;
+                }
             }
             else if (dataType == "LONG_LONG" || dataType == "UNSIGNED_LONG_LONG") {
                 std::vector<int64_t> tempLongs(readScalars.size());
-                if (!readBinaryArray(file, tempLongs.size(), tempLongs)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempLongs.size(); ++i) readScalars[i] = static_cast<float>(tempLongs[i]);
+                if (readBinaryArray(file, tempLongs.size(), tempLongs)) {
+                    for (size_t i = 0; i < tempLongs.size(); ++i) readScalars[i] = static_cast<float>(tempLongs[i]);
+                    binaryReadOk = true;
+                }
             }
             else if (dataType == "SHORT" || dataType == "UNSIGNED_SHORT") {
                 std::vector<int16_t> tempShorts(readScalars.size());
-                if (!readBinaryArray(file, tempShorts.size(), tempShorts)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempShorts.size(); ++i) readScalars[i] = static_cast<float>(tempShorts[i]);
+                if (readBinaryArray(file, tempShorts.size(), tempShorts)) {
+                    for (size_t i = 0; i < tempShorts.size(); ++i) readScalars[i] = static_cast<float>(tempShorts[i]);
+                    binaryReadOk = true;
+                }
             }
             else if (dataType == "UNSIGNED_CHAR") {
                 std::vector<uint8_t> tempBytes(readScalars.size());
-                if (!readBinaryArray(file, tempBytes.size(), tempBytes)) binaryReadOk = false;
-                else for (size_t i = 0; i < tempBytes.size(); ++i) readScalars[i] = static_cast<float>(tempBytes[i]);
-            }
-            if (binaryReadOk) {
-                for (float v : readScalars) {
-                    if (!std::isfinite(v)) { badField = true; break; }
+                if (readBinaryArray(file, tempBytes.size(), tempBytes)) {
+                    for (size_t i = 0; i < tempBytes.size(); ++i) readScalars[i] = static_cast<float>(tempBytes[i]);
+                    binaryReadOk = true;
                 }
             }
             else {
                 std::cerr << "VTK Parser Warning: unsupported SCALARS type '" << dataType
                           << "' for binary data; skipping field." << std::endl;
-                binaryReadOk = false;
             }
 
             if (!binaryReadOk) {
                 std::cerr << "VTK Parser Warning: short read on binary SCALARS '" << scalarName
                           << "'; skipping field to avoid stream desync." << std::endl;
                 if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
-                if (readingPointData) mesh.attributes->pointScalars[scalarName]; // ensure key exists, empty
+                if (readingPointData) mesh.attributes->pointScalars[scalarName];
                 else { mesh.attributes->cellScalars[scalarName]; cellScalarsStorage[scalarName]; }
                 return;
             }
@@ -641,32 +629,26 @@ private:
 
     void buildTopology() {
         if (datasetType == "STRUCTURED_POINTS") {
-            // ponytail: regular lattice — build the 6-face surface so it renders
-            // as a mesh; keep the point geometry + renderAsPoints so showPoints
-            // can also draw it as a cloud.
             generateStructuredPointsGeometry();
-            globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+            generateStructuredGridSurface(dimX, dimY, dimZ);
+            globalCellToVertices = generateStructuredGridCells(dimX, dimY, dimZ);
             numCells = static_cast<int>(globalCellToVertices.size());
-            mesh.supportsCellGrid = true;
             mesh.renderAsPoints = true;
         }
         else if (datasetType == "RECTILINEAR_GRID" && !rectX.empty() && !rectY.empty() && !rectZ.empty()) {
             generateRectilinearGridGeometry();
-            globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+            generateStructuredGridSurface(dimX, dimY, dimZ);
+            globalCellToVertices = generateStructuredGridCells(dimX, dimY, dimZ);
             numCells = static_cast<int>(globalCellToVertices.size());
-            mesh.supportsCellGrid = true;
         }
         else if (datasetType == "UNSTRUCTURED_GRID" && !rawCellData.empty()) {
             globalCellToVertices = triangulateUnstructuredCells(rawCellData, cellTypes, numCells);
-            mesh.supportsCellGrid = true;
         }
         else if (datasetType == "STRUCTURED_GRID") {
-            // Curvilinear grid: point positions come from the POINTS block (parsed
-            // separately); we only build the surface tessellation here.
             if (!mesh.vertices.empty()) {
-                globalCellToVertices = generateStructuredGridSurface(dimX, dimY, dimZ);
+                generateStructuredGridSurface(dimX, dimY, dimZ);
+                globalCellToVertices = generateStructuredGridCells(dimX, dimY, dimZ);
                 numCells = static_cast<int>(globalCellToVertices.size());
-                mesh.supportsCellGrid = true;
             }
         }
         else if (datasetType == "POLYDATA") {
@@ -761,52 +743,60 @@ private:
 
         const bool is3D = (dX > 1 && dY > 1 && dZ > 1);
         if (is3D) {
-            // All six faces are wound CCW as seen from OUTSIDE the box (i.e. the
-            // triangle (a,b,c) of each addQuad has its geometric normal pointing
-            // along the face's outward direction). This makes the surface robust
-            // to GL_CULL_FACE ever being enabled (S1).
-
-            // Bottom (z = 0, outward -Z): CCW seen from -Z
             for (int y = 0; y < cy; ++y)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, y, 0), idx(x, y + 1, 0), idx(x + 1, y + 1, 0), idx(x + 1, y, 0));
-            // Top (z = dZ-1, outward +Z): CCW seen from +Z
             for (int y = 0; y < cy; ++y)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, y, dZ - 1), idx(x + 1, y, dZ - 1), idx(x + 1, y + 1, dZ - 1), idx(x, y + 1, dZ - 1));
-            // Left (x = 0, outward -X): CCW seen from -X
             for (int z = 0; z < cz; ++z)
                 for (int y = 0; y < cy; ++y)
                     addQuad(idx(0, y, z), idx(0, y, z + 1), idx(0, y + 1, z + 1), idx(0, y + 1, z));
-            // Right (x = dX-1, outward +X): CCW seen from +X
             for (int z = 0; z < cz; ++z)
                 for (int y = 0; y < cy; ++y)
                     addQuad(idx(dX - 1, y, z), idx(dX - 1, y + 1, z), idx(dX - 1, y + 1, z + 1), idx(dX - 1, y, z + 1));
-            // Back (y = 0, outward -Y): CCW seen from -Y
             for (int z = 0; z < cz; ++z)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
-            // Front (y = dY-1, outward +Y): CCW seen from +Y
             for (int z = 0; z < cz; ++z)
                 for (int x = 0; x < cx; ++x)
                     addQuad(idx(x, dY - 1, z), idx(x, dY - 1, z + 1), idx(x + 1, dY - 1, z + 1), idx(x + 1, dY - 1, z));
         } else if (dZ == 1) {
-            // dY>1 && dX>1 (a planar sheet). Clamp the inner loop bounds so we
-            // never index a non-existent row (y+1) or column (x+1).
             for (int y = 0; y + 1 < dY; ++y)
                 for (int x = 0; x + 1 < dX; ++x)
                     addQuad(idx(x, y, 0), idx(x + 1, y, 0), idx(x + 1, y + 1, 0), idx(x, y + 1, 0));
         } else if (dY == 1) {
-            // dZ>1 && dX>1 (a wall in the XZ plane). No Y dimension to step in.
             for (int z = 0; z + 1 < dZ; ++z)
                 for (int x = 0; x + 1 < dX; ++x)
                     addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
         } else if (dX == 1) {
-            // dZ>1 && dY>1 (a wall in the YZ plane). No X dimension to step in.
             for (int z = 0; z + 1 < dZ; ++z)
                 for (int y = 0; y + 1 < dY; ++y)
                     addQuad(idx(0, y, z), idx(0, y + 1, z), idx(0, y + 1, z + 1), idx(0, y, z + 1));
         }
+        return cellToVertices;
+    }
+
+    std::vector<std::vector<uint32_t>> generateStructuredGridCells(int dX, int dY, int dZ) {
+        std::vector<std::vector<uint32_t>> cellToVertices;
+        auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
+        const int cx = std::max(1, dX - 1);
+        const int cy = std::max(1, dY - 1);
+        const int cz = std::max(1, dZ - 1);
+        cellToVertices.reserve(static_cast<size_t>(cx) * cy * cz);
+        for (int z = 0; z + 1 < dZ; ++z)
+            for (int y = 0; y + 1 < dY; ++y)
+                for (int x = 0; x + 1 < dX; ++x) {
+                    uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
+                    uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
+                    uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
+                    uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
+                    uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
+                    uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
+                    uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
+                    uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
+                    cellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
+                }
         return cellToVertices;
     }
 
@@ -963,6 +953,7 @@ private:
                 if (idx + 7 < static_cast<int>(rawCellData.size())) {
                     uint32_t h0 = rawCellData[idx + 0], h1 = rawCellData[idx + 1], h2 = rawCellData[idx + 3], h3 = rawCellData[idx + 2];
                     uint32_t h4 = rawCellData[idx + 4], h5 = rawCellData[idx + 5], h6 = rawCellData[idx + 7], h7 = rawCellData[idx + 6];
+                    cellToVertices[c] = {h0, h1, h2, h3, h4, h5, h6, h7};
                     mesh.indices.insert(mesh.indices.end(), {
                         h0, h3, h1, h1, h3, h2, h4, h5, h7, h5, h6, h7,
                         h0, h1, h4, h1, h5, h4, h2, h3, h6, h3, h7, h6,

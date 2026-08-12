@@ -19,7 +19,6 @@ public:
     // Core Transformation Methods
     void azimuth(double angle);
     void elevation(double angle);
-    void roll(double angle);
     void pan(double dx, double dy);
     void dolly(double factor);
 
