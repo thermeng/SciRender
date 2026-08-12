@@ -1044,6 +1044,13 @@ QWidget* MainWindow::buildScalarPage() {
     scalarColorCb->setChecked(m_settings->getMeshUseScalarColor());
     connect(scalarColorCb, &QCheckBox::toggled, m_settings, &RenderSettings::setMeshUseScalarColor);
 
+    auto* showCb = scalarUi.showCb;
+    m_scalarShowCb = showCb;
+    showCb->setChecked(m_settings->getMeshUseScalarColor());
+    connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setMeshUseScalarColor);
+    connect(showCb, &QCheckBox::toggled, scalarUi.optionsGroup, &QWidget::setEnabled);
+    scalarUi.optionsGroup->setEnabled(m_settings->hasMeshScalars());
+
     m_scalarCombo = scalarUi.scalarCombo;
     m_scalarCombo->addItems(m_settings->getAvailableScalars());
     m_scalarCombo->setCurrentText(m_settings->getActiveScalarNameQml());
@@ -1277,6 +1284,8 @@ QWidget* MainWindow::buildStreamlinesPage() {
     m_slShowCb = showCb;
     showCb->setChecked(m_settings->getShowStreamlines());
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowStreamlines);
+    connect(showCb, &QCheckBox::toggled, slUi.optionsGroup, &QWidget::setEnabled);
+    slUi.optionsGroup->setEnabled(m_settings->getShowStreamlines());
 
     m_streamlineCombo = slUi.streamlineCombo;
     m_streamlineCombo->addItems(m_settings->getAvailableVectors());
@@ -1683,6 +1692,8 @@ QWidget* MainWindow::buildVolumePage() {
     showCb->setEnabled(m_settings->hasVolumeData());
     if (!m_settings->hasVolumeData()) showCb->setChecked(false);
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolume);
+    connect(showCb, &QCheckBox::toggled, volumeUi.optionsGroup, &QWidget::setEnabled);
+    volumeUi.optionsGroup->setEnabled(m_settings->hasVolumeData() && m_settings->getShowVolume());
 
     m_volumeFieldCombo = volumeUi.volumeFieldCombo;
     m_volumeFieldCombo->addItems(m_settings->getAvailableScalars());
@@ -2055,6 +2066,11 @@ void MainWindow::connectSettings() {
         if (m_vecShowCb) {
             m_vecShowCb->setEnabled(hasVectors);
             if (!hasVectors) m_vecShowCb->setChecked(false);
+        }
+        if (m_scalarShowCb) {
+            bool ok = m_settings->hasMeshScalars();
+            m_scalarShowCb->setEnabled(ok);
+            if (!ok) m_scalarShowCb->setChecked(false);
         }
         if (m_volumeShowCb) {
             bool ok = m_settings->hasVolumeData();
