@@ -1,7 +1,9 @@
 #include "render/MeshGLManager.h"
+#include "render/render_config.h"
 #include "core/mesh_loader.h"
 
 #include <cmath>
+#include <cstdio>
 #include <unordered_map>
 #include <algorithm>
 #include <string>
@@ -116,7 +118,7 @@ bool surfaceDecimationSafe(const RenderMesh& in) {
     const double dz = in.bounds.maxZ - in.bounds.minZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     if (diag < 1e-9) return false;
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
     cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
     const double cell = diag / cellsPerAxis;
 
@@ -136,83 +138,58 @@ bool surfaceDecimationSafe(const RenderMesh& in) {
 }
 } // namespace
 
-void MeshGLManager::destroyMesh(Mesh& mesh) {
-    glDeleteVertexArrays(1, &mesh.vao);
-    glDeleteBuffers(1, &mesh.vbo);
-    glDeleteBuffers(1, &mesh.nbo);
-    glDeleteBuffers(1, &mesh.ebo);
-    if (mesh.sbo) glDeleteBuffers(1, &mesh.sbo);
-    if (mesh.lineVao) { glDeleteVertexArrays(1, &mesh.lineVao); glDeleteBuffers(1, &mesh.lineVbo); }
-}
-
 void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out) {
     Mesh mesh;
     mesh.indexCount = static_cast<int>(renderMesh.indices.size());
     mesh.vertexCount = static_cast<int>(renderMesh.vertices.size() / 3);
 
-    glGenVertexArrays(1, &mesh.vao);
-    glGenBuffers(1, &mesh.vbo);
-    glGenBuffers(1, &mesh.nbo);
-    glGenBuffers(1, &mesh.ebo);
+    glCreateVertexArrays(1, mesh.vao.ptr());
+    glCreateBuffers(1, mesh.vbo.ptr());
+    glCreateBuffers(1, mesh.nbo.ptr());
+    glCreateBuffers(1, mesh.ebo.ptr());
 
-    glBindVertexArray(mesh.vao);
+    glEnableVertexArrayAttrib(mesh.vao, 0);
+    glVertexArrayAttribFormat(mesh.vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(mesh.vao, 0, 0);
+    glNamedBufferData(mesh.vbo, renderMesh.vertices.size() * sizeof(float), renderMesh.vertices.data(), GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(mesh.vao, 0, mesh.vbo, 0, 3 * sizeof(float));
 
-    glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
-    glBufferData(GL_ARRAY_BUFFER, renderMesh.vertices.size() * sizeof(float), renderMesh.vertices.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+    glEnableVertexArrayAttrib(mesh.vao, 1);
+    glVertexArrayAttribFormat(mesh.vao, 1, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(mesh.vao, 1, 1);
 
-    glBindBuffer(GL_ARRAY_BUFFER, mesh.nbo);
-    // B4: never upload an empty normal buffer. If normals are missing (should not
-    // happen once computeNormals runs, but keep this robust) attribute 1 would
-    // otherwise point at a zero-sized/garbage buffer => undefined shading. Fall
-    // back to a per-vertex (0,0,1) so lighting is at least deterministic.
     const size_t vertCount = renderMesh.vertices.size() / 3;
     if (renderMesh.normals.size() == renderMesh.vertices.size() && !renderMesh.normals.empty()) {
-        glBufferData(GL_ARRAY_BUFFER, renderMesh.normals.size() * sizeof(float), renderMesh.normals.data(), GL_STATIC_DRAW);
+        glNamedBufferData(mesh.nbo, renderMesh.normals.size() * sizeof(float), renderMesh.normals.data(), GL_STATIC_DRAW);
     } else {
         std::vector<float> fallback(vertCount * 3, 0.0f);
         for (size_t i = 0; i < vertCount; ++i) fallback[i * 3 + 2] = 1.0f;
-        glBufferData(GL_ARRAY_BUFFER, fallback.size() * sizeof(float), fallback.data(), GL_STATIC_DRAW);
+        glNamedBufferData(mesh.nbo, fallback.size() * sizeof(float), fallback.data(), GL_STATIC_DRAW);
     }
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1);
+    glVertexArrayVertexBuffer(mesh.vao, 1, mesh.nbo, 0, 3 * sizeof(float));
 
     if (!renderMesh.scalars.empty()) {
-        glGenBuffers(1, &mesh.sbo);
-        glBindBuffer(GL_ARRAY_BUFFER, mesh.sbo);
-        glBufferData(GL_ARRAY_BUFFER, renderMesh.scalars.size() * sizeof(float), renderMesh.scalars.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
-        glEnableVertexAttribArray(2);
+        glCreateBuffers(1, mesh.sbo.ptr());
+        glEnableVertexArrayAttrib(mesh.vao, 2);
+        glVertexArrayAttribFormat(mesh.vao, 2, 1, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(mesh.vao, 2, 2);
+        glVertexArrayVertexBuffer(mesh.vao, 2, mesh.sbo, 0, sizeof(float));
+        glNamedBufferData(mesh.sbo, renderMesh.scalars.size() * sizeof(float), renderMesh.scalars.data(), GL_STATIC_DRAW);
     } else {
-        mesh.sbo = 0;
+        mesh.sbo.reset();
     }
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, renderMesh.indices.size() * sizeof(unsigned int), renderMesh.indices.data(), GL_STATIC_DRAW);
+    glNamedBufferData(mesh.ebo, renderMesh.indices.size() * sizeof(unsigned int), renderMesh.indices.data(), GL_STATIC_DRAW);
+    glVertexArrayElementBuffer(mesh.vao, mesh.ebo);
 
-    // ponytail: per-cell boundary edges (cellEdges) -> dedicated line VBO
-    if (!renderMesh.cellEdges.empty()) {
-        glGenVertexArrays(1, &mesh.lineVao);
-        glGenBuffers(1, &mesh.lineVbo);
-        glBindVertexArray(mesh.lineVao);
-        glBindBuffer(GL_ARRAY_BUFFER, mesh.lineVbo);
-        glBufferData(GL_ARRAY_BUFFER, renderMesh.cellEdges.size() * sizeof(float), renderMesh.cellEdges.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-        glEnableVertexAttribArray(0);
-        glBindVertexArray(0);
-        mesh.lineCount = static_cast<int>(renderMesh.cellEdges.size() / 3);
-    }
-
-    glBindVertexArray(0);
-    out.push_back(mesh);
+    out.push_back(std::move(mesh));
 }
 
 RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
     RenderMesh out;
     const size_t nv = in.vertices.size() / 3;
     // Small meshes gain nothing from LOD and risk degeneracy — skip them.
-    if (nv < 4000 || in.indices.size() < 3) return out;
+    if (nv < RenderConfig::defaults().lodMinVertices || in.indices.size() < 3) return out;
 
     const double minX = in.bounds.minX, minY = in.bounds.minY, minZ = in.bounds.minZ;
     const double dx = in.bounds.maxX - minX, dy = in.bounds.maxY - minY, dz = in.bounds.maxZ - minZ;
@@ -221,7 +198,7 @@ RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
 
     // Cells per axis chosen so the cluster count is a coarse fraction of the
     // vertices (~half the "one cell per vertex" resolution => ~1/8th vertices).
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
     cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
     const double cell = diag / cellsPerAxis;
 
@@ -334,9 +311,7 @@ void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
     // Guarded by the mutex so it cannot race with clear() on the UI thread.
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& m : meshes_) destroyMesh(m);
         meshes_.clear();
-        for (auto& m : decimatedMeshes_) destroyMesh(m);
         decimatedMeshes_.clear();
 
         meshes_ = std::move(newFull);
@@ -350,9 +325,7 @@ void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
 void MeshGLManager::clear() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& m : meshes_) destroyMesh(m);
         meshes_.clear();
-        for (auto& m : decimatedMeshes_) destroyMesh(m);
         decimatedMeshes_.clear();
         hasDecimated_ = false;
         hasFullSource_ = false;
@@ -374,7 +347,7 @@ std::vector<float> MeshGLManager::decimateScalars(
     const double dx = in.bounds.maxX - minX, dy = in.bounds.maxY - minY, dz = in.bounds.maxZ - minZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     if (diag < 1e-9) return {};
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
     cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
     const double cell = diag / cellsPerAxis;
 
@@ -435,24 +408,18 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
     auto reupload = [&](std::vector<Mesh>& meshes, const std::vector<float>& data) {
         for (auto& m : meshes) {
             if (!data.empty()) {
-                if (m.sbo == 0) {
-                    glGenBuffers(1, &m.sbo);
-                    glBindVertexArray(m.vao);
-                    glBindBuffer(GL_ARRAY_BUFFER, m.sbo);
-                    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
-                    glEnableVertexAttribArray(2);
-                    glBindVertexArray(0);
+                if (!m.sbo.has()) {
+                    glCreateBuffers(1, m.sbo.ptr());
+                    glEnableVertexArrayAttrib(m.vao, 2);
+                    glVertexArrayAttribFormat(m.vao, 2, 1, GL_FLOAT, GL_FALSE, 0);
+                    glVertexArrayAttribBinding(m.vao, 2, 2);
+                    glVertexArrayVertexBuffer(m.vao, 2, m.sbo, 0, sizeof(float));
                 }
-                glBindBuffer(GL_ARRAY_BUFFER, m.sbo);
                 const size_t bytes = data.size() * sizeof(float);
-                // Orphan: discard the old backing store so the driver can
-                // pipeline a fresh allocation and avoid stalling on a live
-                // buffer. Then stream the new scalars in via glBufferSubData.
-                glBufferData(GL_ARRAY_BUFFER, bytes, nullptr, GL_STATIC_DRAW);
-                glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, data.data());
-            } else if (m.sbo != 0) {
-                glDeleteBuffers(1, &m.sbo);
-                m.sbo = 0;
+                glNamedBufferData(m.sbo, bytes, nullptr, GL_STATIC_DRAW);
+                glNamedBufferSubData(m.sbo, 0, bytes, data.data());
+            } else if (m.sbo.has()) {
+                m.sbo.reset();
             }
         }
     };
@@ -462,17 +429,290 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
 
 void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
                                       bool useLod, bool cameraMoving,
-                                      std::vector<int>& outMode,
                                       std::vector<int>& outVerts) const {
     std::lock_guard<std::mutex> lock(mutex_);
     const std::vector<Mesh>& src =
         (useLod && cameraMoving && hasDecimated_) ? decimatedMeshes_ : meshes_;
     out.reserve(src.size());
-    outMode.reserve(src.size());
     outVerts.reserve(src.size());
     for (const auto& m : src) {
-        out.push_back({m.vao, m.indexCount});
-        outMode.push_back(0);          // triangles handled by indexCount path
+        out.push_back({m.vao.get(), m.indexCount});
         outVerts.push_back(m.vertexCount);
     }
+}
+
+namespace {
+GLuint compileCompute(const char* src, const char* label, std::string& errOut) {
+    GLuint s = glCreateShader(GL_COMPUTE_SHADER);
+    glShaderSource(s, 1, &src, nullptr);
+    glCompileShader(s);
+    GLint ok = 0;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[512];
+        glGetShaderInfoLog(s, 512, nullptr, log);
+        errOut += std::string("[LOD] ") + label + " compile error: " + log + "\n";
+        glDeleteShader(s);
+        return 0;
+    }
+    return s;
+}
+
+GLuint linkCompute(GLuint s, const char* label, std::string& errOut) {
+    GLuint p = glCreateProgram();
+    glAttachShader(p, s);
+    glLinkProgram(p);
+    GLint ok = 0;
+    glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[512];
+        glGetProgramInfoLog(p, 512, nullptr, log);
+        errOut += std::string("[LOD] ") + label + " link error: " + log + "\n";
+        glDeleteProgram(p);
+        return 0;
+    }
+    glDeleteShader(s);
+    return p;
+}
+}
+
+void MeshGLManager::initLodCompute(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc) {
+    if (lodProgramAccum.has()) return;
+
+    lastLodError_.clear();
+
+    GLuint sAccum = compileCompute(accumSrc.c_str(), "accum", lastLodError_);
+    GLuint sOutput = compileCompute(outputSrc.c_str(), "output", lastLodError_);
+    GLuint sTris = compileCompute(trisSrc.c_str(), "tris", lastLodError_);
+
+    lodProgramAccum.reset(sAccum ? linkCompute(sAccum, "accum", lastLodError_) : 0);
+    lodProgramOutput.reset(sOutput ? linkCompute(sOutput, "output", lastLodError_) : 0);
+    lodProgramTris.reset(sTris ? linkCompute(sTris, "tris", lastLodError_) : 0);
+
+    if (!lodProgramAccum.has() || !lodProgramOutput.has() || !lodProgramTris.has()) {
+        cleanupLodCompute();
+        return;
+    }
+
+    glCreateBuffers(1, lodCellSsbo.ptr());
+    glCreateBuffers(1, lodRemapSsbo.ptr());
+    glCreateBuffers(1, lodCounterSsbo.ptr());
+    glCreateBuffers(1, lodParamsUbo.ptr());
+    lodGpuDecimationReady = true;
+}
+
+void MeshGLManager::cleanupLodCompute() {
+    lodProgramAccum.reset();
+    lodProgramOutput.reset();
+    lodProgramTris.reset();
+    lodCellSsbo.reset();
+    lodRemapSsbo.reset();
+    lodCounterSsbo.reset();
+    lodParamsUbo.reset();
+    lodGpuDecimationReady = false;
+    lodCellsPerAxis = 0;
+}
+
+void MeshGLManager::setComputeShaderSources(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc) {
+    lodAccumSrc_ = accumSrc;
+    lodOutputSrc_ = outputSrc;
+    lodTrisSrc_ = trisSrc;
+}
+
+bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimated) {
+    if (!lodGpuDecimationReady) initLodCompute(lodAccumSrc_, lodOutputSrc_, lodTrisSrc_);
+    if (!lodProgramAccum.has() || !lodProgramOutput.has() || !lodProgramTris.has()) {
+        if (lastLodError_.empty()) lastLodError_ = "[LOD] compute programs not ready";
+        return false;
+    }
+
+    // The persistent LOD buffers stay bound to SSBO slots 8-11 from the
+    // previous dispatch. Resizing them with glNamedBufferData while bound to an
+    // indexed binding point generates GL_INVALID_OPERATION, so unbind first.
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, 0);
+
+    const size_t nv = mesh.vertices.size() / 3;
+    if (nv < 3 || mesh.indices.empty()) {
+        lastLodError_ = "[LOD] source mesh too small or has no triangles (nv="
+            + std::to_string(nv) + ", indices=" + std::to_string(mesh.indices.size()) + ")";
+        return false;
+    }
+
+    const double dx = mesh.bounds.maxX - mesh.bounds.minX;
+    const double dy = mesh.bounds.maxY - mesh.bounds.minY;
+    const double dz = mesh.bounds.maxZ - mesh.bounds.minZ;
+    const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (diag < 1e-9) {
+        lastLodError_ = "[LOD] degenerate bounds (diag=" + std::to_string(diag) + ")";
+        return false;
+    }
+
+    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
+    cellsPerAxis = std::max(2, std::min(cellsPerAxis, 128));
+    const int totalCells = cellsPerAxis * cellsPerAxis * cellsPerAxis;
+    lodCellsPerAxis = cellsPerAxis;
+
+    struct Params {
+        glm::ivec4 cellsPerAxis;
+        glm::vec4 boundsMin;
+        glm::vec4 boundsMax;
+        int vertexCount;
+        int triangleCount;
+        int hasNormals;
+        int hasScalars;
+    };
+    Params params;
+    params.cellsPerAxis = glm::ivec4(cellsPerAxis, cellsPerAxis, cellsPerAxis, 0);
+    params.boundsMin = glm::vec4(static_cast<float>(mesh.bounds.minX), static_cast<float>(mesh.bounds.minY), static_cast<float>(mesh.bounds.minZ), 0.0f);
+    params.boundsMax = glm::vec4(static_cast<float>(mesh.bounds.maxX), static_cast<float>(mesh.bounds.maxY), static_cast<float>(mesh.bounds.maxZ), 0.0f);
+    params.vertexCount = static_cast<int>(nv);
+    params.triangleCount = static_cast<int>(mesh.indices.size() / 3);
+    params.hasNormals = mesh.normals.size() == mesh.vertices.size() && !mesh.normals.empty() ? 1 : 0;
+    params.hasScalars = !mesh.scalars.empty() ? 1 : 0;
+
+    glNamedBufferData(lodParamsUbo, sizeof(Params), &params, GL_STATIC_DRAW);
+    glNamedBufferData(lodCellSsbo, totalCells * sizeof(unsigned int) * 10, nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferData(lodRemapSsbo, nv * sizeof(unsigned int), nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferData(lodCounterSsbo, 2 * sizeof(unsigned int), nullptr, GL_DYNAMIC_DRAW);
+    {
+        // Zero the cell data buffer so atomicAdd starts from 0.
+        std::vector<GLuint> zeros(totalCells * 10, 0);
+        glNamedBufferSubData(lodCellSsbo, 0, zeros.size() * sizeof(GLuint), zeros.data());
+    }
+    GLuint zero = 0;
+    glNamedBufferSubData(lodCounterSsbo, 0, sizeof(unsigned int), &zero);
+    glNamedBufferSubData(lodCounterSsbo, sizeof(unsigned int), sizeof(unsigned int), &zero);
+
+    GlBuffer inPosSsbo, inNormSsbo, inScalSsbo, inIdxSsbo;
+    glCreateBuffers(1, inPosSsbo.ptr());
+    glCreateBuffers(1, inNormSsbo.ptr());
+    glCreateBuffers(1, inScalSsbo.ptr());
+    glCreateBuffers(1, inIdxSsbo.ptr());
+    glNamedBufferData(inPosSsbo, mesh.vertices.size() * sizeof(float), mesh.vertices.data(), GL_STATIC_DRAW);
+    glNamedBufferData(inNormSsbo, std::max<size_t>(1, mesh.normals.size()) * sizeof(float), mesh.normals.empty() ? nullptr : mesh.normals.data(), GL_STATIC_DRAW);
+    glNamedBufferData(inScalSsbo, std::max<size_t>(1, mesh.scalars.size()) * sizeof(float), mesh.scalars.empty() ? nullptr : mesh.scalars.data(), GL_STATIC_DRAW);
+    glNamedBufferData(inIdxSsbo, mesh.indices.size() * sizeof(unsigned int), mesh.indices.data(), GL_STATIC_DRAW);
+
+    GlBuffer outPosSsbo, outNormSsbo, outScalSsbo, outIdxSsbo;
+    glCreateBuffers(1, outPosSsbo.ptr());
+    glCreateBuffers(1, outNormSsbo.ptr());
+    glCreateBuffers(1, outScalSsbo.ptr());
+    glCreateBuffers(1, outIdxSsbo.ptr());
+    glNamedBufferData(outPosSsbo, mesh.vertices.size() * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferData(outNormSsbo, std::max<size_t>(1, mesh.normals.size()) * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferData(outScalSsbo, std::max<size_t>(1, mesh.scalars.size()) * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glNamedBufferData(outIdxSsbo, mesh.indices.size() * sizeof(unsigned int), nullptr, GL_DYNAMIC_DRAW);
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, inPosSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, inNormSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, inScalSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, inIdxSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, outPosSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, outNormSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, outScalSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, outIdxSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, lodCellSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, lodParamsUbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, lodCounterSsbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, lodRemapSsbo);
+
+    GLuint groups = (static_cast<GLuint>(nv) + 255u) / 256u;
+
+    glUseProgram(lodProgramAccum);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    glDispatchCompute(groups, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    GLenum errAccum = glGetError();
+
+    glUseProgram(lodProgramOutput);
+    glDispatchCompute(totalCells, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    GLenum errOutput = glGetError();
+
+    glUseProgram(lodProgramTris);
+    GLuint triGroups = (static_cast<GLuint>(mesh.indices.size() / 3) + 255u) / 256u;
+    glDispatchCompute(triGroups, 1, 1);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
+    GLenum errTris = glGetError();
+
+    // The compute writes must be visible to the host before the counter/data
+    // readbacks below. GL_SHADER_STORAGE_BARRIER_BIT only orders shader-to-shader
+    // accesses; host reads of buffer data additionally need
+    // GL_BUFFER_UPDATE_BARRIER_BIT (plus glFinish for a hard sync point). Without
+    // it, drivers may return stale zeros from the SSBOs.
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+    glFlush();
+
+    GLuint outVertCount = 0, outTriCount = 0;
+    glGetNamedBufferSubData(lodCounterSsbo, 0, sizeof(unsigned int), &outVertCount);
+    glGetNamedBufferSubData(lodCounterSsbo, sizeof(unsigned int), sizeof(unsigned int), &outTriCount);
+
+    if (outVertCount == 0 || outTriCount == 0) {
+        GLuint cellSample[8] = {0,0,0,0,0,0,0,0};
+        glGetNamedBufferSubData(lodCellSsbo, 0, sizeof(cellSample), cellSample);
+        lastLodError_ = "[LOD] compute produced empty result (verts="
+            + std::to_string(outVertCount) + ", tris=" + std::to_string(outTriCount)
+            + ", nv=" + std::to_string(nv) + ", cellsPerAxis=" + std::to_string(cellsPerAxis)
+            + ", hasNormals=" + std::to_string(params.hasNormals)
+            + ", hasScalars=" + std::to_string(params.hasScalars)
+            + ", accumCells[0..7]="
+            + std::to_string(cellSample[0]) + "," + std::to_string(cellSample[1]) + ","
+            + std::to_string(cellSample[2]) + "," + std::to_string(cellSample[3]) + ","
+            + std::to_string(cellSample[4]) + "," + std::to_string(cellSample[5]) + ","
+            + std::to_string(cellSample[6]) + "," + std::to_string(cellSample[7])
+            + ", glErr=0x" + [&]() { char buf[8]; std::snprintf(buf, sizeof(buf), "%X", errAccum | errOutput | errTris); return std::string(buf); }() + ")";
+        return false;
+    }
+
+    std::vector<float> outVerts(outVertCount * 3);
+    std::vector<float> outNorms(outVertCount * 3);
+    std::vector<float> outScalars(outVertCount);
+    std::vector<unsigned int> outIndices(outTriCount);
+
+    glGetNamedBufferSubData(outPosSsbo, 0, outVerts.size() * sizeof(float), outVerts.data());
+    glGetNamedBufferSubData(outNormSsbo, 0, outNorms.size() * sizeof(float), outNorms.data());
+    glGetNamedBufferSubData(outScalSsbo, 0, outScalars.size() * sizeof(float), outScalars.data());
+    glGetNamedBufferSubData(outIdxSsbo, 0, outIndices.size() * sizeof(unsigned int), outIndices.data());
+
+    outDecimated = Mesh{};
+    outDecimated.vertexCount = static_cast<int>(outVertCount);
+    outDecimated.indexCount = static_cast<int>(outIndices.size());
+
+    glCreateBuffers(1, outDecimated.vbo.ptr());
+    glCreateBuffers(1, outDecimated.nbo.ptr());
+    glCreateBuffers(1, outDecimated.ebo.ptr());
+    if (!outScalars.empty()) glCreateBuffers(1, outDecimated.sbo.ptr());
+
+    glNamedBufferData(outDecimated.vbo, outVerts.size() * sizeof(float), outVerts.data(), GL_STATIC_DRAW);
+    glNamedBufferData(outDecimated.nbo, outNorms.size() * sizeof(float), outNorms.data(), GL_STATIC_DRAW);
+    glNamedBufferData(outDecimated.ebo, outIndices.size() * sizeof(unsigned int), outIndices.data(), GL_STATIC_DRAW);
+    if (!outScalars.empty()) {
+        glNamedBufferData(outDecimated.sbo, outScalars.size() * sizeof(float), outScalars.data(), GL_STATIC_DRAW);
+    }
+
+    glCreateVertexArrays(1, outDecimated.vao.ptr());
+    glEnableVertexArrayAttrib(outDecimated.vao, 0);
+    glVertexArrayAttribFormat(outDecimated.vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(outDecimated.vao, 0, 0);
+    glVertexArrayVertexBuffer(outDecimated.vao, 0, outDecimated.vbo, 0, 3 * sizeof(float));
+
+    glEnableVertexArrayAttrib(outDecimated.vao, 1);
+    glVertexArrayAttribFormat(outDecimated.vao, 1, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(outDecimated.vao, 1, 1);
+    glVertexArrayVertexBuffer(outDecimated.vao, 1, outDecimated.nbo, 0, 3 * sizeof(float));
+
+    if (!outScalars.empty()) {
+        glEnableVertexArrayAttrib(outDecimated.vao, 2);
+        glVertexArrayAttribFormat(outDecimated.vao, 2, 1, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(outDecimated.vao, 2, 2);
+        glVertexArrayVertexBuffer(outDecimated.vao, 2, outDecimated.sbo, 0, sizeof(float));
+    }
+
+    glVertexArrayElementBuffer(outDecimated.vao, outDecimated.ebo);
+
+    return true;
 }

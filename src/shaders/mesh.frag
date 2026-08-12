@@ -1,98 +1,102 @@
-#version 330 core
+#version 460 core
+
+layout(std140) uniform MeshUBO {
+    mat4  uMVP;
+    mat4  uModel;
+    vec4  uViewPos_PS;      // xyz = viewPos, w = pointSize
+    vec4  uMeshColor_Wire;  // xyz = meshColor, w = wireframe
+    vec4  uSurfaceColor_Op; // xyz = surfaceColor, w = surfaceOpacity
+    vec4  uPointClip;       // x = isPoint, y = pointUseScalar, z = pointOpacity, w = clipEnabled
+    vec4  uLightDir;
+    vec4  uLightFill;
+    vec4  uLightBack1;
+    vec4  uLightBack2;
+    vec4  uLightHead;
+    vec4  uKeyColor;
+    vec4  uFillColor;
+    vec4  uBackColor;
+    vec4  uHeadColor;
+    vec4  uScalars;         // x = scalarMin, y = scalarMax, z = hasScalars(0/1), w = 0
+    vec4  uSliceY;          // x = sliceHeightX, y = sliceHeightY, z = sliceHeightZ, w = 0
+    vec4  uSliceEn;         // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
+    vec4  uInvert;          // x = invertX, y = invertY, z = invertZ, w = 0
+    vec4  uFilter;          // x = filterMin, y = filterMax, z = 0, w = 0
+    vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular
+    vec4  uIntensities;     // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
+    vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
+    vec4  uShadingMode;     // x = 0.0 smooth, 1.0 flat
+};
 
 in vec3 vNormal;
-in vec3 vFragPos;
-in vec3 vWorldPos; 
+in vec3 vWorldPos;
 in float vScalar;
 
-uniform vec3 uLightDir;      // Key light direction (camera-relative Light Kit, rotated to world by C++)
-uniform vec3 uViewPos;       // Camera position in world space
-uniform bool uWireframe;
-uniform vec3 uMeshColor;     // Wireframe color
-uniform vec3 uSurfaceColor;  // Surface/base color (used when no colormap)
-uniform vec3 uLightFill;
-uniform vec3 uLightBack1;
-uniform vec3 uLightBack2;
-uniform vec3 uLightHead;
-
-uniform float uScalarMin;    
-uniform float uScalarMax;
-uniform bool uHasScalars;    // true only when mesh has per-vertex scalar data
-
-// New visualization uniforms
-uniform float uSliceHeightX; // Slices along X-axis
-uniform float uSliceHeightY; // Slices along Y-axis
-uniform float uSliceHeightZ; // Slices along Z-axis
-uniform bool uSliceEnabledX; // per-axis enable
-uniform bool uSliceEnabledY;
-uniform bool uSliceEnabledZ;
-
-// ?? NEW UNIFORMS FOR INVERSION ??
-uniform int uInvertX; // 0 = Keep Left,   1 = Keep Right
-uniform int uInvertY; // 0 = Keep Bottom, 1 = Keep Top
-uniform int uInvertZ; // 0 = Keep Back,   1 = Keep Front
-
-uniform float uFilterMin;
-uniform float uFilterMax;
-
 uniform sampler1D uColormapLUT;
-
-uniform bool uIsPoint;       // ponytail: point-sprite path -> shade as sphere
-uniform bool uPointUseScalar; // ponytail: color point by scalar; else solid
-uniform float uPointOpacity;  // ponytail: point sprite alpha
-uniform float uSurfaceOpacity; // ponytail: surface fill alpha
-
-// clipping is OFF unless the UI explicitly enables it. With the old
-// default (slice=0, invert=false) the shader discarded the whole mesh because
-// vWorldPos.x>0 was true for almost every vertex -> blank viewport.
-uniform bool uClipEnabled;
 
 out vec4 FragColor;
 
 // Material properties
-uniform float uMatAmbient;
-uniform float uMatDiffuse;
-uniform float uMatSpecular;
-uniform float uMatShininess;  
+vec3  uMatAmbient()    { return vec3(uMaterial.x); }
+float uMatDiffuse()    { return uMaterial.y; }
+float uMatSpecular()   { return uMaterial.z; }
 
 // Light kit intensities
-uniform float uKeyIntensity;
-uniform float uFillIntensity;
-uniform float uBackIntensity;
-uniform float uHeadIntensity;
+float uKeyIntensity()   { return uIntensities.x; }
+float uFillIntensity()  { return uIntensities.y; }
+float uBackIntensity()  { return uIntensities.z; }
+float uHeadIntensity()  { return uIntensities.w; }
 
-// Light kit colors
-uniform vec3 uKeyColor;
-uniform vec3 uFillColor;
-uniform vec3 uBackColor;
-uniform vec3 uHeadColor;
+// PBR microfacet params
+float uMatRoughness() { return uPBR.x; }
+float uMatMetallic()  { return uPBR.y; }
 
-// Blinn-Phong diffuse + specular from fixed world-space lights. The specular
-// highlight tracks the camera as it orbits (half-vector uses the view dir).
-void lightContribution(vec3 rawLightDir, vec3 norm, float intensity,
-                       vec3 lightColor, vec3 viewDir, inout vec3 diffuse, inout vec3 specular) {
+// Microfacet (GGX normal distribution + Smith geometry + Schlick Fresnel),
+// energy-conserving. baseColor is the full reflectance (albedo for dielectrics;
+// F0 tint for metals).
+void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
+                          vec3 lightColor, vec3 viewDir, vec3 baseColor,
+                          inout vec3 diffuse, inout vec3 specular) {
     vec3 L = normalize(rawLightDir);
-    float diff = max(dot(norm, L), 0.0);
-    diffuse += lightColor * diff * intensity;
+    float NdotL = max(dot(norm, L), 0.0);
+    float NdotV = max(dot(norm, viewDir), 0.0);
+    if (NdotL <= 0.0) return;
 
     vec3 H = normalize(L + viewDir);
-    float specAngle = max(dot(norm, H), 0.0);
-    float spec = pow(specAngle, max(uMatShininess, 1.0));
-    specular += lightColor * spec * intensity;
+    float NdotH = max(dot(norm, H), 0.0);
+    float VdotH = max(dot(viewDir, H), 0.0);
+
+    float a  = clamp(uMatRoughness() * uMatRoughness(), 0.04, 1.0);
+    float a2 = a * a;
+    float d  = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    float D  = a2 / (3.14159265 * d * d);
+
+    float k  = (a + 1.0) * (a + 1.0) / 8.0;
+    float Gl = NdotL / (NdotL * (1.0 - k) + k);
+    float Gv = NdotV / (NdotV * (1.0 - k) + k);
+    float G  = Gl * Gv;
+
+    vec3  F0 = mix(vec3(0.04), baseColor, uMatMetallic());
+    vec3  F  = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+
+    float specFactor = D * G / (4.0 * NdotL * NdotV + 1e-4);
+    specular += lightColor * F * specFactor * intensity * uMatSpecular();
+
+    vec3 kD = (1.0 - F) * (1.0 - uMatMetallic());
+    diffuse += lightColor * kD * baseColor * NdotL * intensity * uMatDiffuse();
 }
 
 void main() {
     // 1. Unified Slicing & Isolation Filtering
-    // Clipping planes are gated by uClipEnabled; the scalar isolation filter is
-    // independent so its min/max sliders work without enabling clipping.
     bool clipped = false;
-    if (uClipEnabled) {
-        bool clipX = uSliceEnabledX && ((uInvertX == 1) ? (vWorldPos.x < uSliceHeightX) : (vWorldPos.x > uSliceHeightX));
-        bool clipY = uSliceEnabledY && ((uInvertY == 1) ? (vWorldPos.y < uSliceHeightY) : (vWorldPos.y > uSliceHeightY));
-        bool clipZ = uSliceEnabledZ && ((uInvertZ == 1) ? (vWorldPos.z < uSliceHeightZ) : (vWorldPos.z > uSliceHeightZ));
+    float clipEnabled = uPointClip.w;
+    if (clipEnabled > 0.5) {
+        bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (vWorldPos.x < uSliceY.x) : (vWorldPos.x > uSliceY.x));
+        bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (vWorldPos.y < uSliceY.y) : (vWorldPos.y > uSliceY.y));
+        bool clipZ = bool(uSliceEn.z) && ((uInvert.z > 0.5) ? (vWorldPos.z < uSliceY.z) : (vWorldPos.z > uSliceY.z));
         clipped = clipX || clipY || clipZ;
     }
-    bool filterScalar = uHasScalars && (vScalar < uFilterMin || vScalar > uFilterMax);
+    bool hasScalars = uScalars.z > 0.5;
+    bool filterScalar = hasScalars && (vScalar < uFilter.x || vScalar > uFilter.y);
     clipped = clipped || filterScalar;
 
     if (clipped) {
@@ -100,63 +104,60 @@ void main() {
     }
 
     // ponytail: point sprites carved into shaded spheres via gl_PointCoord.
-    // Build a camera-facing hemisphere normal; fed into the `norm` below.
     vec3 sphereNormal = vNormal;
-    if (uIsPoint) {
+    bool isPoint = uPointClip.x > 0.5;
+    if (isPoint) {
         vec2 pc = gl_PointCoord * 2.0 - 1.0;
         float r2 = dot(pc, pc);
         if (r2 > 1.0) discard;
         sphereNormal = vec3(pc, sqrt(1.0 - r2));
     }
 
-    // 2. Early optimization check: Skip lighting loops entirely if wireframe mode is true
-    if (uWireframe) {
-        FragColor = vec4(uMeshColor, 1.0);
+    bool wireframe = uMeshColor_Wire.w > 0.5;
+    if (wireframe) {
+        FragColor = vec4(uMeshColor_Wire.xyz, 1.0);
         return;
     }
 
-    // 3. Normal & View Vectors (world space)
-    // vNormal is the world-space normal; uViewPos is the camera position in
-    // world space. Lighting is computed in world space so the lights remain
-    // fixed in the world as the camera orbits the mesh.
-    vec3 norm = normalize(sphereNormal);
+    vec3 faceNorm = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    if (!gl_FrontFacing) faceNorm = -faceNorm;
+    vec3 norm = uShadingMode.x > 0.5 ? faceNorm : normalize(sphereNormal);
     if (!gl_FrontFacing) {
-        norm = -norm; // Ensures correct shading on interior walls exposed by cutting planes
+        norm = -norm;
     }
-    vec3 viewDir = normalize(uViewPos - vWorldPos);
+    vec3 viewDir = normalize(uViewPos_PS.xyz - vWorldPos);
 
-    // 4. Lighting Accumulation (world-space, orbit-invariant)
-    vec3 totalDiffuse = vec3(0.0);
-    vec3 totalSpecular = vec3(0.0);
-
-    lightContribution(uLightDir, norm, uKeyIntensity, uKeyColor, viewDir, totalDiffuse, totalSpecular);
-    lightContribution(uLightFill, norm, uFillIntensity, uFillColor, viewDir, totalDiffuse, totalSpecular);
-    lightContribution(uLightBack1, norm, uBackIntensity, uBackColor, viewDir, totalDiffuse, totalSpecular);
-    lightContribution(uLightBack2, norm, uBackIntensity, uBackColor, viewDir, totalDiffuse, totalSpecular);
-    lightContribution(uLightHead, norm, uHeadIntensity, uHeadColor, viewDir, totalDiffuse, totalSpecular);
-
-    // 5. Color Mapping
-    vec3 baseColor = uSurfaceColor;
-    if (uHasScalars && (uScalarMin != uScalarMax)) {
-        float t = clamp((vScalar - uScalarMin) / (uScalarMax - uScalarMin), 0.0, 1.0);
+    // baseColor is resolved before lighting: it drives F0 (metals) and the diffuse albedo.
+    vec3 baseColor = uSurfaceColor_Op.xyz;
+    if (hasScalars && (uScalars.x != uScalars.y)) {
+        float t = clamp((vScalar - uScalars.x) / (uScalars.y - uScalars.x), 0.0, 1.0);
         baseColor = texture(uColormapLUT, t).rgb;
     }
-    // ponytail: points may ignore the scalar colormap and use a solid color
-    if (uIsPoint && !uPointUseScalar) {
-        baseColor = uSurfaceColor;
+    bool pointUseScalar = uPointClip.y > 0.5;
+    if (isPoint && !pointUseScalar) {
+        baseColor = uSurfaceColor_Op.xyz;
     }
 
-    // 6. Shading Combination
-    vec3 ambientComponent = baseColor * uMatAmbient;
-    vec3 diffuseComponent = baseColor * totalDiffuse * uMatDiffuse;
-    vec3 specularComponent = totalSpecular * uMatSpecular;
+    vec3 totalDiffuse = vec3(0.0);
+    vec3 totalSpecular = vec3(0.0);
+    lightContributionPBR(uLightDir.xyz,   norm, uKeyIntensity(),   uKeyColor.xyz,   viewDir, baseColor, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightFill.xyz,  norm, uFillIntensity(),  uFillColor.xyz,  viewDir, baseColor, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightBack1.xyz, norm, uBackIntensity(),  uBackColor.xyz,  viewDir, baseColor, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightBack2.xyz, norm, uBackIntensity(),  uBackColor.xyz,  viewDir, baseColor, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightHead.xyz,  norm, uHeadIntensity(),  uHeadColor.xyz,  viewDir, baseColor, totalDiffuse, totalSpecular);
+
+    float surfaceOpacity = uSurfaceColor_Op.w;
+
+    vec3 ambientComponent = baseColor * uMatAmbient();
+    vec3 diffuseComponent = totalDiffuse;
+    vec3 specularComponent = totalSpecular;
 
     vec3 finalColor = ambientComponent + diffuseComponent + specularComponent;
-    // ponytail: points get a slight emissive boost so spheres read as "lit"
-    if (uIsPoint) {
-        finalColor += baseColor * 0.15f;
-        FragColor = vec4(finalColor, uPointOpacity);
+    float pointOpacity = uPointClip.z;
+    if (isPoint) {
+        finalColor += baseColor * 0.15;
+        FragColor = vec4(finalColor, pointOpacity);
     } else {
-        FragColor = vec4(finalColor, uSurfaceOpacity);
+        FragColor = vec4(finalColor, surfaceOpacity);
     }
 }

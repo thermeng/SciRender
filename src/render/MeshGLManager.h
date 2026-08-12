@@ -1,24 +1,31 @@
 #pragma once
 
-#include <glad/glad.h>
+#include "render/gl_raii.h"
+
+#include <glad/gl.h>
 
 #include <vector>
+#include <string>
 #include <mutex>
 #include <atomic>
+#include <memory>
 
 #include "core/mesh_loader.h"
 
 struct Mesh {
-    GLuint vao = 0;
-    GLuint vbo = 0;
-    GLuint nbo = 0;
-    GLuint ebo = 0;
-    GLuint sbo = 0;
-    GLuint lineVao = 0; // ponytail: per-cell boundary edges (cellEdges)
-    GLuint lineVbo = 0;
+    GlVao vao;
+    GlBuffer vbo;
+    GlBuffer nbo;
+    GlBuffer ebo;
+    GlBuffer sbo;
     int indexCount = 0;
-    int vertexCount = 0; // # vertices; draw count for point-cloud meshes
-    int lineCount = 0;   // # xyz verts in lineVao (0 if no cell edges)
+    int vertexCount = 0;
+
+    Mesh() = default;
+    Mesh(Mesh&&) = default;
+    Mesh& operator=(Mesh&&) = default;
+    Mesh(const Mesh&) = delete;
+    Mesh& operator=(const Mesh&) = delete;
 };
 
 // Owns the full-resolution and decimated (LOD) GPU meshes plus the meshChanged
@@ -58,17 +65,26 @@ public:
     // `outVerts` carries the raw vertex count per entry for GL_POINTS draws.
     void snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
                           bool useLod, bool cameraMoving,
-                          std::vector<int>& outMode,
                           std::vector<int>& outVerts) const;
 
     bool hasMeshes() const { return !meshes_.empty(); }
     bool hasDecimated() const { return hasDecimated_; }
+    bool hasFullSource() const { return hasFullSource_; }
 
-    // ponytail: returns the primary full mesh's cell-edge line VBO + vertex count
-    // (0 count when no cell edges). Used by the renderer's "Cell edges" overlay.
-    std::pair<GLuint, int> getCellEdgeLine() const {
-        if (meshes_.empty()) return {0, 0};
-        return {meshes_.front().lineVao, meshes_.front().lineCount};
+    const RenderMesh* getFullSource() const { return fullSource_.get(); }
+
+    // GPU compute shader LOD helpers
+    void setComputeShaderSources(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc);
+    void initLodCompute(const std::string& accumSrc, const std::string& outputSrc, const std::string& trisSrc);
+    void cleanupLodCompute();
+    bool dispatchLodCompute(const RenderMesh& mesh, Mesh& outMesh);
+    const std::string& lastLodError() const { return lastLodError_; }
+
+    // Replace the first decimated mesh with a new one (used after compute LOD).
+    void replaceDecimatedMesh(int index, Mesh newMesh) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (index < 0 || index >= static_cast<int>(decimatedMeshes_.size())) return;
+        decimatedMeshes_[index] = std::move(newMesh);
     }
 
     // GPU-upload-due flag, set by the loader and consumed by the render thread.
@@ -76,7 +92,6 @@ public:
 
 private:
     void buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out);
-    void destroyMesh(Mesh& mesh);
     // Coarse vertex-clustering decimation; empty result when not worthwhile.
     static RenderMesh decimate(const RenderMesh& in);
 
@@ -96,5 +111,20 @@ private:
     std::vector<Mesh> meshes_;
     std::vector<Mesh> decimatedMeshes_;
     bool hasDecimated_ = false;
-    mutable std::mutex mutex_; // guards GPU-handle teardown/uploads across threads
+    mutable std::mutex mutex_;
+
+    // Compute shader LOD (GPU-side vertex clustering)
+    GlProgram lodProgramAccum;
+    GlProgram lodProgramOutput;
+    GlProgram lodProgramTris;
+    GlBuffer lodCellSsbo;
+    GlBuffer lodRemapSsbo;
+    GlBuffer lodParamsUbo;
+    GlBuffer lodCounterSsbo;
+    int lodCellsPerAxis = 0;
+    bool lodGpuDecimationReady = false;
+    std::string lodAccumSrc_;
+    std::string lodOutputSrc_;
+    std::string lodTrisSrc_;
+    std::string lastLodError_;
 };

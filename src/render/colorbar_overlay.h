@@ -6,14 +6,17 @@
 // PNG exports), instead of living only as a QML overlay outside the GL surface.
 
 #include <glm/glm.hpp>
-#include <glad/glad.h>
+#include "render/gl_raii.h"
 #include <QString>
 #include <QVariantList>
+#include <QImage>
+#include <vector>
 
 struct ColorbarData {
-    QString title;          // header text (e.g. active scalar name)
-    QVariantList stops;     // [t, r, g, b] x N  (t in 0..1 top->bottom)
-    QStringList tickLabels; // bottom->top, count = stops coverage
+    QString title;
+    QString subtitle;
+    QVariantList stops;
+    QStringList tickLabels;
     bool visible = false;
 };
 
@@ -24,23 +27,31 @@ public:
 
     bool init();
     void shutdown();
-    bool isInitialized() const { return program_ != 0; }
+    bool isInitialized() const { return program_.has(); }
 
-    // Draws the colorbar into the currently-bound FBO, covering the full
-    // deviceW x deviceH viewport. corner: 0 = bottom-right (scalar),
-    // 1 = top-right (vector). dpr scales the logical layout from Main.qml.
-    void draw(float dpr, int deviceW, int deviceH,
-              const ColorbarData& data, int corner);
+    void drawBars(float dpr, int deviceW, int deviceH,
+                  const std::vector<ColorbarData>& bars);
+
+    void markDirty() { imageCacheValid_ = false; textureCacheValid_ = false; }
 
 private:
     void uploadAndDraw(const QImage& img, int deviceW, int deviceH);
 
-    GLuint program_ = 0;
-    GLuint vao_ = 0, vbo_ = 0;
-    GLuint tex_ = 0;
-    GLint mvpLoc_ = -1, texLoc_ = -1;
+    GlProgram program_;
+    GlVao vao_;
+    GlBuffer vbo_;
+    GlTexture tex_;
+    GLint samplerLoc_ = -1;
+    int texW_ = 0, texH_ = 0;
 
     bool buildProgram();
     QImage buildImage(float dpr, int deviceW, int deviceH,
-                      const ColorbarData& data, int corner) const;
+                      const std::vector<ColorbarData>& bars) const;
+
+    QImage cachedImage_;
+    bool imageCacheValid_ = false;
+    bool textureCacheValid_ = false;
+    std::vector<ColorbarData> cachedBars_;
+    float cachedDpr_ = 0.0f;
+    int cachedW_ = 0, cachedH_ = 0;
 };

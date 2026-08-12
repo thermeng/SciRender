@@ -1,6 +1,7 @@
 #include "render/VectorGlyphSet.h"
 #include "core/mesh_loader.h"
 
+#include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <limits>
@@ -33,13 +34,13 @@ void buildUnitArrow(std::vector<float>& verts, std::vector<float>& norms, std::v
 }
 
 void VectorGlyphSet::teardownGL() {
-    if (vao) glDeleteVertexArrays(1, &vao);
-    if (vbo) glDeleteBuffers(1, &vbo);
-    if (nbo) glDeleteBuffers(1, &nbo);
-    if (ebo) glDeleteBuffers(1, &ebo);
-    if (instVBO) glDeleteBuffers(1, &instVBO);
-    vao = 0; vbo = 0; nbo = 0; ebo = 0; instVBO = 0;
-    glyphIndexCount = 0; instanceCount = 0;
+    vao.reset();
+    vbo.reset();
+    nbo.reset();
+    ebo.reset();
+    instVBO.reset();
+    glyphIndexCount = 0;
+    instanceCount = 0;
 }
 
 void VectorGlyphSet::shutdown() {
@@ -48,14 +49,10 @@ void VectorGlyphSet::shutdown() {
 
 void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName, int magTransform) {
     teardownGL();
-    (void)magTransform; // Range is stored raw; the shader applies txMag() itself.
+    (void)magTransform;
 
     if (mesh.pointVectorsData.empty()) return;
 
-    // Field selection: prefer the requested field, then the mesh's active field,
-    // then the first available. Validate each candidate against the actual field
-    // table (vectorFieldData) rather than assuming presence, so an unknown name
-    // falls back to a valid field instead of silently rendering nothing.
     size_t count = 0;
     const glm::vec3* data = nullptr;
     auto tryField = [&](const std::string& name) -> bool {
@@ -71,14 +68,8 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     }
 
     int numPts = static_cast<int>(mesh.vertices.size() / 3);
-    // A field's run may be shorter than the vertex count for malformed/partial
-    // data; never read past the valid run (or past the vertex array).
     const int limit = std::min(numPts, static_cast<int>(count));
     stride = std::max(1, stride);
-    // Track min/max magnitude across the FULL field (every point), not just the
-    // strided render sample. magMin/magMax also drive the vector colorbar legend
-    // (renderer.cpp), so using only the subsampled subset made glyph colors and
-    // the legend scale disagree when vectorStride > 1.
     float mMin = std::numeric_limits<float>::max();
     float mMax = -std::numeric_limits<float>::max();
     for (int i = 0; i < limit; ++i) {
@@ -89,13 +80,6 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
         if (m > mMax) mMax = m;
     }
     std::vector<float> inst;
-    // Datasets often carry duplicate coincident point coordinates (distinct point
-    // indices at the same xyz). Without dedup the glyph builder emits one arrow
-    // per index, so stacked arrows appear at each shared location. Collapse
-    // instances that share a quantized origin to a single arrow. The quantum is
-    // relative to the mesh extent so it stays robust across tiny and huge meshes
-    // (an absolute quantum wrongly merges/splits points at extreme scales).
-    // Note: only the first vector seen at a shared location is kept.
     const float extent = static_cast<float>(mesh.bounds.extent);
     const float q = std::max(extent * 1e-5f, 1e-20f);
     std::unordered_set<uint64_t> emitted;
@@ -112,7 +96,6 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     };
     for (int i = 0; i < limit; i += stride) {
         float dx = data[i].x, dy = data[i].y, dz = data[i].z;
-        // skip near-zero vectors so the cloud isn't cluttered with dots
         if (dx * dx + dy * dy + dz * dz < 1e-12f) continue;
         float ox = mesh.vertices[i * 3 + 0];
         float oy = mesh.vertices[i * 3 + 1];
@@ -124,11 +107,7 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
         inst.push_back(dx); inst.push_back(dy); inst.push_back(dz);
     }
     if (inst.empty()) return;
-    // All-zero field: keep a sane [0,0] range instead of (max,-max) clamp artifacts.
     if (mMin > mMax) { mMin = 0.0f; mMax = 0.0f; }
-    // Raw (untransformed) magnitude range. The shader applies the magnitude
-    // transform itself via txMag(); the colorbar legend (renderer.cpp) inverts
-    // the transform for tick labels.
     magMin = mMin;
     magMax = mMax;
     meshExtent = static_cast<float>(mesh.bounds.extent);
@@ -136,37 +115,41 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     std::vector<float> av, an; std::vector<unsigned int> ai;
     buildUnitArrow(av, an, ai);
 
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-    glGenBuffers(1, &nbo);
-    glGenBuffers(1, &ebo);
-    glGenBuffers(1, &instVBO);
+    glCreateVertexArrays(1, vao.ptr());
+    glCreateBuffers(1, vbo.ptr());
+    glCreateBuffers(1, nbo.ptr());
+    glCreateBuffers(1, ebo.ptr());
+    glCreateBuffers(1, instVBO.ptr());
 
-    glBindVertexArray(vao);
+    glEnableVertexArrayAttrib(vao, 0);
+    glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao, 0, 0);
+    glNamedBufferData(vbo, av.size() * sizeof(float), av.data(), GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(vao, 0, vbo, 0, 3 * sizeof(float));
 
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, av.size() * sizeof(float), av.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+    glEnableVertexArrayAttrib(vao, 1);
+    glVertexArrayAttribFormat(vao, 1, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao, 1, 1);
+    glNamedBufferData(nbo, an.size() * sizeof(float), an.data(), GL_STATIC_DRAW);
+    glVertexArrayVertexBuffer(vao, 1, nbo, 0, 3 * sizeof(float));
 
-    glBindBuffer(GL_ARRAY_BUFFER, nbo);
-    glBufferData(GL_ARRAY_BUFFER, an.size() * sizeof(float), an.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1);
+    glNamedBufferData(ebo, ai.size() * sizeof(unsigned int), ai.data(), GL_STATIC_DRAW);
+    glVertexArrayElementBuffer(vao, ebo);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ai.size() * sizeof(unsigned int), ai.data(), GL_STATIC_DRAW);
+    glEnableVertexArrayAttrib(vao, 2);
+    glVertexArrayAttribFormat(vao, 2, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao, 2, 2);
+    glVertexArrayVertexBuffer(vao, 2, instVBO, 0, 6 * sizeof(float));
+    glVertexArrayVertexAttribDivisorEXT(vao, 2, 1);
 
-    glBindBuffer(GL_ARRAY_BUFFER, instVBO);
-    glBufferData(GL_ARRAY_BUFFER, inst.size() * sizeof(float), inst.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(2);
-    glVertexAttribDivisor(2, 1);
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(3);
-    glVertexAttribDivisor(3, 1);
+    glEnableVertexArrayAttrib(vao, 3);
+    glVertexArrayAttribFormat(vao, 3, 3, GL_FLOAT, GL_FALSE, 0);
+    glVertexArrayAttribBinding(vao, 3, 3);
+    glVertexArrayVertexBuffer(vao, 3, instVBO, 3 * sizeof(float), 6 * sizeof(float));
+    glVertexArrayVertexAttribDivisorEXT(vao, 3, 1);
 
-    glBindVertexArray(0);
+    glNamedBufferData(instVBO, inst.size() * sizeof(float), inst.data(), GL_STATIC_DRAW);
+
     glyphIndexCount = static_cast<int>(ai.size());
     instanceCount = static_cast<int>(inst.size() / 6);
 }

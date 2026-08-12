@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VectorsPage</class>
+ <widget class="QWidget" name="VectorsPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QCheckBox" name="showCb">
+     <property name="text">
+      <string>Show Vectors</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="optionsGroup" native="true">
+     <layout class="QVBoxLayout" name="optionsLayout">
+      <property name="spacing">
+       <number>4</number>
+      </property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="fieldScaleHeader">
+        <property name="text">
+         <string>Field &amp; Scale</string>
+        </property></widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="vectorCombo"/>
+      </item>
+      <item>
+       <widget class="QWidget" name="scaleRow">
+        <layout class="QHBoxLayout" name="scaleLayout">
+         <property name="spacing"><number>6</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QLabel" name="scaleLabel">
+           <property name="text"><string>Scale</string></property>
+           <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSlider" name="scaleSlider">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="scaleValue">
+           <property name="text"><string>1.00</string></property>
+           <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="scaleMagCb">
+        <property name="text">
+         <string>Scale by magnitude</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="strideRow">
+        <layout class="QHBoxLayout" name="strideLayout">
+         <property name="spacing"><number>6</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QLabel" name="strideLabel">
+           <property name="text"><string>Stride</string></property>
+           <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSlider" name="strideSlider">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="strideValue">
+           <property name="text"><string>5</string></property>
+           <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="magnitudeHeader">
+        <property name="text">
+         <string>Magnitude</string>
+        </property></widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="magCombo"/>
+      </item>
+      <item>
+       <widget class="QLabel" name="colorHeader">
+        <property name="text">
+         <string>Color</string>
+        </property></widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="vectorColorBtn">
+        <property name="text">
+         <string>Vector</string>
+        </property></widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="useCmapCb">
+        <property name="text">
+         <string>Color by magnitude</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="vCmapCombo"/>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="revCb">
+        <property name="text">
+         <string>Reverse Palette</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+</ui>

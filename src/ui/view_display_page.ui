@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ViewDisplayPage</class>
+ <widget class="QWidget" name="ViewDisplayPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>220</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="cameraHeader">
+     <property name="text">
+      <string>Camera</string>
+     </property></widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="camOptionsLayout">
+     <item>
+      <widget class="QCheckBox" name="parallelCb">
+       <property name="text">
+        <string>Parallel</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="autoRotateCb">
+       <property name="text">
+        <string>Auto-Rotate</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QPushButton" name="resetCamBtn">
+     <property name="text">
+      <string>Reset Camera</string>
+     </property></widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="displayHeader">
+     <property name="text">
+      <string>Display Modes</string>
+     </property></widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="wireframeRow">
+     <layout class="QHBoxLayout" name="wireframeLayout">
+      <property name="spacing"><number>4</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QCheckBox" name="wireframeCb">
+        <property name="text"><string>Wireframe</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="wireframeSlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+    <item>
+     <layout class="QVBoxLayout" name="flagsLayout">
+     <item>
+      <widget class="QCheckBox" name="surfaceCb">
+       <property name="text">
+        <string>Surface</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="pointsCb">
+       <property name="text">
+        <string>Points</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="refGridCb">
+       <property name="text">
+        <string>Reference Grid</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="bboxCb">
+       <property name="text">
+        <string>Bounding Box</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="defectsCb">
+       <property name="text">
+        <string>Defects</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QWidget" name="pointGroup" native="true">
+     <layout class="QVBoxLayout" name="pointLayout">
+      <property name="spacing">
+       <number>4</number>
+      </property>
+      <property name="leftMargin">
+       <number>8</number>
+      </property>
+      <property name="topMargin">
+       <number>2</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>2</number>
+      </property>
+      <item>
+       <widget class="QWidget" name="pointSizeRow">
+        <layout class="QHBoxLayout" name="pointSizeLayout">
+         <property name="spacing"><number>6</number></property>
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QLabel" name="pointSizeLabel">
+           <property name="text"><string>Size</string></property>
+           <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+           <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSlider" name="pointSizeSlider">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="pointSizeValue">
+           <property name="text"><string>3.0</string></property>
+           <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+           <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="scalarCb">
+        <property name="text">
+         <string>Color by scalar</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="transparencyHeader">
+     <property name="text">
+      <string>Transparency &amp; Quality</string>
+     </property></widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="surfaceOpacityRow">
+     <layout class="QHBoxLayout" name="surfaceOpacityLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="surfaceOpacityLabel">
+        <property name="text"><string>Surface</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="surfaceOpacitySlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="surfaceOpacityValue">
+        <property name="text"><string>1.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="pointOpacityRow">
+     <layout class="QHBoxLayout" name="pointOpacityLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="pointOpacityLabel">
+        <property name="text"><string>Point</string></property>
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSlider" name="pointOpacitySlider">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="pointOpacityValue">
+        <property name="text"><string>1.00</string></property>
+        <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="subRowLayout">
+     <item>
+      <widget class="QCheckBox" name="gizmoCb">
+       <property name="text">
+        <string>Gizmo</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="fpsCb">
+       <property name="text">
+        <string>FPS HUD</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="colorsHeader">
+     <property name="text">
+      <string>Colors</string>
+     </property></widget>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="colorLayout">
+     <item>
+      <widget class="QPushButton" name="wireframeColorBtn">
+       <property name="text">
+        <string>Wireframe</string>
+       </property></widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="surfaceColorBtn">
+       <property name="text">
+        <string>Surface</string>
+       </property></widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="bgColorBtn">
+       <property name="text">
+        <string>Background</string>
+       </property></widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+</ui>

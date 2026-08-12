@@ -1,4 +1,5 @@
 #include "render/render_settings.h"
+#include "render/render_config.h"
 #include "core/Colormaps.h"
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
@@ -9,20 +10,9 @@
 #include <iterator>
 #include <QFileInfo>
 #include <QSettings>
-#include <QImage>
-#include <QBuffer>
-#include <QPainter>
-#include <QFont>
 
 RenderSettings::RenderSettings(QObject* parent)
     : QObject(parent) {
-    meshColor[0] = 0.4f; meshColor[1] = 0.9f; meshColor[2] = 0.4f;
-    surfaceColor[0] = 1.0f; surfaceColor[1] = 1.0f; surfaceColor[2] = 1.0f;
-    bgColor[0] = 0.12f; bgColor[1] = 0.12f; bgColor[2] = 0.12f;
-
-    worldCenterX = 0.0; worldCenterY = 0.0; worldCenterZ = 0.0;
-    worldRadius = 1.0;
-
     loadRecentFromSettings();
 
     connect(&m_meshWatcher, &QFutureWatcher<MeshLoadResult>::finished,
@@ -32,84 +22,23 @@ RenderSettings::RenderSettings(QObject* parent)
 RenderSettings::~RenderSettings() = default;
 
 void RenderSettings::publishRenderState(::Renderer* scene) {
-    // Double-buffered handoff (GUI thread, exclusive access during synchronize).
-    // Re-assemble the ~75-field snapshot ONLY when the GUI state changed; on
-    // idle frames we hand the previously-built buffer straight through, so the
-    // per-frame cost collapses to a single struct copy into the Renderer.
     if (m_stateDirty) {
-        buildRenderState();
         m_stateDirty = false;
+        if (scene) {
+            // N4: skip copying quality overlay geometry when overlay is hidden
+            if (!m_state.showQualityOverlay) {
+                auto saved0 = std::exchange(m_state.qualityDegenerateTris, nullptr);
+                auto saved1 = std::exchange(m_state.qualityOpenEdges, nullptr);
+                auto saved2 = std::exchange(m_state.qualityNonManifoldEdges, nullptr);
+                scene->setState(m_state);
+                m_state.qualityDegenerateTris = std::move(saved0);
+                m_state.qualityOpenEdges = std::move(saved1);
+                m_state.qualityNonManifoldEdges = std::move(saved2);
+            } else {
+                scene->setState(m_state);
+            }
+        }
     }
-    if (scene) scene->setState(m_renderSnapshot); // Renderer deep-copies it
-}
-
-void RenderSettings::buildRenderState() {
-    RenderRenderState& s = m_renderSnapshot;
-    s.camera = camera;
-    s.showWireframe = showWireframe;
-    s.showSurface = showSurface;
-    s.showGrid = showGrid;
-    s.showGizmo = showGizmo;
-    s.showPoints = showPoints;
-    s.pointSize = pointSize;
-    s.lineWidth = lineWidth;
-    s.cellEdgeLineWidth = cellEdgeLineWidth;
-    s.pointUseScalar = pointUseScalar;
-    s.pointOpacity = pointOpacity;
-    s.surfaceOpacity = surfaceOpacity;
-    s.cullMode = cullMode;
-    s.showBounds = showBounds;
-    s.showQualityOverlay = showQualityOverlay;
-    s.showCellEdges = showCellEdges;
-    s.qualityDegenerateTris = qualityDegenerateTris;
-    s.qualityOpenEdges = qualityOpenEdges;
-    s.qualityNonManifoldEdges = qualityNonManifoldEdges;
-    s.orthographic = orthographic;
-
-    s.autoRotate = autoRotate;
-    s.showFps = showFps;
-    s.useLod = useLod;
-
-    std::copy(std::begin(meshColor), std::end(meshColor), s.meshColor);
-    std::copy(std::begin(surfaceColor), std::end(surfaceColor), s.surfaceColor);
-    std::copy(std::begin(bgColor), std::end(bgColor), s.bgColor);
-
-    s.worldCenterX = worldCenterX; s.worldCenterY = worldCenterY; s.worldCenterZ = worldCenterZ;
-    s.worldRadius = worldRadius;
-    s.worldMinX = worldMinX; s.worldMaxX = worldMaxX;
-    s.worldMinY = worldMinY; s.worldMaxY = worldMaxY;
-    s.worldMinZ = worldMinZ; s.worldMaxZ = worldMaxZ;
-
-    s.lighting = lighting;
-
-    s.colormapChoice = colormapChoice;
-    s.colormapReversed = colormapReversed;
-    s.vectorColormapChoice = vectorColormapChoice;
-    s.vectorColormapReversed = vectorColormapReversed;
-    s.meshHasScalars = meshHasScalars;
-    s.scalarMin = scalarMin; s.scalarMax = scalarMax;
-
-    s.dataScalarMin = dataScalarMin; s.dataScalarMax = dataScalarMax;
-    s.filterMin = filterMin; s.filterMax = filterMax;
-    s.showScalarColorbar = showScalarColorbar;
-    s.meshUseScalarColor = meshUseScalarColor;
-    s.colorbarTicks = colorbarTicks;
-
-    s.activeScalarName = activeScalarName;
-    s.clipEnabled = clipEnabled;
-    s.sliceHeightX = sliceHeightX; s.sliceHeightY = sliceHeightY; s.sliceHeightZ = sliceHeightZ;
-    s.sliceEnabledX = sliceEnabledX; s.sliceEnabledY = sliceEnabledY; s.sliceEnabledZ = sliceEnabledZ;
-    s.invertX = invertX; s.invertY = invertY; s.invertZ = invertZ;
-    s.showVectors = showVectors;
-    s.vectorScale = vectorScale;
-    s.vectorStride = vectorStride;
-    std::copy(std::begin(vectorColor), std::end(vectorColor), s.vectorColor);
-    s.vectorUseColormap = vectorUseColormap;
-    s.vectorScaleByMagnitude = vectorScaleByMagnitude;
-    s.vectorMagTransform = vectorMagTransform;
-    s.vectorField = m_guiMeta.vectorName;
-    s.screenshotTransparent = screenshotTransparent;
-    s.hasMeshLoaded = hasMeshLoaded;
 }
 
 void RenderSettings::setFpsText(const QString& text) {
@@ -125,71 +54,83 @@ void RenderSettings::setStatus(const QString& msg) {
 }
 
 void RenderSettings::setWireframe(bool enabled) {
-    if (showWireframe == enabled) return;
-    showWireframe = enabled;
+    if (m_state.showWireframe == enabled) return;
+    m_state.showWireframe = enabled;
     markStateDirty();
-    emit wireframeChanged();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::setUseLod(bool enabled) {
-    if (useLod == enabled) return;
-    useLod = enabled;
+    if (m_state.useLod == enabled) return;
+    m_state.useLod = enabled;
     m_renderer.markCameraMoving();
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
 void RenderSettings::setMsaaSamples(int n) {
-    n = qBound(0, n, 4); // ponytail: only 0/2/4 offered; clamp guards stray QML
+    n = (n <= 0) ? 0 : (n <= 2 ? 2 : 4); // ponytail: only 0/2/4 supported; snap odd/stray QML values
     if (msaaSamples == n) return;
     msaaSamples = n;
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+
+void RenderSettings::setScreenshotResolution(int v) {
+    v = qBound(0, v, 4);
+    if (m_screenshotResolution == v) return;
+    m_screenshotResolution = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+
+void RenderSettings::setScreenshotAASamples(int n) {
+    n = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
+    if (m_screenshotAASamples == n) return;
+    m_screenshotAASamples = n;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::toggleGrid(bool visible) {
-    if (showGrid == visible) return;
-    showGrid = visible;
+    if (m_state.showGrid == visible) return;
+    m_state.showGrid = visible;
     markStateDirty();
-    emit gridVisibilityChanged();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::toggleSurface(bool visible) {
-    if (showSurface == visible) return;
-    showSurface = visible;
+    if (m_state.showSurface == visible) return;
+    m_state.showSurface = visible;
     markStateDirty();
-    emit surfaceVisibilityChanged();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::snapToOrthoView(int axis) {
-    camera.snapToOrthoView(axis);
+    m_state.camera.snapToOrthoView(axis);
     m_renderer.markCameraMoving();
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
 void RenderSettings::snapToAxisView(int axis, bool flip) {
     int preset = flip ? (axis * 2 + 1) : (axis * 2);
-    camera.snapToOrthoView(preset);
+    m_state.camera.snapToOrthoView(preset);
     m_renderer.markCameraMoving();
-    markStateDirty(); emit viewChanged();
+    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
 void RenderSettings::resetCamera() {
-    camera.focalPoint = glm::dvec3(worldCenterX, worldCenterY, worldCenterZ);
-    const double dx = worldMaxX - worldMinX;
-    const double dy = worldMaxY - worldMinY;
-    const double dz = worldMaxZ - worldMinZ;
+    m_state.camera.focalPoint = glm::dvec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
+    const double dx = m_state.worldMaxX - m_state.worldMinX;
+    const double dy = m_state.worldMaxY - m_state.worldMinY;
+    const double dz = m_state.worldMaxZ - m_state.worldMinZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     const double fitRadius = diag * 0.5;
-    const double aspect = 1.0;
     const double fov = glm::radians(45.0);
-    const double effFov = fov;
-    double dist = fitRadius / std::tan(effFov * 0.5);
-    dist *= 1.3;
-    camera.distance = dist < 1.0 ? 1.0 : dist;
-    camera.maxDistance = std::max(1000.0, camera.distance * 50.0);
-    camera.position = camera.focalPoint + glm::dvec3(0.0, 0.0, camera.distance);
-    camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
-    camera.orthogonalizeViewUp();
-    markStateDirty(); emit viewChanged();
+    double dist = fitRadius / std::tan(fov * 0.5);
+    dist *= RenderConfig::defaults().cameraFitMultiplier;
+    m_state.camera.distance = dist < 1.0 ? 1.0 : dist;
+    m_state.camera.maxDistance = std::max(1000.0, m_state.camera.distance * 50.0);
+    m_state.camera.position = m_state.camera.focalPoint + glm::dvec3(0.0, 0.0, m_state.camera.distance);
+    m_state.camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
+    m_state.camera.orthogonalizeViewUp();
+    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
 void RenderSettings::loadRecentFromSettings() {
@@ -206,22 +147,33 @@ void RenderSettings::saveRecentToSettings() const {
 void RenderSettings::saveStateToSettings() const {
     QSettings s;
     s.beginGroup("state");
-    s.setValue("camDistance", camera.distance);
-    s.setValue("camFocal", QVariantList{ camera.focalPoint.x, camera.focalPoint.y, camera.focalPoint.z });
-    s.setValue("camPos", QVariantList{ camera.position.x, camera.position.y, camera.position.z });
-    s.setValue("camUp", QVariantList{ camera.viewUp.x, camera.viewUp.y, camera.viewUp.z });
-    s.setValue("bgColor", QVariantList{ bgColor[0], bgColor[1], bgColor[2] });
-    s.setValue("matSpecular", lighting.matSpecular);
-    s.setValue("matShininess", lighting.matShininess);
-    s.setValue("lightKeyIntensity", lighting.lightKeyIntensity);
-    s.setValue("lightWarm", lighting.lightWarm);
-    s.setValue("lightKitEnabled", lighting.lightKitEnabled);
-    s.setValue("colormapChoice", colormapChoice);
-    s.setValue("colormapReversed", colormapReversed);
-    s.setValue("meshUseScalarColor", meshUseScalarColor);
-    s.setValue("vectorScale", vectorScale);
-    s.setValue("vectorScaleByMagnitude", vectorScaleByMagnitude);
+    s.setValue("camDistance", m_state.camera.distance);
+    s.setValue("camFocal", QVariantList{ m_state.camera.focalPoint.x, m_state.camera.focalPoint.y, m_state.camera.focalPoint.z });
+    s.setValue("camPos", QVariantList{ m_state.camera.position.x, m_state.camera.position.y, m_state.camera.position.z });
+    s.setValue("camUp", QVariantList{ m_state.camera.viewUp.x, m_state.camera.viewUp.y, m_state.camera.viewUp.z });
+    s.setValue("bgColor", QVariantList{ m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2] });
+    s.setValue("matSpecular", m_state.lighting.matSpecular);
+    s.setValue("matRoughness", m_state.lighting.matRoughness);
+    s.setValue("matMetallic", m_state.lighting.matMetallic);
+    s.setValue("lightKeyIntensity", m_state.lighting.lightKeyIntensity);
+    s.setValue("lightWarm", m_state.lighting.lightWarm);
+    s.setValue("lightKitEnabled", m_state.lighting.lightKitEnabled);
+    s.setValue("colormapChoice", m_state.colormapChoice);
+    s.setValue("colormapReversed", m_state.colormapReversed);
+    s.setValue("meshUseScalarColor", m_state.meshUseScalarColor);
+    s.setValue("showVolume", m_state.showVolume);
+    s.setValue("volumeUseColormap", m_state.volumeUseColormap);
+    s.setValue("volumeColormapChoice", m_state.volumeColormapChoice);
+    s.setValue("volumeColormapReversed", m_state.volumeColormapReversed);
+    s.setValue("volumeStepSize", m_state.volumeStepSize);
+    s.setValue("volumeOpacity", m_state.volumeOpacity);
+    s.setValue("vectorScale", m_state.vectorScale);
+    s.setValue("vectorScaleByMagnitude", m_state.vectorScaleByMagnitude);
     s.setValue("quickBarCollapsed", quickBarCollapsed);
+    s.setValue("msaaSamples", msaaSamples);
+    s.setValue("screenshotResolution", m_screenshotResolution);
+    s.setValue("screenshotAASamples", m_screenshotAASamples);
+    s.setValue("flatShading", m_state.flatShading);
     s.endGroup();
 }
 
@@ -238,34 +190,64 @@ void RenderSettings::restoreStateFromSettings() {
         if (v.size() == 3) { c[0] = v[0].toFloat(); c[1] = v[1].toFloat(); c[2] = v[2].toFloat(); }
     };
     if (s.contains("camDistance")) {
-        camera.distance = s.value("camDistance").toDouble();
-        readVec3("camFocal", camera.focalPoint);
-        readVec3("camPos", camera.position);
-        readVec3("camUp", camera.viewUp);
-        camera.maxDistance = std::max(1000.0, camera.distance * 50.0);
-        camera.orthogonalizeViewUp();
+        m_state.camera.distance = s.value("camDistance").toDouble();
+        readVec3("camFocal", m_state.camera.focalPoint);
+        readVec3("camPos", m_state.camera.position);
+        readVec3("camUp", m_state.camera.viewUp);
+        m_state.camera.maxDistance = std::max(1000.0, m_state.camera.distance * 50.0);
+        m_state.camera.orthogonalizeViewUp();
     }
-    readFColor("bgColor", bgColor);
+    readFColor("bgColor", m_state.bgColor);
     if (s.contains("matSpecular")) {
-        lighting.matSpecular = s.value("matSpecular").toFloat();
-        lighting.matShininess = s.value("matShininess").toFloat();
-        lighting.lightKeyIntensity = s.value("lightKeyIntensity").toFloat();
-        lighting.lightWarm = s.value("lightWarm").toFloat();
-        lighting.lightKitEnabled = s.value("lightKitEnabled").toBool();
+        m_state.lighting.matSpecular = s.value("matSpecular").toFloat();
+        if (s.contains("matRoughness")) {
+            m_state.lighting.matRoughness = s.value("matRoughness").toFloat();
+            m_state.lighting.matMetallic  = s.value("matMetallic").toFloat();
+        }
+        m_state.lighting.lightKeyIntensity = s.value("lightKeyIntensity").toFloat();
+        m_state.lighting.lightWarm = s.value("lightWarm").toFloat();
+        m_state.lighting.lightKitEnabled = s.value("lightKitEnabled").toBool();
     }
     if (s.contains("meshUseScalarColor")) {
-        meshUseScalarColor = s.value("meshUseScalarColor").toBool();
+        m_state.meshUseScalarColor = s.value("meshUseScalarColor").toBool();
     }
     if (s.contains("colormapChoice")) {
-        colormapChoice = s.value("colormapChoice").toInt();
-        colormapReversed = s.value("colormapReversed").toBool();
+        m_state.colormapChoice = s.value("colormapChoice").toInt();
+        m_state.colormapReversed = s.value("colormapReversed").toBool();
+    }
+    if (s.contains("showVolume")) {
+        m_state.showVolume = s.value("showVolume").toBool();
+    }
+    if (s.contains("volumeStepSize")) {
+        m_state.volumeStepSize = s.value("volumeStepSize").toFloat();
+    }
+    if (s.contains("volumeOpacity")) {
+        m_state.volumeOpacity = s.value("volumeOpacity").toFloat();
+    }
+    if (s.contains("volumeColormapChoice")) {
+        m_state.volumeColormapChoice = s.value("volumeColormapChoice").toInt();
+        m_state.volumeColormapReversed = s.value("volumeColormapReversed").toBool();
     }
     if (s.contains("vectorScale")) {
-        vectorScale = s.value("vectorScale").toFloat();
-        vectorScaleByMagnitude = s.value("vectorScaleByMagnitude").toBool();
+        m_state.vectorScale = s.value("vectorScale").toFloat();
+        m_state.vectorScaleByMagnitude = s.value("vectorScaleByMagnitude").toBool();
     }
     if (s.contains("quickBarCollapsed")) {
         quickBarCollapsed = s.value("quickBarCollapsed").toBool();
+    }
+    if (s.contains("msaaSamples")) {
+        const int n = s.value("msaaSamples").toInt();
+        msaaSamples = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
+    }
+    if (s.contains("screenshotResolution")) {
+        m_screenshotResolution = qBound(0, s.value("screenshotResolution").toInt(), 4);
+    }
+    if (s.contains("screenshotAASamples")) {
+        const int n = s.value("screenshotAASamples").toInt();
+        m_screenshotAASamples = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
+    }
+    if (s.contains("flatShading")) {
+        m_state.flatShading = s.value("flatShading").toBool();
     }
     s.endGroup();
 }
@@ -316,82 +298,93 @@ void RenderSettings::onMeshParsed() {
         return;
     }
 
-    // The single heavy CPU payload now lives in m_loadedMesh (shared, immutable).
-    m_loadedMesh = loaded;
+    // The single heavy CPU payload now lives in m_meshData.loadedMesh (shared, immutable).
+    m_meshData.loadedMesh = loaded;
 
     // Build a LIGHT GUI meta copy: keep only the cheap metadata (names, bounds,
     // active scalar array) so field switches work without the heavy vertex/
-    // normal/index/vector payloads. The heavy geometry stays ONLY in m_loadedMesh
+    // normal/index/vector payloads. The heavy geometry stays ONLY in m_meshData.loadedMesh
     // (immutable, shared with the renderer); attributes (all scalar/vector field
-    // arrays) also stay ONLY in m_loadedMesh and are read from there on switch.
-    m_guiMeta = *loaded;
+    // arrays) also stay ONLY in m_meshData.loadedMesh and are read from there on switch.
+    m_meshData.guiMeta = *loaded;
     {
         const MeshQuality& mq = res.quality;
-        degenerateFaces  = mq.degenerateFaces;
-        openEdges        = mq.openEdges;
-        nonManifoldEdges = mq.nonManifoldEdges;
-        nonManifoldVerts = mq.nonManifoldVerts;
-        watertight       = mq.watertight;
-        qualityDegenerateTris  = mq.degenerateTriVerts;
-        qualityOpenEdges        = mq.openEdgeVerts;
-        qualityNonManifoldEdges = mq.nonManifoldEdgeVerts;
+        m_meshData.degenerateFaces  = mq.degenerateFaces;
+        m_meshData.openEdges        = mq.openEdges;
+        m_meshData.nonManifoldEdges = mq.nonManifoldEdges;
+        m_meshData.nonManifoldVerts = mq.nonManifoldVerts;
+        m_meshData.watertight       = mq.watertight;
+        m_state.qualityDegenerateTris  = std::make_shared<const std::vector<float>>(std::move(mq.degenerateTriVerts));
+        m_state.qualityOpenEdges        = std::make_shared<const std::vector<float>>(std::move(mq.openEdgeVerts));
+        m_state.qualityNonManifoldEdges = std::make_shared<const std::vector<float>>(std::move(mq.nonManifoldEdgeVerts));
     }
 
-    m_guiMeta.vertices.clear();   m_guiMeta.vertices.shrink_to_fit();
-    m_guiMeta.normals.clear();    m_guiMeta.normals.shrink_to_fit();
-    m_guiMeta.indices.clear();    m_guiMeta.indices.shrink_to_fit();
-    m_guiMeta.pointVectorsData.clear(); m_guiMeta.pointVectorsData.shrink_to_fit();
-    m_guiMeta.attributes.reset();
+    m_meshData.guiMeta.vertices.clear();   m_meshData.guiMeta.vertices.shrink_to_fit();
+    m_meshData.guiMeta.normals.clear();    m_meshData.guiMeta.normals.shrink_to_fit();
+    m_meshData.guiMeta.indices.clear();    m_meshData.guiMeta.indices.shrink_to_fit();
+    m_meshData.guiMeta.pointVectorsData.clear(); m_meshData.guiMeta.pointVectorsData.shrink_to_fit();
+    m_meshData.guiMeta.attributes.reset();
 
-    worldMinX = loaded->bounds.minX; worldMaxX = loaded->bounds.maxX;
-    worldMinY = loaded->bounds.minY; worldMaxY = loaded->bounds.maxY;
-    worldMinZ = loaded->bounds.minZ; worldMaxZ = loaded->bounds.maxZ;
-    worldCenterX = loaded->bounds.centerX;
-    worldCenterY = loaded->bounds.centerY;
-    worldCenterZ = loaded->bounds.centerZ;
-    worldRadius  = loaded->bounds.worldRadius;
+    m_state.worldMinX = loaded->bounds.minX; m_state.worldMaxX = loaded->bounds.maxX;
+    m_state.worldMinY = loaded->bounds.minY; m_state.worldMaxY = loaded->bounds.maxY;
+    m_state.worldMinZ = loaded->bounds.minZ; m_state.worldMaxZ = loaded->bounds.maxZ;
+    m_state.worldCenterX = loaded->bounds.centerX;
+    m_state.worldCenterY = loaded->bounds.centerY;
+    m_state.worldCenterZ = loaded->bounds.centerZ;
+    m_state.worldRadius  = loaded->bounds.worldRadius;
 
     QFileInfo fileInfo(QString::fromStdString(m_loadingPath));
-    currentMeshName = fileInfo.fileName().toStdString();
-    triangleCount = static_cast<int>(loaded->indices.size() / 3);
-    pointCount = loaded->sourcePointCount >= 0
+    m_meshData.fileName = fileInfo.fileName().toStdString();
+    m_meshData.triangleCount = static_cast<int>(loaded->indices.size() / 3);
+    m_meshData.pointCount = loaded->sourcePointCount >= 0
         ? loaded->sourcePointCount
         : static_cast<int>(loaded->vertices.size() / 3);
-    meshDataType = loaded->datasetType;
-    meshFormat = loaded->fileFormat;
-    supportsCellGrid = loaded->supportsCellGrid;
-    hasMeshLoaded = true;
+    m_meshData.datasetType = loaded->datasetType;
+    m_meshData.meshFormat = loaded->fileFormat;
+    m_state.hasMeshLoaded = true;
+
+    // Vector field availability gate for colorbars / UI.
+    m_state.meshHasVectors = !loaded->pointVectorsData.empty();
+    if (!m_state.meshHasVectors) {
+        m_state.showStreamlines = false;
+    }
 
     // Reset per-mesh vector state.
-    showVectors = false;
-    vectorUseColormap = false;
-    clipEnabled = false;
-    sliceEnabledX = sliceEnabledY = sliceEnabledZ = false;
+    m_state.showVectors = false;
+    m_state.showVolume = false;
+    m_state.vectorUseColormap = false;
+    m_state.clipEnabled = false;
+    m_state.sliceEnabledX = m_state.sliceEnabledY = m_state.sliceEnabledZ = false;
     if (!loaded->pointVectorsData.empty()) {
-        m_guiMeta.vectorName = loaded->availableVectorNames.front();
+        m_meshData.guiMeta.vectorName = loaded->availableVectorNames.front();
+        m_state.vectorField = loaded->availableVectorNames.front();
+        m_state.streamlineVectorField = loaded->availableVectorNames.front();
     } else {
-        m_guiMeta.vectorName.clear();
+        m_meshData.guiMeta.vectorName.clear();
+        m_state.vectorField.clear();
+        m_state.streamlineVectorField.clear();
     }
     markStateDirty(); emit meshDataUpdated();
 
     if (!loaded->scalars.empty()) {
-        meshHasScalars = true;
-        meshUseScalarColor = false;          // ponytail: don't color on load
-        showScalarColorbar = true;
-        activeScalarName = loaded->scalarName;
+        m_state.meshHasScalars = true;
+        m_state.meshUseScalarColor = false;          // ponytail: don't color on load
+        m_state.showScalarColorbar = true;
+        m_state.activeScalarName = loaded->scalarName;
         recomputeScalarRange();
+        setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
     } else {
-        meshHasScalars = false;
-        meshUseScalarColor = false;
-        showScalarColorbar = false;
-        dataScalarMin = 0.0f;
-        dataScalarMax = 1.0f;
+        m_state.meshHasScalars = false;
+        m_state.meshUseScalarColor = false;
+        m_state.showScalarColorbar = false;
+        m_state.dataScalarMin = 0.0f;
+        m_state.dataScalarMax = 1.0f;
     }
 
     resetCamera();
 
     // Hand the immutable payload to the render thread (shared_ptr, no copy).
-    m_renderer.setPendingMesh(m_loadedMesh);
+    m_renderer.setPendingMesh(m_meshData.loadedMesh);
 
     {
         QString absPath = QFileInfo(QString::fromStdString(m_loadingPath)).absoluteFilePath();
@@ -420,18 +413,17 @@ void RenderSettings::setQuickBarCollapsed(bool collapsed) {
 
 void RenderSettings::clearMeshes() {
     m_renderer.clearGpuMeshes();
-    m_loadedMesh.reset();
-    m_guiMeta = RenderMesh{};
-    hasMeshLoaded = false;
-    meshHasScalars = false;
+    m_meshData.loadedMesh.reset();
+    m_meshData = MeshData{};
+    m_state.streamlineVectorField.clear();
+    m_state.hasMeshLoaded = false;
+    m_state.meshHasScalars = false;
+    m_state.meshHasVectors = false;
+    m_state.showVectors = false;
+    m_state.showStreamlines = false;
+    m_state.showVolume = false;
     markStateDirty();
-    triangleCount = 0;
-    pointCount = 0;
-    degenerateFaces = 0; openEdges = 0; nonManifoldEdges = 0; nonManifoldVerts = 0; watertight = false;
-    qualityDegenerateTris.clear(); qualityOpenEdges.clear(); qualityNonManifoldEdges.clear();
-    meshDataType = "";
-    meshFormat = "";
-    currentMeshName = "";
+    m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();
     emit meshLoadStateChanged();
 }
 
@@ -441,34 +433,36 @@ void RenderSettings::requestScreenshot(const QString& path) {
 }
 
 void RenderSettings::recomputeScalarRange() {
-    if (m_guiMeta.scalars.empty()) return;
-    float mn = m_guiMeta.scalars[0], mx = m_guiMeta.scalars[0];
-    for (float v : m_guiMeta.scalars) { if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (m_meshData.guiMeta.scalars.empty()) return;
+    float mn = m_meshData.guiMeta.scalars[0], mx = m_meshData.guiMeta.scalars[0];
+    for (float v : m_meshData.guiMeta.scalars) { if (v < mn) mn = v; if (v > mx) mx = v; }
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
-    dataScalarMin = mn; dataScalarMax = mx;
-    scalarMin = mn; scalarMax = mx;
-    // ponytail: pin filter to full range on load so Max thumb sits at slider max (unfiltered)
-    filterMin = dataScalarMin; filterMax = dataScalarMax;
+    m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
+    m_state.scalarMin = mn; m_state.scalarMax = mx;
 }
 
 void RenderSettings::setActiveScalarField(const QString& fieldName) {
-    if (fieldName.toStdString() == activeScalarName) return;
-    if (!m_loadedMesh || !m_loadedMesh->attributes.has_value()) return;
-    auto it = m_loadedMesh->attributes->pointScalars.find(fieldName.toStdString());
-    if (it == m_loadedMesh->attributes->pointScalars.end()) return;
+    if (fieldName.toStdString() == m_state.activeScalarName) return;
+    if (!m_meshData.loadedMesh || !m_meshData.loadedMesh->attributes.has_value()) return;
+    auto it = m_meshData.loadedMesh->attributes->pointScalars.find(fieldName.toStdString());
+    if (it == m_meshData.loadedMesh->attributes->pointScalars.end()) return;
 
-    activeScalarName = fieldName.toStdString();
-    m_guiMeta.scalarName = activeScalarName;
+    m_state.activeScalarName = fieldName.toStdString();
+    m_meshData.guiMeta.scalarName = m_state.activeScalarName;
 
     // Build the scalar payload ONCE as a shared_ptr (zero-copy across threads)
     // and reuse it for both the GUI meta copy and the render-thread handoff,
     // so the field is copied a single time rather than twice.
     auto payload = std::make_shared<const std::vector<float>>(it->second);
-    m_guiMeta.scalars = *payload;
+    m_meshData.guiMeta.scalars = *payload;
     recomputeScalarRange();
+    setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+    emit meshLoadStateChanged();
 
     // Trigger a SCALAR-ONLY re-upload on the render thread (shared_ptr, no copy).
     m_renderer.markScalarDirty(payload);
+    if (m_meshData.loadedMesh)
+        m_renderer.markVolumeDirty(m_meshData.loadedMesh);
     markStateDirty(); emit meshDataUpdated();
     // NOTE: do NOT emit meshLoadStateChanged() here — load state
     // (hasMeshLoaded / meshHasScalars) is unchanged; activeScalarName is
@@ -477,122 +471,65 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
 
 void RenderSettings::setActiveVectorField(const QString& fieldName) {
     if (fieldName.isEmpty()) return;
-    if (m_guiMeta.availableVectorNames.empty() ||
-        std::find(m_guiMeta.availableVectorNames.begin(),
-                  m_guiMeta.availableVectorNames.end(),
-                  fieldName.toStdString()) == m_guiMeta.availableVectorNames.end()) {
+    if (m_meshData.guiMeta.availableVectorNames.empty() ||
+        std::find(m_meshData.guiMeta.availableVectorNames.begin(),
+                  m_meshData.guiMeta.availableVectorNames.end(),
+                  fieldName.toStdString()) == m_meshData.guiMeta.availableVectorNames.end()) {
         setStatus(QString("Unknown vector field: %1").arg(fieldName));
         return;
     }
-    m_guiMeta.vectorName = fieldName.toStdString();
+    m_meshData.guiMeta.vectorName = fieldName.toStdString();
+    m_state.vectorField = fieldName.toStdString();
     m_renderer.markVectorGlyphDirty();
     markStateDirty(); emit meshDataUpdated();
 }
 
+void RenderSettings::setStreamlineVectorField(const QString& fieldName) {
+    if (fieldName.isEmpty()) return;
+    if (m_meshData.guiMeta.availableVectorNames.empty() ||
+        std::find(m_meshData.guiMeta.availableVectorNames.begin(),
+                  m_meshData.guiMeta.availableVectorNames.end(),
+                  fieldName.toStdString()) == m_meshData.guiMeta.availableVectorNames.end()) {
+        setStatus(QString("Unknown vector field: %1").arg(fieldName));
+        return;
+    }
+    m_state.streamlineVectorField = fieldName.toStdString();
+    m_renderer.markStreamlineDirty();
+    markStateDirty(); emit meshDataUpdated();
+}
+
 void RenderSettings::setColormapChoice(int choice) {
-    if (colormapChoice == choice) return;
-    colormapChoice = choice;
-    markStateDirty(); emit colormapChanged();
+    if (m_state.colormapChoice == choice) return;
+    m_state.colormapChoice = choice;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 
 void RenderSettings::setColormapReversed(bool reversed) {
-    if (colormapReversed == reversed) return;
-    colormapReversed = reversed;
-    markStateDirty(); emit colormapChanged();
+    if (m_state.colormapReversed == reversed) return;
+    m_state.colormapReversed = reversed;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 
 void RenderSettings::setVectorColormapReversed(bool reversed) {
-    if (vectorColormapReversed == reversed) return;
-    vectorColormapReversed = reversed;
-    markStateDirty(); emit vectorColormapChanged();
+    if (m_state.vectorColormapReversed == reversed) return;
+    m_state.vectorColormapReversed = reversed;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 
 void RenderSettings::applyLightingPreset(int preset) {
-    lighting.applyPreset(preset);
-    markStateDirty(); emit lightingParametersChanged();
+    m_state.lighting.applyPreset(preset);
+    markStateDirty(); emit viewChanged(ChangeFlag::Lighting);
 }
 
 void RenderSettings::resetLighting() {
-    lighting.reset();
-    markStateDirty(); emit lightingParametersChanged();
+    m_state.lighting.reset();
+    markStateDirty(); emit viewChanged(ChangeFlag::Lighting);
 }
 
 QStringList RenderSettings::getAvailableScalars() const {
     QStringList list;
-    for (const auto& name : m_guiMeta.availableScalarNames)
+    for (const auto& name : m_meshData.guiMeta.availableScalarNames)
         list.append(QString::fromStdString(name));
     return list;
 }
 
-QStringList RenderSettings::getColormapNames() const {
-    QStringList list;
-    for (int i = 0; i < static_cast<int>(ColormapType::Count); ++i)
-        list.append(QString::fromUtf8(Colormaps::getName(static_cast<ColormapType>(i))));
-    return list;
-}
-
-QString RenderSettings::getColormapPreviewUri(int index) const {
-    auto it = m_colormapPreviewCache.find(index);
-    if (it != m_colormapPreviewCache.end()) return it->second;
-
-    const int w = 100, h = 32;
-    QImage img(w, h, QImage::Format_RGB888);
-    ColormapType type = static_cast<ColormapType>(index);
-    for (int x = 0; x < w; ++x) {
-        float t = static_cast<float>(x) / static_cast<float>(w - 1);
-        glm::vec3 c = Colormaps::evaluate(t, type);
-        int r = static_cast<int>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
-        int g = static_cast<int>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
-        int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
-        for (int y = 0; y < h; ++y) img.setPixel(x, y, qRgb(r, g, b));
-    }
-    {
-        QPainter p(&img);
-        p.setRenderHint(QPainter::TextAntialiasing, true);
-        QFont f("Sans", 10, QFont::Bold);
-        f.setStretch(QFont::Condensed);
-        f.setStyleStrategy(QFont::PreferAntialias);
-        p.setFont(f);
-        QRect r(0, 0, w, h);
-        QString name = QString::fromUtf8(Colormaps::getName(type));
-        p.setPen(Qt::black);
-        p.drawText(r.translated(1, 1), Qt::AlignCenter, name);
-        p.setPen(Qt::white);
-        p.drawText(r, Qt::AlignCenter, name);
-    }
-    QByteArray ba;
-    QBuffer buf(&ba);
-    buf.open(QIODevice::WriteOnly);
-    img.save(&buf, "PNG");
-    QString uri = QString("data:image/png;base64,") + QString::fromLatin1(ba.toBase64());
-    m_colormapPreviewCache[index] = uri;
-    return uri;
-}
-
-QVariantList RenderSettings::getColormapStops() const {
-    QVariantList out;
-    const int steps = 16;
-    for (int i = 0; i <= steps; ++i) {
-        float t = static_cast<float>(i) / static_cast<float>(steps);
-        float s = colormapReversed ? (1.0f - t) : t;
-        glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(colormapChoice));
-        QVariantList stop;
-        stop << t << c.r << c.g << c.b;
-        out.append(QVariant(stop));
-    }
-    return out;
-}
-
-QVariantList RenderSettings::getVectorColormapStops() const {
-    QVariantList out;
-    const int steps = 16;
-    for (int i = 0; i <= steps; ++i) {
-        float t = static_cast<float>(i) / static_cast<float>(steps);
-        float s = vectorColormapReversed ? (1.0f - t) : t;
-        glm::vec3 c = Colormaps::evaluate(s, static_cast<ColormapType>(vectorColormapChoice));
-        QVariantList stop;
-        stop << t << c.r << c.g << c.b;
-        out.append(QVariant(stop));
-    }
-    return out;
-}

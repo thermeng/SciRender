@@ -1,0 +1,94 @@
+#version 460 core
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) buffer InPos {
+    float inPos[];
+};
+layout(std430, binding = 1) buffer InNorm {
+    float inNorm[];
+};
+layout(std430, binding = 2) buffer InScalar {
+    float inScalar[];
+};
+layout(std430, binding = 3) buffer InIndex {
+    uint inIndex[];
+};
+
+layout(std430, binding = 4) buffer OutPos {
+    float outPos[];
+};
+layout(std430, binding = 5) buffer OutNorm {
+    float outNorm[];
+};
+layout(std430, binding = 6) buffer OutScalar {
+    float outScalar[];
+};
+layout(std430, binding = 7) buffer OutIndex {
+    uint outIndex[];
+};
+
+layout(std430, binding = 8) buffer CellData {
+    uint cells[];
+};
+
+layout(std140, binding = 9) buffer LODParams {
+    ivec4 cellsPerAxis;
+    vec4 boundsMin;
+    vec4 boundsMax;
+    int vertexCount;
+    int triangleCount;
+    int hasNormals;
+    int hasScalars;
+};
+
+layout(std430, binding = 10) buffer Counters {
+    uint outVertCount;
+    uint outTriCount;
+};
+
+layout(std430, binding = 11) buffer Remap {
+    uint remap[];
+};
+
+float atomicAddFloat(uint idx, float value) {
+    uint old = atomicAdd(cells[idx], 0u);
+    uint newVal;
+    do {
+        float cur = uintBitsToFloat(old);
+        float sum = cur + value;
+        newVal = floatBitsToUint(sum);
+        uint prev = atomicCompSwap(cells[idx], old, newVal);
+        if (prev == old) break;
+        old = prev;
+    } while (true);
+    return uintBitsToFloat(newVal);
+}
+
+void main() {
+    uint vid = gl_GlobalInvocationID.x;
+    if (vid >= uint(vertexCount)) return;
+
+    vec3 p = vec3(inPos[vid * 3u], inPos[vid * 3u + 1u], inPos[vid * 3u + 2u]);
+    ivec3 cpa = ivec3(cellsPerAxis.xyz);
+    vec3 range = boundsMax.xyz - boundsMin.xyz;
+    vec3 cellCoord = (p - boundsMin.xyz) / range * vec3(cpa);
+    ivec3 cell = ivec3(clamp(floor(cellCoord), ivec3(0), cpa - 1));
+
+    int flatCell = cell.x + cell.y * cpa.x + cell.z * cpa.x * cpa.y;
+
+    atomicAdd(cells[flatCell * 10u], 1u);
+    atomicAddFloat(flatCell * 10u + 1u, p.x);
+    atomicAddFloat(flatCell * 10u + 2u, p.y);
+    atomicAddFloat(flatCell * 10u + 3u, p.z);
+
+    if (hasNormals != 0) {
+        atomicAddFloat(flatCell * 10u + 4u, inNorm[vid * 3u]);
+        atomicAddFloat(flatCell * 10u + 5u, inNorm[vid * 3u + 1u]);
+        atomicAddFloat(flatCell * 10u + 6u, inNorm[vid * 3u + 2u]);
+    }
+    if (hasScalars != 0) {
+        atomicAddFloat(flatCell * 10u + 7u, inScalar[vid]);
+    }
+
+    remap[vid] = uint(flatCell);
+}
