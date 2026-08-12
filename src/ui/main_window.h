@@ -187,7 +187,8 @@ private:
     QComboBox* m_streamlineDirectionCombo = nullptr;
     QComboBox* m_volumeFieldCombo = nullptr;
 
-    // "Show" checkboxes for vector/streamline pages (gated on vector data)
+    // "Show" checkboxes for vector/streamline/volume/scalar pages (gated on data availability)
+    QCheckBox* m_scalarShowCb = nullptr;
     QCheckBox* m_slShowCb = nullptr;
     QCheckBox* m_vecShowCb = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;

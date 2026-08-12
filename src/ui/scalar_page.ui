@@ -27,240 +27,268 @@
     <number>8</number>
    </property>
    <item>
-    <widget class="QCheckBox" name="colorByScalar">
+    <widget class="QCheckBox" name="showCb">
      <property name="text">
-      <string>Color by Scalar</string>
-     </property>
-     <property name="checked">
-      <bool>true</bool>
+      <string>Show Scalar</string>
      </property>
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="fieldHeader"><property name="text">
-      <string>Field</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QComboBox" name="scalarCombo"/>
-   </item>
-   <item>
-    <widget class="QLabel" name="paletteHeader"><property name="text">
-      <string>Palette</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QComboBox" name="paletteCombo"/>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="reversePalette">
-     <property name="text">
-      <string>Reverse Palette</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="showColorbar">
-     <property name="text">
-      <string>Show colorbar</string>
-     </property>
-     <property name="checked">
-      <bool>true</bool>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="colorbarHeader"><property name="text">
-       <string>Scalar</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="ticksRow">
-     <item>
-      <widget class="QLabel" name="ticksLabel">
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property><property name="text">
-        <string>Ticks</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QSpinBox" name="ticksSpin">
-       <property name="minimum">
-        <number>2</number>
-       </property>
-       <property name="maximum">
-        <number>20</number>
-       </property>
-       <property name="value">
-        <number>6</number>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QLabel" name="filterHeader"><property name="text">
-      <string>Filter</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="minFilterLayout">
-     <property name="spacing">
-      <number>6</number>
-     </property>
-     <property name="leftMargin">
-      <number>0</number>
-     </property>
-     <property name="topMargin">
-      <number>0</number>
-     </property>
-     <property name="rightMargin">
-      <number>0</number>
-     </property>
-     <property name="bottomMargin">
-      <number>0</number>
-     </property>
-     <item>
-      <widget class="QLabel" name="minFilterLabel">
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property><property name="text">
-        <string>Min</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QSlider" name="minFilterSlider">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLineEdit" name="minFilterField">
-       <property name="minimumSize">
-        <size>
-         <width>52</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>52</width>
-         <height>16777215</height>
-        </size>
-       </property><property name="text">
-        <string>0.000</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="maxFilterLayout">
-     <property name="spacing">
-      <number>6</number>
-     </property>
-     <property name="leftMargin">
-      <number>0</number>
-     </property>
-     <property name="topMargin">
-      <number>0</number>
-     </property>
-     <property name="rightMargin">
-      <number>0</number>
-     </property>
-     <property name="bottomMargin">
-      <number>0</number>
-     </property>
-     <item>
-      <widget class="QLabel" name="maxFilterLabel">
-       <property name="minimumSize">
-        <size>
-         <width>72</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>72</width>
-         <height>16777215</height>
-        </size>
-       </property><property name="text">
-        <string>Max</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QSlider" name="maxFilterSlider">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLineEdit" name="maxFilterField">
-       <property name="minimumSize">
-        <size>
-         <width>52</width>
-         <height>0</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>52</width>
-         <height>16777215</height>
-        </size>
-       </property><property name="text">
-        <string>1.000</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QPushButton" name="resetFilterBtn"><property name="text">
-      <string>Reset</string>
-     </property>
+    <widget class="QWidget" name="optionsGroup" native="true">
+     <layout class="QVBoxLayout" name="optionsLayout">
+      <property name="spacing">
+       <number>7</number>
+      </property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QCheckBox" name="colorByScalar">
+        <property name="text">
+         <string>Color by Scalar</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="fieldHeader"><property name="text">
+         <string>Field</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="scalarCombo"/>
+      </item>
+      <item>
+       <widget class="QLabel" name="paletteHeader"><property name="text">
+         <string>Palette</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="paletteCombo"/>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="reversePalette">
+        <property name="text">
+         <string>Reverse Palette</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="showColorbar">
+        <property name="text">
+         <string>Show colorbar</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="colorbarHeader"><property name="text">
+         <string>Scalar</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="ticksRow">
+        <item>
+         <widget class="QLabel" name="ticksLabel">
+          <property name="minimumSize">
+           <size>
+            <width>72</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>72</width>
+            <height>16777215</height>
+           </size>
+          </property><property name="text">
+           <string>Ticks</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="ticksSpin">
+          <property name="minimum">
+           <number>2</number>
+          </property>
+          <property name="maximum">
+           <number>20</number>
+          </property>
+          <property name="value">
+           <number>6</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="filterHeader"><property name="text">
+         <string>Filter</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="minFilterLayout">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="minFilterLabel">
+          <property name="minimumSize">
+           <size>
+            <width>72</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>72</width>
+            <height>16777215</height>
+           </size>
+          </property><property name="text">
+           <string>Min</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="minFilterSlider">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="minFilterField">
+          <property name="minimumSize">
+           <size>
+            <width>52</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>52</width>
+            <height>16777215</height>
+           </size>
+          </property><property name="text">
+           <string>0.000</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="maxFilterLayout">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="maxFilterLabel">
+          <property name="minimumSize">
+           <size>
+            <width>72</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>72</width>
+            <height>16777215</height>
+           </size>
+          </property><property name="text">
+           <string>Max</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="maxFilterSlider">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="maxFilterField">
+          <property name="minimumSize">
+           <size>
+            <width>52</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>52</width>
+            <height>16777215</height>
+           </size>
+          </property><property name="text">
+           <string>1.000</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPushButton" name="resetFilterBtn"><property name="text">
+         <string>Reset</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </widget>
    </item>
   </layout>

@@ -351,6 +351,7 @@ void RenderSettings::onMeshParsed() {
 
     // Reset per-mesh vector state.
     m_state.showVectors = false;
+    m_state.showVolume = false;
     m_state.vectorUseColormap = false;
     m_state.clipEnabled = false;
     m_state.sliceEnabledX = m_state.sliceEnabledY = m_state.sliceEnabledZ = false;
