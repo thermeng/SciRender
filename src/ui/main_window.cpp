@@ -1773,6 +1773,18 @@ QWidget* MainWindow::buildMeshInfoPage() {
     addInfoRow("Non-manifold Vertex", meshUi.nonManifoldVValue, QString::number(m_settings->getNonManifoldVerts()));
     addInfoRow("Watertight", meshUi.watertightValue, m_settings->getWatertight() ? "Yes" : "No");
 
+    // Quality overlay colors — match QualityOverlayRenderer defect colors
+    if (m_settings->getDegenerateFaces() > 0)
+        meshUi.degenerateValue->setStyleSheet("color: #FF6666; font-weight: bold;");
+    if (m_settings->getOpenEdges() > 0)
+        meshUi.openEdgesValue->setStyleSheet("color: #FFAA44; font-weight: bold;");
+    if (m_settings->getNonManifoldEdges() > 0)
+        meshUi.nonManifoldEValue->setStyleSheet("color: #FF44FF; font-weight: bold;");
+    if (m_settings->getNonManifoldVerts() > 0)
+        meshUi.nonManifoldVValue->setStyleSheet("color: #FF44FF; font-weight: bold;");
+    meshUi.watertightValue->setStyleSheet(
+        m_settings->getWatertight() ? "color: #4CAF50;" : "color: #FF6666;");
+
     auto addBB = [&](const QString& row, int axis, double v) {
         QString key = QString("BB:%1:%2").arg(row).arg(axis);
         QLabel* widget = nullptr;
@@ -1969,10 +1981,26 @@ void MainWindow::refreshMeshInfoPage() {
     setInfo("Triangles",  QString::number(m_settings->getTriangleCount()));
     setInfo("Points",     QString::number(m_settings->getPointCount()));
     setInfo("Degenerate", QString::number(m_settings->getDegenerateFaces()));
-    setInfo("Open edges", QString::number(m_settings->getOpenEdges()));
-    setInfo("Non-manifold E", QString::number(m_settings->getNonManifoldEdges()));
-    setInfo("Non-manifold V", QString::number(m_settings->getNonManifoldVerts()));
-    setInfo("Watertight", m_settings->getWatertight() ? "yes" : "no");
+    setInfo("Open Edges", QString::number(m_settings->getOpenEdges()));
+    setInfo("Non-manifold Edge", QString::number(m_settings->getNonManifoldEdges()));
+    setInfo("Non-manifold Vertex", QString::number(m_settings->getNonManifoldVerts()));
+    setInfo("Watertight", m_settings->getWatertight() ? "Yes" : "No");
+
+    // Quality overlay colors — match QualityOverlayRenderer defect colors
+    auto colorQuality = [&](const QString& label, int count, const char* defectColor) {
+        auto it = m_meshInfoLabels.find(label);
+        if (it == m_meshInfoLabels.end()) return;
+        it.value()->setStyleSheet(count > 0
+            ? QString("color: %1; font-weight: bold;").arg(defectColor)
+            : QString());
+    };
+    colorQuality("Degenerate",         m_settings->getDegenerateFaces(),   "#FF6666");
+    colorQuality("Open Edges",         m_settings->getOpenEdges(),         "#FFAA44");
+    colorQuality("Non-manifold Edge",  m_settings->getNonManifoldEdges(),  "#FF44FF");
+    colorQuality("Non-manifold Vertex",m_settings->getNonManifoldVerts(),  "#FF44FF");
+    auto wtIt = m_meshInfoLabels.find("Watertight");
+    if (wtIt != m_meshInfoLabels.end())
+        wtIt.value()->setStyleSheet(m_settings->getWatertight() ? "color: #4CAF50;" : "color: #FF6666;");
 
     auto setBB = [&](const QString& row, int axis, double v) {
         auto it = m_meshInfoLabels.find(QString("BB:%1:%2").arg(row).arg(axis));
