@@ -15,6 +15,10 @@ public:
     void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, const ColormapManager& colormap);
     void shutdown();
     void clearVolume();
+    GLuint volumeTexture() const { return volumeTex_.get(); }
+    bool hasVolume() const { return volumeTex_.has(); }
+    const glm::vec3& boxMin() const { return boxMin_; }
+    const glm::vec3& boxMax() const { return boxMax_; }
 
 private:
     GlProgram program_;

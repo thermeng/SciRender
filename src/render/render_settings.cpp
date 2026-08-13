@@ -228,6 +228,9 @@ void RenderSettings::restoreStateFromSettings() {
         m_state.volumeColormapChoice = s.value("volumeColormapChoice").toInt();
         m_state.volumeColormapReversed = s.value("volumeColormapReversed").toBool();
     }
+    if (s.contains("volumeUseColormap")) {
+        m_state.volumeUseColormap = s.value("volumeUseColormap").toBool();
+    }
     if (s.contains("vectorScale")) {
         m_state.vectorScale = s.value("vectorScale").toFloat();
         m_state.vectorScaleByMagnitude = s.value("vectorScaleByMagnitude").toBool();

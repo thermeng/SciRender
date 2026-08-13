@@ -1040,15 +1040,11 @@ QWidget* MainWindow::buildScalarPage() {
     scalarUi.setupUi(content);
 
     // Wire up static controls from .ui file
-    auto* scalarColorCb = scalarUi.colorByScalar;
-    scalarColorCb->setChecked(m_settings->getMeshUseScalarColor());
-    connect(scalarColorCb, &QCheckBox::toggled, m_settings, &RenderSettings::setMeshUseScalarColor);
-
     auto* showCb = scalarUi.showCb;
     m_scalarShowCb = showCb;
+    m_scalarOptionsGroup = scalarUi.optionsGroup;
     showCb->setChecked(m_settings->getMeshUseScalarColor());
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setMeshUseScalarColor);
-    connect(showCb, &QCheckBox::toggled, scalarUi.optionsGroup, &QWidget::setEnabled);
     scalarUi.optionsGroup->setEnabled(m_settings->hasMeshScalars());
 
     m_scalarCombo = scalarUi.scalarCombo;
@@ -1063,7 +1059,7 @@ QWidget* MainWindow::buildScalarPage() {
     auto* paletteCombo = buildColormapCombo(m_settings->getColormapChoice(),
         [this](int i) { m_settings->setColormapChoice(i); });
     paletteCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
-    content->layout()->replaceWidget(scalarUi.paletteCombo, paletteCombo);
+    scalarUi.optionsGroup->layout()->replaceWidget(scalarUi.paletteCombo, paletteCombo);
     delete scalarUi.paletteCombo;
 
     auto* reversedCb = scalarUi.reversePalette;
@@ -1349,7 +1345,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* slCmapCombo = buildColormapCombo(m_settings->getStreamlineColormapChoice(),
         [this](int i) { m_settings->setStreamlineColormapChoice(i); });
-    content->layout()->replaceWidget(slUi.slCmapCombo, slCmapCombo);
+    slUi.optionsGroup->layout()->replaceWidget(slUi.slCmapCombo, slCmapCombo);
     delete slUi.slCmapCombo;
 
     auto* slRevCb = slUi.slRevCb;
@@ -1708,12 +1704,16 @@ QWidget* MainWindow::buildVolumePage() {
     auto* paletteCombo = buildColormapCombo(m_settings->getVolumeColormapChoice(),
         [this](int i) { m_settings->setVolumeColormapChoice(i); });
     paletteCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
-    content->layout()->replaceWidget(volumeUi.volumePaletteCombo, paletteCombo);
+    volumeUi.optionsGroup->layout()->replaceWidget(volumeUi.volumePaletteCombo, paletteCombo);
     delete volumeUi.volumePaletteCombo;
 
     auto* reversedCb = volumeUi.volumeReverseCb;
     reversedCb->setChecked(m_settings->getVolumeColormapReversed());
     connect(reversedCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeColormapReversed);
+
+    auto* useCmapCb = volumeUi.volumeUseCmapCb;
+    useCmapCb->setChecked(m_settings->getVolumeUseColormap());
+    connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeUseColormap);
 
     {
         auto* slider = volumeUi.stepSlider;
@@ -1736,6 +1736,67 @@ QWidget* MainWindow::buildVolumePage() {
             double v = raw / 1000.0;
             valueLabel->setText(QString::number(v, 'f', 3));
             m_settings->setVolumeOpacity(v);
+        });
+    }
+
+    {
+        auto* showCb = volumeUi.volumeSliceShowCb;
+        m_volumeSliceShowCb = showCb;
+        showCb->setChecked(m_settings->getShowVolumeSlice());
+        showCb->setEnabled(m_settings->hasVolumeData());
+        if (!m_settings->hasVolumeData()) showCb->setChecked(false);
+        connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolumeSlice);
+    }
+
+    {
+        auto* axisX = volumeUi.sliceAxisX;
+        auto* axisY = volumeUi.sliceAxisY;
+        auto* axisZ = volumeUi.sliceAxisZ;
+        m_sliceAxisXRb = axisX;
+        m_sliceAxisYRb = axisY;
+        m_sliceAxisZRb = axisZ;
+        int currentAxis = m_settings->getVolumeSliceAxis();
+        axisX->setChecked(currentAxis == 0);
+        axisY->setChecked(currentAxis == 1);
+        axisZ->setChecked(currentAxis == 2);
+        auto* axisGroup = new QButtonGroup(this);
+        axisGroup->addButton(axisX, 0);
+        axisGroup->addButton(axisY, 1);
+        axisGroup->addButton(axisZ, 2);
+        connect(axisGroup, &QButtonGroup::idToggled, m_settings, [this](int id, bool checked) {
+            if (checked) m_settings->setVolumeSliceAxis(id);
+        });
+    }
+
+    {
+        auto* slider = volumeUi.slicePosSlider;
+        auto* valueLabel = volumeUi.slicePosValue;
+        m_slicePosSlider = slider;
+        m_slicePosValue = valueLabel;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getVolumeSlicePos() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v * 100.0, 'f', 0) + "%");
+            m_settings->setVolumeSlicePos(v);
+        });
+    }
+
+    {
+        auto* wfCb = volumeUi.volumeWireframeCb;
+        wfCb->setChecked(m_settings->isWireframe());
+        connect(wfCb, &QCheckBox::toggled, m_settings, &RenderSettings::setWireframe);
+    }
+
+    {
+        auto* slider = volumeUi.sliceOpacitySlider;
+        auto* valueLabel = volumeUi.sliceOpacityValue;
+        slider->setRange(0, 1000);
+        slider->setValue(static_cast<int>(m_settings->getVolumeSliceOpacity() * 1000));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = raw / 1000.0;
+            valueLabel->setText(QString::number(v * 100.0, 'f', 0) + "%");
+            m_settings->setVolumeSliceOpacity(v);
         });
     }
 
@@ -2070,12 +2131,24 @@ void MainWindow::connectSettings() {
         if (m_scalarShowCb) {
             bool ok = m_settings->hasMeshScalars();
             m_scalarShowCb->setEnabled(ok);
-            if (!ok) m_scalarShowCb->setChecked(false);
+            if (ok) {
+                m_scalarShowCb->setChecked(m_settings->getMeshUseScalarColor());
+            } else {
+                m_scalarShowCb->setChecked(false);
+            }
+            if (m_scalarOptionsGroup) {
+                m_scalarOptionsGroup->setEnabled(ok);
+            }
         }
         if (m_volumeShowCb) {
             bool ok = m_settings->hasVolumeData();
             m_volumeShowCb->setEnabled(ok);
             if (!ok) m_volumeShowCb->setChecked(false);
+        }
+        if (m_volumeSliceShowCb) {
+            bool ok = m_settings->hasVolumeData();
+            m_volumeSliceShowCb->setEnabled(ok);
+            if (!ok) m_volumeSliceShowCb->setChecked(false);
         }
     });
     connect(m_settings, &RenderSettings::meshDataUpdated, this, &MainWindow::refreshMeshInfoPage);
