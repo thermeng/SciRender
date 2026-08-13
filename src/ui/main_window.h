@@ -9,6 +9,8 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QCheckBox>
+#include <QRadioButton>
+#include <QButtonGroup>
 #include <QSlider>
 #include <QSpinBox>
 #include <QComboBox>
@@ -189,9 +191,16 @@ private:
 
     // "Show" checkboxes for vector/streamline/volume/scalar pages (gated on data availability)
     QCheckBox* m_scalarShowCb = nullptr;
+    QWidget* m_scalarOptionsGroup = nullptr;
     QCheckBox* m_slShowCb = nullptr;
     QCheckBox* m_vecShowCb = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;
+    QCheckBox* m_volumeSliceShowCb = nullptr;
+    QRadioButton* m_sliceAxisXRb = nullptr;
+    QRadioButton* m_sliceAxisYRb = nullptr;
+    QRadioButton* m_sliceAxisZRb = nullptr;
+    QSlider* m_slicePosSlider = nullptr;
+    QLabel* m_slicePosValue = nullptr;
 
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;

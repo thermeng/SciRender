@@ -212,6 +212,10 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool volumeColormapReversed READ getVolumeColormapReversed WRITE setVolumeColormapReversed NOTIFY viewChanged)
     Q_PROPERTY(double volumeStepSize READ getVolumeStepSize WRITE setVolumeStepSize NOTIFY viewChanged)
     Q_PROPERTY(double volumeOpacity READ getVolumeOpacity WRITE setVolumeOpacity NOTIFY viewChanged)
+    Q_PROPERTY(bool showVolumeSlice READ getShowVolumeSlice WRITE setShowVolumeSlice NOTIFY viewChanged)
+    Q_PROPERTY(int volumeSliceAxis READ getVolumeSliceAxis WRITE setVolumeSliceAxis NOTIFY viewChanged)
+    Q_PROPERTY(double volumeSlicePos READ getVolumeSlicePos WRITE setVolumeSlicePos NOTIFY viewChanged)
+    Q_PROPERTY(double volumeSliceOpacity READ getVolumeSliceOpacity WRITE setVolumeSliceOpacity NOTIFY viewChanged)
 
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
@@ -491,6 +495,14 @@ public:
     void setVolumeStepSize(double v) { if (m_state.volumeStepSize != v) { m_state.volumeStepSize = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getVolumeOpacity() const { return m_state.volumeOpacity; }
     void setVolumeOpacity(double v) { if (m_state.volumeOpacity != v) { m_state.volumeOpacity = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getShowVolumeSlice() const { return m_state.showVolumeSlice; }
+    void setShowVolumeSlice(bool v) { if (m_state.showVolumeSlice != v) { m_state.showVolumeSlice = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    int getVolumeSliceAxis() const { return m_state.volumeSliceAxis; }
+    void setVolumeSliceAxis(int a) { int ax = std::clamp(a, 0, 2); if (m_state.volumeSliceAxis != ax) { m_state.volumeSliceAxis = ax; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    double getVolumeSlicePos() const { return m_state.volumeSlicePos; }
+    void setVolumeSlicePos(double v) { if (m_state.volumeSlicePos != v) { m_state.volumeSlicePos = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    double getVolumeSliceOpacity() const { return m_state.volumeSliceOpacity; }
+    void setVolumeSliceOpacity(double v) { if (m_state.volumeSliceOpacity != v) { m_state.volumeSliceOpacity = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
 
     bool getVectorUseColormap() const { return m_state.vectorUseColormap; }
     void setVectorUseColormap(bool v) { if (m_state.vectorUseColormap != v) { m_state.vectorUseColormap = v; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }

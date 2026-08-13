@@ -47,6 +47,7 @@
 #include "render/GlyphPass.h"
 #include "render/ParticlePass.h"
 #include "render/VolumePass.h"
+#include "render/VolumeSliceOverlay.h"
 #include "render/ColormapSync.h"
 #include "render/LodScheduler.h"
 
@@ -80,6 +81,8 @@ struct ShaderSources {
     std::string compositeFrag;
     std::string volumeVert;
     std::string volumeFrag;
+    std::string volumeSliceVert;
+    std::string volumeSliceFrag;
 };
 
 // ---------------------------------------------------------------------------
@@ -222,6 +225,12 @@ struct RenderRenderState {
     bool volumeColormapReversed = false;
     float volumeStepSize = 0.01f;
     float volumeOpacity = 1.0f;
+
+    // Volume slice overlay
+    bool showVolumeSlice = false;
+    int  volumeSliceAxis = 1;
+    float volumeSlicePos = 0.5f;
+    float volumeSliceOpacity = 0.35f;
 
     // Screenshot export options
     bool screenshotTransparent = false;
@@ -498,6 +507,7 @@ private:
     QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
     StreamlineController m_streamlines;      // streamline compute + draw + seeds
     VolumePass m_volume;                      // volume ray-march pass
+    VolumeSliceOverlay m_volumeSliceOverlay;  // volume slice plane overlay
 
     // --- Depth peeling for transparent surfaces ---
     GlProgram m_peelProgram;

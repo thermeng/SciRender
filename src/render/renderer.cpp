@@ -43,6 +43,7 @@ Renderer::~Renderer() {
     glyphPass.shutdown();
     particlePass.shutdown();
     m_volume.shutdown();
+    m_volumeSliceOverlay.shutdown();
     colormap.shutdown();
         vectorGlyph.shutdown();
         streamlineSet.shutdown();
@@ -103,6 +104,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
     glyphPass.init(sources);
     particlePass.init(sources);
     m_volume.init(sources);
+    m_volumeSliceOverlay.init(sources);
 
     meshManager.setComputeShaderSources(sources.lodComp, sources.lodOutputComp, sources.lodTrisComp);
 
@@ -386,6 +388,7 @@ void Renderer::reinitForNewContext() {
         colormap.shutdown();
         vectorGlyph.shutdown();
         streamlineSet.shutdown();
+        m_volumeSliceOverlay.shutdown();
 
         // Drop mesh geometry from the old context (previously only LOD compute
         // was cleared, leaving stale VAO/VBO/EBO/SBO handles and stale
@@ -736,6 +739,9 @@ void Renderer::renderFrame() {
     if (!m_state.screenshotTransparent) m_grid.draw(m_state, view, proj);
 
     m_volume.draw(m_state, view, proj, colormap);
+
+    m_volumeSliceOverlay.draw(m_state, view, proj, colormap, m_volume.volumeTexture(),
+                              m_volume.boxMin(), m_volume.boxMax(), m_lastUploadedMesh.get());
 
     if (m_state.showGizmo) drawGizmo();
 

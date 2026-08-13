@@ -87,6 +87,8 @@ add_library(RenderLib STATIC
     src/render/ParticlePass.h
     src/render/VolumePass.cpp
     src/render/VolumePass.h
+    src/render/VolumeSliceOverlay.cpp
+    src/render/VolumeSliceOverlay.h
     src/render/ColormapSync.cpp
     src/render/ColormapSync.h
     src/render/LodScheduler.cpp
@@ -163,6 +165,8 @@ qt_add_resources(SciRender "shaders"
         src/shaders/particle.frag
         src/shaders/volume.vert
         src/shaders/volume.frag
+        src/shaders/volume_slice.vert
+        src/shaders/volume_slice.frag
         src/shaders/lod.comp
         src/shaders/lod_output.comp
         src/shaders/lod_tris.comp
