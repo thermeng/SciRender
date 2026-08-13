@@ -335,7 +335,7 @@ public:
     void renderFrame();
 
     // Deep-copy the GUI-thread snapshot into this render-thread instance.
-    void setState(const RenderRenderState& state) { m_state = state; }
+    void setState(const RenderRenderState& state);
 
     // Snapshot accessors used by the FBO renderer (drawn state only).
     bool autoRotate() const { return m_state.autoRotate; }
@@ -460,6 +460,7 @@ private:
     ColorbarOverlay colorbarOverlay;
 
     double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
+    double m_lastOrthoRadius = 1.0;
 
     double camDistance = 3.0;
     double nearPlane = 0.1;

@@ -18,6 +18,8 @@ void VolumePass::init(const ShaderSources& sources) {
         locInvView_         = glGetUniformLocation(program_, "uInvView");
         locInvProj_         = glGetUniformLocation(program_, "uInvProj");
         locCamPos_          = glGetUniformLocation(program_, "uCamPos");
+        locForward_         = glGetUniformLocation(program_, "uForward");
+        locOrtho_           = glGetUniformLocation(program_, "uOrtho");
         locVolumeTex_       = glGetUniformLocation(program_, "uVolumeTex");
         locBoxMin_          = glGetUniformLocation(program_, "uBoxMin");
         locBoxMax_          = glGetUniformLocation(program_, "uBoxMax");
@@ -97,6 +99,10 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glm::vec3 camPos = glm::vec3(state.camera.position);
     glUniform3fv(locCamPos_, 1, glm::value_ptr(camPos));
 
+    glm::vec3 forward = glm::normalize(glm::vec3(state.camera.focalPoint - state.camera.position));
+    glUniform3fv(locForward_, 1, glm::value_ptr(forward));
+    glUniform1i(locOrtho_, state.orthographic ? 1 : 0);
+
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_3D, volumeTex_.get());
     glUniform1i(locVolumeTex_, 0);
@@ -150,7 +156,7 @@ void VolumePass::shutdown() {
     quadVbo_.reset();
     vaoInitialized_ = false;
     dimX_ = dimY_ = dimZ_ = 0;
-    locInvView_ = locInvProj_ = locCamPos_ = locVolumeTex_ = -1;
+    locInvView_ = locInvProj_ = locCamPos_ = locForward_ = locOrtho_ = locVolumeTex_ = -1;
     locBoxMin_ = locBoxMax_ = locLut_ = locStepSize_ = locOpacity_ = -1;
     locScalarMin_ = locScalarMax_ = locClipEnabled_ = locSliceHeightX_ = -1;
     locSliceHeightY_ = locSliceHeightZ_ = locSliceEn_ = locInvert_ = locVolumeUseColormap_ = -1;

@@ -28,6 +28,7 @@ Renderer::Renderer()
     m_state.bgColor[0] = 0.12f; m_state.bgColor[1] = 0.12f; m_state.bgColor[2] = 0.12f;
     m_state.worldCenterX = 0.0; m_state.worldCenterY = 0.0; m_state.worldCenterZ = 0.0;
     m_state.worldRadius = 1.0;
+    m_lastOrthoRadius = m_state.worldRadius;
 }
 
 #pragma GCC diagnostic push
@@ -302,6 +303,15 @@ void Renderer::applyLightingPreset(int preset) {
 
 void Renderer::resetLighting() {
     m_state.lighting.reset();
+}
+
+void Renderer::setState(const RenderRenderState& state) {
+    double oldRadius = m_lastOrthoRadius;
+    m_state = state;
+    if (m_state.orthographic && oldRadius != m_state.worldRadius) {
+        m_orthoRefDist = m_state.camera.distance > 0.0 ? m_state.camera.distance : 1.0;
+        m_lastOrthoRadius = m_state.worldRadius;
+    }
 }
 
 void Renderer::resetCamera() {
@@ -663,45 +673,54 @@ void Renderer::renderFrame() {
     glm::mat4 view = m_state.camera.getViewMatrix();
 
     double camDist = m_state.camera.distance;
-    nearPlane = std::max(0.01, camDist * 0.001);
-    farPlane  = camDist + m_state.worldRadius + 250.0;
+    if (m_state.orthographic) {
+        // Orthographic projection: depth range based on world bounds for
+        // adequate depth precision in volume ray-marching. The frustum size
+        // is already controlled by worldRadius and camera distance via
+        // m_orthoRefDist in the ortho matrix setup.
+        nearPlane = std::max(0.01, static_cast<double>(m_state.worldRadius * 0.1));
+        farPlane  = std::max(100.0, static_cast<double>(m_state.worldRadius * 3.0));
+    } else {
+        nearPlane = std::max(0.01, camDist * 0.001);
+        farPlane  = camDist + m_state.worldRadius + 250.0;
+    }
 
     // Clip control: switch post-projection NDC to Vulkan-style [0,1] depth so the
     // grid shader can skip manual gl_FragDepth remap and gain 24-bit extra precision.
     glm::mat4 proj = m_state.orthographic
-        ? [&]() {
-            if (m_orthoRefDist <= 0.0) m_orthoRefDist = std::max(m_state.camera.distance, 1e-6);
-            float d = static_cast<float>(m_state.camera.distance / m_orthoRefDist);
-            float half = static_cast<float>(m_state.worldRadius * d);
-            float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
-            float n = static_cast<float>(nearPlane);
-            float f = static_cast<float>(farPlane);
-            const float r = half * aspect;
-            const float t = half;
-            glm::mat4 p(1.0f);
-            p[0][0] = 2.0f / (r + r);
-            p[1][1] = 2.0f / (t + t);
-            p[2][2] = -1.0f / (f - n);
-            p[2][3] = -n / (f - n);
-            p[3][3] = 1.0f;
-            return p;
-          }()
-        : [&]() {
-            float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
-            float n = static_cast<float>(nearPlane);
-            float f = static_cast<float>(farPlane);
-            float fov = glm::radians(45.0f);
-            float tanHalf = std::tan(fov * 0.5f);
-            float r = 1.0f / (aspect * tanHalf);
-            float t = 1.0f / tanHalf;
-            glm::mat4 p(1.0f);
-            p[0][0] = r;
-            p[1][1] = t;
-            p[2][2] = f / (n - f);
-            p[2][3] = -1.0f;
-            p[3][2] = n * f / (n - f);
-            return p;
-          }();
+    ? [&]() {
+        if (m_orthoRefDist <= 0.0) m_orthoRefDist = std::max(m_state.camera.distance, 1e-6);
+        float d = static_cast<float>(m_state.camera.distance / m_orthoRefDist);
+        float half = static_cast<float>(m_state.worldRadius * d);
+        float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
+        float n = static_cast<float>(nearPlane);
+        float f = static_cast<float>(farPlane);
+        const float r = half * aspect;
+        const float t = half;
+        glm::mat4 p(1.0f);
+        p[0][0] = 2.0f / (r + r);
+        p[1][1] = 2.0f / (t + t);
+        p[2][2] = -1.0f / (f - n);
+        p[2][3] = -n / (f - n);
+        p[3][3] = 1.0f;
+        return p;
+        }()
+    : [&]() {
+        float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
+        float n = static_cast<float>(nearPlane);
+        float f = static_cast<float>(farPlane);
+        float fov = glm::radians(45.0f);
+        float tanHalf = std::tan(fov * 0.5f);
+        float r = 1.0f / (aspect * tanHalf);
+        float t = 1.0f / tanHalf;
+        glm::mat4 p(1.0f);
+        p[0][0] = r;
+        p[1][1] = t;
+        p[2][2] = f / (n - f);
+        p[2][3] = -1.0f;
+        p[3][2] = n * f / (n - f);
+        return p;
+    }();
 
     glm::mat4 model = glm::mat4(1.0f);
     glm::mat4 mvp = proj * view * model;

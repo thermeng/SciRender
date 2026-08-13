@@ -28,6 +28,8 @@ private:
     GLint locInvView_ = -1;
     GLint locInvProj_ = -1;
     GLint locCamPos_ = -1;
+    GLint locForward_ = -1;
+    GLint locOrtho_ = -1;
     GLint locVolumeTex_ = -1;
     GLint locBoxMin_ = -1;
     GLint locBoxMax_ = -1;

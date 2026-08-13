@@ -47,8 +47,10 @@ void VolumeSliceOverlay::buildQuad(float worldPos, int axis, const glm::vec3& bo
         p[0] = c[i].x; p[1] = c[i].y; p[2] = c[i].z;
         p += 3;
     }
+    const int lineIdx[4] = {0, 1, 3, 2};
     for (int i = 0; i < 4; ++i) {
-        p[0] = c[i].x; p[1] = c[i].y; p[2] = c[i].z;
+        int idx = lineIdx[i];
+        p[0] = c[idx].x; p[1] = c[idx].y; p[2] = c[idx].z;
         p += 3;
     }
 
@@ -83,12 +85,15 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
 
     GLboolean blendWas = glIsEnabled(GL_BLEND);
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+    GLenum depthFuncWas = GL_LESS;
+    glGetIntegerv(GL_DEPTH_FUNC, reinterpret_cast<GLint*>(&depthFuncWas));
     GLboolean depthMaskWas;
     glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMaskWas);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_FALSE);
 
     glUseProgram(m_program);
@@ -119,7 +124,8 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
     glBindVertexArray(0);
 
     if (!blendWas) glDisable(GL_BLEND);
-    if (depthWas) glEnable(GL_DEPTH_TEST);
+    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    glDepthFunc(depthFuncWas);
     glDepthMask(depthMaskWas);
     glUseProgram(0);
 }
