@@ -101,6 +101,7 @@ struct RenderRenderState {
     bool showWireframe = false;
     bool showSurface = true;
     bool showGrid = false;
+    int gridAxis = 1; // 0=X Min, 1=X Max, 2=Y Min, 3=Y Max, 4=Z Min, 5=Z Max
     bool showGizmo = true;
     bool autoRotate = false;
     bool showFps = false;
@@ -278,7 +279,7 @@ struct GridUBOData {
     glm::mat4 proj;
     glm::vec4 camPos_colorR;    // xyz = camPos, w = colorR
     glm::vec4 colorBG_falloff;  // xyz = colorG+B, w = falloff
-    glm::vec4 planeY_pad;       // x = planeY, yzw = pad
+    glm::vec4 gridAxis_planePos;  // x = normalized axis (0=X,1=Y,2=Z), y = planePos, zw = pad
     glm::vec4 flags;            // x = useZeroToOne (1.0 or 0.0)
 };
 

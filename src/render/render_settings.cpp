@@ -95,6 +95,14 @@ void RenderSettings::toggleGrid(bool visible) {
     emit viewChanged(ChangeFlag::Display);
 }
 
+void RenderSettings::setGridAxis(int axis) {
+    int clamped = qBound(0, axis, 5);
+    if (m_state.gridAxis == clamped) return;
+    m_state.gridAxis = clamped;
+    markStateDirty();
+    emit viewChanged(ChangeFlag::Display);
+}
+
 void RenderSettings::toggleSurface(bool visible) {
     if (m_state.showSurface == visible) return;
     m_state.showSurface = visible;

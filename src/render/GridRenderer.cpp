@@ -39,8 +39,18 @@ void GridRenderer::updateUbo(const RenderRenderState& state, const glm::mat4& vi
     float bgLum = 0.299f * state.bgColor[0] + 0.587f * state.bgColor[1] + 0.114f * state.bgColor[2];
     glm::vec3 gridCol = (bgLum > 0.5f) ? glm::vec3(0.18f, 0.18f, 0.20f) : glm::vec3(0.78f, 0.78f, 0.82f);
     ubo.colorBG_falloff = glm::vec4(gridCol.r, gridCol.g, gridCol.b, 0.02f);
-    m_planeY = state.hasMeshLoaded ? state.worldMinY : 0.0;
-    ubo.planeY_pad = glm::vec4(static_cast<float>(m_planeY), 0.0f, 0.0f, 0.0f);
+    double planePos = 0.0;
+    if (state.hasMeshLoaded) {
+        switch (state.gridAxis) {
+            case 0: planePos = state.worldMinX; break;
+            case 1: planePos = state.worldMaxX; break;
+            case 2: planePos = state.worldMinY; break;
+            case 3: planePos = state.worldMaxY; break;
+            case 4: planePos = state.worldMinZ; break;
+            case 5: planePos = state.worldMaxZ; break;
+        }
+    }
+    ubo.gridAxis_planePos = glm::vec4(static_cast<float>(state.gridAxis / 2), static_cast<float>(planePos), 0.0f, 0.0f);
     ubo.flags = glm::vec4(m_useZeroToOne ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
     glNamedBufferSubData(m_ubo, 0, sizeof(GridUBOData), &ubo);
 }

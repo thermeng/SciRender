@@ -22,6 +22,5 @@ private:
     GlProgram m_program;
     GlBuffer m_ubo;
     GLuint m_uboIndex = ~0u;
-    double m_planeY = 0.0;
     bool m_useZeroToOne = false;
 };
