@@ -12,7 +12,7 @@ layout(std140) uniform GridUBO {
     mat4  uProj;
     vec4  uCamPos_Color;
     vec4  uColorBg_Falloff;
-    vec4  uPlaneY_Pad;
+    vec4  uGridAxis_planePos;
     vec4  uFlags;
 };
 
@@ -31,16 +31,31 @@ float gridFactor(vec2 coord, float scale) {
 
 void main() {
     vec3 rayDir = normalize(vFar - vNear);
-    float planeY = uPlaneY_Pad.x;
-    float t = (planeY - uCamPos_Color.xyz.y) / rayDir.y;
+    int axis = int(uGridAxis_planePos.x + 0.5);
+    float planePos = uGridAxis_planePos.y;
+    float t;
+    vec3 worldPos;
+    vec2 gridCoord;
+    if (axis == 0) {
+        t = (planePos - uCamPos_Color.x) / rayDir.x;
+        worldPos = uCamPos_Color.xyz + t * rayDir;
+        gridCoord = worldPos.yz;
+    } else if (axis == 1) {
+        t = (planePos - uCamPos_Color.y) / rayDir.y;
+        worldPos = uCamPos_Color.xyz + t * rayDir;
+        gridCoord = worldPos.xz;
+    } else {
+        t = (planePos - uCamPos_Color.z) / rayDir.z;
+        worldPos = uCamPos_Color.xyz + t * rayDir;
+        gridCoord = worldPos.xy;
+    }
     if (t <= 0.0 || isnan(t) || isinf(t) || t > 1e6) discard;
 
-    vec3 worldPos = uCamPos_Color.xyz + t * rayDir;
     float dist = length(worldPos - uCamPos_Color.xyz);
     float fade = exp(-dist * uColorBg_Falloff.w);
 
-    float minor = gridFactor(worldPos.xz, 1.0);
-    float major = gridFactor(worldPos.xz, 10.0);
+    float minor = gridFactor(gridCoord, 1.0);
+    float major = gridFactor(gridCoord, 10.0);
     float g = max(minor * 0.4, major);
 
     float alpha = g * fade;
