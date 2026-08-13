@@ -51,16 +51,7 @@
       <property name="bottomMargin">
        <number>0</number>
       </property>
-      <item>
-       <widget class="QCheckBox" name="colorByScalar">
-        <property name="text">
-         <string>Color by Scalar</string>
-        </property>
-        <property name="checked">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
+
       <item>
        <widget class="QLabel" name="fieldHeader"><property name="text">
          <string>Field</string>
@@ -177,7 +168,7 @@
             <height>16777215</height>
            </size>
           </property><property name="text">
-           <string>Min</string>
+           <string>Minimum</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
@@ -245,7 +236,7 @@
             <height>16777215</height>
            </size>
           </property><property name="text">
-           <string>Max</string>
+           <string>Maximum</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
