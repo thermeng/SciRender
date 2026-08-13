@@ -13,6 +13,7 @@
 #include <QButtonGroup>
 #include <QSlider>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QPushButton>
 #include <QLineEdit>
@@ -133,6 +134,7 @@ private:
     // View & Display page checkboxes (synced with quick bar / keyboard shortcuts)
     QCheckBox* m_vdWireframeCb = nullptr;
     QCheckBox* m_vdGridCb = nullptr;
+    QComboBox* m_vdGridPosCombo = nullptr;
     QCheckBox* m_vdSurfaceCb = nullptr;
     QCheckBox* m_vdPointsCb = nullptr;
     QCheckBox* m_vdBboxCb = nullptr;
@@ -213,11 +215,11 @@ private:
 
     // Slicing page widgets (for bounds refresh on mesh load)
     QSlider* m_sliceXSlider = nullptr;
-    QLineEdit* m_sliceXField = nullptr;
+    QDoubleSpinBox* m_sliceXSpinBox = nullptr;
     QSlider* m_sliceYSlider = nullptr;
-    QLineEdit* m_sliceYField = nullptr;
+    QDoubleSpinBox* m_sliceYSpinBox = nullptr;
     QSlider* m_sliceZSlider = nullptr;
-    QLineEdit* m_sliceZField = nullptr;
+    QDoubleSpinBox* m_sliceZSpinBox = nullptr;
     QCheckBox* m_sliceEnableCb = nullptr;
     QCheckBox* m_sliceAxisXCb = nullptr;
     QCheckBox* m_sliceAxisYCb = nullptr;
