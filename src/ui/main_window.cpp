@@ -182,14 +182,82 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
 }
 
 // ============================================================================
-// Helper: Section header label
+// Helper: Apply panel styling (section headers, parameter labels, dividers)
 // ============================================================================
-static QLabel* sectionHeader(const QString& text) {
-    auto* lbl = new QLabel(text);
-    QFont f = lbl->font();
-    f.setBold(true);
-    lbl->setFont(f);
-    return lbl;
+static void applyPanelStyling(QWidget* root) {
+    if (!root) return;
+
+    const int kHeaderFontSize = 11;
+    const int kParamFontSize = 11;
+
+    QList<QLabel*> allLabels = root->findChildren<QLabel*>();
+
+    // Phase 1: Style parameter labels (name ends in "Label", not "Header")
+    for (QLabel* lbl : allLabels) {
+        QString name = lbl->objectName();
+        if (name.endsWith("Label") && !name.endsWith("Header")) {
+            QFont f = lbl->font();
+            f.setPixelSize(kParamFontSize);
+            lbl->setFont(f);
+            lbl->setStyleSheet("color: #A0A0A0;");
+        }
+    }
+
+    // Phase 2: Style section headers and collect dividers to insert
+    // A label is a section header if its name ends in "Header" and its
+    // parent layout is a QVBoxLayout (distinguishes from row labels
+    // inside QHBoxLayouts like volume_page slicePosHeader).
+    struct HeaderEntry {
+        QBoxLayout* layout;
+        int index;
+        QLabel* label;
+    };
+    QList<HeaderEntry> headers;
+
+    for (QLabel* lbl : allLabels) {
+        if (!lbl->objectName().endsWith("Header")) continue;
+        QWidget* parent = lbl->parentWidget();
+        if (!parent) continue;
+        QLayout* lay = parent->layout();
+        QBoxLayout* boxLay = qobject_cast<QBoxLayout*>(lay);
+        if (!boxLay) continue;
+
+        for (int i = 0; i < boxLay->count(); ++i) {
+            QLayoutItem* item = boxLay->itemAt(i);
+            if (item && item->widget() == lbl) {
+                headers.append({boxLay, i, lbl});
+                break;
+            }
+        }
+    }
+
+    // Process bottom-to-top per layout to avoid index shifting
+    QMap<QBoxLayout*, QList<int>> indicesByLayout;
+    for (const auto& e : headers)
+        indicesByLayout[e.layout].append(e.index);
+
+    for (auto it = indicesByLayout.begin(); it != indicesByLayout.end(); ++it) {
+        QList<int> indices = it.value();
+        std::sort(indices.begin(), indices.end(), std::greater<int>());
+        for (int idx : indices) {
+            auto* line = new QFrame;
+            line->setFrameShape(QFrame::NoFrame);
+            line->setFixedHeight(1);
+            line->setStyleSheet("background-color: #333333;");
+            it.key()->insertWidget(idx, line);
+        }
+    }
+
+    // Apply header styling (after dividers are inserted)
+    for (const auto& e : headers) {
+        QFont f = e.label->font();
+        f.setBold(true);
+        f.setPixelSize(kHeaderFontSize);
+        f.setLetterSpacing(QFont::AbsoluteSpacing, 1.5);
+        e.label->setFont(f);
+        e.label->setText(e.label->text().toUpper());
+        e.label->setStyleSheet("color: #FFFFFF;");
+    }
 }
 
 // ============================================================================
@@ -731,6 +799,8 @@ QWidget* MainWindow::buildLightingPage() {
 
     scroll->setWidget(content);
 
+    applyPanelStyling(content);
+
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
     wrapperLayout->setContentsMargins(0, 0, 0, 0);
@@ -840,6 +910,8 @@ QWidget* MainWindow::buildSlicingPage() {
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setWidget(page);
+
+    applyPanelStyling(page);
 
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
@@ -1019,6 +1091,8 @@ QWidget* MainWindow::buildViewDisplayPage() {
 
     scroll->setWidget(content);
 
+    applyPanelStyling(content);
+
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
     wrapperLayout->setContentsMargins(0, 0, 0, 0);
@@ -1151,6 +1225,8 @@ QWidget* MainWindow::buildScalarPage() {
 
     scroll->setWidget(content);
 
+    applyPanelStyling(content);
+
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
     wrapperLayout->setContentsMargins(0, 0, 0, 0);
@@ -1255,6 +1331,8 @@ QWidget* MainWindow::buildVectorsPage() {
     qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
 
     scroll->setWidget(page);
+
+    applyPanelStyling(page);
 
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
@@ -1556,6 +1634,8 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     scroll->setWidget(content);
 
+    applyPanelStyling(content);
+
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
     wrapperLayout->setContentsMargins(0, 0, 0, 0);
@@ -1598,6 +1678,8 @@ QWidget* MainWindow::buildScreenshotPage() {
     qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
 
     scroll->setWidget(page);
+
+    applyPanelStyling(page);
 
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
@@ -1661,6 +1743,8 @@ QWidget* MainWindow::buildMeshInfoPage() {
     qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
 
     scroll->setWidget(page);
+
+    applyPanelStyling(page);
 
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
@@ -1803,6 +1887,8 @@ QWidget* MainWindow::buildVolumePage() {
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);
+
+    applyPanelStyling(content);
 
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
