@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- +Y: looking from +Y, see X right, Z up -->
+  <line x1="10" y1="24" x2="22" y2="24" stroke="#FF3333" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="22,21 26,24 22,27" fill="#FF3333"/>
+  <text x="27" y="27" fill="#FF3333" font-family="Arial,sans-serif" font-size="7" font-weight="bold">X</text>
+
+  <line x1="10" y1="24" x2="10" y2="10" stroke="#4D80FF" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="7,10 10,6 13,10" fill="#4D80FF"/>
+  <text x="5" y="5" fill="#4D80FF" font-family="Arial,sans-serif" font-size="7" font-weight="bold">Z</text>
+
+  <circle cx="10" cy="24" r="3" fill="#33FF33"/>
+  <text x="15" y="15" fill="#33FF33" font-family="Arial,sans-serif" font-size="10" font-weight="bold">+Y</text>
+</svg>

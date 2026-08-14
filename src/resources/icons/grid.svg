@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Horizon -->
+  <line x1="2" y1="10" x2="30" y2="10" stroke="#ffffff" stroke-width="1"/>
+  <!-- Converging to vanishing point (16,10) -->
+  <line x1="2" y1="30" x2="16" y2="10" stroke="#ffffff" stroke-width="1"/>
+  <line x1="10" y1="30" x2="16" y2="10" stroke="#ffffff" stroke-width="1"/>
+  <line x1="16" y1="30" x2="16" y2="10" stroke="#ffffff" stroke-width="1.2"/>
+  <line x1="22" y1="30" x2="16" y2="10" stroke="#ffffff" stroke-width="1"/>
+  <line x1="30" y1="30" x2="16" y2="10" stroke="#ffffff" stroke-width="1"/>
+  <!-- Horizontal grid lines -->
+  <line x1="5" y1="18" x2="27" y2="18" stroke="#ffffff" stroke-width="0.8"/>
+  <line x1="3" y1="25" x2="29" y2="25" stroke="#ffffff" stroke-width="0.8"/>
+</svg>
