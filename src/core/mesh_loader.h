@@ -38,6 +38,8 @@ struct DatasetAttributes {
     std::map<std::string, std::vector<float>> cellScalars;
     // VTK VECTORS — per-point 3-component, interleaved [x,y,z]
     std::map<std::string, std::vector<float>> pointVectors;
+    // FieldData (arbitrary named arrays, typically per-cell or global metadata)
+    std::map<std::string, std::vector<float>> fieldData;
 
     // Global scalar range boundaries (Required by renderer & color LUT mapping)
     float scalarMin = 0.0f;

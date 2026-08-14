@@ -83,6 +83,8 @@ struct ShaderSources {
     std::string volumeFrag;
     std::string volumeSliceVert;
     std::string volumeSliceFrag;
+    std::string shadowVert;
+    std::string shadowFrag;
 };
 
 // ---------------------------------------------------------------------------
@@ -114,7 +116,9 @@ struct RenderRenderState {
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
     int cullMode = 0;              // ponytail: 0=off by default — mirror of settings default
     bool showBounds = false;     // ponytail: AABB wireframe overlay
-    bool showQualityOverlay = false; // ponytail: highlight degenerate faces + bad edges
+    bool showQualityOverlay = false;     // ponytail: highlight degenerate faces + bad edges
+    bool gridShadows = false;            // ponytail: shadow mapping for reference grid
+    glm::mat4 lightMVP = glm::mat4(1.0f); // ponytail: shadow light view-projection
     // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
     // shared_ptr so RenderRenderState copies are O(1) instead of O(n)
     std::shared_ptr<const std::vector<float>> qualityDegenerateTris;
@@ -281,7 +285,10 @@ struct GridUBOData {
     glm::vec4 colorBG_falloff;  // xyz = colorG+B, w = falloff
     glm::vec4 gridAxis_planePos;  // x = normalized axis (0=X,1=Y,2=Z), y = planePos, zw = pad
     glm::vec4 flags;            // x = useZeroToOne (1.0 or 0.0)
+    glm::mat4 lightMVP;         // shadow light view-projection matrix
+    glm::vec4 shadowParams;     // x = shadowsEnabled, y = bias, zw = pad
 };
+static_assert(sizeof(GridUBOData) % 16 == 0, "GridUBOData must be std140-aligned");
 
 // CPU-side UBO layout matching the std140 GlyphUBO block in glyph.vert/frag.
 struct GlyphUBOData {
@@ -510,6 +517,18 @@ private:
     StreamlineController m_streamlines;      // streamline compute + draw + seeds
     VolumePass m_volume;                      // volume ray-march pass
     VolumeSliceOverlay m_volumeSliceOverlay;  // volume slice plane overlay
+
+    // --- Shadow mapping for reference grid ---
+    GlProgram m_shadowProgram;
+    GlFramebuffer m_shadowFbo;
+    GlTexture m_shadowDepthTex;
+    GLuint m_shadowUbo = 0;
+    GLint m_shadowUboIndex = -1;
+    static constexpr int kShadowMapSize = 1024;
+
+    void drawShadowPass(const std::vector<std::pair<GLuint, int>>& drawList, const glm::mat4& lightMVP);
+    void ensureShadowFbo();
+    void destroyShadowFbo();
 
     // --- Depth peeling for transparent surfaces ---
     GlProgram m_peelProgram;

@@ -135,6 +135,7 @@ private:
     QCheckBox* m_vdWireframeCb = nullptr;
     QCheckBox* m_vdGridCb = nullptr;
     QComboBox* m_vdGridPosCombo = nullptr;
+    QCheckBox* m_vdGridShadowCb = nullptr;
     QCheckBox* m_vdSurfaceCb = nullptr;
     QCheckBox* m_vdPointsCb = nullptr;
     QCheckBox* m_vdBboxCb = nullptr;

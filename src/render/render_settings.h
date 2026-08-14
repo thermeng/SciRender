@@ -98,6 +98,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY viewChanged)
     Q_PROPERTY(bool isGridVisible READ isGridVisible WRITE toggleGrid NOTIFY viewChanged)
     Q_PROPERTY(int gridAxis READ getGridAxis WRITE setGridAxis NOTIFY viewChanged)
+    Q_PROPERTY(bool gridShadows READ getGridShadows WRITE setGridShadows NOTIFY viewChanged)
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
     Q_PROPERTY(bool meshHasScalars READ hasMeshScalars NOTIFY meshLoadStateChanged)
     Q_PROPERTY(bool hasMeshVectors READ hasMeshVectors NOTIFY meshLoadStateChanged)
@@ -270,6 +271,8 @@ public:
     void toggleGrid(bool visible);
     int getGridAxis() const { return m_state.gridAxis; }
     void setGridAxis(int axis);
+    bool getGridShadows() const { return m_state.gridShadows; }
+    void setGridShadows(bool enabled);
 
     bool getHasMeshLoaded() const { return m_state.hasMeshLoaded; }
     int getTriangleCount() const { return m_meshData.triangleCount; }

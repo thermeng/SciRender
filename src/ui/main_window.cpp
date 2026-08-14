@@ -1058,6 +1058,9 @@ QWidget* MainWindow::buildViewDisplayPage() {
     gridPosCombo->setEnabled(m_settings->getHasMeshLoaded());
     connect(gridPosCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), m_settings, &RenderSettings::setGridAxis);
     m_vdGridPosCombo = gridPosCombo;
+    viewUi.gridShadowCb->setChecked(m_settings->getGridShadows());
+    connect(viewUi.gridShadowCb, &QCheckBox::toggled, m_settings, &RenderSettings::setGridShadows);
+    m_vdGridShadowCb = viewUi.gridShadowCb;
     viewUi.bboxCb->setChecked(m_settings->getShowBounds());
     connect(viewUi.bboxCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowBounds);
     m_vdBboxCb = viewUi.bboxCb;
@@ -2114,18 +2117,29 @@ void MainWindow::setupTimers() {
 
 void MainWindow::setupQuickBar() {
     m_quickBar = new QWidget(m_viewport);
+    m_quickBar->setStyleSheet(
+        "QWidget { background: rgba(30,30,30,200); border: 1px solid rgba(60,60,60,150); border-radius: 8px; }");
     m_quickBarLayout = new QHBoxLayout(m_quickBar);
-    m_quickBarLayout->setContentsMargins(6, 4, 6, 4);
+    m_quickBarLayout->setContentsMargins(8, 6, 8, 6);
     m_quickBarLayout->setSpacing(4);
 
-    auto addQBButton = [this](const QString& text, const QString& tooltip, bool active, bool checkable, std::function<void()> onClicked) -> QToolButton* {
+    const QString btnSS =
+        "QToolButton { background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 3px; }"
+        "QToolButton:hover { background: rgba(255,255,255,30); }"
+        "QToolButton:checked { background: rgba(56,189,248,40); border: 1px solid rgba(56,189,248,150); }";
+
+    auto addQBButton = [this, &btnSS](const QString& iconPath, const QString& tooltip,
+                                      bool active, bool checkable,
+                                      std::function<void()> onClicked) -> QToolButton* {
         auto* btn = new QToolButton;
-        btn->setText(text);
+        btn->setIcon(QIcon(iconPath));
+        btn->setIconSize(QSize(32, 32));
         btn->setToolTip(tooltip);
-        btn->setFixedSize(30, 28);
+        btn->setFixedSize(38, 36);
         btn->setCheckable(checkable);
         btn->setChecked(active);
         btn->setCursor(Qt::PointingHandCursor);
+        btn->setStyleSheet(btnSS);
         connect(btn, &QToolButton::clicked, onClicked);
         m_quickBarLayout->addWidget(btn);
         return btn;
@@ -2134,49 +2148,65 @@ void MainWindow::setupQuickBar() {
     auto addSeparator = [this]() {
         auto* sep = new QFrame;
         sep->setFrameShape(QFrame::VLine);
-        sep->setFixedSize(1, 22);
+        sep->setFixedSize(1, 28);
+        sep->setStyleSheet("color: rgba(80,80,80,120);");
         m_quickBarLayout->addWidget(sep);
     };
 
     // Display toggles
-    m_qbWireframe = addQBButton("W", "Wireframe", m_settings->isWireframe(), true, [this]() {
+    m_qbWireframe = addQBButton(":/src/resources/icons/wireframe.svg", "Wireframe",
+                                m_settings->isWireframe(), true, [this]() {
         m_settings->setWireframe(!m_settings->isWireframe());
     });
-    m_qbGrid = addQBButton("G", "Ground", m_settings->isGridVisible(), true, [this]() {
+    m_qbGrid = addQBButton(":/src/resources/icons/grid.svg", "Ground",
+                           m_settings->isGridVisible(), true, [this]() {
         m_settings->toggleGrid(!m_settings->isGridVisible());
     });
-    m_qbSurface = addQBButton("S", "Surface", m_settings->isSurfaceVisible(), true, [this]() {
+    m_qbSurface = addQBButton(":/src/resources/icons/surface.svg", "Surface",
+                              m_settings->isSurfaceVisible(), true, [this]() {
         m_settings->toggleSurface(!m_settings->isSurfaceVisible());
     });
-    m_qbVolume = addQBButton("V", "Volume", m_settings->getShowVolume(), true, [this]() {
+    m_qbVolume = addQBButton(":/src/resources/icons/volume.svg", "Volume",
+                             m_settings->getShowVolume(), true, [this]() {
         m_settings->setShowVolume(!m_settings->getShowVolume());
     });
 
     addSeparator();
 
     // Ortho snaps
+    const char* orthoIcons[] = {
+        ":/src/resources/icons/ortho_px.svg",
+        ":/src/resources/icons/ortho_nx.svg",
+        ":/src/resources/icons/ortho_py.svg",
+        ":/src/resources/icons/ortho_ny.svg",
+        ":/src/resources/icons/ortho_pz.svg",
+        ":/src/resources/icons/ortho_nz.svg"
+    };
+    const char* orthoTips[] = {"Ortho +X", "Ortho -X", "Ortho +Y", "Ortho -Y", "Ortho +Z", "Ortho -Z"};
     for (int i = 0; i < 6; ++i) {
-        const char* labels[] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
-        const char* tips[] = {"Ortho +X", "Ortho -X", "Ortho +Y", "Ortho -Y", "Ortho +Z", "Ortho -Z"};
-        addQBButton(labels[i], tips[i], false, false, [this, i]() { m_settings->snapToOrthoView(i); });
+        addQBButton(orthoIcons[i], orthoTips[i], false, false,
+                    [this, i]() { m_settings->snapToOrthoView(i); });
     }
 
     addSeparator();
 
     // Reset camera
-    addQBButton("\u21BB", "Reset Camera", false, false, [this]() { m_settings->resetCamera(); });
+    addQBButton(":/src/resources/icons/reset.svg", "Reset Camera", false, false,
+                [this]() { m_settings->resetCamera(); });
     // Collapse
-    addQBButton("\u00D7", "Collapse quick-bar", false, false, [this]() {
+    addQBButton(":/src/resources/icons/collapse.svg", "Collapse quick-bar", false, false, [this]() {
         m_settings->setQuickBarCollapsed(true);
         updateQuickBarVisibility();
     });
 
     // Handle (shown when collapsed)
     m_quickBarHandle = new QToolButton(m_viewport);
-    m_quickBarHandle->setText("\u{25A6}");
+    m_quickBarHandle->setIcon(QIcon(":/src/resources/icons/collapse.svg"));
+    m_quickBarHandle->setIconSize(QSize(32, 32));
     m_quickBarHandle->setToolTip("Show display quick-bar");
-    m_quickBarHandle->setFixedSize(30, 30);
+    m_quickBarHandle->setFixedSize(38, 36);
     m_quickBarHandle->setCursor(Qt::PointingHandCursor);
+    m_quickBarHandle->setStyleSheet(btnSS);
     connect(m_quickBarHandle, &QToolButton::clicked, this, [this]() {
         m_settings->setQuickBarCollapsed(false);
         updateQuickBarVisibility();
@@ -2368,6 +2398,9 @@ void MainWindow::connectSettings() {
         }
         if (m_vdGridPosCombo) {
             m_vdGridPosCombo->setEnabled(m_settings->getHasMeshLoaded());
+        }
+        if (m_vdGridShadowCb) {
+            m_vdGridShadowCb->setEnabled(m_settings->getHasMeshLoaded());
         }
     });
 

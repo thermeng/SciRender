@@ -119,6 +119,8 @@ void ViewportWidget::loadShaders() {
     sources.depthPeelFrag = loadShader(":/src/shaders/depth_peel.frag");
     sources.compositeVert = loadShader(":/src/shaders/composite.vert");
     sources.compositeFrag = loadShader(":/src/shaders/composite.frag");
+    sources.shadowVert = loadShader(":/src/shaders/shadow.vert");
+    sources.shadowFrag = loadShader(":/src/shaders/shadow.frag");
 
     scene->initShaders(sources);
 }

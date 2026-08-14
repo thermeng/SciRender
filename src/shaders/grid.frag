@@ -14,7 +14,11 @@ layout(std140) uniform GridUBO {
     vec4  uColorBg_Falloff;
     vec4  uGridAxis_planePos;
     vec4  uFlags;
+    mat4  uLightMVP;
+    vec4  uShadowParams;
 };
+
+uniform sampler2D uShadowMap;
 
 out vec4 fragColor;
 
@@ -56,12 +60,23 @@ void main() {
 
     float minor = gridFactor(gridCoord, 1.0);
     float major = gridFactor(gridCoord, 10.0);
-    float g = max(minor * 0.4, major);
+    float gridLine = max(minor * 0.4, major) * fade;
 
-    float alpha = g * fade;
-    if (alpha < 0.005) discard;
+    float shadowFactor = 1.0;
+    if (uShadowParams.x > 0.5) {
+        vec4 sc = uLightMVP * vec4(worldPos, 1.0);
+        sc.xyz /= sc.w;
+        sc.xy = sc.xy * 0.5 + 0.5;
+        if (sc.x >= 0.0 && sc.x <= 1.0 && sc.y >= 0.0 && sc.y <= 1.0 && sc.z >= 0.0 && sc.z <= 1.0) {
+            float sd = texture(uShadowMap, sc.xy).r;
+            shadowFactor = (sc.z - uShadowParams.y > sd) ? 0.25 : 1.0;
+        }
+    }
 
-    fragColor = vec4(uColorBg_Falloff.xyz, alpha);
+    vec3 groundBase = uColorBg_Falloff.xyz * 0.45 * shadowFactor;
+    vec3 finalColor = mix(groundBase, uColorBg_Falloff.xyz, gridLine);
+
+    fragColor = vec4(finalColor, 1.0);
 
     vec4 clip = uProj * uView * vec4(worldPos, 1.0);
     float ndcDepth = clip.z / clip.w;
