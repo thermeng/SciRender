@@ -1,13 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <!-- -X: looking from -X, see Y left, Z up -->
-  <line x1="22" y1="24" x2="10" y2="24" stroke="#33FF33" stroke-width="2" stroke-linecap="round"/>
-  <polygon points="10,21 6,24 10,27" fill="#33FF33"/>
-  <text x="1" y="27" fill="#33FF33" font-family="Arial,sans-serif" font-size="7" font-weight="bold">Y</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="3 6 24 24" width="32" height="32">
+  <!-- Y-Axis (pointing left) -->
+  <line x1="22" y1="26" x2="11" y2="26" stroke="#33FF33" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="11,23 6,26 11,29" fill="#33FF33"/>
 
-  <line x1="22" y1="24" x2="22" y2="10" stroke="#4D80FF" stroke-width="2" stroke-linecap="round"/>
-  <polygon points="19,10 22,6 25,10" fill="#4D80FF"/>
-  <text x="19" y="5" fill="#4D80FF" font-family="Arial,sans-serif" font-size="7" font-weight="bold">Z</text>
+  <!-- Z-Axis (pointing up) -->
+  <line x1="22" y1="26" x2="22" y2="13" stroke="#4D80FF" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="19,13 22,8 25,13" fill="#4D80FF"/>
 
-  <circle cx="22" cy="24" r="3" fill="#FF3333"/>
-  <text x="10" y="15" fill="#FF3333" font-family="Arial,sans-serif" font-size="10" font-weight="bold">-X</text>
+  <!-- Origin / -X viewpoint indicator -->
+  <circle cx="22" cy="26" r="3.5" fill="#FF3333"/>
+  <text x="5" y="18" fill="#FF3333" font-family="Arial,sans-serif" font-size="12">-X</text>
 </svg>
