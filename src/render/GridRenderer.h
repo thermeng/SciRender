@@ -9,7 +9,7 @@ struct ShaderSources;
 class GridRenderer {
 public:
     void init(const ShaderSources& sources);
-    void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj);
+    void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, GLuint shadowTex = 0);
     void shutdown();
 
     void setZeroToOne(bool enabled) { m_useZeroToOne = enabled; }
@@ -23,4 +23,5 @@ private:
     GlBuffer m_ubo;
     GLuint m_uboIndex = ~0u;
     bool m_useZeroToOne = false;
+    GLint m_shadowMapLoc = -1;
 };

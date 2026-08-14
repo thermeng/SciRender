@@ -143,8 +143,15 @@
         </item>
        </widget>
       </item>
-     <item>
-      <widget class="QCheckBox" name="bboxCb">
+      <item>
+       <widget class="QCheckBox" name="gridShadowCb">
+        <property name="text">
+         <string>Grid Shadows</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="bboxCb">
        <property name="text">
         <string>Bounding Box</string>
        </property>

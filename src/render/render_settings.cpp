@@ -103,6 +103,13 @@ void RenderSettings::setGridAxis(int axis) {
     emit viewChanged(ChangeFlag::Display);
 }
 
+void RenderSettings::setGridShadows(bool enabled) {
+    if (m_state.gridShadows == enabled) return;
+    m_state.gridShadows = enabled;
+    markStateDirty();
+    emit viewChanged(ChangeFlag::Display);
+}
+
 void RenderSettings::toggleSurface(bool visible) {
     if (m_state.showSurface == visible) return;
     m_state.showSurface = visible;

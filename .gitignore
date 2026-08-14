@@ -3,6 +3,7 @@
 
 *~
 *.autosave
+backlog.txt
 *.a
 *.core
 *.moc

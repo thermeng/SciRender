@@ -176,6 +176,8 @@ qt_add_resources(SciRender "shaders"
         src/shaders/depth_peel.frag
         src/shaders/composite.vert
         src/shaders/composite.frag
+        src/shaders/shadow.vert
+        src/shaders/shadow.frag
 )
 
 # ---------------------------------------------------------------------------
@@ -186,6 +188,18 @@ qt_add_resources(SciRender "icons"
     FILES
         src/resources/icons/checkmark.svg
         src/resources/icons/downarrow.svg
+        src/resources/icons/wireframe.svg
+        src/resources/icons/grid.svg
+        src/resources/icons/surface.svg
+        src/resources/icons/volume.svg
+        src/resources/icons/ortho_px.svg
+        src/resources/icons/ortho_nx.svg
+        src/resources/icons/ortho_py.svg
+        src/resources/icons/ortho_ny.svg
+        src/resources/icons/ortho_pz.svg
+        src/resources/icons/ortho_nz.svg
+        src/resources/icons/reset.svg
+        src/resources/icons/collapse.svg
 )
 
 # ---------------------------------------------------------------------------

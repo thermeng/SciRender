@@ -7,6 +7,9 @@ void GridRenderer::init(const ShaderSources& sources) {
     if (sources.gridVert.empty() || sources.gridFrag.empty()) return;
 
     m_program.reset(compileProgram(sources.gridVert.c_str(), sources.gridFrag.c_str(), "Grid"));
+    if (m_program.has()) {
+        m_shadowMapLoc = glGetUniformLocation(m_program, "uShadowMap");
+    }
 
     const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f, 1.0f, 1.0f };
     glCreateVertexArrays(1, m_vao.ptr());
@@ -52,10 +55,12 @@ void GridRenderer::updateUbo(const RenderRenderState& state, const glm::mat4& vi
     }
     ubo.gridAxis_planePos = glm::vec4(static_cast<float>(state.gridAxis / 2), static_cast<float>(planePos), 0.0f, 0.0f);
     ubo.flags = glm::vec4(m_useZeroToOne ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+    ubo.lightMVP = state.lightMVP;
+    ubo.shadowParams = state.gridShadows ? glm::vec4(1.0f, 0.003f, 0.0f, 0.0f) : glm::vec4(0.0f, 0.003f, 0.0f, 0.0f);
     glNamedBufferSubData(m_ubo, 0, sizeof(GridUBOData), &ubo);
 }
 
-void GridRenderer::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj) {
+void GridRenderer::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, GLuint shadowTex) {
     if (!state.showGrid || !m_program.has()) return;
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -63,6 +68,12 @@ void GridRenderer::draw(const RenderRenderState& state, const glm::mat4& view, c
     glUseProgram(m_program);
 
     updateUbo(state, view, proj);
+
+    if (shadowTex != 0 && m_shadowMapLoc >= 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, shadowTex);
+        glUniform1i(m_shadowMapLoc, 0);
+    }
 
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
