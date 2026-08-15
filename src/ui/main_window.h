@@ -227,6 +227,7 @@ private:
     QCheckBox* m_sliceAxisZCb = nullptr;
 
     void refreshSlicingPageBounds();
+    void refreshScalarFilterRange();
 
     // Timers
     QTimer m_autoRotateTimer;

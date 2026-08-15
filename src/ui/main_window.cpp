@@ -1213,11 +1213,6 @@ QWidget* MainWindow::buildScalarPage() {
     {
         auto* slider = scalarUi.minFilterSlider;
         auto* field = scalarUi.minFilterField;
-        double minVal = m_settings->getDataScalarMinQml();
-        double maxVal = m_settings->getDataScalarMaxQml();
-        slider->setRange(static_cast<int>(minVal * 1000), static_cast<int>(maxVal * 1000));
-        slider->setValue(static_cast<int>(m_settings->getFilterMin() * 1000));
-        field->setText(QString::number(m_settings->getFilterMin(), 'f', 3));
         m_filterMinSlider = slider;
         m_filterMinField = field;
         connect(slider, &QSlider::valueChanged, this, [field, this](int raw) {
@@ -1237,11 +1232,6 @@ QWidget* MainWindow::buildScalarPage() {
     {
         auto* slider = scalarUi.maxFilterSlider;
         auto* field = scalarUi.maxFilterField;
-        double minVal = m_settings->getDataScalarMinQml();
-        double maxVal = m_settings->getDataScalarMaxQml();
-        slider->setRange(static_cast<int>(minVal * 1000), static_cast<int>(maxVal * 1000));
-        slider->setValue(static_cast<int>(m_settings->getFilterMax() * 1000));
-        field->setText(QString::number(m_settings->getFilterMax(), 'f', 3));
         m_filterMaxSlider = slider;
         m_filterMaxField = field;
         connect(slider, &QSlider::valueChanged, this, [field, this](int raw) {
@@ -1258,29 +1248,13 @@ QWidget* MainWindow::buildScalarPage() {
             m_settings->setFilterMax(v);
         });
     }
+    refreshScalarFilterRange();
 
     auto* resetFilterBtn = scalarUi.resetFilterBtn;
     connect(resetFilterBtn, &QPushButton::clicked, m_settings, [this]() {
-        double minVal = m_settings->getDataScalarMinQml();
-        double maxVal = m_settings->getDataScalarMaxQml();
-        m_settings->setFilterMin(minVal);
-        m_settings->setFilterMax(maxVal);
-        if (m_filterMinSlider) {
-            m_filterMinSlider->blockSignals(true);
-            m_filterMinSlider->setValue(static_cast<int>(minVal * 1000));
-            m_filterMinSlider->blockSignals(false);
-        }
-        if (m_filterMinField) {
-            m_filterMinField->setText(QString::number(minVal, 'f', 3));
-        }
-        if (m_filterMaxSlider) {
-            m_filterMaxSlider->blockSignals(true);
-            m_filterMaxSlider->setValue(static_cast<int>(maxVal * 1000));
-            m_filterMaxSlider->blockSignals(false);
-        }
-        if (m_filterMaxField) {
-            m_filterMaxField->setText(QString::number(maxVal, 'f', 3));
-        }
+        m_settings->setFilterMin(m_settings->getDataScalarMinQml());
+        m_settings->setFilterMax(m_settings->getDataScalarMaxQml());
+        refreshScalarFilterRange();
     });
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
@@ -2043,7 +2017,23 @@ void MainWindow::refreshSlicingPageBounds() {
     updateSlider(m_sliceYSlider, m_sliceYSpinBox,
                  m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getSliceY());
     updateSlider(m_sliceZSlider, m_sliceZSpinBox,
-                 m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ());
+                  m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ());
+}
+
+void MainWindow::refreshScalarFilterRange() {
+    const double minVal = m_settings->getDataScalarMinQml();
+    const double maxVal = m_settings->getDataScalarMaxQml();
+    auto applyOne = [minVal, maxVal](QSlider* slider, QLineEdit* field, double filterVal) {
+        if (!slider || !field) return;
+        slider->setRange(static_cast<int>(minVal * 1000), static_cast<int>(maxVal * 1000));
+        int vi = static_cast<int>(filterVal * 1000);
+        slider->blockSignals(true);
+        slider->setValue(vi);
+        slider->blockSignals(false);
+        field->setText(QString::number(filterVal, 'f', 3));
+    };
+    applyOne(m_filterMinSlider, m_filterMinField, m_settings->getFilterMin());
+    applyOne(m_filterMaxSlider, m_filterMaxField, m_settings->getFilterMax());
 }
 
 
@@ -2322,6 +2312,7 @@ void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateQuickBarVisibility);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshSlicingPageBounds);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshScalarFilterRange);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this]() {
         const bool hasVectors = m_settings->hasMeshVectors();
         if (m_slShowCb) {
