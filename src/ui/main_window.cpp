@@ -202,7 +202,14 @@ static void applyPanelStyling(QWidget* root) {
             f.setPixelSize(kParamFontSize);
             f.setBold(false);
             lbl->setFont(f);
-            lbl->setStyleSheet("color: #A0A0A0;");
+            // Route color through the palette (not a pinned styleSheet color) so the
+            // label greys out automatically when its container is disabled.
+            QPalette pal = lbl->palette();
+            pal.setColor(QPalette::Active,   QPalette::Text, QColor("#A0A0A0"));
+            pal.setColor(QPalette::Inactive, QPalette::Text, QColor("#A0A0A0"));
+            pal.setColor(QPalette::Disabled, QPalette::Text, QColor("#777777"));
+            lbl->setPalette(pal);
+            lbl->setStyleSheet("background: transparent;");
         }
     }
 
@@ -304,8 +311,17 @@ static void applyPanelStyling(QWidget* root) {
         //     "padding: 4px 8px;"                        // Inner spacing
         // );
         // 🎨 Colored indicator strip on the left of the header
+        // Route text color through the palette (not a pinned styleSheet color) so
+        // section headers grey out when their parent optionsGroup is disabled. A
+        // static "color" in the styleSheet overrides Qt's disabled color group and
+        // would keep headers bright while sibling controls grey out.
+        QPalette pal = e.label->palette();
+        pal.setColor(QPalette::Active,   QPalette::Text, QColor("#FFFFFF"));
+        pal.setColor(QPalette::Inactive, QPalette::Text, QColor("#FFFFFF"));
+        pal.setColor(QPalette::Disabled, QPalette::Text, QColor("#888888"));
+        e.label->setPalette(pal);
+
         e.label->setStyleSheet(
-            "color: #FFFFFF;"
             "background: transparent;"
             "border-left: 3px solid #3B82F6;" // 3px accent bar on the left
             "padding-left: 6px;"               // Push text slightly right
@@ -2210,6 +2226,14 @@ void MainWindow::updateQuickBarVisibility() {
     bool collapsed = m_settings->getQuickBarCollapsed();
     m_quickBar->setVisible(hasMesh && !collapsed);
     m_quickBarHandle->setVisible(hasMesh && collapsed);
+    // The Volume quick-bar toggle is only actionable when volume data exists;
+    // gate it (and refresh its checked state) on mesh load/clear so it never
+    // shows a stale "on" state while disabled, mirroring the Volume page checkbox.
+    if (m_qbVolume) {
+        bool hasVol = m_settings->hasVolumeData();
+        m_qbVolume->setEnabled(hasVol);
+        m_qbVolume->setChecked(m_settings->getShowVolume());
+    }
 }
 
 // Keep the quick-bar display toggles in sync with settings that are changed via
