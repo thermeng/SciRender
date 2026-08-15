@@ -7,12 +7,14 @@ for %%P in ("C:\Qt\Tools\mingw1310_64\bin\g++.exe" "C:\Qt\Tools\mingw_64\bin\g++
 )
 if not defined GPP ( echo ERROR: g++.exe not found in known Qt MinGW dirs & pause & exit /b 1 )
 set PATH=C:\Qt\Tools\mingw1310_64\bin;%PATH%
-set INC=-I.. -I..\src -I..\vendor -I..\vendor\glad\include
+set INC=-I.. -I..\src -I..\vendor -I..\vendor\glad\include -I..\vendor\pugixml -I..\vendor\lz4 -I..\vendor\lzma
 cd /d %~dp0
 echo [run_tests] building parse_regression...
 %GPP% -std=c++20 -O0 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\mesh_utils.cpp ^
-  ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp parse_regression.cpp ^
-  -o parse_regression.exe %INC%
+  ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
+  ..\vendor\pugixml\pugixml.cpp ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
+  parse_regression.cpp ^
+  -o parse_regression.exe %INC% -lz
 if errorlevel 1 ( echo [run_tests] COMPILE FAILED & pause & exit /b 1 )
 echo [run_tests] running parse_regression...
 parse_regression.exe > last_parse.log 2>&1
@@ -22,7 +24,8 @@ echo [run_tests] building streamline_direction_test...
 %GPP% -std=c++20 -O0 -g ..\vendor\glad\src\gl.c ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\mesh_utils.cpp ^
   ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
   ..\src\render\StreamlineSet.cpp streamline_direction_test.cpp ^
-  -o streamline_direction_test.exe %INC%
+  ..\vendor\pugixml\pugixml.cpp ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
+  -o streamline_direction_test.exe %INC% -lz
 if errorlevel 1 ( echo [run_tests] COMPILE FAILED & pause & exit /b 1 )
 echo [run_tests] running streamline_direction_test...
 streamline_direction_test.exe > last_direction.log 2>&1
