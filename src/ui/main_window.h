@@ -191,6 +191,7 @@ private:
     // Field selection combos (populated on mesh load)
     QComboBox* m_scalarCombo = nullptr;
     QComboBox* m_vectorCombo = nullptr;
+    QComboBox* m_vectorPlacementCombo = nullptr;
     QComboBox* m_streamlineCombo = nullptr;
     QComboBox* m_streamlineDirectionCombo = nullptr;
     QComboBox* m_volumeFieldCombo = nullptr;

@@ -47,27 +47,47 @@ void VectorGlyphSet::shutdown() {
     teardownGL();
 }
 
-void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName, int magTransform) {
+void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName, int magTransform, int placement) {
     teardownGL();
     (void)magTransform;
 
-    if (mesh.pointVectorsData.empty()) return;
+    const bool cellCenter = (placement == 1);
 
-    size_t count = 0;
     const glm::vec3* data = nullptr;
-    auto tryField = [&](const std::string& name) -> bool {
-        if (name.empty()) return false;
+    size_t count = 0;
+    int numPts = 0;
+
+    if (!cellCenter) {
+        if (mesh.pointVectorsData.empty()) return;
+        numPts = static_cast<int>(mesh.vertices.size() / 3);
+        auto tryField = [&](const std::string& name) -> bool {
+            if (name.empty()) return false;
+            size_t c = 0;
+            const glm::vec3* d = mesh.vectorFieldData(name, c);
+            if (d && c > 0) { data = d; count = c; return true; }
+            return false;
+        };
+        if (!tryField(fieldName) && !tryField(mesh.vectorName) &&
+            !(mesh.availableVectorNames.empty() ? false : tryField(mesh.availableVectorNames.front()))) {
+            return;
+        }
+    } else {
+        if (mesh.cellCenters.empty()) return;
+        numPts = static_cast<int>(mesh.cellCenters.size());
+        const glm::vec3* d = nullptr;
         size_t c = 0;
-        const glm::vec3* d = mesh.vectorFieldData(name, c);
-        if (d && c > 0) { data = d; count = c; return true; }
-        return false;
-    };
-    if (!tryField(fieldName) && !tryField(mesh.vectorName) &&
-        !(mesh.availableVectorNames.empty() ? false : tryField(mesh.availableVectorNames.front()))) {
-        return;
+        if (!fieldName.empty()) d = mesh.cellVectorFieldData(fieldName, c);
+        if (!d || c == 0) d = mesh.cellVectorFieldData(mesh.cellVectorName, c);
+        if (!d || c == 0) {
+            if (!mesh.availableCellVectorNames.empty()) {
+                d = mesh.cellVectorFieldData(mesh.availableCellVectorNames.front(), c);
+            }
+        }
+        if (!d || c == 0) return;
+        data = d;
+        count = c;
     }
 
-    int numPts = static_cast<int>(mesh.vertices.size() / 3);
     const int limit = std::min(numPts, static_cast<int>(count));
     stride = std::max(1, stride);
     float mMin = std::numeric_limits<float>::max();
@@ -97,9 +117,16 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     for (int i = 0; i < limit; i += stride) {
         float dx = data[i].x, dy = data[i].y, dz = data[i].z;
         if (dx * dx + dy * dy + dz * dz < 1e-12f) continue;
-        float ox = mesh.vertices[i * 3 + 0];
-        float oy = mesh.vertices[i * 3 + 1];
-        float oz = mesh.vertices[i * 3 + 2];
+        float ox, oy, oz;
+        if (cellCenter) {
+            ox = mesh.cellCenters[i].x;
+            oy = mesh.cellCenters[i].y;
+            oz = mesh.cellCenters[i].z;
+        } else {
+            ox = mesh.vertices[i * 3 + 0];
+            oy = mesh.vertices[i * 3 + 1];
+            oz = mesh.vertices[i * 3 + 2];
+        }
         if (!emitted.insert(originKey(ox, oy, oz)).second) continue;
         inst.push_back(ox);
         inst.push_back(oy);

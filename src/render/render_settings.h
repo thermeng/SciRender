@@ -102,6 +102,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool hasMeshLoaded READ getHasMeshLoaded NOTIFY meshLoadStateChanged)
     Q_PROPERTY(bool meshHasScalars READ hasMeshScalars NOTIFY meshLoadStateChanged)
     Q_PROPERTY(bool hasMeshVectors READ hasMeshVectors NOTIFY meshLoadStateChanged)
+    Q_PROPERTY(bool hasMeshCellVectors READ hasMeshCellVectors NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString currentMeshName READ getCurrentMeshNameQStr NOTIFY meshLoadStateChanged)
 
     Q_PROPERTY(float lightKeyAzimuth READ getLightKeyAzimuth WRITE setLightKeyAzimuth NOTIFY viewChanged)
@@ -149,6 +150,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool vectorUseColormap READ getVectorUseColormap WRITE setVectorUseColormap NOTIFY viewChanged)
     Q_PROPERTY(int vectorColormapChoice READ getVectorColormapChoice WRITE setVectorColormapChoice NOTIFY viewChanged)
     Q_PROPERTY(bool vectorColormapReversed READ getVectorColormapReversed WRITE setVectorColormapReversed NOTIFY viewChanged)
+    Q_PROPERTY(int vectorPlacement READ getVectorPlacement WRITE setVectorPlacement NOTIFY viewChanged)
+    Q_PROPERTY(QStringList vectorPlacementOptions READ getVectorPlacementOptions CONSTANT)
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
@@ -428,6 +431,9 @@ public:
     void setVectorScale(float v) { if (m_state.vectorScale != v) { m_state.vectorScale = v; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
     int getVectorStride() const { return m_state.vectorStride; }
     void setVectorStride(int v) { int s = v < 1 ? 1 : v; if (m_state.vectorStride != s) { m_state.vectorStride = s; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
+    int getVectorPlacement() const { return m_state.vectorPlacement; }
+    void setVectorPlacement(int v) { int p = (v < 0) ? 0 : (v > 1 ? 1 : v); if (m_state.vectorPlacement != p) { m_state.vectorPlacement = p; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
+    QStringList getVectorPlacementOptions() const { return {"Vertex", "Cell Center"}; }
     QColor getVectorColorQml() const { return QColor::fromRgbF(m_state.vectorColor[0], m_state.vectorColor[1], m_state.vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { m_state.vectorColor[0] = c.redF(); m_state.vectorColor[1] = c.greenF(); m_state.vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); }
     bool getShowStreamlines() const { return m_state.showStreamlines; }
@@ -556,6 +562,7 @@ public:
 
     bool hasMeshScalars() const { return m_state.meshHasScalars; }
     bool hasMeshVectors() const { return m_state.meshHasVectors; }
+    bool hasMeshCellVectors() const { return m_state.meshHasCellVectors; }
     bool hasVolumeData() const { return m_meshData.loadedMesh && !m_meshData.loadedMesh->scalars.empty()
                                             && m_meshData.loadedMesh->gridDimX > 0; }
     Q_INVOKABLE QString getActiveScalarNameQml() const { return QString::fromStdString(m_state.activeScalarName); }
