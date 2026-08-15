@@ -100,18 +100,18 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
     glUniformMatrix4fv(m_mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniform3fv(m_boxMinLoc, 1, glm::value_ptr(boxMin));
     glUniform3fv(m_boxMaxLoc, 1, glm::value_ptr(boxMax));
-    glUniform1f(m_scalarMinLoc, state.dataScalarMin);
-    glUniform1f(m_scalarMaxLoc, state.dataScalarMax);
+    glUniform1f(m_scalarMinLoc, state.sliceScalarMin);
+    glUniform1f(m_scalarMaxLoc, state.sliceScalarMax);
     glUniform1f(m_alphaLoc, state.volumeSliceOpacity);
-    glUniform1i(m_useColormapLoc, state.volumeUseColormap ? 1 : 0);
+    glUniform1i(m_useColormapLoc, state.volumeSliceUseColormap ? 1 : 0);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_3D, volumeTex);
     glUniform1i(m_volumeTexLoc, 0);
 
-    if (state.volumeUseColormap && colormap.volumeTexture() != 0) {
+    if (state.volumeSliceUseColormap && colormap.volumeSliceTexture() != 0) {
         glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_1D, colormap.volumeTexture());
+        glBindTexture(GL_TEXTURE_1D, colormap.volumeSliceTexture());
         glUniform1i(m_lutLoc, 1);
     } else {
         glUniform1i(m_lutLoc, 0);

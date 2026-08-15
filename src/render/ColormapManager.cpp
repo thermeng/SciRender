@@ -61,6 +61,16 @@ void ColormapManager::update() {
         lastVolumeReversed_ = volumeReversed_;
         volumeLutDirty_ = false;
     }
+
+    if (!volumeSliceTex_.has() || volumeSliceLutDirty_ ||
+        volumeSliceChoice_ != lastVolumeSliceChoice_ || volumeSliceReversed_ != lastVolumeSliceReversed_) {
+        GLuint raw = volumeSliceTex_.get();
+        uploadLUT(raw, volumeSliceChoice_, volumeSliceReversed_);
+        if (raw != volumeSliceTex_.get()) volumeSliceTex_.reset(raw);
+        lastVolumeSliceChoice_ = volumeSliceChoice_;
+        lastVolumeSliceReversed_ = volumeSliceReversed_;
+        volumeSliceLutDirty_ = false;
+    }
 }
 
 void ColormapManager::shutdown() {
@@ -68,4 +78,5 @@ void ColormapManager::shutdown() {
     vectorTex_.reset();
     streamlineTex_.reset();
     volumeTex_.reset();
+    volumeSliceTex_.reset();
 }

@@ -236,6 +236,14 @@ struct RenderRenderState {
     int  volumeSliceAxis = 1;
     float volumeSlicePos = 0.5f;
     float volumeSliceOpacity = 0.35f;
+    // The slice plane renders with its own colormap (independent of the full-volume
+    // one) and a value range computed from the data actually visible on the slice,
+    // so colors remap as the plane moves through the volume.
+    bool volumeSliceUseColormap = true;
+    int  volumeSliceColormapChoice = 3;
+    bool volumeSliceColormapReversed = false;
+    float sliceScalarMin = 0.0f;
+    float sliceScalarMax = 1.0f;
 
     // Screenshot export options
     bool screenshotTransparent = false;
@@ -455,6 +463,7 @@ private:
     void drawGizmo();
     void drawColorbarLegends(int deviceW, int deviceH);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
+    void updateSliceScalarRange();
 
     // Display Dimension Registers
     int width = 800;

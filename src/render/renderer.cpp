@@ -674,7 +674,84 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         bars.push_back(d);
     }
 
+    // Slice plane bar (independent colormap, per-slice scalar range)
+    if (m_state.showVolumeSlice && m_state.volumeSliceUseColormap && m_state.hasMeshLoaded) {
+        ColorbarData d;
+        d.visible = true;
+        d.title = QString::fromStdString(m_state.activeScalarName);
+        d.subtitle = "Slice";
+        d.stops = stopsFor(m_state.volumeSliceColormapChoice, m_state.volumeSliceColormapReversed);
+        const float range = m_state.sliceScalarMax - m_state.sliceScalarMin;
+        for (int i = 0; i < tickCount; ++i) {
+            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+            const float v = m_state.sliceScalarMin + range * frac;
+            d.tickLabels.append(QString::number(v, 'f', 3));
+        }
+        bars.push_back(d);
+    }
+
     colorbarOverlay.drawBars(dpr, deviceW, deviceH, bars);
+}
+
+void Renderer::updateSliceScalarRange() {
+    const RenderMesh* mesh = m_lastUploadedMesh.get();
+    if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0 ||
+        mesh->scalars.empty()) {
+        m_state.sliceScalarMin = 0.0f;
+        m_state.sliceScalarMax = 1.0f;
+        return;
+    }
+    const std::vector<float>& s = mesh->scalars;
+    const int dx = mesh->gridDimX, dy = mesh->gridDimY, dz = mesh->gridDimZ;
+    const int axis = m_state.volumeSliceAxis;
+    const int dim = (axis == 0) ? dx : (axis == 1) ? dy : dz;
+    int i0 = static_cast<int>(std::floor(m_state.volumeSlicePos * static_cast<float>(dim - 1)));
+    if (i0 < 0) i0 = 0;
+    if (i0 >= dim) i0 = dim - 1;
+    int i1 = i0 + 1;
+    if (i1 >= dim) i1 = dim - 1;
+
+    const int total = static_cast<int>(s.size());
+    // Initialize from +/-inf (NOT s[0]): s[0] is one corner of the whole volume and is
+    // almost never on the current slice, so seeding mn from it pins the reported
+    // minimum to an off-slice value and squashes the colormap to the top of the range.
+    float mn = std::numeric_limits<float>::max();
+    float mx = std::numeric_limits<float>::lowest();
+    // The 3D texture uses GL_LINEAR, so the slice quad trilinearly interpolates between
+    // the two grid planes straddling the position. Scanning BOTH planes captures the
+    // exact value range the slice can display (otherwise a true [5,10] slice is
+    // reported as [7,10] and the low end of the colormap is clipped).
+    auto scanPlane = [&](int plane) {
+        if (axis == 0) {
+            for (int iy = 0; iy < dy; ++iy)
+                for (int iz = 0; iz < dz; ++iz) {
+                    int i = plane + iy * dx + iz * dx * dy;
+                    if (i < total) { float v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+                }
+        } else if (axis == 1) {
+            for (int ix = 0; ix < dx; ++ix)
+                for (int iz = 0; iz < dz; ++iz) {
+                    int i = ix + plane * dx + iz * dx * dy;
+                    if (i < total) { float v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+                }
+        } else {
+            for (int ix = 0; ix < dx; ++ix)
+                for (int iy = 0; iy < dy; ++iy) {
+                    int i = ix + iy * dx + plane * dx * dy;
+                    if (i < total) { float v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+                }
+        }
+    };
+    scanPlane(i0);
+    if (i1 != i0) scanPlane(i1);
+    if (mn > mx) {
+        mn = 0.0f;
+        mx = 1.0f;
+    } else if (mx - mn < 1e-6f) {
+        mx = mn + 1.0f;
+    }
+    m_state.sliceScalarMin = mn;
+    m_state.sliceScalarMax = mx;
 }
 
 void Renderer::renderFrame() {
@@ -852,6 +929,10 @@ void Renderer::renderFrame() {
     }
 
     m_volume.draw(m_state, view, proj, colormap);
+
+    // Recompute the slice plane's scalar range from the current data slice so the
+    // colormap remaps as the plane moves (only needed when a slice is visible).
+    if (m_state.showVolumeSlice) updateSliceScalarRange();
 
     m_volumeSliceOverlay.draw(m_state, view, proj, colormap, m_volume.volumeTexture(),
                               m_volume.boxMin(), m_volume.boxMax(), m_lastUploadedMesh.get());

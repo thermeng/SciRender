@@ -1832,12 +1832,16 @@ QWidget* MainWindow::buildVolumePage() {
 
     auto* showCb = volumeUi.showVolumeCb;
     m_volumeShowCb = showCb;
+    m_volumeOptionsGroup = volumeUi.optionsGroup;
     showCb->setChecked(m_settings->getShowVolume());
     showCb->setEnabled(m_settings->hasVolumeData());
     if (!m_settings->hasVolumeData()) showCb->setChecked(false);
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolume);
-    connect(showCb, &QCheckBox::toggled, volumeUi.optionsGroup, &QWidget::setEnabled);
-    volumeUi.optionsGroup->setEnabled(m_settings->hasVolumeData() && m_settings->getShowVolume());
+    // Slice-plane controls must stay configurable with volume rendering OFF, so the
+    // group is gated only on data availability; the full-volume controls (step size,
+    // opacity, wireframe) are individually disabled when showVolume is off.
+    connect(showCb, &QCheckBox::toggled, this, [this](bool) { applyVolumeControlGating(); });
+    applyVolumeControlGating();
 
     m_volumeFieldCombo = volumeUi.volumeFieldCombo;
     m_volumeFieldCombo->addItems(m_settings->getAvailableScalars());
@@ -1947,6 +1951,14 @@ QWidget* MainWindow::buildVolumePage() {
             m_settings->setVolumeSliceOpacity(v);
         });
     }
+
+    // Full-volume-rendering-only controls: greyed when "Enable Volume Rendering"
+    // is off, but the slice-plane controls above stay enabled whenever volume
+    // data exists (see applyVolumeControlGating).
+    m_volumeRenderCtrls << volumeUi.stepHeader << volumeUi.stepSlider << volumeUi.stepValue
+                        << volumeUi.opacityHeader << volumeUi.opacitySlider << volumeUi.opacityValue
+                        << volumeUi.volumeWireframeCb;
+    applyVolumeControlGating();
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
@@ -2176,6 +2188,10 @@ void MainWindow::setupQuickBar() {
                              m_settings->getShowVolume(), true, [this]() {
         m_settings->setShowVolume(!m_settings->getShowVolume());
     });
+    m_qbSlice = addQBButton(":/src/resources/icons/slice.svg", "Slice Plane",
+                            m_settings->getShowVolumeSlice(), true, [this]() {
+        m_settings->setShowVolumeSlice(!m_settings->getShowVolumeSlice());
+    });
 
     addSeparator();
 
@@ -2234,6 +2250,11 @@ void MainWindow::updateQuickBarVisibility() {
         m_qbVolume->setEnabled(hasVol);
         m_qbVolume->setChecked(m_settings->getShowVolume());
     }
+    if (m_qbSlice) {
+        bool hasVol = m_settings->hasVolumeData();
+        m_qbSlice->setEnabled(hasVol);
+        m_qbSlice->setChecked(m_settings->getShowVolumeSlice());
+    }
 }
 
 // Keep the quick-bar display toggles in sync with settings that are changed via
@@ -2254,6 +2275,27 @@ void MainWindow::syncVolumePage() {
     if (m_volumeSliceShowCb) {
         m_volumeSliceShowCb->setEnabled(hasVol);
         m_volumeSliceShowCb->setChecked(hasVol && m_settings->getShowVolumeSlice());
+    }
+    if (m_qbSlice) {
+        m_qbSlice->setEnabled(hasVol);
+        m_qbSlice->setChecked(hasVol && m_settings->getShowVolumeSlice());
+    }
+    applyVolumeControlGating();
+}
+
+// The Volume page places both full-volume-rendering controls (Step Size, Opacity,
+// Wireframe) and slice-plane controls inside one `optionsGroup`. Only the
+// full-volume controls should be greyed when "Enable Volume Rendering" is off; the
+// slice controls must remain configurable so a slice plane can be viewed with no
+// volume rendering. This re-applies that split whenever showVolume/data availability
+// changes (checkbox toggle, quick-bar button, mesh load). The group itself is
+// enabled purely on volume-data availability so slice options are always reachable.
+void MainWindow::applyVolumeControlGating() {
+    const bool hasVol = m_settings->hasVolumeData();
+    if (m_volumeOptionsGroup) m_volumeOptionsGroup->setEnabled(hasVol);
+    const bool enableRenderControls = hasVol && m_settings->getShowVolume();
+    for (QWidget* w : m_volumeRenderCtrls) {
+        if (w) w->setEnabled(enableRenderControls);
     }
 }
 
@@ -2381,6 +2423,7 @@ void MainWindow::connectSettings() {
             m_volumeSliceShowCb->setEnabled(ok);
             if (!ok) m_volumeSliceShowCb->setChecked(false);
         }
+        applyVolumeControlGating();
     });
     connect(m_settings, &RenderSettings::meshDataUpdated, this, &MainWindow::refreshMeshInfoPage);
 
