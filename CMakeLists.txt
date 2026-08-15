@@ -1,47 +1,61 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.19)
 project(SciRender LANGUAGES C CXX)
 
-# Force C++20 standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Enable Qt's automated compilation tools
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Qt 6.11 + MinGW 8.1 workaround: ensure exceptions are enabled so MOC-generated
-# *_NON_NOEXCEPT comparators compile cleanly.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions")
-set(CMAKE_CXX_FLAGS_DEBUG   "${CMAKE_CXX_FLAGS_DEBUG}   -O0 -g -DNDEBUG")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -s -DNDEBUG")
+# MinGW workaround for Qt exception handling
+if(MINGW)
+    # Add exception support globally to all C++ targets
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fexceptions>)
 
-# Faster Release builds: LTO
+    # Disable NDEBUG in Debug mode (NDEBUG should NEVER be in Debug flags)
+    string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+endif()
+
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 
 # ---------------------------------------------------------------------------
 # 1. Locate Qt 6 and System Graphics Dependencies
 # ---------------------------------------------------------------------------
-# FIX: Added QuickControls2 to COMPONENTS to fetch C++ headers like <QQuickStyle>
+list(APPEND CMAKE_PREFIX_PATH "C:/Qt/6.11.1/mingw_64")
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGLWidgets)
 find_package(OpenGL REQUIRED)
 
-
+# Set ZLIB hints before searching
+if(NOT DEFINED ZLIB_ROOT AND EXISTS "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32")
+    set(ZLIB_ROOT "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32" CACHE PATH
+        "Path to a zlib installation")
+endif()
+find_package(ZLIB REQUIRED)
 
 # ---------------------------------------------------------------------------
 # 2. Configure Vendor Libraries
 # ---------------------------------------------------------------------------
-
-# GLAD
 add_library(glad STATIC "vendor/glad/src/gl.c")
 target_include_directories(glad PUBLIC "vendor/glad/include")
 
-# GLM (Header-Only Math)
 add_library(glm INTERFACE)
 target_include_directories(glm INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vendor")
 
+add_library(pugixml STATIC "vendor/pugixml/pugixml.cpp")
+target_include_directories(pugixml PUBLIC "vendor/pugixml")
+
+add_library(lz4 STATIC "vendor/lz4/lz4.c")
+target_include_directories(lz4 PUBLIC "vendor/lz4")
+
+add_library(lzma STATIC
+    "vendor/lzma/LzmaDec.c"
+    "vendor/lzma/7zAlloc.c"
+)
+target_include_directories(lzma PUBLIC "vendor/lzma")
+
 # ---------------------------------------------------------------------------
-# 3. CoreLib — parser, mesh, camera, colormaps (no Qt, no GL)
+# 3. CoreLib — parser, mesh, camera, colormaps
 # ---------------------------------------------------------------------------
 add_library(CoreLib STATIC
     src/core/Camera.cpp
@@ -57,7 +71,7 @@ add_library(CoreLib STATIC
     src/core/vtk_xml_parser.cpp
 )
 target_include_directories(CoreLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(CoreLib PUBLIC glm)
+target_link_libraries(CoreLib PUBLIC glm pugixml ZLIB::ZLIB lz4 lzma)
 
 # ---------------------------------------------------------------------------
 # 4. RenderLib — renderer, GL managers, streamlines, glyphs, overlays
@@ -137,14 +151,19 @@ add_executable(SciRender
     assets/app_icon.rc
 )
 
+# Standardized path normalization for Windows Resource Compiler
+file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.ico" APP_ICON_PATH)
 target_compile_definitions(SciRender PRIVATE
-    APP_ICON_SRC="${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.ico"
+    APP_ICON_SRC="${APP_ICON_PATH}"
 )
 
 target_link_libraries(SciRender PRIVATE CoreLib RenderLib)
 
+# Standard Qt6 Project Setup (Handles deployment dynamic copying)
+qt_standard_project_setup()
+
 # ---------------------------------------------------------------------------
-# 6. Shader Resources
+# 6. Resources
 # ---------------------------------------------------------------------------
 qt_add_resources(SciRender "shaders"
     PREFIX "/"
@@ -180,9 +199,6 @@ qt_add_resources(SciRender "shaders"
         src/shaders/shadow.frag
 )
 
-# ---------------------------------------------------------------------------
-# 6b. Icon Resources
-# ---------------------------------------------------------------------------
 qt_add_resources(SciRender "icons"
     PREFIX "/"
     FILES
@@ -212,11 +228,3 @@ add_custom_command(TARGET SciRender POST_BUILD
             "$<TARGET_FILE_DIR:SciRender>/shaders"
     COMMENT "--- Synchronizing runtime GLSL shader files ---"
 )
-
-# ---------------------------------------------------------------------------
-# 8. Tests
-# ---------------------------------------------------------------------------
-# NOTE: Tests removed to speed up regular builds.
-# To re-enable, restore the section from git history and run:
-#   cmake -B build -DSciRender_BUILD_TESTS=ON
-# ---------------------------------------------------------------------------
