@@ -80,6 +80,7 @@ private:
     void syncQuickBar();
     void syncViewDisplayPage();
     void syncLightingPage();
+    void syncVolumePage();
     void recreateViewport();
 
     ::RenderSettings* m_settings = nullptr;
