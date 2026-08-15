@@ -44,7 +44,7 @@ private:
     GlProgram textProgram;
     GlVao textVAO;
     GlBuffer textVBO;
-    GLint  textMvpLoc = -1, textColorLoc = -1, textTexLoc = -1, textPosLoc = -1;
+    GLint  textMvpLoc = -1, textTexLoc = -1, textPosLoc = -1, textColLoc = -1;
     GlTexture glyphTex;
     int    glyphAtlasW = 0, glyphAtlasH = 0;
 

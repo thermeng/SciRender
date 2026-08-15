@@ -83,24 +83,27 @@ void main() { frag = vec4(uColor, 1.0); }
 
 static const char* textVS = R"(
 #version 460 core
-layout(location = 0) in vec4 aPos;   // xy = local px (in 0..viewport px space), zw = uv
+layout(location = 0) in vec4 aPos;   // xy = local px, zw = uv
+layout(location = 1) in vec3 aColor;
 uniform mat4 uMVP;
 out vec2 vUV;
+out vec3 vColor;
 void main() {
     vUV = aPos.zw;
+    vColor = aColor;
     gl_Position = uMVP * vec4(aPos.xy, 0.0, 1.0);
 }
 )";
 static const char* textFS = R"(
 #version 460 core
 in vec2 vUV;
+in vec3 vColor;
 uniform sampler2D uTex;
-uniform vec3 uColor;
 out vec4 frag;
 void main() {
     float a = texture(uTex, vUV).r;   // atlas is white-on-transparent; .r = coverage
     if (a < 0.02) discard;
-    frag = vec4(uColor, a);
+    frag = vec4(vColor, a);
 }
 )";
 
@@ -224,10 +227,10 @@ bool Gizmo::buildTextProgram() {
     textProgram.reset(linkProgram(textVS, textFS));
     if (!textProgram.has()) return false;
     textMvpLoc   = glGetUniformLocation(textProgram, "uMVP");
-    textColorLoc = glGetUniformLocation(textProgram, "uColor");
     textTexLoc   = glGetUniformLocation(textProgram, "uTex");
     textPosLoc   = glGetAttribLocation(textProgram, "aPos");
-    return textMvpLoc >= 0 && textColorLoc >= 0 && textTexLoc >= 0 && textPosLoc >= 0;
+    textColLoc   = glGetAttribLocation(textProgram, "aColor");
+    return textMvpLoc >= 0 && textTexLoc >= 0 && textPosLoc >= 0 && textColLoc >= 0;
 }
 
 bool Gizmo::init() {
@@ -237,7 +240,7 @@ bool Gizmo::init() {
         || !buildTextProgram() || !buildAtlas())
         return false;
 
-    // ---- AA line VBO (dynamic): 3 axes × 4 verts × (vec2 pos + vec3 col + float dist) ----
+    // ---- AA line VBO (dynamic): 3 axes × 6 verts × (vec2 pos + vec3 col + float dist) ----
     {
         glCreateVertexArrays(1, aaLineVAO.ptr());
         glCreateBuffers(1, aaLineVBO.ptr());
@@ -250,7 +253,7 @@ bool Gizmo::init() {
         glEnableVertexArrayAttrib(aaLineVAO, aaLineDistLoc);
         glVertexArrayAttribFormat(aaLineVAO, aaLineDistLoc, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float));
         glVertexArrayAttribBinding(aaLineVAO, aaLineDistLoc, 0);
-        glNamedBufferData(aaLineVBO, 3 * 4 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        glNamedBufferData(aaLineVBO, 3 * 6 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
         glVertexArrayVertexBuffer(aaLineVAO, 0, aaLineVBO, 0, 6 * sizeof(float));
     }
 
@@ -364,14 +367,17 @@ bool Gizmo::init() {
         glVertexArrayVertexBuffer(originVAO, 0, originVBO, 0, 6 * sizeof(float));
     }
 
-    // ---- Text quad VBO (dynamic): 3 chars × 6 verts × vec4(px.xy, uv.zw) ----
+    // ---- Text quad VBO (dynamic): 3 chars × 6 verts × (vec4 px.xy+uv + vec3 color) ----
     glCreateVertexArrays(1, textVAO.ptr());
     glCreateBuffers(1, textVBO.ptr());
     glEnableVertexArrayAttrib(textVAO, textPosLoc);
     glVertexArrayAttribFormat(textVAO, textPosLoc, 4, GL_FLOAT, GL_FALSE, 0);
     glVertexArrayAttribBinding(textVAO, textPosLoc, 0);
-    glNamedBufferData(textVBO, 3 * 6 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    glVertexArrayVertexBuffer(textVAO, 0, textVBO, 0, 4 * sizeof(float));
+    glEnableVertexArrayAttrib(textVAO, textColLoc);
+    glVertexArrayAttribFormat(textVAO, textColLoc, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
+    glVertexArrayAttribBinding(textVAO, textColLoc, 0);
+    glNamedBufferData(textVBO, 3 * 6 * 7 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glVertexArrayVertexBuffer(textVAO, 0, textVBO, 0, 7 * sizeof(float));
 
     // ---- Light-marker disc VBO (dynamic): 5 lights × 6 verts × vec6(px.xy + rgb) ----
     {
@@ -479,10 +485,8 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));  // positions already in clip space
     glUniform1f(aaLineHalfWidthLoc, halfWidth);
     glBindVertexArray(aaLineVAO);
-    for (int i = 0; i < 3; ++i) {
-        glNamedBufferSubData(aaLineVBO, 0, sizeof(quadData[i]), quadData[i]);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-    }
+    glNamedBufferSubData(aaLineVBO, 0, sizeof(quadData), quadData);
+    glDrawArrays(GL_TRIANGLES, 0, 3 * 6);  // 3 axis quads
     glBindVertexArray(0);
 
     // ---- Axis tip cones (diffuse-lit) ----
@@ -505,12 +509,13 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glDrawArrays(GL_TRIANGLES, 0, originVertCount);
     glBindVertexArray(0);
 
-    // ---- Text labels ----
+    // ---- Text labels (per-vertex color, batched: single upload + single draw) ----
     const glm::mat4 textMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
     const float cellU = 1.0f / 3.0f;
-
-    float quads[3][6][4];
     const float glyph = 24.0f;
+    const float half = glyph * 0.5f;
+
+    float quads[3][6][7];  // 3 labels × 6 verts × (px.xy, uv, rgb)
     for (int i = 0; i < 3; ++i) {
         glm::vec4 clip = gizmoProj * gizmoView * glm::vec4(tips[i], 1.0f);
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
@@ -518,20 +523,20 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
         ndc.x *= f; ndc.y *= f;
         float cx = (ndc.x * 0.5f + 0.5f) * foot;
         float cy = (ndc.y * 0.5f + 0.5f) * foot;
-        const float half = glyph * 0.5f;
         cx = std::max(half, std::min(foot - half, cx));
         cy = std::max(half, std::min(foot - half, cy));
 
         float u0 = i * cellU, u1 = (i + 1) * cellU;
-        float vTop = 0.0f, vBot = 1.0f;
-        float hx = glyph * 0.5f, hy = glyph * 0.5f;
-        float tri[6][4] = {
-            { cx - hx, cy + hy, u0, vTop },
-            { cx + hx, cy + hy, u1, vTop },
-            { cx - hx, cy - hy, u0, vBot },
-            { cx + hx, cy + hy, u1, vTop },
-            { cx + hx, cy - hy, u1, vBot },
-            { cx - hx, cy - hy, u0, vBot },
+        const float vTop = 0.0f, vBot = 1.0f;
+        const float hx = glyph * 0.5f, hy = glyph * 0.5f;
+        const float r = colors[i][0], g = colors[i][1], b = colors[i][2];
+        float tri[6][7] = {
+            { cx - hx, cy + hy, u0, vTop, r, g, b },
+            { cx + hx, cy + hy, u1, vTop, r, g, b },
+            { cx - hx, cy - hy, u0, vBot, r, g, b },
+            { cx + hx, cy + hy, u1, vTop, r, g, b },
+            { cx + hx, cy - hy, u1, vBot, r, g, b },
+            { cx - hx, cy - hy, u0, vBot, r, g, b },
         };
         std::memcpy(quads[i], tri, sizeof(tri));
     }
@@ -541,11 +546,8 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glUniform1i(textTexLoc, 0);
     glBindTextureUnit(0, glyphTex);
     glBindVertexArray(textVAO);
-    for (int i = 0; i < 3; ++i) {
-        glNamedBufferSubData(textVBO, 0, sizeof(quads[i]), quads[i]);
-        glUniform3fv(textColorLoc, 1, colors[i]);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-    }
+    glNamedBufferSubData(textVBO, 0, sizeof(quads), quads);
+    glDrawArrays(GL_TRIANGLES, 0, 3 * 6);  // 3 label quads
     glBindVertexArray(0);
     glUseProgram(0);
 
@@ -590,11 +592,12 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
     // px space [0..foot]x[0..foot] -> clip; markers are constant kit-local dirs.
     const glm::mat4 pxMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
     const float r = 6.0f; // disc radius in px
-    float quad[6][6];     // 2 triangles; per-vertex (x,y,0.0,r,g,b)
 
     glUseProgram(lightMarkProgram);
     glUniformMatrix4fv(lightMarkMvpLoc, 1, GL_FALSE, glm::value_ptr(pxMVP));
     glBindVertexArray(lightMarkVAO);
+    // Build all 5 marker discs with per-vertex color, then single upload + single draw.
+    float verts[5][6][6];
     for (int i = 0; i < 5; ++i) {
         float cx = (dirs[i].x * 0.5f + 0.5f) * foot;
         float cy = (dirs[i].y * 0.5f + 0.5f) * foot;
@@ -606,10 +609,10 @@ void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float d
             { cx + r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
             { cx - r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
         };
-        std::memcpy(quad, q, sizeof(q));
-        glNamedBufferSubData(lightMarkVBO, 0, sizeof(quad), quad);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        std::memcpy(verts[i], q, sizeof(q));
     }
+    glNamedBufferSubData(lightMarkVBO, 0, sizeof(verts), verts);
+    glDrawArrays(GL_TRIANGLES, 0, 5 * 6);  // 5 marker discs
     glBindVertexArray(0);
     glUseProgram(0);
 
