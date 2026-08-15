@@ -208,6 +208,7 @@ qt_add_resources(SciRender "icons"
         src/resources/icons/grid.svg
         src/resources/icons/surface.svg
         src/resources/icons/volume.svg
+        src/resources/icons/slice.svg
         src/resources/icons/ortho_px.svg
         src/resources/icons/ortho_nx.svg
         src/resources/icons/ortho_py.svg

@@ -81,6 +81,7 @@ private:
     void syncViewDisplayPage();
     void syncLightingPage();
     void syncVolumePage();
+    void applyVolumeControlGating();
     void recreateViewport();
 
     ::RenderSettings* m_settings = nullptr;
@@ -131,6 +132,7 @@ private:
     QToolButton* m_qbGrid = nullptr;
     QToolButton* m_qbSurface = nullptr;
     QToolButton* m_qbVolume = nullptr;
+    QToolButton* m_qbSlice = nullptr;
 
     // View & Display page checkboxes (synced with quick bar / keyboard shortcuts)
     QCheckBox* m_vdWireframeCb = nullptr;
@@ -200,6 +202,8 @@ private:
     QCheckBox* m_vecShowCb = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;
     QCheckBox* m_volumeSliceShowCb = nullptr;
+    QWidget* m_volumeOptionsGroup = nullptr;          // gated on data availability only
+    QList<QWidget*> m_volumeRenderCtrls;              // volume-rendering-only controls (gated on showVolume)
     QRadioButton* m_sliceAxisXRb = nullptr;
     QRadioButton* m_sliceAxisYRb = nullptr;
     QRadioButton* m_sliceAxisZRb = nullptr;

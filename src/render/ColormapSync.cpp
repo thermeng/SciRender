@@ -11,5 +11,7 @@ void ColormapSync::apply(const RenderRenderState& state, ColormapManager& colorm
     colormap.setStreamlineReversed(state.streamlineColormapReversed);
     colormap.setVolumeChoice(state.volumeColormapChoice);
     colormap.setVolumeReversed(state.volumeColormapReversed);
+    colormap.setVolumeSliceChoice(state.volumeSliceColormapChoice);
+    colormap.setVolumeSliceReversed(state.volumeSliceColormapReversed);
     colormap.update();
 }

@@ -182,6 +182,13 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("volumeColormapReversed", m_state.volumeColormapReversed);
     s.setValue("volumeStepSize", m_state.volumeStepSize);
     s.setValue("volumeOpacity", m_state.volumeOpacity);
+    s.setValue("showVolumeSlice", m_state.showVolumeSlice);
+    s.setValue("volumeSliceAxis", m_state.volumeSliceAxis);
+    s.setValue("volumeSlicePos", m_state.volumeSlicePos);
+    s.setValue("volumeSliceOpacity", m_state.volumeSliceOpacity);
+    s.setValue("volumeSliceUseColormap", m_state.volumeSliceUseColormap);
+    s.setValue("volumeSliceColormapChoice", m_state.volumeSliceColormapChoice);
+    s.setValue("volumeSliceColormapReversed", m_state.volumeSliceColormapReversed);
     s.setValue("vectorScale", m_state.vectorScale);
     s.setValue("vectorScaleByMagnitude", m_state.vectorScaleByMagnitude);
     s.setValue("quickBarCollapsed", quickBarCollapsed);
@@ -242,6 +249,15 @@ void RenderSettings::restoreStateFromSettings() {
     if (s.contains("volumeColormapChoice")) {
         m_state.volumeColormapChoice = s.value("volumeColormapChoice").toInt();
         m_state.volumeColormapReversed = s.value("volumeColormapReversed").toBool();
+    }
+    if (s.contains("showVolumeSlice")) {
+        m_state.showVolumeSlice = s.value("showVolumeSlice").toBool();
+        m_state.volumeSliceAxis = s.value("volumeSliceAxis").toInt();
+        m_state.volumeSlicePos = s.value("volumeSlicePos").toFloat();
+        m_state.volumeSliceOpacity = s.value("volumeSliceOpacity").toFloat();
+        m_state.volumeSliceUseColormap = s.value("volumeSliceUseColormap", true).toBool();
+        m_state.volumeSliceColormapChoice = s.value("volumeSliceColormapChoice", 3).toInt();
+        m_state.volumeSliceColormapReversed = s.value("volumeSliceColormapReversed").toBool();
     }
     if (s.contains("volumeUseColormap")) {
         m_state.volumeUseColormap = s.value("volumeUseColormap").toBool();

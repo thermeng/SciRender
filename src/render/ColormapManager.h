@@ -37,6 +37,13 @@ public:
     void  setVolumeReversed(bool r) { volumeReversed_ = r; }
     void  markVolumeLutDirty() { volumeLutDirty_ = true; }
 
+    int   volumeSliceChoice() const { return volumeSliceChoice_; }
+    bool  volumeSliceReversed() const { return volumeSliceReversed_; }
+    void  setVolumeSliceChoice(int c) { volumeSliceChoice_ = c; }
+    void  setVolumeSliceReversed(bool r) { volumeSliceReversed_ = r; }
+    void  markVolumeSliceLutDirty() { volumeSliceLutDirty_ = true; }
+    GLuint volumeSliceTexture() const { return volumeSliceTex_.get(); }
+
     void update();
     void shutdown();
 
@@ -69,4 +76,11 @@ private:
     int   lastVolumeChoice_ = -1;
     bool  lastVolumeReversed_ = false;
     bool  volumeLutDirty_ = true;
+
+    int   volumeSliceChoice_ = 3;
+    bool  volumeSliceReversed_ = false;
+    GlTexture volumeSliceTex_;
+    int   lastVolumeSliceChoice_ = -1;
+    bool  lastVolumeSliceReversed_ = false;
+    bool  volumeSliceLutDirty_ = true;
 };

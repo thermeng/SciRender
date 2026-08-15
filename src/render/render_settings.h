@@ -218,6 +218,9 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int volumeSliceAxis READ getVolumeSliceAxis WRITE setVolumeSliceAxis NOTIFY viewChanged)
     Q_PROPERTY(double volumeSlicePos READ getVolumeSlicePos WRITE setVolumeSlicePos NOTIFY viewChanged)
     Q_PROPERTY(double volumeSliceOpacity READ getVolumeSliceOpacity WRITE setVolumeSliceOpacity NOTIFY viewChanged)
+    Q_PROPERTY(bool volumeSliceUseColormap READ getVolumeSliceUseColormap WRITE setVolumeSliceUseColormap NOTIFY viewChanged)
+    Q_PROPERTY(int volumeSliceColormapChoice READ getVolumeSliceColormapChoice WRITE setVolumeSliceColormapChoice NOTIFY viewChanged)
+    Q_PROPERTY(bool volumeSliceColormapReversed READ getVolumeSliceColormapReversed WRITE setVolumeSliceColormapReversed NOTIFY viewChanged)
 
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
@@ -509,6 +512,12 @@ public:
     void setVolumeSlicePos(double v) { if (m_state.volumeSlicePos != v) { m_state.volumeSlicePos = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getVolumeSliceOpacity() const { return m_state.volumeSliceOpacity; }
     void setVolumeSliceOpacity(double v) { if (m_state.volumeSliceOpacity != v) { m_state.volumeSliceOpacity = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getVolumeSliceUseColormap() const { return m_state.volumeSliceUseColormap; }
+    void setVolumeSliceUseColormap(bool v) { if (m_state.volumeSliceUseColormap != v) { m_state.volumeSliceUseColormap = v; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+    int getVolumeSliceColormapChoice() const { return m_state.volumeSliceColormapChoice; }
+    void setVolumeSliceColormapChoice(int c) { if (m_state.volumeSliceColormapChoice != c) { m_state.volumeSliceColormapChoice = c; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+    bool getVolumeSliceColormapReversed() const { return m_state.volumeSliceColormapReversed; }
+    void setVolumeSliceColormapReversed(bool v) { if (m_state.volumeSliceColormapReversed != v) { m_state.volumeSliceColormapReversed = v; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
 
     bool getVectorUseColormap() const { return m_state.vectorUseColormap; }
     void setVectorUseColormap(bool v) { if (m_state.vectorUseColormap != v) { m_state.vectorUseColormap = v; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
