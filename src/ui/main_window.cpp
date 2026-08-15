@@ -551,7 +551,7 @@ void MainWindow::setupSidebar() {
     m_iconStrip = ui->iconStrip;
     m_iconStrip->setFixedWidth(kIconStripWidth);
     auto* iconLayout = new QVBoxLayout(m_iconStrip);
-    iconLayout->setContentsMargins(0, 4, 0, 4);
+    iconLayout->setContentsMargins(4, 0, 0, 0);
     iconLayout->setSpacing(0);
 
     struct IconEntry {
@@ -577,7 +577,7 @@ void MainWindow::setupSidebar() {
         auto* btn = new QToolButton;
         btn->setText(QString::fromUtf8(icons[i].icon));
         btn->setToolTip(QString::fromUtf8(icons[i].tooltip));
-        btn->setFixedSize(48, 44);
+        btn->setFixedSize(44, 44);
         btn->setCheckable(i > 0);
         btn->setCursor(Qt::PointingHandCursor);
 
