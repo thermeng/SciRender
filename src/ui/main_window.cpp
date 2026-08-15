@@ -2221,6 +2221,18 @@ void MainWindow::syncQuickBar() {
     if (m_qbVolume)    m_qbVolume->setChecked(m_settings->getShowVolume());
 }
 
+void MainWindow::syncVolumePage() {
+    const bool hasVol = m_settings->hasVolumeData();
+    if (m_volumeShowCb) {
+        m_volumeShowCb->setEnabled(hasVol);
+        m_volumeShowCb->setChecked(hasVol && m_settings->getShowVolume());
+    }
+    if (m_volumeSliceShowCb) {
+        m_volumeSliceShowCb->setEnabled(hasVol);
+        m_volumeSliceShowCb->setChecked(hasVol && m_settings->getShowVolumeSlice());
+    }
+}
+
 // Keep the View & Display checkboxes in sync when settings are changed from the
 // quick-bar buttons or keyboard shortcuts, so both UIs reflect the same state.
 void MainWindow::syncViewDisplayPage() {
@@ -2403,6 +2415,7 @@ void MainWindow::connectSettings() {
         if (flags.testFlag(ChangeFlag::Lighting)) syncLightingPage();
         syncQuickBar();
         syncViewDisplayPage();
+        syncVolumePage();
     });
 
     connect(m_settings, &RenderSettings::screenshotCaptured, this, &MainWindow::onScreenshotCaptured);
