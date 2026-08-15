@@ -135,8 +135,9 @@ static bool decompressLz4(const char* src, size_t srcLen, size_t& offset,
 
             size_t remaining = static_cast<size_t>(uncomp);
             size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
-            char* dstPtr = out.data() + out.size();
-            out.resize(out.size() + blockSize);
+            size_t base = out.size();
+            out.resize(base + blockSize);
+            char* dstPtr = out.data() + base;
             int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
             if (decoded < 0) {
                 out.resize(out.size() - blockSize);
@@ -156,8 +157,9 @@ static bool decompressLz4(const char* src, size_t srcLen, size_t& offset,
 
             size_t remaining = static_cast<size_t>(uncomp);
             size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
-            char* dstPtr = out.data() + out.size();
-            out.resize(out.size() + blockSize);
+            size_t base = out.size();
+            out.resize(base + blockSize);
+            char* dstPtr = out.data() + base;
             int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
             if (decoded < 0) {
                 out.resize(out.size() - blockSize);
