@@ -27,7 +27,7 @@ public:
 
     bool empty() const { return instanceCount == 0; }
 
-    void rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName = "", int magTransform = 0);
+    void rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName = "", int magTransform = 0, int placement = 0);
     void shutdown();
 
 private:

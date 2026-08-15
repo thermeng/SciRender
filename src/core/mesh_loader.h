@@ -93,6 +93,23 @@ struct RenderMesh {
         return pointVectorsData.data() + it->second;
     }
 
+    std::vector<glm::vec3> cellCenters;
+    std::vector<glm::vec3> cellVectorsData;
+    std::unordered_map<std::string, size_t> cellVectorOffset;
+    std::vector<std::string> availableCellVectorNames;
+    std::string cellVectorName = "";
+    size_t cellVectorCount = 0;
+
+    const glm::vec3* cellVectorFieldData(const std::string& name, size_t& count) const {
+        auto it = cellVectorOffset.find(name);
+        if (it == cellVectorOffset.end()) { count = 0; return nullptr; }
+        count = cellVectorsData.size() - it->second;
+        if (cellVectorCount != 0 && count > cellVectorCount) count = cellVectorCount;
+        return cellVectorsData.data() + it->second;
+    }
+
+    bool meshHasCellVectors() const { return !cellVectorsData.empty(); }
+
     // High-precision bounding volume (double for camera-relative precision)
     BoundingVolume bounds;
 

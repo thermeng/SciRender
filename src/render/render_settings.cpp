@@ -191,6 +191,7 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("volumeSliceColormapReversed", m_state.volumeSliceColormapReversed);
     s.setValue("vectorScale", m_state.vectorScale);
     s.setValue("vectorScaleByMagnitude", m_state.vectorScaleByMagnitude);
+    s.setValue("vectorPlacement", m_state.vectorPlacement);
     s.setValue("quickBarCollapsed", quickBarCollapsed);
     s.setValue("msaaSamples", msaaSamples);
     s.setValue("screenshotResolution", m_screenshotResolution);
@@ -265,6 +266,9 @@ void RenderSettings::restoreStateFromSettings() {
     if (s.contains("vectorScale")) {
         m_state.vectorScale = s.value("vectorScale").toFloat();
         m_state.vectorScaleByMagnitude = s.value("vectorScaleByMagnitude").toBool();
+    }
+    if (s.contains("vectorPlacement")) {
+        m_state.vectorPlacement = s.value("vectorPlacement").toInt();
     }
     if (s.contains("quickBarCollapsed")) {
         quickBarCollapsed = s.value("quickBarCollapsed").toBool();
@@ -379,6 +383,7 @@ void RenderSettings::onMeshParsed() {
 
     // Vector field availability gate for colorbars / UI.
     m_state.meshHasVectors = !loaded->pointVectorsData.empty();
+    m_state.meshHasCellVectors = !loaded->cellVectorsData.empty();
     if (!m_state.meshHasVectors) {
         m_state.showStreamlines = false;
     }
@@ -453,6 +458,7 @@ void RenderSettings::clearMeshes() {
     m_state.hasMeshLoaded = false;
     m_state.meshHasScalars = false;
     m_state.meshHasVectors = false;
+    m_state.meshHasCellVectors = false;
     m_state.showVectors = false;
     m_state.showStreamlines = false;
     m_state.showVolume = false;

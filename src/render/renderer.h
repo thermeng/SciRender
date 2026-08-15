@@ -182,6 +182,7 @@ struct RenderRenderState {
     bool vectorScaleByMagnitude = false;
     int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
     std::string vectorField;
+    int vectorPlacement = 0; // 0 = vertex glyphs (per-vertex vectors), 1 = cell-center glyphs
 
     // Streamline vector field (independent from vector glyphs)
     std::string streamlineVectorField;
@@ -250,6 +251,7 @@ struct RenderRenderState {
 
     bool hasMeshLoaded = false;
     bool meshHasVectors = false;
+    bool meshHasCellVectors = false;
     bool flatShading = true;
 };
 

@@ -1307,6 +1307,13 @@ QWidget* MainWindow::buildVectorsPage() {
         m_settings->setActiveVectorField(m_vectorCombo->currentText());
     });
 
+    m_vectorPlacementCombo = vectorsUi.placementCombo;
+    m_vectorPlacementCombo->addItems(m_settings->getVectorPlacementOptions());
+    m_vectorPlacementCombo->setCurrentIndex(m_settings->getVectorPlacement());
+    connect(m_vectorPlacementCombo, &QComboBox::currentIndexChanged, m_settings, [this](int idx) {
+        m_settings->setVectorPlacement(idx);
+    });
+
     {
         auto* slider = vectorsUi.scaleSlider;
         auto* valueLabel = vectorsUi.scaleValue;
@@ -2445,6 +2452,12 @@ void MainWindow::connectSettings() {
             m_vectorCombo->addItems(vectors);
             m_vectorCombo->setCurrentText(m_settings->getVectorField());
             m_vectorCombo->blockSignals(false);
+        }
+        if (m_vectorPlacementCombo) {
+            m_vectorPlacementCombo->blockSignals(true);
+            m_vectorPlacementCombo->setCurrentIndex(m_settings->getVectorPlacement());
+            m_vectorPlacementCombo->setEnabled(m_settings->hasMeshCellVectors());
+            m_vectorPlacementCombo->blockSignals(false);
         }
         if (m_streamlineCombo) {
             m_streamlineCombo->blockSignals(true);
