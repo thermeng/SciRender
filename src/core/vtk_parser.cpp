@@ -379,22 +379,82 @@ private:
         if (numComponents != 1) {
             std::cerr << "VTK Parser Warning: SCALARS '" << scalarName
                       << "' has " << numComponents << " components; only 1-component "
-                      << "scalars are colorable, skipping." << std::endl;
+                      << "scalars are colorable, storing as field data." << std::endl;
             const size_t total = static_cast<size_t>(activeElementCount) * static_cast<size_t>(numComponents);
+            std::vector<float> multiCompData(total);
+            bool readOk = false;
             if (isBinary) {
-                if (!consumeBinaryScalars(file, dataType, total)) {
-                    std::cerr << "VTK Parser Warning: short read consuming multi-component SCALARS '" << scalarName << "'." << std::endl;
+                if (dataType == "DOUBLE") {
+                    std::vector<double> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
                 }
-                // 4-byte alignment is handled inside readBinaryArray.
-            } else {
+                else if (dataType == "FLOAT") {
+                    if (readBinaryArray(file, multiCompData.size(), multiCompData)) readOk = true;
+                }
+                else if (dataType == "INT" || dataType == "UNSIGNED_INT" || dataType == "LONG") {
+                    std::vector<int32_t> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
+                }
+                else if (dataType == "LONG_LONG" || dataType == "UNSIGNED_LONG_LONG") {
+                    std::vector<int64_t> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
+                }
+                else if (dataType == "SHORT" || dataType == "UNSIGNED_SHORT") {
+                    std::vector<int16_t> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
+                }
+                else if (dataType == "UNSIGNED_CHAR") {
+                    std::vector<uint8_t> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
+                }
+                else {
+                    std::cerr << "VTK Parser Warning: unsupported SCALARS type '" << dataType
+                              << "' for binary data; skipping field." << std::endl;
+                }
+                if (!readOk) {
+                    std::cerr << "VTK Parser Warning: short read on binary multi-component SCALARS '" << scalarName
+                              << "'; skipping field to avoid stream desync." << std::endl;
+                    multiCompData.clear();
+                }
+            }
+            else {
                 for (size_t i = 0; i < total; ++i) {
                     float v;
                     if (!(file >> v)) {
                         std::cerr << "VTK Parser Warning: short read consuming multi-component ASCII SCALARS '" << scalarName << "'." << std::endl;
+                        multiCompData.clear();
                         break;
                     }
+                    multiCompData[i] = v;
                 }
                 clearTrailingLine(file);
+            }
+
+            if (!multiCompData.empty()) {
+                if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+                if (readingPointData) {
+                    mesh.attributes->pointFieldData[scalarName] = std::move(multiCompData);
+                    mesh.attributes->pointFieldComponents[scalarName] = numComponents;
+                }
+                else {
+                    mesh.attributes->cellFieldData[scalarName] = std::move(multiCompData);
+                    mesh.attributes->cellFieldComponents[scalarName] = numComponents;
+                }
             }
             return;
         }
