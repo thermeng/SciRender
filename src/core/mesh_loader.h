@@ -32,12 +32,19 @@ struct BoundingVolume {
 // ── Dataset Attributes (Scalar Data Maps) ───────────────────────────────────
 
 struct DatasetAttributes {
-    // Point data scalars (per-vertex)
+    // Point data scalars (per-vertex, 1 component)
     std::map<std::string, std::vector<float>> pointScalars;
-    // Cell data scalars (per-cell, averaged to vertices during parsing)
+    // Cell data scalars (per-cell, 1 component, averaged to vertices during parsing)
     std::map<std::string, std::vector<float>> cellScalars;
     // VTK VECTORS — per-point 3-component, interleaved [x,y,z]
     std::map<std::string, std::vector<float>> pointVectors;
+    // Multi-component point field data (2, 4+ components) — stored as interleaved floats
+    std::map<std::string, std::vector<float>> pointFieldData;
+    // Multi-component cell field data (2, 4+ components)
+    std::map<std::string, std::vector<float>> cellFieldData;
+    // Component counts for multi-component field data (sidecar)
+    std::map<std::string, int> pointFieldComponents;
+    std::map<std::string, int> cellFieldComponents;
     // FieldData (arbitrary named arrays, typically per-cell or global metadata)
     std::map<std::string, std::vector<float>> fieldData;
 
@@ -154,6 +161,16 @@ namespace mesh_utils {
 // Parses VTK XML formats (.vtu / .vts / .vti / .vtp / .vtr) — ASCII and binary
 // (inline base64 or appended base64).
 RenderMesh parseVTKXML(const std::string& filePath);
+
+// ── VTK MultiBlock XML Parser Definition ────────────────────────────────────
+// Parses VTK MultiBlock files (.vtm) — references one or more .vtu/.vts/etc.
+// datasets via <DataSet file="..."/> entries and merges them into one mesh.
+RenderMesh parseMultiBlockXML(const std::string& filePath);
+
+// ── RenderMesh merge utility ────────────────────────────────────────────────
+// Concatenates vertices, indices, normals, scalars and vector data from
+// multiple meshes into a single RenderMesh. Index buffers are rebased.
+RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes);
 
 // ── VTK Legacy Parser Definition ────────────────────────────────────────────
 // Parses Legacy VTK formats (supporting ASCII/BINARY and UNSTRUCTURED/STRUCTURED grids)
