@@ -12,13 +12,16 @@
 
   <img src="https://img.shields.io/badge/status-active-success" />
 
-</p>
-
-<p align="center">
-  <img src="./demo/Lights.webp" width="35%" style="margin-right: 25px;" />
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./demo/Vectors.webp" width="35%" style="margin-left: 25px;" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <video src="./demo/ligthing.mp4" style="max-width:100%;" controls autoplay loop muted></video>
+    </td>
+    <td align="center" width="50%">
+      <video src="./demo/streamlines.mp4" style="max-width:100%;" controls autoplay loop muted></video>
+    </td>
+  </tr>
+</table>
 
 Qt 6 + OpenGL 4.6 scientific rendering application supporting the VTK XML formats
 (`.vtu`, `.vts`, `.vti`, `.vtp`, `.vtr`, `.vtm` multi-block), VTK legacy
