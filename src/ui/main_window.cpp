@@ -9,7 +9,7 @@
 #include "ui_screenshot_page.h"
 #include "ui_mesh_info_page.h"
 #include "ui_volume_page.h"
-#include "render/render_config.h"
+#include "render/foundation/render_config.h"
 #include "core/Colormaps.h"
 #include <QApplication>
 #include <QMenuBar>
@@ -2695,3 +2695,5 @@ void MainWindow::showShortcuts() {
     );
     info.exec();
 }
+
+

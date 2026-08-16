@@ -1,6 +1,6 @@
 #include <glad/gl.h>
 #include "viewport_widget.h"
-#include "render/render_config.h"
+#include "render/foundation/render_config.h"
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QWheelEvent>
@@ -341,3 +341,5 @@ bool ViewportWidget::event(QEvent* event) {
     }
     return QOpenGLWidget::event(event);
 }
+
+

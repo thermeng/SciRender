@@ -31,7 +31,7 @@
 #include <QVector>
 
 #include "viewport_widget.h"
-#include "render/render_settings.h"
+#include "render/settings/render_settings.h"
 
 namespace Ui {
     class MainWindow;
@@ -258,3 +258,5 @@ private:
     // Theme
     QActionGroup* m_shadingGroup = nullptr;
 };
+
+

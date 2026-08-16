@@ -23,7 +23,8 @@ echo.
 echo [run_tests] building streamline_direction_test...
 %GPP% -std=c++20 -O0 -g ..\vendor\glad\src\gl.c ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\mesh_utils.cpp ^
   ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
-  ..\src\render\StreamlineSet.cpp streamline_direction_test.cpp ^
+  ..\src\render\foundation\gl_raii.cpp ^
+  ..\src\render\streamlines\StreamlineSet.cpp streamline_direction_test.cpp ^
   ..\vendor\pugixml\pugixml.cpp ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
   -o streamline_direction_test.exe %INC% -lz
 if errorlevel 1 ( echo [run_tests] COMPILE FAILED & pause & exit /b 1 )
