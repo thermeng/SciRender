@@ -18,6 +18,7 @@
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
 #include "core/Camera.h"
+#include "core/isosurface.h"
 
 // Change flags carried by the consolidated viewChanged signal so receivers
 // can distinguish which domain changed (e.g. lighting vs. colormap) without
@@ -242,8 +243,14 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
     Q_PROPERTY(int screenshotResolution READ getScreenshotResolution WRITE setScreenshotResolution NOTIFY viewChanged)
     Q_PROPERTY(int screenshotAASamples READ getScreenshotAASamples WRITE setScreenshotAASamples NOTIFY viewChanged)
-    Q_PROPERTY(bool flatShading READ getFlatShading WRITE setFlatShading NOTIFY viewChanged)
-    Q_PROPERTY(QString statusMessage READ getStatusMessage NOTIFY statusMessageChanged)
+     Q_PROPERTY(bool flatShading READ getFlatShading WRITE setFlatShading NOTIFY viewChanged)
+
+     Q_PROPERTY(bool showIsosurface READ getShowIsosurface WRITE setShowIsosurface NOTIFY viewChanged)
+     Q_PROPERTY(double isovalue READ getIsovalue WRITE setIsovalue NOTIFY viewChanged)
+     Q_PROPERTY(bool isosurfaceAvailable READ getIsosurfaceAvailable NOTIFY meshDataUpdated)
+
+     Q_PROPERTY(QString statusMessage READ getStatusMessage NOTIFY statusMessageChanged)
+
     Q_PROPERTY(bool showFps READ getShowFps WRITE setShowFps NOTIFY viewChanged)
     Q_PROPERTY(bool quickBarCollapsed READ getQuickBarCollapsed WRITE setQuickBarCollapsed NOTIFY quickBarCollapsedChanged)
     Q_PROPERTY(QString fpsText READ getFpsText NOTIFY fpsChanged)
@@ -522,8 +529,22 @@ public:
     void setVolumeSliceUseColormap(bool v) { if (m_state.volumeSliceUseColormap != v) { m_state.volumeSliceUseColormap = v; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
     int getVolumeSliceColormapChoice() const { return m_state.volumeSliceColormapChoice; }
     void setVolumeSliceColormapChoice(int c) { if (m_state.volumeSliceColormapChoice != c) { m_state.volumeSliceColormapChoice = c; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
-    bool getVolumeSliceColormapReversed() const { return m_state.volumeSliceColormapReversed; }
-    void setVolumeSliceColormapReversed(bool v) { if (m_state.volumeSliceColormapReversed != v) { m_state.volumeSliceColormapReversed = v; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+     bool getVolumeSliceColormapReversed() const { return m_state.volumeSliceColormapReversed; }
+     void setVolumeSliceColormapReversed(bool v) { if (m_state.volumeSliceColormapReversed != v) { m_state.volumeSliceColormapReversed = v; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+
+     // ---- isosurface (marching cubes) ----
+     // Contours the active scalar field at `isovalue` (absolute, in data units).
+     // The extracted surface is re-colored by the colormap LUT and lit by the
+     // PBR model via the shared surface pass -- no per-iso shading state.
+     bool getShowIsosurface() const { return m_state.showIsosurface; }
+     void setShowIsosurface(bool v);
+     double getIsovalue() const { return static_cast<double>(m_state.isovalue); }
+     void setIsovalue(double v);
+     bool getIsosurfaceAvailable() const {
+         return m_meshData.loadedMesh && isosurface::canExtract(*m_meshData.loadedMesh);
+     }
+     Q_INVOKABLE void recomputeIsosurface();
+
 
     bool getVectorUseColormap() const { return m_state.vectorUseColormap; }
     void setVectorUseColormap(bool v) { if (m_state.vectorUseColormap != v) { m_state.vectorUseColormap = v; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
@@ -607,13 +628,20 @@ public:
     double getWorldMinZ() const { return m_state.worldMinZ; }
     double getWorldMaxZ() const { return m_state.worldMaxZ; }
 
-private:
+  private:
     void setStatus(const QString& msg);
     void recomputeScalarRange();
 
     // Marks the render-state snapshot stale; the next publishRenderState()
     // re-assembles it. Called from every GUI-state mutation (see emit sites).
     void markStateDirty() { m_stateDirty = true; }
+
+ private slots:
+    // GUI-thread continuation for the async isosurface (marching-cubes) task.
+    void onIsosurfaceComputed();
+
+ private:
+
 
     // ---- render-state double buffer ----
     // m_state is the single source of truth for all render visual/camera state.
@@ -641,7 +669,7 @@ private:
     // QML facade stays focused on user preferences).
     MeshData m_meshData;
 
-    // Async parse watcher (GUI thread). Parsing runs off the GUI thread via
+     // Async parse watcher (GUI thread). Parsing runs off the GUI thread via
     // QtConcurrent::run; the finished result is delivered here and handed to the
     // render thread as a shared_ptr (no copy). Parented to this object so it is
     // destroyed on the GUI thread.
@@ -655,4 +683,15 @@ private:
     // on completion; onMeshParsed() compares it to m_loadToken to drop stale
     // (cancelled/superseded) results.
     std::shared_ptr<std::atomic<uint64_t>> m_taskToken;
+
+    // ---- isosurface async recompute ----
+    // Marching cubes runs off the GUI thread (QtConcurrent); the result is
+    // delivered as a shared_ptr to the Renderer via setPendingIsosurface().
+    QFutureWatcher<RenderMesh> m_isoSurfaceWatcher;
+    // Single-shot debounce timer: slider scrubs reset it so we only recompute
+    // after the user pauses (~150 ms), avoiding a task per tick.
+    QTimer m_isoDebounceTimer;
+    // Stale-result guard: onIsosurfaceComputed() checks m_state.showIsosurface
+    // (and the watcher drops superseded futures on setFuture) so a compute that
+    // finishes after the user toggled the isosurface off is discarded.
 };

@@ -42,6 +42,7 @@
 #include <QActionGroup>
 #include <QAction>
 #include <QStyle>
+#include <algorithm>
 #include <QStyledItemDelegate>
 #include <QTimer>
 #include <QPainter>
@@ -1959,6 +1960,35 @@ QWidget* MainWindow::buildVolumePage() {
         });
     }
 
+    {
+        // Isosurface controls: the contour field is the active scalar (the page's
+        // field combo already drives setActiveScalarField, which recontours on a
+        // switch), so these controls only manage enable + isovalue level.
+        auto* enableCb = volumeUi.isosurfaceEnableCb;
+        m_isoEnableCb = enableCb;
+        enableCb->setChecked(m_settings->getShowIsosurface());
+        enableCb->setEnabled(m_settings->getIsosurfaceAvailable() || m_settings->hasVolumeData());
+        if (!m_settings->getIsosurfaceAvailable() && !m_settings->hasVolumeData()) enableCb->setChecked(false);
+        connect(enableCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowIsosurface);
+
+        auto* slider = volumeUi.isoValueSlider;
+        auto* valueLabel = volumeUi.isoValueLabel;
+        m_isoValueSlider = slider;
+        m_isoValueLabel = valueLabel;
+        slider->setRange(0, 1000);
+        refreshIsosurfaceSlider();
+        // The range is read live (not captured) so a scalar-field switch that
+        // changes dataScalarMin/Max is reflected without re-wiring the lambda.
+        connect(slider, &QSlider::valueChanged, this, [this, valueLabel](int raw) {
+            double lo = m_settings->getDataScalarMinQml();
+            double hi = m_settings->getDataScalarMaxQml();
+            if (hi <= lo) hi = lo + 1.0;
+            double v = lo + (raw / 1000.0) * (hi - lo);
+            m_settings->setIsovalue(v);
+            valueLabel->setText(QString::number(m_settings->getIsovalue(), 'f', 3));
+        });
+    }
+
     // Full-volume-rendering-only controls: greyed when "Enable Volume Rendering"
     // is off, but the slice-plane controls above stay enabled whenever volume
     // data exists (see applyVolumeControlGating).
@@ -2287,7 +2317,27 @@ void MainWindow::syncVolumePage() {
         m_qbSlice->setEnabled(hasVol);
         m_qbSlice->setChecked(hasVol && m_settings->getShowVolumeSlice());
     }
+    if (m_isoEnableCb) {
+        bool isoAvail = m_settings->getIsosurfaceAvailable();
+        m_isoEnableCb->setEnabled(isoAvail);
+        if (!isoAvail) m_isoEnableCb->setChecked(false);
+    }
+    refreshIsosurfaceSlider();
     applyVolumeControlGating();
+}
+
+void MainWindow::refreshIsosurfaceSlider() {
+    if (!m_isoValueSlider || !m_isoValueLabel) return;
+    const double lo = m_settings->getDataScalarMinQml();
+    const double hi = m_settings->getDataScalarMaxQml();
+    double span = hi - lo;
+    if (span <= 0.0) span = 1.0;
+    double frac = (m_settings->getIsovalue() - lo) / span;
+    frac = std::clamp(frac, 0.0, 1.0);
+    m_isoValueSlider->blockSignals(true);
+    m_isoValueSlider->setValue(static_cast<int>(frac * 1000));
+    m_isoValueSlider->blockSignals(false);
+    m_isoValueLabel->setText(QString::number(m_settings->getIsovalue(), 'f', 3));
 }
 
 // The Volume page places both full-volume-rendering controls (Step Size, Opacity,
@@ -2298,7 +2348,7 @@ void MainWindow::syncVolumePage() {
 // changes (checkbox toggle, quick-bar button, mesh load). The group itself is
 // enabled purely on volume-data availability so slice options are always reachable.
 void MainWindow::applyVolumeControlGating() {
-    const bool hasVol = m_settings->hasVolumeData();
+    const bool hasVol = m_settings->hasVolumeData() || m_settings->getIsosurfaceAvailable();
     if (m_volumeOptionsGroup) m_volumeOptionsGroup->setEnabled(hasVol);
     const bool enableRenderControls = hasVol && m_settings->getShowVolume();
     for (QWidget* w : m_volumeRenderCtrls) {

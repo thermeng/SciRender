@@ -307,7 +307,7 @@ void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
         if (lodWorthwhile) buildMeshGL(decimated, newDec);
     }
 
-    // WIPE OUT OLD OPENGL HANDLES BEFORE GENERATING NEW ONES
+    // WIPE OUT OLD OPENGL HANDS BEFORE GENERATING NEW ONES
     // Guarded by the mutex so it cannot race with clear() on the UI thread.
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -322,6 +322,41 @@ void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
     meshChanged = true;
 }
 
+void MeshGLManager::uploadIsosurface(std::shared_ptr<const RenderMesh> isoMesh) {
+    if (!isoMesh) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        isosurfaceMeshes_.clear();
+        isosurfaceDecimatedMeshes_.clear();
+        hasIsoDecimated_ = false;
+        return;
+    }
+    std::vector<Mesh> newFull, newDec;
+
+    // The isosurface is an ordinary triangle mesh (vertices/indices/normals/
+    // per-vertex isovalue scalars), so buildMeshGL() sets up VAO/VBO/NBO/EBO/SBO
+    // exactly like a surface mesh -- no vector/streamline/volume rebuild needed.
+    buildMeshGL(*isoMesh, newFull);
+
+    // LOD on the isosurface: eligible surface meshes, screened for safe
+    // decimation, are cluster-decimated while the camera moves (reuses decimate()).
+    if (datasetSupportsDecimation(*isoMesh) && surfaceDecimationSafe(*isoMesh)) {
+        RenderMesh decimated = decimate(*isoMesh);
+        bool lodWorthwhile = !decimated.indices.empty() &&
+                             decimated.indices.size() < isoMesh->indices.size() / 2;
+        if (lodWorthwhile) buildMeshGL(decimated, newDec);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        isosurfaceMeshes_.clear();
+        isosurfaceDecimatedMeshes_.clear();
+
+        isosurfaceMeshes_ = std::move(newFull);
+        isosurfaceDecimatedMeshes_ = std::move(newDec);
+        hasIsoDecimated_ = !isosurfaceDecimatedMeshes_.empty();
+    }
+}
+
 void MeshGLManager::clear() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -330,6 +365,10 @@ void MeshGLManager::clear() {
         hasDecimated_ = false;
         hasFullSource_ = false;
         fullSource_.reset();
+
+        isosurfaceMeshes_.clear();
+        isosurfaceDecimatedMeshes_.clear();
+        hasIsoDecimated_ = false;
     }
 }
 
@@ -425,6 +464,21 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
     };
     reupload(meshes_, hasData ? *src : std::vector<float>{});
     reupload(decimatedMeshes_, decScalars);
+}
+
+void MeshGLManager::snapshotIsosurfaceDrawList(std::vector<std::pair<GLuint, int>>& out,
+                                               bool useLod, bool cameraMoving,
+                                               std::vector<int>& outVerts) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const std::vector<Mesh>& src =
+        (useLod && cameraMoving && hasIsoDecimated_)
+            ? isosurfaceDecimatedMeshes_ : isosurfaceMeshes_;
+    out.reserve(src.size());
+    outVerts.reserve(src.size());
+    for (const auto& m : src) {
+        out.push_back({m.vao.get(), m.indexCount});
+        outVerts.push_back(m.vertexCount);
+    }
 }
 
 void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,

@@ -5,7 +5,7 @@
 
   <img src="https://img.shields.io/badge/C%2B%2B-20-blue" />
   <img src="https://img.shields.io/badge/Qt-6-green" />
-  <img src="https://img.shields.io/badge/OpenGL-3.3%2B-orange" />
+  <img src="https://img.shields.io/badge/OpenGL-4.6-orange" />
   <img src="https://img.shields.io/badge/CMake-%E2%89%A5_3.16-064F8C" />
 
   <br/>

@@ -249,10 +249,19 @@ struct RenderRenderState {
     // Screenshot export options
     bool screenshotTransparent = false;
 
-    bool hasMeshLoaded = false;
+     bool hasMeshLoaded = false;
     bool meshHasVectors = false;
     bool meshHasCellVectors = false;
     bool flatShading = true;
+
+    // Isosurface (marching cubes). The extracted surface is rendered as an
+    // additional mesh through the existing MeshPass pipeline (colormap LUT +
+    // PBR lighting + depth-peel transparency), so no dedicated shader is
+    // needed. `isovalue` is an absolute scalar threshold in data units;
+    // `showIsosurface` gates its visibility (independent of showSurface, so a
+    // surface shell can be hidden while the isosurface stays visible).
+    bool showIsosurface = false;
+    float isovalue = 0.0f;
 };
 
 // CPU-side UBO layout matching the std140 MeshUBO block in mesh.vert/frag.
@@ -367,6 +376,12 @@ public:
     // shared_ptr (no copy) plus a dirty flag; renderFrame() consumes it and
     // uploads on the render thread under the GL context.
     void setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh);
+
+    // Isosurface handoff (GUI -> render thread). Same zero-copy shared_ptr
+    // pattern as setPendingMesh(); renderFrame() consumes it and uploads only
+    // the surface VAO (no vector/streamline/volume rebuild, since the isosurface
+    // is a plain triangle mesh, not a structured grid).
+    void setPendingIsosurface(std::shared_ptr<const RenderMesh> isoMesh);
 
     // Mark the camera as moving and (re)start the LOD debounce timer.
     void markCameraMoving();
@@ -497,10 +512,15 @@ private:
     // Scalar-field switch signal: set on the GUI thread and consumed here.
     std::atomic<bool> scalarDirty{false};
 
-    std::shared_ptr<const RenderMesh> m_pendingMesh;        // handoff from GUI (shared, no copy)
+      std::shared_ptr<const RenderMesh> m_pendingMesh;        // handoff from GUI (shared, no copy)
     std::shared_ptr<const RenderMesh> m_lastUploadedMesh;   // kept for deferred vector-glyph rebuilds
+    std::shared_ptr<const RenderMesh> m_pendingIsosurface;  // isosurface handoff (shared, no copy)
+    std::shared_ptr<const RenderMesh> m_lastIsosurfaceMesh; // kept for deferred re-upload across GL context resets
+    std::atomic<bool> isosurfaceDirty{false};
+
     mutable std::mutex meshQueueMutex;
     std::shared_ptr<const std::vector<float>> m_pendingScalarSrc; // scalar handoff (zero-copy)
+
 
     // Volume-specific scalar-switch handoff. Paired with markVolumeDirty() /
     // consumeVolumeDirty() and guarded by the same meshQueueMutex.

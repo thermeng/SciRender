@@ -57,6 +57,15 @@ public:
     // Frees all GPU handles and clears both mesh lists. Mutex-guarded.
     void clear();
 
+    // Isosurface (marching-cubes output) mesh slot. The isosurface is a derived
+    // triangle mesh handed to the same buildMeshGL() path, so it gets VAO/VBO/
+    // NBO/EBO/SBO + optional LOD decimation for free -- it is then appended to
+    // the MeshPass draw list independently of showSurface.
+    void uploadIsosurface(std::shared_ptr<const RenderMesh> isoMesh);
+    void snapshotIsosurfaceDrawList(std::vector<std::pair<GLuint, int>>& out,
+                                    bool useLod, bool cameraMoving,
+                                    std::vector<int>& outVerts) const;
+
     // Snapshots the draw-list under the mutex so the caller can iterate without
     // the vector being mutated mid-draw. `useLod` + `cameraMoving` select the
     // decimated set while the camera is in motion. Each entry is (vao, drawCount)
@@ -70,6 +79,7 @@ public:
     bool hasMeshes() const { return !meshes_.empty(); }
     bool hasDecimated() const { return hasDecimated_; }
     bool hasFullSource() const { return hasFullSource_; }
+    bool hasIsosurfaceMeshes() const { return !isosurfaceMeshes_.empty(); }
 
     const RenderMesh* getFullSource() const { return fullSource_.get(); }
 
@@ -108,9 +118,16 @@ private:
     std::shared_ptr<const RenderMesh> fullSource_;
     bool hasFullSource_ = false;
 
-    std::vector<Mesh> meshes_;
+     std::vector<Mesh> meshes_;
     std::vector<Mesh> decimatedMeshes_;
     bool hasDecimated_ = false;
+
+    // Isosurface (marching-cubes) GPU meshes. Mirrors meshes_/decimatedMeshes_
+    // but kept separate so isosurface visibility is independent of showSurface.
+    std::vector<Mesh> isosurfaceMeshes_;
+    std::vector<Mesh> isosurfaceDecimatedMeshes_;
+    bool hasIsoDecimated_ = false;
+
     mutable std::mutex mutex_;
 
     // Compute shader LOD (GPU-side vertex clustering)

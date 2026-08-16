@@ -211,6 +211,11 @@ private:
     QSlider* m_slicePosSlider = nullptr;
     QLabel* m_slicePosValue = nullptr;
 
+    // Isosurface controls (on the Volume page, gated on structured volume data)
+    QCheckBox* m_isoEnableCb = nullptr;
+    QSlider* m_isoValueSlider = nullptr;
+    QLabel* m_isoValueLabel = nullptr;
+
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;
     QLineEdit* m_filterMinField = nullptr;
@@ -234,6 +239,7 @@ private:
 
     void refreshSlicingPageBounds();
     void refreshScalarFilterRange();
+    void refreshIsosurfaceSlider();
 
     // Timers
     QTimer m_autoRotateTimer;

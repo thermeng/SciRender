@@ -40,3 +40,22 @@ target_include_directories(parse_regression PRIVATE
     ${ZLIB_INCLUDE_DIR}
 )
 target_link_libraries(parse_regression PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+
+# Standalone regression check for the marching-cubes isosurface extractor.
+# Compiles the REAL CoreLib sources (no Qt/GL). Run via tests/run_tests.{bat,sh}
+add_executable(isosurface_test
+    isosurface_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/isosurface.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
+)
+target_include_directories(isosurface_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+    ${ZLIB_INCLUDE_DIR}
+)
+target_link_libraries(isosurface_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)

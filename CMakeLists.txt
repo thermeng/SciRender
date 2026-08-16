@@ -61,9 +61,11 @@ add_library(CoreLib STATIC
     src/core/Camera.cpp
     src/core/Camera.h
     src/core/Colormaps.h
-    src/core/mesh_loader.cpp
-    src/core/mesh_loader.h
-    src/core/mesh_utils.cpp
+     src/core/mesh_loader.cpp
+     src/core/mesh_loader.h
+     src/core/isosurface.cpp
+     src/core/isosurface.h
+     src/core/mesh_utils.cpp
     src/core/vtk_parser.cpp
     src/core/stl_parser.cpp
     src/core/obj_parser.cpp
