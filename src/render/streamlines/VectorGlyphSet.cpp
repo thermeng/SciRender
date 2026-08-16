@@ -41,6 +41,9 @@ void VectorGlyphSet::teardownGL() {
     instVBO.reset();
     glyphIndexCount = 0;
     instanceCount = 0;
+    magMin = 0.0f;
+    magMax = 1.0f;
+    meshExtent = 1.0f;
 }
 
 void VectorGlyphSet::shutdown() {
@@ -51,7 +54,17 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     teardownGL();
     (void)magTransform;
 
-    const bool cellCenter = (placement == 1);
+    bool cellCenter = (placement == 1);
+
+    // Fall-back: if the requested placement has no vector data, try the other
+    // placement. This makes cell-vector datasets visible even when vertex
+    // placement is selected (and vice versa), so legacy .vtk files with only
+    // CELL_DATA VECTORS still render glyphs.
+    if (cellCenter && !mesh.meshHasCellVectors()) {
+        cellCenter = false;
+    } else if (!cellCenter && !mesh.meshHasVectors()) {
+        cellCenter = true;
+    }
 
     const glm::vec3* data = nullptr;
     size_t count = 0;

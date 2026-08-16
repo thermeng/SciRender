@@ -434,7 +434,7 @@ public:
     bool getVectorScaleByMagnitude() const { return m_state.vectorScaleByMagnitude; }
     void setVectorScaleByMagnitude(bool v) { if (m_state.vectorScaleByMagnitude != v) { m_state.vectorScaleByMagnitude = v; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
     int getVectorMagTransform() const { return m_state.vectorMagTransform; }
-    void setVectorMagTransform(int v) { int t = (v < 0) ? 0 : (v > 2 ? 2 : v); if (m_state.vectorMagTransform != t) { m_state.vectorMagTransform = t; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
+    void setVectorMagTransform(int v) { int t = (v < 0) ? 0 : (v > 2 ? 2 : v); if (m_state.vectorMagTransform != t) { m_state.vectorMagTransform = t; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
     float getVectorScale() const { return m_state.vectorScale; }
     void setVectorScale(float v) { if (m_state.vectorScale != v) { m_state.vectorScale = v; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
     int getVectorStride() const { return m_state.vectorStride; }
@@ -554,7 +554,16 @@ public:
     void setVectorUseColormap(bool v) { if (m_state.vectorUseColormap != v) { m_state.vectorUseColormap = v; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
     int getVectorColormapChoice() const { return m_state.vectorColormapChoice; }
     void setVectorColormapChoice(int c) { if (m_state.vectorColormapChoice != c) { m_state.vectorColormapChoice = c; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
-    QStringList getAvailableVectors() const { QStringList l; for (const auto& n : m_meshData.guiMeta.availableVectorNames) l.append(QString::fromStdString(n)); return l; }
+    QStringList getAvailableVectors() const {
+        QStringList l;
+        for (const auto& n : m_meshData.guiMeta.availableVectorNames)
+            l.append(QString::fromStdString(n));
+        if (l.isEmpty()) {
+            for (const auto& n : m_meshData.guiMeta.availableCellVectorNames)
+                l.append(QString::fromStdString(n));
+        }
+        return l;
+    }
     QString getVectorField() const { return QString::fromStdString(m_meshData.guiMeta.vectorName); }
     Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
     QString getStreamlineVectorField() const { return QString::fromStdString(m_state.streamlineVectorField); }
