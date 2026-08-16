@@ -300,11 +300,61 @@
           </item>
          </layout>
         </item>
+        <item>
+         <widget class="QGroupBox" name="isosurfaceGroup">
+          <property name="title">
+           <string>Isosurface</string>
+          </property>
+          <layout class="QVBoxLayout" name="isosurfaceLayout">
+           <item>
+            <widget class="QCheckBox" name="isosurfaceEnableCb">
+             <property name="text">
+              <string>Extract Isosurface</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="isoValueRow">
+             <item>
+              <widget class="QSlider" name="isoValueSlider">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="isoValueLabel">
+               <property name="minimumSize">
+                <size>
+                 <width>52</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>52</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+               <property name="text">
+                <string>0.500</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
        </layout>
-     </widget>
-   </item>
-   <item>
-    <spacer name="volumeBottomSpacer">
+      </widget>
+    </item>
+    <item>
+     <spacer name="volumeBottomSpacer">
+
      <property name="orientation">
       <enum>Qt::Orientation::Vertical</enum>
      </property>

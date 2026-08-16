@@ -31,4 +31,15 @@ echo [run_tests] running streamline_direction_test...
 streamline_direction_test.exe > last_direction.log 2>&1
 type last_direction.log
 :: ponytail: tee-by-hand — save to log (stdout+stderr), echo it back so screen still shows results.
+:: --- isosurface (marching cubes) regression ---
+echo [run_tests] building isosurface_test...
+%GPP% -std=c++20 -O0 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\mesh_utils.cpp ^
+  ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
+  ..\src\core\isosurface.cpp ..\vendor\pugixml\pugixml.cpp ^
+  ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
+  isosurface_test.cpp ^
+  -o isosurface_test.exe %INC% -lz
+if errorlevel 1 ( echo [run_tests] COMPILE FAILED & pause & exit /b 1 )
+echo [run_tests] running isosurface_test...
+isosurface_test.exe
 if not defined CI pause

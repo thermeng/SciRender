@@ -305,6 +305,12 @@ void Renderer::setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     meshManager.meshChanged = true;
 }
 
+void Renderer::setPendingIsosurface(std::shared_ptr<const RenderMesh> isoMesh) {
+    std::lock_guard<std::mutex> lock(meshQueueMutex);
+    m_pendingIsosurface = std::move(isoMesh);
+    isosurfaceDirty = true;
+}
+
 void Renderer::markCameraMoving() {
     lodScheduler.setCameraMoving();
 }
@@ -435,6 +441,9 @@ void Renderer::clearGpuMeshes() {
     streamlineSet.shutdown();
     m_lastUploadedMesh.reset();
     m_pendingMesh.reset();
+    m_lastIsosurfaceMesh.reset();
+    m_pendingIsosurface.reset();
+    isosurfaceDirty.store(false);
     m_state.hasMeshLoaded = false;
     m_qualityOverlay.markDirty();
     m_qualityOverlay.shutdown();
@@ -517,6 +526,12 @@ void Renderer::reinitMeshData() {
             glm::vec3 boxMin(m_lastUploadedMesh->bounds.minX, m_lastUploadedMesh->bounds.minY, m_lastUploadedMesh->bounds.minZ);
             glm::vec3 boxMax(m_lastUploadedMesh->bounds.maxX, m_lastUploadedMesh->bounds.maxY, m_lastUploadedMesh->bounds.maxZ);
             m_volume.uploadVolume(m_state, m_lastUploadedMesh->scalars, m_lastUploadedMesh->gridDimX, m_lastUploadedMesh->gridDimY, m_lastUploadedMesh->gridDimZ, boxMin, boxMax);
+        }
+
+        // Isosurface survives GL-context resets: re-upload the last extracted
+        // surface (no recompute needed -- the CPU mesh is unchanged).
+        if (m_state.showIsosurface && m_lastIsosurfaceMesh) {
+            meshManager.uploadIsosurface(m_lastIsosurfaceMesh);
         }
     }
     colormap.update();
@@ -769,7 +784,7 @@ void Renderer::renderFrame() {
     // LOD debounce, throttle, and compute dispatch (owned by LodScheduler).
     lodScheduler.tick(m_state, meshManager);
 
-    // Consume a pending mesh handoff from the GUI thread (shared_ptr; no copy).
+     // Consume a pending mesh handoff from the GUI thread (shared_ptr; no copy).
     // Uploading here keeps all GL work inside render() with the context current.
     {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
@@ -778,6 +793,15 @@ void Renderer::renderFrame() {
             m_pendingMesh.reset();
             m_qualityOverlay.markDirty();
             m_streamlines.requestRecompute();
+            // Note: uploadMesh() already re-uploads the volume texture, so no
+            // separate volume invalidation is needed here.
+        }
+        // Isosurface handoff (same zero-copy shared_ptr pattern). Uploaded into
+        // the dedicated iso mesh slot; no vector/streamline/volume rebuild.
+        if (isosurfaceDirty.exchange(false)) {
+            m_lastIsosurfaceMesh = m_pendingIsosurface;
+            meshManager.uploadIsosurface(m_lastIsosurfaceMesh);
+            m_pendingIsosurface.reset();
         }
     }
 
@@ -881,6 +905,18 @@ void Renderer::renderFrame() {
         meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawVerts);
     }
 
+    // Isosurface draw list (independent of showSurface): the extractor emits a
+    // plain triangle mesh colored by the colormap LUT, so MeshPass renders it
+    // with the SAME shader/UBO as the surface mesh -- no dedicated program.
+    std::vector<std::pair<GLuint, int>> isoDrawList;
+    std::vector<int> isoDrawVerts;
+    if (m_state.showIsosurface && meshManager.hasIsosurfaceMeshes()) {
+        meshManager.snapshotIsosurfaceDrawList(isoDrawList,
+                                               m_state.useLod,
+                                               lodScheduler.isCameraMoving(),
+                                               isoDrawVerts);
+    }
+
     // Push colormap choices into the GPU LUT manager.
     colormapSync.apply(m_state, colormap);
 
@@ -889,6 +925,23 @@ void Renderer::renderFrame() {
         if (!result.transparentMeshes.empty()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);
+        }
+    }
+
+    // Isosurface surface-pass (separate draw list so it can stay visible when
+    // showSurface is off). We pass a state copy with showSurface=true purely to
+    // pass MeshPass::draw()'s opaque gate -- the VAO list passed in is the
+    // isosurface list, so only the iso triangles are drawn, decoupled from the
+    // boundary shell. MeshPass reuses the colormap LUT + PBR shader (no new GL).
+    if (!isoDrawList.empty() && meshPass.hasProgram()) {
+        RenderRenderState isoState = m_state;
+        isoState.showSurface = true;
+        auto isoResult = meshPass.draw(isoState, view, proj, model,
+                                       isoDrawList, isoDrawVerts,
+                                       meshManager, colormap);
+        if (!isoResult.transparentMeshes.empty()) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            renderTransparent(view, proj, meshPass.uboHandle(), isoResult.transparentMeshes);
         }
     }
 

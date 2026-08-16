@@ -3,6 +3,7 @@
 #include "core/Colormaps.h"
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
+#include "core/isosurface.h"
 
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -17,6 +18,15 @@ RenderSettings::RenderSettings(QObject* parent)
 
     connect(&m_meshWatcher, &QFutureWatcher<MeshLoadResult>::finished,
             this, &RenderSettings::onMeshParsed);
+
+    // Async isosurface recompute (off-GUI-thread via QtConcurrent). The result
+    // is handed to the Renderer as a zero-copy shared_ptr. A stale-task token
+    // guards against superseded computations (e.g. rapid slider scrubs).
+    connect(&m_isoSurfaceWatcher, &QFutureWatcher<RenderMesh>::finished,
+            this, &RenderSettings::onIsosurfaceComputed);
+    m_isoDebounceTimer.setSingleShot(true);
+    connect(&m_isoDebounceTimer, &QTimer::timeout,
+            this, &RenderSettings::recomputeIsosurface);
 }
 
 RenderSettings::~RenderSettings() = default;
@@ -412,13 +422,37 @@ void RenderSettings::onMeshParsed() {
         m_state.activeScalarName = loaded->scalarName;
         recomputeScalarRange();
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
-    } else {
+     } else {
         m_state.meshHasScalars = false;
         m_state.meshUseScalarColor = false;
         m_state.showScalarColorbar = false;
+        // For structured grids, surface extraction clears mesh.scalars (vertex
+        // count mismatch), but the original per-node scalars survive in
+        // attributes->pointScalars. Use them to set the isosurface slider range.
         m_state.dataScalarMin = 0.0f;
         m_state.dataScalarMax = 1.0f;
+        if (loaded->attributes && !loaded->attributes->pointScalars.empty()) {
+            const auto& ps = loaded->attributes->pointScalars;
+            auto it = ps.find(loaded->scalarName);
+            if (it == ps.end()) it = ps.begin();
+            if (it != ps.end() && !it->second.empty()) {
+                float mn = it->second[0], mx = it->second[0];
+                for (float v : it->second) { if (v < mn) mn = v; if (v > mx) mx = v; }
+                m_state.dataScalarMin = mn;
+                m_state.dataScalarMax = mx;
+                m_state.scalarMin = mn;
+                m_state.scalarMax = mx;
+                if (mx - mn < 1e-6f) mx = mn + 1.0f;
+            }
+        }
     }
+
+    // Isosurface: a fresh mesh starts with the surface off and the threshold
+    // centered on the new data range. (The ISO mesh is cleared on the render
+    // thread by the null handoff below.)
+    m_state.showIsosurface = false;
+    m_state.isovalue = (m_state.dataScalarMin + m_state.dataScalarMax) * 0.5f;
+    m_renderer.setPendingIsosurface(nullptr);
 
     resetCamera();
 
@@ -462,6 +496,8 @@ void RenderSettings::clearMeshes() {
     m_state.showVectors = false;
     m_state.showStreamlines = false;
     m_state.showVolume = false;
+    m_state.showIsosurface = false;
+    m_renderer.setPendingIsosurface(nullptr); // clear any queued iso surface
     markStateDirty();
     m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();
     emit meshLoadStateChanged();
@@ -504,9 +540,91 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     if (m_meshData.loadedMesh)
         m_renderer.markVolumeDirty(m_meshData.loadedMesh);
     markStateDirty(); emit meshDataUpdated();
+    // The active scalar field IS the contour field, so a field switch that the
+    // user has an isosurface enabled for must recontour at the (re-clamped) level.
+    if (m_state.showIsosurface && m_state.meshHasScalars) recomputeIsosurface();
     // NOTE: do NOT emit meshLoadStateChanged() here — load state
     // (hasMeshLoaded / meshHasScalars) is unchanged; activeScalarName is
     // already covered by meshDataUpdated (render_settings.h:80).
+}
+
+// ---------------------------------------------------------------------------
+// Isosurface (marching cubes)
+// ---------------------------------------------------------------------------
+void RenderSettings::setShowIsosurface(bool v) {
+    if (m_state.showIsosurface == v) return;
+    m_state.showIsosurface = v;
+    if (v) {
+        // An isosurface is colored by the colormap LUT, which only emits color
+        // when scalar coloring is enabled -- turn it on so the surface is
+        // visible immediately in the active colormap band.
+        if (!m_state.meshUseScalarColor && m_state.meshHasScalars) {
+            m_state.meshUseScalarColor = true;
+        }
+        recomputeIsosurface();
+    } else {
+        // Disable immediately (no async work). The pending-clear handoff on the
+        // render thread wipes the GPU isosurface meshes.
+        m_renderer.setPendingIsosurface(nullptr);
+        markStateDirty();
+        emit viewChanged(ChangeFlag::Display);
+    }
+}
+
+void RenderSettings::setIsovalue(double v) {
+    const float f = static_cast<float>(v);
+    if (m_state.isovalue == f) return;
+    // Absolute threshold clamped to the active field's data range.
+    float lo = m_state.dataScalarMin;
+    float hi = m_state.dataScalarMax;
+    if (hi < lo) std::swap(lo, hi);
+    float clamped = f;
+    if (hi > lo) clamped = std::clamp(f, lo, hi);
+    else clamped = lo;
+    if (m_state.isovalue == clamped) return;
+    m_state.isovalue = clamped;
+    // Debounced: a slider scrub spawns no more than one task after the pause.
+    m_isoDebounceTimer.start(150);
+    emit viewChanged(ChangeFlag::Display);
+}
+
+void RenderSettings::recomputeIsosurface() {
+    if (!m_state.showIsosurface ||
+        !m_meshData.loadedMesh ||
+        !isosurface::canExtract(*m_meshData.loadedMesh)) {
+        // Disable path: clear any existing isosurface on the render thread.
+        m_renderer.setPendingIsosurface(nullptr);
+        markStateDirty();
+        emit viewChanged(ChangeFlag::Display);
+        return;
+    }
+    // A new setFuture() supersedes any in-flight watcher future, so only the
+    // latest result is emitted; the completion slot additionally verifies
+    // showIsosurface to drop a result that finishes after a user toggle-off.
+    const float iso = m_state.isovalue;
+    const std::string field = m_state.activeScalarName;
+    const auto meshPtr = m_meshData.loadedMesh;
+    m_isoSurfaceWatcher.setFuture(QtConcurrent::run(
+        [meshPtr, iso, field]() -> RenderMesh {
+            return isosurface::extractIsosurface(*meshPtr, {iso}, field);
+        }));
+}
+
+void RenderSettings::onIsosurfaceComputed() {
+    // Dropped if the user toggled the isosurface off while this compute ran,
+    // or if a newer setFuture() superseded this result.
+    if (!m_state.showIsosurface) return;
+
+    RenderMesh iso = m_isoSurfaceWatcher.result();
+    if (!iso.vertices.empty()) {
+        auto sp = std::make_shared<const RenderMesh>(std::move(iso));
+        m_renderer.setPendingIsosurface(sp);
+    } else {
+        // No crossing at this level -> keep an empty surface (clears prior one).
+        m_renderer.setPendingIsosurface(nullptr);
+    }
+    markStateDirty();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::setActiveVectorField(const QString& fieldName) {
