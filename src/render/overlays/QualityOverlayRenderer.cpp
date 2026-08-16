@@ -46,7 +46,12 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
         !hasData(state.qualityNonManifoldEdges)) return;
 
     GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-    GLenum depthFuncWas = glGetError();
+    GLint depthFuncWas = 0;
+    glGetIntegerv(GL_DEPTH_FUNC, &depthFuncWas);
+    GLboolean cullWas = glIsEnabled(GL_CULL_FACE);
+    GLint lineWidthWas = 0;
+    glGetIntegerv(GL_LINE_WIDTH, &lineWidthWas);
+
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_CULL_FACE);
@@ -74,22 +79,22 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
 
     drawOne(m_degenerateVao,
             hasData(state.qualityDegenerateTris)
-                ? static_cast<GLsizei>(state.qualityDegenerateTris->size() / 3) : 0,
+                ? static_cast<GLsizei>(state.qualityDegenerateTris->size() / 2) : 0,
             kRed);
     drawOne(m_openEdgesVao,
             hasData(state.qualityOpenEdges)
-                ? static_cast<GLsizei>(state.qualityOpenEdges->size() / 3) : 0,
+                ? static_cast<GLsizei>(state.qualityOpenEdges->size() / 2) : 0,
             kOrange);
     drawOne(m_nonManifoldVao,
             hasData(state.qualityNonManifoldEdges)
-                ? static_cast<GLsizei>(state.qualityNonManifoldEdges->size() / 3) : 0,
+                ? static_cast<GLsizei>(state.qualityNonManifoldEdges->size() / 2) : 0,
             kPurple);
 
     glUseProgram(0);
-    glLineWidth(1.0f);
+    glLineWidth(static_cast<GLfloat>(lineWidthWas));
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-    if (glIsEnabled(GL_CULL_FACE)) {} else glDisable(GL_CULL_FACE);
+    glDepthFunc(static_cast<GLenum>(depthFuncWas));
+    if (cullWas) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
 }
 
 void QualityOverlayRenderer::shutdown() {
