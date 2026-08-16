@@ -16,11 +16,11 @@ static bool fileExists(const std::string& path) {
 
 static int failures = 0;
 static std::vector<std::string> failedFiles;
-// ponytail: CHECK carries the owning file so a failure names it explicitly.
+
 #define CHECK(cond, file, msg) do { if(!(cond)){ \
     printf("  [FAIL] %s: %s\n", file, msg); ++failures; failedFiles.push_back(file); } } while(0)
 
-// ponytail: golden table; tris + quality only (verts vary via flat-shading split).
+
 struct Gold { const char* name; size_t tris; int watertight; int open; };
 static const Gold GOLD[] = {
     {"STRUCTURED_POINTS_ascii.vtk",                       972, 1, 0},
@@ -37,10 +37,21 @@ static const Gold GOLD[] = {
     {"IMAGE_DATA_xml_ascii.vti",                           12, 1, 0},
     {"POLYDATA_xml_ascii.vtp",                              1, 0, 3},
     {"UNSTRUCTURED_GRID_xml_ascii.vtu",                     4, 1, 0},
-    {"RECTILINEAR_GRID_xml_ascii.vtr",                     12, 1, 0}
+    {"RECTILINEAR_GRID_xml_ascii.vtr",                     12, 1, 0},
+    {"UNSTRUCTURED_GRID_xml_multipiece.vtu",               24, 0, 0},
+    {"UNSTRUCTURED_GRID_xml_binary_appended.vtu",          12, 1, 0},
+    {"UNSTRUCTURED_GRID_xml_zlib.vtu",                     12, 1, 0},
+    {"POLYDATA_xml_binary_appended.vtp",                    2, 0, 4},
+    {"RECTILINEAR_GRID_xml_binary.vtr",                    12, 1, 0},
+    {"UNSTRUCTURED_GRID_xml_lz4.vtu",                       12, 1, 0},
+    {"UNSTRUCTURED_GRID_xml_lzma.vtu",                      12, 1, 0},
+    {"UNSTRUCTURED_GRID_xml_int64.vtu",                     12, 1, 0},
+    {"POLYDATA_xml_multicomponent.vtp",                      1, 0, 3},
+    {"MULTIBLOCK_xml_multiblock.vtm",                        16, 0, 0}
 };
 
 int main(){
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string samples = "../samples/";   // run from tests/
     for (const auto& g : GOLD) {
         std::string path = samples + g.name;
@@ -57,6 +68,7 @@ int main(){
         if (!((int)q.openEdges == g.open))       { CHECK((int)q.openEdges == g.open, g.name, "open mismatch"); caseOk = false; }
         printf("%s %s (tris=%zu wt=%d open=%d)\n",
                caseOk ? "[PASS]" : "[FAIL]", g.name, tris, (int)q.watertight, q.openEdges);
+        fflush(stdout);
     }
     if (failures==0) {
         printf("\nALL PARSER REGRESSION CHECKS PASSED (%zu files)\n", sizeof(GOLD)/sizeof(GOLD[0]));

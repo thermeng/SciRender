@@ -320,5 +320,4 @@ void computeNormals(RenderMesh& mesh) {
         }
     }
 }
-
 }

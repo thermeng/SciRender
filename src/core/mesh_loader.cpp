@@ -25,5 +25,8 @@ RenderMesh loadMeshFile(const std::string& filePath) {
     if (ext == "VTU" || ext == "VTS" || ext == "VTI" || ext == "VTP" || ext == "VTR") {
         return parseVTKXML(filePath);
     }
-    throw std::runtime_error("unsupported file extension '" + ext + "' (expected .stl, .vtk, .obj, .vtu, .vts, .vti, .vtp, .vtr)");
+    if (ext == "VTM") {
+        return parseMultiBlockXML(filePath);
+    }
+    throw std::runtime_error("unsupported file extension '" + ext + "' (expected .stl, .vtk, .obj, .vtu, .vts, .vti, .vtp, .vtr, .vtm)");
 }

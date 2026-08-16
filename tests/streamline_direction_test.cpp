@@ -3,7 +3,7 @@
 // Uses the Divergent_Flow field from the structured-grid VTK fixture to
 // validate that generated geometry points along the local vector direction.
 // Compiles the REAL sources (no Qt/GL). Run via tests/run_tests.{bat,sh}
-#include "render/StreamlineSet.h"
+#include "render/streamlines/StreamlineSet.h"
 #include "core/mesh_loader.h"
 
 #include <cstdio>
@@ -125,12 +125,12 @@ int main(){
         float radius = 0.2f;
         std::vector<float> av = StreamlineSet::generateArrowhead(pos, dir, height, radius, 16, 1.0f);
         CHECK(!av.empty(), "generateArrowhead produces vertices");
-        CHECK(av.size() % 9 == 0, "generateArrowhead vertex stride is 9");
+         CHECK(av.size() % 7 == 0, "generateArrowhead vertex stride is 7");
 
         // Apex should be at approximately pos + dir * height = (0.5, 0, 0)
         // Find the vertex farthest along +X — that's the apex.
         float maxX = -1e30f;
-        for (size_t i = 0; i < av.size(); i += 9) {
+        for (size_t i = 0; i < av.size(); i += 7) {
             maxX = std::max(maxX, av[i + 0]);
         }
         CHECK(maxX > 0.4f, "generateArrowhead apex is ahead of pos in +X");
@@ -140,7 +140,7 @@ int main(){
         // The base ring vertices should cluster around x ≈ -0.075
         float baseXSum = 0.0f;
         int baseVerts = 0;
-        for (size_t i = 0; i < av.size(); i += 9) {
+        for (size_t i = 0; i < av.size(); i += 7) {
             if (av[i + 0] < 0.0f) {
                 baseXSum += av[i + 0];
                 baseVerts++;
@@ -156,7 +156,7 @@ int main(){
         // Cone face normals should have positive X component (slant angle)
         int capNormals = 0;
         int forwardNormals = 0;
-        for (size_t i = 0; i < av.size(); i += 9) {
+        for (size_t i = 0; i < av.size(); i += 7) {
             float nx = av[i + 4];
             if (nx < -0.5f) capNormals++;
             if (nx > 0.3f) forwardNormals++;
