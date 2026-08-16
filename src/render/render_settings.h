@@ -584,8 +584,7 @@ public:
     bool hasMeshScalars() const { return m_state.meshHasScalars; }
     bool hasMeshVectors() const { return m_state.meshHasVectors; }
     bool hasMeshCellVectors() const { return m_state.meshHasCellVectors; }
-    bool hasVolumeData() const { return m_meshData.loadedMesh && !m_meshData.loadedMesh->scalars.empty()
-                                            && m_meshData.loadedMesh->gridDimX > 0; }
+    bool hasVolumeData() const { return m_meshData.loadedMesh && m_meshData.loadedMesh->hasVolumeData(); }
     Q_INVOKABLE QString getActiveScalarNameQml() const { return QString::fromStdString(m_state.activeScalarName); }
     Q_INVOKABLE float getDataScalarMinQml() const { return m_state.dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return m_state.dataScalarMax; }

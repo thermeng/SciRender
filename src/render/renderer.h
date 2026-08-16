@@ -425,8 +425,7 @@ public:
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         return m_pendingVolumeMesh;
     }
-    bool hasVolumeData() const { return m_lastUploadedMesh && !m_lastUploadedMesh->scalars.empty()
-                                         && m_lastUploadedMesh->gridDimX > 0; }
+    bool hasVolumeData() const { return m_lastUploadedMesh && m_lastUploadedMesh->hasVolumeData(); }
     void uploadVolumeFromScalarDirty(const RenderRenderState& state,
         std::shared_ptr<const std::vector<float>> scalars,
         std::shared_ptr<const RenderMesh> mesh);

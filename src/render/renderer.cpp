@@ -522,7 +522,7 @@ void Renderer::reinitMeshData() {
         streamlineSet.initParticles(m_state.particleCount);
         m_qualityOverlay.markDirty();
 
-        if (m_lastUploadedMesh->gridDimX > 0 && m_lastUploadedMesh->gridDimY > 0 && m_lastUploadedMesh->gridDimZ > 0 && !m_lastUploadedMesh->scalars.empty()) {
+        if (m_lastUploadedMesh->hasVolumeData()) {
             glm::vec3 boxMin(m_lastUploadedMesh->bounds.minX, m_lastUploadedMesh->bounds.minY, m_lastUploadedMesh->bounds.minZ);
             glm::vec3 boxMax(m_lastUploadedMesh->bounds.maxX, m_lastUploadedMesh->bounds.maxY, m_lastUploadedMesh->bounds.maxZ);
             m_volume.uploadVolume(m_state, m_lastUploadedMesh->scalars, m_lastUploadedMesh->gridDimX, m_lastUploadedMesh->gridDimY, m_lastUploadedMesh->gridDimZ, boxMin, boxMax);
