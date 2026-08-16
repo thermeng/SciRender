@@ -43,11 +43,11 @@ static int nodeIndexOf(int x, int y, int z, int dX, int dY, int /*dZ*/) {
 }
 
 bool canExtract(const RenderMesh& volumeMesh) {
-    return volumeMesh.gridDimX > 1
-        && volumeMesh.gridDimY > 1
-        && volumeMesh.gridDimZ > 1
-        && (!volumeMesh.scalars.empty()
-            || (volumeMesh.attributes && !volumeMesh.attributes->pointScalars.empty()))
+    // Delegates to the mesh's own volume-grid + scalar-availability predicates
+    // (RenderMesh::hasVolumeGrid / hasScalarData), plus a non-empty vertex array
+    // so interpolation has source positions to sample.
+    return volumeMesh.hasVolumeGrid()
+        && volumeMesh.hasScalarData()
         && !volumeMesh.vertices.empty();
 }
 

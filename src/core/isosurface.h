@@ -38,8 +38,9 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                              const std::string& field = "");
 
 // True when the mesh carries the structured-grid data the extractor needs.
-// Reuses the renderer's existing hasVolumeData() precondition (gridDim > 0);
-// here we additionally require >= 2 nodes per axis so at least one cell exists.
+// Delegates to RenderMesh::hasVolumeGrid() (gridDim > 1 per axis) and
+// RenderMesh::hasScalarData() (mesh.scalars or attributes->pointScalars),
+// additionally requiring non-empty vertices for interpolation.
 bool canExtract(const RenderMesh& volumeMesh);
 
 } // namespace isosurface

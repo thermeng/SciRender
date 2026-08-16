@@ -110,6 +110,30 @@ struct RenderMesh {
 
     bool meshHasCellVectors() const { return !cellVectorsData.empty(); }
 
+    // Scalar-data availability: true when the mesh carries at least one scalar
+    // field accessible at grid nodes. For structured-grid datasets the surface
+    // mesh may have been boundary-extracted (fewer vertices than nodes), which
+    // clears `scalars` but preserves the original per-node field in
+    // `attributes->pointScalars` — so both are checked.
+    bool hasScalarData() const {
+        return !scalars.empty()
+            || (attributes && !attributes->pointScalars.empty());
+    }
+
+    // Volume-grid eligibility: true when gridDim describes at least one 3D cell
+    // along every axis (2+ nodes per axis). This is the precondition for both
+    // volume rendering (3D texture) and marching-cubes isosurface extraction.
+    bool hasVolumeGrid() const {
+        return gridDimX > 1 && gridDimY > 1 && gridDimZ > 1;
+    }
+
+    // Volume-rendering eligibility: a 3D grid WITH a scalar field. (Volume
+    // rendering can also work with non-cell grids, so we accept gridDim > 0
+    // here rather than the stricter > 1 required by isosurface extraction.)
+    bool hasVolumeData() const {
+        return gridDimX > 0 && hasScalarData();
+    }
+
     // High-precision bounding volume (double for camera-relative precision)
     BoundingVolume bounds;
 
