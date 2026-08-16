@@ -64,11 +64,10 @@ out vec4 frag;
 void main() { frag = vec4(vColor, 1.0); }
 )";
 
-// Simple diffuse-lit shader for axis tip cones.
+// Simple solid-color shader for axis tip cones.
 static const char* capVS = R"(
 #version 460 core
 layout(location = 0) in vec3 aPos;
-layout(location = 1) in vec3 aNormal;
 uniform mat4 uMVP;
 void main() {
     gl_Position = uMVP * vec4(aPos, 1.0);
@@ -323,13 +322,9 @@ bool Gizmo::init() {
 
         glCreateVertexArrays(1, capVAO.ptr());
         glCreateBuffers(1, capVBO.ptr());
-        GLint capPosLoc = 0, capNormLoc = 1;
-        glEnableVertexArrayAttrib(capVAO, capPosLoc);
-        glVertexArrayAttribFormat(capVAO, capPosLoc, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(capVAO, capPosLoc, 0);
-        glEnableVertexArrayAttrib(capVAO, capNormLoc);
-        glVertexArrayAttribFormat(capVAO, capNormLoc, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-        glVertexArrayAttribBinding(capVAO, capNormLoc, 0);
+        glEnableVertexArrayAttrib(capVAO, 0);
+        glVertexArrayAttribFormat(capVAO, 0, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(capVAO, 0, 0);
         glNamedBufferData(capVBO, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
         glVertexArrayVertexBuffer(capVAO, 0, capVBO, 0, 6 * sizeof(float));
     }
@@ -509,7 +504,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glDrawArrays(GL_TRIANGLES, 0, 3 * 6);  // 3 axis quads
     glBindVertexArray(0);
 
-    // ---- Axis tip cones (diffuse-lit) ----
+    // ---- Axis tip cones (solid color) ----
     glUseProgram(capProgram);
     glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
     glBindVertexArray(capVAO);
