@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<VTKFile type="MultiBlock" version="0.1" byte_order="LittleEndian">
+  <MultiBlock>
+    <DataSet group="0" dataset="0" composite_index="0" file="UNSTRUCTURED_GRID_xml_ascii.vtu"/>
+    <DataSet group="1" dataset="0" composite_index="1" file="STRUCTURED_GRID_xml_ascii.vts"/>
+  </MultiBlock>
+</VTKFile>

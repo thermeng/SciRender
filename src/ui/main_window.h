@@ -9,8 +9,11 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QCheckBox>
+#include <QRadioButton>
+#include <QButtonGroup>
 #include <QSlider>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QPushButton>
 #include <QLineEdit>
@@ -28,7 +31,7 @@
 #include <QVector>
 
 #include "viewport_widget.h"
-#include "render/render_settings.h"
+#include "render/settings/render_settings.h"
 
 namespace Ui {
     class MainWindow;
@@ -77,6 +80,8 @@ private:
     void syncQuickBar();
     void syncViewDisplayPage();
     void syncLightingPage();
+    void syncVolumePage();
+    void applyVolumeControlGating();
     void recreateViewport();
 
     ::RenderSettings* m_settings = nullptr;
@@ -127,10 +132,13 @@ private:
     QToolButton* m_qbGrid = nullptr;
     QToolButton* m_qbSurface = nullptr;
     QToolButton* m_qbVolume = nullptr;
+    QToolButton* m_qbSlice = nullptr;
 
     // View & Display page checkboxes (synced with quick bar / keyboard shortcuts)
     QCheckBox* m_vdWireframeCb = nullptr;
     QCheckBox* m_vdGridCb = nullptr;
+    QComboBox* m_vdGridPosCombo = nullptr;
+    QCheckBox* m_vdGridShadowCb = nullptr;
     QCheckBox* m_vdSurfaceCb = nullptr;
     QCheckBox* m_vdPointsCb = nullptr;
     QCheckBox* m_vdBboxCb = nullptr;
@@ -183,15 +191,30 @@ private:
     // Field selection combos (populated on mesh load)
     QComboBox* m_scalarCombo = nullptr;
     QComboBox* m_vectorCombo = nullptr;
+    QComboBox* m_vectorPlacementCombo = nullptr;
     QComboBox* m_streamlineCombo = nullptr;
     QComboBox* m_streamlineDirectionCombo = nullptr;
     QComboBox* m_volumeFieldCombo = nullptr;
 
     // "Show" checkboxes for vector/streamline/volume/scalar pages (gated on data availability)
     QCheckBox* m_scalarShowCb = nullptr;
+    QWidget* m_scalarOptionsGroup = nullptr;
     QCheckBox* m_slShowCb = nullptr;
     QCheckBox* m_vecShowCb = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;
+    QCheckBox* m_volumeSliceShowCb = nullptr;
+    QWidget* m_volumeOptionsGroup = nullptr;          // gated on data availability only
+    QList<QWidget*> m_volumeRenderCtrls;              // volume-rendering-only controls (gated on showVolume)
+    QRadioButton* m_sliceAxisXRb = nullptr;
+    QRadioButton* m_sliceAxisYRb = nullptr;
+    QRadioButton* m_sliceAxisZRb = nullptr;
+    QSlider* m_slicePosSlider = nullptr;
+    QLabel* m_slicePosValue = nullptr;
+
+    // Isosurface controls (on the Volume page, gated on structured volume data)
+    QCheckBox* m_isoEnableCb = nullptr;
+    QSlider* m_isoValueSlider = nullptr;
+    QLabel* m_isoValueLabel = nullptr;
 
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;
@@ -204,17 +227,19 @@ private:
 
     // Slicing page widgets (for bounds refresh on mesh load)
     QSlider* m_sliceXSlider = nullptr;
-    QLineEdit* m_sliceXField = nullptr;
+    QDoubleSpinBox* m_sliceXSpinBox = nullptr;
     QSlider* m_sliceYSlider = nullptr;
-    QLineEdit* m_sliceYField = nullptr;
+    QDoubleSpinBox* m_sliceYSpinBox = nullptr;
     QSlider* m_sliceZSlider = nullptr;
-    QLineEdit* m_sliceZField = nullptr;
+    QDoubleSpinBox* m_sliceZSpinBox = nullptr;
     QCheckBox* m_sliceEnableCb = nullptr;
     QCheckBox* m_sliceAxisXCb = nullptr;
     QCheckBox* m_sliceAxisYCb = nullptr;
     QCheckBox* m_sliceAxisZCb = nullptr;
 
     void refreshSlicingPageBounds();
+    void refreshScalarFilterRange();
+    void refreshIsosurfaceSlider();
 
     // Timers
     QTimer m_autoRotateTimer;
@@ -233,3 +258,5 @@ private:
     // Theme
     QActionGroup* m_shadingGroup = nullptr;
 };
+
+

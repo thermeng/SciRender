@@ -12,9 +12,13 @@ layout(std140) uniform GridUBO {
     mat4  uProj;
     vec4  uCamPos_Color;
     vec4  uColorBg_Falloff;
-    vec4  uPlaneY_Pad;
+    vec4  uGridAxis_planePos;
     vec4  uFlags;
+    mat4  uLightMVP;
+    vec4  uShadowParams;
 };
+
+uniform sampler2D uShadowMap;
 
 out vec4 fragColor;
 
@@ -31,27 +35,51 @@ float gridFactor(vec2 coord, float scale) {
 
 void main() {
     vec3 rayDir = normalize(vFar - vNear);
-    float planeY = uPlaneY_Pad.x;
-    float t = (planeY - uCamPos_Color.xyz.y) / rayDir.y;
+    int axis = int(uGridAxis_planePos.x + 0.5);
+    float planePos = uGridAxis_planePos.y;
+    float t;
+    vec3 worldPos;
+    vec2 gridCoord;
+    if (axis == 0) {
+        t = (planePos - uCamPos_Color.x) / rayDir.x;
+        worldPos = uCamPos_Color.xyz + t * rayDir;
+        gridCoord = worldPos.yz;
+    } else if (axis == 1) {
+        t = (planePos - uCamPos_Color.y) / rayDir.y;
+        worldPos = uCamPos_Color.xyz + t * rayDir;
+        gridCoord = worldPos.xz;
+    } else {
+        t = (planePos - uCamPos_Color.z) / rayDir.z;
+        worldPos = uCamPos_Color.xyz + t * rayDir;
+        gridCoord = worldPos.xy;
+    }
     if (t <= 0.0 || isnan(t) || isinf(t) || t > 1e6) discard;
 
-    vec3 worldPos = uCamPos_Color.xyz + t * rayDir;
     float dist = length(worldPos - uCamPos_Color.xyz);
     float fade = exp(-dist * uColorBg_Falloff.w);
 
-    float minor = gridFactor(worldPos.xz, 1.0);
-    float major = gridFactor(worldPos.xz, 10.0);
-    float g = max(minor * 0.4, major);
+    float minor = gridFactor(gridCoord, 1.0);
+    float major = gridFactor(gridCoord, 10.0);
+    float gridLine = max(minor * 0.4, major) * fade;
 
-    float alpha = g * fade;
-    if (alpha < 0.005) discard;
+    float shadowFactor = 1.0;
+    if (uShadowParams.x > 0.5) {
+        vec4 sc = uLightMVP * vec4(worldPos, 1.0);
+        sc.xyz /= sc.w;
+        sc.xy = sc.xy * 0.5 + 0.5;
+        if (sc.x >= 0.0 && sc.x <= 1.0 && sc.y >= 0.0 && sc.y <= 1.0 && sc.z >= 0.0 && sc.z <= 1.0) {
+            float sd = texture(uShadowMap, sc.xy).r;
+            shadowFactor = (sc.z - uShadowParams.y > sd) ? 0.25 : 1.0;
+        }
+    }
 
-    fragColor = vec4(uColorBg_Falloff.xyz, alpha);
+    vec3 groundBase = uColorBg_Falloff.xyz * 0.45 * shadowFactor;
+    vec3 finalColor = mix(groundBase, uColorBg_Falloff.xyz, gridLine);
+
+    fragColor = vec4(finalColor, 1.0);
 
     vec4 clip = uProj * uView * vec4(worldPos, 1.0);
     float ndcDepth = clip.z / clip.w;
-    if (uFlags.x < 0.5) {
-        ndcDepth = ndcDepth * 0.5 + 0.5;
-    }
-    gl_FragDepth = clamp(ndcDepth, 0.0, 1.0);
+    float depth = ndcDepth * 0.5 + 0.5;
+    gl_FragDepth = clamp(depth, 0.0, 1.0);
 }

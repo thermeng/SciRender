@@ -1,6 +1,6 @@
 #include <glad/gl.h>
 #include "viewport_widget.h"
-#include "render/render_config.h"
+#include "render/foundation/render_config.h"
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QWheelEvent>
@@ -108,6 +108,8 @@ void ViewportWidget::loadShaders() {
     sources.particleFrag    = loadShader(":/src/shaders/particle.frag");
     sources.volumeVert      = loadShader(":/src/shaders/volume.vert");
     sources.volumeFrag      = loadShader(":/src/shaders/volume.frag");
+    sources.volumeSliceVert = loadShader(":/src/shaders/volume_slice.vert");
+    sources.volumeSliceFrag = loadShader(":/src/shaders/volume_slice.frag");
     sources.lodComp         = loadShader(":/src/shaders/lod.comp");
     sources.lodOutputComp   = loadShader(":/src/shaders/lod_output.comp");
     sources.lodTrisComp     = loadShader(":/src/shaders/lod_tris.comp");
@@ -117,6 +119,8 @@ void ViewportWidget::loadShaders() {
     sources.depthPeelFrag = loadShader(":/src/shaders/depth_peel.frag");
     sources.compositeVert = loadShader(":/src/shaders/composite.vert");
     sources.compositeFrag = loadShader(":/src/shaders/composite.frag");
+    sources.shadowVert = loadShader(":/src/shaders/shadow.vert");
+    sources.shadowFrag = loadShader(":/src/shaders/shadow.frag");
 
     scene->initShaders(sources);
 }
@@ -337,3 +341,5 @@ bool ViewportWidget::event(QEvent* event) {
     }
     return QOpenGLWidget::event(event);
 }
+
+

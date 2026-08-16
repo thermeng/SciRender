@@ -12,7 +12,7 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="spacing">
-    <number>7</number>
+    <number>4</number>
    </property>
    <property name="leftMargin">
     <number>10</number>
@@ -27,8 +27,22 @@
     <number>8</number>
    </property>
    <item>
-    <widget class="QWidget" name="headerRow" native="true">
-     <layout class="QHBoxLayout" name="headerRowLayout">
+    <widget class="QCheckBox" name="enableCb">
+     <property name="text">
+      <string>Enable Slicing</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="slicePlanesHeader">
+     <property name="text">
+      <string>Slice Planes</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="optionsGroup" native="true">
+     <layout class="QVBoxLayout" name="optionsLayout">
       <property name="spacing">
        <number>6</number>
       </property>
@@ -44,72 +58,12 @@
       <property name="bottomMargin">
        <number>0</number>
       </property>
+      <!-- ===== X Axis ===== -->
       <item>
-       <widget class="QLabel" name="slicingHeader">
-        <property name="text">
-         <string>Slicing</string>
-        </property>
-        <property name="alignment">
-         <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <spacer name="headerSpacer">
-        <property name="orientation">
-         <enum>Qt::Orientation::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>0</width>
-          <height>0</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item>
-       <widget class="QToolButton" name="refreshBtn">
-        <property name="text">
-         <string>⟲</string>
-        </property>
-        <property name="toolTip">
-         <string>Disable all slice planes</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="enableCb">
-     <property name="text">
-      <string>Enable slicing</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QWidget" name="optionsGroup" native="true">
-     <layout class="QVBoxLayout" name="optionsLayout">
-      <property name="spacing">
-       <number>4</number>
-      </property>
-      <property name="leftMargin">
-       <number>0</number>
-      </property>
-      <property name="topMargin">
-       <number>0</number>
-      </property>
-      <property name="rightMargin">
-       <number>0</number>
-      </property>
-      <property name="bottomMargin">
-       <number>0</number>
-      </property>
-      <item>
-       <widget class="QWidget" name="xRow" native="true">
-        <layout class="QHBoxLayout" name="xRowLayout">
+       <widget class="QWidget" name="xAxisGroup" native="true">
+        <layout class="QVBoxLayout" name="xAxisLayout">
          <property name="spacing">
-          <number>6</number>
+          <number>2</number>
          </property>
          <property name="leftMargin">
           <number>0</number>
@@ -124,76 +78,90 @@
           <number>0</number>
          </property>
          <item>
-          <widget class="QCheckBox" name="axisX">
-           <property name="minimumSize">
-            <size>
-             <width>28</width>
-             <height>0</height>
-            </size>
+          <layout class="QHBoxLayout" name="xRow1">
+           <property name="spacing">
+            <number>4</number>
            </property>
-           <property name="maximumSize">
-            <size>
-             <width>28</width>
-             <height>16777215</height>
-            </size>
-           </property><property name="text">
-            <string>X</string>
-           </property>
-          </widget>
+           <item>
+            <widget class="QCheckBox" name="axisX">
+             <property name="text">
+              <string>X Axis</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="xRow1Spacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="invX">
+             <property name="text">
+              <string>Invert</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
          <item>
-          <widget class="QSlider" name="sliceXSlider">
-           <property name="minimum">
-            <number>0</number>
+          <layout class="QHBoxLayout" name="xRow2">
+           <property name="spacing">
+            <number>6</number>
            </property>
-           <property name="maximum">
-            <number>1000</number>
-           </property>
-           <property name="value">
-            <number>0</number>
-           </property>
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLineEdit" name="xField">
-           <property name="maximumSize">
-            <size>
-             <width>36</width>
-             <height>16777215</height>
-            </size>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QCheckBox" name="invX">
-           <property name="minimumSize">
-            <size>
-             <width>38</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>38</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="text">
-            <string>Inv</string>
-           </property>
-          </widget>
+           <item>
+            <widget class="QSlider" name="sliceXSlider">
+             <property name="minimum">
+              <number>0</number>
+             </property>
+             <property name="maximum">
+              <number>1000</number>
+             </property>
+             <property name="value">
+              <number>0</number>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QDoubleSpinBox" name="xSpinBox">
+             <property name="minimumWidth">
+              <number>60</number>
+             </property>
+             <property name="buttonSymbols">
+              <enum>QAbstractSpinBox::NoButtons</enum>
+             </property>
+             <property name="decimals">
+              <number>3</number>
+             </property>
+             <property name="minimum">
+              <double>-99999.000000000000000</double>
+             </property>
+             <property name="maximum">
+              <double>99999.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
         </layout>
        </widget>
       </item>
+      <!-- ===== Y Axis ===== -->
       <item>
-       <widget class="QWidget" name="yRow" native="true">
-        <layout class="QHBoxLayout" name="yRowLayout">
+       <widget class="QWidget" name="yAxisGroup" native="true">
+        <layout class="QVBoxLayout" name="yAxisLayout">
          <property name="spacing">
-          <number>6</number>
+          <number>2</number>
          </property>
          <property name="leftMargin">
           <number>0</number>
@@ -208,76 +176,90 @@
           <number>0</number>
          </property>
          <item>
-          <widget class="QCheckBox" name="axisY">
-           <property name="minimumSize">
-            <size>
-             <width>28</width>
-             <height>0</height>
-            </size>
+          <layout class="QHBoxLayout" name="yRow1">
+           <property name="spacing">
+            <number>4</number>
            </property>
-           <property name="maximumSize">
-            <size>
-             <width>28</width>
-             <height>16777215</height>
-            </size>
-           </property><property name="text">
-            <string>Y</string>
-           </property>
-          </widget>
+           <item>
+            <widget class="QCheckBox" name="axisY">
+             <property name="text">
+              <string>Y Axis</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="yRow1Spacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="invY">
+             <property name="text">
+              <string>Invert</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
          <item>
-          <widget class="QSlider" name="sliceYSlider">
-           <property name="minimum">
-            <number>0</number>
+          <layout class="QHBoxLayout" name="yRow2">
+           <property name="spacing">
+            <number>6</number>
            </property>
-           <property name="maximum">
-            <number>1000</number>
-           </property>
-           <property name="value">
-            <number>0</number>
-           </property>
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLineEdit" name="yField">
-           <property name="maximumSize">
-            <size>
-             <width>36</width>
-             <height>16777215</height>
-            </size>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QCheckBox" name="invY">
-           <property name="minimumSize">
-            <size>
-             <width>38</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>38</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="text">
-            <string>Inv</string>
-           </property>
-          </widget>
+           <item>
+            <widget class="QSlider" name="sliceYSlider">
+             <property name="minimum">
+              <number>0</number>
+             </property>
+             <property name="maximum">
+              <number>1000</number>
+             </property>
+             <property name="value">
+              <number>0</number>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QDoubleSpinBox" name="ySpinBox">
+             <property name="minimumWidth">
+              <number>60</number>
+             </property>
+             <property name="buttonSymbols">
+              <enum>QAbstractSpinBox::NoButtons</enum>
+             </property>
+             <property name="decimals">
+              <number>3</number>
+             </property>
+             <property name="minimum">
+              <double>-99999.000000000000000</double>
+             </property>
+             <property name="maximum">
+              <double>99999.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
         </layout>
        </widget>
       </item>
+      <!-- ===== Z Axis ===== -->
       <item>
-       <widget class="QWidget" name="zRow" native="true">
-        <layout class="QHBoxLayout" name="zRowLayout">
+       <widget class="QWidget" name="zAxisGroup" native="true">
+        <layout class="QVBoxLayout" name="zAxisLayout">
          <property name="spacing">
-          <number>6</number>
+          <number>2</number>
          </property>
          <property name="leftMargin">
           <number>0</number>
@@ -292,67 +274,80 @@
           <number>0</number>
          </property>
          <item>
-          <widget class="QCheckBox" name="axisZ">
-           <property name="minimumSize">
-            <size>
-             <width>28</width>
-             <height>0</height>
-            </size>
+          <layout class="QHBoxLayout" name="zRow1">
+           <property name="spacing">
+            <number>4</number>
            </property>
-           <property name="maximumSize">
-            <size>
-             <width>28</width>
-             <height>16777215</height>
-            </size>
-           </property><property name="text">
-            <string>Z</string>
-           </property>
-          </widget>
+           <item>
+            <widget class="QCheckBox" name="axisZ">
+             <property name="text">
+              <string>Z Axis</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="zRow1Spacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="invZ">
+             <property name="text">
+              <string>Invert</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
          <item>
-          <widget class="QSlider" name="sliceZSlider">
-           <property name="minimum">
-            <number>0</number>
+          <layout class="QHBoxLayout" name="zRow2">
+           <property name="spacing">
+            <number>6</number>
            </property>
-           <property name="maximum">
-            <number>1000</number>
-           </property>
-           <property name="value">
-            <number>0</number>
-           </property>
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLineEdit" name="zField">
-           <property name="maximumSize">
-            <size>
-             <width>36</width>
-             <height>16777215</height>
-            </size>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QCheckBox" name="invZ">
-           <property name="minimumSize">
-            <size>
-             <width>38</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>38</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="text">
-            <string>Inv</string>
-           </property>
-          </widget>
+           <item>
+            <widget class="QSlider" name="sliceZSlider">
+             <property name="minimum">
+              <number>0</number>
+             </property>
+             <property name="maximum">
+              <number>1000</number>
+             </property>
+             <property name="value">
+              <number>0</number>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QDoubleSpinBox" name="zSpinBox">
+             <property name="minimumWidth">
+              <number>60</number>
+             </property>
+             <property name="buttonSymbols">
+              <enum>QAbstractSpinBox::NoButtons</enum>
+             </property>
+             <property name="decimals">
+              <number>3</number>
+             </property>
+             <property name="minimum">
+              <double>-99999.000000000000000</double>
+             </property>
+             <property name="maximum">
+              <double>99999.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </item>
         </layout>
        </widget>

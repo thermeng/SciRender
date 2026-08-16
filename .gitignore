@@ -3,6 +3,7 @@
 
 *~
 *.autosave
+backlog.txt
 *.a
 *.core
 *.moc
@@ -93,3 +94,4 @@ CMakeLists.txt.user*
 /.hermes/
 /.kilo/
 arch_readme.md
+/.vscode/

@@ -379,22 +379,82 @@ private:
         if (numComponents != 1) {
             std::cerr << "VTK Parser Warning: SCALARS '" << scalarName
                       << "' has " << numComponents << " components; only 1-component "
-                      << "scalars are colorable, skipping." << std::endl;
+                      << "scalars are colorable, storing as field data." << std::endl;
             const size_t total = static_cast<size_t>(activeElementCount) * static_cast<size_t>(numComponents);
+            std::vector<float> multiCompData(total);
+            bool readOk = false;
             if (isBinary) {
-                if (!consumeBinaryScalars(file, dataType, total)) {
-                    std::cerr << "VTK Parser Warning: short read consuming multi-component SCALARS '" << scalarName << "'." << std::endl;
+                if (dataType == "DOUBLE") {
+                    std::vector<double> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
                 }
-                // 4-byte alignment is handled inside readBinaryArray.
-            } else {
+                else if (dataType == "FLOAT") {
+                    if (readBinaryArray(file, multiCompData.size(), multiCompData)) readOk = true;
+                }
+                else if (dataType == "INT" || dataType == "UNSIGNED_INT" || dataType == "LONG") {
+                    std::vector<int32_t> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
+                }
+                else if (dataType == "LONG_LONG" || dataType == "UNSIGNED_LONG_LONG") {
+                    std::vector<int64_t> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
+                }
+                else if (dataType == "SHORT" || dataType == "UNSIGNED_SHORT") {
+                    std::vector<int16_t> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
+                }
+                else if (dataType == "UNSIGNED_CHAR") {
+                    std::vector<uint8_t> temp(total);
+                    if (readBinaryArray(file, temp.size(), temp)) {
+                        for (size_t i = 0; i < temp.size(); ++i) multiCompData[i] = static_cast<float>(temp[i]);
+                        readOk = true;
+                    }
+                }
+                else {
+                    std::cerr << "VTK Parser Warning: unsupported SCALARS type '" << dataType
+                              << "' for binary data; skipping field." << std::endl;
+                }
+                if (!readOk) {
+                    std::cerr << "VTK Parser Warning: short read on binary multi-component SCALARS '" << scalarName
+                              << "'; skipping field to avoid stream desync." << std::endl;
+                    multiCompData.clear();
+                }
+            }
+            else {
                 for (size_t i = 0; i < total; ++i) {
                     float v;
                     if (!(file >> v)) {
                         std::cerr << "VTK Parser Warning: short read consuming multi-component ASCII SCALARS '" << scalarName << "'." << std::endl;
+                        multiCompData.clear();
                         break;
                     }
+                    multiCompData[i] = v;
                 }
                 clearTrailingLine(file);
+            }
+
+            if (!multiCompData.empty()) {
+                if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+                if (readingPointData) {
+                    mesh.attributes->pointFieldData[scalarName] = std::move(multiCompData);
+                    mesh.attributes->pointFieldComponents[scalarName] = numComponents;
+                }
+                else {
+                    mesh.attributes->cellFieldData[scalarName] = std::move(multiCompData);
+                    mesh.attributes->cellFieldComponents[scalarName] = numComponents;
+                }
             }
             return;
         }
@@ -460,13 +520,24 @@ private:
         }
         else {
             for (size_t i = 0; i < readScalars.size(); ++i) {
-                if (!(file >> readScalars[i]) || !std::isfinite(readScalars[i])) {
+                double tmp = 0.0;
+                if (!(file >> tmp)) {
+                    std::cerr << "VTK Parser Warning: short read on ASCII SCALARS '" << scalarName
+                              << "'; dropping field." << std::endl;
+                    readScalars.clear();
+                    badField = true;
+                    break;
+                }
+                if (!std::isfinite(tmp)) {
                     std::cerr << "VTK Parser Warning: non-finite ASCII SCALARS '" << scalarName
                               << "'; dropping field." << std::endl;
                     readScalars.clear();
                     badField = true;
                     break;
                 }
+                if (tmp >  std::numeric_limits<float>::max())      readScalars[i] =  std::numeric_limits<float>::max();
+                else if (tmp < -std::numeric_limits<float>::max()) readScalars[i] = -std::numeric_limits<float>::max();
+                else                                               readScalars[i] = static_cast<float>(tmp);
             }
             clearTrailingLine(file);
         }
@@ -784,19 +855,46 @@ private:
         const int cy = std::max(1, dY - 1);
         const int cz = std::max(1, dZ - 1);
         cellToVertices.reserve(static_cast<size_t>(cx) * cy * cz);
-        for (int z = 0; z + 1 < dZ; ++z)
+
+        if (dX > 1 && dY > 1 && dZ > 1) {
+            for (int z = 0; z + 1 < dZ; ++z)
+                for (int y = 0; y + 1 < dY; ++y)
+                    for (int x = 0; x + 1 < dX; ++x) {
+                        uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
+                        uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
+                        uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
+                        uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
+                        uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
+                        uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
+                        uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
+                        uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
+                        cellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
+                    }
+        } else if (dZ == 1) {
             for (int y = 0; y + 1 < dY; ++y)
-                for (int x = 0; x + 1 < dX; ++x) {
-                    uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
-                    uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
-                    uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
-                    uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
-                    uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
-                    uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
-                    uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
-                    uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
-                    cellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
-                }
+                for (int x = 0; x + 1 < dX; ++x)
+                    cellToVertices.push_back({
+                        static_cast<uint32_t>(idx(x, y, 0)),
+                        static_cast<uint32_t>(idx(x + 1, y, 0)),
+                        static_cast<uint32_t>(idx(x + 1, y + 1, 0)),
+                        static_cast<uint32_t>(idx(x, y + 1, 0)) });
+        } else if (dY == 1) {
+            for (int z = 0; z + 1 < dZ; ++z)
+                for (int x = 0; x + 1 < dX; ++x)
+                    cellToVertices.push_back({
+                        static_cast<uint32_t>(idx(x, 0, z)),
+                        static_cast<uint32_t>(idx(x + 1, 0, z)),
+                        static_cast<uint32_t>(idx(x + 1, 0, z + 1)),
+                        static_cast<uint32_t>(idx(x, 0, z + 1)) });
+        } else if (dX == 1) {
+            for (int z = 0; z + 1 < dZ; ++z)
+                for (int y = 0; y + 1 < dY; ++y)
+                    cellToVertices.push_back({
+                        static_cast<uint32_t>(idx(0, y, z)),
+                        static_cast<uint32_t>(idx(0, y + 1, z)),
+                        static_cast<uint32_t>(idx(0, y + 1, z + 1)),
+                        static_cast<uint32_t>(idx(0, y, z + 1)) });
+        }
         return cellToVertices;
     }
 
@@ -1006,7 +1104,6 @@ private:
 
         extrapolateCellDataToPointsMerged();
 
-       
         if (mesh.attributes.has_value()) {
             // Flatten per-point vectors into one contiguous vec3 buffer with a
             // per-field offset (shared_ptr/zero-copy glyph pipeline expects this).
@@ -1018,6 +1115,38 @@ private:
                 for (size_t v = 0; v < perVertex; ++v) {
                     mesh.pointVectorsData.emplace_back(
                         vecArr[v * 3 + 0], vecArr[v * 3 + 1], vecArr[v * 3 + 2]);
+                }
+            }
+        }
+
+        {
+            const size_t cellCount = globalCellToVertices.size();
+            mesh.cellVectorCount = cellCount;
+            for (const auto& [name, raw] : cellVectorsStorage) {
+                if (cellCount == 0 || raw.size() < cellCount * 3) continue;
+                mesh.cellVectorOffset[name] = mesh.cellVectorsData.size();
+                for (size_t c = 0; c < cellCount; ++c) {
+                    mesh.cellVectorsData.emplace_back(
+                        raw[c * 3 + 0], raw[c * 3 + 1], raw[c * 3 + 2]);
+                }
+                mesh.availableCellVectorNames.push_back(name);
+            }
+            if (mesh.cellVectorName.empty() && !mesh.availableCellVectorNames.empty()) {
+                mesh.cellVectorName = mesh.availableCellVectorNames.front();
+            }
+            if (cellCount != 0 && !mesh.vertices.empty()) {
+                mesh.cellCenters.reserve(cellCount);
+                for (size_t c = 0; c < cellCount; ++c) {
+                    const auto& corners = globalCellToVertices[c];
+                    float cx = 0.0f, cy = 0.0f, cz = 0.0f;
+                    for (uint32_t vi : corners) {
+                        const size_t base = static_cast<size_t>(vi) * 3;
+                        cx += mesh.vertices[base + 0];
+                        cy += mesh.vertices[base + 1];
+                        cz += mesh.vertices[base + 2];
+                    }
+                    const float n = static_cast<float>(corners.size());
+                    mesh.cellCenters.emplace_back(cx / n, cy / n, cz / n);
                 }
             }
         }

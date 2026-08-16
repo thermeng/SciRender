@@ -32,12 +32,21 @@ struct BoundingVolume {
 // ── Dataset Attributes (Scalar Data Maps) ───────────────────────────────────
 
 struct DatasetAttributes {
-    // Point data scalars (per-vertex)
+    // Point data scalars (per-vertex, 1 component)
     std::map<std::string, std::vector<float>> pointScalars;
-    // Cell data scalars (per-cell, averaged to vertices during parsing)
+    // Cell data scalars (per-cell, 1 component, averaged to vertices during parsing)
     std::map<std::string, std::vector<float>> cellScalars;
     // VTK VECTORS — per-point 3-component, interleaved [x,y,z]
     std::map<std::string, std::vector<float>> pointVectors;
+    // Multi-component point field data (2, 4+ components) — stored as interleaved floats
+    std::map<std::string, std::vector<float>> pointFieldData;
+    // Multi-component cell field data (2, 4+ components)
+    std::map<std::string, std::vector<float>> cellFieldData;
+    // Component counts for multi-component field data (sidecar)
+    std::map<std::string, int> pointFieldComponents;
+    std::map<std::string, int> cellFieldComponents;
+    // FieldData (arbitrary named arrays, typically per-cell or global metadata)
+    std::map<std::string, std::vector<float>> fieldData;
 
     // Global scalar range boundaries (Required by renderer & color LUT mapping)
     float scalarMin = 0.0f;
@@ -82,6 +91,47 @@ struct RenderMesh {
         // never reads into the next field's run or past the buffer.
         if (pointVectorCount != 0 && count > pointVectorCount) count = pointVectorCount;
         return pointVectorsData.data() + it->second;
+    }
+
+    std::vector<glm::vec3> cellCenters;
+    std::vector<glm::vec3> cellVectorsData;
+    std::unordered_map<std::string, size_t> cellVectorOffset;
+    std::vector<std::string> availableCellVectorNames;
+    std::string cellVectorName = "";
+    size_t cellVectorCount = 0;
+
+    const glm::vec3* cellVectorFieldData(const std::string& name, size_t& count) const {
+        auto it = cellVectorOffset.find(name);
+        if (it == cellVectorOffset.end()) { count = 0; return nullptr; }
+        count = cellVectorsData.size() - it->second;
+        if (cellVectorCount != 0 && count > cellVectorCount) count = cellVectorCount;
+        return cellVectorsData.data() + it->second;
+    }
+
+    bool meshHasCellVectors() const { return !cellVectorsData.empty(); }
+
+    // Scalar-data availability: true when the mesh carries at least one scalar
+    // field accessible at grid nodes. For structured-grid datasets the surface
+    // mesh may have been boundary-extracted (fewer vertices than nodes), which
+    // clears `scalars` but preserves the original per-node field in
+    // `attributes->pointScalars` — so both are checked.
+    bool hasScalarData() const {
+        return !scalars.empty()
+            || (attributes && !attributes->pointScalars.empty());
+    }
+
+    // Volume-grid eligibility: true when gridDim describes at least one 3D cell
+    // along every axis (2+ nodes per axis). This is the precondition for both
+    // volume rendering (3D texture) and marching-cubes isosurface extraction.
+    bool hasVolumeGrid() const {
+        return gridDimX > 1 && gridDimY > 1 && gridDimZ > 1;
+    }
+
+    // Volume-rendering eligibility: a 3D grid WITH a scalar field. (Volume
+    // rendering can also work with non-cell grids, so we accept gridDim > 0
+    // here rather than the stricter > 1 required by isosurface extraction.)
+    bool hasVolumeData() const {
+        return gridDimX > 0 && hasScalarData();
     }
 
     // High-precision bounding volume (double for camera-relative precision)
@@ -144,14 +194,24 @@ namespace mesh_utils {
     // Computes center, extent, and worldRadius from a flat vertex array
     void computeBounds(RenderMesh& mesh);
 
-    // Computes smooth per-vertex normals from indexed geometry configurations
     void computeNormals(RenderMesh& mesh);
+
 }
 
 // ── VTK XML Parser Definition ───────────────────────────────────────────────
 // Parses VTK XML formats (.vtu / .vts / .vti / .vtp / .vtr) — ASCII and binary
 // (inline base64 or appended base64).
 RenderMesh parseVTKXML(const std::string& filePath);
+
+// ── VTK MultiBlock XML Parser Definition ────────────────────────────────────
+// Parses VTK MultiBlock files (.vtm) — references one or more .vtu/.vts/etc.
+// datasets via <DataSet file="..."/> entries and merges them into one mesh.
+RenderMesh parseMultiBlockXML(const std::string& filePath);
+
+// ── RenderMesh merge utility ────────────────────────────────────────────────
+// Concatenates vertices, indices, normals, scalars and vector data from
+// multiple meshes into a single RenderMesh. Index buffers are rebased.
+RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes);
 
 // ── VTK Legacy Parser Definition ────────────────────────────────────────────
 // Parses Legacy VTK formats (supporting ASCII/BINARY and UNSTRUCTURED/STRUCTURED grids)
