@@ -10,9 +10,9 @@
 #include <QTimer>
 #include <QLabel>
 #include <memory>
-#include "render/renderer.h"
-#include "render/render_settings.h"
-#include "render/screenshot_capture.h"
+#include "render/foundation/renderer.h"
+#include "render/settings/render_settings.h"
+#include "render/overlays/screenshot_capture.h"
 
 class ViewportWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
@@ -61,3 +61,5 @@ private:
 private slots:
     void deferredCapture(const QString& path);
 };
+
+
