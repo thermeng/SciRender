@@ -1104,7 +1104,6 @@ private:
 
         extrapolateCellDataToPointsMerged();
 
-       
         if (mesh.attributes.has_value()) {
             // Flatten per-point vectors into one contiguous vec3 buffer with a
             // per-field offset (shared_ptr/zero-copy glyph pipeline expects this).

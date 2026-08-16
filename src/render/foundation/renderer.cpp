@@ -587,6 +587,22 @@ void Renderer::drawGizmo() {
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
 }
 
+std::string Renderer::vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh) {
+    std::string titleField = state.vectorField;
+    if (titleField.empty() && mesh) {
+        if (state.vectorPlacement == 1) {
+            if (!mesh->cellVectorName.empty())
+                titleField = mesh->cellVectorName;
+            else if (!mesh->availableCellVectorNames.empty())
+                titleField = mesh->availableCellVectorNames.front();
+        } else {
+            if (!mesh->availableVectorNames.empty())
+                titleField = mesh->availableVectorNames.front();
+        }
+    }
+    return titleField;
+}
+
 void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     if (deviceW <= 0 || deviceH <= 0) return;
     const float dpr = static_cast<float>(devicePixelRatio);
@@ -628,10 +644,11 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     }
 
     // Vector bar
-    if (m_state.showVectors && m_state.vectorUseColormap && m_state.meshHasVectors && m_state.hasMeshLoaded) {
+    if (m_state.showVectors && m_state.vectorUseColormap && m_state.hasMeshLoaded &&
+        (m_state.vectorPlacement == 0 ? m_state.meshHasVectors : m_state.meshHasCellVectors)) {
         ColorbarData d;
         d.visible = true;
-        d.title = QString::fromStdString(m_state.vectorField) + QChar(0x27A1);
+        d.title = QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())) + QChar(0x27A1);
         d.subtitle = "Vector";
         d.stops = stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed);
         auto txMag = [&](float m) -> float {

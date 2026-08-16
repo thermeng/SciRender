@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <iterator>
+#include <cmath>
+#include <limits>
 #include <QFileInfo>
 #include <QSettings>
 
@@ -412,6 +414,16 @@ void RenderSettings::onMeshParsed() {
     // Vector field availability gate for colorbars / UI.
     m_state.meshHasVectors = !loaded->pointVectorsData.empty();
     m_state.meshHasCellVectors = !loaded->cellVectorsData.empty();
+
+    // Auto-adjust vectorPlacement to match the mesh's vector data:
+    // - Cell-center placement requires cell vectors; if absent, fall back to vertex.
+    // - If only cell vectors exist (no point vectors), use cell-center so glyphs render.
+    if (!m_state.meshHasCellVectors && m_state.vectorPlacement == 1) {
+        m_state.vectorPlacement = 0;
+    } else if (!m_state.meshHasVectors && m_state.meshHasCellVectors) {
+        m_state.vectorPlacement = 1;
+    }
+
     if (!m_state.meshHasVectors) {
         m_state.showStreamlines = false;
     }
@@ -426,6 +438,10 @@ void RenderSettings::onMeshParsed() {
         m_meshData.guiMeta.vectorName = loaded->availableVectorNames.front();
         m_state.vectorField = loaded->availableVectorNames.front();
         m_state.streamlineVectorField = loaded->availableVectorNames.front();
+    } else if (!loaded->cellVectorsData.empty()) {
+        m_meshData.guiMeta.vectorName = loaded->cellVectorName;
+        m_state.vectorField = loaded->cellVectorName;
+        m_state.streamlineVectorField.clear();
     } else {
         m_meshData.guiMeta.vectorName.clear();
         m_state.vectorField.clear();
@@ -454,8 +470,14 @@ void RenderSettings::onMeshParsed() {
             auto it = ps.find(loaded->scalarName);
             if (it == ps.end()) it = ps.begin();
             if (it != ps.end() && !it->second.empty()) {
-                float mn = it->second[0], mx = it->second[0];
-                for (float v : it->second) { if (v < mn) mn = v; if (v > mx) mx = v; }
+                float mn = std::numeric_limits<float>::max();
+                float mx = -std::numeric_limits<float>::max();
+                for (float v : it->second) {
+                    if (!std::isfinite(v)) continue;
+                    if (v < mn) mn = v;
+                    if (v > mx) mx = v;
+                }
+                if (mn > mx) { mn = 0.0f; mx = 1.0f; }
                 m_state.dataScalarMin = mn;
                 m_state.dataScalarMax = mx;
                 m_state.scalarMin = mn;
@@ -526,8 +548,14 @@ void RenderSettings::requestScreenshot(const QString& path) {
 
 void RenderSettings::recomputeScalarRange() {
     if (m_meshData.guiMeta.scalars.empty()) return;
-    float mn = m_meshData.guiMeta.scalars[0], mx = m_meshData.guiMeta.scalars[0];
-    for (float v : m_meshData.guiMeta.scalars) { if (v < mn) mn = v; if (v > mx) mx = v; }
+    float mn = std::numeric_limits<float>::max();
+    float mx = -std::numeric_limits<float>::max();
+    for (float v : m_meshData.guiMeta.scalars) {
+        if (!std::isfinite(v)) continue;
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+    }
+    if (mn > mx) { mn = 0.0f; mx = 1.0f; }
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
     m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
     m_state.scalarMin = mn; m_state.scalarMax = mx;
@@ -569,15 +597,18 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
 
 void RenderSettings::setActiveVectorField(const QString& fieldName) {
     if (fieldName.isEmpty()) return;
-    if (m_meshData.guiMeta.availableVectorNames.empty() ||
-        std::find(m_meshData.guiMeta.availableVectorNames.begin(),
-                  m_meshData.guiMeta.availableVectorNames.end(),
-                  fieldName.toStdString()) == m_meshData.guiMeta.availableVectorNames.end()) {
+    std::string name = fieldName.toStdString();
+    const auto& pointNames = m_meshData.guiMeta.availableVectorNames;
+    const auto& cellNames = m_meshData.guiMeta.availableCellVectorNames;
+    bool found =
+        (!pointNames.empty() && std::find(pointNames.begin(), pointNames.end(), name) != pointNames.end()) ||
+        (!cellNames.empty() && std::find(cellNames.begin(), cellNames.end(), name) != cellNames.end());
+    if (!found) {
         setStatus(QString("Unknown vector field: %1").arg(fieldName));
         return;
     }
-    m_meshData.guiMeta.vectorName = fieldName.toStdString();
-    m_state.vectorField = fieldName.toStdString();
+    m_meshData.guiMeta.vectorName = name;
+    m_state.vectorField = name;
     m_renderer.markVectorGlyphDirty();
     markStateDirty(); emit meshDataUpdated();
 }

@@ -478,6 +478,7 @@ public:
 private:
     void drawGizmo();
     void drawColorbarLegends(int deviceW, int deviceH);
+    static std::string vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     void updateSliceScalarRange();
 

@@ -421,7 +421,9 @@ std::vector<float> MeshGLManager::decimateScalars(
             newIdx = it->second;
         }
         remap[i] = newIdx;
-        if (i < fullScalars.size()) sc[newIdx] += static_cast<double>(fullScalars[i]);
+        if (i < fullScalars.size() && std::isfinite(fullScalars[i])) {
+            sc[newIdx] += static_cast<double>(fullScalars[i]);
+        }
         cnt[newIdx] += 1.0;
     }
 

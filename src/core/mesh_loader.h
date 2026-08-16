@@ -194,8 +194,8 @@ namespace mesh_utils {
     // Computes center, extent, and worldRadius from a flat vertex array
     void computeBounds(RenderMesh& mesh);
 
-    // Computes smooth per-vertex normals from indexed geometry configurations
     void computeNormals(RenderMesh& mesh);
+
 }
 
 // ── VTK XML Parser Definition ───────────────────────────────────────────────

@@ -1336,10 +1336,14 @@ QWidget* MainWindow::buildVectorsPage() {
         auto* valueLabel = vectorsUi.strideValue;
         slider->setRange(static_cast<int>(1 * 1000), static_cast<int>(20 * 1000));
         slider->setValue(static_cast<int>(m_settings->getVectorStride() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+        connect(slider, &QSlider::valueChanged, this, [valueLabel](int raw) {
             double v = raw / 1000.0;
             valueLabel->setText(QString::number(v, 'f', 0));
-            m_settings->setVectorStride(static_cast<int>(v));
+        });
+        connect(slider, &QSlider::sliderReleased, this, [slider, this]() {
+            int v = static_cast<int>(slider->value() / 1000.0);
+            if (v < 1) v = 1;
+            m_settings->setVectorStride(v);
         });
     }
 
@@ -2450,13 +2454,14 @@ void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshScalarFilterRange);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this]() {
         const bool hasVectors = m_settings->hasMeshVectors();
+        const bool hasCellVectors = m_settings->hasMeshCellVectors();
         if (m_slShowCb) {
             m_slShowCb->setEnabled(hasVectors);
             if (!hasVectors) m_slShowCb->setChecked(false);
         }
         if (m_vecShowCb) {
-            m_vecShowCb->setEnabled(hasVectors);
-            if (!hasVectors) m_vecShowCb->setChecked(false);
+            m_vecShowCb->setEnabled(hasVectors || hasCellVectors);
+            if (!(hasVectors || hasCellVectors)) m_vecShowCb->setChecked(false);
         }
         if (m_scalarShowCb) {
             bool ok = m_settings->hasMeshScalars();
