@@ -434,7 +434,10 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     const glm::mat4 lineMVP = gizmoProj * gizmoView;
 
     glClipControl(prevClipOrigin, GL_NEGATIVE_ONE_TO_ONE);
-    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -451,6 +454,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
 
     // Per-axis quad: 6 verts (2 triangles) × (vec2 pos + vec3 col + float dist) = 36 floats
     float quadData[3][36];
+    bool axisVisible[3] = { true, true, true };
 
     for (int i = 0; i < 3; ++i) {
         glm::vec4 cA = lineMVP * glm::vec4(origins[i], 1.0f);
@@ -459,7 +463,23 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
         glm::vec2 a(cA), b(cB);
         glm::vec2 dir = b - a;
         float len = glm::length(dir);
-        if (len < 1e-6f) continue;
+
+        // Detect pole view: axis tip projects to near-origin (viewing down that axis)
+        if (len < 1e-4f) {
+            axisVisible[i] = false;
+            // Fill with degenerate quad (will be no-op draw)
+            float r = colors[i][0], g = colors[i][1], b2 = colors[i][2];
+            float q[] = {
+                a.x, a.y, r, g, b2, 0.0f,
+                a.x, a.y, r, g, b2, 0.0f,
+                a.x, a.y, r, g, b2, 0.0f,
+                a.x, a.y, r, g, b2, 0.0f,
+                a.x, a.y, r, g, b2, 0.0f,
+                a.x, a.y, r, g, b2, 0.0f,
+            };
+            std::memcpy(quadData[i], q, sizeof(q));
+            continue;
+        }
         glm::vec2 perp(-dir.y / len, dir.x / len);  // perpendicular in clip space
 
         glm::vec2 aL = a - perp * hwClip;
@@ -492,9 +512,6 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     // ---- Axis tip cones (diffuse-lit) ----
     glUseProgram(capProgram);
     glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
-    // Simple directional light from upper-right-front
-    glm::vec3 lightDir = glm::normalize(glm::vec3(0.4f, 0.6f, 0.7f));
-    glUniform3fv(capLightDirLoc, 1, glm::value_ptr(lightDir));
     glBindVertexArray(capVAO);
     for (int i = 0; i < 3; ++i) {
         glUniform3fv(capColorLoc, 1, colors[i]);
@@ -509,7 +526,34 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glDrawArrays(GL_TRIANGLES, 0, originVertCount);
     glBindVertexArray(0);
 
+    // ---- Pole-view axis markers (for axes viewed end-on) ----
+    // Draw a small disc at origin for axes invisible due to pole view
+    const float poleMarkerRadius = 0.08f;
+    for (int i = 0; i < 3; ++i) {
+        if (axisVisible[i]) continue;
+        const int segments = 16;
+        std::vector<float> markerVerts;
+        markerVerts.reserve(segments * 3 * 6);
+        for (int s = 0; s < segments; ++s) {
+            float a0 = (float)s / segments * 6.28318f;
+            float a1 = (float)(s + 1) / segments * 6.28318f;
+            float r = colors[i][0], g = colors[i][1], b = colors[i][2];
+            markerVerts.insert(markerVerts.end(), { 0.0f, 0.0f, r, g, b, 0.0f });
+            markerVerts.insert(markerVerts.end(), { std::cos(a0) * poleMarkerRadius, std::sin(a0) * poleMarkerRadius, r, g, b, 0.0f });
+            markerVerts.insert(markerVerts.end(), { std::cos(a1) * poleMarkerRadius, std::sin(a1) * poleMarkerRadius, r, g, b, 0.0f });
+        }
+        glUseProgram(aaLineProgram);
+        glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+        glUniform1f(aaLineHalfWidthLoc, halfWidth);
+        glBindVertexArray(aaLineVAO);
+        glNamedBufferSubData(aaLineVBO, 0, markerVerts.size() * sizeof(float), markerVerts.data());
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(markerVerts.size() / 6));
+        glBindVertexArray(0);
+    }
+
     // ---- Text labels (per-vertex color, batched: single upload + single draw) ----
+    // Disable depth test for screen-space text labels
+    glDisable(GL_DEPTH_TEST);
     const glm::mat4 textMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
     const float cellU = 1.0f / 3.0f;
     const float glyph = 24.0f;
@@ -525,6 +569,22 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
         float cy = (ndc.y * 0.5f + 0.5f) * foot;
         cx = std::max(half, std::min(foot - half, cx));
         cy = std::max(half, std::min(foot - half, cy));
+
+        // Detect pole view and offset label to avoid overlapping origin disc
+        bool isPole = std::abs(ndc.z) > 0.99f;
+        if (isPole) {
+            float offsetDist = glyph * 1.5f;
+            if (i == 2) {
+                cx += offsetDist * 0.707f;
+                cy += offsetDist * 0.707f;
+            } else if (i == 0) {
+                cy += (ndc.y >= 0 ? offsetDist : -offsetDist);
+            } else {
+                cx += (ndc.x >= 0 ? offsetDist : -offsetDist);
+            }
+            cx = std::max(half, std::min(foot - half, cx));
+            cy = std::max(half, std::min(foot - half, cy));
+        }
 
         float u0 = i * cellU, u1 = (i + 1) * cellU;
         const float vTop = 0.0f, vBot = 1.0f;
@@ -552,7 +612,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glUseProgram(0);
 
     // ---- State handover ----
-    glClipControl(prevClipOrigin, GL_NEGATIVE_ONE_TO_ONE);
+    glClipControl(prevClipOrigin, prevClipDepthMode);
     if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (blendWas) glEnable(GL_BLEND); else glDisable(GL_BLEND);
     if (cullWas) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);

@@ -31,7 +31,7 @@ private:
     GlProgram capProgram;
     GlVao capVAO;
     GlBuffer capVBO;
-    GLint  capMvpLoc = -1, capLightDirLoc = -1, capColorLoc = -1;
+    GLint  capMvpLoc = -1, capColorLoc = -1;
     int    capVertCount = 0;
 
     GlVao originVAO;
