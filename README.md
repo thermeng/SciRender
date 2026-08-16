@@ -15,10 +15,10 @@
 <table>
   <tr>
     <td align="center" width="50%">
-      <video src="./demo/ligthing.mp4" style="max-width:100%;" controls autoplay loop muted></video>
+      <video src="https://github.com/user-attachments/assets/09954fdb-5e38-4243-adc0-6afaba627894" style="max-width:100%;" controls autoplay loop muted></video>
     </td>
     <td align="center" width="50%">
-      <video src="./demo/streamlines.mp4" style="max-width:100%;" controls autoplay loop muted></video>
+      <video src="https://github.com/user-attachments/assets/ea3a350b-f5c7-4a2e-afab-9eb410e4da90" style="max-width:100%;" controls autoplay loop muted></video>
     </td>
   </tr>
 </table>
