@@ -7,6 +7,8 @@
 #include <map>
 #include <unordered_map>
 #include <optional>
+#include <charconv>
+#include <fstream>
 
 #include <glm/glm.hpp>
 
@@ -33,20 +35,20 @@ struct BoundingVolume {
 
 struct DatasetAttributes {
     // Point data scalars (per-vertex, 1 component)
-    std::map<std::string, std::vector<float>> pointScalars;
+    std::unordered_map<std::string, std::vector<float>> pointScalars;
     // Cell data scalars (per-cell, 1 component, averaged to vertices during parsing)
-    std::map<std::string, std::vector<float>> cellScalars;
+    std::unordered_map<std::string, std::vector<float>> cellScalars;
     // VTK VECTORS — per-point 3-component, interleaved [x,y,z]
-    std::map<std::string, std::vector<float>> pointVectors;
+    std::unordered_map<std::string, std::vector<float>> pointVectors;
     // Multi-component point field data (2, 4+ components) — stored as interleaved floats
-    std::map<std::string, std::vector<float>> pointFieldData;
+    std::unordered_map<std::string, std::vector<float>> pointFieldData;
     // Multi-component cell field data (2, 4+ components)
-    std::map<std::string, std::vector<float>> cellFieldData;
+    std::unordered_map<std::string, std::vector<float>> cellFieldData;
     // Component counts for multi-component field data (sidecar)
-    std::map<std::string, int> pointFieldComponents;
-    std::map<std::string, int> cellFieldComponents;
+    std::unordered_map<std::string, int> pointFieldComponents;
+    std::unordered_map<std::string, int> cellFieldComponents;
     // FieldData (arbitrary named arrays, typically per-cell or global metadata)
-    std::map<std::string, std::vector<float>> fieldData;
+    std::unordered_map<std::string, std::vector<float>> fieldData;
 
     // Global scalar range boundaries (Required by renderer & color LUT mapping)
     float scalarMin = 0.0f;
@@ -157,7 +159,23 @@ struct RenderMesh {
     // the parser's position dedup. The mesh-quality analyzer welds these at
     // trimesh's 1e-8 tolerance to match script.py; the rendered indexed mesh
     // uses the (looser 1/4096) dedup for shading, so the two must stay separate.
-    std::vector<float> flatVerts;
+    // For VTK/OBJ parsers, this is lazily computed on first access to avoid
+    // the 3x memory cost when quality analysis is not needed.
+    // Mutable because it is a lazy cache — logically derived from vertices+indices.
+    mutable std::vector<float> flatVerts;
+
+    // Lazily compute flatVerts from vertices+indices if not already populated.
+    // Called by mesh_quality analysis. No-op if flatVerts is already filled.
+    void ensureFlatVerts() const {
+        if (!flatVerts.empty() || indices.empty() || vertices.empty()) return;
+        flatVerts.reserve(indices.size() * 3);
+        for (uint32_t idx : indices) {
+            const float* p = &vertices[idx * 3];
+            flatVerts.push_back(p[0]);
+            flatVerts.push_back(p[1]);
+            flatVerts.push_back(p[2]);
+        }
+    }
 
     // True/topological point count of the source geometry — the number of
     // distinct vertices (after position dedup for STL). This is what tools like
@@ -174,9 +192,56 @@ struct RenderMesh {
 // ── Utility Functions (Shared by all parsers) ────────────────────────────────
 
 namespace mesh_utils {
-    // String processing helpers
+    // String processing helpers (heap-allocating, kept for backward compat)
     std::string trim(const std::string& s);
     std::string toUpper(const std::string& s);
+
+    // Zero-allocation string helpers for hot parsing paths
+    inline void toUpperInPlace(std::string& s) {
+        for (char& c : s) c = static_cast<char>(::toupper(static_cast<unsigned char>(c)));
+    }
+
+    // Case-insensitive string comparison (no allocation)
+    inline bool iequal(const std::string& a, const char* b) {
+        size_t i = 0;
+        for (; i < a.size() && b[i] != '\0'; ++i) {
+            if (::toupper(static_cast<unsigned char>(a[i])) != ::toupper(static_cast<unsigned char>(b[i])))
+                return false;
+        }
+        return i == a.size() && b[i] == '\0';
+    }
+
+    // Case-insensitive comparison for two string_views
+    inline bool iequal(std::string_view a, std::string_view b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (::toupper(static_cast<unsigned char>(a[i])) != ::toupper(static_cast<unsigned char>(b[i])))
+                return false;
+        }
+        return true;
+    }
+
+    // Advance pointer past whitespace (zero allocation trim)
+    inline const char* skipWhitespace(const char* p, const char* end) {
+        while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
+        return p;
+    }
+
+    // Advance pointer to end of current token (non-whitespace)
+    inline const char* skipToken(const char* p, const char* end) {
+        while (p < end && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') ++p;
+        return p;
+    }
+
+    // Case-insensitive first-N-chars comparison (for keyword dispatch)
+    inline bool iStartsWith(std::string_view input, std::string_view prefix) {
+        if (input.size() < prefix.size()) return false;
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            if (::toupper(static_cast<unsigned char>(input[i])) != ::toupper(static_cast<unsigned char>(prefix[i])))
+                return false;
+        }
+        return true;
+    }
 
     // Endianness handling helpers
     bool isLittleEndian();
@@ -195,6 +260,95 @@ namespace mesh_utils {
     void computeBounds(RenderMesh& mesh);
 
     void computeNormals(RenderMesh& mesh);
+
+    // ── Fast ASCII numeric parsing ──────────────────────────────────────────────
+    // Replaces std::istringstream/operator>> which carries per-token locale and
+    // virtual-dispatch overhead. These use std::from_chars (zero locale, no
+    // formatting state) for 5–20× speedup on ASCII data blocks.
+
+    // Parse all whitespace-separated numeric values from a text buffer into `out`.
+    // Appends to `out` (does not clear). Returns number of values parsed.
+    template<typename T>
+    inline size_t parseAsciiRange(const char* begin, const char* end, std::vector<T>& out) {
+        size_t parsed = 0;
+        const char* p = begin;
+        while (p < end) {
+            // skip whitespace
+            while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
+            if (p >= end) break;
+            T val;
+            auto [ptr, ec] = std::from_chars(p, end, val);
+            if (ec != std::errc()) break;
+            out.push_back(val);
+            p = ptr;
+            ++parsed;
+        }
+        return parsed;
+    }
+
+    // Fast double-parse from a text buffer (VTK legacy SCALARS/VECTORS use double
+    // in the ifstream >> path; from_chars handles double directly).
+    template<typename T>
+    inline size_t parseAsciiRangeFloat(const char* begin, const char* end, std::vector<T>& out) {
+        return parseAsciiRange<T>(begin, end, out);
+    }
+
+    // Read `count` ASCII numeric values from an ifstream, line by line via
+    // std::getline (buffered) + from_chars. Returns number of values parsed.
+    // Uses getline (not char-by-char get()) so the stream's internal buffer
+    // handles buffering; from_chars handles the fast numeric scan per line.
+    template<typename T>
+    inline size_t readAsciiValues(std::ifstream& f, size_t count, std::vector<T>& out) {
+        out.resize(count);
+        size_t parsed = 0;
+        std::string line;
+        while (parsed < count && std::getline(f, line)) {
+            const char* p = line.data();
+            const char* end = p + line.size();
+            while (parsed < count) {
+                while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
+                if (p >= end) break;
+                T val;
+                auto [ptr, ec] = std::from_chars(p, end, val);
+                if (ec != std::errc()) break;
+                out[parsed++] = val;
+                p = ptr;
+            }
+        }
+        if (parsed < count) out.resize(parsed);
+        return parsed;
+    }
+
+    // Read ASCII integer values from an ifstream (16-bit path for SHORT types).
+    inline size_t readAsciiValues16(std::ifstream& f, size_t count, std::vector<int16_t>& out) {
+        return readAsciiValues(f, count, out);
+    }
+
+    // Read ASCII unsigned char values from an ifstream.
+    inline size_t readAsciiValuesU8(std::ifstream& f, size_t count, std::vector<uint8_t>& out) {
+        return readAsciiValues(f, count, out);
+    }
+
+    // Read ASCII int64 / uint64 values from an ifstream.
+    inline size_t readAsciiValues64(std::ifstream& f, size_t count, std::vector<int64_t>& out) {
+        return readAsciiValues(f, count, out);
+    }
+
+    // Read ASCII uint32 values from an ifstream.
+    inline size_t readAsciiValuesU32(std::ifstream& f, size_t count, std::vector<uint32_t>& out) {
+        return readAsciiValues(f, count, out);
+    }
+
+    // Extrapolate cell-centered scalar/vector data to point data by averaging
+    // over all cells incident to each point (one-ring weighting).
+    // Pre-collects field metadata into a flat array to avoid per-cell hash
+    // lookups, and computes contribution counts in a single vertex pass.
+    void extrapolateCellDataToPoints(
+        RenderMesh& mesh,
+        const std::vector<std::vector<uint32_t>>& globalCellToVertices,
+        const std::unordered_map<std::string, std::vector<float>>& cellScalarsStorage,
+        const std::unordered_map<std::string, std::vector<float>>& cellVectorsStorage
+    );
 
 }
 
