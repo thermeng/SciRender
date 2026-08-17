@@ -5,6 +5,8 @@
 #include <unordered_map>
 #include <cstdint>
 #include <cmath>
+#include <charconv>
+#include <cctype>
 
 // ponytail: OBJ vertex dedup reuses the same injective quantized-key idea as
 // stl_parser (only truly coincident verts merge). Kept local — one small map,
@@ -39,7 +41,9 @@ RenderMesh parseOBJ(const std::string& filePath) {
         auto it = posToIndex.find(key);
         if (it != posToIndex.end()) return it->second;
         uint32_t idx = static_cast<uint32_t>(mesh.vertices.size() / 3);
-        mesh.vertices.insert(mesh.vertices.end(), { x, y, z });
+        mesh.vertices.push_back(x);
+        mesh.vertices.push_back(y);
+        mesh.vertices.push_back(z);
         posToIndex.emplace(key, idx);
         return idx;
     };
@@ -47,28 +51,55 @@ RenderMesh parseOBJ(const std::string& filePath) {
     std::string line;
     while (std::getline(file, line)) {
         if (line.empty() || line[0] == '#') continue;
-        std::istringstream ss(line);
-        std::string tag; ss >> tag;
+
+        const char* p = line.data();
+        const char* end = p + line.size();
+        while (p < end && std::isspace(static_cast<unsigned char>(*p))) ++p;
+
+        // read tag
+        const char* tagStart = p;
+        while (p < end && !std::isspace(static_cast<unsigned char>(*p))) ++p;
+        std::string tag(tagStart, p - tagStart);
+
+        while (p < end && std::isspace(static_cast<unsigned char>(*p))) ++p;
+
         if (tag == "v") {
             float x, y, z;
-            if (!(ss >> x >> y >> z)) continue;
-            rawVerts.insert(rawVerts.end(), { x, y, z });
+            auto [ptr0, ec0] = std::from_chars(p, end, x);
+            if (ec0 != std::errc()) continue;
+            while (ptr0 < end && std::isspace(static_cast<unsigned char>(*ptr0))) ++ptr0;
+            auto [ptr1, ec1] = std::from_chars(ptr0, end, y);
+            if (ec1 != std::errc()) continue;
+            while (ptr1 < end && std::isspace(static_cast<unsigned char>(*ptr1))) ++ptr1;
+            auto [ptr2, ec2] = std::from_chars(ptr1, end, z);
+            if (ec2 != std::errc()) continue;
+            rawVerts.push_back(x);
+            rawVerts.push_back(y);
+            rawVerts.push_back(z);
         } else if (tag == "f") {
             std::vector<uint32_t> face;
-            std::string tok;
-            while (ss >> tok) {
-                // take text before first '/', parse as 1-based index (neg = from end)
-                size_t slash = tok.find('/');
-                int vi = std::stoi(tok.substr(0, slash));
-                int n = static_cast<int>(rawVerts.size() / 3);
-                if (vi < 0) vi += n + 1;
-                if (vi < 1 || vi > n) continue;
-                face.push_back(addVertex(rawVerts[(vi-1)*3], rawVerts[(vi-1)*3+1], rawVerts[(vi-1)*3+2]));
+            while (p < end) {
+                const char* tokStart = p;
+                while (p < end && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' && *p != '/') ++p;
+                long vi = 0;
+                auto [ptr, ec] = std::from_chars(tokStart, p, vi);
+                if (ec == std::errc()) {
+                    int n = static_cast<int>(rawVerts.size() / 3);
+                    if (vi < 0) vi += n + 1;
+                    if (vi >= 1 && vi <= n)
+                        face.push_back(addVertex(rawVerts[(vi-1)*3], rawVerts[(vi-1)*3+1], rawVerts[(vi-1)*3+2]));
+                }
+                // advance to next whitespace-delimited token (skip /vt/vn parts)
+                while (p < end && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') ++p;
+                while (p < end && std::isspace(static_cast<unsigned char>(*p))) ++p;
             }
             // ponytail: fan-triangulate (convex). Non-convex/holed faces would
             // need ear-clipping; add if real datasets break.
-            for (size_t i = 1; i + 1 < face.size(); ++i)
-                mesh.indices.insert(mesh.indices.end(), { face[0], face[i], face[i+1] });
+            for (size_t i = 1; i + 1 < face.size(); ++i) {
+                mesh.indices.push_back(face[0]);
+                mesh.indices.push_back(face[i]);
+                mesh.indices.push_back(face[i+1]);
+            }
         }
         // ponytail: vt/vn/l/o/g/etc. intentionally ignored (see header).
     }

@@ -336,19 +336,18 @@ void RenderSettings::loadMesh(const QString& filePath) {
     const uint64_t token = ++m_loadToken;
     auto taskToken = std::make_shared<std::atomic<uint64_t>>(token);
     m_taskToken = taskToken;
-    QFuture<MeshLoadResult> f =
-        QtConcurrent::run([stdPath, taskToken, token]() -> MeshLoadResult {
-            RenderMesh loaded = loadMeshFile(stdPath);
-            taskToken->store(token); // mark this task's generation on completion
-            MeshLoadResult res;
-            res.mesh = std::make_shared<const RenderMesh>(std::move(loaded));
-            // ponytail: analyze off-thread so the heavy weld/sort/traversal never
-            // blocks the GUI thread. flatVerts is stable on the shared mesh.
-            res.quality = analyzeMeshQuality(*res.mesh);
-            return res;
-        });
+    // Chain load → analyze so the main thread can show progressive status.
+    // Each phase runs off-thread; the continuation starts automatically when parsing completes.
+    auto loadFuture = QtConcurrent::run([stdPath]() { return loadMeshFile(stdPath); });
+    auto resultFuture = loadFuture.then([taskToken, token](RenderMesh loaded) -> MeshLoadResult {
+        taskToken->store(token); // mark this task's generation on completion
+        MeshLoadResult res;
+        res.mesh = std::make_shared<const RenderMesh>(std::move(loaded));
+        res.quality = analyzeMeshQuality(*res.mesh);
+        return res;
+    });
     m_loadingPath = stdPath;
-    m_meshWatcher.setFuture(f);
+    m_meshWatcher.setFuture(resultFuture);
     setStatus(QString("Loading %1…").arg(QString::fromStdString(stdPath)));
 }
 
