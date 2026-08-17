@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <chrono>
 
 static bool fileExists(const std::string& path) {
     std::ifstream f(path);
@@ -53,25 +54,36 @@ static const Gold GOLD[] = {
 int main(){
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string samples = "../samples/";   // run from tests/
+    double totalParseTime = 0.0;
+    double totalQualityTime = 0.0;
     for (const auto& g : GOLD) {
         std::string path = samples + g.name;
         if (!fileExists(path)) { printf("SKIP (missing): %s\n", g.name); continue; }
+        auto t0 = std::chrono::steady_clock::now();
         RenderMesh m = loadMeshFile(path);
+        auto t1 = std::chrono::steady_clock::now();
+        double parseMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        totalParseTime += parseMs;
         uint32_t vc = (uint32_t)(m.vertices.size()/3);
         uint32_t mx = 0; for (uint32_t x : m.indices) mx = (x>mx)?x:mx;
         size_t tris = m.indices.size()/3;
         bool caseOk = true;
         if (!(mx < vc))                          { CHECK(mx < vc, g.name, "OOB index"); caseOk = false; }
         if (!(tris == g.tris))                   { CHECK(tris == g.tris, g.name, "tris mismatch"); caseOk = false; }
+        auto t2 = std::chrono::steady_clock::now();
         MeshQuality q = analyzeMeshQuality(m);
+        auto t3 = std::chrono::steady_clock::now();
+        double qualityMs = std::chrono::duration<double, std::milli>(t3 - t2).count();
+        totalQualityTime += qualityMs;
         if (!((int)q.watertight == g.watertight)){ CHECK((int)q.watertight == g.watertight, g.name, "watertight mismatch"); caseOk = false; }
         if (!((int)q.openEdges == g.open))       { CHECK((int)q.openEdges == g.open, g.name, "open mismatch"); caseOk = false; }
-        printf("%s %s (tris=%zu wt=%d open=%d)\n",
-               caseOk ? "[PASS]" : "[FAIL]", g.name, tris, (int)q.watertight, q.openEdges);
+        printf("%s %s (tris=%zu wt=%d open=%d) [parse=%.1fms quality=%.1fms]\n",
+               caseOk ? "[PASS]" : "[FAIL]", g.name, tris, (int)q.watertight, q.openEdges, parseMs, qualityMs);
         fflush(stdout);
     }
     if (failures==0) {
-        printf("\nALL PARSER REGRESSION CHECKS PASSED (%zu files)\n", sizeof(GOLD)/sizeof(GOLD[0]));
+        printf("\nALL PARSER REGRESSION CHECKS PASSED (%zu files, %.1f ms parse, %.1f ms quality, %.1f ms total)\n",
+               sizeof(GOLD)/sizeof(GOLD[0]), totalParseTime, totalQualityTime, totalParseTime + totalQualityTime);
     } else {
         printf("\n%d CHECK(S) FAILED in %zu file(s):\n", failures, failedFiles.size());
         for (const auto& f : failedFiles) printf("  - %s\n", f.c_str());
