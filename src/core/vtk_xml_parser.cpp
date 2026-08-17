@@ -5,7 +5,6 @@
 #include <7zAlloc.h>
 #include <fstream>
 #include <iostream>
-#include <sstream>
 #include <vector>
 #include <string>
 #include <cstring>
@@ -36,8 +35,9 @@ enum class Compression {
 };
 
 static Compression detectCompression(const std::string& compressorStr) {
+    if (compressorStr.empty()) return Compression::None;
+    // Case-insensitive substring search without allocation
     std::string upper = mesh_utils::toUpper(compressorStr);
-    if (upper.empty()) return Compression::None;
     if (upper.find("ZLIB") != std::string::npos) return Compression::Zlib;
     if (upper.find("LZ4") != std::string::npos) return Compression::Lz4;
     if (upper.find("LZMA") != std::string::npos) return Compression::Lzma;
@@ -260,36 +260,53 @@ static bool decompressBlocks(const char* src, size_t srcLen, size_t& offset,
 }
 
 // ============================================================================
-// Base64 decode
+// Base64 decode — O(1) per character via 256-byte lookup table
 // ============================================================================
 
-static const char* base64_chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-static int base64_char_to_value(char c) {
-    const char* p = std::strchr(base64_chars, c);
-    return p ? int(p - base64_chars) : -1;
+static const int8_t* base64LookupTable() {
+    static int8_t table[256];
+    static bool initialized = false;
+    if (!initialized) {
+        std::memset(table, -1, sizeof(table));
+        const char* alphabet =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i = 0; i < 64; ++i)
+            table[static_cast<unsigned char>(alphabet[i])] = static_cast<int8_t>(i);
+        initialized = true;
+    }
+    return table;
 }
 
 static void decodeBase64(const std::string& input, std::vector<char>& out) {
     out.clear();
     out.reserve(input.size() * 3 / 4);
-    std::vector<int> tmp;
-    tmp.reserve(input.size());
+    const int8_t* tbl = base64LookupTable();
+
+    // Decode in-place into the output buffer at native speed: 4 input chars
+    // -> 3 output bytes, skipping whitespace and handling '=' padding.
+    // We accumulate 4 base64 quanta (each 6 bits) into a 24-bit word, then
+    // emit the three low bytes.
+    uint32_t quad = 0;
+    int bits = 0;
     for (char c : input) {
-        if (c == '\n' || c == '\r' || c == ' ' || c == '\t' || c == '_') continue;
-        if (c == '=') { tmp.push_back(-1); continue; }
-        int val = base64_char_to_value(c);
-        if (val >= 0) tmp.push_back(val);
+        int8_t val = tbl[static_cast<unsigned char>(c)];
+        if (val == -1) continue;  // skip whitespace, padding, underscores
+        quad = (quad << 6) | static_cast<uint32_t>(val);
+        bits += 6;
+        if (bits == 24) {
+            out.push_back(char((quad >> 16) & 0xFF));
+            out.push_back(char((quad >> 8) & 0xFF));
+            out.push_back(char(quad & 0xFF));
+            quad = 0;
+            bits = 0;
+        }
     }
-    for (size_t i = 0; i + 1 < tmp.size(); i += 4) {
-        int a = tmp[i], b = (i + 1 < tmp.size()) ? tmp[i + 1] : 0;
-        int c = (i + 2 < tmp.size()) ? tmp[i + 2] : 0;
-        int d = (i + 3 < tmp.size()) ? tmp[i + 3] : 0;
-        if (a < 0 || b < 0) break;
-        out.push_back(char((a << 2) | (b >> 4)));
-        if (c >= 0) out.push_back(char((b << 4) | (c >> 2)));
-        if (d >= 0) out.push_back(char((c << 6) | d));
+    // Flush any partial quantum (< 24 bits remaining)
+    if (bits >= 16) {
+        out.push_back(char((quad >> 10) & 0xFF));
+        if (bits >= 12) {
+            out.push_back(char((quad >> 2) & 0xFF));
+        }
     }
 }
 
@@ -766,82 +783,7 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
     return cellToVertices;
 }
 
-static void extrapolateCellDataToPointsMerged(
-    RenderMesh& mesh,
-    const std::vector<std::vector<uint32_t>>& globalCellToVertices,
-    const std::unordered_map<std::string, std::vector<float>>& cellScalarsStorage,
-    const std::unordered_map<std::string, std::vector<float>>& cellVectorsStorage) {
-    if (globalCellToVertices.empty()) return;
-    if (cellScalarsStorage.empty() && cellVectorsStorage.empty()) return;
-
-    int vCount = static_cast<int>(mesh.vertices.size() / 3);
-    if (vCount == 0) return;
-    if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
-
-    struct FieldAcc { std::vector<float> sum; };
-    std::vector<FieldAcc> accs;
-    accs.reserve(cellScalarsStorage.size() + cellVectorsStorage.size());
-    std::map<std::string, size_t> scalarAccIdx;
-    std::map<std::string, size_t> vectorAccIdx;
-
-    for (const auto& [name, raw] : cellScalarsStorage) {
-        scalarAccIdx[name] = accs.size();
-        accs.push_back(FieldAcc{ std::vector<float>(static_cast<size_t>(vCount), 0.0f) });
-    }
-    for (const auto& [name, raw] : cellVectorsStorage) {
-        vectorAccIdx[name] = accs.size();
-        accs.push_back(FieldAcc{ std::vector<float>(static_cast<size_t>(vCount) * 3, 0.0f) });
-    }
-    std::vector<float> contributionCounts(static_cast<size_t>(vCount), 0.0f);
-
-    for (size_t c = 0; c < globalCellToVertices.size(); ++c) {
-        for (const auto& [name, raw] : cellScalarsStorage) {
-            if (c >= raw.size()) continue;
-            float val = raw[c];
-            size_t si = scalarAccIdx[name];
-            for (int vIdx : globalCellToVertices[c]) {
-                if (vIdx >= 0 && vIdx < vCount) accs[si].sum[vIdx] += val;
-            }
-        }
-        for (const auto& [name, raw] : cellVectorsStorage) {
-            if (c >= raw.size() / 3) continue;
-            float vx = raw[c * 3 + 0];
-            float vy = raw[c * 3 + 1];
-            float vz = raw[c * 3 + 2];
-            size_t vi = vectorAccIdx[name];
-            for (int vIdx : globalCellToVertices[c]) {
-                if (vIdx >= 0 && vIdx < vCount) {
-                    accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 0] += vx;
-                    accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 1] += vy;
-                    accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 2] += vz;
-                }
-            }
-        }
-        for (int vIdx : globalCellToVertices[c]) {
-            if (vIdx >= 0 && vIdx < vCount) contributionCounts[vIdx] += 1.0f;
-        }
-    }
-
-    for (const auto& [name, raw] : cellScalarsStorage) {
-        std::vector<float>& sum = accs[scalarAccIdx[name]].sum;
-        for (int i = 0; i < vCount; ++i) {
-            if (contributionCounts[i] > 0.0f) sum[i] /= contributionCounts[i];
-        }
-        mesh.attributes->pointScalars[name] = std::move(sum);
-    }
-    for (const auto& [name, raw] : cellVectorsStorage) {
-        std::vector<float>& sum = accs[vectorAccIdx[name]].sum;
-        for (int i = 0; i < vCount; ++i) {
-            if (contributionCounts[i] > 0.0f) {
-                float inv = 1.0f / contributionCounts[i];
-                sum[static_cast<size_t>(i) * 3 + 0] *= inv;
-                sum[static_cast<size_t>(i) * 3 + 1] *= inv;
-                sum[static_cast<size_t>(i) * 3 + 2] *= inv;
-            }
-        }
-        mesh.attributes->pointVectors[name] = std::move(sum);
-    }
-}
+// extrapolateCellDataToPointsMerged is now in mesh_utils (shared implementation).
 
 // ============================================================================
 // VTK XML Parser Context
@@ -855,21 +797,22 @@ public:
         mesh.bounds.centerX = mesh.bounds.centerY = mesh.bounds.centerZ = 0.0;
         mesh.bounds.extent = 1.0;
 
-        // Keep the raw bytes around: raw-appended binary payloads must be
-        // sliced byte-wise (pugixml's text value is NUL-terminated and would
-        // truncate at the first embedded 0x00).
-        std::string xmlBytes = readFileIntoString(filePath);
-        if (xmlBytes.empty()) {
-            std::cerr << "VTK XML Parser Error: Failed to open or empty file: " << filePath << std::endl;
-            return mesh;
-        }
+         // Keep the raw bytes: raw-appended binary payloads must be sliced
+         // byte-wise (pugixml's text value is NUL-terminated and would
+         // truncate at the first embedded 0x00).
+         std::string xmlBytes = readFileIntoString(filePath);
+         if (xmlBytes.empty()) {
+             std::cerr << "VTK XML Parser Error: Failed to open or empty file: " << filePath << std::endl;
+             return mesh;
+         }
 
-        pugi::xml_document doc;
-        // Raw-appended payloads would break pugixml; sanitize the parse copy.
-        std::string xmlText = xmlBytes;
-        sanitizeAppendedPayload(xmlText);
-        pugi::xml_parse_result result = doc.load_buffer(xmlText.data(), xmlText.size(),
-                                                        pugi::parse_default | pugi::parse_ws_pcdata);
+         pugi::xml_document doc;
+         // Extract raw-appended binary payload from the original bytes FIRST,
+         // then sanitize in-place — avoids a full-file copy for XML parsing.
+         extractRawAppended(xmlBytes, appendedData);
+         sanitizeAppendedPayload(xmlBytes);
+         pugi::xml_parse_result result = doc.load_buffer(xmlBytes.data(), xmlBytes.size(),
+                                                         pugi::parse_default | pugi::parse_ws_pcdata);
         if (!result) {
             std::cerr << "VTK XML Parser Error: XML parse failed at offset " << result.offset
                       << " (" << result.description() << "): " << filePath << std::endl;
@@ -882,10 +825,13 @@ public:
             return mesh;
         }
 
-        datasetType = mesh_utils::toUpper(root.attribute("type").value());
-        std::string bo = mesh_utils::toUpper(root.attribute("byte_order").value());
+        datasetType = root.attribute("type").value();
+        mesh_utils::toUpperInPlace(datasetType);
+        std::string bo = root.attribute("byte_order").value();
+        mesh_utils::toUpperInPlace(bo);
         bigEndian = (bo == "BIGENDIAN");
-        std::string ht = mesh_utils::toUpper(root.attribute("header_type").value());
+        std::string ht = root.attribute("header_type").value();
+        mesh_utils::toUpperInPlace(ht);
         header64 = (ht == "UINT64");
         std::string fileCompressorStr = root.attribute("compressor").value();
         fileCompression = detectCompression(fileCompressorStr);
@@ -911,9 +857,6 @@ public:
         // Dataset-level extent/origin/spacing (ImageData / StructuredGrid /
         // RectilinearGrid). Pieces may repeat these; per-piece values win.
         readExtentAttributes(datasetNode);
-
-        // Extract raw-appended binary payload from the original (unsanitized) file bytes.
-        extractRawAppended(xmlBytes, appendedData);
 
         // Root-level FieldData (metadata arrays like Time, etc.)
         if (pugi::xml_node rootFieldData = root.child("FieldData")) {
@@ -971,11 +914,14 @@ private:
     // ========================================================================
 
     static std::string readFileIntoString(const std::string& path) {
-        std::ifstream f(path, std::ios::binary);
+        std::ifstream f(path, std::ios::binary | std::ios::ate);
         if (!f) return {};
-        std::stringstream ss;
-        ss << f.rdbuf();
-        return ss.str();
+        auto fileSize = f.tellg();
+        if (fileSize <= 0) return {};
+        std::string result(static_cast<size_t>(fileSize), '\0');
+        f.seekg(0);
+        f.read(result.data(), fileSize);
+        return result;
     }
 
      // Extract raw-appended binary payload from the original (unsanitized) file bytes.
@@ -1021,7 +967,8 @@ private:
         size_t gt = xmlText.find('>', openStart);
         if (gt == std::string::npos) return;
         std::string tag(xmlText.begin() + openStart, xmlText.begin() + gt);
-        if (mesh_utils::toUpper(tag).find("BASE64") != std::string::npos) return;
+        mesh_utils::toUpperInPlace(tag);
+        if (tag.find("BASE64") != std::string::npos) return;
         size_t closeTag = xmlText.find("</AppendedData>", gt);
         if (closeTag == std::string::npos) return;
         size_t payloadStart = gt + 1;
@@ -1046,11 +993,18 @@ private:
     DataArrayMeta readDataArrayMeta(const pugi::xml_node& da) {
         DataArrayMeta meta;
         meta.name = da.attribute("Name").value();
-        meta.type = vtkTypeFromString(mesh_utils::toUpper(da.attribute("type").value()));
+        {
+            std::string t = da.attribute("type").value();
+            mesh_utils::toUpperInPlace(t);
+            meta.type = vtkTypeFromString(t);
+        }
         if (meta.type == VTK_TYPE_UNDEFINED) meta.type = VTK_TYPE_FLOAT32;
         meta.numComponents = da.attribute("NumberOfComponents").as_int(1);
-        std::string fmt = mesh_utils::toUpper(da.attribute("format").value());
-        if (!fmt.empty()) meta.format = fmt;
+        {
+            std::string fmt = da.attribute("format").value();
+            mesh_utils::toUpperInPlace(fmt);
+            if (!fmt.empty()) meta.format = fmt;
+        }
         meta.offset = static_cast<size_t>(da.attribute("offset").as_ullong(0));
         meta.compressed = fileHasCompression || (da.attribute("compressor").value()[0] != '\0');
         if (meta.compressed) {
@@ -1153,9 +1107,8 @@ private:
 
     void readArrayFloats(const pugi::xml_node& da, const DataArrayMeta& meta, std::vector<float>& out) {
         if (meta.format == "ASCII") {
-            std::istringstream iss(da.child_value());
-            double v;
-            while (iss >> v) out.push_back(static_cast<float>(v));
+            const char* txt = da.child_value();
+            mesh_utils::parseAsciiRange(txt, txt + std::strlen(txt), out);
             return;
         }
         std::vector<char> bytes = readArrayBytes(da, meta);
@@ -1164,9 +1117,8 @@ private:
 
     void readArrayInt32(const pugi::xml_node& da, const DataArrayMeta& meta, std::vector<int32_t>& out) {
         if (meta.format == "ASCII") {
-            std::istringstream iss(da.child_value());
-            long long v;
-            while (iss >> v) out.push_back(static_cast<int32_t>(v));
+            const char* txt = da.child_value();
+            mesh_utils::parseAsciiRange(txt, txt + std::strlen(txt), out);
             return;
         }
         std::vector<char> bytes = readArrayBytes(da, meta);
@@ -1175,9 +1127,8 @@ private:
 
     void readArrayInt64(const pugi::xml_node& da, const DataArrayMeta& meta, std::vector<int64_t>& out) {
         if (meta.format == "ASCII") {
-            std::istringstream iss(da.child_value());
-            long long v;
-            while (iss >> v) out.push_back(static_cast<int64_t>(v));
+            const char* txt = da.child_value();
+            mesh_utils::parseAsciiRange(txt, txt + std::strlen(txt), out);
             return;
         }
         std::vector<char> bytes = readArrayBytes(da, meta);
@@ -1413,18 +1364,33 @@ private:
     void readExtentAttributes(const pugi::xml_node& node) {
         std::string we = node.attribute("WholeExtent").value();
         if (!we.empty()) {
-            std::istringstream iss(we);
-            iss >> wholeExtent[0] >> wholeExtent[1] >> wholeExtent[2] >> wholeExtent[3] >> wholeExtent[4] >> wholeExtent[5];
+            const char* p = we.data();
+            const char* end = p + we.size();
+            p = mesh_utils::skipWhitespace(p, end);
+            auto [p0, e0] = std::from_chars(p, end, wholeExtent[0]); p = mesh_utils::skipWhitespace(p0, end);
+            auto [p1, e1] = std::from_chars(p, end, wholeExtent[1]); p = mesh_utils::skipWhitespace(p1, end);
+            auto [p2, e2] = std::from_chars(p, end, wholeExtent[2]); p = mesh_utils::skipWhitespace(p2, end);
+            auto [p3, e3] = std::from_chars(p, end, wholeExtent[3]); p = mesh_utils::skipWhitespace(p3, end);
+            auto [p4, e4] = std::from_chars(p, end, wholeExtent[4]); p = mesh_utils::skipWhitespace(p4, end);
+            std::from_chars(p, end, wholeExtent[5]);
         }
         std::string org = node.attribute("Origin").value();
         if (!org.empty()) {
-            std::istringstream iss(org);
-            iss >> origin[0] >> origin[1] >> origin[2];
+            const char* p = org.data();
+            const char* end = p + org.size();
+            p = mesh_utils::skipWhitespace(p, end);
+            auto [p0, e0] = std::from_chars(p, end, origin[0]); p = mesh_utils::skipWhitespace(p0, end);
+            auto [p1, e1] = std::from_chars(p, end, origin[1]); p = mesh_utils::skipWhitespace(p1, end);
+            std::from_chars(p, end, origin[2]);
         }
         std::string sp = node.attribute("Spacing").value();
         if (!sp.empty()) {
-            std::istringstream iss(sp);
-            iss >> spacing[0] >> spacing[1] >> spacing[2];
+            const char* p = sp.data();
+            const char* end = p + sp.size();
+            p = mesh_utils::skipWhitespace(p, end);
+            auto [p0, e0] = std::from_chars(p, end, spacing[0]); p = mesh_utils::skipWhitespace(p0, end);
+            auto [p1, e1] = std::from_chars(p, end, spacing[1]); p = mesh_utils::skipWhitespace(p1, end);
+            std::from_chars(p, end, spacing[2]);
         }
     }
 
@@ -1571,7 +1537,7 @@ private:
             }
         }
 
-        extrapolateCellDataToPointsMerged(mesh, globalCellToVertices, cellScalarsStorage, cellVectorsStorage);
+        mesh_utils::extrapolateCellDataToPoints(mesh, globalCellToVertices, cellScalarsStorage, cellVectorsStorage);
 
         if (mesh.attributes.has_value()) {
             size_t perVertex = mesh.vertices.size() / 3;
@@ -1611,6 +1577,8 @@ private:
             for (const auto& [name, _] : mesh.attributes->pointVectors) {
                 mesh.availableVectorNames.push_back(name);
             }
+            std::sort(mesh.availableScalarNames.begin(), mesh.availableScalarNames.end());
+            std::sort(mesh.availableVectorNames.begin(), mesh.availableVectorNames.end());
         }
         if (mesh.vectorName.empty() && !mesh.availableVectorNames.empty()) {
             mesh.vectorName = mesh.availableVectorNames.front();
@@ -1619,11 +1587,8 @@ private:
         mesh_utils::computeBounds(mesh);
         mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
 
-        mesh.flatVerts.reserve(mesh.indices.size() * 3);
-        for (uint32_t i : mesh.indices) {
-            const float* p = &mesh.vertices[i * 3];
-            mesh.flatVerts.insert(mesh.flatVerts.end(), { p[0], p[1], p[2] });
-        }
+        // flatVerts is now lazily computed via ensureFlatVerts() — only built
+        // when mesh_quality analysis actually runs, saving 3x index-count memory.
 
         if (mesh.normals.empty() && !mesh.indices.empty()) {
             mesh_utils::computeNormals(mesh);
@@ -1698,14 +1663,19 @@ static std::string resolveVtmPath(const std::string& vtmPath, const std::string&
 RenderMesh parseMultiBlockXML(const std::string& filePath) {
     pugi::xml_document doc;
     {
-        std::ifstream f(filePath, std::ios::binary);
+        std::ifstream f(filePath, std::ios::binary | std::ios::ate);
         if (!f) {
             std::cerr << "VTK XML Parser Error: Failed to open .vtm file: " << filePath << std::endl;
             return RenderMesh();
         }
-        std::stringstream ss;
-        ss << f.rdbuf();
-        std::string xmlBytes = ss.str();
+        auto fileSize = f.tellg();
+        if (fileSize <= 0) {
+            std::cerr << "VTK XML Parser Error: Empty .vtm file: " << filePath << std::endl;
+            return RenderMesh();
+        }
+        std::string xmlBytes(static_cast<size_t>(fileSize), '\0');
+        f.seekg(0);
+        f.read(xmlBytes.data(), fileSize);
         // Strip NUL bytes from raw binary payloads (vtm files rarely have them,
         // but be safe).
         size_t nullPos = xmlBytes.find('\0');

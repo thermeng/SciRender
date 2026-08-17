@@ -20,6 +20,7 @@ struct MeshQuality {
 
 inline MeshQuality analyzeMeshQuality(const RenderMesh& mesh) {
     MeshQuality q;
+    mesh.ensureFlatVerts();  // lazily compute if not already populated
     const auto& fv = mesh.flatVerts;   // raw per-corner positions (9 floats/tri)
     const size_t nt = fv.size() / 9;
     if (nt == 0) return q;

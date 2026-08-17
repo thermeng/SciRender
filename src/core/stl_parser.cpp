@@ -3,10 +3,11 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
-#include <sstream>
 #include <unordered_map>
 #include <cstdint>
 #include <tuple>
+#include <charconv>
+#include <cctype>
 
 // ── STL Parser ──────────────────────────────────────────────────────────────
 
@@ -60,21 +61,24 @@ static bool looksLikeAsciiSTL(const std::string& filePath) {
 
     bool hasSolid = false;
     bool hasNonPrintable = false;
-    std::string word;
+    // Check for "solid" keyword using zero-alloc first-char + length check
+    int wordLen = 0;
+    char wordFirst = 0;
     for (std::streamsize i = 0; i < n; ++i) {
         unsigned char c = static_cast<unsigned char>(buf[i]);
         if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
-            if (!word.empty()) {
-                if (mesh_utils::toUpper(word) == "SOLID") hasSolid = true;
-                word.clear();
+            if (wordLen > 0) {
+                if (wordLen == 5 && (::toupper(wordFirst) == 'S')) hasSolid = true;
+                wordLen = 0;
             }
             continue;
         }
         // Reject anything that isn't a normal printable ASCII / text char.
         if (c < 0x20 || c > 0x7E) { hasNonPrintable = true; break; }
-        word.push_back(static_cast<char>(c));
+        if (wordLen == 0) wordFirst = static_cast<char>(c);
+        ++wordLen;
     }
-    if (!word.empty() && mesh_utils::toUpper(word) == "SOLID") hasSolid = true;
+    if (wordLen > 0 && wordLen == 5 && (::toupper(wordFirst) == 'S')) hasSolid = true;
 
     // ASCII STL iff it mentions "solid" and contains no binary (control) bytes.
     return hasSolid && !hasNonPrintable;
@@ -118,29 +122,70 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
 
     std::string line;
     float faceNormal[3] = { 0, 0, 0 };
-    // Store flat vertex data first, then deduplicate into an indexed mesh.
     std::vector<float> flatVerts;  // 9 floats per triangle
 
     while (std::getline(file, line)) {
-        line = mesh_utils::trim(line);
-        if (line.empty()) continue;
+        const char* raw = line.data();
+        const char* rawEnd = raw + line.size();
 
-        std::istringstream iss(line);
-        std::string kw;
-        iss >> kw;
-        kw = mesh_utils::toUpper(kw);
+        // Skip leading whitespace (zero-alloc trim)
+        const char* p = mesh_utils::skipWhitespace(raw, rawEnd);
+        if (p >= rawEnd) continue;
 
-        if (kw == "FACET") {
-            iss >> kw; // NORMAL
-            iss >> faceNormal[0] >> faceNormal[1] >> faceNormal[2];
+        // Dispatch on first character of keyword (zero-alloc keyword check)
+        // STL keywords: solid, endsolid, facet, endfacet, vertex, endloop, endloop, outer, endloop
+        // Only 'f' (facet) and 'v' (vertex) contain numeric data we need.
+        char kw0 = static_cast<char>(::toupper(static_cast<unsigned char>(*p)));
+        if (kw0 != 'F' && kw0 != 'V') continue;
+
+        // Advance past keyword (skip non-whitespace)
+        const char* kwEnd = mesh_utils::skipToken(p, rawEnd);
+        // For 'facet', skip the second word "normal"
+        if (kw0 == 'F') {
+            p = mesh_utils::skipWhitespace(kwEnd, rawEnd);
+            if (p < rawEnd) {
+                // Skip "normal" keyword
+                const char* normalEnd = mesh_utils::skipToken(p, rawEnd);
+                p = mesh_utils::skipWhitespace(normalEnd, rawEnd);
+            }
+        } else {
+            p = mesh_utils::skipWhitespace(kwEnd, rawEnd);
+        }
+
+        if (p >= rawEnd) continue;
+
+        if (kw0 == 'F') {
+            // Parse 3 floats for facet normal
+            if (p < rawEnd) {
+                auto [ptr0, ec0] = std::from_chars(p, rawEnd, faceNormal[0]);
+                if (ptr0 < rawEnd && ec0 == std::errc()) {
+                    ptr0 = mesh_utils::skipWhitespace(ptr0, rawEnd);
+                    auto [ptr1, ec1] = std::from_chars(ptr0, rawEnd, faceNormal[1]);
+                    if (ptr1 < rawEnd && ec1 == std::errc()) {
+                        ptr1 = mesh_utils::skipWhitespace(ptr1, rawEnd);
+                        std::from_chars(ptr1, rawEnd, faceNormal[2]);
+                    }
+                }
+            }
             // Normals are recomputed geometrically by computeNormals() on the
             // indexed mesh; the stored normal is not used for rendering.
         }
-        else if (kw == "VERTEX") {
+        else if (kw0 == 'V') {
             float x, y, z;
-            // Validate that all three floats parsed; a malformed token between
-            // vertices must not silently inject NaN/garbage into the vertex stream.
-            if (!(iss >> x >> y >> z)) {
+            auto [ptr0, ec0] = std::from_chars(p, rawEnd, x);
+            if (ec0 != std::errc()) {
+                std::cerr << "STL Parser: malformed VERTEX line, skipping" << std::endl;
+                continue;
+            }
+            ptr0 = mesh_utils::skipWhitespace(ptr0, rawEnd);
+            auto [ptr1, ec1] = std::from_chars(ptr0, rawEnd, y);
+            if (ec1 != std::errc()) {
+                std::cerr << "STL Parser: malformed VERTEX line, skipping" << std::endl;
+                continue;
+            }
+            ptr1 = mesh_utils::skipWhitespace(ptr1, rawEnd);
+            auto [ptr2, ec2] = std::from_chars(ptr1, rawEnd, z);
+            if (ec2 != std::errc()) {
                 std::cerr << "STL Parser: malformed VERTEX line, skipping" << std::endl;
                 continue;
             }
@@ -162,33 +207,53 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
 
     // Convert flat to indexed: deduplicate shared vertices via a position hash
     // so the GPU receives an indexed mesh instead of 3x-expanded flat data.
-    // Normals are left empty on purpose so the renderer's computeNormals()
-    // computes correct geometry-based normals (sharp-edge split + smoothing)
-    // on the merged indexed layout.
-    std::unordered_map<VertexKey, int, VertexKeyHash> posToIndex;
-
-    mesh.vertices.reserve(flatVerts.size());
+    // Sort-based dedup: O(N log N) sort beats per-vertex hash lookups on
+    // large meshes (better cache behavior, no hash collision overhead).
     const size_t triCount = flatVerts.size() / 9;
-    mesh.indices.reserve(triCount * 3);
+    const size_t cornerCount = triCount * 3;
 
-    for (size_t t = 0; t < triCount; ++t) {
-        for (int k = 0; k < 3; ++k) {
-            size_t base = t * 9 + k * 3;
-            float x = flatVerts[base + 0], y = flatVerts[base + 1], z = flatVerts[base + 2];
-            VertexKey key = vertexKey(x, y, z);
-            int idx;
-            auto it = posToIndex.find(key);
-            if (it != posToIndex.end()) {
-                idx = it->second;
-            } else {
-                idx = static_cast<int>(mesh.vertices.size() / 3);
-                mesh.vertices.push_back(x);
-                mesh.vertices.push_back(y);
-                mesh.vertices.push_back(z);
-                posToIndex[key] = idx;
-            }
-            mesh.indices.push_back(idx);
+    struct VertEntry {
+        VertexKey key;
+        uint32_t flatIdx;   // index into flatVerts (corner index * 3)
+    };
+    std::vector<VertEntry> entries(cornerCount);
+    for (size_t i = 0; i < cornerCount; ++i) {
+        size_t base = i * 3;
+        entries[i] = { vertexKey(flatVerts[base], flatVerts[base + 1], flatVerts[base + 2]),
+                       static_cast<uint32_t>(i) };
+    }
+
+    // Sort by quantized position — groups identical vertices together
+    std::sort(entries.begin(), entries.end(), [](const VertEntry& a, const VertEntry& b) {
+        if (std::get<0>(a.key) != std::get<0>(b.key)) return std::get<0>(a.key) < std::get<0>(b.key);
+        if (std::get<1>(a.key) != std::get<1>(b.key)) return std::get<1>(a.key) < std::get<1>(b.key);
+        return std::get<2>(a.key) < std::get<2>(b.key);
+    });
+
+    // Scan sorted entries: first occurrence of each unique key gets a new vertex index;
+    // subsequent occurrences reuse that index.
+    std::vector<uint32_t> cornerToIdx(cornerCount); // flat corner → indexed vertex
+    mesh.vertices.reserve(cornerCount * 3);          // upper bound
+    for (size_t i = 0; i < cornerCount; ) {
+        size_t j = i + 1;
+        while (j < cornerCount && entries[j].key == entries[i].key) ++j;
+        // All entries[i..j) share the same position — emit one vertex
+        uint32_t vidx = static_cast<uint32_t>(mesh.vertices.size() / 3);
+        size_t base = entries[i].flatIdx * 3;
+        mesh.vertices.push_back(flatVerts[base + 0]);
+        mesh.vertices.push_back(flatVerts[base + 1]);
+        mesh.vertices.push_back(flatVerts[base + 2]);
+        for (size_t k = i; k < j; ++k) {
+            cornerToIdx[entries[k].flatIdx] = vidx;
         }
+        i = j;
+    }
+
+    mesh.indices.reserve(cornerCount);
+    for (size_t t = 0; t < triCount; ++t) {
+        mesh.indices.push_back(cornerToIdx[t * 3 + 0]);
+        mesh.indices.push_back(cornerToIdx[t * 3 + 1]);
+        mesh.indices.push_back(cornerToIdx[t * 3 + 2]);
     }
 
     // Hand the raw per-corner positions (9 floats/tri) to the mesh-quality
@@ -230,31 +295,36 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
         return mesh;
     }
 
-    // Deduplicate shared vertices via a position hash so the GPU receives an
-    // indexed mesh instead of 3x-expanded flat data. Normals are left empty so
-    // the renderer's computeNormals() computes correct geometry-based normals.
-    std::unordered_map<VertexKey, int, VertexKeyHash> posToIndex;
-
-    mesh.vertices.reserve(triCount * 3);
+    // Deduplicate shared vertices via a sort-based approach (see parseSTLAscii)
+    // so the GPU receives an indexed mesh instead of 3x-expanded flat data.
+    mesh.vertices.reserve(triCount * 3 * 3); // upper bound
     mesh.indices.reserve(triCount * 3);
 
-    for (uint32_t i = 0; i < triCount; i++) {
-        float n[3], v[3][3];
-        uint16_t attr;
-        // Verify each 50-byte record was fully read. A truncated/corrupt file
-        // that stops mid-record must break rather than append partial floats as
-        // valid vertices (which would yield out-of-range indices downstream).
-        file.read(reinterpret_cast<char*>(n), 12);
-        if (file.gcount() != 12) break;
-        file.read(reinterpret_cast<char*>(v), 36);
-        if (file.gcount() != 36) break;
-        file.read(reinterpret_cast<char*>(&attr), 2);
-        if (file.gcount() != 2) break;
+    std::vector<float> flatVerts;
+    flatVerts.reserve(triCount * 9);
 
-        for (int j = 0; j < 3; j++) {
-            float x = v[j][0], y = v[j][1], z = v[j][2];
-            // capture raw corner BEFORE the 1/4096 dedup (mesh-quality welds at 1e-8)
-            mesh.flatVerts.insert(mesh.flatVerts.end(), { x, y, z });
+    for (uint32_t i = 0; i < triCount; i++) {
+        // Single 50-byte read per triangle (was 3 separate reads + checks).
+        char record[50];
+        file.read(record, sizeof(record));
+        if (file.gcount() != 50) break;
+
+        float n[3];
+        float v0[3], v1[3], v2[3];
+        uint16_t attr;
+        std::memcpy(n, record,       12);
+        std::memcpy(v0, record + 12, 12);
+        std::memcpy(v1, record + 24, 12);
+        std::memcpy(v2, record + 36, 12);
+        std::memcpy(&attr, record + 48, 2);
+        (void)n; (void)attr;
+
+        for (float* vp : { v0, v1, v2 }) {
+            float x = vp[0], y = vp[1], z = vp[2];
+            // capture raw corner BEFORE the dedup (mesh-quality welds at 1e-8)
+            flatVerts.push_back(x);
+            flatVerts.push_back(y);
+            flatVerts.push_back(z);
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
                 std::cerr << "STL Parser: non-finite binary vertex, aborting" << std::endl;
                 mesh = RenderMesh{};
@@ -262,24 +332,50 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
                 file.close();
                 return mesh;
             }
-            VertexKey key = vertexKey(x, y, z);
-            int idx;
-            auto it = posToIndex.find(key);
-            if (it != posToIndex.end()) {
-                idx = it->second;
-            } else {
-                idx = static_cast<int>(mesh.vertices.size() / 3);
-                mesh.vertices.push_back(x);
-                mesh.vertices.push_back(y);
-                mesh.vertices.push_back(z);
-                posToIndex[key] = idx;
-            }
-            mesh.indices.push_back(idx);
         }
     }
 
     file.close();
 
+    // Sort-based dedup (same algorithm as ASCII path)
+    const size_t cornerCount = flatVerts.size() / 3;
+    struct VertEntry {
+        VertexKey key;
+        uint32_t flatIdx;
+    };
+    std::vector<VertEntry> entries(cornerCount);
+    for (size_t i = 0; i < cornerCount; ++i) {
+        size_t base = i * 3;
+        entries[i] = { vertexKey(flatVerts[base], flatVerts[base + 1], flatVerts[base + 2]),
+                       static_cast<uint32_t>(i) };
+    }
+    std::sort(entries.begin(), entries.end(), [](const VertEntry& a, const VertEntry& b) {
+        if (std::get<0>(a.key) != std::get<0>(b.key)) return std::get<0>(a.key) < std::get<0>(b.key);
+        if (std::get<1>(a.key) != std::get<1>(b.key)) return std::get<1>(a.key) < std::get<1>(b.key);
+        return std::get<2>(a.key) < std::get<2>(b.key);
+    });
+    std::vector<uint32_t> cornerToIdx(cornerCount);
+    for (size_t i = 0; i < cornerCount; ) {
+        size_t j = i + 1;
+        while (j < cornerCount && entries[j].key == entries[i].key) ++j;
+        uint32_t vidx = static_cast<uint32_t>(mesh.vertices.size() / 3);
+        size_t base = entries[i].flatIdx * 3;
+        mesh.vertices.push_back(flatVerts[base + 0]);
+        mesh.vertices.push_back(flatVerts[base + 1]);
+        mesh.vertices.push_back(flatVerts[base + 2]);
+        for (size_t k = i; k < j; ++k) {
+            cornerToIdx[entries[k].flatIdx] = vidx;
+        }
+        i = j;
+    }
+    const size_t triCountDedup = cornerCount / 3;
+    for (size_t t = 0; t < triCountDedup; ++t) {
+        mesh.indices.push_back(cornerToIdx[t * 3 + 0]);
+        mesh.indices.push_back(cornerToIdx[t * 3 + 1]);
+        mesh.indices.push_back(cornerToIdx[t * 3 + 2]);
+    }
+
+    mesh.flatVerts = std::move(flatVerts);
     mesh_utils::computeBounds(mesh);
 
     // Record the topological point count (deduped, pre-normal-split) so the UI

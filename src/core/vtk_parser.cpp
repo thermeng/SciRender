@@ -3,12 +3,12 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
-#include <sstream>
 #include <vector>
 #include <algorithm>
 #include <limits>
 #include <map>
 #include <unordered_map>
+#include <charconv>
 
 
 void alignStream4(std::ifstream& f, size_t bytesRead) {
@@ -28,12 +28,44 @@ static bool readBinaryArray(std::ifstream& f, size_t count, std::vector<T>& out)
     f.read(reinterpret_cast<char*>(out.data()), want);
     if (f.gcount() != want) return false;
     if (mesh_utils::isLittleEndian()) {
-        for (size_t i = 0; i < count; ++i) mesh_utils::byteSwap(&out[i]);
+        // Block byte-swap: process 4 bytes at a time for 32-bit types,
+        // 8 bytes at a time for 64-bit types. Compiler auto-vectorizes
+        // the inner loop when T is a simple integral/float type.
+        if constexpr (sizeof(T) == 4) {
+            uint32_t* words = reinterpret_cast<uint32_t*>(out.data());
+            for (size_t i = 0; i < count; ++i) {
+                uint32_t v = words[i];
+                words[i] = ((v >> 24) & 0x000000FF)
+                         | ((v >>  8) & 0x0000FF00)
+                         | ((v <<  8) & 0x00FF0000)
+                         | ((v << 24) & 0xFF000000);
+            }
+        } else if constexpr (sizeof(T) == 8) {
+            uint64_t* words = reinterpret_cast<uint64_t*>(out.data());
+            for (size_t i = 0; i < count; ++i) {
+                uint64_t v = words[i];
+                words[i] = ((v >> 56) & 0x00000000000000FFULL)
+                         | ((v >> 40) & 0x000000000000FF00ULL)
+                         | ((v >> 24) & 0x0000000000FF0000ULL)
+                         | ((v >>  8) & 0x00000000FF000000ULL)
+                         | ((v <<  8) & 0x000000FF00000000ULL)
+                         | ((v << 24) & 0x0000FF0000000000ULL)
+                         | ((v << 40) & 0x00FF000000000000ULL)
+                         | ((v << 56) & 0xFF00000000000000ULL);
+            }
+        } else if constexpr (sizeof(T) == 2) {
+            uint16_t* words = reinterpret_cast<uint16_t*>(out.data());
+            for (size_t i = 0; i < count; ++i) {
+                uint16_t v = words[i];
+                words[i] = static_cast<uint16_t>((v >> 8) | (v << 8));
+            }
+        } else {
+            // Fallback for 1-byte types (no swap needed) and others
+            for (size_t i = 0; i < count; ++i) mesh_utils::byteSwap(&out[i]);
+        }
     }
     // Every VTK binary data array is 4-byte aligned on disk; pad the stream so
     // the next array starts on a 4-byte boundary regardless of T's element size.
-    // Centralizing this here fixes alignment for SHORT/UNSIGNED_CHAR and
-    // multi-component fields, which previously hardcoded sizeof(float).
     alignStream4(f, count * sizeof(T));
     return true;
 }
@@ -56,14 +88,23 @@ public:
         }
 
         std::string line;
-        while (getVTKLine(file, line)) {
-            line = mesh_utils::trim(line);
-            if (line.empty() || line[0] == '#') continue;
+        while (std::getline(file, line)) {
+            const char* raw = line.data();
+            const char* rawEnd = raw + line.size();
 
-            std::istringstream iss(line);
-            std::string token;
-            iss >> token;
-            processToken(mesh_utils::toUpper(token), iss, file);
+            // Skip leading whitespace (zero-alloc trim)
+            const char* p = mesh_utils::skipWhitespace(raw, rawEnd);
+            if (p >= rawEnd || *p == '#') continue;
+
+            // Extract first token via pointer scan (zero-alloc)
+            const char* tokStart = p;
+            p = mesh_utils::skipToken(p, rawEnd);
+            std::string_view token(tokStart, p - tokStart);
+
+            // Skip whitespace before rest of line
+            p = mesh_utils::skipWhitespace(p, rawEnd);
+
+            processToken(token, p, rawEnd, file);
         }
         file.close();
 
@@ -112,40 +153,86 @@ private:
         return !outLine.empty();
     }
 
-    void processToken(const std::string& token, std::istringstream& iss, std::ifstream& file) {
+    void processToken(std::string_view token, const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        // First-char dispatch + iequal for remaining — avoids string copies entirely.
         if (token == "BINARY") { isBinary = true; }
         else if (token == "ASCII") { isBinary = false; }
-        else if (token == "DATASET") { iss >> datasetType; datasetType = mesh_utils::toUpper(datasetType); }
-        else if (token == "DIMENSIONS") { handleDimensions(iss); }
-        else if (token == "ORIGIN") { iss >> origin[0] >> origin[1] >> origin[2]; }
-        else if (token == "SPACING" || token == "ASPECT_RATIO") { iss >> spacing[0] >> spacing[1] >> spacing[2]; }
-        else if (token == "X_COORDINATES") { parseRectilinearAxis(file, rectX, iss); }
-        else if (token == "Y_COORDINATES") { parseRectilinearAxis(file, rectY, iss); }
-        else if (token == "Z_COORDINATES") { parseRectilinearAxis(file, rectZ, iss); }
-        else if (token == "POINT_DATA") { iss >> attributeTargetCount; readingPointData = true; }
-        else if (token == "CELL_DATA") { iss >> attributeTargetCount; readingPointData = false; }
-        else if (token == "POINTS") { parsePointsBlock(iss, file); }
-        else if (token == "CELLS") { parseCellsBlock(iss, file); }
-        else if (token == "CELL_TYPES") { parseCellTypesBlock(iss, file); }
-        else if (token == "POLYGONS") { parsePolygonsBlock(iss, file); }
-        else if (token == "VERTICES") { parseVerticesBlock(iss, file); }
-        else if (token == "LINES") { parseLinesBlock(iss, file); }
-        else if (token == "TRIANGLE_STRIPS") { parseTriangleStripsBlock(iss, file); }
-        else if (token == "SCALARS") { parseScalarsBlock(iss, file); }
-        else if (token == "NORMALS") { parseNormalsBlock(iss, file); }
-        else if (token == "VECTORS") { parseVectorsBlock(iss, file); }
+        else if (token[0] == 'D' && mesh_utils::iequal(token, "DATASET")) {
+            // Read dataset type from rest of line
+            const char* p = mesh_utils::skipWhitespace(lineRest, lineEnd);
+            const char* tStart = p;
+            p = mesh_utils::skipToken(p, lineEnd);
+            datasetType = std::string(tStart, p - tStart);
+            mesh_utils::toUpperInPlace(datasetType);
+        }
+        else if (token[0] == 'D' && mesh_utils::iequal(token, "DIMENSIONS")) { handleDimensions(lineRest, lineEnd); }
+        else if (token[0] == 'O' && mesh_utils::iequal(token, "ORIGIN")) {
+            const char* p = lineRest;
+            p = mesh_utils::skipWhitespace(p, lineEnd);
+            auto [p0, e0] = std::from_chars(p, lineEnd, origin[0]); p = p0;
+            p = mesh_utils::skipWhitespace(p, lineEnd);
+            auto [p1, e1] = std::from_chars(p, lineEnd, origin[1]); p = p1;
+            p = mesh_utils::skipWhitespace(p, lineEnd);
+            std::from_chars(p, lineEnd, origin[2]);
+        }
+        else if (token[0] == 'S' && (mesh_utils::iequal(token, "SPACING") || mesh_utils::iequal(token, "ASPECT_RATIO"))) {
+            const char* p = lineRest;
+            p = mesh_utils::skipWhitespace(p, lineEnd);
+            auto [p0, e0] = std::from_chars(p, lineEnd, spacing[0]); p = p0;
+            p = mesh_utils::skipWhitespace(p, lineEnd);
+            auto [p1, e1] = std::from_chars(p, lineEnd, spacing[1]); p = p1;
+            p = mesh_utils::skipWhitespace(p, lineEnd);
+            std::from_chars(p, lineEnd, spacing[2]);
+        }
+        else if (token[0] == 'X' && mesh_utils::iequal(token, "X_COORDINATES")) { parseRectilinearAxis(file, rectX, lineRest, lineEnd); }
+        else if (token[0] == 'Y' && mesh_utils::iequal(token, "Y_COORDINATES")) { parseRectilinearAxis(file, rectY, lineRest, lineEnd); }
+        else if (token[0] == 'Z' && mesh_utils::iequal(token, "Z_COORDINATES")) { parseRectilinearAxis(file, rectZ, lineRest, lineEnd); }
+        else if (token[0] == 'P' && mesh_utils::iequal(token, "POINT_DATA")) {
+            const char* p = mesh_utils::skipWhitespace(lineRest, lineEnd);
+            std::from_chars(p, lineEnd, attributeTargetCount);
+            readingPointData = true;
+        }
+        else if (token[0] == 'C' && mesh_utils::iequal(token, "CELL_DATA")) {
+            const char* p = mesh_utils::skipWhitespace(lineRest, lineEnd);
+            std::from_chars(p, lineEnd, attributeTargetCount);
+            readingPointData = false;
+        }
+        else if (token[0] == 'P' && mesh_utils::iequal(token, "POINTS")) { parsePointsBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'C' && mesh_utils::iequal(token, "CELLS")) { parseCellsBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'C' && mesh_utils::iequal(token, "CELL_TYPES")) { parseCellTypesBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'P' && mesh_utils::iequal(token, "POLYGONS")) { parsePolygonsBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'V' && mesh_utils::iequal(token, "VERTICES")) { parseVerticesBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'L' && mesh_utils::iequal(token, "LINES")) { parseLinesBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'T' && mesh_utils::iequal(token, "TRIANGLE_STRIPS")) { parseTriangleStripsBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'S' && mesh_utils::iequal(token, "SCALARS")) { parseScalarsBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'N' && mesh_utils::iequal(token, "NORMALS")) { parseNormalsBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'V' && mesh_utils::iequal(token, "VECTORS")) { parseVectorsBlock(lineRest, lineEnd, file); }
     }
 
-    void handleDimensions(std::istringstream& iss) {
-        iss >> dimX >> dimY >> dimZ;
+    void handleDimensions(const char* lineRest, const char* lineEnd) {
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        auto [p0, e0] = std::from_chars(p, lineEnd, dimX); p = p0;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        auto [p1, e1] = std::from_chars(p, lineEnd, dimY); p = p1;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        std::from_chars(p, lineEnd, dimZ);
         numPoints = dimX * dimY * dimZ;
         if (datasetType == "STRUCTURED_POINTS" || datasetType == "STRUCTURED_GRID" || datasetType == "RECTILINEAR_GRID") {
             numCells = std::max(1, dimX - 1) * std::max(1, dimY - 1) * std::max(1, dimZ - 1);
         }
     }
 
-    void parseRectilinearAxis(std::ifstream& file, std::vector<float>& axisCoords, std::istringstream& iss) {
-        int count; std::string type; iss >> count >> type; type = mesh_utils::toUpper(type);
+    void parseRectilinearAxis(std::ifstream& file, std::vector<float>& axisCoords, const char* lineRest, const char* lineEnd) {
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        int count = 0;
+        auto [p0, e0] = std::from_chars(p, lineEnd, count); p = p0;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* tStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        std::string type(tStart, p - tStart);
+        mesh_utils::toUpperInPlace(type);
         axisCoords.resize(count);
         if (isBinary) {
             if (type == "DOUBLE") {
@@ -163,13 +250,22 @@ private:
             }
         }
         else {
-            for (int i = 0; i < count; ++i) file >> axisCoords[i];
+            if (type == "DOUBLE") {
+                std::vector<double> tmp;
+                mesh_utils::readAsciiValues(file, count, tmp);
+                axisCoords.resize(tmp.size());
+                for (size_t i = 0; i < tmp.size(); ++i) axisCoords[i] = static_cast<float>(tmp[i]);
+            } else {
+                mesh_utils::readAsciiValues(file, count, axisCoords);
+            }
         }
     }
 
-    void parsePointsBlock(std::istringstream& iss, std::ifstream& file) {
+    void parsePointsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
         long long parsedPoints = 0;
-        iss >> parsedPoints;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        std::from_chars(p, lineEnd, parsedPoints);
      
         if (datasetType == "STRUCTURED_POINTS" || datasetType == "STRUCTURED_GRID" ||
             datasetType == "RECTILINEAR_GRID") {
@@ -192,7 +288,12 @@ private:
             return;
         }
         numPoints = static_cast<int>(parsedPoints);
-        std::string dataType; iss >> dataType; dataType = mesh_utils::toUpper(dataType);
+        // Read data type from rest of line
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* tStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        std::string dataType(tStart, p - tStart);
+        mesh_utils::toUpperInPlace(dataType);
         mesh.vertices.resize(static_cast<size_t>(numPoints) * 3);
 
         if (isBinary) {
@@ -229,19 +330,29 @@ private:
             }
         }
         else {
-            for (int i = 0; i < numPoints * 3; ++i) {
-                if (!(file >> mesh.vertices[i]) || !std::isfinite(mesh.vertices[i])) {
+            size_t expected = static_cast<size_t>(numPoints) * 3;
+            size_t n = mesh_utils::readAsciiValues(file, expected, mesh.vertices);
+            if (n != expected) {
+                std::cerr << "VTK Parser Warning: short read on ASCII POINTS; dropping mesh." << std::endl;
+                mesh.vertices.clear();
+                return;
+            }
+            for (float v : mesh.vertices) {
+                if (!std::isfinite(v)) {
                     std::cerr << "VTK Parser Warning: non-finite POINTS coordinate; dropping mesh." << std::endl;
                     mesh.vertices.clear();
                     return;
                 }
             }
-            clearTrailingLine(file);
         }
     }
 
-    void parseCellsBlock(std::istringstream& iss, std::ifstream& file) {
-        iss >> numCells >> cellSize;
+    void parseCellsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        auto [p0, e0] = std::from_chars(p, lineEnd, numCells); p = p0;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        std::from_chars(p, lineEnd, cellSize);
         rawCellData.resize(cellSize);
         if (isBinary) {
             if (!readBinaryArray(file, cellSize, rawCellData)) {
@@ -251,13 +362,14 @@ private:
             }
         }
         else {
-            for (int i = 0; i < cellSize; ++i) file >> rawCellData[i];
-            clearTrailingLine(file);
+            mesh_utils::readAsciiValues(file, cellSize, rawCellData);
         }
     }
 
-    void parseCellTypesBlock(std::istringstream& iss, std::ifstream& file) {
-        iss >> numCells; cellTypes.resize(numCells);
+    void parseCellTypesBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        std::from_chars(p, lineEnd, numCells); cellTypes.resize(numCells);
         if (isBinary) {
             std::vector<int32_t> rawTypes(numCells);
             if (!readBinaryArray(file, numCells, rawTypes)) {
@@ -268,13 +380,17 @@ private:
             for (int i = 0; i < numCells; ++i) cellTypes[i] = rawTypes[i];
         }
         else {
-            for (int i = 0; i < numCells; ++i) file >> cellTypes[i];
-            clearTrailingLine(file);
+            mesh_utils::readAsciiValues(file, numCells, cellTypes);
         }
     }
 
-    void parsePolygonsBlock(std::istringstream& iss, std::ifstream& file) {
-        int numPolys = 0, sizeOfPolysBlock = 0; iss >> numPolys >> sizeOfPolysBlock;
+    void parsePolygonsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        int numPolys = 0, sizeOfPolysBlock = 0;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        auto [p0, e0] = std::from_chars(p, lineEnd, numPolys); p = p0;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        std::from_chars(p, lineEnd, sizeOfPolysBlock);
         std::vector<int32_t> polyData(sizeOfPolysBlock);
         if (isBinary) {
             if (!readBinaryArray(file, sizeOfPolysBlock, polyData)) {
@@ -284,16 +400,20 @@ private:
             }
         }
         else {
-            for (int i = 0; i < sizeOfPolysBlock; ++i) file >> polyData[i];
-            clearTrailingLine(file);
+            mesh_utils::readAsciiValues(file, sizeOfPolysBlock, polyData);
         }
         mesh.indices.clear();
         globalCellToVertices = triangulatePolygons(polyData, numPolys);
         numCells = numPolys;
     }
 
-    void parseVerticesBlock(std::istringstream& iss, std::ifstream& file) {
-        int numVerts = 0, sizeOfVertsBlock = 0; iss >> numVerts >> sizeOfVertsBlock;
+    void parseVerticesBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        int numVerts = 0, sizeOfVertsBlock = 0;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        auto [p0, e0] = std::from_chars(p, lineEnd, numVerts); p = p0;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        std::from_chars(p, lineEnd, sizeOfVertsBlock);
         std::vector<int32_t> vertData(sizeOfVertsBlock);
         if (isBinary) {
             if (!readBinaryArray(file, sizeOfVertsBlock, vertData)) {
@@ -303,8 +423,7 @@ private:
             }
         }
         else {
-            for (int i = 0; i < sizeOfVertsBlock; ++i) file >> vertData[i];
-            clearTrailingLine(file);
+            mesh_utils::readAsciiValues(file, sizeOfVertsBlock, vertData);
         }
         mesh.indices.clear();
         globalCellToVertices = triangulatePolygons(vertData, numVerts);
@@ -312,8 +431,13 @@ private:
     }
 
 
-    void parseLinesBlock(std::istringstream& iss, std::ifstream& file) {
-        int numLines = 0, sizeOfLinesBlock = 0; iss >> numLines >> sizeOfLinesBlock;
+    void parseLinesBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        int numLines = 0, sizeOfLinesBlock = 0;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        auto [p0, e0] = std::from_chars(p, lineEnd, numLines); p = p0;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        std::from_chars(p, lineEnd, sizeOfLinesBlock);
         std::vector<int32_t> lineData(sizeOfLinesBlock);
         if (isBinary) {
             if (!readBinaryArray(file, sizeOfLinesBlock, lineData)) {
@@ -323,8 +447,7 @@ private:
             }
         }
         else {
-            for (int i = 0; i < sizeOfLinesBlock; ++i) file >> lineData[i];
-            clearTrailingLine(file);
+            mesh_utils::readAsciiValues(file, sizeOfLinesBlock, lineData);
         }
         // LINES is its own topology source (see parsePolygonsBlock).
         mesh.indices.clear();
@@ -332,8 +455,13 @@ private:
         numCells = numLines;
     }
 
-    void parseTriangleStripsBlock(std::istringstream& iss, std::ifstream& file) {
-        int numStrips = 0, sizeOfStripsBlock = 0; iss >> numStrips >> sizeOfStripsBlock;
+    void parseTriangleStripsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        int numStrips = 0, sizeOfStripsBlock = 0;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        auto [p0, e0] = std::from_chars(p, lineEnd, numStrips); p = p0;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        std::from_chars(p, lineEnd, sizeOfStripsBlock);
         std::vector<int32_t> stripData(sizeOfStripsBlock);
         if (isBinary) {
             if (!readBinaryArray(file, sizeOfStripsBlock, stripData)) {
@@ -343,8 +471,7 @@ private:
             }
         }
         else {
-            for (int i = 0; i < sizeOfStripsBlock; ++i) file >> stripData[i];
-            clearTrailingLine(file);
+            mesh_utils::readAsciiValues(file, sizeOfStripsBlock, stripData);
         }
         mesh.indices.clear();
         globalCellToVertices = triangulateTriangleStrips(stripData, numStrips);
@@ -353,17 +480,32 @@ private:
         numCells = static_cast<int>(globalCellToVertices.size());
     }
 
-    void parseScalarsBlock(std::istringstream& iss, std::ifstream& file) {
+    void parseScalarsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
         std::string scalarName, dataType; int numComponents = 1;
-        iss >> scalarName >> dataType;
-        iss >> numComponents;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        // Read scalar name
+        const char* nStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        scalarName = std::string(nStart, p - nStart);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        // Read data type
+        const char* tStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        dataType = std::string(tStart, p - tStart);
+        mesh_utils::toUpperInPlace(dataType);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        // Read numComponents (optional, defaults to 1)
+        if (p < lineEnd) {
+            auto [np, ec] = std::from_chars(p, lineEnd, numComponents);
+            if (ec != std::errc()) numComponents = 1;
+        }
         if (numComponents < 1) numComponents = 1;
-        dataType = mesh_utils::toUpper(dataType);
 
     
         {
-            std::string lutLine; 
-            getVTKLine(file, lutLine);
+            std::string lutLine;
+            std::getline(file, lutLine);
         }
 
         int activeElementCount = readingPointData ? numPoints : numCells;
@@ -433,16 +575,11 @@ private:
                 }
             }
             else {
-                for (size_t i = 0; i < total; ++i) {
-                    float v;
-                    if (!(file >> v)) {
-                        std::cerr << "VTK Parser Warning: short read consuming multi-component ASCII SCALARS '" << scalarName << "'." << std::endl;
-                        multiCompData.clear();
-                        break;
-                    }
-                    multiCompData[i] = v;
+                mesh_utils::readAsciiValues(file, total, multiCompData);
+                if (multiCompData.size() != total) {
+                    std::cerr << "VTK Parser Warning: short read consuming multi-component ASCII SCALARS '" << scalarName << "'." << std::endl;
+                    multiCompData.clear();
                 }
-                clearTrailingLine(file);
             }
 
             if (!multiCompData.empty()) {
@@ -519,27 +656,28 @@ private:
             }
         }
         else {
-            for (size_t i = 0; i < readScalars.size(); ++i) {
-                double tmp = 0.0;
-                if (!(file >> tmp)) {
-                    std::cerr << "VTK Parser Warning: short read on ASCII SCALARS '" << scalarName
-                              << "'; dropping field." << std::endl;
-                    readScalars.clear();
-                    badField = true;
-                    break;
+            std::vector<double> tmpVals;
+            size_t nRead = mesh_utils::readAsciiValues(file, readScalars.size(), tmpVals);
+            if (nRead != readScalars.size()) {
+                std::cerr << "VTK Parser Warning: short read on ASCII SCALARS '" << scalarName
+                          << "'; dropping field." << std::endl;
+                readScalars.clear();
+                badField = true;
+            } else {
+                for (size_t i = 0; i < tmpVals.size(); ++i) {
+                    double tmp = tmpVals[i];
+                    if (!std::isfinite(tmp)) {
+                        std::cerr << "VTK Parser Warning: non-finite ASCII SCALARS '" << scalarName
+                                  << "'; dropping field." << std::endl;
+                        readScalars.clear();
+                        badField = true;
+                        break;
+                    }
+                    if (tmp >  std::numeric_limits<float>::max())      readScalars[i] =  std::numeric_limits<float>::max();
+                    else if (tmp < -std::numeric_limits<float>::max()) readScalars[i] = -std::numeric_limits<float>::max();
+                    else                                               readScalars[i] = static_cast<float>(tmp);
                 }
-                if (!std::isfinite(tmp)) {
-                    std::cerr << "VTK Parser Warning: non-finite ASCII SCALARS '" << scalarName
-                              << "'; dropping field." << std::endl;
-                    readScalars.clear();
-                    badField = true;
-                    break;
-                }
-                if (tmp >  std::numeric_limits<float>::max())      readScalars[i] =  std::numeric_limits<float>::max();
-                else if (tmp < -std::numeric_limits<float>::max()) readScalars[i] = -std::numeric_limits<float>::max();
-                else                                               readScalars[i] = static_cast<float>(tmp);
             }
-            clearTrailingLine(file);
         }
 
         if (!mesh.attributes.has_value()) {
@@ -585,10 +723,18 @@ private:
     // VECTORS). Store it directly in mesh.normals so the renderer uses the
     // author-provided normals instead of angle-based vertex splitting (which
     // would otherwise duplicate vertices and inflate the point count).
-    void parseNormalsBlock(std::istringstream& iss, std::ifstream& file) {
+    void parseNormalsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
         std::string normName, dataType;
-        iss >> normName >> dataType;
-        dataType = mesh_utils::toUpper(dataType);
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* nStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        normName = std::string(nStart, p - nStart);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* tStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        dataType = std::string(tStart, p - tStart);
+        mesh_utils::toUpperInPlace(dataType);
 
         int activeElementCount = readingPointData ? numPoints : numCells;
         if (activeElementCount == 0 && attributeTargetCount > 0) {
@@ -612,25 +758,30 @@ private:
                 return;
             }
         } else {
-            for (size_t i = 0; i < readNorms.size(); ++i) {
-                if (!(file >> readNorms[i])) {
-                    std::cerr << "VTK Parser Warning: non-finite ASCII NORMALS '" << normName
-                              << "'; dropping field." << std::endl;
-                    readNorms.clear();
-                    break;
-                }
+            size_t nRead = mesh_utils::readAsciiValues(file, readNorms.size(), readNorms);
+            if (nRead != readNorms.size()) {
+                std::cerr << "VTK Parser Warning: non-finite ASCII NORMALS '" << normName
+                          << "'; dropping field." << std::endl;
+                readNorms.clear();
             }
-            clearTrailingLine(file);
         }
 
         if (readNorms.empty()) return;
         mesh.normals = std::move(readNorms);
     }
 
-    void parseVectorsBlock(std::istringstream& iss, std::ifstream& file) {
+    void parseVectorsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
         std::string vecName, dataType;
-        iss >> vecName >> dataType;
-        dataType = mesh_utils::toUpper(dataType);
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* nStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        vecName = std::string(nStart, p - nStart);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* tStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        dataType = std::string(tStart, p - tStart);
+        mesh_utils::toUpperInPlace(dataType);
 
         if (mesh.vectorName.empty()) mesh.vectorName = vecName;
 
@@ -664,15 +815,22 @@ private:
                 }
             }
         } else {
-            for (size_t i = 0; i < readVecs.size(); ++i) {
-                if (!(file >> readVecs[i]) || !std::isfinite(readVecs[i])) {
-                    std::cerr << "VTK Parser Warning: non-finite ASCII VECTORS '" << vecName
-                              << "'; dropping field." << std::endl;
-                    readVecs.clear();
-                    break;
+            size_t expected = readVecs.size();
+            size_t nRead = mesh_utils::readAsciiValues(file, expected, readVecs);
+            if (nRead != expected) {
+                std::cerr << "VTK Parser Warning: short read on ASCII VECTORS '" << vecName
+                          << "'; dropping field." << std::endl;
+                readVecs.clear();
+            } else {
+                for (float v : readVecs) {
+                    if (!std::isfinite(v)) {
+                        std::cerr << "VTK Parser Warning: non-finite ASCII VECTORS '" << vecName
+                                  << "'; dropping field." << std::endl;
+                        readVecs.clear();
+                        break;
+                    }
                 }
             }
-            clearTrailingLine(file);
         }
 
         if (readVecs.empty()) {
@@ -1102,7 +1260,7 @@ private:
             }
         }
 
-        extrapolateCellDataToPointsMerged();
+        mesh_utils::extrapolateCellDataToPoints(mesh, globalCellToVertices, cellScalarsStorage, cellVectorsStorage);
 
         if (mesh.attributes.has_value()) {
             // Flatten per-point vectors into one contiguous vec3 buffer with a
@@ -1179,6 +1337,8 @@ private:
             for (const auto& [name, _] : mesh.attributes->pointVectors) {
                 mesh.availableVectorNames.push_back(name);
             }
+            std::sort(mesh.availableScalarNames.begin(), mesh.availableScalarNames.end());
+            std::sort(mesh.availableVectorNames.begin(), mesh.availableVectorNames.end());
         }
 
         if (mesh.vectorName.empty() && !mesh.availableVectorNames.empty()) {
@@ -1190,101 +1350,15 @@ private:
 
         mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
 
-        // Reconstruct raw per-corner positions (9 floats/tri) for the
-        // mesh-quality analyzer, which welds these at trimesh's 1e-8 tolerance.
-        // The rendered indexed mesh keeps the parser's dedup; the two stay
-        // separate on purpose.
-        mesh.flatVerts.reserve(mesh.indices.size() * 3);
-        for (uint32_t i : mesh.indices) {
-            const float* p = &mesh.vertices[i * 3];
-            mesh.flatVerts.insert(mesh.flatVerts.end(), { p[0], p[1], p[2] });
-        }
+        // flatVerts is now lazily computed via ensureFlatVerts() — only built
+        // when mesh_quality analysis actually runs, saving 3x index-count memory.
 
         if (mesh.normals.empty() && !mesh.indices.empty()) {
             mesh_utils::computeNormals(mesh);
         }
     }
 
-    void extrapolateCellDataToPointsMerged() {
-        if (globalCellToVertices.empty()) return;
-        if (cellScalarsStorage.empty() && cellVectorsStorage.empty()) return;
-
-        int vCount = mesh.vertices.size() / 3;
-        if (vCount == 0) return;
-        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
-
-
-        struct FieldAcc {
-            std::vector<float> sum;      
-        };
-        std::vector<FieldAcc> accs;
-        accs.reserve(cellScalarsStorage.size() + cellVectorsStorage.size());
-        std::map<std::string, size_t> scalarAccIdx;
-        std::map<std::string, size_t> vectorAccIdx;
-
-        for (const auto& [name, raw] : cellScalarsStorage) {
-            scalarAccIdx[name] = accs.size();
-            accs.push_back(FieldAcc{ std::vector<float>(vCount, 0.0f) });
-        }
-        for (const auto& [name, raw] : cellVectorsStorage) {
-            vectorAccIdx[name] = accs.size();
-            accs.push_back(FieldAcc{ std::vector<float>(static_cast<size_t>(vCount) * 3, 0.0f) });
-        }
-        std::vector<float> contributionCounts(vCount, 0.0f);
-
-     
-        for (size_t c = 0; c < globalCellToVertices.size(); ++c) {
-            // Accumulate scalar fields for this cell.
-            for (const auto& [name, raw] : cellScalarsStorage) {
-                if (c >= raw.size()) continue;
-                float val = raw[c];
-                size_t si = scalarAccIdx[name];
-                for (int vIdx : globalCellToVertices[c]) {
-                    if (vIdx >= 0 && vIdx < vCount) accs[si].sum[vIdx] += val;
-                }
-            }
-            // Accumulate vector fields for this cell.
-            for (const auto& [name, raw] : cellVectorsStorage) {
-                if (c >= raw.size() / 3) continue;
-                float vx = raw[c * 3 + 0];
-                float vy = raw[c * 3 + 1];
-                float vz = raw[c * 3 + 2];
-                size_t vi = vectorAccIdx[name];
-                for (int vIdx : globalCellToVertices[c]) {
-                    if (vIdx >= 0 && vIdx < vCount) {
-                        accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 0] += vx;
-                        accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 1] += vy;
-                        accs[vi].sum[static_cast<size_t>(vIdx) * 3 + 2] += vz;
-                    }
-                }
-            }
-            // One contribution per cell per vertex.
-            for (int vIdx : globalCellToVertices[c]) {
-                if (vIdx >= 0 && vIdx < vCount) contributionCounts[vIdx] += 1.0f;
-            }
-        }
-
-        // Normalize and store.
-        for (const auto& [name, raw] : cellScalarsStorage) {
-            std::vector<float>& sum = accs[scalarAccIdx[name]].sum;
-            for (int i = 0; i < vCount; ++i) {
-                if (contributionCounts[i] > 0.0f) sum[i] /= contributionCounts[i];
-            }
-            mesh.attributes->pointScalars[name] = std::move(sum);
-        }
-        for (const auto& [name, raw] : cellVectorsStorage) {
-            std::vector<float>& sum = accs[vectorAccIdx[name]].sum;
-            for (int i = 0; i < vCount; ++i) {
-                if (contributionCounts[i] > 0.0f) {
-                    float inv = 1.0f / contributionCounts[i];
-                    sum[static_cast<size_t>(i) * 3 + 0] *= inv;
-                    sum[static_cast<size_t>(i) * 3 + 1] *= inv;
-                    sum[static_cast<size_t>(i) * 3 + 2] *= inv;
-                }
-            }
-            mesh.attributes->pointVectors[name] = std::move(sum);
-        }
-    }
+    // extrapolateCellDataToPointsMerged is now in mesh_utils (shared implementation).
 
     void calculateScalarRanges() {
         // Ensure attributes are allocated
