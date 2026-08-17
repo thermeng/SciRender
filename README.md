@@ -73,8 +73,7 @@ the program can run from the build directory.
   volume, and volume-slice data
 - **Lighting system:** 4-point light kit (key/fill/back/head) that tracks the
   camera, key intensity + K-ratios (key/fill/back/head), kit-wide warm tint,
-  PBR material parameters (roughness, metallic, ambient/diffuse/specular),
-  and lighting presets (Studio, CAD-Flat, Soft)
+  PBR material parameters (roughness, metallic, ambient/diffuse/specular)/.
 - **Slicing & clipping:** axis-aligned clip planes and slice planes with
   bounds-aware sliders, per-axis invert toggles
 - **Axis triad overlay:** X/Y/Z coordinate triad in a corner viewport tracking
