@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <unordered_map>
+#include <map>
 
 namespace mesh_utils {
 
@@ -165,30 +167,35 @@ void computeNormals(RenderMesh& mesh) {
         if (fStart == fEnd) continue;
 
         // Greedily cluster incident faces into smooth groups. Seed group 0 with the
-        // first face; a subsequent face joins the current group only if its normal
-        // dot-product with every already-accepted face in that group stays >=
-        // SHARP_ANGLE_COS. Otherwise start a new group. This honors the intended
-        // ~25 deg smooth threshold exactly (a sphere's near-tangent faces all land in
-        // one group -> no split -> smooth shading; a cube corner's 90 deg faces stay
-        // in separate groups -> split).
+        // first face; a subsequent face joins a group only if its normal
+        // dot-product with that group's REPRESENTATIVE face stays >= SHARP_ANGLE_COS.
+        // Comparing against a single representative (instead of all already-accepted
+        // faces) reduces per-vertex cost from O(F²) to O(F×G) where G is the number of
+        // groups (typically 1–2). This is the standard smooth-shading approach and
+        // honors the ~25 deg threshold: a sphere's near-tangent faces all share a
+        // representative within the threshold → one group → smooth shading; a cube
+        // corner's 90 deg faces diverge → separate groups → split.
         std::vector<int> groupOf(fEnd - fStart, 0); // face slot -> group id
+        std::vector<int> groupRep;                   // adjFaces index of each group's rep face
+        groupRep.reserve(4);
+        groupRep.push_back(fStart);                  // group 0's rep is the first incident face
         int numGroups = 1;
         for (int fi = fStart + 1; fi < fEnd; fi++) {
             int f = adjFaces[fi];
             bool merged = false;
             for (int g = 0; g < numGroups; g++) {
-                bool ok = true;
-                for (int fj = fStart; fj < fi; fj++) {
-                    if (groupOf[fj - fStart] != g) continue;
-                    int of = adjFaces[fj];
-                    if (dot3(faceNormals[f], faceNormals[of]) < SHARP_ANGLE_COS) {
-                        ok = false;
-                        break;
-                    }
+                int of = adjFaces[groupRep[g]];
+                if (dot3(faceNormals[f], faceNormals[of]) >= SHARP_ANGLE_COS) {
+                    groupOf[fi - fStart] = g;
+                    merged = true;
+                    break;
                 }
-                if (ok) { groupOf[fi - fStart] = g; merged = true; break; }
             }
-            if (!merged) groupOf[fi - fStart] = numGroups++;
+            if (!merged) {
+                groupOf[fi - fStart] = numGroups;
+                groupRep.push_back(fi);
+                numGroups++;
+            }
         }
 
         if (numGroups <= 1) continue;  // smooth vertex, no split needed
@@ -317,6 +324,103 @@ void computeNormals(RenderMesh& mesh) {
         if (mesh.attributes.has_value()) {
             mesh.attributes->scalarMin = actualMin;
             mesh.attributes->scalarMax = actualMax;
+        }
+    }
+}
+
+// ── Cell-data → point-data extrapolation ─────────────────────────────────────
+
+void extrapolateCellDataToPoints(
+    RenderMesh& mesh,
+    const std::vector<std::vector<uint32_t>>& globalCellToVertices,
+    const std::unordered_map<std::string, std::vector<float>>& cellScalarsStorage,
+    const std::unordered_map<std::string, std::vector<float>>& cellVectorsStorage
+) {
+    if (globalCellToVertices.empty()) return;
+    if (cellScalarsStorage.empty() && cellVectorsStorage.empty()) return;
+
+    int vCount = static_cast<int>(mesh.vertices.size() / 3);
+    if (vCount == 0) return;
+    if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+
+    // Pre-collect all fields into a flat array. This avoids per-cell hash lookups
+    // (scalarAccIdx[name] / vectorAccIdx[name]) that the old code performed inside
+    // the cell loop — each was O(fields) lookups per cell.
+    struct FieldInfo {
+        std::string name;
+        bool isVector;
+        const std::vector<float>* raw;
+        std::vector<float> sum;
+    };
+    std::vector<FieldInfo> fields;
+    fields.reserve(cellScalarsStorage.size() + cellVectorsStorage.size());
+    for (const auto& [name, raw] : cellScalarsStorage) {
+        fields.push_back({name, false, &raw, std::vector<float>(static_cast<size_t>(vCount), 0.0f)});
+    }
+    for (const auto& [name, raw] : cellVectorsStorage) {
+        fields.push_back({name, true, &raw, std::vector<float>(static_cast<size_t>(vCount) * 3, 0.0f)});
+    }
+
+    // Single pass over all cells to compute per-vertex contribution counts.
+    // The old code computed this inside the field loop (repeatedly per field).
+    std::vector<float> contributionCounts(static_cast<size_t>(vCount), 0.0f);
+    for (const auto& cellVerts : globalCellToVertices) {
+        for (uint32_t vIdx : cellVerts) {
+            if (vIdx < static_cast<uint32_t>(vCount)) contributionCounts[vIdx] += 1.0f;
+        }
+    }
+
+    // For each field: iterate all cells once, accumulate cell values into
+    // incident points. Bounds checked once via the && loop condition (no
+    // per-inner-iteration branch on the cell index).
+    for (auto& f : fields) {
+        if (f.isVector) {
+            size_t numVecs = f.raw->size() / 3;
+            for (size_t c = 0; c < globalCellToVertices.size() && c < numVecs; ++c) {
+                const float vx = (*f.raw)[c * 3 + 0];
+                const float vy = (*f.raw)[c * 3 + 1];
+                const float vz = (*f.raw)[c * 3 + 2];
+                const auto& verts = globalCellToVertices[c];
+                for (uint32_t vIdx : verts) {
+                    if (vIdx >= static_cast<uint32_t>(vCount)) continue;
+                    size_t base = static_cast<size_t>(vIdx) * 3;
+                    f.sum[base + 0] += vx;
+                    f.sum[base + 1] += vy;
+                    f.sum[base + 2] += vz;
+                }
+            }
+        } else {
+            size_t numScalars = f.raw->size();
+            for (size_t c = 0; c < globalCellToVertices.size() && c < numScalars; ++c) {
+                const float val = (*f.raw)[c];
+                const auto& verts = globalCellToVertices[c];
+                for (uint32_t vIdx : verts) {
+                    if (vIdx < static_cast<uint32_t>(vCount)) f.sum[vIdx] += val;
+                }
+            }
+        }
+    }
+
+    // Normalize sums by contribution count and store as point data.
+    for (auto& f : fields) {
+        if (f.isVector) {
+            for (int i = 0; i < vCount; ++i) {
+                if (contributionCounts[i] > 0.0f) {
+                    float inv = 1.0f / contributionCounts[i];
+                    size_t base = static_cast<size_t>(i) * 3;
+                    f.sum[base + 0] *= inv;
+                    f.sum[base + 1] *= inv;
+                    f.sum[base + 2] *= inv;
+                }
+            }
+            if (mesh.scalarName.empty()) mesh.scalarName = f.name;
+            mesh.attributes->pointVectors[f.name] = f.sum;
+        } else {
+            for (int i = 0; i < vCount; ++i) {
+                if (contributionCounts[i] > 0.0f) f.sum[i] /= contributionCounts[i];
+            }
+            if (mesh.scalarName.empty()) mesh.scalarName = f.name;
+            mesh.attributes->pointScalars[f.name] = std::move(f.sum);
         }
     }
 }

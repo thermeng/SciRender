@@ -52,7 +52,8 @@ bool canExtract(const RenderMesh& volumeMesh) {
 }
 
 static void triangulateFan(RenderMesh& out,
-                           const uint32_t* cellVerts, int nVerts) {
+                           const uint32_t* cellVerts, int nVerts,
+                           const float gradN[3]) {
     // Best-fit plane normal: normalized mean of pairwise cross(v_i - C).
     float C[3] = {0, 0, 0};
     for (int i = 0; i < nVerts; ++i) {
@@ -76,6 +77,13 @@ static void triangulateFan(RenderMesh& out,
     float nlen = std::sqrt(N[0]*N[0] + N[1]*N[1] + N[2]*N[2]);
     if (nlen < 1e-9f) { N[0]=0; N[1]=0; N[2]=1; nlen=1; }
     N[0]/=nlen; N[1]/=nlen; N[2]/=nlen;
+
+    // Orient N to match the scalar-field gradient (low→high). This ensures
+    // the angle-sort in atan2 produces a consistent winding direction across
+    // adjacent cells, so computeNormals never splits vertices at shared edges.
+    if (N[0]*gradN[0] + N[1]*gradN[1] + N[2]*gradN[2] < 0) {
+        N[0] = -N[0]; N[1] = -N[1]; N[2] = -N[2];
+    }
 
     // Orthonormal basis (U,V) perpendicular to N.
     float U[3] = { std::fabs(N[0]) < 0.9f ? 1.0f : 0.0f,
@@ -229,6 +237,7 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                     // 2) interpolate shared vertices on crossed edges.
                     uint32_t cellVerts[12];
                     int nVerts = 0;
+                    float gradN[3] = {0, 0, 0};
                     for (int e = 0; e < 12; ++e) {
                         const int axis = EDGES[e].axis;
                         const int nA = base + EDGES[e].lowerRel;
@@ -236,8 +245,14 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                         const float va = (*vals)[static_cast<size_t>(nA)];
                         const float vb = (*vals)[static_cast<size_t>(nB)];
                         if ((va >= iso) == (vb >= iso)) continue; // not crossed
+                        // Accumulate gradient direction: from low to high.
+                        float dx = P[static_cast<size_t>(nB)*3+0] - P[static_cast<size_t>(nA)*3+0];
+                        float dy = P[static_cast<size_t>(nB)*3+1] - P[static_cast<size_t>(nA)*3+1];
+                        float dz = P[static_cast<size_t>(nB)*3+2] - P[static_cast<size_t>(nA)*3+2];
+                        if (va < vb) { gradN[0]+=dx; gradN[1]+=dy; gradN[2]+=dz; }
+                        else         { gradN[0]-=dx; gradN[1]-=dy; gradN[2]-=dz; }
                         const EdgeKey k = (static_cast<EdgeKey>(nA) << 2) |
-                                            static_cast<EdgeKey>(axis);
+                                                static_cast<EdgeKey>(axis);
                         auto mit = edgeVert.find(k);
                         uint32_t vi;
                         if (mit != edgeVert.end()) {
@@ -252,21 +267,94 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                     }
                     if (nVerts == 0) continue;
 
+                    // Collapse exact-duplicate indices that arise when multiple
+                    // edges share a node-vertex (isovalue == node scalar).
+                    {
+                        int w = 0;
+                        for (int i = 0; i < nVerts; ++i) {
+                            bool dup = false;
+                            for (int j = 0; j < w; ++j)
+                                if (cellVerts[i] == cellVerts[j]) { dup = true; break; }
+                            if (!dup) cellVerts[w++] = cellVerts[i];
+                        }
+                        nVerts = w;
+                    }
+                    if (nVerts < 3) continue;
+
                     // 3) triangulate the per-cell polygon.
+                    float gradLen = std::sqrt(gradN[0]*gradN[0]+gradN[1]*gradN[1]+gradN[2]*gradN[2]);
                     if (nVerts == 3) {
-                        result.indices.push_back(cellVerts[0]);
-                        result.indices.push_back(cellVerts[1]);
-                        result.indices.push_back(cellVerts[2]);
+                        // Orient the triangle consistently with the gradient so
+                        // adjacent cells have matching edge winding.
+                        const float* v0 = &result.vertices[cellVerts[0] * 3];
+                        const float* v1 = &result.vertices[cellVerts[1] * 3];
+                        const float* v2 = &result.vertices[cellVerts[2] * 3];
+                        float nx = (v1[1]-v0[1])*(v2[2]-v0[2]) - (v1[2]-v0[2])*(v2[1]-v0[1]);
+                        float ny = (v1[2]-v0[2])*(v2[0]-v0[0]) - (v1[0]-v0[0])*(v2[2]-v0[2]);
+                        float nz = (v1[0]-v0[0])*(v2[1]-v0[1]) - (v1[1]-v0[1])*(v2[0]-v0[0]);
+                        float dotN = nx*gradN[0]+ny*gradN[1]+nz*gradN[2];
+                        bool wouldFlip = (dotN < 0);
+                        std::fprintf(stderr, "[CELL%d] nv=%d grad=(%.2f,%.2f,%.2f) len=%.2f flip=%d dot=%.3f v0=(%.1f,%.1f,%.1f) v1=(%.1f,%.1f,%.1f) v2=(%.1f,%.1f,%.1f)\n",
+                            base, nVerts, gradN[0], gradN[1], gradN[2], gradLen, wouldFlip ? 1 : 0, dotN,
+                            v0[0],v0[1],v0[2], v1[0],v1[1],v1[2], v2[0],v2[1],v2[2]);
+                        if (wouldFlip) {
+                            result.indices.push_back(cellVerts[0]);
+                            result.indices.push_back(cellVerts[2]);
+                            result.indices.push_back(cellVerts[1]);
+                        } else {
+                            result.indices.push_back(cellVerts[0]);
+                            result.indices.push_back(cellVerts[1]);
+                            result.indices.push_back(cellVerts[2]);
+                        }
                     } else {
-                        triangulateFan(result, cellVerts, nVerts);
+                        triangulateFan(result, cellVerts, nVerts, gradN);
                     }
                 } // end cell
     } // end contour
 
     if (result.vertices.empty()) return result;
 
+    // DEBUG
+    int inconsistentWinding = 0;
+    int totalTris = 0;
+    {
+        size_t nv = result.vertices.size() / 3;
+        size_t nt = result.indices.size() / 3;
+        std::unordered_map<uint64_t, int> edgeCount;
+        for (size_t t = 0; t + 2 < result.indices.size(); t += 3) {
+            uint32_t a = result.indices[t], b = result.indices[t+1], cc = result.indices[t+2];
+            // Check face normal direction vs gradient
+            const float* fa = &result.vertices[a*3];
+            const float* fb = &result.vertices[b*3];
+            const float* fc = &result.vertices[cc*3];
+            float nx = (fb[1]-fa[1])*(fc[2]-fa[2]) - (fb[2]-fa[2])*(fc[1]-fa[1]);
+            float ny = (fb[2]-fa[2])*(fc[0]-fa[0]) - (fb[0]-fa[0])*(fc[2]-fa[2]);
+            float nz = (fb[0]-fa[0])*(fc[1]-fa[1]) - (fb[1]-fa[1])*(fc[0]-fa[0]);
+            float nlen = std::sqrt(nx*nx+ny*ny+nz*nz);
+            if (nlen < 1e-9f) continue;
+            nx/=nlen; ny/=nlen; nz/=nlen;
+            // Gradient of sphere: 2*(x-2, y-2, z-2)
+            float cx = (fa[0]+fb[0]+fc[0])/3 - 2.0f;
+            float cy = (fa[1]+fb[1]+fc[1])/3 - 2.0f;
+            float cz = (fa[2]+fb[2]+fc[2])/3 - 2.0f;
+            float dot = nx*cx + ny*cy + nz*cz;
+            if (dot < 0) inconsistentWinding++;
+            totalTris++;
+            auto bump = [&](uint32_t u, uint32_t v){ if(u>v)std::swap(u,v); edgeCount[(uint64_t(u)<<32)|v]++; };
+            bump(a,b); bump(b,cc); bump(cc,a);
+        }
+        int open = 0;
+        for (auto& [_, cnt] : edgeCount) if (cnt == 1) open++;
+        std::fprintf(stderr, "[DEBUG] pre-normals: verts=%zu tris=%zu open=%d inconsistentWinding=%d/%d\n",
+            nv, nt, open, inconsistentWinding, totalTris);
+    }
+
     // 4) smooth normals (shared vertices => averaged; sharp-edge split kept).
     mesh_utils::computeNormals(result);
+    {
+        size_t nv = result.vertices.size() / 3;
+        std::fprintf(stderr, "[DEBUG] post-normals: verts=%zu\n", nv);
+    }
     mesh_utils::computeBounds(result);
 
     // Surface-mesh contract so MeshPass colormap/lighting wire up.
