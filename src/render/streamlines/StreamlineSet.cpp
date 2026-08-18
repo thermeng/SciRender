@@ -143,8 +143,18 @@ StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const R
 }
 
 glm::vec3 StreamlineSet::evalFieldTrilinear(const StreamlineSet::StructuredGridInfo& info, const glm::vec3& pos) {
-    if (info.dimX <= 1 || info.dimY <= 1 || info.dimZ <= 1 || !info.data) {
-        return glm::vec3(0.0f);
+    if (!info.data) return glm::vec3(0.0f);
+
+    if (info.dimX <= 1 || info.dimY <= 1 || info.dimZ <= 1) {
+        // Degenerate dimension(s): fall back to nearest-neighbor sampling.
+        int i = std::clamp(static_cast<int>(
+            std::upper_bound(info.xs.begin(), info.xs.end(), pos.x) - info.xs.begin()) - 1, 0, info.dimX - 1);
+        int j = std::clamp(static_cast<int>(
+            std::upper_bound(info.ys.begin(), info.ys.end(), pos.y) - info.ys.begin()) - 1, 0, info.dimY - 1);
+        int k = std::clamp(static_cast<int>(
+            std::upper_bound(info.zs.begin(), info.zs.end(), pos.z) - info.zs.begin()) - 1, 0, info.dimZ - 1);
+        auto idx = [&](int ii, int jj, int kk) { return ii + jj * info.dimX + kk * info.dimX * info.dimY; };
+        return info.data[idx(i, j, k)];
     }
 
     if (pos.x < info.xs.front() || pos.x > info.xs.back() ||
