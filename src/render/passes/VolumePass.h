@@ -12,7 +12,8 @@ class VolumePass {
 public:
     void init(const ShaderSources& sources);
     void uploadVolume(const RenderRenderState& state, const std::vector<float>& scalars, int dimX, int dimY, int dimZ, const glm::vec3& boxMin, const glm::vec3& boxMax);
-    void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, const ColormapManager& colormap);
+    void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
+              const ColormapManager& colormap, float pixelFootprintScale);
     void shutdown();
     void clearVolume();
     GLuint volumeTexture() const { return volumeTex_.get(); }
@@ -28,13 +29,11 @@ private:
     GLint locInvView_ = -1;
     GLint locInvProj_ = -1;
     GLint locCamPos_ = -1;
-    GLint locForward_ = -1;
     GLint locOrtho_ = -1;
     GLint locVolumeTex_ = -1;
     GLint locBoxMin_ = -1;
     GLint locBoxMax_ = -1;
     GLint locLut_ = -1;
-    GLint locStepSize_ = -1;
     GLint locOpacity_ = -1;
     GLint locScalarMin_ = -1;
     GLint locScalarMax_ = -1;
@@ -45,6 +44,10 @@ private:
     GLint locSliceEn_ = -1;
     GLint locInvert_ = -1;
     GLint locVolumeUseColormap_ = -1;
+    GLint locSafeExtent_ = -1;
+    GLint locBaseStepSize_ = -1;
+    GLint locPixelFootprintScale_ = -1;
+    GLint locFovY_ = -1;
     glm::vec3 boxMin_;
     glm::vec3 boxMax_;
     int dimX_ = 0, dimY_ = 0, dimZ_ = 0;

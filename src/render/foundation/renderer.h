@@ -231,6 +231,7 @@ struct RenderRenderState {
     bool volumeColormapReversed = false;
     float volumeStepSize = 0.01f;
     float volumeOpacity = 1.0f;
+    float fovY = glm::radians(45.0f);  // vertical field of view in radians
 
     // Volume slice overlay
     bool showVolumeSlice = false;
