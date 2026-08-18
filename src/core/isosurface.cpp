@@ -294,9 +294,6 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                         float nz = (v1[0]-v0[0])*(v2[1]-v0[1]) - (v1[1]-v0[1])*(v2[0]-v0[0]);
                         float dotN = nx*gradN[0]+ny*gradN[1]+nz*gradN[2];
                         bool wouldFlip = (dotN < 0);
-                        std::fprintf(stderr, "[CELL%d] nv=%d grad=(%.2f,%.2f,%.2f) len=%.2f flip=%d dot=%.3f v0=(%.1f,%.1f,%.1f) v1=(%.1f,%.1f,%.1f) v2=(%.1f,%.1f,%.1f)\n",
-                            base, nVerts, gradN[0], gradN[1], gradN[2], gradLen, wouldFlip ? 1 : 0, dotN,
-                            v0[0],v0[1],v0[2], v1[0],v1[1],v1[2], v2[0],v2[1],v2[2]);
                         if (wouldFlip) {
                             result.indices.push_back(cellVerts[0]);
                             result.indices.push_back(cellVerts[2]);
@@ -345,8 +342,6 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
         }
         int open = 0;
         for (auto& [_, cnt] : edgeCount) if (cnt == 1) open++;
-        std::fprintf(stderr, "[DEBUG] pre-normals: verts=%zu tris=%zu open=%d inconsistentWinding=%d/%d\n",
-            nv, nt, open, inconsistentWinding, totalTris);
     }
 
     // 4) smooth normals (shared vertices => averaged; sharp-edge split kept).

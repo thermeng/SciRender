@@ -293,6 +293,10 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     if (renderMesh->gridDimX > 0 && renderMesh->gridDimY > 0 && renderMesh->gridDimZ > 0 && !renderMesh->scalars.empty()) {
         glm::vec3 boxMin(renderMesh->bounds.minX, renderMesh->bounds.minY, renderMesh->bounds.minZ);
         glm::vec3 boxMax(renderMesh->bounds.maxX, renderMesh->bounds.maxY, renderMesh->bounds.maxZ);
+        qDebug() << "[DEBUG MESH] bounds:" 
+                 << "min:" << static_cast<float>(renderMesh->bounds.minX) << static_cast<float>(renderMesh->bounds.minY) << static_cast<float>(renderMesh->bounds.minZ)
+                 << "max:" << static_cast<float>(renderMesh->bounds.maxX) << static_cast<float>(renderMesh->bounds.maxY) << static_cast<float>(renderMesh->bounds.maxZ)
+                 << "gridDim:" << renderMesh->gridDimX << renderMesh->gridDimY << renderMesh->gridDimZ;
         m_volume.uploadVolume(m_state, renderMesh->scalars, renderMesh->gridDimX, renderMesh->gridDimY, renderMesh->gridDimZ, boxMin, boxMax);
     } else {
         m_volume.clearVolume();
@@ -884,6 +888,7 @@ void Renderer::renderFrame() {
         float d = static_cast<float>(m_state.camera.distance / m_orthoRefDist);
         float half = static_cast<float>(m_state.worldRadius * d);
         float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
+        m_state.fovY = glm::radians(45.0f);  // orthographic: use reference FOV for footprint scaling
         float n = static_cast<float>(nearPlane);
         float f = static_cast<float>(farPlane);
         const float r = half * aspect;
@@ -901,6 +906,7 @@ void Renderer::renderFrame() {
         float n = static_cast<float>(nearPlane);
         float f = static_cast<float>(farPlane);
         float fov = glm::radians(45.0f);
+        m_state.fovY = fov;  // store for volume ray casting footprint scale
         float tanHalf = std::tan(fov * 0.5f);
         float r = 1.0f / (aspect * tanHalf);
         float t = 1.0f / tanHalf;
@@ -999,7 +1005,8 @@ void Renderer::renderFrame() {
         m_grid.draw(m_state, view, proj, m_shadowDepthTex);
     }
 
-    m_volume.draw(m_state, view, proj, colormap);
+    float pixelFootprintScale = deviceH > 0 ? std::tan(m_state.fovY * 0.5f) * 2.0f / static_cast<float>(deviceH) : 1.0f;
+    m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale);
 
     // Recompute the slice plane's scalar range from the current data slice so the
     // colormap remaps as the plane moves (only needed when a slice is visible).

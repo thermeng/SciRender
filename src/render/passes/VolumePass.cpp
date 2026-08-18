@@ -3,6 +3,7 @@
 #include "render/foundation/shader_utils.h"
 #include "render/passes/ColormapManager.h"
 #include <glad/gl.h>
+#include <cmath>
 
 static const float QUAD_VERTS[] = {
     -1.0f, -1.0f,
@@ -18,13 +19,15 @@ void VolumePass::init(const ShaderSources& sources) {
         locInvView_         = glGetUniformLocation(program_, "uInvView");
         locInvProj_         = glGetUniformLocation(program_, "uInvProj");
         locCamPos_          = glGetUniformLocation(program_, "uCamPos");
-        locForward_         = glGetUniformLocation(program_, "uForward");
         locOrtho_           = glGetUniformLocation(program_, "uOrtho");
+        locSafeExtent_      = glGetUniformLocation(program_, "uSafeExtent");
+        locBaseStepSize_    = glGetUniformLocation(program_, "uBaseStepSize");
+        locPixelFootprintScale_ = glGetUniformLocation(program_, "uPixelFootprintScale");
+        locFovY_ = glGetUniformLocation(program_, "uFovY");
         locVolumeTex_       = glGetUniformLocation(program_, "uVolumeTex");
         locBoxMin_          = glGetUniformLocation(program_, "uBoxMin");
         locBoxMax_          = glGetUniformLocation(program_, "uBoxMax");
         locLut_             = glGetUniformLocation(program_, "uColormapLUT");
-        locStepSize_        = glGetUniformLocation(program_, "uStepSize");
         locOpacity_         = glGetUniformLocation(program_, "uOpacity");
         locScalarMin_       = glGetUniformLocation(program_, "uScalarMin");
         locScalarMax_       = glGetUniformLocation(program_, "uScalarMax");
@@ -76,7 +79,8 @@ void VolumePass::uploadVolume(const RenderRenderState& state, const std::vector<
     }
 }
 
-void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, const ColormapManager& colormap) {
+void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
+                      const ColormapManager& colormap, float pixelFootprintScale) {
     if (!state.showVolume || !volumeTex_.has() || !program_.has()) return;
 
     GLboolean blendWas = glIsEnabled(GL_BLEND);
@@ -98,18 +102,24 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glUniformMatrix4fv(locInvProj_, 1, GL_FALSE, glm::value_ptr(invProj));
     glm::vec3 camPos = glm::vec3(state.camera.position);
     glUniform3fv(locCamPos_, 1, glm::value_ptr(camPos));
-
-    glm::vec3 forward = glm::normalize(glm::vec3(state.camera.focalPoint - state.camera.position));
-    glUniform3fv(locForward_, 1, glm::value_ptr(forward));
     glUniform1i(locOrtho_, state.orthographic ? 1 : 0);
+    glUniform1f(locFovY_, state.fovY);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_3D, volumeTex_.get());
     glUniform1i(locVolumeTex_, 0);
 
+    glm::vec3 boxExtent = boxMax_ - boxMin_;
+    glm::vec3 safeExtent = glm::vec3(
+        std::abs(boxExtent.x) < 1e-8f ? 1.0f : boxExtent.x,
+        std::abs(boxExtent.y) < 1e-8f ? 1.0f : boxExtent.y,
+        std::abs(boxExtent.z) < 1e-8f ? 1.0f : boxExtent.z);
+    glUniform3fv(locSafeExtent_, 1, glm::value_ptr(safeExtent));
+
     float extent = glm::length(boxMax_ - boxMin_);
-    float stepSize = state.volumeStepSize * static_cast<float>(extent);
-    glUniform1f(locStepSize_, stepSize);
+    float baseStepSize = state.volumeStepSize * extent;
+    glUniform1f(locBaseStepSize_, baseStepSize);
+    glUniform1f(locPixelFootprintScale_, pixelFootprintScale);
     glUniform1f(locOpacity_, state.volumeOpacity);
 
     glUniform1f(locScalarMin_, state.dataScalarMin);
@@ -140,6 +150,7 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
 
     if (!blendWas) glDisable(GL_BLEND);
     if (depthWas) glEnable(GL_DEPTH_TEST);
+    else glDisable(GL_DEPTH_TEST);
     glDepthMask(depthMaskWas);
     glUseProgram(0);
 }
@@ -156,10 +167,12 @@ void VolumePass::shutdown() {
     quadVbo_.reset();
     vaoInitialized_ = false;
     dimX_ = dimY_ = dimZ_ = 0;
-    locInvView_ = locInvProj_ = locCamPos_ = locForward_ = locOrtho_ = locVolumeTex_ = -1;
-    locBoxMin_ = locBoxMax_ = locLut_ = locStepSize_ = locOpacity_ = -1;
+    locInvView_ = locInvProj_ = locCamPos_ = locOrtho_ = locVolumeTex_ = -1;
+    locBoxMin_ = locBoxMax_ = locLut_ = locOpacity_ = -1;
     locScalarMin_ = locScalarMax_ = locClipEnabled_ = locSliceHeightX_ = -1;
     locSliceHeightY_ = locSliceHeightZ_ = locSliceEn_ = locInvert_ = locVolumeUseColormap_ = -1;
+    locSafeExtent_ = locBaseStepSize_ = locPixelFootprintScale_ = -1;
+    locFovY_ = -1;
 }
 
 

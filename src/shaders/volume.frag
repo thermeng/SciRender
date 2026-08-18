@@ -1,13 +1,13 @@
 #version 460 core
 
-in vec3 vRayOrigin;
-in vec3 vRayDir;
+in vec2 vNdc;
 
 uniform sampler3D uVolumeTex;
 uniform sampler1D uColormapLUT;
 uniform vec3 uBoxMin;
 uniform vec3 uBoxMax;
-uniform float uStepSize;
+uniform vec3 uSafeExtent;
+uniform float uBaseStepSize;
 uniform float uOpacity;
 uniform float uScalarMin;
 uniform float uScalarMax;
@@ -18,21 +18,16 @@ uniform float uSliceHeightY;
 uniform float uSliceHeightZ;
 uniform vec3 uSliceEn;
 uniform vec3 uInvert;
+uniform float uPixelFootprintScale;
+uniform float uFovY;
+uniform int uOrtho;
+uniform mat4 uInvView;
+uniform mat4 uInvProj;
+uniform vec3 uCamPos;
 
 #define MAX_STEPS 512
 
 out vec4 FragColor;
-
-vec3 computeGradient(vec3 uvw) {
-    vec3 epsilon = vec3(1.0 / 128.0, 1.0 / 128.0, 1.0 / 128.0);
-    float gx = texture(uVolumeTex, uvw + vec3(epsilon.x, 0.0, 0.0)).r - 
-               texture(uVolumeTex, uvw - vec3(epsilon.x, 0.0, 0.0)).r;
-    float gy = texture(uVolumeTex, uvw + vec3(0.0, epsilon.y, 0.0)).r - 
-               texture(uVolumeTex, uvw - vec3(0.0, epsilon.y, 0.0)).r;
-    float gz = texture(uVolumeTex, uvw + vec3(0.0, 0.0, epsilon.z)).r - 
-               texture(uVolumeTex, uvw - vec3(0.0, 0.0, epsilon.z)).r;
-    return vec3(gx, gy, gz);
-}
 
 float intersectBox(vec3 rayOrigin, vec3 rayDir, vec3 boxMin, vec3 boxMax, out float tFar) {
     vec3 safeDir = rayDir;
@@ -75,44 +70,78 @@ float computeSliceAlpha(vec3 pos) {
     return alpha;
 }
 
-void main() {
-    vec3 rayDir = normalize(vRayDir);
-    float tFar;
-    float tNear = intersectBox(vRayOrigin, rayDir, uBoxMin, uBoxMax, tFar);
-    if (tNear < 0.0) discard;
+vec3 computeGradient(vec3 uvw) {
+    vec3 eps = vec3(1.0 / 128.0, 1.0 / 128.0, 1.0 / 128.0);
+    vec3 g;
+    g.x = texture(uVolumeTex, uvw + vec3(eps.x, 0.0, 0.0)).r - texture(uVolumeTex, uvw - vec3(eps.x, 0.0, 0.0)).r;
+    g.y = texture(uVolumeTex, uvw + vec3(0.0, eps.y, 0.0)).r - texture(uVolumeTex, uvw - vec3(0.0, eps.y, 0.0)).r;
+    g.z = texture(uVolumeTex, uvw + vec3(0.0, 0.0, eps.z)).r - texture(uVolumeTex, uvw - vec3(0.0, 0.0, eps.z)).r;
+    return g;
+}
 
-    vec3 entry = vRayOrigin + rayDir * tNear;
-    float rayLength = tFar - tNear;
+void main() {
+    vec4 clipNear = vec4(vNdc, 0.0, 1.0);
+    vec4 clipFar  = vec4(vNdc, 1.0, 1.0);
+
+    vec4 viewNear = uInvProj * clipNear;
+    viewNear /= (abs(viewNear.w) > 1e-8 ? viewNear.w : 1.0);
+    vec4 viewFar = uInvProj * clipFar;
+    viewFar /= (abs(viewFar.w) > 1e-8 ? viewFar.w : 1.0);
+
+    vec4 worldNear = uInvView * viewNear;
+    worldNear /= (abs(worldNear.w) > 1e-8 ? worldNear.w : 1.0);
+    vec4 worldFar = uInvView * viewFar;
+    worldFar /= (abs(worldFar.w) > 1e-8 ? worldFar.w : 1.0);
+
+    vec3 rayOrigin = (uOrtho == 1) ? worldNear.xyz : uCamPos;
+    vec3 rayDir = normalize(worldFar.xyz - rayOrigin);
+
+    float tFarBox;
+    float tNear = intersectBox(rayOrigin, rayDir, uBoxMin, uBoxMax, tFarBox);
+    if (tNear < 0.0 || tFarBox <= tNear) discard;
+
+    float maxDist = length(uBoxMax - uBoxMin);
+    float safeRayLength = min(tFarBox - tNear, maxDist);
+    tNear = max(tNear, 0.0);
+
+    vec3 entry = rayOrigin + rayDir * tNear;
 
     vec3 accum = vec3(0.0);
     float accumA = 0.0;
-    float t = 0.0;
 
+    float diag = length(uSafeExtent);
+    float minStep = diag / float(MAX_STEPS);
+
+    float t = 0.0;
+    int steps = 0;
     for (int i = 0; i < MAX_STEPS; ++i) {
-        if (accumA > 0.95) break;
-        if (t > rayLength) break;
+        if (accumA > 0.9) break;
+        if (t >= safeRayLength) break;
+        steps = i;
 
         vec3 pos = entry + rayDir * t;
         pos = clamp(pos, uBoxMin, uBoxMax);
 
         float sliceAlpha = computeSliceAlpha(pos);
 
-        vec3 uvw = (pos - uBoxMin) / (uBoxMax - uBoxMin);
+        vec3 uvw = clamp((pos - uBoxMin) / uSafeExtent, 0.0, 1.0);
         float val = texture(uVolumeTex, uvw).r;
 
         float scalarRange = max(uScalarMax - uScalarMin, 1e-6);
         float tVal = clamp((val - uScalarMin) / scalarRange, 0.0, 1.0);
 
+        float gradMag = length(computeGradient(uvw));
+        float featureScale = 1.0 / (gradMag * 10.0 + 1.0);
+        float currentDist = length(pos - uCamPos);
+        float pixelFootprint = uOrtho == 1
+            ? uPixelFootprintScale
+            : uPixelFootprintScale * currentDist;
+        float stepSize = max(min(pixelFootprint * max(0.1, featureScale), uBaseStepSize), minStep);
+
         if (sliceAlpha < 0.01) {
-            t += uStepSize;
+            t += stepSize;
             continue;
         }
-
-        // Gradient-based adaptive step size
-        vec3 grad = computeGradient(uvw);
-        float gradMag = length(grad);
-        float featureScale = 1.0 / (gradMag * 10.0 + 1.0);
-        float adaptiveStep = uStepSize * max(0.1, featureScale);
 
         vec3 color;
         if (uVolumeUseColormap == 1) {
@@ -121,16 +150,23 @@ void main() {
             color = vec3(tVal);
         }
 
-        float alpha = tVal * uOpacity * 0.1f * sliceAlpha;
-        alpha = clamp(alpha, 0.0, 1.0);
+        float density = tVal * uOpacity * sliceAlpha;
+        float alpha = clamp(1.0 - exp(-density * stepSize), 0.0, 1.0);
 
         accum += alpha * color * (1.0 - accumA);
         accumA += alpha * (1.0 - accumA);
 
-        t += adaptiveStep;
+        if (alpha < 1e-4 && density < 1e-3 && float(steps) > 4.0) {
+            float skipFactor = clamp(density < 1e-6 ? 8.0 : 4.0, 1.0, 8.0);
+            t += stepSize * skipFactor;
+        } else {
+            t += stepSize;
+        }
     }
 
     if (accumA < 0.005) discard;
+
+    accum = pow(accum, vec3(1.0 / 2.2));
 
     FragColor = vec4(accum, accumA);
 }
