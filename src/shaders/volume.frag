@@ -23,6 +23,17 @@ uniform vec3 uInvert;
 
 out vec4 FragColor;
 
+vec3 computeGradient(vec3 uvw) {
+    vec3 epsilon = vec3(1.0 / 128.0, 1.0 / 128.0, 1.0 / 128.0);
+    float gx = texture(uVolumeTex, uvw + vec3(epsilon.x, 0.0, 0.0)).r - 
+               texture(uVolumeTex, uvw - vec3(epsilon.x, 0.0, 0.0)).r;
+    float gy = texture(uVolumeTex, uvw + vec3(0.0, epsilon.y, 0.0)).r - 
+               texture(uVolumeTex, uvw - vec3(0.0, epsilon.y, 0.0)).r;
+    float gz = texture(uVolumeTex, uvw + vec3(0.0, 0.0, epsilon.z)).r - 
+               texture(uVolumeTex, uvw - vec3(0.0, 0.0, epsilon.z)).r;
+    return vec3(gx, gy, gz);
+}
+
 float intersectBox(vec3 rayOrigin, vec3 rayDir, vec3 boxMin, vec3 boxMax, out float tFar) {
     vec3 safeDir = rayDir;
     if (abs(rayDir.x) < 1e-8) safeDir.x = (rayDir.x >= 0.0 ? 1.0 : -1.0) * 1e-8;
@@ -75,24 +86,33 @@ void main() {
 
     vec3 accum = vec3(0.0);
     float accumA = 0.0;
+    float t = 0.0;
 
     for (int i = 0; i < MAX_STEPS; ++i) {
         if (accumA > 0.95) break;
-
-        float t = float(i) * uStepSize;
         if (t > rayLength) break;
 
         vec3 pos = entry + rayDir * t;
         pos = clamp(pos, uBoxMin, uBoxMax);
 
         float sliceAlpha = computeSliceAlpha(pos);
-        if (sliceAlpha < 0.01) continue;
 
         vec3 uvw = (pos - uBoxMin) / (uBoxMax - uBoxMin);
         float val = texture(uVolumeTex, uvw).r;
 
         float scalarRange = max(uScalarMax - uScalarMin, 1e-6);
         float tVal = clamp((val - uScalarMin) / scalarRange, 0.0, 1.0);
+
+        if (sliceAlpha < 0.01) {
+            t += uStepSize;
+            continue;
+        }
+
+        // Gradient-based adaptive step size
+        vec3 grad = computeGradient(uvw);
+        float gradMag = length(grad);
+        float featureScale = 1.0 / (gradMag * 10.0 + 1.0);
+        float adaptiveStep = uStepSize * max(0.1, featureScale);
 
         vec3 color;
         if (uVolumeUseColormap == 1) {
@@ -106,6 +126,8 @@ void main() {
 
         accum += alpha * color * (1.0 - accumA);
         accumA += alpha * (1.0 - accumA);
+
+        t += adaptiveStep;
     }
 
     if (accumA < 0.005) discard;
