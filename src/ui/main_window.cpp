@@ -1883,10 +1883,10 @@ QWidget* MainWindow::buildVolumePage() {
         auto* slider = volumeUi.stepSlider;
         auto* valueLabel = volumeUi.stepValue;
         slider->setRange(1, 1000);
-        slider->setValue(static_cast<int>(m_settings->getVolumeStepSize() * 1000));
+        slider->setValue(static_cast<int>(std::log10(m_settings->getVolumeStepSize()) * 1000.0 + 4000.0));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 3));
+            double v = std::pow(10.0, (raw - 4000.0) / 1000.0);
+            valueLabel->setText(QString::number(v, 'f', 4));
             m_settings->setVolumeStepSize(v);
         });
     }
