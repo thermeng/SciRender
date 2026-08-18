@@ -16,13 +16,12 @@ void main() {
     vRayOrigin = uCamPos;
 
     if (uOrtho == 1) {
-        vec4 nearWorld = uInvView * uInvProj * vec4(aPos, 0.0, 1.0);
+        vec4 nearWorld = uInvView * uInvProj * vec4(aPos, -1.0, 1.0);
         nearWorld /= nearWorld.w;
         vRayOrigin = nearWorld.xyz;
         vRayDir = uForward;
     } else {
-        vec4 ndcFar = vec4(aPos, 1.0, 1.0);
-        vec4 viewFar = uInvProj * ndcFar;
+        vec4 viewFar = uInvProj * vec4(aPos, 1.0, 1.0);
         viewFar /= viewFar.w;
         vec4 worldFar = uInvView * vec4(viewFar.xyz, 1.0);
         worldFar /= worldFar.w;
