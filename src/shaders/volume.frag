@@ -24,7 +24,11 @@ uniform vec3 uInvert;
 out vec4 FragColor;
 
 float intersectBox(vec3 rayOrigin, vec3 rayDir, vec3 boxMin, vec3 boxMax, out float tFar) {
-    vec3 invDir = 1.0 / (rayDir + 1e-8);
+    vec3 safeDir = rayDir;
+    if (abs(rayDir.x) < 1e-8) safeDir.x = (rayDir.x >= 0.0 ? 1.0 : -1.0) * 1e-8;
+    if (abs(rayDir.y) < 1e-8) safeDir.y = (rayDir.y >= 0.0 ? 1.0 : -1.0) * 1e-8;
+    if (abs(rayDir.z) < 1e-8) safeDir.z = (rayDir.z >= 0.0 ? 1.0 : -1.0) * 1e-8;
+    vec3 invDir = 1.0 / safeDir;
     vec3 t0s = (boxMin - rayOrigin) * invDir;
     vec3 t1s = (boxMax - rayOrigin) * invDir;
     vec3 tsmaller = min(t0s, t1s);
@@ -79,6 +83,7 @@ void main() {
         if (t > rayLength) break;
 
         vec3 pos = entry + rayDir * t;
+        pos = clamp(pos, uBoxMin, uBoxMax);
 
         float sliceAlpha = computeSliceAlpha(pos);
         if (sliceAlpha < 0.01) continue;
