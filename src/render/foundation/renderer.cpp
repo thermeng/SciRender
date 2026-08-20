@@ -222,6 +222,10 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
 
     int vpW = static_cast<int>(width * devicePixelRatio);
     int vpH = static_cast<int>(height * devicePixelRatio);
+
+    GLint samples = 0;
+    glGetIntegerv(GL_SAMPLES, &samples);
+
     ensurePeelFbos(vpW, vpH, samples);
 
     // Save the caller's FBO (QOpenGLWidget's offscreen FBO) so we can composite
@@ -230,7 +234,6 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-    GLint samples = 0;
     glGetIntegerv(GL_SAMPLES, &samples);
     if (samples > 0) {
         GlFramebuffer tempFbo;
@@ -249,14 +252,20 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
 
-    // Compute optimal peel layer count: more layers for complex scenes,
-    // fewer for simple scenes to save GPU time/VRAM. Cap at maxPeelLayers setting.
-    int meshCount = static_cast<int>(transparentMeshes.size());
-    int baseLayers = std::max(1, std::min(kMaxPeelLayers, 2 + meshCount / 8));
-    float resolutionFactor = std::sqrt(static_cast<float>(vpW * vpH)) / 2000.0f;
-    int maxByRes = std::max(1, static_cast<int>(kMaxPeelLayers / resolutionFactor));
-    int optimalLayers = std::min(baseLayers, maxByRes);
-    const int numLayers = std::clamp(optimalLayers, 1, m_state.maxPeelLayers);
+    // Compute peel layer count: respect user setting as primary determinant,
+    // with dynamic adjustment only as a soft upper-bound reduction for
+    // performance on very simple scenes at very high resolution.
+    int numLayers = std::clamp(m_state.maxPeelLayers, 1, kMaxPeelLayers);
+
+    // Soft reduction: lower layers for very simple scenes at high resolution
+    // without ever going below 1 or above the user's explicit choice.
+    if (m_state.maxPeelLayers > 1) {
+        int meshCount = static_cast<int>(transparentMeshes.size());
+        float resolutionFactor = std::sqrt(static_cast<float>(vpW * vpH)) / 2000.0f;
+        int maxByRes = std::max(1, static_cast<int>(kMaxPeelLayers / resolutionFactor));
+        int dynamicCap = std::min(m_state.maxPeelLayers, maxByRes);
+        numLayers = std::max(1, std::min(numLayers, dynamicCap));
+    }
 
     glUseProgram(m_peelProgram);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
