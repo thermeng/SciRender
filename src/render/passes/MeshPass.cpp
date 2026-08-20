@@ -14,6 +14,18 @@ void MeshPass::init(const ShaderSources& sources) {
         glUniformBlockBinding(shaderProgram, meshUboIndex, 0);
         lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
     }
+
+    if (!sources.meshClipGeo.empty()) {
+        clipShaderProgram.reset(compileProgramWithGS(
+            sources.meshVert.c_str(), sources.meshClipGeo.c_str(),
+            sources.meshFrag.c_str(), "MeshCrinkleClip"));
+        if (clipShaderProgram.has()) {
+            GLuint clipIdx = glGetUniformBlockIndex(clipShaderProgram, "MeshUBO");
+            if (clipIdx != GL_INVALID_INDEX)
+                glUniformBlockBinding(clipShaderProgram, clipIdx, 0);
+            clipLutTextureLoc = glGetUniformLocation(clipShaderProgram, "uColormapLUT");
+        }
+    }
 }
 
 MeshPassResult MeshPass::draw(const RenderRenderState& state,
@@ -26,9 +38,11 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
                                const ColormapManager& colormap) {
     MeshPassResult result;
 
-    if (!meshManager.hasMeshes() || !shaderProgram.has()) return result;
+     if (!meshManager.hasMeshes() || !shaderProgram.has()) return result;
 
-    glUseProgram(shaderProgram);
+    const bool useCrinkleClip = state.crinkleClipMode && clipShaderProgram.has();
+    GlProgram& prog = useCrinkleClip ? clipShaderProgram : shaderProgram;
+    glUseProgram(prog);
 
     if (!meshUbo.has()) {
         glCreateBuffers(1, meshUbo.ptr());
@@ -72,12 +86,14 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
     ubo.intensities = glm::vec4(keyI, state.lighting.lightKitEnabled ? keyI / kf : 0.0f, state.lighting.lightKitEnabled ? keyI / kb : 0.0f, state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
     ubo.material = glm::vec4(state.lighting.matAmbient, state.lighting.matDiffuse, state.lighting.matSpecular, 0.0f);
     ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
-    ubo.shadingMode = glm::vec4(state.flatShading ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+    ubo.shadingMode = glm::vec4(state.flatShading ? 1.0f : 0.0f, useCrinkleClip ? 1.0f : 0.0f, 0.0f, 0.0f);
     glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+
+    GLint activeLutLoc = useCrinkleClip ? clipLutTextureLoc : lutTextureLoc;
 
     if (state.meshHasScalars && state.meshUseScalarColor && colormap.scalarTexture() != 0) {
         glBindTextureUnit(0, colormap.scalarTexture());
-        glUniform1i(lutTextureLoc, 0);
+        glUniform1i(activeLutLoc, 0);
     }
 
     if (state.showSurface) {
@@ -119,6 +135,7 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
                             const std::vector<std::pair<GLuint, int>>& drawList,
                             const std::vector<int>& drawVerts,
                             const MeshGLManager& meshManager) {
+    const bool useCrinkleClip = state.crinkleClipMode && clipShaderProgram.has();
     for (size_t di = 0; di < drawList.size(); ++di) {
         glBindVertexArray(drawList[di].first);
 
@@ -137,6 +154,9 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
         }
 
         if (state.showPoints && drawVerts[di] > 0) {
+            if (useCrinkleClip) {
+                glUseProgram(shaderProgram);
+            }
             GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
             glEnable(GL_PROGRAM_POINT_SIZE);
 
@@ -151,6 +171,9 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
             glDisable(GL_BLEND);
 
             if (pointSizeWas) glEnable(GL_PROGRAM_POINT_SIZE); else glDisable(GL_PROGRAM_POINT_SIZE);
+            if (useCrinkleClip) {
+                glUseProgram(clipShaderProgram);
+            }
         }
     }
     glBindVertexArray(0);
@@ -159,9 +182,11 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
 
 void MeshPass::shutdown() {
     shaderProgram.reset();
+    clipShaderProgram.reset();
     meshUbo.reset();
     meshUboIndex = GL_INVALID_INDEX;
     lutTextureLoc = -1;
+    clipLutTextureLoc = -1;
 }
 
 

@@ -2,7 +2,9 @@
 
 #include <glad/gl.h>
 #include <iostream>
-inline GLuint compileProgram(const char* vertSrc, const char* fragSrc, const char* label) {
+
+inline GLuint compileProgramWithGS(const char* vertSrc, const char* geoSrc,
+                                   const char* fragSrc, const char* label) {
     auto compile = [&label](GLuint type, const char* src) -> GLuint {
         GLuint s = glCreateShader(type);
         glShaderSource(s, 1, &src, nullptr);
@@ -21,14 +23,27 @@ inline GLuint compileProgram(const char* vertSrc, const char* fragSrc, const cha
 
     GLuint vs = compile(GL_VERTEX_SHADER, vertSrc);
     if (!vs) return 0;
+
+    GLuint gs = 0;
+    if (geoSrc) {
+        gs = compile(GL_GEOMETRY_SHADER, geoSrc);
+        if (!gs) { glDeleteShader(vs); return 0; }
+    }
+
     GLuint fs = compile(GL_FRAGMENT_SHADER, fragSrc);
-    if (!fs) { glDeleteShader(vs); return 0; }
+    if (!fs) {
+        glDeleteShader(vs);
+        if (gs) glDeleteShader(gs);
+        return 0;
+    }
 
     GLuint prog = glCreateProgram();
     glAttachShader(prog, vs);
+    if (gs) glAttachShader(prog, gs);
     glAttachShader(prog, fs);
     glLinkProgram(prog);
     glDeleteShader(vs);
+    if (gs) glDeleteShader(gs);
     glDeleteShader(fs);
 
     GLint ok = 0;
@@ -41,4 +56,8 @@ inline GLuint compileProgram(const char* vertSrc, const char* fragSrc, const cha
         return 0;
     }
     return prog;
+}
+
+inline GLuint compileProgram(const char* vertSrc, const char* fragSrc, const char* label) {
+    return compileProgramWithGS(vertSrc, nullptr, fragSrc, label);
 }

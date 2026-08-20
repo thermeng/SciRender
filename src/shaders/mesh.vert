@@ -27,17 +27,19 @@ layout(std140) uniform MeshUBO {
     vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular
     vec4  uIntensities;     // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
     vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
-    vec4  uShadingMode;     // x = 0.0 smooth, 1.0 flat
+    vec4  uShadingMode;     // x = 0.0 smooth, 1.0 flat; y = 0.0 normal clip, 1.0 crinkle clip
 };
 
-out vec3 vNormal;
-out vec3 vWorldPos;
-out float vScalar;
+out MeshVarying {
+    vec3 vWorldPos;
+    vec3 vNormal;
+    float vScalar;
+} mv;
 
 void main() {
     gl_Position = uMVP * vec4(aPos, 1.0);
     gl_PointSize = uViewPos_PS.w;
-    vWorldPos = vec3(uModel * vec4(aPos, 1.0));
-    vNormal = aNormal;
-    vScalar = aScalar;
+    mv.vWorldPos = vec3(uModel * vec4(aPos, 1.0));
+    mv.vNormal = aNormal;
+    mv.vScalar = aScalar;
 }

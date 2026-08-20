@@ -190,6 +190,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double dataScalarMaxQml READ getDataScalarMaxQml NOTIFY meshLoadStateChanged)
     Q_PROPERTY(int colorbarTicks READ getColorbarTicks WRITE setColorbarTicks NOTIFY viewChanged)
     Q_PROPERTY(bool clipEnabled READ getClipEnabled WRITE setClipEnabled NOTIFY viewChanged)
+    Q_PROPERTY(bool crinkleClipMode READ getCrinkleClipMode WRITE setCrinkleClipMode NOTIFY viewChanged)
     Q_PROPERTY(float sliceHeightX READ getSliceX WRITE setSliceX NOTIFY viewChanged)
     Q_PROPERTY(float sliceHeightY READ getSliceY WRITE setSliceY NOTIFY viewChanged)
     Q_PROPERTY(float sliceHeightZ READ getSliceZ WRITE setSliceZ NOTIFY viewChanged)
@@ -563,6 +564,7 @@ public:
     STATE_PROP(getMeshUseScalarColor, setMeshUseScalarColor, bool, m_state.meshUseScalarColor, Display)
 
     STATE_PROP(getClipEnabled, setClipEnabled, bool, m_state.clipEnabled, Slicing)
+    STATE_PROP(getCrinkleClipMode, setCrinkleClipMode, bool, m_state.crinkleClipMode, Slicing)
     STATE_PROP(getSliceX, setSliceX, float, m_state.sliceHeightX, Slicing)
     STATE_PROP(getSliceY, setSliceY, float, m_state.sliceHeightY, Slicing)
     STATE_PROP(getSliceZ, setSliceZ, float, m_state.sliceHeightZ, Slicing)

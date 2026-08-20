@@ -94,6 +94,7 @@ void ViewportWidget::loadShaders() {
     ShaderSources sources;
     sources.meshVert        = loadShader(":/src/shaders/mesh.vert");
     sources.meshFrag        = loadShader(":/src/shaders/mesh.frag");
+    sources.meshClipGeo     = loadShader(":/src/shaders/mesh_clip.geo");
     sources.gridVert        = loadShader(":/src/shaders/grid.vert");
     sources.gridFrag        = loadShader(":/src/shaders/grid.frag");
     sources.glyphVert       = loadShader(":/src/shaders/glyph.vert");

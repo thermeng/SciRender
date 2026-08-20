@@ -351,12 +351,19 @@
          </item>
         </layout>
        </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-  </layout>
- </widget>
- <resources/>
- <connections/>
+       </item>
+       </layout>
+      </widget>
+     </item>
+    <item>
+     <widget class="QCheckBox" name="crinkleCb">
+      <property name="text">
+       <string>Crinkle Clip</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <resources/>
+  <connections/>
 </ui>

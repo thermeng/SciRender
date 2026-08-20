@@ -37,15 +37,17 @@ private:
     void drawOpaque(const RenderRenderState& state,
                     const std::vector<std::pair<GLuint, int>>& drawList);
     void drawOverlays(const RenderRenderState& state,
-                      MeshUBOData& ubo,
-                      const std::vector<std::pair<GLuint, int>>& drawList,
-                      const std::vector<int>& drawVerts,
-                      const MeshGLManager& meshManager);
+                       MeshUBOData& ubo,
+                       const std::vector<std::pair<GLuint, int>>& drawList,
+                       const std::vector<int>& drawVerts,
+                       const MeshGLManager& meshManager);
 
     GlProgram shaderProgram;
+    GlProgram clipShaderProgram;
     GlBuffer meshUbo;
     GLuint meshUboIndex = ~0u;
     GLint lutTextureLoc = -1;
+    GLint clipLutTextureLoc = -1;
 };
 
 
