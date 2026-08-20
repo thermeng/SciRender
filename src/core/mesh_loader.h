@@ -9,6 +9,8 @@
 #include <optional>
 #include <charconv>
 #include <fstream>
+#include <tuple>
+#include <cmath>
 
 #include <glm/glm.hpp>
 
@@ -196,6 +198,42 @@ namespace mesh_utils {
     std::string trim(const std::string& s);
     std::string toUpper(const std::string& s);
 
+    // ── Vertex-dedup position key (shared by STL / OBJ parsers) ──────────────
+    // Quantize a coordinate into a signed fixed-point integer at a 1/4096-unit
+    // tolerance (far finer than STL float precision). Clamped to ~25 bits of
+    // magnitude so each axis value is bounded and the composite key below is stable.
+    inline int64_t quantizedCoord(double v) {
+        const int64_t q = 1 << 12; // 1/4096 unit tolerance
+        int64_t ix = static_cast<int64_t>(std::llround(v * static_cast<double>(q)));
+        const int64_t lim = (int64_t(1) << 25) - 1;
+        if (ix > lim) ix = lim; else if (ix < -lim) ix = -lim;
+        return ix;
+    }
+
+    // Collision-free position key: a tuple of the three quantized axis values is
+    // exactly injective, so ONLY truly coincident (within tolerance) vertices
+    // ever merge — the correct dedup semantics.
+    using PositionKey = std::tuple<int64_t, int64_t, int64_t>;
+
+    struct PositionKeyHash {
+        size_t operator()(const PositionKey& k) const noexcept {
+            // Hash the three bounded integers; collisions here only cost a bucket
+            // comparison — correctness comes from tuple equality, not the hash.
+            uint64_t h = static_cast<uint64_t>(std::get<0>(k)) * 73856093u;
+            h ^= static_cast<uint64_t>(std::get<1>(k)) * 19349663u + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+            h ^= static_cast<uint64_t>(std::get<2>(k)) * 83492791u + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+            return static_cast<size_t>(h);
+        }
+    };
+
+    inline PositionKey positionKey(float x, float y, float z) {
+        return PositionKey{
+            quantizedCoord(static_cast<double>(x)),
+            quantizedCoord(static_cast<double>(y)),
+            quantizedCoord(static_cast<double>(z))
+        };
+    }
+
     // Zero-allocation string helpers for hot parsing paths
     inline void toUpperInPlace(std::string& s) {
         for (char& c : s) c = static_cast<char>(::toupper(static_cast<unsigned char>(c)));
@@ -261,6 +299,25 @@ namespace mesh_utils {
 
     void computeNormals(RenderMesh& mesh);
 
+    // Convert a flat per-corner triangle soup (9 floats per triangle, may share
+    // positions) into an indexed mesh by sort-based position dedup: groups
+    // identical quantized positions, emits one vertex per unique position, and
+    // fills the corner index buffer. O(N log N) sort beats per-vertex hash
+    // lookups on large meshes (better cache behavior, no hash collision overhead).
+    void indexFlatTriangles(const std::vector<float>& flatVerts,
+                            std::vector<float>& outVertices,
+                            std::vector<uint32_t>& outIndices);
+
+    // Common tail for surface-mesh parsers (STL / OBJ): compute bounds, record
+    // the topological point count (deduped, pre-normal-split — computeNormals
+    // duplicates vertices at sharp edges which would otherwise inflate the
+    // displayed "Points" value), tag dataset type/format, ensure normals exist,
+    // and log a load summary.
+    void finalizeSurfaceMesh(RenderMesh& mesh,
+                             const std::string& datasetType,
+                             const std::string& fileFormat,
+                             const char* logLabel);
+
     // ── Fast ASCII numeric parsing ──────────────────────────────────────────────
     // Replaces std::istringstream/operator>> which carries per-token locale and
     // virtual-dispatch overhead. These use std::from_chars (zero locale, no
@@ -284,13 +341,6 @@ namespace mesh_utils {
             ++parsed;
         }
         return parsed;
-    }
-
-    // Fast double-parse from a text buffer (VTK legacy SCALARS/VECTORS use double
-    // in the ifstream >> path; from_chars handles double directly).
-    template<typename T>
-    inline size_t parseAsciiRangeFloat(const char* begin, const char* end, std::vector<T>& out) {
-        return parseAsciiRange<T>(begin, end, out);
     }
 
     // Read `count` ASCII numeric values from an ifstream, line by line via
@@ -317,26 +367,6 @@ namespace mesh_utils {
         }
         if (parsed < count) out.resize(parsed);
         return parsed;
-    }
-
-    // Read ASCII integer values from an ifstream (16-bit path for SHORT types).
-    inline size_t readAsciiValues16(std::ifstream& f, size_t count, std::vector<int16_t>& out) {
-        return readAsciiValues(f, count, out);
-    }
-
-    // Read ASCII unsigned char values from an ifstream.
-    inline size_t readAsciiValuesU8(std::ifstream& f, size_t count, std::vector<uint8_t>& out) {
-        return readAsciiValues(f, count, out);
-    }
-
-    // Read ASCII int64 / uint64 values from an ifstream.
-    inline size_t readAsciiValues64(std::ifstream& f, size_t count, std::vector<int64_t>& out) {
-        return readAsciiValues(f, count, out);
-    }
-
-    // Read ASCII uint32 values from an ifstream.
-    inline size_t readAsciiValuesU32(std::ifstream& f, size_t count, std::vector<uint32_t>& out) {
-        return readAsciiValues(f, count, out);
     }
 
     // Extrapolate cell-centered scalar/vector data to point data by averaging

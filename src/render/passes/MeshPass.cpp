@@ -1,5 +1,6 @@
 #include "render/passes/MeshPass.h"
 #include "render/foundation/renderer.h"
+#include "render/foundation/LightingModel.h"
 #include "render/foundation/shader_utils.h"
 #include "render/passes/MeshGLManager.h"
 #include "render/passes/ColormapManager.h"
@@ -54,11 +55,7 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
     ubo.lightBack2 = glm::vec4(b2Dir, 0.0f);
     ubo.lightHead = glm::vec4(hDir, 0.0f);
 
-    auto warmTint = [](float w) -> glm::vec3 {
-        if (w < 0.5f) return glm::mix(glm::vec3(0.6f, 0.7f, 1.0f), glm::vec3(1.0f), w / 0.5f);
-        return glm::mix(glm::vec3(1.0f), glm::vec3(1.0f, 0.85f, 0.7f), (w - 0.5f) / 0.5f);
-    };
-    glm::vec3 tint = warmTint(state.lighting.lightWarm);
+    glm::vec3 tint = LightingModel::warmTint(state.lighting.lightWarm);
     ubo.keyColor = glm::vec4(tint, 0.0f);
     ubo.fillColor = glm::vec4(tint * glm::vec3(0.90f, 0.92f, 1.00f), 0.0f);
     ubo.backColor = glm::vec4(tint * glm::vec3(0.95f, 0.95f, 0.98f), 0.0f);

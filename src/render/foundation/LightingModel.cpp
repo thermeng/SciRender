@@ -2,13 +2,10 @@
 
 #include <cmath>
 
-namespace {
-    // kit-wide warm tint shared by light colors + viewport markers.
+glm::vec3 LightingModel::warmTint(float w) {
     // 0 = cold blue, 0.5 = neutral white, 1 = warm red.
-    glm::vec3 warmColorTint(float w) {
-        if (w < 0.5f) return glm::mix(glm::vec3(0.6f, 0.7f, 1.0f), glm::vec3(1.0f, 1.0f, 1.0f), w / 0.5f);
-        return glm::mix(glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(1.0f, 0.85f, 0.7f), (w - 0.5f) / 0.5f);
-    }
+    if (w < 0.5f) return glm::mix(glm::vec3(0.6f, 0.7f, 1.0f), glm::vec3(1.0f, 1.0f, 1.0f), w / 0.5f);
+    return glm::mix(glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(1.0f, 0.85f, 0.7f), (w - 0.5f) / 0.5f);
 }
 
 glm::vec3 LightingModel::kitDirection(float az, float el) {
@@ -84,6 +81,3 @@ void LightingModel::reset() {
     matAmbient = 0.2f; matDiffuse = 0.75f; matSpecular = 0.0f;
     matRoughness = 0.4f; matMetallic = 0.0f;
 }
-
-// Exposed for the gizmo light-marker overlay: kit-local dirs tinted warm.
-inline glm::vec3 warmTintForMarkers(float warm) { return warmColorTint(warm); }

@@ -11,43 +11,6 @@
 
 // ── STL Parser ──────────────────────────────────────────────────────────────
 
-// Quantize a coordinate into a signed fixed-point integer at a 1/4096-unit
-// tolerance (far finer than STL float precision). Clamped to ~25 bits of
-// magnitude so each axis value is bounded and the composite key below is stable.
-static inline int64_t quantizedCoord(double v) {
-    const int64_t q = 1 << 12; // 1/4096 unit tolerance — far finer than STL float precision
-    int64_t ix = static_cast<int64_t>(std::llround(v * static_cast<double>(q)));
-    const int64_t lim = (int64_t(1) << 25) - 1;
-    if (ix > lim) ix = lim; else if (ix < -lim) ix = -lim;
-    return ix;
-}
-
-// Collision-FREE position key. The previous XOR-of-products hash (B2) was not
-// injective: two genuinely distinct coordinates could fold onto the same key and
-// be merged into one vertex, collapsing distinct surface points. A tuple of the
-// three quantized axis values is exactly injective, so ONLY truly coincident
-// (within tolerance) vertices ever merge — the correct dedup semantics.
-using VertexKey = std::tuple<int64_t, int64_t, int64_t>;
-
-struct VertexKeyHash {
-    size_t operator()(const VertexKey& k) const noexcept {
-        // Hash the three bounded integers; collisions here only cost a bucket
-        // comparison — correctness comes from tuple equality, not the hash.
-        uint64_t h = static_cast<uint64_t>(std::get<0>(k)) * 73856093u;
-        h ^= static_cast<uint64_t>(std::get<1>(k)) * 19349663u + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-        h ^= static_cast<uint64_t>(std::get<2>(k)) * 83492791u + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-        return static_cast<size_t>(h);
-    }
-};
-
-static inline VertexKey vertexKey(float x, float y, float z) {
-    return VertexKey{
-        quantizedCoord(static_cast<double>(x)),
-        quantizedCoord(static_cast<double>(y)),
-        quantizedCoord(static_cast<double>(z))
-    };
-}
-
 // Returns true if the first up-to-512 bytes look like ASCII STL text: contain the
 // "solid" keyword AND have no non-printable (control) bytes beyond whitespace.
 static bool looksLikeAsciiSTL(const std::string& filePath) {
@@ -209,68 +172,14 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
     // so the GPU receives an indexed mesh instead of 3x-expanded flat data.
     // Sort-based dedup: O(N log N) sort beats per-vertex hash lookups on
     // large meshes (better cache behavior, no hash collision overhead).
-    const size_t triCount = flatVerts.size() / 9;
-    const size_t cornerCount = triCount * 3;
-
-    struct VertEntry {
-        VertexKey key;
-        uint32_t flatIdx;   // index into flatVerts (corner index * 3)
-    };
-    std::vector<VertEntry> entries(cornerCount);
-    for (size_t i = 0; i < cornerCount; ++i) {
-        size_t base = i * 3;
-        entries[i] = { vertexKey(flatVerts[base], flatVerts[base + 1], flatVerts[base + 2]),
-                       static_cast<uint32_t>(i) };
-    }
-
-    // Sort by quantized position — groups identical vertices together
-    std::sort(entries.begin(), entries.end(), [](const VertEntry& a, const VertEntry& b) {
-        if (std::get<0>(a.key) != std::get<0>(b.key)) return std::get<0>(a.key) < std::get<0>(b.key);
-        if (std::get<1>(a.key) != std::get<1>(b.key)) return std::get<1>(a.key) < std::get<1>(b.key);
-        return std::get<2>(a.key) < std::get<2>(b.key);
-    });
-
-    // Scan sorted entries: first occurrence of each unique key gets a new vertex index;
-    // subsequent occurrences reuse that index.
-    std::vector<uint32_t> cornerToIdx(cornerCount); // flat corner → indexed vertex
-    mesh.vertices.reserve(cornerCount * 3);          // upper bound
-    for (size_t i = 0; i < cornerCount; ) {
-        size_t j = i + 1;
-        while (j < cornerCount && entries[j].key == entries[i].key) ++j;
-        // All entries[i..j) share the same position — emit one vertex
-        uint32_t vidx = static_cast<uint32_t>(mesh.vertices.size() / 3);
-        size_t base = entries[i].flatIdx * 3;
-        mesh.vertices.push_back(flatVerts[base + 0]);
-        mesh.vertices.push_back(flatVerts[base + 1]);
-        mesh.vertices.push_back(flatVerts[base + 2]);
-        for (size_t k = i; k < j; ++k) {
-            cornerToIdx[entries[k].flatIdx] = vidx;
-        }
-        i = j;
-    }
-
-    mesh.indices.reserve(cornerCount);
-    for (size_t t = 0; t < triCount; ++t) {
-        mesh.indices.push_back(cornerToIdx[t * 3 + 0]);
-        mesh.indices.push_back(cornerToIdx[t * 3 + 1]);
-        mesh.indices.push_back(cornerToIdx[t * 3 + 2]);
-    }
+    mesh_utils::indexFlatTriangles(flatVerts, mesh.vertices, mesh.indices);
 
     // Hand the raw per-corner positions (9 floats/tri) to the mesh-quality
     // analyzer; it welds these at trimesh's 1e-8 tolerance. The rendered indexed
     // mesh keeps the looser 1/4096 dedup, so the two stay separate on purpose.
     mesh.flatVerts = std::move(flatVerts);
 
-    mesh_utils::computeBounds(mesh);
-
-    // Record the topological point count (deduped, pre-normal-split) so the UI
-    // can report the true vertex count ParaView shows. computeNormals() below
-    // will duplicate vertices at sharp edges for shading, which would otherwise
-    // inflate the displayed "Points" value.
-    mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
-
-    std::cout << "STL Parser (ASCII): Loaded " << triCount << " triangles, "
-        << mesh.vertices.size() / 3 << " unique vertices (deduped)" << std::endl;
+    mesh_utils::finalizeSurfaceMesh(mesh, "STL", "STL", "STL Parser (ASCII): Loaded ");
     return mesh;
 }
 
@@ -338,54 +247,10 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
     file.close();
 
     // Sort-based dedup (same algorithm as ASCII path)
-    const size_t cornerCount = flatVerts.size() / 3;
-    struct VertEntry {
-        VertexKey key;
-        uint32_t flatIdx;
-    };
-    std::vector<VertEntry> entries(cornerCount);
-    for (size_t i = 0; i < cornerCount; ++i) {
-        size_t base = i * 3;
-        entries[i] = { vertexKey(flatVerts[base], flatVerts[base + 1], flatVerts[base + 2]),
-                       static_cast<uint32_t>(i) };
-    }
-    std::sort(entries.begin(), entries.end(), [](const VertEntry& a, const VertEntry& b) {
-        if (std::get<0>(a.key) != std::get<0>(b.key)) return std::get<0>(a.key) < std::get<0>(b.key);
-        if (std::get<1>(a.key) != std::get<1>(b.key)) return std::get<1>(a.key) < std::get<1>(b.key);
-        return std::get<2>(a.key) < std::get<2>(b.key);
-    });
-    std::vector<uint32_t> cornerToIdx(cornerCount);
-    for (size_t i = 0; i < cornerCount; ) {
-        size_t j = i + 1;
-        while (j < cornerCount && entries[j].key == entries[i].key) ++j;
-        uint32_t vidx = static_cast<uint32_t>(mesh.vertices.size() / 3);
-        size_t base = entries[i].flatIdx * 3;
-        mesh.vertices.push_back(flatVerts[base + 0]);
-        mesh.vertices.push_back(flatVerts[base + 1]);
-        mesh.vertices.push_back(flatVerts[base + 2]);
-        for (size_t k = i; k < j; ++k) {
-            cornerToIdx[entries[k].flatIdx] = vidx;
-        }
-        i = j;
-    }
-    const size_t triCountDedup = cornerCount / 3;
-    for (size_t t = 0; t < triCountDedup; ++t) {
-        mesh.indices.push_back(cornerToIdx[t * 3 + 0]);
-        mesh.indices.push_back(cornerToIdx[t * 3 + 1]);
-        mesh.indices.push_back(cornerToIdx[t * 3 + 2]);
-    }
+    mesh_utils::indexFlatTriangles(flatVerts, mesh.vertices, mesh.indices);
 
     mesh.flatVerts = std::move(flatVerts);
-    mesh_utils::computeBounds(mesh);
-
-    // Record the topological point count (deduped, pre-normal-split) so the UI
-    // can report the true vertex count ParaView shows. computeNormals() below
-    // will duplicate vertices at sharp edges for shading, which would otherwise
-    // inflate the displayed "Points" value.
-    mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
-
-    std::cout << "STL Parser (Binary): Loaded " << triCount << " triangles, "
-        << mesh.vertices.size() / 3 << " unique vertices (deduped)" << std::endl;
+    mesh_utils::finalizeSurfaceMesh(mesh, "STL", "STL", "STL Parser (Binary): Loaded ");
     return mesh;
 }
 
@@ -399,25 +264,8 @@ RenderMesh parseSTL(const std::string& filePath) {
             std::cerr << "STL Parser: binary detection passed but no triangles "
                          "parsed (corrupt or mis-detected file): " << filePath << std::endl;
         }
-        mesh.datasetType = "STL";
-        mesh.fileFormat = "STL";
-        if (!mesh.vertices.empty() && !mesh.indices.empty()
-            && mesh.normals.empty()) {
-            mesh_utils::computeNormals(mesh);
-        }
         return mesh;
     }
 
-    RenderMesh mesh = parseSTLAscii(filePath);
-    mesh.datasetType = "STL";
-    mesh.fileFormat = "STL";
-
-    // STL parsers leave normals empty (computed geometrically from the indexed
-    // layout). Ensure real normals exist before upload so the renderer/LOD
-    // decimate path can read them; computeNormals splits sharp edges and
-    // averages smooth regions for correct shading.
-    if (mesh.normals.empty() && !mesh.vertices.empty() && !mesh.indices.empty()) {
-        mesh_utils::computeNormals(mesh);
-    }
-    return mesh;
+    return parseSTLAscii(filePath);
 }

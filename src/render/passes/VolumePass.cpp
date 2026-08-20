@@ -68,13 +68,8 @@ void VolumePass::uploadVolume(const RenderRenderState& state, const std::vector<
     glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, scalars.data());
 
     if (!vaoInitialized_) {
-        glCreateVertexArrays(1, quadVao_.ptr());
-        glCreateBuffers(1, quadVbo_.ptr());
-        glNamedBufferData(quadVbo_, sizeof(QUAD_VERTS), QUAD_VERTS, GL_STATIC_DRAW);
-        glEnableVertexArrayAttrib(quadVao_, 0);
-        glVertexArrayAttribFormat(quadVao_, 0, 2, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(quadVao_, 0, 0);
-        glVertexArrayVertexBuffer(quadVao_, 0, quadVbo_, 0, 2 * sizeof(float));
+        setupVertexBuffer(quadVao_, quadVbo_, QUAD_VERTS, sizeof(QUAD_VERTS), 2 * sizeof(float),
+                          { { 0, 2, 0 } }, GL_STATIC_DRAW);
         vaoInitialized_ = true;
     }
 }
@@ -83,10 +78,8 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
                       const ColormapManager& colormap, float pixelFootprintScale) {
     if (!state.showVolume || !volumeTex_.has() || !program_.has()) return;
 
-    GLboolean blendWas = glIsEnabled(GL_BLEND);
-    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-    GLboolean depthMaskWas;
-    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMaskWas);
+    // Save engine state we mutate; restored automatically on scope exit.
+    GLStateGuard guard;
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -148,10 +141,6 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(0);
 
-    if (!blendWas) glDisable(GL_BLEND);
-    if (depthWas) glEnable(GL_DEPTH_TEST);
-    else glDisable(GL_DEPTH_TEST);
-    glDepthMask(depthMaskWas);
     glUseProgram(0);
 }
 

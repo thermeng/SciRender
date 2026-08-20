@@ -54,6 +54,11 @@ public:
     // camera frame. Exposed so the gizmo overlay can draw the markers.
     static glm::vec3 kitDirection(float az, float el);
 
+    // Kit-wide warm-tint color for a `warm` value in [0,1]: 0 = cold blue,
+    // 0.5 = neutral white, 1 = warm amber. Shared by the mesh light UBO builder
+    // and the gizmo light-marker overlay.
+    static glm::vec3 warmTint(float w);
+
     void applyPreset(int preset);
     void reset();
 };

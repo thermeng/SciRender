@@ -55,11 +55,7 @@ void VolumeSliceOverlay::buildQuad(float worldPos, int axis, const glm::vec3& bo
     }
 
     if (!m_vao.has()) {
-        glCreateVertexArrays(1, m_vao.ptr());
-        glCreateBuffers(1, m_vbo.ptr());
-        glEnableVertexArrayAttrib(m_vao, 0);
-        glVertexArrayAttribFormat(m_vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(m_vao, 0, 0);
+        setupVertexBuffer(m_vao, m_vbo, nullptr, 0, 3 * sizeof(float), { { 0, 3, 0 } }, GL_DYNAMIC_DRAW);
     }
     glNamedBufferData(m_vbo, sizeof(verts), verts, GL_DYNAMIC_DRAW);
     glVertexArrayVertexBuffer(m_vao, 0, m_vbo, 0, 3 * sizeof(float));
@@ -83,12 +79,8 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
 
     glm::mat4 mvp = proj * view;
 
-    GLboolean blendWas = glIsEnabled(GL_BLEND);
-    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-    GLenum depthFuncWas = GL_LESS;
-    glGetIntegerv(GL_DEPTH_FUNC, reinterpret_cast<GLint*>(&depthFuncWas));
-    GLboolean depthMaskWas;
-    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMaskWas);
+    // Save engine state we mutate; restored automatically on scope exit.
+    GLStateGuard guard;
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -123,10 +115,6 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
 
     glBindVertexArray(0);
 
-    if (!blendWas) glDisable(GL_BLEND);
-    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-    glDepthFunc(depthFuncWas);
-    glDepthMask(depthMaskWas);
     glUseProgram(0);
 }
 

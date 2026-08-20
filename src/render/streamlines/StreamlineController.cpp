@@ -146,8 +146,8 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
     // Seed points
     if (state.showStreamlines && state.showSeeds && !streamlineSet.seedsEmpty() && m_seedProgram.has()) {
         glUseProgram(m_seedProgram);
-        GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
-        GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+        // Save engine state we mutate; restored automatically on scope exit.
+        GLStateGuard guard;
         glEnable(GL_PROGRAM_POINT_SIZE);
         glEnable(GL_DEPTH_TEST);
         glm::vec4 seedColor(state.seedPointColor[0], state.seedPointColor[1], state.seedPointColor[2], 1.0f);
@@ -161,8 +161,6 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
         glDrawArrays(GL_POINTS, 0, streamlineSet.seedCount);
         glBindVertexArray(0);
         glUseProgram(0);
-        if (pointSizeWas) glEnable(GL_PROGRAM_POINT_SIZE); else glDisable(GL_PROGRAM_POINT_SIZE);
-        if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     }
 }
 

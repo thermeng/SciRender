@@ -30,26 +30,16 @@ void ParticlePass::draw(const RenderRenderState& state,
     if (particleVerts.empty()) return;
 
     if (!particleVao.has()) {
-        glCreateVertexArrays(1, particleVao.ptr());
-        glCreateBuffers(1, particleVbo.ptr());
-        glEnableVertexArrayAttrib(particleVao, 0);
-        glVertexArrayAttribFormat(particleVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(particleVao, 0, 0);
-        glEnableVertexArrayAttrib(particleVao, 1);
-        glVertexArrayAttribFormat(particleVao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-        glVertexArrayAttribBinding(particleVao, 1, 0);
-        glVertexArrayVertexBuffer(particleVao, 0, particleVbo, 0, 4 * sizeof(float));
+        setupVertexBuffer(particleVao, particleVbo, nullptr, 0, 4 * sizeof(float),
+                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) } }, GL_DYNAMIC_DRAW);
     }
 
     m_particleVertexCount = static_cast<int>(particleVerts.size() / 4);
     glNamedBufferData(particleVbo, particleVerts.size() * sizeof(float), particleVerts.data(), GL_DYNAMIC_DRAW);
 
     glUseProgram(particleProgram);
-    GLboolean blendWas = glIsEnabled(GL_BLEND);
-    GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
-    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-    GLboolean depthMaskWas;
-    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMaskWas);
+    // Save engine state we mutate; restored automatically on scope exit.
+    GLStateGuard guard;
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_PROGRAM_POINT_SIZE);
@@ -73,10 +63,6 @@ void ParticlePass::draw(const RenderRenderState& state,
     glDrawArrays(GL_POINTS, 0, m_particleVertexCount);
     glBindVertexArray(0);
 
-    if (!blendWas) glDisable(GL_BLEND);
-    if (!pointSizeWas) glDisable(GL_PROGRAM_POINT_SIZE);
-    if (depthWas) glEnable(GL_DEPTH_TEST);
-    glDepthMask(depthMaskWas);
     glUseProgram(0);
 }
 
