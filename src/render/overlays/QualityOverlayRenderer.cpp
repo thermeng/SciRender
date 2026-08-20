@@ -19,13 +19,8 @@ void QualityOverlayRenderer::rebuild(const RenderRenderState& state) {
     auto buildOne = [&](GlVao& vao, GlBuffer& vbo, const std::shared_ptr<const std::vector<float>>& vertsPtr) {
         vao.reset(); vbo.reset();
         if (!vertsPtr || vertsPtr->empty()) return;
-        glCreateVertexArrays(1, vao.ptr());
-        glCreateBuffers(1, vbo.ptr());
-        glEnableVertexArrayAttrib(vao, 0);
-        glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(vao, 0, 0);
-        glNamedBufferData(vbo, vertsPtr->size() * sizeof(float), vertsPtr->data(), GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(vao, 0, vbo, 0, 3 * sizeof(float));
+        setupVertexBuffer(vao, vbo, vertsPtr->data(), vertsPtr->size() * sizeof(float), 3 * sizeof(float),
+                          { { 0, 3, 0 } }, GL_STATIC_DRAW);
     };
     buildOne(m_openEdgesVao, m_openEdgesVbo, state.qualityOpenEdges);
     buildOne(m_nonManifoldVao, m_nonManifoldVbo, state.qualityNonManifoldEdges);
@@ -45,13 +40,8 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
         !hasData(state.qualityOpenEdges) &&
         !hasData(state.qualityNonManifoldEdges)) return;
 
-    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
-    GLint depthFuncWas = 0;
-    glGetIntegerv(GL_DEPTH_FUNC, &depthFuncWas);
-    GLboolean cullWas = glIsEnabled(GL_CULL_FACE);
-    GLint lineWidthWas = 0;
-    glGetIntegerv(GL_LINE_WIDTH, &lineWidthWas);
-
+    // Save engine state we mutate; restored automatically on scope exit.
+    GLStateGuard guard;
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_CULL_FACE);
@@ -91,10 +81,6 @@ void QualityOverlayRenderer::draw(const RenderRenderState& state, const float* v
             kPurple);
 
     glUseProgram(0);
-    glLineWidth(static_cast<GLfloat>(lineWidthWas));
-    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-    glDepthFunc(static_cast<GLenum>(depthFuncWas));
-    if (cullWas) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
 }
 
 void QualityOverlayRenderer::shutdown() {

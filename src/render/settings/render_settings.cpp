@@ -189,44 +189,64 @@ void RenderSettings::saveRecentToSettings() const {
     s.setValue("recentFiles", recentFiles);
 }
 
+const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable() {
+    static const std::vector<StateEntry> table = [] {
+        std::vector<StateEntry> t;
+        auto add = [&t](const char* key,
+                        std::function<QVariant(const RenderSettings&)> get,
+                        std::function<void(RenderSettings&, const QVariant&)> set) {
+            t.push_back({key, std::move(get), std::move(set)});
+        };
+        // float members
+        add("matSpecular",         [](const RenderSettings& r) { return QVariant(r.m_state.lighting.matSpecular); },         [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.matSpecular = v.toFloat(); });
+        add("matRoughness",        [](const RenderSettings& r) { return QVariant(r.m_state.lighting.matRoughness); },        [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.matRoughness = v.toFloat(); });
+        add("matMetallic",         [](const RenderSettings& r) { return QVariant(r.m_state.lighting.matMetallic); },         [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.matMetallic = v.toFloat(); });
+        add("lightKeyIntensity",   [](const RenderSettings& r) { return QVariant(r.m_state.lighting.lightKeyIntensity); },   [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.lightKeyIntensity = v.toFloat(); });
+        add("lightWarm",           [](const RenderSettings& r) { return QVariant(r.m_state.lighting.lightWarm); },           [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.lightWarm = v.toFloat(); });
+        add("volumeStepSize",      [](const RenderSettings& r) { return QVariant(r.m_state.volumeStepSize); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeStepSize = v.toFloat(); });
+        add("volumeOpacity",       [](const RenderSettings& r) { return QVariant(r.m_state.volumeOpacity); },                [](RenderSettings& r, const QVariant& v) { r.m_state.volumeOpacity = v.toFloat(); });
+        add("volumeSlicePos",      [](const RenderSettings& r) { return QVariant(r.m_state.volumeSlicePos); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSlicePos = v.toFloat(); });
+        add("volumeSliceOpacity",  [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceOpacity); },           [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceOpacity = v.toFloat(); });
+        add("vectorScale",         [](const RenderSettings& r) { return QVariant(r.m_state.vectorScale); },                  [](RenderSettings& r, const QVariant& v) { r.m_state.vectorScale = v.toFloat(); });
+        // bool members
+        add("lightKitEnabled",     [](const RenderSettings& r) { return QVariant(r.m_state.lighting.lightKitEnabled); },     [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.lightKitEnabled = v.toBool(); });
+        add("colormapReversed",    [](const RenderSettings& r) { return QVariant(r.m_state.colormapReversed); },              [](RenderSettings& r, const QVariant& v) { r.m_state.colormapReversed = v.toBool(); });
+        add("meshUseScalarColor",  [](const RenderSettings& r) { return QVariant(r.m_state.meshUseScalarColor); },            [](RenderSettings& r, const QVariant& v) { r.m_state.meshUseScalarColor = v.toBool(); });
+        add("showVolume",          [](const RenderSettings& r) { return QVariant(r.m_state.showVolume); },                    [](RenderSettings& r, const QVariant& v) { r.m_state.showVolume = v.toBool(); });
+        add("volumeUseColormap",   [](const RenderSettings& r) { return QVariant(r.m_state.volumeUseColormap); },             [](RenderSettings& r, const QVariant& v) { r.m_state.volumeUseColormap = v.toBool(); });
+        add("volumeColormapReversed", [](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapReversed); },     [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapReversed = v.toBool(); });
+        add("showVolumeSlice",     [](const RenderSettings& r) { return QVariant(r.m_state.showVolumeSlice); },               [](RenderSettings& r, const QVariant& v) { r.m_state.showVolumeSlice = v.toBool(); });
+        add("volumeSliceUseColormap", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceUseColormap); },     [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceUseColormap = v.toBool(); });
+        add("volumeSliceColormapReversed", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapReversed); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapReversed = v.toBool(); });
+        add("vectorScaleByMagnitude", [](const RenderSettings& r) { return QVariant(r.m_state.vectorScaleByMagnitude); },     [](RenderSettings& r, const QVariant& v) { r.m_state.vectorScaleByMagnitude = v.toBool(); });
+        add("flatShading",         [](const RenderSettings& r) { return QVariant(r.m_state.flatShading); },                   [](RenderSettings& r, const QVariant& v) { r.m_state.flatShading = v.toBool(); });
+        add("quickBarCollapsed",   [](const RenderSettings& r) { return QVariant(r.quickBarCollapsed); },                     [](RenderSettings& r, const QVariant& v) { r.quickBarCollapsed = v.toBool(); });
+        // int members
+        add("colormapChoice",      [](const RenderSettings& r) { return QVariant(r.m_state.colormapChoice); },                [](RenderSettings& r, const QVariant& v) { r.m_state.colormapChoice = v.toInt(); });
+        add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
+        add("volumeSliceAxis",     [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceAxis); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceAxis = v.toInt(); });
+        add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
+        add("vectorPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.vectorPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.vectorPlacement = v.toInt(); });
+        return t;
+    }();
+    return table;
+}
+
 void RenderSettings::saveStateToSettings() const {
     QSettings s;
     s.beginGroup("state");
+    // Camera (3-vector) and background color are stored as QVariantLists.
     s.setValue("camDistance", m_state.camera.distance);
     s.setValue("camFocal", QVariantList{ m_state.camera.focalPoint.x, m_state.camera.focalPoint.y, m_state.camera.focalPoint.z });
     s.setValue("camPos", QVariantList{ m_state.camera.position.x, m_state.camera.position.y, m_state.camera.position.z });
     s.setValue("camUp", QVariantList{ m_state.camera.viewUp.x, m_state.camera.viewUp.y, m_state.camera.viewUp.z });
     s.setValue("bgColor", QVariantList{ m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2] });
-    s.setValue("matSpecular", m_state.lighting.matSpecular);
-    s.setValue("matRoughness", m_state.lighting.matRoughness);
-    s.setValue("matMetallic", m_state.lighting.matMetallic);
-    s.setValue("lightKeyIntensity", m_state.lighting.lightKeyIntensity);
-    s.setValue("lightWarm", m_state.lighting.lightWarm);
-    s.setValue("lightKitEnabled", m_state.lighting.lightKitEnabled);
-    s.setValue("colormapChoice", m_state.colormapChoice);
-    s.setValue("colormapReversed", m_state.colormapReversed);
-    s.setValue("meshUseScalarColor", m_state.meshUseScalarColor);
-    s.setValue("showVolume", m_state.showVolume);
-    s.setValue("volumeUseColormap", m_state.volumeUseColormap);
-    s.setValue("volumeColormapChoice", m_state.volumeColormapChoice);
-    s.setValue("volumeColormapReversed", m_state.volumeColormapReversed);
-    s.setValue("volumeStepSize", m_state.volumeStepSize);
-    s.setValue("volumeOpacity", m_state.volumeOpacity);
-    s.setValue("showVolumeSlice", m_state.showVolumeSlice);
-    s.setValue("volumeSliceAxis", m_state.volumeSliceAxis);
-    s.setValue("volumeSlicePos", m_state.volumeSlicePos);
-    s.setValue("volumeSliceOpacity", m_state.volumeSliceOpacity);
-    s.setValue("volumeSliceUseColormap", m_state.volumeSliceUseColormap);
-    s.setValue("volumeSliceColormapChoice", m_state.volumeSliceColormapChoice);
-    s.setValue("volumeSliceColormapReversed", m_state.volumeSliceColormapReversed);
-    s.setValue("vectorScale", m_state.vectorScale);
-    s.setValue("vectorScaleByMagnitude", m_state.vectorScaleByMagnitude);
-    s.setValue("vectorPlacement", m_state.vectorPlacement);
-    s.setValue("quickBarCollapsed", quickBarCollapsed);
+    // Scalar settings, table-driven.
+    for (const auto& e : persistenceTable()) s.setValue(e.key, e.get(*this));
+    // GUI members with bespoke storage.
     s.setValue("msaaSamples", msaaSamples);
     s.setValue("screenshotResolution", m_screenshotResolution);
     s.setValue("screenshotAASamples", m_screenshotAASamples);
-    s.setValue("flatShading", m_state.flatShading);
     s.endGroup();
 }
 
@@ -251,58 +271,12 @@ void RenderSettings::restoreStateFromSettings() {
         m_state.camera.orthogonalizeViewUp();
     }
     readFColor("bgColor", m_state.bgColor);
-    if (s.contains("matSpecular")) {
-        m_state.lighting.matSpecular = s.value("matSpecular").toFloat();
-        if (s.contains("matRoughness")) {
-            m_state.lighting.matRoughness = s.value("matRoughness").toFloat();
-            m_state.lighting.matMetallic  = s.value("matMetallic").toFloat();
-        }
-        m_state.lighting.lightKeyIntensity = s.value("lightKeyIntensity").toFloat();
-        m_state.lighting.lightWarm = s.value("lightWarm").toFloat();
-        m_state.lighting.lightKitEnabled = s.value("lightKitEnabled").toBool();
-    }
-    if (s.contains("meshUseScalarColor")) {
-        m_state.meshUseScalarColor = s.value("meshUseScalarColor").toBool();
-    }
-    if (s.contains("colormapChoice")) {
-        m_state.colormapChoice = s.value("colormapChoice").toInt();
-        m_state.colormapReversed = s.value("colormapReversed").toBool();
-    }
-    if (s.contains("showVolume")) {
-        m_state.showVolume = s.value("showVolume").toBool();
-    }
-    if (s.contains("volumeStepSize")) {
-        m_state.volumeStepSize = s.value("volumeStepSize").toFloat();
-    }
-    if (s.contains("volumeOpacity")) {
-        m_state.volumeOpacity = s.value("volumeOpacity").toFloat();
-    }
-    if (s.contains("volumeColormapChoice")) {
-        m_state.volumeColormapChoice = s.value("volumeColormapChoice").toInt();
-        m_state.volumeColormapReversed = s.value("volumeColormapReversed").toBool();
-    }
-    if (s.contains("showVolumeSlice")) {
-        m_state.showVolumeSlice = s.value("showVolumeSlice").toBool();
-        m_state.volumeSliceAxis = s.value("volumeSliceAxis").toInt();
-        m_state.volumeSlicePos = s.value("volumeSlicePos").toFloat();
-        m_state.volumeSliceOpacity = s.value("volumeSliceOpacity").toFloat();
-        m_state.volumeSliceUseColormap = s.value("volumeSliceUseColormap", true).toBool();
-        m_state.volumeSliceColormapChoice = s.value("volumeSliceColormapChoice", 3).toInt();
-        m_state.volumeSliceColormapReversed = s.value("volumeSliceColormapReversed").toBool();
-    }
-    if (s.contains("volumeUseColormap")) {
-        m_state.volumeUseColormap = s.value("volumeUseColormap").toBool();
-    }
-    if (s.contains("vectorScale")) {
-        m_state.vectorScale = s.value("vectorScale").toFloat();
-        m_state.vectorScaleByMagnitude = s.value("vectorScaleByMagnitude").toBool();
-    }
-    if (s.contains("vectorPlacement")) {
-        m_state.vectorPlacement = s.value("vectorPlacement").toInt();
-    }
-    if (s.contains("quickBarCollapsed")) {
-        quickBarCollapsed = s.value("quickBarCollapsed").toBool();
-    }
+    // Scalar settings, table-driven. Missing keys keep the constructor default,
+    // which already matches the historical restore defaults for the slice
+    // colormap fields.
+    for (const auto& e : persistenceTable())
+        if (s.contains(e.key)) e.set(*this, s.value(e.key));
+    // GUI members with bespoke validation.
     if (s.contains("msaaSamples")) {
         const int n = s.value("msaaSamples").toInt();
         msaaSamples = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
@@ -313,9 +287,6 @@ void RenderSettings::restoreStateFromSettings() {
     if (s.contains("screenshotAASamples")) {
         const int n = s.value("screenshotAASamples").toInt();
         m_screenshotAASamples = (n <= 0) ? 0 : (n <= 2 ? 2 : 4);
-    }
-    if (s.contains("flatShading")) {
-        m_state.flatShading = s.value("flatShading").toBool();
     }
     s.endGroup();
 }

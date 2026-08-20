@@ -1,6 +1,7 @@
 #include "render/overlays/colorbar_overlay.h"
 
 #include <glad/gl.h>
+#include "render/foundation/shader_utils.h"
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
@@ -33,32 +34,6 @@ void main() {
 }
 )";
 
-GLuint compile(GLenum type, const char* src) {
-    GLuint s = glCreateShader(type);
-    glShaderSource(s, 1, &src, nullptr);
-    glCompileShader(s);
-    GLint ok = 0;
-    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
-    if (!ok) { glDeleteShader(s); return 0; }
-    return s;
-}
-
-GLuint link(const char* vs, const char* fs) {
-    GLuint v = compile(GL_VERTEX_SHADER, vs);
-    GLuint f = compile(GL_FRAGMENT_SHADER, fs);
-    if (!v || !f) return 0;
-    GLuint p = glCreateProgram();
-    glAttachShader(p, v);
-    glAttachShader(p, f);
-    glLinkProgram(p);
-    GLint ok = 0;
-    glGetProgramiv(p, GL_LINK_STATUS, &ok);
-    if (!ok) { glDeleteProgram(p); return 0; }
-    glDeleteShader(v);
-    glDeleteShader(f);
-    return p;
-}
-
 } // namespace
 
 bool ColorbarOverlay::init() {
@@ -73,16 +48,8 @@ bool ColorbarOverlay::init() {
         { 1, -1, 1, 0},
         { 1,  1, 1, 1},
     };
-    glCreateVertexArrays(1, vao_.ptr());
-    glCreateBuffers(1, vbo_.ptr());
-    glEnableVertexArrayAttrib(vao_, 0);
-    glVertexArrayAttribFormat(vao_, 0, 2, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(vao_, 0, 0);
-    glEnableVertexArrayAttrib(vao_, 1);
-    glVertexArrayAttribFormat(vao_, 1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float));
-    glVertexArrayAttribBinding(vao_, 1, 0);
-    glNamedBufferData(vbo_, sizeof(verts), verts, GL_STATIC_DRAW);
-    glVertexArrayVertexBuffer(vao_, 0, vbo_, 0, 4 * sizeof(float));
+    setupVertexBuffer(vao_, vbo_, verts, sizeof(verts), 4 * sizeof(float),
+                      { { 0, 2, 0 }, { 1, 2, 2 * sizeof(float) } }, GL_STATIC_DRAW);
 
     glCreateTextures(GL_TEXTURE_2D, 1, tex_.ptr());
     glTextureParameteri(tex_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -93,7 +60,7 @@ bool ColorbarOverlay::init() {
 }
 
 bool ColorbarOverlay::buildProgram() {
-    program_.reset(link(vsSrc, fsSrc));
+    program_.reset(compileProgram(vsSrc, fsSrc, "ColorbarOverlay"));
     if (!program_.has()) return false;
     samplerLoc_ = glGetUniformLocation(program_, "uTex");
     return true;
@@ -250,13 +217,8 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glTextureSubImage2D(tex_, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
     textureCacheValid_ = true;
 
-    GLboolean prevDepthTest = glIsEnabled(GL_DEPTH_TEST);
-    GLboolean prevBlend = glIsEnabled(GL_BLEND);
-    GLint prevBlendSrc = 0, prevBlendDst = 0;
-    glGetIntegerv(GL_BLEND_SRC, &prevBlendSrc);
-    glGetIntegerv(GL_BLEND_DST, &prevBlendDst);
-    GLint prevViewport[4] = {0, 0, 0, 0};
-    glGetIntegerv(GL_VIEWPORT, prevViewport);
+    // Save engine state we mutate; restored automatically on scope exit.
+    GLStateGuard guard;
 
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -270,11 +232,6 @@ void ColorbarOverlay::uploadAndDraw(const QImage& img, int deviceW, int deviceH)
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
     glUseProgram(0);
-
-    if (prevDepthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-    if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-    glBlendFunc(prevBlendSrc, prevBlendDst);
-    glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
 }
 
 void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
@@ -314,13 +271,8 @@ void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
     if (!textureCacheValid_) {
         uploadAndDraw(cachedImage_, deviceW, deviceH);
     } else {
-        GLboolean prevDepthTest = glIsEnabled(GL_DEPTH_TEST);
-        GLboolean prevBlend = glIsEnabled(GL_BLEND);
-        GLint prevBlendSrc = 0, prevBlendDst = 0;
-        glGetIntegerv(GL_BLEND_SRC, &prevBlendSrc);
-        glGetIntegerv(GL_BLEND_DST, &prevBlendDst);
-        GLint prevViewport[4] = {0, 0, 0, 0};
-        glGetIntegerv(GL_VIEWPORT, prevViewport);
+        // Save engine state we mutate; restored automatically on scope exit.
+        GLStateGuard guard;
 
         glBindTextureUnit(0, tex_);
         glDisable(GL_DEPTH_TEST);
@@ -334,11 +286,6 @@ void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
         glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
         glUseProgram(0);
-
-        if (prevDepthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-        if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-        glBlendFunc(prevBlendSrc, prevBlendDst);
-        glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
     }
 }
 

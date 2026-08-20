@@ -1,6 +1,8 @@
 #pragma once
 
 #include <utility>
+#include <initializer_list>
+#include <cstddef>
 
 typedef unsigned int GLuint;
 typedef int GLint;
@@ -117,3 +119,54 @@ public:
     bool has() const { return m_id != 0; }
     operator GLuint() const { return m_id; }
 };
+
+// RAII guard that saves the render state a pass/overlay mutates (viewport,
+// depth/blend/cull/scissor/program-point-size enables, depth func/mask/clamp,
+// blend func/equation, polygon mode, clip control, active texture, line width)
+// and restores it in the destructor. Guarantees state handover even on early
+// returns/exceptions — eliminates the classic "leaked GL state" bug class where
+// a draw path forgets to restore depth/blend/etc.
+class GLStateGuard {
+public:
+    GLStateGuard();
+    ~GLStateGuard();
+    GLStateGuard(const GLStateGuard&) = delete;
+    GLStateGuard& operator=(const GLStateGuard&) = delete;
+
+private:
+    int m_viewport[4] = {};
+    bool m_depthTest = false;
+    bool m_depthClamp = false;
+    bool m_blend = false;
+    bool m_cullFace = false;
+    bool m_scissorTest = false;
+    bool m_programPointSize = false;
+    int m_depthFunc = 0;
+    bool m_depthMask = true;
+    int m_blendSrcRgb = 0, m_blendDstRgb = 0;
+    int m_blendSrcAlpha = 0, m_blendDstAlpha = 0;
+    int m_blendEquationRgb = 0, m_blendEquationAlpha = 0;
+    int m_polyMode[2] = {};
+    int m_clipOrigin = 0, m_clipDepthMode = 0;
+    int m_activeTexture = 0;
+    float m_lineWidth = 1.0f;
+};
+
+// Describes one interleaved vertex attribute: shader location, component
+// count, and byte offset from the start of each vertex.
+struct VertexAttribSpec {
+    int location;      // shader attribute location
+    int size;          // components per attribute (1..4)
+    int offsetBytes;   // byte offset of this attribute within the vertex
+};
+
+// Create a VAO + VBO pair and configure an interleaved attribute layout in one
+// call. `data`/`sizeBytes` are uploaded to the buffer with `usage`
+// (GL_STATIC_DRAW / GL_DYNAMIC_DRAW) and bound at vertex-buffer binding 0 with
+// `strideBytes` per vertex. Replaces the boilerplate DSA idiom repeated across
+// every pass/overlay.
+void setupVertexBuffer(GlVao& vao, GlBuffer& vbo,
+                       const void* data, size_t sizeBytes,
+                       size_t strideBytes,
+                       std::initializer_list<VertexAttribSpec> attribs,
+                       int usage);

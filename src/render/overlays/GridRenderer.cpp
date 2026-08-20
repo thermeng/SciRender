@@ -12,13 +12,7 @@ void GridRenderer::init(const ShaderSources& sources) {
     }
 
     const float q[8] = { -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f, 1.0f, 1.0f, 1.0f };
-    glCreateVertexArrays(1, m_vao.ptr());
-    glCreateBuffers(1, m_vbo.ptr());
-    glEnableVertexArrayAttrib(m_vao, 0);
-    glVertexArrayAttribFormat(m_vao, 0, 2, GL_FLOAT, GL_FALSE, 0);
-    glVertexArrayAttribBinding(m_vao, 0, 0);
-    glNamedBufferData(m_vbo, sizeof(q), q, GL_STATIC_DRAW);
-    glVertexArrayVertexBuffer(m_vao, 0, m_vbo, 0, 2 * sizeof(float));
+    setupVertexBuffer(m_vao, m_vbo, q, sizeof(q), 2 * sizeof(float), { { 0, 2, 0 } }, GL_STATIC_DRAW);
 }
 
 void GridRenderer::updateUbo(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj) {
@@ -62,6 +56,8 @@ void GridRenderer::updateUbo(const RenderRenderState& state, const glm::mat4& vi
 
 void GridRenderer::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj, GLuint shadowTex) {
     if (!state.showGrid || !m_program.has()) return;
+    // Save engine state we mutate; restored automatically on scope exit.
+    GLStateGuard guard;
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -79,7 +75,6 @@ void GridRenderer::draw(const RenderRenderState& state, const glm::mat4& view, c
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
 
-    glDisable(GL_BLEND);
     glUseProgram(0);
 }
 

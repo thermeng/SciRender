@@ -8,25 +8,8 @@
 #include <charconv>
 #include <cctype>
 
-// ponytail: OBJ vertex dedup reuses the same injective quantized-key idea as
-// stl_parser (only truly coincident verts merge). Kept local — one small map,
-// no shared abstraction warranted for two callers.
-static inline int64_t qc(double v) {
-    const int64_t q = 1 << 12; // 1/4096 tolerance
-    int64_t ix = static_cast<int64_t>(std::llround(v * static_cast<double>(q)));
-    const int64_t lim = (int64_t(1) << 25) - 1;
-    if (ix > lim) ix = lim; else if (ix < -lim) ix = -lim;
-    return ix;
-}
-using VKey = std::tuple<int64_t, int64_t, int64_t>;
-struct VKeyHash {
-    size_t operator()(const VKey& k) const noexcept {
-        uint64_t h = static_cast<uint64_t>(std::get<0>(k)) * 73856093u;
-        h ^= static_cast<uint64_t>(std::get<1>(k)) * 19349663u + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-        h ^= static_cast<uint64_t>(std::get<2>(k)) * 83492791u + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-        return static_cast<size_t>(h);
-    }
-};
+// ponytail: OBJ vertex dedup reuses the shared injective quantized-key from
+// mesh_utils (only truly coincident verts merge) — see mesh_loader.h.
 
 RenderMesh parseOBJ(const std::string& filePath) {
     std::ifstream file(filePath);
@@ -34,10 +17,10 @@ RenderMesh parseOBJ(const std::string& filePath) {
 
     RenderMesh mesh;
     std::vector<float> rawVerts;          // 1-based source positions
-    std::unordered_map<VKey, uint32_t, VKeyHash> posToIndex;
+    std::unordered_map<mesh_utils::PositionKey, uint32_t, mesh_utils::PositionKeyHash> posToIndex;
 
     auto addVertex = [&](float x, float y, float z) -> uint32_t {
-        VKey key{ qc(x), qc(y), qc(z) };
+        mesh_utils::PositionKey key{ mesh_utils::quantizedCoord(x), mesh_utils::quantizedCoord(y), mesh_utils::quantizedCoord(z) };
         auto it = posToIndex.find(key);
         if (it != posToIndex.end()) return it->second;
         uint32_t idx = static_cast<uint32_t>(mesh.vertices.size() / 3);
@@ -111,14 +94,6 @@ RenderMesh parseOBJ(const std::string& filePath) {
     }
 
     mesh.flatVerts = mesh.vertices; // ponytail: OBJ already indexed; flat == indexed here
-    mesh_utils::computeBounds(mesh);
-    mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
-    mesh.datasetType = "OBJ";
-    mesh.fileFormat = "OBJ";
-    if (mesh.normals.empty())
-        mesh_utils::computeNormals(mesh);
-
-    std::cout << "OBJ Parser: " << mesh.indices.size() / 3 << " triangles, "
-              << mesh.vertices.size() / 3 << " unique vertices" << std::endl;
+    mesh_utils::finalizeSurfaceMesh(mesh, "OBJ", "OBJ", "OBJ Parser: ");
     return mesh;
 }

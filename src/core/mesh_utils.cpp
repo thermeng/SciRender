@@ -51,6 +51,79 @@ bool isLittleEndian() {
 
 // ── Geometry utilities ──────────────────────────────────────────────────────
 
+void indexFlatTriangles(const std::vector<float>& flatVerts,
+                        std::vector<float>& outVertices,
+                        std::vector<uint32_t>& outIndices) {
+    if (flatVerts.empty()) return;
+    const size_t cornerCount = flatVerts.size() / 3;
+    const size_t triCount = cornerCount / 3;
+
+    struct VertEntry {
+        PositionKey key;
+        uint32_t flatIdx; // index into flatVerts (corner index * 3)
+    };
+    std::vector<VertEntry> entries(cornerCount);
+    for (size_t i = 0; i < cornerCount; ++i) {
+        size_t base = i * 3;
+        entries[i] = { positionKey(flatVerts[base], flatVerts[base + 1], flatVerts[base + 2]),
+                       static_cast<uint32_t>(i) };
+    }
+
+    // Sort by quantized position — groups identical vertices together
+    std::sort(entries.begin(), entries.end(), [](const VertEntry& a, const VertEntry& b) {
+        if (std::get<0>(a.key) != std::get<0>(b.key)) return std::get<0>(a.key) < std::get<0>(b.key);
+        if (std::get<1>(a.key) != std::get<1>(b.key)) return std::get<1>(a.key) < std::get<1>(b.key);
+        return std::get<2>(a.key) < std::get<2>(b.key);
+    });
+
+    // Scan sorted entries: first occurrence of each unique key gets a new vertex
+    // index; subsequent occurrences reuse that index.
+    std::vector<uint32_t> cornerToIdx(cornerCount); // flat corner → indexed vertex
+    outVertices.reserve(cornerCount * 3);           // upper bound
+    for (size_t i = 0; i < cornerCount; ) {
+        size_t j = i + 1;
+        while (j < cornerCount && entries[j].key == entries[i].key) ++j;
+        // All entries[i..j) share the same position — emit one vertex
+        uint32_t vidx = static_cast<uint32_t>(outVertices.size() / 3);
+        size_t base = entries[i].flatIdx * 3;
+        outVertices.push_back(flatVerts[base + 0]);
+        outVertices.push_back(flatVerts[base + 1]);
+        outVertices.push_back(flatVerts[base + 2]);
+        for (size_t k = i; k < j; ++k) {
+            cornerToIdx[entries[k].flatIdx] = vidx;
+        }
+        i = j;
+    }
+
+    outIndices.reserve(cornerCount);
+    for (size_t t = 0; t < triCount; ++t) {
+        outIndices.push_back(cornerToIdx[t * 3 + 0]);
+        outIndices.push_back(cornerToIdx[t * 3 + 1]);
+        outIndices.push_back(cornerToIdx[t * 3 + 2]);
+    }
+}
+
+void finalizeSurfaceMesh(RenderMesh& mesh,
+                         const std::string& datasetType,
+                         const std::string& fileFormat,
+                         const char* logLabel) {
+    computeBounds(mesh);
+
+    // Record the topological point count (deduped, pre-normal-split) so the UI
+    // can report the true vertex count ParaView shows. computeNormals() below
+    // will duplicate vertices at sharp edges for shading, which would otherwise
+    // inflate the displayed "Points" value.
+    mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
+    mesh.datasetType = datasetType;
+    mesh.fileFormat = fileFormat;
+    if (mesh.normals.empty() && !mesh.vertices.empty() && !mesh.indices.empty()) {
+        computeNormals(mesh);
+    }
+
+    std::cout << logLabel << mesh.indices.size() / 3 << " triangles, "
+              << mesh.vertices.size() / 3 << " unique vertices" << std::endl;
+}
+
 void computeBounds(RenderMesh& mesh) {
     if (mesh.vertices.empty()) {
         mesh.bounds = BoundingVolume{};

@@ -950,55 +950,20 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
     particles.clear();
 
     if (!res.verts.empty()) {
-        glCreateVertexArrays(1, vao.ptr());
-        glCreateBuffers(1, vbo.ptr());
-
-        glEnableVertexArrayAttrib(vao, 0);
-        glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(vao, 0, 0);
-
-        glEnableVertexArrayAttrib(vao, 1);
-        glVertexArrayAttribFormat(vao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-        glVertexArrayAttribBinding(vao, 1, 0);
-
-        glEnableVertexArrayAttrib(vao, 2);
-        glVertexArrayAttribFormat(vao, 2, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
-        glVertexArrayAttribBinding(vao, 2, 0);
-
-        glNamedBufferData(vbo, res.verts.size() * sizeof(float), res.verts.data(), GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(vao, 0, vbo, 0, 7 * sizeof(float));
+        setupVertexBuffer(vao, vbo, res.verts.data(), res.verts.size() * sizeof(float), 7 * sizeof(float),
+                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 3, 4 * sizeof(float) } }, GL_STATIC_DRAW);
     }
 
     if (!res.seedVerts.empty()) {
-        glCreateVertexArrays(1, seedVao.ptr());
-        glCreateBuffers(1, seedVbo.ptr());
-        glEnableVertexArrayAttrib(seedVao, 0);
-        glVertexArrayAttribFormat(seedVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(seedVao, 0, 0);
-        glNamedBufferData(seedVbo, res.seedVerts.size() * sizeof(float), res.seedVerts.data(), GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(seedVao, 0, seedVbo, 0, 3 * sizeof(float));
+        setupVertexBuffer(seedVao, seedVbo, res.seedVerts.data(), res.seedVerts.size() * sizeof(float), 3 * sizeof(float),
+                          { { 0, 3, 0 } }, GL_STATIC_DRAW);
     }
 
     if (showArrows && !res.arrowVerts.empty()) {
         arrowCount = res.arrowCount;
 
-        glCreateVertexArrays(1, arrowVao.ptr());
-        glCreateBuffers(1, arrowVbo.ptr());
-
-        glEnableVertexArrayAttrib(arrowVao, 0);
-        glVertexArrayAttribFormat(arrowVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(arrowVao, 0, 0);
-
-        glEnableVertexArrayAttrib(arrowVao, 1);
-        glVertexArrayAttribFormat(arrowVao, 1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float));
-        glVertexArrayAttribBinding(arrowVao, 1, 0);
-
-        glEnableVertexArrayAttrib(arrowVao, 2);
-        glVertexArrayAttribFormat(arrowVao, 2, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float));
-        glVertexArrayAttribBinding(arrowVao, 2, 0);
-
-        glNamedBufferData(arrowVbo, res.arrowVerts.size() * sizeof(float), res.arrowVerts.data(), GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(arrowVao, 0, arrowVbo, 0, 7 * sizeof(float));
+        setupVertexBuffer(arrowVao, arrowVbo, res.arrowVerts.data(), res.arrowVerts.size() * sizeof(float), 7 * sizeof(float),
+                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 3, 4 * sizeof(float) } }, GL_STATIC_DRAW);
     }
 }
 

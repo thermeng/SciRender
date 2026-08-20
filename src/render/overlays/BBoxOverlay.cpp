@@ -33,13 +33,7 @@ void BBoxOverlay::draw(const RenderRenderState& state, const glm::mat4& view, co
         -0.5f, 0.5f,-0.5f, -0.5f, 0.5f, 0.5f
     };
     if (!m_vao.has()) {
-        glCreateVertexArrays(1, m_vao.ptr());
-        glCreateBuffers(1, m_vbo.ptr());
-        glEnableVertexArrayAttrib(m_vao, 0);
-        glVertexArrayAttribFormat(m_vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
-        glVertexArrayAttribBinding(m_vao, 0, 0);
-        glNamedBufferData(m_vbo, sizeof(c), c, GL_STATIC_DRAW);
-        glVertexArrayVertexBuffer(m_vao, 0, m_vbo, 0, 3 * sizeof(float));
+        setupVertexBuffer(m_vao, m_vbo, c, sizeof(c), 3 * sizeof(float), { { 0, 3, 0 } }, GL_STATIC_DRAW);
     }
 
     glm::vec3 center(static_cast<float>(state.worldCenterX),
@@ -52,7 +46,8 @@ void BBoxOverlay::draw(const RenderRenderState& state, const glm::mat4& view, co
                       glm::scale(glm::mat4(1.0f), diag);
     glm::mat4 mvp = proj * view * model;
 
-    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+    // Save engine state we mutate; restored automatically on scope exit.
+    GLStateGuard guard;
     glDisable(GL_DEPTH_TEST);
     glLineWidth(1.0f);
 
@@ -68,7 +63,6 @@ void BBoxOverlay::draw(const RenderRenderState& state, const glm::mat4& view, co
     glDrawArrays(GL_LINES, 0, 24);
     glBindVertexArray(0);
 
-    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     glUseProgram(0);
 }
 

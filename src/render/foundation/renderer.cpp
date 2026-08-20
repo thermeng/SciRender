@@ -569,7 +569,8 @@ void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scal
 }
 
 void Renderer::drawGizmo() {
-    GLboolean depthWas = glIsEnabled(GL_DEPTH_TEST);
+    // Save engine state we mutate; restored automatically on scope exit.
+    GLStateGuard guard;
     glDisable(GL_DEPTH_TEST);
     gizmo.draw(m_state.camera.getViewMatrix(), static_cast<float>(devicePixelRatio));
     if (m_state.lighting.lightKitEnabled && m_state.lighting.showLightMarkers) {
@@ -580,15 +581,10 @@ void Renderer::drawGizmo() {
             LightingModel::kitDirection(m_state.lighting.lightBackAzimuth + 180.0f, -m_state.lighting.lightBackElevation),
             LightingModel::kitDirection(m_state.lighting.lightHeadAzimuth,  m_state.lighting.lightHeadElevation),
         };
-        auto warmTint = [](float w) -> glm::vec3 {
-            if (w < 0.5f) return glm::mix(glm::vec3(0.6f,0.7f,1.0f), glm::vec3(1.0f), w/0.5f);
-            return glm::mix(glm::vec3(1.0f), glm::vec3(1.0f,0.85f,0.7f), (w-0.5f)/0.5f);
-        };
-        glm::vec3 tint = warmTint(m_state.lighting.lightWarm);
+        glm::vec3 tint = LightingModel::warmTint(m_state.lighting.lightWarm);
         glm::vec3 cols[5] = { tint, tint * 0.9f, tint * 0.95f, tint * 0.95f, glm::vec3(1.0f, 1.0f, 1.0f) };
         gizmo.drawLights(kitDirs, cols, static_cast<float>(devicePixelRatio));
     }
-    if (depthWas) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
 }
 
 std::string Renderer::vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh) {
