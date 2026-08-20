@@ -594,7 +594,7 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
         int type = (c < static_cast<int>(cellTypes.size())) ? cellTypes[c] : 0;
         if (type == 0) {
             if (numPointsInCell == 3) type = 5;
-            if (numPointsInCell == 4) type = 9;
+            if (numPointsInCell == 4) type = 10;
             if (numPointsInCell == 8) type = 12;
         }
         switch (type) {
@@ -650,65 +650,7 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
             }
             break;
         }
-        case 9:
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
-            }
-            break;
-        case 14:
-            if (idx + 4 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1, i0, i3, i2,
-                    i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
-                });
-            }
-            break;
-        case 15: {  // VTK_WEDGE (triangular prism, 6 vertices)
-            if (idx + 5 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                uint32_t i5 = static_cast<uint32_t>(rawCellData[idx + 5]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1,
-                    i3, i4, i5,
-                    i0, i1, i3,
-                    i1, i4, i3,
-                    i1, i2, i4,
-                    i2, i5, i4,
-                    i0, i3, i2,
-                    i2, i3, i5,
-                    i0, i5, i2
-                });
-            }
-            break;
-        }
-        case 10:  // VTK_TETRA
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1,
-                    i0, i1, i3,
-                    i1, i2, i3,
-                    i0, i3, i2
-                });
-            }
-            break;
-        case 11: {  // VTK_VOXEL (8 vertices, reordered to hex)
+        case 9: {  // VTK_VOXEL (8 vertices, reordered to hex)
             if (idx + 7 < static_cast<int>(rawCellData.size())) {
                 uint32_t h0 = static_cast<uint32_t>(rawCellData[idx + 0]);
                 uint32_t h1 = static_cast<uint32_t>(rawCellData[idx + 1]);
@@ -727,6 +669,29 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
             }
             break;
         }
+        case 10:  // VTK_QUAD (4 vertices, triangle fan)
+            if (idx + 3 < static_cast<int>(rawCellData.size())) {
+                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
+                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
+                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
+                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
+                mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
+            }
+            break;
+        case 11:  // VTK_TETRA (4 vertices)
+            if (idx + 3 < static_cast<int>(rawCellData.size())) {
+                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
+                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
+                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
+                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
+                mesh.indices.insert(mesh.indices.end(), {
+                    i0, i2, i1,
+                    i0, i1, i3,
+                    i1, i2, i3,
+                    i2, i0, i3
+                });
+            }
+            break;
         case 12:  // VTK_HEXAHEDRON (8 vertices, in order)
             if (idx + 7 < static_cast<int>(rawCellData.size())) {
                 uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
@@ -744,7 +709,39 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
                 });
             }
             break;
-        case 13:  // VTK_PENTAGONAL_PRISM (10 vertices)
+        case 13: {  // VTK_PYRAMID (5 vertices)
+            if (idx + 4 < static_cast<int>(rawCellData.size())) {
+                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
+                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
+                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
+                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
+                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
+                mesh.indices.insert(mesh.indices.end(), {
+                    i0, i2, i1, i0, i3, i2,
+                    i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
+                });
+            }
+            break;
+        }
+        case 14: {  // VTK_WEDGE (triangular prism, 6 vertices)
+            if (idx + 5 < static_cast<int>(rawCellData.size())) {
+                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
+                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
+                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
+                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
+                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
+                uint32_t i5 = static_cast<uint32_t>(rawCellData[idx + 5]);
+                mesh.indices.insert(mesh.indices.end(), {
+                    i0, i2, i1,
+                    i3, i4, i5,
+                    i0, i1, i4, i0, i4, i3,
+                    i1, i2, i5, i1, i5, i4,
+                    i2, i0, i3, i2, i3, i5
+                });
+            }
+            break;
+        }
+        case 15: {  // VTK_PENTAGONAL_PRISM (10 vertices)
             if (idx + 9 < static_cast<int>(rawCellData.size())) {
                 uint32_t v0 = static_cast<uint32_t>(rawCellData[idx + 0]);
                 uint32_t v1 = static_cast<uint32_t>(rawCellData[idx + 1]);
@@ -758,11 +755,8 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
                 uint32_t v9 = static_cast<uint32_t>(rawCellData[idx + 9]);
                 cellToVertices[c] = {v0, v1, v2, v3, v4, v5, v6, v7, v8, v9};
                 mesh.indices.insert(mesh.indices.end(), {
-                    // top cap (fan from v5)
                     v5, v7, v6, v5, v8, v7, v5, v9, v8,
-                    // bottom cap (fan from v4, reversed winding)
                     v4, v2, v3, v4, v3, v1, v4, v1, v0,
-                    // side rectangles split into triangles
                     v0, v1, v6, v0, v6, v5,
                     v1, v2, v7, v1, v7, v6,
                     v2, v3, v8, v2, v8, v7,
@@ -771,6 +765,7 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
                 });
             }
             break;
+        }
         default:
             if (type >= 21) {
                 VTK_XML_WARN("Skipping unsupported higher-order cell type " << type

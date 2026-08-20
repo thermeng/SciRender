@@ -1,0 +1,17 @@
+# vtk DataFile Version 3.0
+UNSTRUCTURED_GRID single tetrahedron - type 11
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 4 float
+0.0 0.0 0.0
+1.0 0.0 0.0
+0.0 1.0 0.0
+0.0 0.0 1.0
+CELLS 1 5
+4 0 1 2 3
+CELL_TYPES 1
+11
+POINT_DATA 4
+SCALARS scalars float 1
+LOOKUP_TABLE default
+0.0 1.0 2.0 3.0

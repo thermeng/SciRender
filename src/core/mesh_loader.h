@@ -51,6 +51,18 @@ struct DatasetAttributes {
     std::unordered_map<std::string, int> cellFieldComponents;
     // FieldData (arbitrary named arrays, typically per-cell or global metadata)
     std::unordered_map<std::string, std::vector<float>> fieldData;
+    // VTK TENSORS — per-point or per-cell, 9 components (3×3 matrix) per element
+    std::unordered_map<std::string, std::vector<float>> pointTensors;
+    std::unordered_map<std::string, std::vector<float>> cellTensors;
+    // Component counts for tensors (should always be 9)
+    std::unordered_map<std::string, int> pointTensorComponents;
+    std::unordered_map<std::string, int> cellTensorComponents;
+    // VTK TEXTURE_COORDINATES — per-point, 2 or 3 components
+    std::unordered_map<std::string, std::vector<float>> pointTexCoords;
+    std::unordered_map<std::string, std::vector<float>> cellTexCoords;
+    // Component counts for texture coordinates (2 or 3)
+    std::unordered_map<std::string, int> pointTexCoordComponents;
+    std::unordered_map<std::string, int> cellTexCoordComponents;
 
     // Global scalar range boundaries (Required by renderer & color LUT mapping)
     float scalarMin = 0.0f;
