@@ -256,6 +256,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
     Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
+    Q_PROPERTY(int maxPeelLayers READ getMaxPeelLayers WRITE setMaxPeelLayers NOTIFY viewChanged) // depth peeling layer count (1-8)
     Q_PROPERTY(int cullMode READ getCullMode WRITE setCullMode NOTIFY viewChanged) // 0=off 1=back 2=front
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
     Q_PROPERTY(bool showQualityOverlay READ getShowQualityOverlay WRITE setShowQualityOverlay NOTIFY viewChanged)
@@ -410,6 +411,9 @@ public:
     STATE_PROP(getPointUseScalar, setPointUseScalar, bool, m_state.pointUseScalar, Display)
     STATE_PROP(getPointOpacity, setPointOpacity, float, m_state.pointOpacity, Display)
     STATE_PROP(getSurfaceOpacity, setSurfaceOpacity, float, m_state.surfaceOpacity, Display)
+
+    int getMaxPeelLayers() const { return m_state.maxPeelLayers; }
+    void setMaxPeelLayers(int v) { int t = (v < 1) ? 1 : (v > 8 ? 8 : v); if (m_state.maxPeelLayers != t) { m_state.maxPeelLayers = t; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getCullMode, setCullMode, int, m_state.cullMode, Display)
     STATE_PROP(getShowBounds, setShowBounds, bool, m_state.showBounds, Display)
     STATE_PROP(getShowQualityOverlay, setShowQualityOverlay, bool, m_state.showQualityOverlay, Display)

@@ -100,12 +100,13 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
         const bool opaque = state.surfaceOpacity >= 1.0f;
         if (opaque) {
             drawOpaque(state, drawList);
+            drawOverlays(state, ubo, drawList, drawVerts, meshManager);
         } else {
             result.transparentMeshes = drawList;
         }
+    } else {
+        drawOverlays(state, ubo, drawList, drawVerts, meshManager);
     }
-
-    drawOverlays(state, ubo, drawList, drawVerts, meshManager);
 
     glUseProgram(0);
 

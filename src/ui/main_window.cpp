@@ -1135,6 +1135,12 @@ QWidget* MainWindow::buildViewDisplayPage() {
         });
     }
 
+    {
+        auto* spin = viewUi.peelLayersSpin;
+        spin->setValue(m_settings->getMaxPeelLayers());
+        connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), m_settings, &RenderSettings::setMaxPeelLayers);
+    }
+
     auto* gizmoCb = viewUi.gizmoCb;
     gizmoCb->setChecked(m_settings->isGizmoVisible());
     connect(gizmoCb, &QCheckBox::toggled, m_settings, &RenderSettings::setGizmoVisible);

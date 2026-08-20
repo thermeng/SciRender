@@ -115,6 +115,7 @@ struct RenderRenderState {
     bool pointUseScalar = true;  // ponytail: color points by scalar; else solid
     float pointOpacity = 1.0f;   // ponytail: point sprite alpha
     float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
+    int maxPeelLayers = 4;        // depth peeling layers for transparent surfaces (1-8)
     int cullMode = 0;              // ponytail: 0=off by default — mirror of settings default
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool showQualityOverlay = false;     // ponytail: highlight degenerate faces + bad edges
@@ -564,17 +565,20 @@ private:
     void ensureShadowFbo();
     void destroyShadowFbo();
 
+    static constexpr int kMaxPeelLayers = 8;
+
     // --- Depth peeling for transparent surfaces ---
     GlProgram m_peelProgram;
     GLint  m_peelPrevDepthLoc = -1;
-    GLint  m_peelLayerLoc = -1;
+    GLint  m_peelLutLoc = -1;
+    GLint  m_peelNumLayersLoc = -1;
     GlProgram m_compositeProgram;
 
-    // FBOs for two-layer peeling: [0] = front layer, [1] = back layer
+    // FBOs for N-layer peeling: 2 FBOs and 2 depth textures ping-pong;
+    // N color textures are preserved for the composite pass.
     GlFramebuffer m_peelFbo[2];
-    GlTexture m_peelColorTex[2];
+    GlTexture m_peelColorTex[kMaxPeelLayers];
     GlTexture m_peelDepthTex[2];
-    GlTexture m_peelDummyDepth;  // 1x1 initialized to 1.0 for first pass
     GlTexture m_peelMainDepth;   // opaque geometry depth copied from main FBO
     GlVao m_peelDummyVao;    // empty VAO for fullscreen triangle
     int m_peelFboW = 0, m_peelFboH = 0;
