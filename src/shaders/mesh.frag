@@ -27,9 +27,11 @@ layout(std140) uniform MeshUBO {
     vec4  uShadingMode;     // x = 0.0 smooth, 1.0 flat
 };
 
-in vec3 vNormal;
-in vec3 vWorldPos;
-in float vScalar;
+in MeshVarying {
+    vec3 vWorldPos;
+    vec3 vNormal;
+    float vScalar;
+} mv;
 
 uniform sampler1D uColormapLUT;
 
@@ -89,14 +91,15 @@ void main() {
     // 1. Unified Slicing & Isolation Filtering
     bool clipped = false;
     float clipEnabled = uPointClip.w;
-    if (clipEnabled > 0.5) {
-        bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (vWorldPos.x < uSliceY.x) : (vWorldPos.x > uSliceY.x));
-        bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (vWorldPos.y < uSliceY.y) : (vWorldPos.y > uSliceY.y));
-        bool clipZ = bool(uSliceEn.z) && ((uInvert.z > 0.5) ? (vWorldPos.z < uSliceY.z) : (vWorldPos.z > uSliceY.z));
+    bool crinkleMode = uShadingMode.y > 0.5;
+    if (clipEnabled > 0.5 && !crinkleMode) {
+        bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (mv.vWorldPos.x < uSliceY.x) : (mv.vWorldPos.x > uSliceY.x));
+        bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (mv.vWorldPos.y < uSliceY.y) : (mv.vWorldPos.y > uSliceY.y));
+        bool clipZ = bool(uSliceEn.z) && ((uInvert.z > 0.5) ? (mv.vWorldPos.z < uSliceY.z) : (mv.vWorldPos.z > uSliceY.z));
         clipped = clipX || clipY || clipZ;
     }
     bool hasScalars = uScalars.z > 0.5;
-    bool filterScalar = hasScalars && (vScalar < uFilter.x || vScalar > uFilter.y);
+    bool filterScalar = hasScalars && (mv.vScalar < uFilter.x || mv.vScalar > uFilter.y);
     clipped = clipped || filterScalar;
 
     if (clipped) {
@@ -104,7 +107,7 @@ void main() {
     }
 
     // ponytail: point sprites carved into shaded spheres via gl_PointCoord.
-    vec3 sphereNormal = vNormal;
+    vec3 sphereNormal = mv.vNormal;
     bool isPoint = uPointClip.x > 0.5;
     if (isPoint) {
         vec2 pc = gl_PointCoord * 2.0 - 1.0;
@@ -119,18 +122,18 @@ void main() {
         return;
     }
 
-    vec3 faceNorm = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    vec3 faceNorm = normalize(cross(dFdx(mv.vWorldPos), dFdy(mv.vWorldPos)));
     if (!gl_FrontFacing) faceNorm = -faceNorm;
     vec3 norm = uShadingMode.x > 0.5 ? faceNorm : normalize(sphereNormal);
     if (!gl_FrontFacing) {
         norm = -norm;
     }
-    vec3 viewDir = normalize(uViewPos_PS.xyz - vWorldPos);
+    vec3 viewDir = normalize(uViewPos_PS.xyz - mv.vWorldPos);
 
     // baseColor is resolved before lighting: it drives F0 (metals) and the diffuse albedo.
     vec3 baseColor = uSurfaceColor_Op.xyz;
     if (hasScalars && (uScalars.x != uScalars.y)) {
-        float t = clamp((vScalar - uScalars.x) / (uScalars.y - uScalars.x), 0.0, 1.0);
+        float t = clamp((mv.vScalar - uScalars.x) / (uScalars.y - uScalars.x), 0.0, 1.0);
         baseColor = texture(uColormapLUT, t).rgb;
     }
     bool pointUseScalar = uPointClip.y > 0.5;

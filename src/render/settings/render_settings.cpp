@@ -403,6 +403,7 @@ void RenderSettings::onMeshParsed() {
     m_state.showVolume = false;
     m_state.vectorUseColormap = false;
     m_state.clipEnabled = false;
+    m_state.crinkleClipMode = false;
     m_state.sliceEnabledX = m_state.sliceEnabledY = m_state.sliceEnabledZ = false;
     if (!loaded->pointVectorsData.empty()) {
         m_meshData.guiMeta.vectorName = loaded->availableVectorNames.front();

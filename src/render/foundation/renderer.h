@@ -58,6 +58,7 @@
 struct ShaderSources {
     std::string meshVert;
     std::string meshFrag;
+    std::string meshClipGeo;
     std::string gridVert;
     std::string gridFrag;
     std::string glyphVert;
@@ -163,6 +164,7 @@ struct RenderRenderState {
 
     // Slice / clip
     bool clipEnabled = false;
+    bool crinkleClipMode = false;
     float sliceHeightX = 0.0f;
     float sliceHeightY = 0.0f;
     float sliceHeightZ = 0.0f;

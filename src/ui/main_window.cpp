@@ -900,6 +900,13 @@ QWidget* MainWindow::buildSlicingPage() {
     connect(enableCb, &QCheckBox::toggled, slicingUi.optionsGroup, &QWidget::setEnabled);
     slicingUi.optionsGroup->setEnabled(m_settings->getClipEnabled());
 
+    // -- Crinkle Clip checkbox -----------------------------------------------
+    m_sliceCrinkleCb = slicingUi.crinkleCb;
+    m_sliceCrinkleCb->setEnabled(m_settings->getClipEnabled());
+    m_sliceCrinkleCb->setChecked(m_settings->getCrinkleClipMode());
+    connect(enableCb, &QCheckBox::toggled, m_sliceCrinkleCb, &QWidget::setEnabled);
+    connect(m_sliceCrinkleCb, &QCheckBox::toggled, m_settings, &RenderSettings::setCrinkleClipMode);
+
     // -- Per-axis setup lambda -----------------------------------------------
     auto setupAxis = [&](QCheckBox* axisCb, QCheckBox* invertCb,
                          QSlider* slider, QDoubleSpinBox* spinBox,
@@ -2063,6 +2070,10 @@ void MainWindow::refreshMeshInfoPage() {
 
 void MainWindow::refreshSlicingPageBounds() {
     if (m_sliceEnableCb) m_sliceEnableCb->setChecked(m_settings->getClipEnabled());
+    if (m_sliceCrinkleCb) {
+        m_sliceCrinkleCb->setEnabled(m_settings->getClipEnabled());
+        m_sliceCrinkleCb->setChecked(m_settings->getCrinkleClipMode());
+    }
     if (m_sliceAxisXCb)  m_sliceAxisXCb->setChecked(m_settings->getSliceEnabledX());
     if (m_sliceAxisYCb)  m_sliceAxisYCb->setChecked(m_settings->getSliceEnabledY());
     if (m_sliceAxisZCb)  m_sliceAxisZCb->setChecked(m_settings->getSliceEnabledZ());
