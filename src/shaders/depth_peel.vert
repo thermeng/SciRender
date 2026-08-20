@@ -27,6 +27,7 @@ layout(std140) uniform MeshUBO {
     vec4  uMaterial;
     vec4  uIntensities;
     vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
+    vec4  uShadingMode;     // x = 0.0 smooth, 1.0 flat; y = 0.0 normal clip, 1.0 crinkle clip
 };
 
 out vec3 vNormal;

@@ -136,11 +136,14 @@ void Renderer::initShaders(const ShaderSources& sources) {
         m_peelProgram.reset(compileProgram(sources.depthPeelVert.c_str(), sources.depthPeelFrag.c_str(), "DepthPeel"));
         if (m_peelProgram.has()) {
             m_peelPrevDepthLoc = glGetUniformLocation(m_peelProgram, "uPrevDepth");
-            m_peelLayerLoc    = glGetUniformLocation(m_peelProgram, "uPeelLayer");
+            m_peelLutLoc      = glGetUniformLocation(m_peelProgram, "uColormapLUT");
         }
     }
     if (!sources.compositeVert.empty() && !sources.compositeFrag.empty()) {
         m_compositeProgram.reset(compileProgram(sources.compositeVert.c_str(), sources.compositeFrag.c_str(), "Composite"));
+        if (m_compositeProgram.has()) {
+            m_peelNumLayersLoc = glGetUniformLocation(m_compositeProgram, "uNumLayers");
+        }
     }
 }
 
@@ -150,13 +153,15 @@ void Renderer::initGizmo() {
 }
 
 // ---------------------------------------------------------------------------
-// Depth peeling — two-layer OIT for transparent surfaces
+// Depth peeling — iterative N-layer OIT for transparent surfaces
 // ---------------------------------------------------------------------------
 void Renderer::ensurePeelFbos(int w, int h) {
     if (m_peelFboW == w && m_peelFboH == h && m_peelFbo[0].has()) return;
     destroyPeelFbos();
     m_peelFboW = w; m_peelFboH = h;
 
+    // 2 FBOs and 2 depth textures ping-pong; N color textures are preserved
+    // for the composite pass.
     for (int i = 0; i < 2; ++i) {
         glCreateFramebuffers(1, m_peelFbo[i].ptr());
         glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
@@ -168,10 +173,12 @@ void Renderer::ensurePeelFbos(int w, int h) {
         glNamedFramebufferTexture(m_peelFbo[i], GL_DEPTH_STENCIL_ATTACHMENT, m_peelDepthTex[i], 0);
     }
 
-    glCreateTextures(GL_TEXTURE_2D, 1, m_peelDummyDepth.ptr());
-    glTextureStorage2D(m_peelDummyDepth, 1, GL_DEPTH24_STENCIL8, 1, 1);
-    uint32_t depthOne[2] = { 0xFFFFFFFF, 0 };
-    glTextureSubImage2D(m_peelDummyDepth, 0, 0, 0, 1, 1, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, depthOne);
+    // Remaining color textures (layers 2..N-1) share the two FBOs via
+    // ping-pong; their color attachments are re-attached per-layer at render time.
+    for (int i = 2; i < kMaxPeelLayers; ++i) {
+        glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
+        glTextureStorage2D(m_peelColorTex[i], 1, GL_RGBA8, w, h);
+    }
 
     glCreateTextures(GL_TEXTURE_2D, 1, m_peelMainDepth.ptr());
     glTextureStorage2D(m_peelMainDepth, 1, GL_DEPTH24_STENCIL8, w, h);
@@ -182,17 +189,19 @@ void Renderer::ensurePeelFbos(int w, int h) {
 void Renderer::destroyPeelFbos() {
     for (int i = 0; i < 2; ++i) {
         m_peelFbo[i].reset();
-        m_peelColorTex[i].reset();
         m_peelDepthTex[i].reset();
     }
-    m_peelDummyDepth.reset();
+    for (int i = 0; i < kMaxPeelLayers; ++i) {
+        m_peelColorTex[i].reset();
+    }
+    m_peelMainDepth.reset();
     m_peelDummyVao.reset();
     m_peelFboW = m_peelFboH = 0;
 }
 
 void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
-                                  GLuint meshUbo,
-                                  const std::vector<std::pair<GLuint, int>>& transparentMeshes) {
+                                   GLuint meshUbo,
+                                   const std::vector<std::pair<GLuint, int>>& transparentMeshes) {
     if (!m_peelProgram.has() || !m_compositeProgram.has() || transparentMeshes.empty()) return;
 
     int vpW = static_cast<int>(width * devicePixelRatio);
@@ -220,38 +229,45 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     }
 
     glDisable(GL_CULL_FACE);
-
-    // ---- Layer 0: depth-tested against opaque geometry ----
-    glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[0]);
-    glViewport(0, 0, vpW, vpH);
-    glClearColor(0, 0, 0, 0);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
 
+    const int numLayers = std::clamp(m_state.maxPeelLayers, 1, kMaxPeelLayers);
+
     glUseProgram(m_peelProgram);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
-    glBindTextureUnit(0, m_peelMainDepth);
     glUniform1i(m_peelPrevDepthLoc, 0);
-    glUniform1f(m_peelLayerLoc, 0.0f);
-
-    for (const auto& mesh : transparentMeshes) {
-        glBindVertexArray(mesh.first);
-        glDrawElements(GL_TRIANGLES, mesh.second, GL_UNSIGNED_INT, 0);
+    if (m_state.meshHasScalars && m_state.meshUseScalarColor && colormap.scalarTexture() != 0) {
+        glBindTextureUnit(2, colormap.scalarTexture());
+        glUniform1i(m_peelLutLoc, 2);
     }
 
-    // ---- Layer 1: peel against layer 0 depth into FBO 1 ----
-    glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[1]);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glDepthFunc(GL_LESS);
+    // ---- Iterative N-layer peeling with 2-FBO / 2-depth ping-pong ----
+    for (int layer = 0; layer < numLayers; ++layer) {
+        const int bufIdx = layer % 2;
 
-    glBindTextureUnit(0, m_peelDepthTex[0]);
-    glUniform1f(m_peelLayerLoc, 1.0f);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[bufIdx]);
+        glViewport(0, 0, vpW, vpH);
+        glClearColor(0, 0, 0, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    for (const auto& mesh : transparentMeshes) {
-        glBindVertexArray(mesh.first);
-        glDrawElements(GL_TRIANGLES, mesh.second, GL_UNSIGNED_INT, 0);
+        // Re-attach this layer's color texture (FBO ping-pongs, color is unique per layer).
+        glNamedFramebufferTexture(m_peelFbo[bufIdx], GL_COLOR_ATTACHMENT0,
+                                  m_peelColorTex[layer], 0);
+
+        // Bind previous depth: layer 0 uses opaque depth; layer N uses the
+        // depth texture written in the previous iteration (ping-pong partner).
+        if (layer == 0) {
+            glBindTextureUnit(0, m_peelMainDepth);
+        } else {
+            glBindTextureUnit(0, m_peelDepthTex[1 - bufIdx]);
+        }
+
+        for (const auto& mesh : transparentMeshes) {
+            glBindVertexArray(mesh.first);
+            glDrawElements(GL_TRIANGLES, mesh.second, GL_UNSIGNED_INT, 0);
+        }
     }
 
     glBindVertexArray(0);
@@ -265,10 +281,15 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(m_compositeProgram);
-    glBindTextureUnit(0, m_peelColorTex[0]);
-    glUniform1i(glGetUniformLocation(m_compositeProgram, "uLayer0"), 0);
-    glBindTextureUnit(1, m_peelColorTex[1]);
-    glUniform1i(glGetUniformLocation(m_compositeProgram, "uLayer1"), 1);
+
+    // Bind all N color textures to texture units 0..N-1.
+    GLint texUnits[kMaxPeelLayers];
+    for (int i = 0; i < numLayers; ++i) {
+        glBindTextureUnit(i, m_peelColorTex[i]);
+        texUnits[i] = i;
+    }
+    glUniform1iv(glGetUniformLocation(m_compositeProgram, "uLayers[0]"), numLayers, texUnits);
+    glUniform1i(m_peelNumLayersLoc, numLayers);
 
     glDepthMask(GL_FALSE);
     glBindVertexArray(m_peelDummyVao);
@@ -491,11 +512,11 @@ void Renderer::reinitForNewContext() {
     // Always land handle slots and integer locs at safe defaults so lazy
     // re-creation in renderFrame()/initShaders() rebuilds them exactly once.
     m_peelProgram.reset(); m_compositeProgram.reset();
-    m_peelPrevDepthLoc = -1; m_peelLayerLoc = -1;
+    m_peelPrevDepthLoc = -1; m_peelLutLoc = -1; m_peelNumLayersLoc = -1;
     for (auto& fbo : m_peelFbo) fbo.reset();
     for (auto& tex : m_peelColorTex) tex.reset();
     for (auto& tex : m_peelDepthTex) tex.reset();
-    m_peelDummyDepth.reset(); m_peelMainDepth.reset(); m_peelDummyVao.reset();
+    m_peelMainDepth.reset(); m_peelDummyVao.reset();
     m_peelFboW = 0; m_peelFboH = 0;
 
     destroyShadowFbo();

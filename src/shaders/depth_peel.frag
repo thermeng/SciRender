@@ -24,6 +24,7 @@ layout(std140) uniform MeshUBO {
     vec4  uMaterial;
     vec4  uIntensities;
     vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
+    vec4  uShadingMode;     // x = 0.0 smooth, 1.0 flat; y = 0.0 normal clip, 1.0 crinkle clip
 };
 
 in vec3 vNormal;
@@ -32,7 +33,6 @@ in float vScalar;
 
 uniform sampler2D uPrevDepth;
 uniform sampler1D uColormapLUT;
-uniform float uPeelLayer;
 
 out vec4 FragColor;
 
@@ -56,17 +56,17 @@ void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
     vec3 H = normalize(L + viewDir);
     float NdotH = max(dot(norm, H), 0.0);
     float VdotH = max(dot(viewDir, H), 0.0);
-    float a  = clamp(uMatRoughness(), 0.04, 1.0);
+    float a  = clamp(uMatRoughness() * uMatRoughness(), 0.04, 1.0);
     float a2 = a * a;
     float d  = NdotH * NdotH * (a2 - 1.0) + 1.0;
     float D  = a2 / (3.14159265 * d * d);
-    float k  = (a + 1.0) * (a + 1.0) / 24.0;
+    float k  = (a + 1.0) * (a + 1.0) / 8.0;
     float Gl = NdotL / (NdotL * (1.0 - k) + k);
     float Gv = NdotV / (NdotV * (1.0 - k) + k);
     float G  = Gl * Gv;
     vec3  F0 = mix(vec3(0.04), baseColor, uMatMetallic());
     vec3  F  = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
-    float specFactor = D * G * VdotH / (4.0 * NdotL * NdotV + 1e-4);
+    float specFactor = D * G / (4.0 * NdotL * NdotV + 1e-4);
     specular += lightColor * F * specFactor * intensity * uMatSpecular();
     vec3 kD = (1.0 - F) * (1.0 - uMatMetallic());
     diffuse += lightColor * kD * baseColor * NdotL * intensity * uMatDiffuse();
@@ -75,7 +75,8 @@ void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
 void main() {
     bool clipped = false;
     float clipEnabled = uPointClip.w;
-    if (clipEnabled > 0.5) {
+    bool crinkleMode = uShadingMode.y > 0.5;
+    if (clipEnabled > 0.5 && !crinkleMode) {
         bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (vWorldPos.x < uSliceY.x) : (vWorldPos.x > uSliceY.x));
         bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (vWorldPos.y < uSliceY.y) : (vWorldPos.y > uSliceY.y));
         bool clipZ = bool(uSliceEn.z) && ((uInvert.z > 0.5) ? (vWorldPos.z < uSliceY.z) : (vWorldPos.z > uSliceY.z));
@@ -90,8 +91,12 @@ void main() {
     float prevDepth = texelFetch(uPrevDepth, pix, 0).r;
     if (gl_FragCoord.z >= prevDepth) discard;
 
-    vec3 norm = normalize(vNormal);
-    if (!gl_FrontFacing) norm = -norm;
+    vec3 faceNorm = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    if (!gl_FrontFacing) faceNorm = -faceNorm;
+    vec3 norm = uShadingMode.x > 0.5 ? faceNorm : normalize(vNormal);
+    if (!gl_FrontFacing) {
+        norm = -norm;
+    }
     vec3 viewDir = normalize(uViewPos_PS.xyz - vWorldPos);
 
     vec3 baseColor = uSurfaceColor_Op.xyz;

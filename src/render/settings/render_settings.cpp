@@ -227,6 +227,7 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("volumeSliceAxis",     [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceAxis); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceAxis = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
         add("vectorPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.vectorPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.vectorPlacement = v.toInt(); });
+        add("maxPeelLayers",       [](const RenderSettings& r) { return QVariant(r.m_state.maxPeelLayers); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.maxPeelLayers = v.toInt(); });
         return t;
     }();
     return table;
