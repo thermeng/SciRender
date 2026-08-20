@@ -20,56 +20,6 @@ void alignStream4(std::ifstream& f, size_t bytesRead) {
     }
 }
 
-template<typename T>
-static bool readBinaryArray(std::ifstream& f, size_t count, std::vector<T>& out) {
-    out.resize(count);
-    if (count == 0) return true;
-    const std::streamsize want = static_cast<std::streamsize>(count * sizeof(T));
-    f.read(reinterpret_cast<char*>(out.data()), want);
-    if (f.gcount() != want) return false;
-    if (mesh_utils::isLittleEndian()) {
-        // Block byte-swap: process 4 bytes at a time for 32-bit types,
-        // 8 bytes at a time for 64-bit types. Compiler auto-vectorizes
-        // the inner loop when T is a simple integral/float type.
-        if constexpr (sizeof(T) == 4) {
-            uint32_t* words = reinterpret_cast<uint32_t*>(out.data());
-            for (size_t i = 0; i < count; ++i) {
-                uint32_t v = words[i];
-                words[i] = ((v >> 24) & 0x000000FF)
-                         | ((v >>  8) & 0x0000FF00)
-                         | ((v <<  8) & 0x00FF0000)
-                         | ((v << 24) & 0xFF000000);
-            }
-        } else if constexpr (sizeof(T) == 8) {
-            uint64_t* words = reinterpret_cast<uint64_t*>(out.data());
-            for (size_t i = 0; i < count; ++i) {
-                uint64_t v = words[i];
-                words[i] = ((v >> 56) & 0x00000000000000FFULL)
-                         | ((v >> 40) & 0x000000000000FF00ULL)
-                         | ((v >> 24) & 0x0000000000FF0000ULL)
-                         | ((v >>  8) & 0x00000000FF000000ULL)
-                         | ((v <<  8) & 0x000000FF00000000ULL)
-                         | ((v << 24) & 0x0000FF0000000000ULL)
-                         | ((v << 40) & 0x00FF000000000000ULL)
-                         | ((v << 56) & 0xFF00000000000000ULL);
-            }
-        } else if constexpr (sizeof(T) == 2) {
-            uint16_t* words = reinterpret_cast<uint16_t*>(out.data());
-            for (size_t i = 0; i < count; ++i) {
-                uint16_t v = words[i];
-                words[i] = static_cast<uint16_t>((v >> 8) | (v << 8));
-            }
-        } else {
-            // Fallback for 1-byte types (no swap needed) and others
-            for (size_t i = 0; i < count; ++i) mesh_utils::byteSwap(&out[i]);
-        }
-    }
-    // Every VTK binary data array is 4-byte aligned on disk; pad the stream so
-    // the next array starts on a 4-byte boundary regardless of T's element size.
-    alignStream4(f, count * sizeof(T));
-    return true;
-}
-
 // ── Parser Context ──────────────────────────────────────────────────────────
 
 class VTKParserContext {
@@ -126,6 +76,7 @@ private:
     RenderMesh mesh;
     std::string datasetType = "";
     bool isBinary = false;
+    bool isLittleEndianFile = false;
 
     int dimX = 0, dimY = 0, dimZ = 0;
     int numPoints = 0, numCells = 0, cellSize = 0;
@@ -133,7 +84,9 @@ private:
     float spacing[3] = { 1.0f, 1.0f, 1.0f };
 
     bool readingPointData = true;
+    bool readingFieldData = false;
     int attributeTargetCount = 0;
+    int fieldDataCount = 0;
 
     std::vector<float> rectX, rectY, rectZ;
     std::vector<int32_t> rawCellData, cellTypes;
@@ -143,19 +96,54 @@ private:
     std::unordered_map<std::string, std::vector<float>> cellVectorsStorage; // CELL_DATA VECTORS, extrapolated to points
     std::vector<std::vector<uint32_t>> globalCellToVertices;
 
-    bool getVTKLine(std::ifstream& f, std::string& outLine) {
-        outLine.clear();
-        char ch;
-        while (f.get(ch)) {
-            if (ch == '\n') return true;
-            if (ch != '\r') outLine += ch;
+    template<typename T>
+    bool readBinaryArray(std::ifstream& f, size_t count, std::vector<T>& out) {
+        out.resize(count);
+        if (count == 0) return true;
+        const std::streamsize want = static_cast<std::streamsize>(count * sizeof(T));
+        f.read(reinterpret_cast<char*>(out.data()), want);
+        if (f.gcount() != want) return false;
+        if (mesh_utils::isLittleEndian() != isLittleEndianFile) {
+            if constexpr (sizeof(T) == 4) {
+                uint32_t* words = reinterpret_cast<uint32_t*>(out.data());
+                for (size_t i = 0; i < count; ++i) {
+                    uint32_t v = words[i];
+                    words[i] = ((v >> 24) & 0x000000FF)
+                             | ((v >>  8) & 0x0000FF00)
+                             | ((v <<  8) & 0x00FF0000)
+                             | ((v << 24) & 0xFF000000);
+                }
+            } else if constexpr (sizeof(T) == 8) {
+                uint64_t* words = reinterpret_cast<uint64_t*>(out.data());
+                for (size_t i = 0; i < count; ++i) {
+                    uint64_t v = words[i];
+                    words[i] = ((v >> 56) & 0x00000000000000FFULL)
+                             | ((v >> 40) & 0x000000000000FF00ULL)
+                             | ((v >> 24) & 0x0000000000FF0000ULL)
+                             | ((v >>  8) & 0x00000000FF000000ULL)
+                             | ((v <<  8) & 0x000000FF00000000ULL)
+                             | ((v << 24) & 0x0000FF0000000000ULL)
+                             | ((v << 40) & 0x00FF000000000000ULL)
+                             | ((v << 56) & 0xFF00000000000000ULL);
+                }
+            } else if constexpr (sizeof(T) == 2) {
+                uint16_t* words = reinterpret_cast<uint16_t*>(out.data());
+                for (size_t i = 0; i < count; ++i) {
+                    uint16_t v = words[i];
+                    words[i] = static_cast<uint16_t>((v >> 8) | (v << 8));
+                }
+            } else {
+                for (size_t i = 0; i < count; ++i) mesh_utils::byteSwap(&out[i]);
+            }
         }
-        return !outLine.empty();
+        alignStream4(f, count * sizeof(T));
+        return true;
     }
 
     void processToken(std::string_view token, const char* lineRest, const char* lineEnd, std::ifstream& file) {
         // First-char dispatch + iequal for remaining — avoids string copies entirely.
-        if (token == "BINARY") { isBinary = true; }
+        if (token == "BINARY") { isBinary = true; isLittleEndianFile = false; }
+        else if (token == "BINARY_LE") { isBinary = true; isLittleEndianFile = true; }
         else if (token == "ASCII") { isBinary = false; }
         else if (token[0] == 'D' && mesh_utils::iequal(token, "DATASET")) {
             // Read dataset type from rest of line
@@ -191,11 +179,13 @@ private:
             const char* p = mesh_utils::skipWhitespace(lineRest, lineEnd);
             std::from_chars(p, lineEnd, attributeTargetCount);
             readingPointData = true;
+            readingFieldData = false;
         }
         else if (token[0] == 'C' && mesh_utils::iequal(token, "CELL_DATA")) {
             const char* p = mesh_utils::skipWhitespace(lineRest, lineEnd);
             std::from_chars(p, lineEnd, attributeTargetCount);
             readingPointData = false;
+            readingFieldData = false;
         }
         else if (token[0] == 'P' && mesh_utils::iequal(token, "POINTS")) { parsePointsBlock(lineRest, lineEnd, file); }
         else if (token[0] == 'C' && mesh_utils::iequal(token, "CELLS")) { parseCellsBlock(lineRest, lineEnd, file); }
@@ -204,9 +194,18 @@ private:
         else if (token[0] == 'V' && mesh_utils::iequal(token, "VERTICES")) { parseVerticesBlock(lineRest, lineEnd, file); }
         else if (token[0] == 'L' && mesh_utils::iequal(token, "LINES")) { parseLinesBlock(lineRest, lineEnd, file); }
         else if (token[0] == 'T' && mesh_utils::iequal(token, "TRIANGLE_STRIPS")) { parseTriangleStripsBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'T' && mesh_utils::iequal(token, "TEXTURE_COORDINATES")) { parseTexCoordBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'T' && mesh_utils::iequal(token, "TENSORS")) { parseTensorsBlock(lineRest, lineEnd, file); }
         else if (token[0] == 'S' && mesh_utils::iequal(token, "SCALARS")) { parseScalarsBlock(lineRest, lineEnd, file); }
         else if (token[0] == 'N' && mesh_utils::iequal(token, "NORMALS")) { parseNormalsBlock(lineRest, lineEnd, file); }
         else if (token[0] == 'V' && mesh_utils::iequal(token, "VECTORS")) { parseVectorsBlock(lineRest, lineEnd, file); }
+        else if (token[0] == 'F' && mesh_utils::iequal(token, "FIELD_DATA")) {
+            const char* p = mesh_utils::skipWhitespace(lineRest, lineEnd);
+            auto [np, ec] = std::from_chars(p, lineEnd, fieldDataCount);
+            if (ec != std::errc()) fieldDataCount = 0;
+            readingFieldData = true;
+        }
+        else if (token[0] == 'F' && mesh_utils::iequal(token, "FIELD")) { parseFieldBlock(lineRest, lineEnd, file); }
     }
 
     void handleDimensions(const char* lineRest, const char* lineEnd) {
@@ -235,19 +234,19 @@ private:
         mesh_utils::toUpperInPlace(type);
         axisCoords.resize(count);
         if (isBinary) {
-            if (type == "DOUBLE") {
-                std::vector<double> tmp(count);
-                if (!readBinaryArray(file, count, tmp)) {
-                    std::cerr << "VTK Parser Warning: short read on binary X/Y/Z_COORDINATES (DOUBLE)." << std::endl;
-                    return;
-                }
-                for (int i = 0; i < count; ++i) axisCoords[i] = static_cast<float>(tmp[i]);
-            } else {
-                if (!readBinaryArray(file, count, axisCoords)) {
-                    std::cerr << "VTK Parser Warning: short read on binary X/Y/Z_COORDINATES (FLOAT)." << std::endl;
+            std::vector<float> tmpFloat;
+            if (!readBinaryFloatArray(file, type, count, tmpFloat) || tmpFloat.size() != static_cast<size_t>(count)) {
+                std::cerr << "VTK Parser Warning: short read or unsupported type on binary X/Y/Z_COORDINATES (" << type << ")." << std::endl;
+                return;
+            }
+            for (float v : tmpFloat) {
+                if (!std::isfinite(v)) {
+                    std::cerr << "VTK Parser Warning: non-finite coordinate in X/Y/Z_COORDINATES; clearing axis." << std::endl;
+                    axisCoords.clear();
                     return;
                 }
             }
+            axisCoords = std::move(tmpFloat);
         }
         else {
             if (type == "DOUBLE") {
@@ -265,7 +264,7 @@ private:
         long long parsedPoints = 0;
         const char* p = lineRest;
         p = mesh_utils::skipWhitespace(p, lineEnd);
-        std::from_chars(p, lineEnd, parsedPoints);
+        auto [p0, e0] = std::from_chars(p, lineEnd, parsedPoints); p = p0;
      
         if (datasetType == "STRUCTURED_POINTS" || datasetType == "STRUCTURED_GRID" ||
             datasetType == "RECTILINEAR_GRID") {
@@ -297,37 +296,20 @@ private:
         mesh.vertices.resize(static_cast<size_t>(numPoints) * 3);
 
         if (isBinary) {
-            if (dataType == "DOUBLE") {
-                std::vector<double> tempDouble(numPoints * 3);
-                if (!readBinaryArray(file, tempDouble.size(), tempDouble)) {
-                    std::cerr << "VTK Parser Warning: short read on binary POINTS (DOUBLE)." << std::endl;
+            std::vector<float> tempVerts(static_cast<size_t>(numPoints) * 3);
+            if (!readBinaryFloatArray(file, dataType, tempVerts.size(), tempVerts)) {
+                std::cerr << "VTK Parser Warning: short read or unsupported type on binary POINTS (" << dataType << ")." << std::endl;
+                mesh.vertices.clear();
+                return;
+            }
+            for (float v : tempVerts) {
+                if (!std::isfinite(v)) {
+                    std::cerr << "VTK Parser Warning: non-finite POINTS coordinate; dropping mesh." << std::endl;
                     mesh.vertices.clear();
                     return;
                 }
-                for (size_t i = 0; i < tempDouble.size(); ++i) {
-                    float v = static_cast<float>(tempDouble[i]);
-                    if (!std::isfinite(v)) {
-                        std::cerr << "VTK Parser Warning: non-finite POINTS coordinate; dropping mesh." << std::endl;
-                        mesh.vertices.clear();
-                        return;
-                    }
-                    mesh.vertices[i] = v;
-                }
             }
-            else {
-                if (!readBinaryArray(file, mesh.vertices.size(), mesh.vertices)) {
-                    std::cerr << "VTK Parser Warning: short read on binary POINTS (FLOAT)." << std::endl;
-                    mesh.vertices.clear();
-                    return;
-                }
-                for (float v : mesh.vertices) {
-                    if (!std::isfinite(v)) {
-                        std::cerr << "VTK Parser Warning: non-finite POINTS coordinate; dropping mesh." << std::endl;
-                        mesh.vertices.clear();
-                        return;
-                    }
-                }
-            }
+            mesh.vertices = std::move(tempVerts);
         }
         else {
             size_t expected = static_cast<size_t>(numPoints) * 3;
@@ -502,19 +484,34 @@ private:
         }
         if (numComponents < 1) numComponents = 1;
 
-    
+        std::string lutName = "default";
+        int lutCount = 0;
         {
             std::string lutLine;
             std::getline(file, lutLine);
+            // Parse "LOOKUP_TABLE name n" (n optional — "default" has no trailing count)
+            const char* lp = lutLine.data();
+            const char* le = lp + lutLine.size();
+            lp = mesh_utils::skipToken(lp, le); // skip "LOOKUP_TABLE"
+            lp = mesh_utils::skipWhitespace(lp, le);
+            const char* nameStart = lp;
+            lp = mesh_utils::skipToken(lp, le);
+            lutName = std::string(nameStart, lp - nameStart);
+            lp = mesh_utils::skipWhitespace(lp, le);
+            if (lp < le) {
+                auto [nres, ec] = std::from_chars(lp, le, lutCount);
+                if (ec != std::errc()) lutCount = 0;
+            }
+            if (lutName == "default") lutCount = 0;
         }
+        if (lutCount > 0) consumeLookupTable(file, dataType, lutCount);
 
-        int activeElementCount = readingPointData ? numPoints : numCells;
+        int activeElementCount = readingFieldData ? fieldDataCount : (readingPointData ? numPoints : numCells);
         if (activeElementCount == 0 && attributeTargetCount > 0) {
             activeElementCount = attributeTargetCount;
         }
 
-
-        if (readingPointData && numComponents == 1 && mesh.scalarName.empty()) {
+        if (!readingFieldData && readingPointData && numComponents == 1 && mesh.scalarName.empty()) {
             mesh.scalarName = scalarName;
         }
 
@@ -584,7 +581,11 @@ private:
 
             if (!multiCompData.empty()) {
                 if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
-                if (readingPointData) {
+                if (readingFieldData) {
+                    mesh.attributes->fieldData[scalarName] = std::move(multiCompData);
+                    if (numComponents > 1) mesh.attributes->pointFieldComponents[scalarName] = numComponents;
+                }
+                else if (readingPointData) {
                     mesh.attributes->pointFieldData[scalarName] = std::move(multiCompData);
                     mesh.attributes->pointFieldComponents[scalarName] = numComponents;
                 }
@@ -650,7 +651,8 @@ private:
                 std::cerr << "VTK Parser Warning: short read on binary SCALARS '" << scalarName
                           << "'; skipping field to avoid stream desync." << std::endl;
                 if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
-                if (readingPointData) mesh.attributes->pointScalars[scalarName];
+                if (readingFieldData) mesh.attributes->fieldData[scalarName];
+                else if (readingPointData) mesh.attributes->pointScalars[scalarName];
                 else { mesh.attributes->cellScalars[scalarName]; cellScalarsStorage[scalarName]; }
                 return;
             }
@@ -685,12 +687,16 @@ private:
         }
 
         if (badField) {
-            if (readingPointData) mesh.attributes->pointScalars[scalarName]; // ensure key exists, empty
+            if (readingFieldData) mesh.attributes->fieldData[scalarName];
+            else if (readingPointData) mesh.attributes->pointScalars[scalarName];
             else { mesh.attributes->cellScalars[scalarName]; cellScalarsStorage[scalarName]; }
             return;
         }
 
-        if (readingPointData) {
+        if (readingFieldData) {
+            mesh.attributes->fieldData[scalarName] = std::move(readScalars);
+        }
+        else if (readingPointData) {
             mesh.attributes->pointScalars[scalarName] = std::move(readScalars);
         }
         else {
@@ -719,10 +725,224 @@ private:
         return false;
     }
 
-    // POLYDATA NORMALS: a 3-component per-point attribute (same layout as
-    // VECTORS). Store it directly in mesh.normals so the renderer uses the
-    // author-provided normals instead of angle-based vertex splitting (which
-    // would otherwise duplicate vertices and inflate the point count).
+    bool readBinaryFloatArray(std::ifstream& file, const std::string& dataType, size_t count, std::vector<float>& out) {
+        out.clear();
+        if (count == 0) return true;
+        if (dataType == "DOUBLE") {
+            std::vector<double> tmp(count);
+            if (!readBinaryArray(file, tmp.size(), tmp)) return false;
+            out.resize(tmp.size());
+            for (size_t i = 0; i < tmp.size(); ++i) out[i] = static_cast<float>(tmp[i]);
+            return true;
+        } else if (dataType == "FLOAT") {
+            out.resize(count);
+            return readBinaryArray(file, out.size(), out);
+        } else if (dataType == "INT" || dataType == "UNSIGNED_INT" || dataType == "LONG" ||
+                   dataType == "SIGNED_CHAR" || dataType == "UNSIGNED_CHAR" ||
+                   dataType == "SHORT" || dataType == "UNSIGNED_SHORT" ||
+                   dataType == "LONG_LONG" || dataType == "UNSIGNED_LONG_LONG") {
+            if (dataType == "INT" || dataType == "UNSIGNED_INT" || dataType == "LONG") {
+                std::vector<int32_t> tmp(count);
+                if (!readBinaryArray(file, tmp.size(), tmp)) return false;
+                out.resize(tmp.size());
+                for (size_t i = 0; i < tmp.size(); ++i) out[i] = static_cast<float>(tmp[i]);
+                return true;
+            } else if (dataType == "LONG_LONG" || dataType == "UNSIGNED_LONG_LONG") {
+                std::vector<int64_t> tmp(count);
+                if (!readBinaryArray(file, tmp.size(), tmp)) return false;
+                out.resize(tmp.size());
+                for (size_t i = 0; i < tmp.size(); ++i) out[i] = static_cast<float>(tmp[i]);
+                return true;
+            } else if (dataType == "SHORT" || dataType == "UNSIGNED_SHORT") {
+                std::vector<int16_t> tmp(count);
+                if (!readBinaryArray(file, tmp.size(), tmp)) return false;
+                out.resize(tmp.size());
+                for (size_t i = 0; i < tmp.size(); ++i) out[i] = static_cast<float>(tmp[i]);
+                return true;
+            } else {
+                std::vector<uint8_t> tmp(count);
+                if (!readBinaryArray(file, tmp.size(), tmp)) return false;
+                out.resize(tmp.size());
+                for (size_t i = 0; i < tmp.size(); ++i) out[i] = static_cast<float>(tmp[i]);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void consumeLookupTable(std::ifstream& file, const std::string& dataType, size_t count) {
+        if (count == 0) {
+            std::string dummy; std::getline(file, dummy);
+            return;
+        }
+        std::vector<float> colors;
+        if (isBinary) {
+            readBinaryFloatArray(file, dataType, count * 4, colors);
+        } else {
+            mesh_utils::readAsciiValues(file, count * 4, colors);
+            for (float v : colors) {
+                if (!std::isfinite(v)) { colors.clear(); break; }
+            }
+        }
+    }
+
+    void parseTensorsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        std::string tensorName, dataType;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* nStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        tensorName = std::string(nStart, p - nStart);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* tStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        dataType = std::string(tStart, p - tStart);
+        mesh_utils::toUpperInPlace(dataType);
+
+        int activeElementCount = readingFieldData ? fieldDataCount : (readingPointData ? numPoints : numCells);
+        if (activeElementCount == 0 && attributeTargetCount > 0) {
+            activeElementCount = attributeTargetCount;
+        }
+
+        std::vector<float> readTens(static_cast<size_t>(activeElementCount) * 9);
+
+        if (isBinary) {
+            if (!readBinaryFloatArray(file, dataType, readTens.size(), readTens)) {
+                std::cerr << "VTK Parser Warning: short read on binary TENSORS '" << tensorName
+                          << "'; skipping field to avoid stream desync." << std::endl;
+                return;
+            }
+        } else {
+            size_t nRead = mesh_utils::readAsciiValues(file, readTens.size(), readTens);
+            if (nRead != readTens.size()) {
+                std::cerr << "VTK Parser Warning: short read on ASCII TENSORS '" << tensorName << "'." << std::endl;
+                readTens.clear();
+            }
+        }
+
+        if (readTens.empty()) return;
+        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+        if (readingFieldData) {
+            mesh.attributes->fieldData[tensorName] = std::move(readTens);
+            mesh.attributes->pointTensorComponents[tensorName] = 9;
+        } else if (readingPointData) {
+            mesh.attributes->pointTensors[tensorName] = std::move(readTens);
+            mesh.attributes->pointTensorComponents[tensorName] = 9;
+        } else {
+            mesh.attributes->cellTensors[tensorName] = std::move(readTens);
+            mesh.attributes->cellTensorComponents[tensorName] = 9;
+        }
+        std::cerr << "VTK: parsed " << (readingPointData ? "POINT" : (readingFieldData ? "FIELD" : "CELL"))
+                  << " TENSORS '" << tensorName << "' (" << activeElementCount << " tensors)" << std::endl;
+    }
+
+    void parseTexCoordBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        std::string tcName, dataType; int numCoords = 2;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* nStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        tcName = std::string(nStart, p - nStart);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* tStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        dataType = std::string(tStart, p - tStart);
+        mesh_utils::toUpperInPlace(dataType);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        if (p < lineEnd) {
+            auto [np, ec] = std::from_chars(p, lineEnd, numCoords);
+            if (ec != std::errc()) numCoords = 2;
+        }
+        if (numCoords < 2) numCoords = 2;
+        if (numCoords > 3) numCoords = 3;
+
+        int activeElementCount = readingFieldData ? fieldDataCount : (readingPointData ? numPoints : numCells);
+        if (activeElementCount == 0 && attributeTargetCount > 0) {
+            activeElementCount = attributeTargetCount;
+        }
+
+        std::vector<float> readTC(static_cast<size_t>(activeElementCount) * numCoords);
+
+        if (isBinary) {
+            if (!readBinaryFloatArray(file, dataType, readTC.size(), readTC)) {
+                std::cerr << "VTK Parser Warning: short read on binary TEXTURE_COORDINATES '" << tcName
+                          << "'; skipping field to avoid stream desync." << std::endl;
+                return;
+            }
+        } else {
+            size_t nRead = mesh_utils::readAsciiValues(file, readTC.size(), readTC);
+            if (nRead != readTC.size()) {
+                std::cerr << "VTK Parser Warning: short read on ASCII TEXTURE_COORDINATES '" << tcName << "'." << std::endl;
+                readTC.clear();
+            }
+        }
+
+        if (readTC.empty()) return;
+        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+        if (readingFieldData) {
+            mesh.attributes->fieldData[tcName] = std::move(readTC);
+            mesh.attributes->pointTexCoordComponents[tcName] = numCoords;
+        } else if (readingPointData) {
+            mesh.attributes->pointTexCoords[tcName] = std::move(readTC);
+            mesh.attributes->pointTexCoordComponents[tcName] = numCoords;
+        } else {
+            mesh.attributes->cellTexCoords[tcName] = std::move(readTC);
+            mesh.attributes->cellTexCoordComponents[tcName] = numCoords;
+        }
+        std::cerr << "VTK: parsed " << (readingPointData ? "POINT" : (readingFieldData ? "FIELD" : "CELL"))
+                  << " TEXTURE_COORDINATES '" << tcName << "' (" << activeElementCount << " coords, " << numCoords << " comps)" << std::endl;
+    }
+
+    void parseFieldBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
+        std::string fieldName, dataType; int ntuples = 0, ncomponents = 1;
+        const char* p = lineRest;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* nStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        fieldName = std::string(nStart, p - nStart);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        const char* tStart = p;
+        p = mesh_utils::skipToken(p, lineEnd);
+        dataType = std::string(tStart, p - tStart);
+        mesh_utils::toUpperInPlace(dataType);
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        if (p < lineEnd) {
+            auto [n1, e1] = std::from_chars(p, lineEnd, ntuples); p = n1;
+            if (e1 != std::errc()) ntuples = 0;
+        } else ntuples = 0;
+        p = mesh_utils::skipWhitespace(p, lineEnd);
+        if (p < lineEnd) {
+            auto [n2, e2] = std::from_chars(p, lineEnd, ncomponents);
+            if (e2 != std::errc()) ncomponents = 1;
+        }
+        if (ncomponents < 1) ncomponents = 1;
+
+        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+
+        const size_t total = static_cast<size_t>(ntuples) * static_cast<size_t>(ncomponents);
+        std::vector<float> fieldDataFlat;
+
+        if (isBinary) {
+            if (!readBinaryFloatArray(file, dataType, total, fieldDataFlat)) {
+                std::cerr << "VTK Parser Warning: short read on binary FIELD '" << fieldName
+                          << "'; skipping field to avoid stream desync." << std::endl;
+                return;
+            }
+        } else {
+            size_t nRead = mesh_utils::readAsciiValues(file, total, fieldDataFlat);
+            if (nRead != total) {
+                std::cerr << "VTK Parser Warning: short read on ASCII FIELD '" << fieldName << "'." << std::endl;
+                fieldDataFlat.clear();
+            }
+        }
+
+        if (!fieldDataFlat.empty()) {
+            mesh.attributes->fieldData[fieldName] = std::move(fieldDataFlat);
+            if (ncomponents > 1) {
+                mesh.attributes->pointFieldComponents[fieldName] = ncomponents;
+            }
+        }
+    }
     void parseNormalsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
         std::string normName, dataType;
         const char* p = lineRest;
@@ -736,7 +956,7 @@ private:
         dataType = std::string(tStart, p - tStart);
         mesh_utils::toUpperInPlace(dataType);
 
-        int activeElementCount = readingPointData ? numPoints : numCells;
+        int activeElementCount = readingFieldData ? fieldDataCount : (readingPointData ? numPoints : numCells);
         if (activeElementCount == 0 && attributeTargetCount > 0) {
             activeElementCount = attributeTargetCount;
         }
@@ -744,19 +964,13 @@ private:
         std::vector<float> readNorms(static_cast<size_t>(activeElementCount) * 3);
 
         if (isBinary) {
-            bool ok = true;
-            if (dataType == "DOUBLE") {
-                std::vector<double> tmp(readNorms.size());
-                if (!readBinaryArray(file, tmp.size(), tmp)) ok = false;
-                else for (size_t i = 0; i < tmp.size(); ++i) readNorms[i] = static_cast<float>(tmp[i]);
-            } else { // FLOAT
-                if (!readBinaryArray(file, readNorms.size(), readNorms)) ok = false;
-            }
-            if (!ok) {
-                std::cerr << "VTK Parser Warning: short read on binary NORMALS '" << normName
-                          << "'; skipping field to avoid stream desync." << std::endl;
+            std::vector<float> tmpNorms;
+            if (!readBinaryFloatArray(file, dataType, readNorms.size(), tmpNorms) || tmpNorms.size() != readNorms.size()) {
+                std::cerr << "VTK Parser Warning: short read or unsupported type on binary NORMALS '" << normName
+                          << "' (" << dataType << "); skipping field to avoid stream desync." << std::endl;
                 return;
             }
+            readNorms = std::move(tmpNorms);
         } else {
             size_t nRead = mesh_utils::readAsciiValues(file, readNorms.size(), readNorms);
             if (nRead != readNorms.size()) {
@@ -767,7 +981,12 @@ private:
         }
 
         if (readNorms.empty()) return;
-        mesh.normals = std::move(readNorms);
+        if (readingFieldData) {
+            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            mesh.attributes->fieldData[normName] = std::move(readNorms);
+        } else {
+            mesh.normals = std::move(readNorms);
+        }
     }
 
     void parseVectorsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
@@ -785,7 +1004,7 @@ private:
 
         if (mesh.vectorName.empty()) mesh.vectorName = vecName;
 
-        int activeElementCount = readingPointData ? numPoints : numCells;
+        int activeElementCount = readingFieldData ? fieldDataCount : (readingPointData ? numPoints : numCells);
         if (activeElementCount == 0 && attributeTargetCount > 0) {
             activeElementCount = attributeTargetCount;
         }
@@ -793,19 +1012,13 @@ private:
         std::vector<float> readVecs(static_cast<size_t>(activeElementCount) * 3);
 
         if (isBinary) {
-            bool vecReadOk = true;
-            if (dataType == "DOUBLE") {
-                std::vector<double> tmp(readVecs.size());
-                if (!readBinaryArray(file, tmp.size(), tmp)) vecReadOk = false;
-                else for (size_t i = 0; i < tmp.size(); ++i) readVecs[i] = static_cast<float>(tmp[i]);
-            } else { // FLOAT
-                if (!readBinaryArray(file, readVecs.size(), readVecs)) vecReadOk = false;
-            }
-            if (!vecReadOk) {
-                std::cerr << "VTK Parser Warning: short read on binary VECTORS '" << vecName
-                          << "'; skipping field to avoid stream desync." << std::endl;
+            std::vector<float> tmpVecs;
+            if (!readBinaryFloatArray(file, dataType, readVecs.size(), tmpVecs) || tmpVecs.size() != readVecs.size()) {
+                std::cerr << "VTK Parser Warning: short read or unsupported type on binary VECTORS '" << vecName
+                          << "' (" << dataType << "); skipping field to avoid stream desync." << std::endl;
                 return;
             }
+            readVecs = std::move(tmpVecs);
             for (float v : readVecs) {
                 if (!std::isfinite(v)) {
                     std::cerr << "VTK Parser Warning: non-finite binary VECTORS '" << vecName
@@ -835,11 +1048,17 @@ private:
 
         if (readVecs.empty()) {
             if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
-            if (readingPointData) mesh.attributes->pointVectors[vecName]; // ensure key exists, empty
+            if (readingFieldData) mesh.attributes->fieldData[vecName];
+            else if (readingPointData) mesh.attributes->pointVectors[vecName];
             else cellVectorsStorage[vecName];
             return;
         }
-        if (readingPointData) {
+        if (readingFieldData) {
+            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            mesh.attributes->fieldData[vecName] = std::move(readVecs);
+            std::cerr << "VTK: parsed FIELD VECTORS '" << vecName << "' (" << activeElementCount << " vectors)" << std::endl;
+        }
+        else if (readingPointData) {
             if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
             mesh.attributes->pointVectors[vecName] = std::move(readVecs);
             std::cerr << "VTK: parsed POINT VECTORS '" << vecName << "' (" << activeElementCount << " vectors)" << std::endl;
@@ -1148,12 +1367,17 @@ private:
 
             int type = (c < static_cast<int>(cellTypes.size())) ? cellTypes[c] : 0;
             if (type == 0) {
-                if (numPointsInCell == 3) type = 5;
-            if (numPointsInCell == 4) type = 9;
-                if (numPointsInCell == 8) type = 12;
+                if (numPointsInCell == 3) type = 5;   // VTK_TRIANGLE
+                if (numPointsInCell == 4) type = 10;  // VTK_QUAD
+                if (numPointsInCell == 8) type = 12;  // VTK_HEXAHEDRON
             }
 
             switch (type) {
+            case 1:  // VTK_VERTEX
+            case 2:  // VTK_POLY_VERTEX
+            case 3:  // VTK_LINE
+            case 4:  // VTK_POLY_LINE
+                break;
             case 5: // VTK_TRIANGLE
                 if (idx + 2 < static_cast<int>(rawCellData.size())) {
                     mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
@@ -1161,51 +1385,40 @@ private:
                     mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 2]));
                 }
                 break;
-            case 9: // VTK_QUAD
+            case 6: { // VTK_TRIANGLE_STRIP
+                for (int i = 0; i + 2 < numPointsInCell; ++i) {
+                    if (idx + i + 2 < static_cast<int>(rawCellData.size())) {
+                        if (i & 1) {
+                            mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
+                            mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
+                            mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 2]));
+                        } else {
+                            mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
+                            mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
+                            mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 2]));
+                        }
+                    }
+                }
+                break;
+            }
+            case 7: // VTK_POLYGON (triangle fan)
+                for (int i = 1; i < numPointsInCell - 1; ++i) {
+                    if (idx + i + 1 < static_cast<int>(rawCellData.size())) {
+                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
+                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
+                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
+                    }
+                }
+                break;
+            case 8: { // VTK_PIXEL (4 pts: BL, BR, TL, TR)
                 if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
-                    mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1];
+                    uint32_t i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
+                    mesh.indices.insert(mesh.indices.end(), { i0, i2, i1, i0, i1, i3 });
                 }
                 break;
-            case 10: // VTK_TETRA
-                if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
-                    mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3, i0, i3, i1, i1, i3, i2 });
-                }
-                break;
-            case 12: // VTK_HEXAHEDRON
-                if (idx + 7 < static_cast<int>(rawCellData.size())) {
-                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
-                    uint32_t i4 = rawCellData[idx + 4], i5 = rawCellData[idx + 5], i6 = rawCellData[idx + 6], i7 = rawCellData[idx + 7];
-                    mesh.indices.insert(mesh.indices.end(), {
-                        i0, i3, i1, i1, i3, i2, i4, i5, i7, i5, i6, i7,
-                        i0, i1, i4, i1, i5, i4, i2, i3, i6, i3, i7, i6,
-                        i0, i4, i3, i3, i4, i7, i1, i2, i5, i2, i6, i5
-                        });
-                }
-                break;
-            case 13: // VTK_WEDGE
-                if (idx + 5 < static_cast<int>(rawCellData.size())) {
-                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2];
-                    uint32_t i3 = rawCellData[idx + 3], i4 = rawCellData[idx + 4], i5 = rawCellData[idx + 5];
-                    mesh.indices.insert(mesh.indices.end(), {
-                        i0, i1, i2, i3, i5, i4,
-                        i0, i1, i4, i0, i4, i3,
-                        i1, i2, i5, i1, i5, i4,
-                        i0, i2, i5, i0, i5, i3
-                        });
-                }
-                break;
-            case 14: // VTK_PYRAMID
-                if (idx + 4 < static_cast<int>(rawCellData.size())) {
-                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3], i4 = rawCellData[idx + 4];
-                    mesh.indices.insert(mesh.indices.end(), {
-                        i0, i2, i1, i0, i3, i2,
-                        i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
-                        });
-                }
-                break;
-            case 11: { // VTK_VOXEL — structured-grid corner ordering, permute to HEX (0,1,3,2,4,5,7,6)
+            }
+            case 9: { // VTK_VOXEL — structured-grid corner ordering, permute to HEX (0,1,3,2,4,5,7,6)
                 if (idx + 7 < static_cast<int>(rawCellData.size())) {
                     uint32_t h0 = rawCellData[idx + 0], h1 = rawCellData[idx + 1], h2 = rawCellData[idx + 3], h3 = rawCellData[idx + 2];
                     uint32_t h4 = rawCellData[idx + 4], h5 = rawCellData[idx + 5], h6 = rawCellData[idx + 7], h7 = rawCellData[idx + 6];
@@ -1218,7 +1431,82 @@ private:
                 }
                 break;
             }
+            case 10: // VTK_QUAD
+                if (idx + 3 < static_cast<int>(rawCellData.size())) {
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
+                    mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
+                }
+                break;
+            case 11: { // VTK_TETRA
+                if (idx + 3 < static_cast<int>(rawCellData.size())) {
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
+                    mesh.indices.insert(mesh.indices.end(), {
+                        i0, i2, i1,   i0, i1, i3,
+                        i1, i2, i3,   i2, i0, i3
+                    });
+                }
+                break;
+            }
+            case 12: // VTK_HEXAHEDRON
+                if (idx + 7 < static_cast<int>(rawCellData.size())) {
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3];
+                    uint32_t i4 = rawCellData[idx + 4], i5 = rawCellData[idx + 5], i6 = rawCellData[idx + 6], i7 = rawCellData[idx + 7];
+                    mesh.indices.insert(mesh.indices.end(), {
+                        i0, i3, i1, i1, i3, i2, i4, i5, i7, i5, i6, i7,
+                        i0, i1, i4, i1, i5, i4, i2, i3, i6, i3, i7, i6,
+                        i0, i4, i3, i3, i4, i7, i1, i2, i5, i2, i6, i5
+                    });
+                }
+                break;
+            case 13: { // VTK_PYRAMID
+                if (idx + 4 < static_cast<int>(rawCellData.size())) {
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2], i3 = rawCellData[idx + 3], i4 = rawCellData[idx + 4];
+                    mesh.indices.insert(mesh.indices.end(), {
+                        i0, i2, i1, i0, i3, i2,
+                        i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
+                    });
+                }
+                break;
+            }
+            case 14: { // VTK_WEDGE
+                if (idx + 5 < static_cast<int>(rawCellData.size())) {
+                    uint32_t i0 = rawCellData[idx + 0], i1 = rawCellData[idx + 1], i2 = rawCellData[idx + 2];
+                    uint32_t i3 = rawCellData[idx + 3], i4 = rawCellData[idx + 4], i5 = rawCellData[idx + 5];
+                    mesh.indices.insert(mesh.indices.end(), {
+                        i0, i2, i1,
+                        i3, i4, i5,
+                        i0, i1, i4, i0, i4, i3,
+                        i1, i2, i5, i1, i5, i4,
+                        i2, i0, i3, i2, i3, i5
+                    });
+                }
+                break;
+            }
+            case 15: { // VTK_PENTAGONAL_PRISM (10 vertices)
+                if (idx + 9 < static_cast<int>(rawCellData.size())) {
+                    uint32_t v0 = rawCellData[idx + 0], v1 = rawCellData[idx + 1], v2 = rawCellData[idx + 2];
+                    uint32_t v3 = rawCellData[idx + 3], v4 = rawCellData[idx + 4];
+                    uint32_t v5 = rawCellData[idx + 5], v6 = rawCellData[idx + 6], v7 = rawCellData[idx + 7];
+                    uint32_t v8 = rawCellData[idx + 8], v9 = rawCellData[idx + 9];
+                    cellToVertices[c] = {v0, v1, v2, v3, v4, v5, v6, v7, v8, v9};
+                    mesh.indices.insert(mesh.indices.end(), {
+                        v5, v7, v6, v5, v8, v7, v5, v9, v8,
+                        v4, v2, v3, v4, v3, v1, v4, v1, v0,
+                        v0, v1, v6, v0, v6, v5,
+                        v1, v2, v7, v1, v7, v6,
+                        v2, v3, v8, v2, v8, v7,
+                        v3, v4, v9, v3, v9, v8,
+                        v0, v5, v9, v0, v9, v4
+                    });
+                }
+                break;
+            }
             default:
+                if (type >= 21) {
+                    std::cerr << "VTK Parser Warning: unsupported polyhedron/higher-order cell type "
+                              << type << " (requires subdivision); fan-triangulating as fallback."
+                              << std::endl;
+                }
                 for (int i = 1; i < numPointsInCell - 1; ++i) {
                     if (idx + i + 1 < static_cast<int>(rawCellData.size())) {
                         mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));

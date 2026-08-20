@@ -1,0 +1,31 @@
+# vtk DataFile Version 3.0
+UNSTRUCTURED_GRID with FIELD_DATA, TENSORS, TEXTURE_COORDINATES
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 4 float
+0.0 0.0 0.0
+1.0 0.0 0.0
+0.0 1.0 0.0
+0.0 0.0 1.0
+CELLS 1 5
+4 0 1 2 3
+CELL_TYPES 1
+11
+FIELD_DATA 4
+TENSORS cell_tensor double
+1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0
+TEXTURE_COORDINATES cell_uv float 2
+0.0 0.0
+1.0 0.0
+0.0 1.0
+1.0 1.0
+FIELD point_data_field double 4 1
+0.0 1.0 2.0 3.0
+POINT_DATA 4
+SCALARS point_scalars float 1
+LOOKUP_TABLE default
+0.0 1.0 2.0 3.0
+TENSORS point_tensor double
+1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0
+TEXTURE_COORDINATES point_uv float 2
+0.0 0.0 1.0 0.0 0.0 1.0 1.0 1.0
