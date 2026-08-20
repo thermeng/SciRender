@@ -141,6 +141,11 @@ struct RenderMesh {
     // High-precision bounding volume (double for camera-relative precision)
     BoundingVolume bounds;
 
+    // When true, the parser pre-computed bounds incrementally during parsing and
+    // finalizeSurfaceMesh should skip the separate computeBounds pass. Default
+    // false so VTK/OBJ parsers fall through to computeBounds as before.
+    bool hasBounds = false;
+
     // Optional dataset attributes (point/cell scalar maps)
     std::optional<DatasetAttributes> attributes;
 

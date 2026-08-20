@@ -107,7 +107,9 @@ void finalizeSurfaceMesh(RenderMesh& mesh,
                          const std::string& datasetType,
                          const std::string& fileFormat,
                          const char* logLabel) {
-    computeBounds(mesh);
+    if (!mesh.hasBounds) {
+        computeBounds(mesh);
+    }
 
     // Record the topological point count (deduped, pre-normal-split) so the UI
     // can report the true vertex count ParaView shows. computeNormals() below

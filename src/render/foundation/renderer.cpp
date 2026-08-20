@@ -155,19 +155,35 @@ void Renderer::initGizmo() {
 // ---------------------------------------------------------------------------
 // Depth peeling — iterative N-layer OIT for transparent surfaces
 // ---------------------------------------------------------------------------
-void Renderer::ensurePeelFbos(int w, int h) {
-    if (m_peelFboW == w && m_peelFboH == h && m_peelFbo[0].has()) return;
+void Renderer::ensurePeelFbos(int w, int h, int samples) {
+    if (m_peelFboW == w && m_peelFboH == h && m_peelSamples == samples && m_peelFbo[0].has()) return;
     destroyPeelFbos();
-    m_peelFboW = w; m_peelFboH = h;
+    m_peelFboW = w; m_peelFboH = h; m_peelSamples = samples;
+
+    auto createStorage = [&](GLenum target, GLenum internalFormat, GLsizei w, GLsizei h) {
+        if (samples > 0) {
+            glTextureStorage2D(target, samples, internalFormat, w, h);
+        } else {
+            glTextureStorage2D(target, 1, internalFormat, w, h);
+        }
+    };
+
+    // Use float depth for improved precision on large scenes (world units > 100).
+    // Falls back to 24-bit integer depth if GL_ARB_depth_buffer_float is not supported.
+    GLenum depthFormat = GL_DEPTH24_STENCIL8;
+    if (GLAD_GL_ARB_depth_buffer_float) {
+        depthFormat = GL_DEPTH32F_STENCIL8;
+    }
+    // ... rest of the function using depthFormat variable
 
     // 2 FBOs and 2 depth textures ping-pong; N color textures are preserved
     // for the composite pass.
     for (int i = 0; i < 2; ++i) {
         glCreateFramebuffers(1, m_peelFbo[i].ptr());
         glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
-        glTextureStorage2D(m_peelColorTex[i], 1, GL_RGBA8, w, h);
+        createStorage(m_peelColorTex[i], GL_RGBA8, w, h);
         glCreateTextures(GL_TEXTURE_2D, 1, m_peelDepthTex[i].ptr());
-        glTextureStorage2D(m_peelDepthTex[i], 1, GL_DEPTH24_STENCIL8, w, h);
+        createStorage(m_peelDepthTex[i], depthFormat, w, h);
 
         glNamedFramebufferTexture(m_peelFbo[i], GL_COLOR_ATTACHMENT0, m_peelColorTex[i], 0);
         glNamedFramebufferTexture(m_peelFbo[i], GL_DEPTH_STENCIL_ATTACHMENT, m_peelDepthTex[i], 0);
@@ -177,11 +193,11 @@ void Renderer::ensurePeelFbos(int w, int h) {
     // ping-pong; their color attachments are re-attached per-layer at render time.
     for (int i = 2; i < kMaxPeelLayers; ++i) {
         glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
-        glTextureStorage2D(m_peelColorTex[i], 1, GL_RGBA8, w, h);
+        createStorage(m_peelColorTex[i], GL_RGBA8, w, h);
     }
 
     glCreateTextures(GL_TEXTURE_2D, 1, m_peelMainDepth.ptr());
-    glTextureStorage2D(m_peelMainDepth, 1, GL_DEPTH24_STENCIL8, w, h);
+    createStorage(m_peelMainDepth, depthFormat, w, h);
 
     if (!m_peelDummyVao.has()) glCreateVertexArrays(1, m_peelDummyVao.ptr());
 }
@@ -206,7 +222,7 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
 
     int vpW = static_cast<int>(width * devicePixelRatio);
     int vpH = static_cast<int>(height * devicePixelRatio);
-    ensurePeelFbos(vpW, vpH);
+    ensurePeelFbos(vpW, vpH, samples);
 
     // Save the caller's FBO (QOpenGLWidget's offscreen FBO) so we can composite
     // back to it instead of FBO 0 (the screen default framebuffer).
@@ -233,7 +249,14 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
 
-    const int numLayers = std::clamp(m_state.maxPeelLayers, 1, kMaxPeelLayers);
+    // Compute optimal peel layer count: more layers for complex scenes,
+    // fewer for simple scenes to save GPU time/VRAM. Cap at maxPeelLayers setting.
+    int meshCount = static_cast<int>(transparentMeshes.size());
+    int baseLayers = std::max(1, std::min(kMaxPeelLayers, 2 + meshCount / 8));
+    float resolutionFactor = std::sqrt(static_cast<float>(vpW * vpH)) / 2000.0f;
+    int maxByRes = std::max(1, static_cast<int>(kMaxPeelLayers / resolutionFactor));
+    int optimalLayers = std::min(baseLayers, maxByRes);
+    const int numLayers = std::clamp(optimalLayers, 1, m_state.maxPeelLayers);
 
     glUseProgram(m_peelProgram);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);

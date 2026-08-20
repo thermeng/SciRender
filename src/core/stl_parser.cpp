@@ -87,6 +87,10 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
     float faceNormal[3] = { 0, 0, 0 };
     std::vector<float> flatVerts;  // 9 floats per triangle
 
+    // Incremental bounds tracking (avoids sentinel values — init from first vertex)
+    double minX = 0, minY = 0, minZ = 0, maxX = 0, maxY = 0, maxZ = 0;
+    bool boundsInit = false;
+
     while (std::getline(file, line)) {
         const char* raw = line.data();
         const char* rawEnd = raw + line.size();
@@ -96,7 +100,7 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
         if (p >= rawEnd) continue;
 
         // Dispatch on first character of keyword (zero-alloc keyword check)
-        // STL keywords: solid, endsolid, facet, endfacet, vertex, endloop, endloop, outer, endloop
+        // STL keywords: solid, endsolid, facet, endfacet, vertex, endloop, outer, endloop
         // Only 'f' (facet) and 'v' (vertex) contain numeric data we need.
         char kw0 = static_cast<char>(::toupper(static_cast<unsigned char>(*p)));
         if (kw0 != 'F' && kw0 != 'V') continue;
@@ -159,6 +163,19 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
             flatVerts.push_back(x);
             flatVerts.push_back(y);
             flatVerts.push_back(z);
+
+            // Track bounds incrementally on raw corners (pre-dedup). Bounds of raw
+            // corners equal bounds of deduped vertices within 1/4096 units.
+            double dx = static_cast<double>(x), dy = static_cast<double>(y), dz = static_cast<double>(z);
+            if (!boundsInit) {
+                minX = dx; minY = dy; minZ = dz;
+                maxX = dx; maxY = dy; maxZ = dz;
+                boundsInit = true;
+            } else {
+                if (dx < minX) minX = dx; if (dx > maxX) maxX = dx;
+                if (dy < minY) minY = dy; if (dy > maxY) maxY = dy;
+                if (dz < minZ) minZ = dz; if (dz > maxZ) maxZ = dz;
+            }
         }
     }
     file.close();
@@ -178,6 +195,21 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
     // analyzer; it welds these at trimesh's 1e-8 tolerance. The rendered indexed
     // mesh keeps the looser 1/4096 dedup, so the two stay separate on purpose.
     mesh.flatVerts = std::move(flatVerts);
+
+    // Finalize pre-computed bounds (finalizeSurfaceMesh will skip computeBounds
+    // via the hasBounds flag). Raw corner bounds equal post-dedup bounds within
+    // 1/4096 units — numerically equivalent for axis-aligned bounding box.
+    mesh.bounds.minX = minX; mesh.bounds.maxX = maxX;
+    mesh.bounds.minY = minY; mesh.bounds.maxY = maxY;
+    mesh.bounds.minZ = minZ; mesh.bounds.maxZ = maxZ;
+    mesh.bounds.centerX = (minX + maxX) * 0.5;
+    mesh.bounds.centerY = (minY + maxY) * 0.5;
+    mesh.bounds.centerZ = (minZ + maxZ) * 0.5;
+    double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+    mesh.bounds.extent = std::max({ dx, dy, dz });
+    if (mesh.bounds.extent < 0.001) mesh.bounds.extent = 1.0;
+    mesh.bounds.worldRadius = mesh.bounds.extent * 0.5;
+    mesh.hasBounds = true;
 
     mesh_utils::finalizeSurfaceMesh(mesh, "STL", "STL", "STL Parser (ASCII): Loaded ");
     return mesh;
@@ -209,47 +241,77 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
     mesh.vertices.reserve(triCount * 3 * 3); // upper bound
     mesh.indices.reserve(triCount * 3);
 
-    std::vector<float> flatVerts;
-    flatVerts.reserve(triCount * 9);
+    // Bulk-read all triangle data into a single contiguous buffer to eliminate
+    // per-triangle I/O overhead (was 1 read call per triangle — 3M syscalls for 1M tris).
+    // Binary STL record layout: 12-byte normal + 3*12-byte vertices + 2-byte attr = 50 bytes.
+    constexpr size_t kRecordSize = 50;
+    const size_t dataSize = static_cast<size_t>(triCount) * kRecordSize;
+    std::vector<char> buffer(dataSize);
+    file.read(buffer.data(), static_cast<std::streamsize>(dataSize));
+    std::streamsize bytesRead = file.gcount();
+    file.close();
 
-    for (uint32_t i = 0; i < triCount; i++) {
-        // Single 50-byte read per triangle (was 3 separate reads + checks).
-        char record[50];
-        file.read(record, sizeof(record));
-        if (file.gcount() != 50) break;
+    // Handle truncated/corrupt files: floor to complete records
+    uint32_t actualTris = static_cast<uint32_t>(bytesRead / kRecordSize);
+    if (actualTris == 0) {
+        std::cerr << "STL Parser: No triangle data read" << std::endl;
+        return mesh;
+    }
 
-        float n[3];
-        float v0[3], v1[3], v2[3];
-        uint16_t attr;
-        std::memcpy(n, record,       12);
-        std::memcpy(v0, record + 12, 12);
-        std::memcpy(v1, record + 24, 12);
-        std::memcpy(v2, record + 36, 12);
-        std::memcpy(&attr, record + 48, 2);
-        (void)n; (void)attr;
+    // Pre-size flatVerts for direct indexed writes (eliminates push_back overhead)
+    std::vector<float> flatVerts(static_cast<size_t>(actualTris) * 9);
 
-        for (float* vp : { v0, v1, v2 }) {
-            float x = vp[0], y = vp[1], z = vp[2];
-            // capture raw corner BEFORE the dedup (mesh-quality welds at 1e-8)
-            flatVerts.push_back(x);
-            flatVerts.push_back(y);
-            flatVerts.push_back(z);
+    // Initialize bounds from the first triangle's first vertex (avoids sentinel
+    // values like 1e300 that add unnecessary comparisons on every vertex).
+    const float* firstV = reinterpret_cast<const float*>(buffer.data() + 12);
+    double minX = static_cast<double>(firstV[0]), minY = static_cast<double>(firstV[1]), minZ = static_cast<double>(firstV[2]);
+    double maxX = static_cast<double>(firstV[0]), maxY = static_cast<double>(firstV[1]), maxZ = static_cast<double>(firstV[2]);
+
+    const char* recBase = buffer.data();
+    for (uint32_t t = 0; t < actualTris; t++) {
+        // Bulk-copy 36 bytes of vertex data directly into the pre-sized flatVerts buffer
+        float* out = flatVerts.data() + static_cast<size_t>(t) * 9;
+        std::memcpy(out, recBase + static_cast<size_t>(t) * kRecordSize + 12, 36);
+
+        // Validate finiteness and track bounds on all 3 vertex positions (9 floats)
+        for (int i = 0; i < 9; i += 3) {
+            float x = out[i], y = out[i + 1], z = out[i + 2];
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
                 std::cerr << "STL Parser: non-finite binary vertex, aborting" << std::endl;
                 mesh = RenderMesh{};
                 mesh.bounds = BoundingVolume{};
-                file.close();
                 return mesh;
             }
+            double dx = static_cast<double>(x), dy = static_cast<double>(y), dz = static_cast<double>(z);
+            if (dx < minX) minX = dx; if (dx > maxX) maxX = dx;
+            if (dy < minY) minY = dy; if (dy > maxY) maxY = dy;
+            if (dz < minZ) minZ = dz; if (dz > maxZ) maxZ = dz;
         }
     }
-
-    file.close();
 
     // Sort-based dedup (same algorithm as ASCII path)
     mesh_utils::indexFlatTriangles(flatVerts, mesh.vertices, mesh.indices);
 
+    // Hand the raw per-corner positions (9 floats/tri) to the mesh-quality
+    // analyzer; it welds these at trimesh's 1e-8 tolerance. The rendered indexed
+    // mesh keeps the looser 1/4096 dedup, so the two stay separate on purpose.
     mesh.flatVerts = std::move(flatVerts);
+
+    // Finalize pre-computed bounds (finalizeSurfaceMesh will skip computeBounds
+    // via the hasBounds flag). Raw corner bounds equal post-dedup bounds within
+    // 1/4096 units — numerically equivalent for axis-aligned bounding box.
+    mesh.bounds.minX = minX; mesh.bounds.maxX = maxX;
+    mesh.bounds.minY = minY; mesh.bounds.maxY = maxY;
+    mesh.bounds.minZ = minZ; mesh.bounds.maxZ = maxZ;
+    mesh.bounds.centerX = (minX + maxX) * 0.5;
+    mesh.bounds.centerY = (minY + maxY) * 0.5;
+    mesh.bounds.centerZ = (minZ + maxZ) * 0.5;
+    double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+    mesh.bounds.extent = std::max({ dx, dy, dz });
+    if (mesh.bounds.extent < 0.001) mesh.bounds.extent = 1.0;
+    mesh.bounds.worldRadius = mesh.bounds.extent * 0.5;
+    mesh.hasBounds = true;
+
     mesh_utils::finalizeSurfaceMesh(mesh, "STL", "STL", "STL Parser (Binary): Loaded ");
     return mesh;
 }
