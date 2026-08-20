@@ -53,7 +53,8 @@ static bool decompressZlib(const char* src, size_t srcLen, size_t& offset,
                            std::vector<char>& out) {
     out.clear();
 
-    for (uint32_t block = 0; block < numBlocks; ++block) {
+    uint32_t block = 0;
+    for (; block < numBlocks; ++block) {
         if (header64Flag) {
             if (offset + 2 * sizeof(uint64_t) > srcLen) break;
             uint64_t uncomp = 0, comp = 0;
@@ -114,71 +115,73 @@ static bool decompressZlib(const char* src, size_t srcLen, size_t& offset,
             if (ret != Z_STREAM_END) break;
         }
     }
-    return true;
+    return block == numBlocks;
 }
 
 static bool decompressLz4(const char* src, size_t srcLen, size_t& offset,
-                          uint32_t numBlocks, bool swapHeader, bool header64Flag,
-                          std::vector<char>& out) {
-    out.clear();
-    size_t lz4Block = 128 * 1024;  // VTK uses 128KB blocks
-
-    for (uint32_t block = 0; block < numBlocks; ++block) {
-        if (header64Flag) {
-            if (offset + 2 * sizeof(uint64_t) > srcLen) break;
-            uint64_t uncomp = 0, comp = 0;
-            std::memcpy(&uncomp, src + offset, sizeof(uint64_t));
-            std::memcpy(&comp, src + offset + sizeof(uint64_t), sizeof(uint64_t));
-            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
-            offset += 2 * sizeof(uint64_t);
-            if (comp == 0 || offset + comp > srcLen) break;
-
-            size_t remaining = static_cast<size_t>(uncomp);
-            size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
-            size_t base = out.size();
-            out.resize(base + blockSize);
-            char* dstPtr = out.data() + base;
-            int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
-            if (decoded < 0) {
-                out.resize(out.size() - blockSize);
-                VTK_XML_WARN("LZ4 decompression failed at block " << block);
-                break;
-            }
-            out.resize(out.size() - blockSize + decoded);
-            offset += comp;
-        } else {
-            if (offset + 2 * sizeof(uint32_t) > srcLen) break;
-            uint32_t uncomp = 0, comp = 0;
-            std::memcpy(&uncomp, src + offset, sizeof(uint32_t));
-            std::memcpy(&comp, src + offset + sizeof(uint32_t), sizeof(uint32_t));
-            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
-            offset += 2 * sizeof(uint32_t);
-            if (comp == 0 || offset + comp > srcLen) break;
-
-            size_t remaining = static_cast<size_t>(uncomp);
-            size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
-            size_t base = out.size();
-            out.resize(base + blockSize);
-            char* dstPtr = out.data() + base;
-            int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
-            if (decoded < 0) {
-                out.resize(out.size() - blockSize);
-                VTK_XML_WARN("LZ4 decompression failed at block " << block);
-                break;
-            }
-            out.resize(out.size() - blockSize + decoded);
-            offset += comp;
-        }
-    }
-    return true;
-}
-
-static bool decompressLzma(const char* src, size_t srcLen, size_t& offset,
                            uint32_t numBlocks, bool swapHeader, bool header64Flag,
                            std::vector<char>& out) {
     out.clear();
+    size_t lz4Block = 128 * 1024;  // VTK uses 128KB blocks
 
-    for (uint32_t block = 0; block < numBlocks; ++block) {
+    uint32_t block = 0;
+    for (; block < numBlocks; ++block) {
+        if (header64Flag) {
+            if (offset + 2 * sizeof(uint64_t) > srcLen) break;
+            uint64_t uncomp = 0, comp = 0;
+            std::memcpy(&uncomp, src + offset, sizeof(uint64_t));
+            std::memcpy(&comp, src + offset + sizeof(uint64_t), sizeof(uint64_t));
+            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
+            offset += 2 * sizeof(uint64_t);
+            if (comp == 0 || offset + comp > srcLen) break;
+
+            size_t remaining = static_cast<size_t>(uncomp);
+            size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
+            size_t base = out.size();
+            out.resize(base + blockSize);
+            char* dstPtr = out.data() + base;
+            int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
+            if (decoded < 0) {
+                out.resize(out.size() - blockSize);
+                VTK_XML_WARN("LZ4 decompression failed at block " << block);
+                break;
+            }
+            out.resize(out.size() - blockSize + decoded);
+            offset += comp;
+        } else {
+            if (offset + 2 * sizeof(uint32_t) > srcLen) break;
+            uint32_t uncomp = 0, comp = 0;
+            std::memcpy(&uncomp, src + offset, sizeof(uint32_t));
+            std::memcpy(&comp, src + offset + sizeof(uint32_t), sizeof(uint32_t));
+            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
+            offset += 2 * sizeof(uint32_t);
+            if (comp == 0 || offset + comp > srcLen) break;
+
+            size_t remaining = static_cast<size_t>(uncomp);
+            size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
+            size_t base = out.size();
+            out.resize(base + blockSize);
+            char* dstPtr = out.data() + base;
+            int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
+            if (decoded < 0) {
+                out.resize(out.size() - blockSize);
+                VTK_XML_WARN("LZ4 decompression failed at block " << block);
+                break;
+            }
+            out.resize(out.size() - blockSize + decoded);
+            offset += comp;
+        }
+    }
+    return block == numBlocks;
+}
+
+static bool decompressLzma(const char* src, size_t srcLen, size_t& offset,
+                            uint32_t numBlocks, bool swapHeader, bool header64Flag,
+                            std::vector<char>& out) {
+    out.clear();
+
+    uint32_t block = 0;
+    for (; block < numBlocks; ++block) {
         if (header64Flag) {
             if (offset + 2 * sizeof(uint64_t) > srcLen) break;
             uint64_t uncomp = 0, comp = 0;
@@ -245,7 +248,7 @@ static bool decompressLzma(const char* src, size_t srcLen, size_t& offset,
             offset += comp;
         }
     }
-    return true;
+    return block == numBlocks;
 }
 
 static bool decompressBlocks(const char* src, size_t srcLen, size_t& offset,
@@ -301,12 +304,16 @@ static void decodeBase64(const std::string& input, std::vector<char>& out) {
             bits = 0;
         }
     }
-    // Flush any partial quantum (< 24 bits remaining)
-    if (bits >= 16) {
+    // Flush any partial quantum (< 24 bits remaining).
+    // In standard base64 the only valid partial-group sizes are:
+    //   bits == 18  (3 chars → 2 bytes)  and  bits == 12  (2 chars → 1 byte).
+    // The previous condition (bits >= 16) silently dropped the last byte
+    // whenever the data length was not a multiple of 3.
+    if (bits == 18) {
         out.push_back(char((quad >> 10) & 0xFF));
-        if (bits >= 12) {
-            out.push_back(char((quad >> 2) & 0xFF));
-        }
+        out.push_back(char((quad >> 2) & 0xFF));
+    } else if (bits == 12) {
+        out.push_back(char((quad >> 4) & 0xFF));
     }
 }
 
@@ -779,6 +786,7 @@ static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
             }
             break;
         }
+        idx += numPointsInCell;
     }
     return cellToVertices;
 }
@@ -945,8 +953,14 @@ private:
             ++payloadStart;
         if (payloadStart < closeTag && bytes[payloadStart] == '_') ++payloadStart;
         size_t payloadEnd = closeTag;
-        while (payloadEnd > payloadStart && std::isspace(static_cast<unsigned char>(bytes[payloadEnd - 1])))
-            --payloadEnd;
+        // Only trim trailing whitespace for base64 payloads (where it is
+        // non-data padding).  For raw binary, trailing bytes that happen to
+        // be whitespace values (0x20, 0x09, 0x0A, 0x0D) are real data and
+        // must be preserved.
+        if (isBase64) {
+            while (payloadEnd > payloadStart && std::isspace(static_cast<unsigned char>(bytes[payloadEnd - 1])))
+                --payloadEnd;
+        }
 
         if (isBase64) {
             std::string b64(bytes.begin() + payloadStart, bytes.begin() + payloadEnd);
