@@ -582,8 +582,9 @@ private:
     GlTexture m_peelMainDepth;   // opaque geometry depth copied from main FBO
     GlVao m_peelDummyVao;    // empty VAO for fullscreen triangle
     int m_peelFboW = 0, m_peelFboH = 0;
+    int m_peelSamples = 0;
 
-    void ensurePeelFbos(int w, int h);
+    void ensurePeelFbos(int w, int h, int samples);
     void destroyPeelFbos();
     void renderTransparent(const glm::mat4& view, const glm::mat4& proj,
                             GLuint meshUbo,
