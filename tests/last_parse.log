@@ -1,39 +1,48 @@
-[PASS] STRUCTURED_POINTS_ascii.vtk (tris=972 wt=1 open=0)
-[PASS] STRUCTURED_POINTS_binary.vtk (tris=972 wt=1 open=0)
+[PASS] STRUCTURED_POINTS_ascii.vtk (tris=972 wt=1 open=0) [parse=1.0ms quality=0.5ms]
+[PASS] STRUCTURED_POINTS_binary.vtk (tris=972 wt=1 open=0) [parse=0.9ms quality=0.8ms]
 VTK: parsed POINT VECTORS 'PositionVector' (125000 vectors)
-[PASS] RECTILINEAR_shapes_attributes_ascii.vtk (tris=28812 wt=1 open=0)
+[PASS] RECTILINEAR_shapes_attributes_ascii.vtk (tris=28812 wt=1 open=0) [parse=120.1ms quality=16.6ms]
 VTK: parsed POINT VECTORS 'PositionVector' (125000 vectors)
-[PASS] RECTILINEAR_shapes_attributes_binary.vtk (tris=28812 wt=1 open=0)
+[PASS] RECTILINEAR_shapes_attributes_binary.vtk (tris=28812 wt=1 open=0) [parse=95.4ms quality=17.0ms]
 VTK: parsed POINT VECTORS 'Wind_Flow' (125 vectors)
 VTK: parsed POINT VECTORS 'Vortex_Flow' (125 vectors)
 VTK: parsed POINT VECTORS 'Divergent_Flow' (125 vectors)
 VTK: parsed POINT VECTORS 'Wave_Flow' (125 vectors)
-[PASS] STRUCTURED_GRID_block_four_fields_vectors_ascii.vtk (tris=192 wt=1 open=0)
+[PASS] STRUCTURED_GRID_block_four_fields_vectors_ascii.vtk (tris=192 wt=1 open=0) [parse=0.5ms quality=0.2ms]
 VTK: parsed POINT VECTORS 'Wind_Flow' (125 vectors)
 VTK: parsed POINT VECTORS 'Vortex_Flow' (125 vectors)
 VTK: parsed POINT VECTORS 'Divergent_Flow' (125 vectors)
 VTK: parsed POINT VECTORS 'Wave_Flow' (125 vectors)
-[PASS] STRUCTURED_GRID_block_four_fields_vectors_binary.vtk (tris=192 wt=1 open=0)
-[PASS] UNSTRUCTURED_GRID_cube_MultipleScalar_ascii.vtk (tris=12 wt=1 open=0)
-[PASS] UNSTRUCTURED_GRID_cube_MultipleScalar_binary.vtk (tris=12 wt=1 open=0)
-STL Parser (ASCII): Loaded 12 triangles, 8 unique vertices (deduped)
-[PASS] cube_ascii.stl (tris=12 wt=1 open=0)
-STL Parser (Binary): Loaded 12 triangles, 8 unique vertices (deduped)
-[PASS] cube_binary.stl (tris=12 wt=1 open=0)
-[PASS] STRUCTURED_GRID_xml_ascii.vts (tris=12 wt=1 open=0)
-[PASS] IMAGE_DATA_xml_ascii.vti (tris=12 wt=1 open=0)
-[PASS] POLYDATA_xml_ascii.vtp (tris=1 wt=0 open=3)
-[PASS] UNSTRUCTURED_GRID_xml_ascii.vtu (tris=4 wt=1 open=0)
-[PASS] RECTILINEAR_GRID_xml_ascii.vtr (tris=12 wt=1 open=0)
-[PASS] UNSTRUCTURED_GRID_xml_multipiece.vtu (tris=24 wt=0 open=0)
-[PASS] UNSTRUCTURED_GRID_xml_binary_appended.vtu (tris=12 wt=1 open=0)
-[PASS] UNSTRUCTURED_GRID_xml_zlib.vtu (tris=12 wt=1 open=0)
-[PASS] POLYDATA_xml_binary_appended.vtp (tris=2 wt=0 open=4)
-[PASS] RECTILINEAR_GRID_xml_binary.vtr (tris=12 wt=1 open=0)
-[PASS] UNSTRUCTURED_GRID_xml_lz4.vtu (tris=12 wt=1 open=0)
-[PASS] UNSTRUCTURED_GRID_xml_lzma.vtu (tris=12 wt=1 open=0)
-[PASS] UNSTRUCTURED_GRID_xml_int64.vtu (tris=12 wt=1 open=0)
-[PASS] POLYDATA_xml_multicomponent.vtp (tris=1 wt=0 open=3)
-[PASS] MULTIBLOCK_xml_multiblock.vtm (tris=16 wt=0 open=0)
+[PASS] STRUCTURED_GRID_block_four_fields_vectors_binary.vtk (tris=192 wt=1 open=0) [parse=0.6ms quality=0.3ms]
+[PASS] UNSTRUCTURED_GRID_cube_MultipleScalar_ascii.vtk (tris=12 wt=1 open=0) [parse=0.4ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_cube_MultipleScalar_binary.vtk (tris=12 wt=1 open=0) [parse=0.2ms quality=0.0ms]
+[PASS] POLYDATA_triangles_ascii.vtk (tris=2 wt=0 open=4) [parse=0.2ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_tetra_ascii.vtk (tris=4 wt=1 open=0) [parse=0.2ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_mixed_cells_ascii.vtk (tris=30 wt=1 open=0) [parse=0.2ms quality=0.0ms]
+VTK: parsed POINT TENSORS 'cell_tensor' (4 tensors)
+[PASS] UNSTRUCTURED_GRID_field_attrs_ascii.vtk (tris=4 wt=1 open=0) [parse=0.4ms quality=0.0ms]
+STL Parser (ASCII): Loaded 12 triangles, 24 unique vertices
+[PASS] cube_ascii.stl (tris=12 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+STL Parser (Binary): Loaded 12 triangles, 24 unique vertices
+[PASS] cube_binary.stl (tris=12 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+[PASS] STRUCTURED_GRID_xml_ascii.vts (tris=12 wt=1 open=0) [parse=0.2ms quality=0.0ms]
+[PASS] IMAGE_DATA_xml_ascii.vti (tris=12 wt=1 open=0) [parse=0.2ms quality=0.0ms]
+[PASS] POLYDATA_xml_ascii.vtp (tris=1 wt=0 open=3) [parse=0.3ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_ascii.vtu (tris=4 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+[PASS] RECTILINEAR_GRID_xml_ascii.vtr (tris=12 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_multipiece.vtu (tris=24 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_binary_appended.vtu (tris=12 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_zlib.vtu (tris=12 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+[PASS] POLYDATA_xml_binary_appended.vtp (tris=2 wt=0 open=4) [parse=0.2ms quality=0.0ms]
+[PASS] RECTILINEAR_GRID_xml_binary.vtr (tris=12 wt=1 open=0) [parse=0.2ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_lz4.vtu (tris=12 wt=1 open=0) [parse=0.2ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_lzma.vtu (tris=12 wt=1 open=0) [parse=0.2ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_int64.vtu (tris=12 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+[PASS] POLYDATA_xml_multicomponent.vtp (tris=1 wt=0 open=3) [parse=0.2ms quality=0.0ms]
+[PASS] MULTIBLOCK_xml_multiblock.vtm (tris=16 wt=0 open=0) [parse=0.7ms quality=0.0ms]
+VTK: parsed CELL VECTORS 'cellVelocity' (2 vectors, extrapolated to points)
+[PASS] UNSTRUCTURED_GRID_celldata_ascii.vtk (tris=8 wt=1 open=0) [parse=0.3ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_celldata_ascii.vtu (tris=8 wt=1 open=0) [parse=0.4ms quality=0.0ms]
+[PASS] UNSTRUCTURED_GRID_xml_int64_celldata.vtu (tris=8 wt=1 open=0) [parse=0.4ms quality=0.0ms]
 
-ALL PARSER REGRESSION CHECKS PASSED (25 files)
+ALL PARSER REGRESSION CHECKS PASSED (32 files, 226.1 ms parse, 35.8 ms quality, 261.9 ms total)

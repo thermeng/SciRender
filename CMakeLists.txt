@@ -67,6 +67,7 @@ add_library(CoreLib STATIC
      src/core/isosurface.h
      src/core/mesh_utils.cpp
     src/core/vtk_parser.cpp
+    src/core/vtk_common.cpp
     src/core/stl_parser.cpp
     src/core/obj_parser.cpp
     src/core/obj_parser.h

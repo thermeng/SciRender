@@ -5,6 +5,7 @@
 #include "core/mesh_quality.h"
 #include <cstdio>
 #include <cstdint>
+#include <cmath>
 #include <string>
 #include <vector>
 #include <fstream>
@@ -22,7 +23,19 @@ static std::vector<std::string> failedFiles;
     printf("  [FAIL] %s: %s\n", file, msg); ++failures; failedFiles.push_back(file); } } while(0)
 
 
-struct Gold { const char* name; size_t tris; int watertight; int open; };
+// Seam expectations — asserted through the RenderMesh predicates/resolvers
+// that renderer-side consumers actually call (hasScalarData, vectorFieldData,
+// cellVectorFieldData, cellCenters, attributes->scalarMin/Max). Zero values
+// mean "don't care" so existing geometry-only rows stay untouched.
+struct SeamExpect {
+    float smin = 0.0f;            // expected active-scalar range min
+    float smax = 0.0f;            // expected active-scalar range max (smin==smax==0 -> don't care)
+    int pointVecFields = -1;      // usable point-vector fields (-1 = don't care)
+    int cellVecFields   = -1;     // usable cell-vector fields (-1 = don't care)
+    int cellCenterCount = -1;     // expected cellCenters.size() (-1 = don't care)
+};
+
+struct Gold { const char* name; size_t tris; int watertight; int open; SeamExpect seam; };
 static const Gold GOLD[] = {
     {"STRUCTURED_POINTS_ascii.vtk",                       972, 1, 0},
     {"STRUCTURED_POINTS_binary.vtk",                      972, 1, 0},
@@ -52,7 +65,15 @@ static const Gold GOLD[] = {
     {"UNSTRUCTURED_GRID_xml_lzma.vtu",                      12, 1, 0},
     {"UNSTRUCTURED_GRID_xml_int64.vtu",                     12, 1, 0},
     {"POLYDATA_xml_multicomponent.vtp",                      1, 0, 3},
-    {"MULTIBLOCK_xml_multiblock.vtm",                        16, 0, 0}
+    {"MULTIBLOCK_xml_multiblock.vtm",                        16, 0, 0},
+    // Cell-data seam fixtures: 2 disjoint tets, POINT_DATA "temperature"
+    // 100..800, CELL_DATA SCALARS "pressure" + VECTORS "cellVelocity". Same
+    // geometry and fields in legacy and XML form — the XML twins must produce
+    // the identical seam surface (cell vectors, cell centers, scalar range)
+    // or the build breaks.
+    {"UNSTRUCTURED_GRID_celldata_ascii.vtk",                 8, 1, 0, {100.0f, 800.0f, -1, 1, 2}},
+    {"UNSTRUCTURED_GRID_xml_celldata_ascii.vtu",             8, 1, 0, {100.0f, 800.0f, -1, 1, 2}},
+    {"UNSTRUCTURED_GRID_xml_int64_celldata.vtu",             8, 1, 0, {100.0f, 800.0f, -1, 1, 2}}
 };
 
 int main(){
@@ -81,6 +102,49 @@ int main(){
         totalQualityTime += qualityMs;
         if (!((int)q.watertight == g.watertight)){ CHECK((int)q.watertight == g.watertight, g.name, "watertight mismatch"); caseOk = false; }
         if (!((int)q.openEdges == g.open))       { CHECK((int)q.openEdges == g.open, g.name, "open mismatch"); caseOk = false; }
+
+        // ── Seam assertions ──────────────────────────────────────────────────
+        const SeamExpect& se = g.seam;
+        if (!(se.smin == 0.0f && se.smax == 0.0f)) {
+            bool rangeOk = m.attributes.has_value();
+            if (rangeOk) {
+                const float amin = m.attributes->scalarMin;
+                const float amax = m.attributes->scalarMax;
+                rangeOk = std::isfinite(amin) && std::isfinite(amax)
+                       && std::abs(amin - se.smin) < 1e-3f
+                       && std::abs(amax - se.smax) < 1e-3f;
+            }
+            if (!rangeOk) { CHECK(rangeOk, g.name, "scalar range mismatch"); caseOk = false; }
+        }
+        if (se.pointVecFields >= 0) {
+            int usable = 0;
+            for (const auto& n : m.availableVectorNames) {
+                size_t cnt = 0;
+                if (m.vectorFieldData(n, cnt) != nullptr && cnt > 0) ++usable;
+            }
+            if (!(usable == se.pointVecFields)) { CHECK(usable == se.pointVecFields, g.name, "point vector field count"); caseOk = false; }
+            if (!(m.meshHasVectors() == (usable > 0))) { CHECK(m.meshHasVectors() == (usable > 0), g.name, "meshHasVectors inconsistent"); caseOk = false; }
+            if (m.meshHasVectors() && !(m.pointVectorCount == m.sourcePointCount)) {
+                CHECK(m.pointVectorCount == m.sourcePointCount, g.name, "pointVectorCount != sourcePointCount"); caseOk = false;
+            }
+        }
+        if (se.cellVecFields >= 0) {
+            int usable = 0;
+            for (const auto& n : m.availableCellVectorNames) {
+                size_t cnt = 0;
+                if (m.cellVectorFieldData(n, cnt) != nullptr && cnt > 0) ++usable;
+            }
+            if (!(usable == se.cellVecFields)) { CHECK(usable == se.cellVecFields, g.name, "cell vector field count"); caseOk = false; }
+            if (!(m.meshHasCellVectors() == (usable > 0))) { CHECK(m.meshHasCellVectors() == (usable > 0), g.name, "meshHasCellVectors inconsistent"); caseOk = false; }
+        }
+        if (se.cellCenterCount >= 0) {
+            bool centersOk = (static_cast<int>(m.cellCenters.size()) == se.cellCenterCount);
+            for (const auto& c : m.cellCenters) {
+                if (!std::isfinite(c.x) || !std::isfinite(c.y) || !std::isfinite(c.z)) centersOk = false;
+            }
+            if (!centersOk) { CHECK(centersOk, g.name, "cellCenters count/finite"); caseOk = false; }
+        }
+
         printf("%s %s (tris=%zu wt=%d open=%d) [parse=%.1fms quality=%.1fms]\n",
                caseOk ? "[PASS]" : "[FAIL]", g.name, tris, (int)q.watertight, q.openEdges, parseMs, qualityMs);
         fflush(stdout);

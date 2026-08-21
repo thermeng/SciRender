@@ -10,7 +10,7 @@ set PATH=C:\Qt\Tools\mingw1310_64\bin;%PATH%
 set INC=-I.. -I..\src -I..\vendor -I..\vendor\glad\include -I..\vendor\pugixml -I..\vendor\lz4 -I..\vendor\lzma
 cd /d %~dp0
 echo [run_tests] building parse_regression...
-%GPP% -std=c++20 -O2 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\mesh_utils.cpp ^
+%GPP% -std=c++20 -O2 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
   ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
   ..\vendor\pugixml\pugixml.cpp ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
   parse_regression.cpp ^
@@ -21,7 +21,7 @@ parse_regression.exe > last_parse.log 2>&1
 type last_parse.log
 echo.
 echo [run_tests] building streamline_direction_test...
-%GPP% -std=c++20 -O2 -g ..\vendor\glad\src\gl.c ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\mesh_utils.cpp ^
+%GPP% -std=c++20 -O2 -g ..\vendor\glad\src\gl.c ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
   ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
   ..\src\render\foundation\gl_raii.cpp ^
   ..\src\render\streamlines\StreamlineSet.cpp streamline_direction_test.cpp ^
@@ -34,7 +34,7 @@ type last_direction.log
 :: ponytail: tee-by-hand — save to log (stdout+stderr), echo it back so screen still shows results.
 :: --- isosurface (marching cubes) regression ---
 echo [run_tests] building isosurface_test...
-%GPP% -std=c++20 -O2 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\mesh_utils.cpp ^
+%GPP% -std=c++20 -O2 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
   ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
   ..\src\core\isosurface.cpp ..\vendor\pugixml\pugixml.cpp ^
   ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^

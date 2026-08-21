@@ -29,6 +29,7 @@ add_executable(parse_regression
     parse_regression.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
@@ -48,6 +49,7 @@ add_executable(isosurface_test
     ${CMAKE_SOURCE_DIR}/../src/core/isosurface.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp

@@ -161,6 +161,7 @@ void computeBounds(RenderMesh& mesh) {
 // averaged normals. This eliminates the "bloating" artifact on cube edges
 // and other sharp features.
 void computeNormals(RenderMesh& mesh) {
+    mesh.vertexSourceIndex.clear();
     if (mesh.vertices.empty() || mesh.indices.empty()) return;
 
     const float SHARP_ANGLE_COS = 0.9f;  // ~25 degrees — faces more divergent than this split
@@ -361,6 +362,19 @@ void computeNormals(RenderMesh& mesh) {
                 }
             }
             arr = std::move(newArr);
+        }
+    }
+
+    // Persist the split map (identity for originals, source index for
+    // duplicates) so scalar re-uploads arriving in the pre-split per-node
+    // index space can be gathered into the post-split layout — see
+    // MeshGLManager::updateScalars. Empty when no vertex was duplicated.
+    if (nextVert != static_cast<int>(numVerts)) {
+        mesh.vertexSourceIndex.resize(static_cast<size_t>(nextVert));
+        for (size_t v = 0; v < numVerts; ++v) {
+            for (int newV : vertexRemap[v]) {
+                mesh.vertexSourceIndex[static_cast<size_t>(newV)] = static_cast<uint32_t>(v);
+            }
         }
     }
 
