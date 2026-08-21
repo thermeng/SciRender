@@ -176,6 +176,9 @@ qt_add_resources(SciRender "shaders"
         src/shaders/mesh.vert
         src/shaders/mesh.frag
         src/shaders/mesh_clip.geo
+        src/shaders/wire.vert
+        src/shaders/wire.geo
+        src/shaders/wire.frag
         src/shaders/grid.vert
         src/shaders/grid.frag
         src/shaders/glyph.vert
