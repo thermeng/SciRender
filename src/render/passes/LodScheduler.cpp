@@ -6,12 +6,16 @@
 bool LodScheduler::tick(const RenderRenderState& state, MeshGLManager& meshManager) {
     // Debounce: once the debounce period elapses with no new motion, clear
     // the moving flag so the next frame uses the full-resolution mesh.
+    bool settled = false;
     if (cameraMoving.load()) {
         auto now = std::chrono::steady_clock::now();
         if (m_lastMotion.time_since_epoch().count() == 0) m_lastMotion = now;
         double dt = std::chrono::duration<double>(now - m_lastMotion).count();
         if (dt >= RenderConfig::defaults().lodDebounceSeconds) {
             cameraMoving = false;
+            // Rendering is on-demand: without one more frame the last
+            // (decimated) frame would stay on screen indefinitely.
+            settled = true;
         }
     }
 
@@ -22,6 +26,7 @@ bool LodScheduler::tick(const RenderRenderState& state, MeshGLManager& meshManag
     m_wasCameraMoving = cameraMoving.load();
 
     const bool useLod = state.useLod;
+    bool dispatched = false;
     if (useLod && gpuDecimationDirty.load() && meshManager.hasDecimated() && meshManager.hasFullSource()) {
         Mesh newDec;
         if (meshManager.dispatchLodCompute(*meshManager.getFullSource(), newDec)) {
@@ -34,9 +39,9 @@ bool LodScheduler::tick(const RenderRenderState& state, MeshGLManager& meshManag
                 qWarning().noquote() << "[LOD] GPU compute decimation failed:\n" + err.trimmed();
         }
         gpuDecimationDirty = false;
-        return true;
+        dispatched = true;
     }
-    return false;
+    return dispatched || settled;
 }
 
 

@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <unordered_map>
 #include <algorithm>
 #include <string>
@@ -23,6 +24,40 @@ bool datasetSupportsDecimation(const RenderMesh& in) {
            t == "UNSTRUCTURED_GRID" ||
            t == "POLYDATA";
 }
+
+// Env-gated scalar-pipeline diagnostics (SCIRENDER_DEBUG_SCALARS=1): traces
+// buffer sizes at build/upload so index-space mismatches between a scalar
+// payload and the geometry it is bound to become visible in stderr.
+bool dbgScalars() {
+    static const bool on = std::getenv("SCIRENDER_DEBUG_SCALARS") != nullptr;
+    return on;
+}
+
+// ── Shared vertex-clustering grid ────────────────────────────────────────────
+// ONE grid definition for all three clustering sites: CPU decimate(), CPU
+// decimateScalars(), and the GPU lod.comp dispatch. Cells divide EACH AXIS's
+// extent evenly. (The old CPU grid divided by the 3D diagonal instead, which
+// produced anisotropic clusters that neither matched the GPU pass nor each
+// other's intent.) The GPU shader implements the same math in float32; the
+// provenance guard in updateScalars() keeps geometry and scalars paired even
+// where float32 vs float64 rounding disagrees at cell boundaries.
+constexpr int kLodMaxCellsPerAxis = 128;
+
+int lodCellsPerAxisFor(size_t nv) {
+    int c = static_cast<int>(std::round(
+        std::pow(static_cast<double>(nv), 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
+    return std::max(2, std::min(c, kLodMaxCellsPerAxis));
+}
+
+inline int lodCellIndex(double v, double vMin, double extent, int n) {
+    if (!(extent > 1e-12)) return 0;                // flat axis
+    const double t = (v - vMin) / extent * static_cast<double>(n);
+    int i = static_cast<int>(std::floor(t));
+    if (i < 0) i = 0; else if (i >= n) i = n - 1;   // boundary vertices join the edge cell
+    return i;
+}
+
+
 
 // Vertex-clustering decimation averages every vertex inside a coarse spatial
 // cell into a single point. For a mesh with multiple disconnected shells that
@@ -182,6 +217,12 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
     glNamedBufferData(mesh.ebo, renderMesh.indices.size() * sizeof(unsigned int), renderMesh.indices.data(), GL_STATIC_DRAW);
     glVertexArrayElementBuffer(mesh.vao, mesh.ebo);
 
+    if (dbgScalars()) {
+        fprintf(stderr, "[scalar-debug] buildMeshGL: verts=%zu scalars=%zu indices=%zu lut=%zu\n",
+                vertCount, renderMesh.scalars.size(), renderMesh.indices.size(),
+                renderMesh.vertexSourceIndex.size());
+    }
+
     // Cell-edge VAO: shares the same VBO/NBO/SBO vertex bindings as the main
     // VAO but uses a separate EBO with deduplicated cell-boundary edges for
     // GL_LINES rendering (ParaView-style wireframe). Indices remain valid
@@ -231,19 +272,12 @@ RenderMesh MeshGLManager::decimate(const RenderMesh& in) {
 
     // Cells per axis chosen so the cluster count is a coarse fraction of the
     // vertices (~half the "one cell per vertex" resolution => ~1/8th vertices).
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
-    cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
-    const double cell = diag / cellsPerAxis;
+    const int cellsPerAxis = lodCellsPerAxisFor(nv);
 
-    auto clampCell = [&](double v, int n) {
-        int i = static_cast<int>(std::floor(v / cell));
-        if (i < 0) i = 0; else if (i >= n) i = n - 1;
-        return i;
-    };
     auto keyFor = [&](size_t i) -> uint64_t {
-        const int ci = clampCell(in.vertices[3 * i + 0] - minX, cellsPerAxis);
-        const int cj = clampCell(in.vertices[3 * i + 1] - minY, cellsPerAxis);
-        const int ck = clampCell(in.vertices[3 * i + 2] - minZ, cellsPerAxis);
+        const int ci = lodCellIndex(in.vertices[3 * i + 0], minX, dx, cellsPerAxis);
+        const int cj = lodCellIndex(in.vertices[3 * i + 1], minY, dy, cellsPerAxis);
+        const int ck = lodCellIndex(in.vertices[3 * i + 2], minZ, dz, cellsPerAxis);
         return static_cast<uint64_t>(ci)
              | (static_cast<uint64_t>(cj) << 20)
              | (static_cast<uint64_t>(ck) << 40);
@@ -350,6 +384,7 @@ void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
         meshes_ = std::move(newFull);
         decimatedMeshes_ = std::move(newDec);
         hasDecimated_ = !decimatedMeshes_.empty();
+        decimatedFromGpu_ = false;   // CPU-built by decimate() above
     }
 
     meshChanged = true;
@@ -419,19 +454,12 @@ std::vector<float> MeshGLManager::decimateScalars(
     const double dx = in.bounds.maxX - minX, dy = in.bounds.maxY - minY, dz = in.bounds.maxZ - minZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     if (diag < 1e-9) return {};
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
-    cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
-    const double cell = diag / cellsPerAxis;
+    const int cellsPerAxis = lodCellsPerAxisFor(nv);
 
-    auto clampCell = [&](double v, int n) {
-        int i = static_cast<int>(std::floor(v / cell));
-        if (i < 0) i = 0; else if (i >= n) i = n - 1;
-        return i;
-    };
     auto keyFor = [&](size_t i) -> uint64_t {
-        const int ci = clampCell(in.vertices[3 * i + 0] - minX, cellsPerAxis);
-        const int cj = clampCell(in.vertices[3 * i + 1] - minY, cellsPerAxis);
-        const int ck = clampCell(in.vertices[3 * i + 2] - minZ, cellsPerAxis);
+        const int ci = lodCellIndex(in.vertices[3 * i + 0], minX, dx, cellsPerAxis);
+        const int cj = lodCellIndex(in.vertices[3 * i + 1], minY, dy, cellsPerAxis);
+        const int ck = lodCellIndex(in.vertices[3 * i + 2], minZ, dz, cellsPerAxis);
         return static_cast<uint64_t>(ci)
              | (static_cast<uint64_t>(cj) << 20)
              | (static_cast<uint64_t>(ck) << 40);
@@ -474,10 +502,72 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
     const std::vector<float>* src = scalars.get();
     const bool hasData = src && !src->empty();
 
+    // A payload may arrive in the PRE-split (per-node) index space — e.g. a
+    // field read straight from attributes->pointScalars before any sharp-edge
+    // duplication — while meshes_ carry the post-split vertices created by
+    // computeNormals(). Gather it through vertexSourceIndex so the SBO always
+    // matches the vertex count/order of the geometry it is bound to.
+    std::vector<float> expanded;
+    const std::vector<float>* full = src;
+    if (hasData && fullSource_) {
+        const size_t vertCount = fullSource_->vertices.size() / 3;
+        const auto& lut = fullSource_->vertexSourceIndex;
+        if (src->size() != vertCount && lut.size() == vertCount) {
+            bool lutOk = true;
+            for (size_t i = 0; i < vertCount; ++i) {
+                if (lut[i] >= src->size()) { lutOk = false; break; }
+            }
+            if (lutOk) {
+                expanded.resize(vertCount);
+                for (size_t i = 0; i < vertCount; ++i) {
+                    expanded[i] = (*src)[lut[i]];
+                }
+                full = &expanded;
+            } else if (!warnedScalarSpaceMismatch_) {
+                warnedScalarSpaceMismatch_ = true;
+                fprintf(stderr, "MeshGLManager: scalar payload matches neither vertex count "
+                                "nor source-node count; uploading as-is.\n");
+            }
+        }
+    }
+
+    if (dbgScalars()) {
+        const size_t vertCount = fullSource_ ? fullSource_->vertices.size() / 3 : 0;
+        fprintf(stderr, "[scalar-debug] updateScalars: payload=%zu verts=%zu lut=%zu uploaded=%zu\n",
+                hasData ? src->size() : 0, vertCount,
+                fullSource_ ? fullSource_->vertexSourceIndex.size() : 0,
+                hasData ? full->size() : 0);
+    }
+
+    // If the LOD mesh in place was built by the GPU compute pass, its vertex
+    // order/count cannot be reproduced by the CPU clusterer — uploading
+    // CPU-clustered scalars onto it would pair geometry with the wrong scalar
+    // per vertex (garbage colors while the LOD mesh is shown). Rebuild it on
+    // the CPU once so both come from the same builder; the next camera-motion
+    // burst re-dispatches the GPU path.
+    if (hasData && decimatedFromGpu_ && hasFullSource_ && !decimatedMeshes_.empty()) {
+        RenderMesh cpuDecimated = decimate(*fullSource_);
+        if (!cpuDecimated.indices.empty()) {
+            std::vector<Mesh> tmp;
+            buildMeshGL(cpuDecimated, tmp);
+            if (!tmp.empty()) {
+                // mutex_ is already held here — use the unlocked variant
+                // (replaceDecimatedMesh would self-deadlock).
+                replaceDecimatedMeshLocked(0, std::move(tmp.front()));
+                decimatedFromGpu_ = false;
+                if (dbgScalars()) {
+                    fprintf(stderr, "[scalar-debug] updateScalars: rebuilt GPU LOD mesh on CPU (verts=%zu)\n",
+                            cpuDecimated.vertices.size() / 3);
+                }
+            }
+        }
+    }
+
     // Decimated LOD scalars are derived by clustering, not a 1:1 copy. This is
     // the only unavoidable intermediate allocation (pre-existing behavior);
     // the GUI/render thread no longer copies the full-resolution payload.
-    std::vector<float> decScalars = hasData ? decimateScalars(*src) : std::vector<float>{};
+    if (dbgScalars()) fprintf(stderr, "[scalar-debug] updateScalars: clustering decScalars...\n");
+    std::vector<float> decScalars = hasData ? decimateScalars(*full) : std::vector<float>{};
 
     auto reupload = [&](std::vector<Mesh>& meshes, const std::vector<float>& data) {
         for (auto& m : meshes) {
@@ -497,8 +587,10 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
             }
         }
     };
-    reupload(meshes_, hasData ? *src : std::vector<float>{});
+    if (dbgScalars()) fprintf(stderr, "[scalar-debug] updateScalars: reuploading meshes_...\n");
+    reupload(meshes_, hasData ? *full : std::vector<float>{});
     reupload(decimatedMeshes_, decScalars);
+    if (dbgScalars()) fprintf(stderr, "[scalar-debug] updateScalars: done\n");
 }
 
 void MeshGLManager::snapshotIsosurfaceDrawList(std::vector<std::pair<GLuint, int>>& out,
@@ -648,8 +740,9 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
         return false;
     }
 
-    int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * 0.5));
-    cellsPerAxis = std::max(2, std::min(cellsPerAxis, 128));
+    // Same grid formula as the CPU decimator (see lodCellsPerAxisFor) so both
+    // builders agree on cluster resolution.
+    const int cellsPerAxis = lodCellsPerAxisFor(nv);
     const int totalCells = cellsPerAxis * cellsPerAxis * cellsPerAxis;
     lodCellsPerAxis = cellsPerAxis;
 

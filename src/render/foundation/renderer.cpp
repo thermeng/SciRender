@@ -614,11 +614,13 @@ void Renderer::uploadVolumeFromScalarDirty(const RenderRenderState& state,
 }
 
 void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars) {
+    fprintf(stderr, "[scalar-debug] updateScalarsOnGPU: enter\n");
     {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         m_pendingScalarSrc = scalars; // shared_ptr, no data copy
     }
     meshManager.updateScalars(scalars);
+    fprintf(stderr, "[scalar-debug] updateScalarsOnGPU: exit\n");
 }
 
 void Renderer::drawGizmo() {
@@ -852,7 +854,11 @@ void Renderer::renderFrame() {
     }
 
     // LOD debounce, throttle, and compute dispatch (owned by LodScheduler).
-    lodScheduler.tick(m_state, meshManager);
+    // A true return means the visible state changed (dispatch or settle) —
+    // schedule one more frame so the swap is actually presented.
+    if (lodScheduler.tick(m_state, meshManager)) {
+        lodSettleDirty = true;
+    }
 
      // Consume a pending mesh handoff from the GUI thread (shared_ptr; no copy).
     // Uploading here keeps all GL work inside render() with the context current.

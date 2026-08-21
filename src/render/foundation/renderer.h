@@ -517,6 +517,15 @@ private:
     // Scalar-field switch signal: set on the GUI thread and consumed here.
     std::atomic<bool> scalarDirty{false};
 
+    // LOD settle/dispatch signal: one more frame is needed to present the
+    // full-resolution swap after the camera-motion debounce expires.
+    std::atomic<bool> lodSettleDirty{false};
+
+  public:
+    bool consumeLodSettle() { return lodSettleDirty.exchange(false); }
+
+  private:
+
       std::shared_ptr<const RenderMesh> m_pendingMesh;        // handoff from GUI (shared, no copy)
     std::shared_ptr<const RenderMesh> m_lastUploadedMesh;   // kept for deferred vector-glyph rebuilds
     std::shared_ptr<const RenderMesh> m_pendingIsosurface;  // isosurface handoff (shared, no copy)

@@ -150,17 +150,20 @@ void ViewportWidget::paintGL() {
     m_settings->publishRenderState(scene);
 
     const bool continuous = (scene->autoRotate() || scene->showFps()
-                             || scene->isParticlesAnimating());
+                             || scene->isParticlesAnimating()
+                             || scene->consumeLodSettle());
     if (!m_dirty && !continuous && m_pendingScreenshot.isEmpty()) return;
 
     // Scalar-only re-upload if needed.
     if (scene->consumeScalarDirty() && scene->hasGpuMeshes()) {
+        fprintf(stderr, "[scalar-debug] paintGL: scalar-dirty branch enter\n");
         auto scalars = scene->cachedScalars();
         if (scalars) scene->updateScalarsOnGPU(scalars);
         if (scene->consumeVolumeDirty() && scene->hasVolumeData()) {
             auto volMesh = scene->cachedVolumeMesh();
             if (volMesh) scene->uploadVolumeFromScalarDirty(m_settings->snapshot(), scalars, volMesh);
         }
+        fprintf(stderr, "[scalar-debug] paintGL: scalar-dirty branch exit\n");
     }
 
     // Ensure the persistent display FBO matches the current viewport.
