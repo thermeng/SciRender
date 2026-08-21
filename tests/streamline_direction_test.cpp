@@ -232,6 +232,26 @@ int main(){
     }
 
     // -----------------------------------------------------------------------
+    // 7. Verify compute(): draw count matches 7-float stride, every seed yields a path
+    // -----------------------------------------------------------------------
+    {
+        StreamlineSet set;
+        auto res = set.compute(mesh, 27, 0.05f, 200,
+                               "Wind_Flow", "Volume", "Both",
+                               0.5, 0.0, 10, 10,
+                               false, 5, 0.02f, 0.01f, 0.3f);
+        CHECK(res.seedCount > 0, "compute: seeds produced");
+        CHECK(!res.verts.empty(), "compute: ribbon vertices produced");
+        CHECK(res.lineCount == static_cast<int>(res.verts.size() / 7),
+              "compute: lineCount matches 7-float vertex stride");
+        CHECK(static_cast<int>(res.paths.size()) == res.seedCount,
+              "compute: every surviving seed yields a streamline");
+        bool allLongEnough = true;
+        for (const auto& p : res.paths)
+            if (p.points.size() < 3) { allLongEnough = false; break; }
+        CHECK(allLongEnough, "compute: every path has >= 3 points");
+    }
+    // -----------------------------------------------------------------------
     // Summary
     // -----------------------------------------------------------------------
     if (failures == 0) {
