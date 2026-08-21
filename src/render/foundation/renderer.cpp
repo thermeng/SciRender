@@ -971,6 +971,7 @@ void Renderer::renderFrame() {
         p[2][2] = f / (n - f);
         p[2][3] = -1.0f;
         p[3][2] = n * f / (n - f);
+        p[3][3] = 0.0f;
         return p;
     }();
 
