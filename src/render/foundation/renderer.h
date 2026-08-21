@@ -59,6 +59,9 @@ struct ShaderSources {
     std::string meshVert;
     std::string meshFrag;
     std::string meshClipGeo;
+    std::string meshWireVert;
+    std::string meshWireGeo;
+    std::string meshWireFrag;
     std::string gridVert;
     std::string gridFrag;
     std::string glyphVert;
