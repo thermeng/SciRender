@@ -721,7 +721,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
     std::vector<float> arrowMagnitudes;
 
     const size_t estimatedSegments = seeds.size() * 2 * maxSteps;
-    result.verts.reserve(estimatedSegments * 6 * 9);
+    result.verts.reserve(estimatedSegments * 6 * 7);
     result.seedVerts.reserve(seeds.size() * 3);
     if (showArrows && arrowSpacing > 0) {
         size_t estimatedArrows = estimatedSegments / arrowSpacing;
@@ -917,7 +917,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
     if (mn > mx) { mn = 0.0f; mx = 0.0f; }
     result.magMin = mn;
     result.magMax = mx;
-    result.lineCount = static_cast<int>(result.verts.size() / 9);
+    result.lineCount = static_cast<int>(result.verts.size() / 7);
     result.seedCount = static_cast<int>(seeds.size());
 
     // Generate arrowhead vertices on the CPU (no GL needed).
@@ -926,7 +926,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
         const float arrowRadius = arrowHeight * 0.35f;
         const int segments = 16;
 
-        const size_t floatsPerArrow = segments * 6 * 9;
+        const size_t floatsPerArrow = segments * 6 * 7;
         result.arrowVerts.reserve(arrowPositions.size() * floatsPerArrow);
 
         for (size_t i = 0; i < arrowPositions.size(); ++i) {
