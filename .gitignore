@@ -90,8 +90,9 @@ CMakeLists.txt.user*
 # Ignore vendors
 /vendor/
 
-# Ignore
+# Ignore 
 /.hermes/
+CONTEXT.md
 /.kilo/
 arch_readme.md
 /.vscode/
