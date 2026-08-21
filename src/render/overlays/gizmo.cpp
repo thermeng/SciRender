@@ -344,9 +344,12 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     GLint curClipOrigin = GL_UPPER_LEFT;
     glGetIntegerv(GL_CLIP_ORIGIN, &curClipOrigin);
     glClipControl(static_cast<GLenum>(curClipOrigin), GL_NEGATIVE_ONE_TO_ONE);
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LEQUAL);
-    glDepthMask(GL_TRUE);
+    // Screen-space overlay: never depth-test against the main scene. The main
+    // depth buffer holds scene geometry whose window-z beats the gizmo's fixed
+    // mid-range depth (its ortho maps z=0 to 0.5) under linear orthographic
+    // projection, so mesh fragments covering the corner erased the axes in
+    // parallel camera. Sections below draw in painter order; no depth needed.
+    glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -462,8 +465,6 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     }
 
     // ---- Text labels (per-vertex color, batched: single upload + single draw) ----
-    // Disable depth test for screen-space text labels
-    glDisable(GL_DEPTH_TEST);
     const glm::mat4 textMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
     const float cellU = 1.0f / 3.0f;
     const float glyph = 24.0f;
