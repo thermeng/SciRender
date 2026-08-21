@@ -973,8 +973,9 @@ void Renderer::renderFrame() {
 
     std::vector<std::pair<GLuint, int>> drawList;
     std::vector<int> drawVerts;
+    std::vector<std::pair<GLuint, int>> edgeDrawList;
     if (meshManager.hasMeshes()) {
-        meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawVerts);
+        meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawVerts, &edgeDrawList);
     }
 
     // Isosurface draw list (independent of showSurface): the extractor emits a
@@ -982,6 +983,7 @@ void Renderer::renderFrame() {
     // with the SAME shader/UBO as the surface mesh -- no dedicated program.
     std::vector<std::pair<GLuint, int>> isoDrawList;
     std::vector<int> isoDrawVerts;
+    static const std::vector<std::pair<GLuint, int>> emptyEdges; // isosurface has no cell edges
     if (m_state.showIsosurface && meshManager.hasIsosurfaceMeshes()) {
         meshManager.snapshotIsosurfaceDrawList(isoDrawList,
                                                m_state.useLod,
@@ -993,7 +995,7 @@ void Renderer::renderFrame() {
     colormapSync.apply(m_state, colormap);
 
     if (!drawList.empty() && meshPass.hasProgram()) {
-        auto result =         meshPass.draw(m_state, view, proj, model, drawList, drawVerts, meshManager, colormap);
+        auto result =         meshPass.draw(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap);
         if (!result.transparentMeshes.empty()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);
@@ -1010,6 +1012,7 @@ void Renderer::renderFrame() {
         isoState.showSurface = true;
         auto isoResult = meshPass.draw(isoState, view, proj, model,
                                        isoDrawList, isoDrawVerts,
+                                       emptyEdges,
                                        meshManager, colormap);
         if (!isoResult.transparentMeshes.empty()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

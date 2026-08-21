@@ -18,8 +18,11 @@ struct Mesh {
     GlBuffer nbo;
     GlBuffer ebo;
     GlBuffer sbo;
+    GlVao edgeVao;   // separate VAO sharing VBO/NBO, bound to edge EBO for GL_LINES
+    GlBuffer edgeEbo;
     int indexCount = 0;
     int vertexCount = 0;
+    int edgeCount = 0;  // number of indices in edgeEbo (edge pairs for GL_LINES)
 
     Mesh() = default;
     Mesh(Mesh&&) = default;
@@ -72,9 +75,18 @@ public:
     // where drawCount is the index count for triangle meshes or the vertex count
     // for point meshes; `outMode` carries 0=indexed / 1=points per entry;
     // `outVerts` carries the raw vertex count per entry for GL_POINTS draws.
+    // Snapshots the draw-list under the mutex so the caller can iterate without
+    // the vector being mutated mid-draw. `useLod` + `cameraMoving` select the
+    // decimated set while the camera is in motion. Each entry is (vao, drawCount)
+    // where drawCount is the index count for triangle meshes or the vertex count
+    // for point meshes; `outMode` carries 0=indexed / 1=points per entry;
+    // `outVerts` carries the raw vertex count per entry for GL_POINTS draws.
+    // `outEdges` (optional) receives (edgeVao, edgeCount) pairs for cell-boundary
+    // wireframe; decimated LOD meshes skip edges (edges live only on full-res mesh).
     void snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
-                          bool useLod, bool cameraMoving,
-                          std::vector<int>& outVerts) const;
+                           bool useLod, bool cameraMoving,
+                           std::vector<int>& outVerts,
+                           std::vector<std::pair<GLuint, int>>* outEdges = nullptr) const;
 
     bool hasMeshes() const { return !meshes_.empty(); }
     bool hasDecimated() const { return hasDecimated_; }

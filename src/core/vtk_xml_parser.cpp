@@ -1431,6 +1431,22 @@ private:
             if (dY <= 0) dY = 1;
             if (dZ <= 0) dZ = 1;
             generateStructuredGridSurface(mesh, dX, dY, dZ);
+            int cx = std::max(1, dX - 1), cy = std::max(1, dY - 1), cz = std::max(1, dZ - 1);
+            globalCellToVertices.reserve(static_cast<size_t>(cx) * cy * cz);
+            auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
+            for (int z = 0; z + 1 < dZ; ++z)
+                for (int y = 0; y + 1 < dY; ++y)
+                    for (int x = 0; x + 1 < dX; ++x) {
+                        uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
+                        uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
+                        uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
+                        uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
+                        uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
+                        uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
+                        uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
+                        uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
+                        globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
+                    }
         } else if (datasetType == "IMAGEDATA") {
             int dX = wholeExtent[1] - wholeExtent[0] + 1;
             int dY = wholeExtent[3] - wholeExtent[2] + 1;
@@ -1510,15 +1526,28 @@ private:
                 globalCellToVertices = triangulatePolygons(mesh, polys, numPolys);
             }
             if (!lines.empty()) {
-                triangulateLines(mesh, lines, numLines);
+                auto lineCells = triangulateLines(mesh, lines, numLines);
+                globalCellToVertices.insert(globalCellToVertices.end(),
+                                            lineCells.begin(), lineCells.end());
             }
             if (!strips.empty()) {
-                triangulateTriangleStrips(mesh, strips, numStrips);
+                auto stripCells = triangulateTriangleStrips(mesh, strips, numStrips);
+                globalCellToVertices.insert(globalCellToVertices.end(),
+                                            stripCells.begin(), stripCells.end());
             }
             if (mesh.indices.empty() && !mesh.vertices.empty()) {
                 std::cerr << "VTK XML Parser Warning: POLYDATA has points but no polys/lines/strips; rendering points only." << std::endl;
                 mesh.renderAsPoints = true;
             }
+        }
+
+        // Extract cell-boundary edges for cell-edge wireframe mode. Must run
+        // before computeNormals() (which only appends vertices, so the
+        // pre-split vertex indices remain valid in the final mesh).
+        if (!globalCellToVertices.empty()) {
+            mesh.cellEdgeIndices = mesh_utils::extractCellEdges(globalCellToVertices, cellTypes);
+        } else if (!mesh.indices.empty() && mesh.indices.size() % 3 == 0) {
+            mesh.cellEdgeIndices = mesh_utils::extractTriEdges(mesh.indices);
         }
     }
 
@@ -1758,6 +1787,9 @@ RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes) {
 
         for (uint32_t idx : m.indices) {
             merged.indices.push_back(idx + indexBase);
+        }
+        for (uint32_t idx : m.cellEdgeIndices) {
+            merged.cellEdgeIndices.push_back(idx + indexBase);
         }
 
         if (m.normals.size() == m.vertices.size()) {

@@ -196,6 +196,11 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
     // mesh keeps the looser 1/4096 dedup, so the two stay separate on purpose.
     mesh.flatVerts = std::move(flatVerts);
 
+    // Cell-edge wireframe fallback: STL has no cell topology, so extract
+    // deduplicated triangle edges from the indexed mesh (before computeNormals
+    // splits vertices — indices stay valid after the split).
+    mesh.cellEdgeIndices = mesh_utils::extractTriEdges(mesh.indices);
+
     // Finalize pre-computed bounds (finalizeSurfaceMesh will skip computeBounds
     // via the hasBounds flag). Raw corner bounds equal post-dedup bounds within
     // 1/4096 units — numerically equivalent for axis-aligned bounding box.
@@ -296,6 +301,11 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
     // analyzer; it welds these at trimesh's 1e-8 tolerance. The rendered indexed
     // mesh keeps the looser 1/4096 dedup, so the two stay separate on purpose.
     mesh.flatVerts = std::move(flatVerts);
+
+    // Cell-edge wireframe fallback: STL has no cell topology, so extract
+    // deduplicated triangle edges from the indexed mesh (before computeNormals
+    // splits vertices — indices stay valid after the split).
+    mesh.cellEdgeIndices = mesh_utils::extractTriEdges(mesh.indices);
 
     // Finalize pre-computed bounds (finalizeSurfaceMesh will skip computeBounds
     // via the hasBounds flag). Raw corner bounds equal post-dedup bounds within

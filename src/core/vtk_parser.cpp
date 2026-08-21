@@ -384,9 +384,9 @@ private:
         else {
             mesh_utils::readAsciiValues(file, sizeOfPolysBlock, polyData);
         }
-        mesh.indices.clear();
-        globalCellToVertices = triangulatePolygons(polyData, numPolys);
-        numCells = numPolys;
+        auto cells = triangulatePolygons(polyData, numPolys);
+        globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
+        numCells += numPolys;
     }
 
     void parseVerticesBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
@@ -407,9 +407,9 @@ private:
         else {
             mesh_utils::readAsciiValues(file, sizeOfVertsBlock, vertData);
         }
-        mesh.indices.clear();
-        globalCellToVertices = triangulatePolygons(vertData, numVerts);
-        numCells = numVerts;
+        auto cells = triangulatePolygons(vertData, numVerts);
+        globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
+        numCells += numVerts;
     }
 
 
@@ -432,9 +432,9 @@ private:
             mesh_utils::readAsciiValues(file, sizeOfLinesBlock, lineData);
         }
         // LINES is its own topology source (see parsePolygonsBlock).
-        mesh.indices.clear();
-        globalCellToVertices = triangulateLines(lineData, numLines);
-        numCells = numLines;
+        auto cells = triangulateLines(lineData, numLines);
+        globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
+        numCells += numLines;
     }
 
     void parseTriangleStripsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
@@ -455,11 +455,11 @@ private:
         else {
             mesh_utils::readAsciiValues(file, sizeOfStripsBlock, stripData);
         }
-        mesh.indices.clear();
-        globalCellToVertices = triangulateTriangleStrips(stripData, numStrips);
+        auto cells = triangulateTriangleStrips(stripData, numStrips);
+        globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
         // ponytail: cells are now per-triangle (see triangulateTriangleStrips),
         // so numCells tracks the real cell count, not the raw strip count.
-        numCells = static_cast<int>(globalCellToVertices.size());
+        numCells += static_cast<int>(cells.size());
     }
 
     void parseScalarsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
@@ -1104,6 +1104,15 @@ private:
                 std::cerr << "VTK Parser Warning: POLYDATA has points but no VERTICES/LINES/POLYGONS/TRIANGLE_STRIPS; rendering points only." << std::endl;
                 mesh.renderAsPoints = true; // ponytail: mark as point cloud
             }
+        }
+
+        // Extract cell-boundary edges for cell-edge wireframe mode. Must run
+        // before computeNormals() (which only appends vertices, so the
+        // pre-split vertex indices remain valid in the final mesh).
+        if (!globalCellToVertices.empty()) {
+            mesh.cellEdgeIndices = mesh_utils::extractCellEdges(globalCellToVertices, cellTypes);
+        } else if (!mesh.indices.empty() && mesh.indices.size() % 3 == 0) {
+            mesh.cellEdgeIndices = mesh_utils::extractTriEdges(mesh.indices);
         }
     }
 

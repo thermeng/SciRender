@@ -182,6 +182,39 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
     glNamedBufferData(mesh.ebo, renderMesh.indices.size() * sizeof(unsigned int), renderMesh.indices.data(), GL_STATIC_DRAW);
     glVertexArrayElementBuffer(mesh.vao, mesh.ebo);
 
+    // Cell-edge VAO: shares the same VBO/NBO/SBO vertex bindings as the main
+    // VAO but uses a separate EBO with deduplicated cell-boundary edges for
+    // GL_LINES rendering (ParaView-style wireframe). Indices remain valid
+    // after computeNormals() because it only appends duplicate vertices.
+    if (!renderMesh.cellEdgeIndices.empty()) {
+        mesh.edgeCount = static_cast<int>(renderMesh.cellEdgeIndices.size());
+        glCreateVertexArrays(1, mesh.edgeVao.ptr());
+        glCreateBuffers(1, mesh.edgeEbo.ptr());
+
+        // Replicate the vertex attribute layout (pos at binding 0, normal at 1).
+        glEnableVertexArrayAttrib(mesh.edgeVao, 0);
+        glVertexArrayAttribFormat(mesh.edgeVao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(mesh.edgeVao, 0, 0);
+        glVertexArrayVertexBuffer(mesh.edgeVao, 0, mesh.vbo, 0, 3 * sizeof(float));
+
+        glEnableVertexArrayAttrib(mesh.edgeVao, 1);
+        glVertexArrayAttribFormat(mesh.edgeVao, 1, 3, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayAttribBinding(mesh.edgeVao, 1, 1);
+        glVertexArrayVertexBuffer(mesh.edgeVao, 1, mesh.nbo, 0, 3 * sizeof(float));
+
+        // Optional scalar attribute (binding 2) if present.
+        if (mesh.sbo.has()) {
+            glEnableVertexArrayAttrib(mesh.edgeVao, 2);
+            glVertexArrayAttribFormat(mesh.edgeVao, 2, 1, GL_FLOAT, GL_FALSE, 0);
+            glVertexArrayAttribBinding(mesh.edgeVao, 2, 2);
+            glVertexArrayVertexBuffer(mesh.edgeVao, 2, mesh.sbo, 0, sizeof(float));
+        }
+
+        glNamedBufferData(mesh.edgeEbo, mesh.edgeCount * sizeof(unsigned int),
+                          renderMesh.cellEdgeIndices.data(), GL_STATIC_DRAW);
+        glVertexArrayElementBuffer(mesh.edgeVao, mesh.edgeEbo);
+    }
+
     out.push_back(std::move(mesh));
 }
 
@@ -484,16 +517,25 @@ void MeshGLManager::snapshotIsosurfaceDrawList(std::vector<std::pair<GLuint, int
 }
 
 void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
-                                      bool useLod, bool cameraMoving,
-                                      std::vector<int>& outVerts) const {
+                                       bool useLod, bool cameraMoving,
+                                       std::vector<int>& outVerts,
+                                       std::vector<std::pair<GLuint, int>>* outEdges) const {
     std::lock_guard<std::mutex> lock(mutex_);
     const std::vector<Mesh>& src =
         (useLod && cameraMoving && hasDecimated_) ? decimatedMeshes_ : meshes_;
     out.reserve(src.size());
     outVerts.reserve(src.size());
+    if (outEdges) outEdges->reserve(meshes_.size());
     for (const auto& m : src) {
         out.push_back({m.vao.get(), m.indexCount});
         outVerts.push_back(m.vertexCount);
+        // Edges are only on full-resolution meshes (decimated LOD meshes skip
+        // edge rendering, matching ParaView's LOD wireframe behavior). When
+        // using LOD, outEdges stays empty so the renderer falls back to
+        // triangle-edge wireframe for the LOD mesh.
+        if (outEdges && m.edgeCount > 0) {
+            outEdges->push_back({m.edgeVao.get(), m.edgeCount});
+        }
     }
 }
 
