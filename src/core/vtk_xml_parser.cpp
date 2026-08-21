@@ -1,4 +1,5 @@
 #include "core/mesh_loader.h"
+#include "core/vtk_common.h"
 #include "pugixml.hpp"
 #include <lz4.h>
 #include <LzmaDec.h>
@@ -452,339 +453,6 @@ static void convertBytesToInt64(const std::vector<char>& bytes, VtkType t, bool 
 // ============================================================================
 // Topology helpers (standalone versions of legacy parser internals)
 // ============================================================================
-
-static void generateStructuredGridSurface(RenderMesh& mesh, int dX, int dY, int dZ) {
-    std::vector<std::vector<uint32_t>> cellToVertices;
-    auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
-    auto addQuad = [&](int a, int b, int c, int d) {
-        mesh.indices.push_back(static_cast<uint32_t>(a));
-        mesh.indices.push_back(static_cast<uint32_t>(b));
-        mesh.indices.push_back(static_cast<uint32_t>(c));
-        mesh.indices.push_back(static_cast<uint32_t>(a));
-        mesh.indices.push_back(static_cast<uint32_t>(c));
-        mesh.indices.push_back(static_cast<uint32_t>(d));
-        cellToVertices.push_back({
-            static_cast<uint32_t>(a), static_cast<uint32_t>(b),
-            static_cast<uint32_t>(c), static_cast<uint32_t>(d)
-        });
-    };
-
-    int cx = std::max(1, dX - 1);
-    int cy = std::max(1, dY - 1);
-    int cz = std::max(1, dZ - 1);
-
-    const bool is3D = (dX > 1 && dY > 1 && dZ > 1);
-    if (is3D) {
-        for (int y = 0; y < cy; ++y)
-            for (int x = 0; x < cx; ++x)
-                addQuad(idx(x, y, 0), idx(x, y + 1, 0), idx(x + 1, y + 1, 0), idx(x + 1, y, 0));
-        for (int y = 0; y < cy; ++y)
-            for (int x = 0; x < cx; ++x)
-                addQuad(idx(x, y, dZ - 1), idx(x + 1, y, dZ - 1), idx(x + 1, y + 1, dZ - 1), idx(x, y + 1, dZ - 1));
-        for (int z = 0; z < cz; ++z)
-            for (int y = 0; y < cy; ++y)
-                addQuad(idx(0, y, z), idx(0, y, z + 1), idx(0, y + 1, z + 1), idx(0, y + 1, z));
-        for (int z = 0; z < cz; ++z)
-            for (int y = 0; y < cy; ++y)
-                addQuad(idx(dX - 1, y, z), idx(dX - 1, y + 1, z), idx(dX - 1, y + 1, z + 1), idx(dX - 1, y, z + 1));
-        for (int z = 0; z < cz; ++z)
-            for (int x = 0; x < cx; ++x)
-                addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
-        for (int z = 0; z < cz; ++z)
-            for (int x = 0; x < cx; ++x)
-                addQuad(idx(x, dY - 1, z), idx(x, dY - 1, z + 1), idx(x + 1, dY - 1, z + 1), idx(x + 1, dY - 1, z));
-    } else if (dZ == 1) {
-        for (int y = 0; y + 1 < dY; ++y)
-            for (int x = 0; x + 1 < dX; ++x)
-                addQuad(idx(x, y, 0), idx(x + 1, y, 0), idx(x + 1, y + 1, 0), idx(x, y + 1, 0));
-    } else if (dY == 1) {
-        for (int z = 0; z + 1 < dZ; ++z)
-            for (int x = 0; x + 1 < dX; ++x)
-                addQuad(idx(x, 0, z), idx(x + 1, 0, z), idx(x + 1, 0, z + 1), idx(x, 0, z + 1));
-    } else if (dX == 1) {
-        for (int z = 0; z + 1 < dZ; ++z)
-            for (int y = 0; y + 1 < dY; ++y)
-                addQuad(idx(0, y, z), idx(0, y + 1, z), idx(0, y + 1, z + 1), idx(0, y, z + 1));
-    }
-    (void)cellToVertices;
-}
-
-static std::vector<std::vector<uint32_t>> triangulatePolygons(RenderMesh& mesh,
-                                                              const std::vector<int64_t>& rawPolygonData,
-                                                              int numPolys) {
-    int idx = 0;
-    std::vector<std::vector<uint32_t>> cellToVertices(numPolys);
-    for (int p = 0; p < numPolys; ++p) {
-        if (idx >= static_cast<int>(rawPolygonData.size())) break;
-        int nPoints = rawPolygonData[idx++];
-        if (nPoints < 0 || idx + nPoints > static_cast<int>(rawPolygonData.size())) break;
-        for (int i = 0; i < nPoints; ++i) {
-            cellToVertices[p].push_back(static_cast<uint32_t>(rawPolygonData[idx + i]));
-        }
-        for (int i = 1; i < nPoints - 1; ++i) {
-            mesh.indices.push_back(static_cast<uint32_t>(rawPolygonData[idx + 0]));
-            mesh.indices.push_back(static_cast<uint32_t>(rawPolygonData[idx + i]));
-            mesh.indices.push_back(static_cast<uint32_t>(rawPolygonData[idx + i + 1]));
-        }
-        idx += nPoints;
-    }
-    return cellToVertices;
-}
-
-static std::vector<std::vector<uint32_t>> triangulateTriangleStrips(RenderMesh& mesh,
-                                                                     const std::vector<int64_t>& rawStripData,
-                                                                     int numStrips) {
-    std::vector<std::vector<uint32_t>> cellToVertices;
-    cellToVertices.reserve(numStrips > 0 ? numStrips * 3 : 0);
-    int idx = 0;
-    for (int s = 0; s < numStrips; ++s) {
-        if (idx >= static_cast<int>(rawStripData.size())) break;
-        int nPoints = rawStripData[idx++];
-        if (nPoints < 0 || idx + nPoints > static_cast<int>(rawStripData.size())) break;
-        for (int i = 0; i < nPoints - 2; ++i) {
-            uint32_t i0 = static_cast<uint32_t>(rawStripData[idx + i]);
-            uint32_t i1 = static_cast<uint32_t>(rawStripData[idx + i + 1]);
-            uint32_t i2 = static_cast<uint32_t>(rawStripData[idx + i + 2]);
-            cellToVertices.push_back({ i0, i1, i2 });
-            if (i % 2 == 0) mesh.indices.insert(mesh.indices.end(), { i0, i1, i2 });
-            else mesh.indices.insert(mesh.indices.end(), { i0, i2, i1 });
-        }
-        idx += nPoints;
-    }
-    return cellToVertices;
-}
-
-static std::vector<std::vector<uint32_t>> triangulateLines(RenderMesh& mesh,
-                                                            const std::vector<int64_t>& rawLineData,
-                                                            int numLines) {
-    int idx = 0;
-    std::vector<std::vector<uint32_t>> cellToVertices(numLines);
-    for (int l = 0; l < numLines; ++l) {
-        if (idx >= static_cast<int>(rawLineData.size())) break;
-        int nPoints = rawLineData[idx++];
-        if (nPoints < 0 || idx + nPoints > static_cast<int>(rawLineData.size())) break;
-        for (int i = 0; i < nPoints; ++i) {
-            cellToVertices[l].push_back(static_cast<uint32_t>(rawLineData[idx + i]));
-        }
-        for (int i = 0; i + 1 < nPoints; ++i) {
-            uint32_t a = static_cast<uint32_t>(rawLineData[idx + i]);
-            uint32_t b = static_cast<uint32_t>(rawLineData[idx + i + 1]);
-            mesh.indices.insert(mesh.indices.end(), { a, b });
-        }
-        idx += nPoints;
-    }
-    return cellToVertices;
-}
-
-static std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
-    RenderMesh& mesh,
-    const std::vector<int64_t>& rawCellData,
-    const std::vector<int64_t>& cellTypes,
-    int totalCells) {
-    mesh.indices.clear();
-    std::vector<std::vector<uint32_t>> cellToVertices(totalCells);
-    int idx = 0;
-    for (int c = 0; c < totalCells; ++c) {
-        if (idx >= static_cast<int>(rawCellData.size())) break;
-        int numPointsInCell = rawCellData[idx++];
-        if (numPointsInCell < 0 || idx + numPointsInCell > static_cast<int>(rawCellData.size())) break;
-        for (int i = 0; i < numPointsInCell; ++i) {
-            cellToVertices[c].push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-        }
-        int type = (c < static_cast<int>(cellTypes.size())) ? cellTypes[c] : 0;
-        if (type == 0) {
-            if (numPointsInCell == 3) type = 5;
-            if (numPointsInCell == 4) type = 10;
-            if (numPointsInCell == 8) type = 12;
-        }
-        switch (type) {
-        case 1:  // VTK_VERTEX
-            break;
-        case 2:  // VTK_POLY_VERTEX
-            break;
-        case 3:  // VTK_LINE
-            break;
-        case 4:  // VTK_POLY_LINE
-            break;
-        case 5:
-            if (idx + 2 < static_cast<int>(rawCellData.size())) {
-                mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
-                mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 1]));
-                mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 2]));
-            }
-            break;
-        case 6: {  // VTK_TRIANGLE_STRIP
-            for (int i = 0; i + 2 < numPointsInCell; ++i) {
-                if (idx + i + 2 < static_cast<int>(rawCellData.size())) {
-                    if (i & 1) {
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 2]));
-                    } else {
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 2]));
-                    }
-                }
-            }
-            break;
-        }
-        case 7: {  // VTK_POLYGON (triangle fan)
-            for (int i = 1; i < numPointsInCell - 1; ++i) {
-                if (idx + i + 1 < static_cast<int>(rawCellData.size())) {
-                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
-                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
-                }
-            }
-            break;
-        }
-        case 8: {  // VTK_PIXEL (rectangle)
-            // VTK_PIXEL ordering: i0=BL, i1=BR, i2=TL, i3=TR
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), { i0, i2, i1, i0, i1, i3 });
-            }
-            break;
-        }
-        case 9: {  // VTK_VOXEL (8 vertices, reordered to hex)
-            if (idx + 7 < static_cast<int>(rawCellData.size())) {
-                uint32_t h0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t h1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t h2 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t h3 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t h4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                uint32_t h5 = static_cast<uint32_t>(rawCellData[idx + 5]);
-                uint32_t h6 = static_cast<uint32_t>(rawCellData[idx + 7]);
-                uint32_t h7 = static_cast<uint32_t>(rawCellData[idx + 6]);
-                cellToVertices[c] = {h0, h1, h2, h3, h4, h5, h6, h7};
-                mesh.indices.insert(mesh.indices.end(), {
-                    h0, h3, h1, h1, h3, h2, h4, h5, h7, h5, h6, h7,
-                    h0, h1, h4, h1, h5, h4, h2, h3, h6, h3, h7, h6,
-                    h0, h4, h3, h3, h4, h7, h1, h2, h5, h2, h6, h5
-                });
-            }
-            break;
-        }
-        case 10:  // VTK_QUAD (4 vertices, triangle fan)
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
-            }
-            break;
-        case 11:  // VTK_TETRA (4 vertices)
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1,
-                    i0, i1, i3,
-                    i1, i2, i3,
-                    i2, i0, i3
-                });
-            }
-            break;
-        case 12:  // VTK_HEXAHEDRON (8 vertices, in order)
-            if (idx + 7 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                uint32_t i5 = static_cast<uint32_t>(rawCellData[idx + 5]);
-                uint32_t i6 = static_cast<uint32_t>(rawCellData[idx + 6]);
-                uint32_t i7 = static_cast<uint32_t>(rawCellData[idx + 7]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i3, i1, i1, i3, i2, i4, i5, i7, i5, i6, i7,
-                    i0, i1, i4, i1, i5, i4, i2, i3, i6, i3, i7, i6,
-                    i0, i4, i3, i3, i4, i7, i1, i2, i5, i2, i6, i5
-                });
-            }
-            break;
-        case 13: {  // VTK_PYRAMID (5 vertices)
-            if (idx + 4 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1, i0, i3, i2,
-                    i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
-                });
-            }
-            break;
-        }
-        case 14: {  // VTK_WEDGE (triangular prism, 6 vertices)
-            if (idx + 5 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                uint32_t i5 = static_cast<uint32_t>(rawCellData[idx + 5]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1,
-                    i3, i4, i5,
-                    i0, i1, i4, i0, i4, i3,
-                    i1, i2, i5, i1, i5, i4,
-                    i2, i0, i3, i2, i3, i5
-                });
-            }
-            break;
-        }
-        case 15: {  // VTK_PENTAGONAL_PRISM (10 vertices)
-            if (idx + 9 < static_cast<int>(rawCellData.size())) {
-                uint32_t v0 = static_cast<uint32_t>(rawCellData[idx + 0]);
-                uint32_t v1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t v2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t v3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t v4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                uint32_t v5 = static_cast<uint32_t>(rawCellData[idx + 5]);
-                uint32_t v6 = static_cast<uint32_t>(rawCellData[idx + 6]);
-                uint32_t v7 = static_cast<uint32_t>(rawCellData[idx + 7]);
-                uint32_t v8 = static_cast<uint32_t>(rawCellData[idx + 8]);
-                uint32_t v9 = static_cast<uint32_t>(rawCellData[idx + 9]);
-                cellToVertices[c] = {v0, v1, v2, v3, v4, v5, v6, v7, v8, v9};
-                mesh.indices.insert(mesh.indices.end(), {
-                    v5, v7, v6, v5, v8, v7, v5, v9, v8,
-                    v4, v2, v3, v4, v3, v1, v4, v1, v0,
-                    v0, v1, v6, v0, v6, v5,
-                    v1, v2, v7, v1, v7, v6,
-                    v2, v3, v8, v2, v8, v7,
-                    v3, v4, v9, v3, v9, v8,
-                    v0, v5, v9, v0, v9, v4
-                });
-            }
-            break;
-        }
-        default:
-            if (type >= 21) {
-                VTK_XML_WARN("Skipping unsupported higher-order cell type " << type
-                            << " (requires subdivision/refinement)");
-            } else {
-                for (int i = 1; i < numPointsInCell - 1; ++i) {
-                    if (idx + i + 1 < static_cast<int>(rawCellData.size())) {
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
-                    }
-                }
-            }
-            break;
-        }
-        idx += numPointsInCell;
-    }
-    return cellToVertices;
-}
 
 // extrapolateCellDataToPointsMerged is now in mesh_utils (shared implementation).
 
@@ -1407,7 +1075,7 @@ private:
     // Topology / finalize
     // ========================================================================
 
-     void buildTopology() {
+    void buildTopology() {
         if (datasetType == "UNSTRUCTUREDGRID" && !connectivity.empty() && !offsets.empty() && !cellTypes.empty()) {
             mesh.vertices = points;
             // Convert XML connectivity+offsets+types to legacy flat cell format
@@ -1421,7 +1089,7 @@ private:
                 }
             }
             int totalCells = static_cast<int>(offsets.size());
-            globalCellToVertices = triangulateUnstructuredCells(mesh, legacyCells, cellTypes, totalCells);
+            globalCellToVertices = vtk_common::triangulateUnstructuredCells(mesh, legacyCells, cellTypes, totalCells);
         } else if (datasetType == "STRUCTUREDGRID" && !points.empty()) {
             mesh.vertices = points;
             int dX = wholeExtent[1] - wholeExtent[0] + 1;
@@ -1430,23 +1098,8 @@ private:
             if (dX <= 0) dX = 1;
             if (dY <= 0) dY = 1;
             if (dZ <= 0) dZ = 1;
-            generateStructuredGridSurface(mesh, dX, dY, dZ);
-            int cx = std::max(1, dX - 1), cy = std::max(1, dY - 1), cz = std::max(1, dZ - 1);
-            globalCellToVertices.reserve(static_cast<size_t>(cx) * cy * cz);
-            auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
-            for (int z = 0; z + 1 < dZ; ++z)
-                for (int y = 0; y + 1 < dY; ++y)
-                    for (int x = 0; x + 1 < dX; ++x) {
-                        uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
-                        uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
-                        uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
-                        uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
-                        uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
-                        uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
-                        uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
-                        uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
-                        globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
-                    }
+            vtk_common::generateStructuredGridSurface(mesh, dX, dY, dZ);
+            globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
         } else if (datasetType == "IMAGEDATA") {
             int dX = wholeExtent[1] - wholeExtent[0] + 1;
             int dY = wholeExtent[3] - wholeExtent[2] + 1;
@@ -1469,23 +1122,8 @@ private:
             if (!points.empty() && points.size() == mesh.vertices.size()) {
                 mesh.vertices = points;
             }
-            generateStructuredGridSurface(mesh, dX, dY, dZ);
-            int cx = std::max(1, dX - 1), cy = std::max(1, dY - 1), cz = std::max(1, dZ - 1);
-            globalCellToVertices.reserve(static_cast<size_t>(cx) * cy * cz);
-            auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
-            for (int z = 0; z + 1 < dZ; ++z)
-                for (int y = 0; y + 1 < dY; ++y)
-                    for (int x = 0; x + 1 < dX; ++x) {
-                        uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
-                        uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
-                        uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
-                        uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
-                        uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
-                        uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
-                        uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
-                        uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
-                         globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
-                     }
+            vtk_common::generateStructuredGridSurface(mesh, dX, dY, dZ);
+            globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
             mesh.renderAsPoints = true;
         } else if (datasetType == "RECTILINEARGRID" && !rectX.empty() && !rectY.empty() && !rectZ.empty()) {
             int dX = static_cast<int>(rectX.size());
@@ -1503,35 +1141,20 @@ private:
                     }
                 }
             }
-            generateStructuredGridSurface(mesh, dX, dY, dZ);
-            int cx = std::max(1, dX - 1), cy = std::max(1, dY - 1), cz = std::max(1, dZ - 1);
-            globalCellToVertices.reserve(static_cast<size_t>(cx) * cy * cz);
-            auto idx = [&](int x, int y, int z) { return x + y * dX + z * dX * dY; };
-            for (int z = 0; z + 1 < dZ; ++z)
-                for (int y = 0; y + 1 < dY; ++y)
-                    for (int x = 0; x + 1 < dX; ++x) {
-                        uint32_t i0 = static_cast<uint32_t>(idx(x, y, z));
-                        uint32_t i1 = static_cast<uint32_t>(idx(x + 1, y, z));
-                        uint32_t i2 = static_cast<uint32_t>(idx(x + 1, y + 1, z));
-                        uint32_t i3 = static_cast<uint32_t>(idx(x, y + 1, z));
-                        uint32_t i4 = static_cast<uint32_t>(idx(x, y, z + 1));
-                        uint32_t i5 = static_cast<uint32_t>(idx(x + 1, y, z + 1));
-                        uint32_t i6 = static_cast<uint32_t>(idx(x + 1, y + 1, z + 1));
-                        uint32_t i7 = static_cast<uint32_t>(idx(x, y + 1, z + 1));
-                         globalCellToVertices.push_back({ i0, i1, i2, i3, i4, i5, i6, i7 });
-                     }
+            vtk_common::generateStructuredGridSurface(mesh, dX, dY, dZ);
+            globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
         } else if (datasetType == "POLYDATA") {
             mesh.vertices = points;
             if (!polys.empty()) {
-                globalCellToVertices = triangulatePolygons(mesh, polys, numPolys);
+                globalCellToVertices = vtk_common::triangulatePolygons(mesh, polys, numPolys);
             }
             if (!lines.empty()) {
-                auto lineCells = triangulateLines(mesh, lines, numLines);
+                auto lineCells = vtk_common::triangulateLines(mesh, lines, numLines);
                 globalCellToVertices.insert(globalCellToVertices.end(),
                                             lineCells.begin(), lineCells.end());
             }
             if (!strips.empty()) {
-                auto stripCells = triangulateTriangleStrips(mesh, strips, numStrips);
+                auto stripCells = vtk_common::triangulateTriangleStrips(mesh, strips, numStrips);
                 globalCellToVertices.insert(globalCellToVertices.end(),
                                             stripCells.begin(), stripCells.end());
             }
@@ -1540,7 +1163,6 @@ private:
                 mesh.renderAsPoints = true;
             }
         }
-
         // Extract cell-boundary edges for cell-edge wireframe mode. Must run
         // before computeNormals() (which only appends vertices, so the
         // pre-split vertex indices remain valid in the final mesh).
@@ -1552,85 +1174,10 @@ private:
     }
 
     void finalizeMeshData() {
-        if (mesh.vertices.empty()) {
-            std::cerr << "VTK XML Parser Error: Empty data sequence." << std::endl;
-            return;
-        }
-        if (mesh.indices.empty() && datasetType != "POLYDATA" && !mesh.renderAsPoints) {
-            std::cerr << "VTK XML Parser Error: topology produced no triangles and not a point set; mesh will not render." << std::endl;
-            return;
-        }
-
-        {
-            uint32_t vCount = static_cast<uint32_t>(mesh.vertices.size() / 3);
-            bool badIndex = false;
-            for (uint32_t idx : mesh.indices) {
-                if (idx >= vCount) { badIndex = true; break; }
-            }
-            if (badIndex) {
-                std::cerr << "VTK XML Parser Error: topology references vertex index >= vertex count ("
-                          << vCount << "); dropping indices." << std::endl;
-                mesh.indices.clear();
-                return;
-            }
-        }
-
-        mesh_utils::extrapolateCellDataToPoints(mesh, globalCellToVertices, cellScalarsStorage, cellVectorsStorage);
-
-        if (mesh.attributes.has_value()) {
-            size_t perVertex = mesh.vertices.size() / 3;
-            mesh.pointVectorCount = perVertex;
-            for (const auto& [name, vecArr] : mesh.attributes->pointVectors) {
-                if (vecArr.size() < perVertex * 3) continue;
-                mesh.pointVectorOffset[name] = mesh.pointVectorsData.size();
-                for (size_t v = 0; v < perVertex; ++v) {
-                    mesh.pointVectorsData.emplace_back(
-                        vecArr[v * 3 + 0], vecArr[v * 3 + 1], vecArr[v * 3 + 2]);
-                }
-            }
-        }
-
-        bool hasAttributes = mesh.attributes.has_value();
-        if (hasAttributes && !mesh.attributes->pointScalars.empty()) {
-            if (mesh.scalarName.empty() || !mesh.attributes->pointScalars.count(mesh.scalarName)) {
-                mesh.scalarName = mesh.attributes->pointScalars.begin()->first;
-            }
-            const std::vector<float>& active = mesh.attributes->pointScalars[mesh.scalarName];
-            size_t vCount = mesh.vertices.size() / 3;
-            if (!active.empty() && active.size() == vCount) {
-                mesh.scalars = active;
-            } else {
-                std::cerr << "VTK XML Parser Warning: active scalar '" << mesh.scalarName
-                          << "' is not 1-component per vertex; scalar coloring disabled." << std::endl;
-                mesh.scalars.clear();
-            }
-        } else {
-            mesh.scalars.clear();
-        }
-
-        if (hasAttributes) {
-            for (const auto& [name, _] : mesh.attributes->pointScalars) {
-                mesh.availableScalarNames.push_back(name);
-            }
-            for (const auto& [name, _] : mesh.attributes->pointVectors) {
-                mesh.availableVectorNames.push_back(name);
-            }
-            std::sort(mesh.availableScalarNames.begin(), mesh.availableScalarNames.end());
-            std::sort(mesh.availableVectorNames.begin(), mesh.availableVectorNames.end());
-        }
-        if (mesh.vectorName.empty() && !mesh.availableVectorNames.empty()) {
-            mesh.vectorName = mesh.availableVectorNames.front();
-        }
-
-        mesh_utils::computeBounds(mesh);
-        mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
-
-        // flatVerts is now lazily computed via ensureFlatVerts() — only built
-        // when mesh_quality analysis actually runs, saving 3x index-count memory.
-
-        if (mesh.normals.empty() && !mesh.indices.empty()) {
-            mesh_utils::computeNormals(mesh);
-        }
+        vtk_common::FinalizeContext ctx{
+            globalCellToVertices, cellScalarsStorage, cellVectorsStorage,
+            "VTK XML Parser", datasetType};
+        vtk_common::finalizeVTKMesh(mesh, ctx);
     }
 
     // ========================================================================
@@ -1829,6 +1376,34 @@ RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes) {
     }
 
     merged.pointVectorCount = maxVectorCount;
+
+    // Rebase per-piece sharp-edge split maps into the merged vertex space.
+    // Pieces without a map contribute identity entries so the merged map is
+    // either empty (no piece split) or total over all merged vertices.
+    {
+        bool anySplit = false;
+        size_t totalVerts = 0;
+        for (const RenderMesh& m : meshes) {
+            anySplit = anySplit || !m.vertexSourceIndex.empty();
+            totalVerts += m.vertices.size() / 3;
+        }
+        if (anySplit) {
+            merged.vertexSourceIndex.resize(totalVerts);
+            size_t base = 0;
+            for (const RenderMesh& m : meshes) {
+                const size_t n = m.vertices.size() / 3;
+                if (m.vertexSourceIndex.empty()) {
+                    for (size_t i = 0; i < n; ++i)
+                        merged.vertexSourceIndex[base + i] = static_cast<uint32_t>(base + i);
+                } else {
+                    for (size_t i = 0; i < n; ++i)
+                        merged.vertexSourceIndex[base + i] =
+                            static_cast<uint32_t>(base + m.vertexSourceIndex[i]);
+                }
+                base += n;
+            }
+        }
+    }
 
     // Merge attributes
     if (meshes[0].attributes.has_value()) {

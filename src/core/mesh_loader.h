@@ -197,6 +197,16 @@ struct RenderMesh {
         }
     }
 
+    // Per-rendered-vertex source index for scalar fields. Identity for the
+    // original vertices; for duplicates created by computeNormals()'s
+    // sharp-edge splitting, the index of the source vertex whose attributes
+    // (scalar value) the duplicate carries. Populated by computeNormals();
+    // empty when no split occurred (identity implied). Scalar re-uploads that
+    // arrive in the pre-split per-node index space — e.g. a field read
+    // straight from attributes->pointScalars — are gathered through this map
+    // so the GPU scalar buffer always matches the post-split vertex count.
+    std::vector<uint32_t> vertexSourceIndex;
+
     // True/topological point count of the source geometry — the number of
     // distinct vertices (after position dedup for STL). This is what tools like
     // ParaView report. It must be captured BEFORE computeNormals() splits sharp

@@ -1,0 +1,23 @@
+# vtk DataFile Version 3.0
+Cell-data seam fixture: 2 disjoint tets, cell scalars + cell vectors (matches UNSTRUCTURED_GRID_xml_celldata_ascii.vtu)
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 8 float
+0 0 0  1 0 0  0 1 0  0 0 1  2 0 0  3 0 0  2 1 0  2 0 1
+CELLS 2 10
+4 0 1 2 3
+4 4 5 6 7
+CELL_TYPES 2
+11
+11
+POINT_DATA 8
+SCALARS temperature float 1
+LOOKUP_TABLE default
+100 200 300 400 500 600 700 800
+CELL_DATA 2
+SCALARS pressure float 1
+LOOKUP_TABLE default
+10 20
+VECTORS cellVelocity float
+1 0 0
+0 1 0
