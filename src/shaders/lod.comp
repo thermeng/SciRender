@@ -70,7 +70,8 @@ void main() {
 
     vec3 p = vec3(inPos[vid * 3u], inPos[vid * 3u + 1u], inPos[vid * 3u + 2u]);
     ivec3 cpa = ivec3(cellsPerAxis.xyz);
-    vec3 range = boundsMax.xyz - boundsMin.xyz;
+    // Guard flat axes (extent 0) so the division cannot produce NaN.
+    vec3 range = max(boundsMax.xyz - boundsMin.xyz, vec3(1e-12));
     vec3 cellCoord = (p - boundsMin.xyz) / range * vec3(cpa);
     ivec3 cell = ivec3(clamp(floor(cellCoord), ivec3(0), cpa - 1));
 

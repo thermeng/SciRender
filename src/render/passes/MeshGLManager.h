@@ -103,10 +103,11 @@ public:
     const std::string& lastLodError() const { return lastLodError_; }
 
     // Replace the first decimated mesh with a new one (used after compute LOD).
+    // Locking variant for callers outside meshManager.mutex_.
     void replaceDecimatedMesh(int index, Mesh newMesh) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (index < 0 || index >= static_cast<int>(decimatedMeshes_.size())) return;
-        decimatedMeshes_[index] = std::move(newMesh);
+        replaceDecimatedMeshLocked(index, std::move(newMesh));
+        decimatedFromGpu_ = true;
     }
 
     // GPU-upload-due flag, set by the loader and consumed by the render thread.
@@ -114,6 +115,11 @@ public:
 
 private:
     void buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>& out);
+    // Unlocked variant — callers already holding mutex_ (updateScalars).
+    void replaceDecimatedMeshLocked(int index, Mesh newMesh) {
+        if (index < 0 || index >= static_cast<int>(decimatedMeshes_.size())) return;
+        decimatedMeshes_[index] = std::move(newMesh);
+    }
     // Coarse vertex-clustering decimation; empty result when not worthwhile.
     static RenderMesh decimate(const RenderMesh& in);
 
@@ -129,10 +135,17 @@ private:
     // shared_ptr (NOT a copy) so only one heavy CPU copy of the geometry exists.
     std::shared_ptr<const RenderMesh> fullSource_;
     bool hasFullSource_ = false;
+    // Logs once when a scalar payload matches neither the post-split vertex
+    // count nor the pre-split source-node count (caller contract violation).
+    bool warnedScalarSpaceMismatch_ = false;
 
      std::vector<Mesh> meshes_;
     std::vector<Mesh> decimatedMeshes_;
     bool hasDecimated_ = false;
+    // True while decimatedMeshes_[0] came from the GPU compute pass — its
+    // vertex order cannot be reproduced by the CPU clusterer, so a scalar-only
+    // re-upload must rebuild it (see updateScalars).
+    bool decimatedFromGpu_ = false;
 
     // Isosurface (marching-cubes) GPU meshes. Mirrors meshes_/decimatedMeshes_
     // but kept separate so isosurface visibility is independent of showSurface.

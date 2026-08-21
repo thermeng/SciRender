@@ -99,7 +99,14 @@ void main() {
         clipped = clipX || clipY || clipZ;
     }
     bool hasScalars = uScalars.z > 0.5;
-    bool filterScalar = hasScalars && (mv.vScalar < uFilter.x || mv.vScalar > uFilter.y);
+    // Tolerance scaled to the data range: the filter window snaps to the data
+    // min/max on every field switch, so extreme-value faces sit EXACTLY on the
+    // bound. Perspective-correct interpolation then produces sub-ULP excursions
+    // (e.g. -5.0000004 for a field pinned at -5) which a bare comparison turns
+    // into discarded fragments — pinholes showing the far side as red/white
+    // speckles. Driver-dependent, hence GPU-specific visibility.
+    float filterEps = 1e-5 * abs(uScalars.y - uScalars.x) + 1e-9;
+    bool filterScalar = hasScalars && (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
     clipped = clipped || filterScalar;
 
     if (clipped) {
