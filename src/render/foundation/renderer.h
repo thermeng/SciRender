@@ -102,6 +102,7 @@ struct RenderRenderState {
 
     // Display toggles
     bool showWireframe = false;
+    bool cellWireframe = false; // cell-boundary wireframe (ParaView style); falls back to triangle-edge when false
     bool showSurface = true;
     bool showGrid = false;
     int gridAxis = 1; // 0=X Min, 1=X Max, 2=Y Min, 3=Y Max, 4=Z Min, 5=Z Max

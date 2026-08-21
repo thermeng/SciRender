@@ -29,13 +29,14 @@ void MeshPass::init(const ShaderSources& sources) {
 }
 
 MeshPassResult MeshPass::draw(const RenderRenderState& state,
-                               const glm::mat4& view,
-                               const glm::mat4& proj,
-                               const glm::mat4& model,
-                               const std::vector<std::pair<GLuint, int>>& drawList,
-                               const std::vector<int>& drawVerts,
-                               const MeshGLManager& meshManager,
-                               const ColormapManager& colormap) {
+                                const glm::mat4& view,
+                                const glm::mat4& proj,
+                                const glm::mat4& model,
+                                const std::vector<std::pair<GLuint, int>>& drawList,
+                                const std::vector<int>& drawVerts,
+                                const std::vector<std::pair<GLuint, int>>& edgeDrawList,
+                                const MeshGLManager& meshManager,
+                                const ColormapManager& colormap) {
     MeshPassResult result;
 
      if (!meshManager.hasMeshes() || !shaderProgram.has()) return result;
@@ -100,12 +101,12 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
         const bool opaque = state.surfaceOpacity >= 1.0f;
         if (opaque) {
             drawOpaque(state, drawList);
-            drawOverlays(state, ubo, drawList, drawVerts, meshManager);
+            drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
         } else {
             result.transparentMeshes = drawList;
         }
     } else {
-        drawOverlays(state, ubo, drawList, drawVerts, meshManager);
+        drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
     }
 
     glUseProgram(0);
@@ -135,12 +136,44 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
                             MeshUBOData& ubo,
                             const std::vector<std::pair<GLuint, int>>& drawList,
                             const std::vector<int>& drawVerts,
+                            const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                             const MeshGLManager& meshManager) {
     const bool useCrinkleClip = state.crinkleClipMode && clipShaderProgram.has();
+
+    // ── Cell-boundary wireframe (GL_LINES via edge VAOs) ──────────────────────
+    // When cellWireframe is enabled and edge VAOs are available, render cell
+    // edges directly instead of the triangle-edge (glPolygonMode GL_LINE)
+    // fallback. Decimated LOD meshes have no edge VAOs, so they fall through
+    // to the per-mesh GL_LINE approach below.
+    if (state.showWireframe && state.cellWireframe && !edgeDrawList.empty()) {
+        GLStateGuard guard;
+        glLineWidth(state.lineWidth);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glEnable(GL_POLYGON_OFFSET_LINE);
+        glPolygonOffset(-1.0f, -1.0f);
+
+        ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 1.0f);
+        glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+
+        for (const auto& e : edgeDrawList) {
+            if (e.second <= 0) continue;
+            glBindVertexArray(e.first);
+            glDrawElements(GL_LINES, e.second, GL_UNSIGNED_INT, 0);
+        }
+        glBindVertexArray(0);
+
+        ubo.meshColor_wire.w = 0.0f;
+        glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+        glDisable(GL_POLYGON_OFFSET_LINE);
+        glLineWidth(1.0f);
+    }
+
+    // ── Per-mesh overlay pass (triangle-edge wireframe + points) ─────────────
+    const bool useCellEdges = state.showWireframe && state.cellWireframe && !edgeDrawList.empty();
     for (size_t di = 0; di < drawList.size(); ++di) {
         glBindVertexArray(drawList[di].first);
 
-        if (state.showWireframe) {
+        if (state.showWireframe && !useCellEdges) {
             glLineWidth(state.lineWidth);
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             glEnable(GL_POLYGON_OFFSET_LINE);

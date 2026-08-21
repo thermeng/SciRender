@@ -136,6 +136,7 @@ private:
 
     // View & Display page checkboxes (synced with quick bar / keyboard shortcuts)
     QCheckBox* m_vdWireframeCb = nullptr;
+    QCheckBox* m_vdCellWireframeCb = nullptr;
     QCheckBox* m_vdGridCb = nullptr;
     QComboBox* m_vdGridPosCombo = nullptr;
     QCheckBox* m_vdGridShadowCb = nullptr;

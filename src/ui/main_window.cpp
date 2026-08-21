@@ -1064,6 +1064,12 @@ QWidget* MainWindow::buildViewDisplayPage() {
         connect(slider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setLineWidth(v / 10.0); });
         connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
         m_vdWireframeCb = cb;
+
+        auto* cellCb = viewUi.cellWireframeCb;
+        cellCb->setChecked(m_settings->isCellWireframe());
+        cellCb->setEnabled(true);
+        connect(cellCb, &QCheckBox::toggled, m_settings, &RenderSettings::setCellWireframe);
+        m_vdCellWireframeCb = cellCb;
     }
     auto* surfaceCb = viewUi.surfaceCb;
     auto* pointsCb = viewUi.pointsCb;
@@ -2381,6 +2387,7 @@ void MainWindow::applyVolumeControlGating() {
 // quick-bar buttons or keyboard shortcuts, so both UIs reflect the same state.
 void MainWindow::syncViewDisplayPage() {
     if (m_vdWireframeCb) m_vdWireframeCb->setChecked(m_settings->isWireframe());
+    if (m_vdCellWireframeCb) m_vdCellWireframeCb->setChecked(m_settings->isCellWireframe());
     if (m_vdGridCb)      m_vdGridCb->setChecked(m_settings->isGridVisible());
     if (m_vdGridPosCombo) m_vdGridPosCombo->setCurrentIndex(m_settings->getGridAxis());
     if (m_vdSurfaceCb)   m_vdSurfaceCb->setChecked(m_settings->isSurfaceVisible());

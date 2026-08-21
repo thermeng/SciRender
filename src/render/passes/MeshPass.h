@@ -26,6 +26,7 @@ public:
                          const glm::mat4& model,
                          const std::vector<std::pair<GLuint, int>>& drawList,
                          const std::vector<int>& drawVerts,
+                         const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                          const MeshGLManager& meshManager,
                          const ColormapManager& colormap);
     void shutdown();
@@ -40,6 +41,7 @@ private:
                        MeshUBOData& ubo,
                        const std::vector<std::pair<GLuint, int>>& drawList,
                        const std::vector<int>& drawVerts,
+                       const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                        const MeshGLManager& meshManager);
 
     GlProgram shaderProgram;

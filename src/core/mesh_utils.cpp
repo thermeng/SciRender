@@ -499,4 +499,39 @@ void extrapolateCellDataToPoints(
         }
     }
 }
+
+// ── Cell-edge extraction (ParaView-style wireframe) ─────────────────────────
+std::vector<uint32_t> extractTriEdges(
+    const std::vector<uint32_t>& indices) {
+    if (indices.size() % 3 != 0) return {};
+
+    std::vector<uint64_t> edgeKeys;
+    size_t triCount = indices.size() / 3;
+    edgeKeys.reserve(triCount * 3);
+
+    for (size_t t = 0; t < triCount; ++t) {
+        uint32_t a = indices[t * 3 + 0];
+        uint32_t b = indices[t * 3 + 1];
+        uint32_t c = indices[t * 3 + 2];
+        auto emit = [&](uint32_t x, uint32_t y) {
+            if (x > y) std::swap(x, y);
+            edgeKeys.push_back((static_cast<uint64_t>(x) << 32) | y);
+        };
+        emit(a, b);
+        emit(b, c);
+        emit(c, a);
+    }
+
+    std::sort(edgeKeys.begin(), edgeKeys.end());
+    auto last = std::unique(edgeKeys.begin(), edgeKeys.end());
+    edgeKeys.erase(last, edgeKeys.end());
+
+    std::vector<uint32_t> out;
+    out.reserve(edgeKeys.size() * 2);
+    for (uint64_t k : edgeKeys) {
+        out.push_back(static_cast<uint32_t>((k >> 32) & 0xFFFFFFFF));
+        out.push_back(static_cast<uint32_t>(k & 0xFFFFFFFF));
+    }
+    return out;
+}
 }

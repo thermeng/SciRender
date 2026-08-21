@@ -346,10 +346,6 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
 
     // 4) smooth normals (shared vertices => averaged; sharp-edge split kept).
     mesh_utils::computeNormals(result);
-    {
-        size_t nv = result.vertices.size() / 3;
-        std::fprintf(stderr, "[DEBUG] post-normals: verts=%zu\n", nv);
-    }
     mesh_utils::computeBounds(result);
 
     // Surface-mesh contract so MeshPass colormap/lighting wire up.

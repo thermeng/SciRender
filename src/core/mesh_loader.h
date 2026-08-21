@@ -11,6 +11,7 @@
 #include <fstream>
 #include <tuple>
 #include <cmath>
+#include <algorithm>
 
 #include <glm/glm.hpp>
 
@@ -204,6 +205,15 @@ struct RenderMesh {
     // "Points" count. Defaults to the post-split vertex count if unset.
     int sourcePointCount = -1;
 
+    // Cell-edge index list for cell-boundary wireframe (ParaView "Wireframe"
+    // mode). Pairs of vertex indices into the same `vertices` array, emitted
+    // in the pre-normal-split vertex space (indices remain valid after
+    // computeNormals() because it only appends duplicate vertices). Populated
+    // by extractCellEdges() / generateStructuredGridCellEdges() in VTK parsers,
+    // or extractTriEdges() in STL/OBJ parsers. Empty when no cell topology is
+    // available -- the renderer falls back to the triangle-edge (GL_LINE) approach.
+    std::vector<uint32_t> cellEdgeIndices;
+
     // Default constructor
     RenderMesh() = default;
 };
@@ -390,12 +400,147 @@ namespace mesh_utils {
     // over all cells incident to each point (one-ring weighting).
     // Pre-collects field metadata into a flat array to avoid per-cell hash
     // lookups, and computes contribution counts in a single vertex pass.
-    void extrapolateCellDataToPoints(
+     void extrapolateCellDataToPoints(
         RenderMesh& mesh,
         const std::vector<std::vector<uint32_t>>& globalCellToVertices,
         const std::unordered_map<std::string, std::vector<float>>& cellScalarsStorage,
         const std::unordered_map<std::string, std::vector<float>>& cellVectorsStorage
     );
+
+    // ── Cell-edge extraction (ParaView-style wireframe) ───────────────────────
+
+    // Extract deduplicated cell-boundary edges from cell-to-vertex connectivity.
+    // For each cell, emits the topological edges according to the VTK cell type
+    // (hex = 12 cube edges, tetra = 6, quad = 4 cycle, etc.). When cellType is 0
+    // or the cellTypes vector is empty, type is inferred from the vertex count
+    // (2->line, 3->triangle, 4->quad, 8->hex). Returns a flat uint32_t vector of
+    // edge pairs (a,b), each pair sorted as (min,max) and globally deduplicated.
+    template<typename IntType>
+    std::vector<uint32_t> extractCellEdges(
+        const std::vector<std::vector<uint32_t>>& cellToVertices,
+        const std::vector<IntType>& cellTypes) {
+        std::vector<uint64_t> edgeKeys;
+        for (size_t c = 0; c < cellToVertices.size(); ++c) {
+            const auto& v = cellToVertices[c];
+            int type = (c < cellTypes.size()) ? static_cast<int>(cellTypes[c]) : 0;
+            if (type == 0) {
+                // Infer from vertex count (mirrors parser inference for type==0).
+                switch (v.size()) {
+                    case 2: type = 3;  break; // VTK_LINE
+                    case 3: type = 5;  break; // VTK_TRIANGLE
+                    case 4: type = 10; break; // VTK_QUAD
+                    case 8: type = 12; break; // VTK_HEXAHEDRON
+                    default: type = 0;  break;
+                }
+            }
+            // Emit edge index-pairs based on cell type.  For types where the
+            // ordering of vertices within the cell is well-defined (hex, tet,
+            // pyramid, wedge, pent-prism) we use fixed topological tables.
+            // For everything else (polygon, poly-line, triangle strip, unknown)
+            // we fall back to a cyclic chain around the vertex list.
+            auto emitEdge = [&](size_t a, size_t b) {
+                uint32_t va = v[a], vb = v[b];
+                if (va > vb) std::swap(va, vb);
+                edgeKeys.push_back((static_cast<uint64_t>(va) << 32) | static_cast<uint64_t>(vb));
+            };
+            switch (type) {
+            case 1: case 2:  // VERTEX / POLY_VERTEX — no edges
+                break;
+            case 3:  // VTK_LINE — single edge
+            case 4:  // VTK_POLY_LINE — chain
+                for (size_t i = 0; i + 1 < v.size(); ++i) emitEdge(i, i + 1);
+                break;
+            case 5:  // VTK_TRIANGLE — 3 edges (cycle)
+            case 7:  // VTK_POLYGON — N edges (cycle)
+                for (size_t i = 0; i < v.size(); ++i) emitEdge(i, (i + 1) % v.size());
+                break;
+            case 6: {  // VTK_TRIANGLE_STRIP — each triangle as its own cell
+                // For a strip v0..vN, triangles are (v0,v1,v2), (v1,v2,v3), ...
+                // Emit all triangle edges; global dedup handles shared ones.
+                for (size_t i = 0; i + 2 < v.size(); ++i) {
+                    emitEdge(i, i + 1);
+                    emitEdge(i + 1, i + 2);
+                    emitEdge(i + 2, i);
+                }
+                break;
+            }
+            case 8: {  // VTK_PIXEL (BL,BR,TL,TR) — 4 boundary edges (NOT a cyclic loop)
+                static const int pairs[][2] = {{0,1},{1,3},{2,3},{0,2}};
+                for (auto& p : pairs) emitEdge(p[0], p[1]);
+                break;
+            }
+            case 10: { // VTK_QUAD — 4 edges (cycle)
+                for (size_t i = 0; i < 4; ++i) emitEdge(i, (i + 1) % 4);
+                break;
+            }
+            case 11: { // VTK_TETRA — all 6 edges
+                static const int pairs[][2] = {{0,1},{0,2},{0,3},{1,2},{1,3},{2,3}};
+                for (auto& p : pairs) emitEdge(p[0], p[1]);
+                break;
+            }
+            case 9:   // VTK_VOXEL — vertices reordered to hex in parser, same 12 edges
+            case 12: { // VTK_HEXAHEDRON — 12 cube edges
+                static const int pairs[][2] = {
+                    {0,1},{1,2},{2,3},{3,0},  // bottom
+                    {4,5},{5,6},{6,7},{7,4},  // top
+                    {0,4},{1,5},{2,6},{3,7}   // verticals
+                };
+                for (auto& p : pairs) emitEdge(p[0], p[1]);
+                break;
+            }
+            case 13: { // VTK_PYRAMID — 8 edges (4 base + 4 lateral)
+                static const int pairs[][2] = {
+                    {0,1},{1,2},{2,3},{3,0},  // base
+                    {0,4},{1,4},{2,4},{3,4}   // lateral to apex
+                };
+                for (auto& p : pairs) emitEdge(p[0], p[1]);
+                break;
+            }
+            case 14: { // VTK_WEDGE — 9 edges (3 bottom + 3 top + 3 vertical)
+                static const int pairs[][2] = {
+                    {0,1},{1,2},{2,0},  // bottom triangle
+                    {3,4},{4,5},{5,3},  // top triangle
+                    {0,3},{1,4},{2,5}   // verticals
+                };
+                for (auto& p : pairs) emitEdge(p[0], p[1]);
+                break;
+            }
+            case 15: { // VTK_PENTAGONAL_PRISM — 15 edges
+                static const int pairs[][2] = {
+                    {0,1},{1,2},{2,3},{3,4},{4,0},  // bottom pentagon
+                    {5,6},{6,7},{7,8},{8,9},{9,5},  // top pentagon
+                    {0,5},{1,6},{2,7},{3,8},{4,9}   // verticals
+                };
+                for (auto& p : pairs) emitEdge(p[0], p[1]);
+                break;
+            }
+            default:  // Higher-order / unknown — polygon cycle fallback
+                for (size_t i = 0; i < v.size(); ++i) emitEdge(i, (i + 1) % v.size());
+                break;
+            }
+        }
+
+        // Dedupe: sort, then unique (edges are stored as packed uint64_t keys
+        // with min<max guaranteed by emitEdge above).
+        std::sort(edgeKeys.begin(), edgeKeys.end());
+        auto last = std::unique(edgeKeys.begin(), edgeKeys.end());
+        edgeKeys.erase(last, edgeKeys.end());
+
+        // Unpack back to uint32_t pairs.
+        std::vector<uint32_t> out;
+        out.reserve(edgeKeys.size() * 2);
+        for (uint64_t k : edgeKeys) {
+            out.push_back(static_cast<uint32_t>((k >> 32) & 0xFFFFFFFF));
+            out.push_back(static_cast<uint32_t>(k & 0xFFFFFFFF));
+        }
+        return out;
+    }
+
+    // Extract deduplicated triangle edges from a flat triangle index list
+    // (three indices per triangle). Each edge is stored as a sorted (min,max)
+    // uint32_t pair and globally deduplicated. Used by STL/OBJ parsers that
+    // lack original cell topology — the fallback to triangle-edge wireframe.
+    std::vector<uint32_t> extractTriEdges(const std::vector<uint32_t>& indices);
 
 }
 

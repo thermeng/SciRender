@@ -94,6 +94,12 @@ RenderMesh parseOBJ(const std::string& filePath) {
     }
 
     mesh.flatVerts = mesh.vertices; // ponytail: OBJ already indexed; flat == indexed here
+
+    // Cell-edge wireframe fallback: OBJ has no cell topology, so extract
+    // deduplicated triangle edges from the indexed mesh (before computeNormals
+    // splits vertices — indices stay valid after the split).
+    mesh.cellEdgeIndices = mesh_utils::extractTriEdges(mesh.indices);
+
     mesh_utils::finalizeSurfaceMesh(mesh, "OBJ", "OBJ", "OBJ Parser: ");
     return mesh;
 }
