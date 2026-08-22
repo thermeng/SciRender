@@ -25,6 +25,11 @@ void ScreenshotCapture::ensureDisplayFbo(int w, int h, int samples) {
     m_displayH = h;
     m_displaySamples = samples;
 
+    // Use 32F depth on both display and peel so Blit depth src/dst formats
+    // match (spec requires same internalFormat, otherwise INVALID_OPERATION
+    // and prevDepth samples 0 → layer 0 discards everything).
+    GLenum depthFormat = GLAD_GL_ARB_depth_buffer_float ? GL_DEPTH32F_STENCIL8 : GL_DEPTH24_STENCIL8;
+
     glGenRenderbuffers(1, m_displayColor.ptr());
     glBindRenderbuffer(GL_RENDERBUFFER, m_displayColor);
     if (samples > 0)
@@ -35,9 +40,9 @@ void ScreenshotCapture::ensureDisplayFbo(int w, int h, int samples) {
     glGenRenderbuffers(1, m_displayDepth.ptr());
     glBindRenderbuffer(GL_RENDERBUFFER, m_displayDepth);
     if (samples > 0)
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, w, h);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, depthFormat, w, h);
     else
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+        glRenderbufferStorage(GL_RENDERBUFFER, depthFormat, w, h);
 
     glGenFramebuffers(1, m_displayFbo.ptr());
     glBindFramebuffer(GL_FRAMEBUFFER, m_displayFbo);
@@ -67,6 +72,8 @@ void ScreenshotCapture::ensureScreenshotFbo(int w, int h, int samples) {
     m_screenshotH = h;
     m_screenshotSamples = samples;
 
+    GLenum depthFormat = GLAD_GL_ARB_depth_buffer_float ? GL_DEPTH32F_STENCIL8 : GL_DEPTH24_STENCIL8;
+
     glGenRenderbuffers(1, m_screenshotColor.ptr());
     glBindRenderbuffer(GL_RENDERBUFFER, m_screenshotColor);
     if (samples > 0)
@@ -77,9 +84,9 @@ void ScreenshotCapture::ensureScreenshotFbo(int w, int h, int samples) {
     glGenRenderbuffers(1, m_screenshotDepth.ptr());
     glBindRenderbuffer(GL_RENDERBUFFER, m_screenshotDepth);
     if (samples > 0)
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, w, h);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, depthFormat, w, h);
     else
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+        glRenderbufferStorage(GL_RENDERBUFFER, depthFormat, w, h);
 
     glGenFramebuffers(1, m_screenshotFbo.ptr());
     glBindFramebuffer(GL_FRAMEBUFFER, m_screenshotFbo);

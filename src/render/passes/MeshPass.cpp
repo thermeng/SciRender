@@ -54,16 +54,51 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
 
      if (!meshManager.hasMeshes() || !shaderProgram.has()) return result;
 
+    activateProgram(state, colormap);
+    MeshUBOData ubo = makeUbo(state, view, proj, model);
+
+    if (state.showSurface) {
+        const bool opaque = state.surfaceOpacity >= 1.0f;
+        if (opaque) {
+            drawOpaque(state, drawList);
+            drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
+        } else {
+            // Surface goes through depth peeling; overlays are drawn later by
+            // drawOverlaysAfterTransparent() so the wireframe/points survive.
+            result.transparentMeshes = drawList;
+        }
+    } else {
+        drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
+    }
+
+    glUseProgram(0);
+
+    return result;
+}
+
+void MeshPass::activateProgram(const RenderRenderState& state, const ColormapManager& colormap) {
     const bool useCrinkleClip = state.crinkleClipMode && clipShaderProgram.has();
     GlProgram& prog = useCrinkleClip ? clipShaderProgram : shaderProgram;
     glUseProgram(prog);
 
+    if (meshUboIndex != GL_INVALID_INDEX)
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
+
+    GLint activeLutLoc = useCrinkleClip ? clipLutTextureLoc : lutTextureLoc;
+    if (state.meshHasScalars && state.meshUseScalarColor && colormap.scalarTexture() != 0) {
+        glBindTextureUnit(0, colormap.scalarTexture());
+        glUniform1i(activeLutLoc, 0);
+    }
+}
+
+MeshUBOData MeshPass::makeUbo(const RenderRenderState& state,
+                              const glm::mat4& view,
+                              const glm::mat4& proj,
+                              const glm::mat4& model) {
     if (!meshUbo.has()) {
         glCreateBuffers(1, meshUbo.ptr());
         glNamedBufferData(meshUbo, sizeof(MeshUBOData), nullptr, GL_DYNAMIC_DRAW);
     }
-    if (meshUboIndex != GL_INVALID_INDEX)
-        glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
 
     MeshUBOData ubo{};
     glm::mat4 mvp = proj * view * model;
@@ -100,32 +135,28 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
     ubo.intensities = glm::vec4(keyI, state.lighting.lightKitEnabled ? keyI / kf : 0.0f, state.lighting.lightKitEnabled ? keyI / kb : 0.0f, state.lighting.lightKitEnabled ? keyI / kh : 0.0f);
     ubo.material = glm::vec4(state.lighting.matAmbient, state.lighting.matDiffuse, state.lighting.matSpecular, 0.0f);
     ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
+    const bool useCrinkleClip = state.crinkleClipMode && clipShaderProgram.has();
     ubo.shadingMode = glm::vec4(state.flatShading ? 1.0f : 0.0f, useCrinkleClip ? 1.0f : 0.0f, 0.0f, 0.0f);
     glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-
-    GLint activeLutLoc = useCrinkleClip ? clipLutTextureLoc : lutTextureLoc;
-
-    if (state.meshHasScalars && state.meshUseScalarColor && colormap.scalarTexture() != 0) {
-        glBindTextureUnit(0, colormap.scalarTexture());
-        glUniform1i(activeLutLoc, 0);
-    }
-
-    if (state.showSurface) {
-        const bool opaque = state.surfaceOpacity >= 1.0f;
-        if (opaque) {
-            drawOpaque(state, drawList);
-            drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
-        } else {
-            result.transparentMeshes = drawList;
-        }
-    } else {
-        drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
-    }
-
-    glUseProgram(0);
-
-    return result;
+    return ubo;
 }
+
+void MeshPass::drawOverlaysAfterTransparent(const RenderRenderState& state,
+                                            const glm::mat4& view,
+                                            const glm::mat4& proj,
+                                            const glm::mat4& model,
+                                            const std::vector<std::pair<GLuint, int>>& drawList,
+                                            const std::vector<int>& drawVerts,
+                                            const std::vector<std::pair<GLuint, int>>& edgeDrawList,
+                                            const MeshGLManager& meshManager,
+                                            const ColormapManager& colormap) {
+    if (!shaderProgram.has() || drawList.empty()) return;
+    activateProgram(state, colormap);
+    MeshUBOData ubo = makeUbo(state, view, proj, model);
+    drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
+    glUseProgram(0);
+}
+
 
 void MeshPass::drawOpaque(const RenderRenderState& state,
                            const std::vector<std::pair<GLuint, int>>& drawList) {

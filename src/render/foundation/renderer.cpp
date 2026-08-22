@@ -136,6 +136,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
         m_peelProgram.reset(compileProgram(sources.depthPeelVert.c_str(), sources.depthPeelFrag.c_str(), "DepthPeel"));
         if (m_peelProgram.has()) {
             m_peelPrevDepthLoc = glGetUniformLocation(m_peelProgram, "uPrevDepth");
+            m_peelLayerLoc     = glGetUniformLocation(m_peelProgram, "uLayerIndex");
             m_peelLutLoc      = glGetUniformLocation(m_peelProgram, "uColormapLUT");
         }
     }
@@ -160,12 +161,20 @@ void Renderer::ensurePeelFbos(int w, int h, int samples) {
     destroyPeelFbos();
     m_peelFboW = w; m_peelFboH = h; m_peelSamples = samples;
 
+    // Peel is surfaces-only: always single-sample. Using `samples` as mip levels
+    // was a bug (glTextureStorage2D arg 2 is levels, not samples). True MSAA
+    // would need glTextureStorage2DMultisample + sampler2DMS + per-sample
+    // fetches; instead peel renders single-sample and the opaque depth is
+    // resolved via BlitFramebuffer when the main FBO is multisampled.
     auto createStorage = [&](GLenum target, GLenum internalFormat, GLsizei w, GLsizei h) {
-        if (samples > 0) {
-            glTextureStorage2D(target, samples, internalFormat, w, h);
-        } else {
-            glTextureStorage2D(target, 1, internalFormat, w, h);
-        }
+        glTextureStorage2D(target, 1, internalFormat, w, h);
+        // texelFetch bypasses filtering, but default MIN_FILTER is mipmap-
+        // based and would make the texture incomplete (strict drivers sample
+        // prevDepth as 0, discarding every transparent fragment).
+        glTextureParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     };
 
     // Use float depth for improved precision on large scenes (world units > 100).
@@ -176,9 +185,8 @@ void Renderer::ensurePeelFbos(int w, int h, int samples) {
     }
     // ... rest of the function using depthFormat variable
 
-    // 2 FBOs and 2 depth textures ping-pong; N color textures are preserved
-    // for the composite pass.
-    for (int i = 0; i < 2; ++i) {
+    // 8 dedicated FBOs: 1 color+depth per layer, no ping-pong re-attachment.
+    for (int i = 0; i < kMaxPeelLayers; ++i) {
         glCreateFramebuffers(1, m_peelFbo[i].ptr());
         glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
         createStorage(m_peelColorTex[i], GL_RGBA8, w, h);
@@ -187,13 +195,10 @@ void Renderer::ensurePeelFbos(int w, int h, int samples) {
 
         glNamedFramebufferTexture(m_peelFbo[i], GL_COLOR_ATTACHMENT0, m_peelColorTex[i], 0);
         glNamedFramebufferTexture(m_peelFbo[i], GL_DEPTH_STENCIL_ATTACHMENT, m_peelDepthTex[i], 0);
-    }
-
-    // Remaining color textures (layers 2..N-1) share the two FBOs via
-    // ping-pong; their color attachments are re-attached per-layer at render time.
-    for (int i = 2; i < kMaxPeelLayers; ++i) {
-        glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
-        createStorage(m_peelColorTex[i], GL_RGBA8, w, h);
+        // 32F depth on both display and peel ensures Blit src/dst formats match.
+        if (glCheckNamedFramebufferStatus(m_peelFbo[i], GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            qWarning() << "Peel FBO" << i << "incomplete: 0x" << Qt::hex << glCheckNamedFramebufferStatus(m_peelFbo[i], GL_FRAMEBUFFER);
+        }
     }
 
     glCreateTextures(GL_TEXTURE_2D, 1, m_peelMainDepth.ptr());
@@ -203,11 +208,9 @@ void Renderer::ensurePeelFbos(int w, int h, int samples) {
 }
 
 void Renderer::destroyPeelFbos() {
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < kMaxPeelLayers; ++i) {
         m_peelFbo[i].reset();
         m_peelDepthTex[i].reset();
-    }
-    for (int i = 0; i < kMaxPeelLayers; ++i) {
         m_peelColorTex[i].reset();
     }
     m_peelMainDepth.reset();
@@ -233,21 +236,25 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     GLint prevFbo;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
 
+    // Copy opaque depth into m_peelMainDepth. glCopyTexSubImage2D reads from
+    // the color buffer, not depth — using it for a depth texture yields
+    // undefined (often 0) and layer 0 discards every fragment, making the
+    // whole surface vanish when transparency < 1. Always Blit depth.
     glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-    glGetIntegerv(GL_SAMPLES, &samples);
-    if (samples > 0) {
+    {
         GlFramebuffer tempFbo;
         glCreateFramebuffers(1, tempFbo.ptr());
         glNamedFramebufferTexture(tempFbo, GL_DEPTH_STENCIL_ATTACHMENT, m_peelMainDepth, 0);
+        glNamedFramebufferDrawBuffer(tempFbo, GL_NONE);
+        glNamedFramebufferReadBuffer(tempFbo, GL_NONE);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, tempFbo);
-        glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_LINEAR);
+        // Source may be multisampled (resolved here) or single-sampled.
+        glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
-    } else {
-        glBindTexture(GL_TEXTURE_2D, m_peelMainDepth);
-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, vpW, vpH);
     }
 
     glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
@@ -275,25 +282,21 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
         glUniform1i(m_peelLutLoc, 2);
     }
 
-    // ---- Iterative N-layer peeling with 2-FBO / 2-depth ping-pong ----
+    // ---- Iterative N-layer peeling with 8 dedicated FBOs ----
     for (int layer = 0; layer < numLayers; ++layer) {
-        const int bufIdx = layer % 2;
+        glUniform1i(m_peelLayerLoc, layer);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[bufIdx]);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[layer]);
         glViewport(0, 0, vpW, vpH);
         glClearColor(0, 0, 0, 0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Re-attach this layer's color texture (FBO ping-pongs, color is unique per layer).
-        glNamedFramebufferTexture(m_peelFbo[bufIdx], GL_COLOR_ATTACHMENT0,
-                                  m_peelColorTex[layer], 0);
-
-        // Bind previous depth: layer 0 uses opaque depth; layer N uses the
-        // depth texture written in the previous iteration (ping-pong partner).
+        // Bind previous depth: layer 0 uses opaque depth; layer N uses
+        // the depth texture written by layer N-1 (dedicated per layer).
         if (layer == 0) {
             glBindTextureUnit(0, m_peelMainDepth);
         } else {
-            glBindTextureUnit(0, m_peelDepthTex[1 - bufIdx]);
+            glBindTextureUnit(0, m_peelDepthTex[layer - 1]);
         }
 
         for (const auto& mesh : transparentMeshes) {
@@ -544,7 +547,7 @@ void Renderer::reinitForNewContext() {
     // Always land handle slots and integer locs at safe defaults so lazy
     // re-creation in renderFrame()/initShaders() rebuilds them exactly once.
     m_peelProgram.reset(); m_compositeProgram.reset();
-    m_peelPrevDepthLoc = -1; m_peelLutLoc = -1; m_peelNumLayersLoc = -1;
+    m_peelPrevDepthLoc = -1; m_peelLayerLoc = -1; m_peelLutLoc = -1; m_peelNumLayersLoc = -1;
     for (auto& fbo : m_peelFbo) fbo.reset();
     for (auto& tex : m_peelColorTex) tex.reset();
     for (auto& tex : m_peelDepthTex) tex.reset();
@@ -1006,6 +1009,8 @@ void Renderer::renderFrame() {
         if (!result.transparentMeshes.empty()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);
+            meshPass.drawOverlaysAfterTransparent(m_state, view, proj, model,
+                                                  drawList, drawVerts, edgeDrawList, meshManager, colormap);
         }
     }
 
@@ -1024,6 +1029,9 @@ void Renderer::renderFrame() {
         if (!isoResult.transparentMeshes.empty()) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             renderTransparent(view, proj, meshPass.uboHandle(), isoResult.transparentMeshes);
+            meshPass.drawOverlaysAfterTransparent(isoState, view, proj, model,
+                                                  isoDrawList, isoDrawVerts, emptyEdges,
+                                                  meshManager, colormap);
         }
     }
 
