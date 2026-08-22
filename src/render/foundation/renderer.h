@@ -582,16 +582,18 @@ private:
 
     // --- Depth peeling for transparent surfaces ---
     GlProgram m_peelProgram;
-    GLint  m_peelPrevDepthLoc = -1;
+    GlProgram m_compositeProgram;
+    GLint m_peelPrevDepthLoc = -1;
+    GLint m_peelLayerLoc = -1;
     GLint  m_peelLutLoc = -1;
     GLint  m_peelNumLayersLoc = -1;
-    GlProgram m_compositeProgram;
 
-    // FBOs for N-layer peeling: 2 FBOs and 2 depth textures ping-pong;
-    // N color textures are preserved for the composite pass.
-    GlFramebuffer m_peelFbo[2];
+    // FBOs for N-layer peeling: 8 dedicated FBOs (1 per layer) — simplest
+    // to avoid ping-pong aliasing where clearing re-attached FBOs destroyed
+    // earlier layers. Each FBO owns its own color+depth.
+    GlFramebuffer m_peelFbo[kMaxPeelLayers];
     GlTexture m_peelColorTex[kMaxPeelLayers];
-    GlTexture m_peelDepthTex[2];
+    GlTexture m_peelDepthTex[kMaxPeelLayers];
     GlTexture m_peelMainDepth;   // opaque geometry depth copied from main FBO
     GlVao m_peelDummyVao;    // empty VAO for fullscreen triangle
     int m_peelFboW = 0, m_peelFboH = 0;

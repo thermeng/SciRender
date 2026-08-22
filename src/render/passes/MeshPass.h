@@ -29,6 +29,17 @@ public:
                          const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                          const MeshGLManager& meshManager,
                          const ColormapManager& colormap);
+    // Wireframe/points redraw after depth-peeled transparent surfaces composite;
+    // without this the overlays vanish whenever surfaceOpacity < 1.
+    void drawOverlaysAfterTransparent(const RenderRenderState& state,
+                                      const glm::mat4& view,
+                                      const glm::mat4& proj,
+                                      const glm::mat4& model,
+                                      const std::vector<std::pair<GLuint, int>>& drawList,
+                                      const std::vector<int>& drawVerts,
+                                      const std::vector<std::pair<GLuint, int>>& edgeDrawList,
+                                      const MeshGLManager& meshManager,
+                                      const ColormapManager& colormap);
     void shutdown();
 
     bool hasProgram() const { return shaderProgram.has(); }
@@ -43,6 +54,11 @@ private:
                        const std::vector<int>& drawVerts,
                        const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                        const MeshGLManager& meshManager);
+    void activateProgram(const RenderRenderState& state, const ColormapManager& colormap);
+    MeshUBOData makeUbo(const RenderRenderState& state,
+                        const glm::mat4& view,
+                        const glm::mat4& proj,
+                        const glm::mat4& model);
 
     GlProgram shaderProgram;
     GlProgram clipShaderProgram;

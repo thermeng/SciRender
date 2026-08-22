@@ -33,6 +33,7 @@ in float vScalar;
 
 uniform sampler2D uPrevDepth;
 uniform sampler1D uColormapLUT;
+uniform int uLayerIndex;
 
 out vec4 FragColor;
 
@@ -76,6 +77,8 @@ void main() {
     bool clipped = false;
     float clipEnabled = uPointClip.w;
     bool crinkleMode = uShadingMode.y > 0.5;
+    // Peel is surfaces-only, but keep the same crinkle gate as mesh.frag:95
+    // so slice clipping is consistent between opaque and transparent layers.
     if (clipEnabled > 0.5 && !crinkleMode) {
         bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (vWorldPos.x < uSliceY.x) : (vWorldPos.x > uSliceY.x));
         bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (vWorldPos.y < uSliceY.y) : (vWorldPos.y > uSliceY.y));
@@ -83,19 +86,35 @@ void main() {
         clipped = clipX || clipY || clipZ;
     }
     bool hasScalars = uScalars.z > 0.5;
-    bool filterScalar = hasScalars && (vScalar < uFilter.x || vScalar > uFilter.y);
+    // Same epsilon as mesh.frag:108 — avoids pinholes from perspective interpolation
+    // sub-ULP excursions when filter bounds snap exactly to data min/max.
+    float filterEps = 1e-5 * abs(uScalars.y - uScalars.x) + 1e-9;
+    bool filterScalar = hasScalars && (vScalar < uFilter.x - filterEps || vScalar > uFilter.y + filterEps);
     clipped = clipped || filterScalar;
     if (clipped) discard;
 
     ivec2 pix = ivec2(gl_FragCoord.xy);
     float prevDepth = texelFetch(uPrevDepth, pix, 0).r;
-    if (gl_FragCoord.z >= prevDepth) discard;
-
-    vec3 faceNorm = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
-    if (!gl_FrontFacing) faceNorm = -faceNorm;
-    vec3 norm = uShadingMode.x > 0.5 ? faceNorm : normalize(vNormal);
-    if (!gl_FrontFacing) {
-        norm = -norm;
+    // Layer 0 tests against the opaque-scene depth (keep transparent surfaces
+    // in front of opaque geometry). Layers >= 1 keep only fragments strictly
+    // BEHIND the previous layer - the old single `>=` test discarded those,
+    // so every layer past the first came out empty and transparency showed
+    // just one front surface. Small epsilon avoids z-fighting re-peel of the
+    // same depth value (depth32F still has quantization).
+    const float kPeelEps = 1e-5;
+    if (uLayerIndex == 0) {
+        if (gl_FragCoord.z >= prevDepth) discard;
+    } else {
+        if (gl_FragCoord.z <= prevDepth + kPeelEps) discard;
+    }
+    // Screen-space cross(dFdx, dFdy) normals are view-oriented regardless of
+    // winding; attribute normals are not, so only they need the back-face flip.
+    vec3 norm;
+    if (uShadingMode.x > 0.5) {
+        norm = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+    } else {
+        norm = normalize(vNormal);
+        if (!gl_FrontFacing) norm = -norm;
     }
     vec3 viewDir = normalize(uViewPos_PS.xyz - vWorldPos);
 
