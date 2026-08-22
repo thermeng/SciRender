@@ -1121,7 +1121,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
     {
         auto* slider = viewUi.surfaceOpacitySlider;
         auto* valueLabel = viewUi.surfaceOpacityValue;
-        slider->setRange(static_cast<int>(0.1 * 1000), static_cast<int>(1 * 1000));
+        slider->setRange(static_cast<int>(0.0 * 1000), static_cast<int>(1 * 1000));
         slider->setValue(static_cast<int>(m_settings->getSurfaceOpacity() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
             double v = raw / 1000.0;
@@ -1132,7 +1132,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
     {
         auto* slider = viewUi.pointOpacitySlider;
         auto* valueLabel = viewUi.pointOpacityValue;
-        slider->setRange(static_cast<int>(0.1 * 1000), static_cast<int>(1 * 1000));
+        slider->setRange(static_cast<int>(0.0 * 1000), static_cast<int>(1 * 1000));
         slider->setValue(static_cast<int>(m_settings->getPointOpacity() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
             double v = raw / 1000.0;

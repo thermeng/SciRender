@@ -1,6 +1,7 @@
 #include <glad/gl.h>
 #include "viewport_widget.h"
 #include "render/foundation/render_config.h"
+#include <QColorSpace>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QWheelEvent>
@@ -19,6 +20,14 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     fmt.setProfile(QSurfaceFormat::CoreProfile);
     fmt.setDepthBufferSize(24);
     fmt.setSamples(msaaSamples);
+    // Request sRGB-capable color buffer so GL_FRAMEBUFFER_SRGB does
+    // linear -> sRGB conversion and blending stays in linear space
+    // ( ParaView-like correct translucency ).
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    fmt.setColorSpace(QColorSpace(QColorSpace::SRgb));
+#else
+    fmt.setOption(QSurfaceFormat::sRGBColorSpace);
+#endif
     setFormat(fmt);
 
     setAttribute(Qt::WA_OpaquePaintEvent, true);
