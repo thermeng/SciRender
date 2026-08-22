@@ -30,12 +30,13 @@ void ScreenshotCapture::ensureDisplayFbo(int w, int h, int samples) {
     // and prevDepth samples 0 → layer 0 discards everything).
     GLenum depthFormat = GLAD_GL_ARB_depth_buffer_float ? GL_DEPTH32F_STENCIL8 : GL_DEPTH24_STENCIL8;
 
+    GLenum colorFormat = GL_SRGB8_ALPHA8; // sRGB-capable so FRAMEBUFFER_SRGB converts linear→sRGB
     glGenRenderbuffers(1, m_displayColor.ptr());
     glBindRenderbuffer(GL_RENDERBUFFER, m_displayColor);
     if (samples > 0)
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, colorFormat, w, h);
     else
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+        glRenderbufferStorage(GL_RENDERBUFFER, colorFormat, w, h);
 
     glGenRenderbuffers(1, m_displayDepth.ptr());
     glBindRenderbuffer(GL_RENDERBUFFER, m_displayDepth);
@@ -73,13 +74,14 @@ void ScreenshotCapture::ensureScreenshotFbo(int w, int h, int samples) {
     m_screenshotSamples = samples;
 
     GLenum depthFormat = GLAD_GL_ARB_depth_buffer_float ? GL_DEPTH32F_STENCIL8 : GL_DEPTH24_STENCIL8;
+    GLenum colorFormat = GL_SRGB8_ALPHA8;
 
     glGenRenderbuffers(1, m_screenshotColor.ptr());
     glBindRenderbuffer(GL_RENDERBUFFER, m_screenshotColor);
     if (samples > 0)
-        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, colorFormat, w, h);
     else
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+        glRenderbufferStorage(GL_RENDERBUFFER, colorFormat, w, h);
 
     glGenRenderbuffers(1, m_screenshotDepth.ptr());
     glBindRenderbuffer(GL_RENDERBUFFER, m_screenshotDepth);

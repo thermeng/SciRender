@@ -106,7 +106,12 @@ MeshUBOData MeshPass::makeUbo(const RenderRenderState& state,
     ubo.model = model;
     ubo.viewPos_ps = glm::vec4(glm::vec3(state.camera.position), state.pointSize);
     ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 0.0f);
-    ubo.surfaceColor_sop = glm::vec4(state.surfaceColor[0], state.surfaceColor[1], state.surfaceColor[2], state.surfaceOpacity);
+    // Perceptual remap: linear slider feels "dead" until ~0.3 because
+    // effective A=1-(1-a)^N with N=4. Map a->a^1.8 so 0.8 shows ~0.67
+    // and 0.5 shows ~0.28, matching ParaView-like responsiveness.
+    float rawA = std::clamp(state.surfaceOpacity, 0.0f, 1.0f);
+    float remappedA = (rawA <= 0.0f) ? 0.0f : std::pow(rawA, 1.8f);
+    ubo.surfaceColor_sop = glm::vec4(state.surfaceColor[0], state.surfaceColor[1], state.surfaceColor[2], remappedA);
     ubo.point_clip = glm::vec4(0.0f, state.pointUseScalar ? 1.0f : 0.0f, state.pointOpacity, state.clipEnabled ? 1.0f : 0.0f);
 
     glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;

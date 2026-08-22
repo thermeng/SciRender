@@ -258,6 +258,9 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
+    // Peel layers store linear color in GL_RGBA8 — disable sRGB
+    // conversion while drawing them.
+    glDisable(GL_FRAMEBUFFER_SRGB);
 
     // Compute peel layer count: respect user setting as primary determinant,
     // with dynamic adjustment only as a soft upper-bound reduction for
@@ -311,6 +314,8 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     // ---- Composite: back-to-front onto the caller's framebuffer ----
     glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
     glViewport(0, 0, vpW, vpH);
+    // Re-enable sRGB for the display FBO (sRGB-capable).
+    glEnable(GL_FRAMEBUFFER_SRGB);
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -918,6 +923,9 @@ void Renderer::renderFrame() {
 
     glDepthMask(GL_TRUE);
     glDisable(GL_SCISSOR_TEST);
+    // Linear → sRGB conversion for the sRGB-capable display FBO so
+    // translucency blending stays in linear space (ParaView-like).
+    glEnable(GL_FRAMEBUFFER_SRGB);
 
     const float clearAlpha = m_state.screenshotTransparent ? 0.0f : 1.0f;
     glClearColor(m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2], clearAlpha);
