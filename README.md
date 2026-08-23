@@ -31,8 +31,8 @@ volume ray-marching, and isosurface extraction via marching cubes.
 
 Features include a 4-point PBR-calibrated lighting kit, axis triad overlay
 with pole-view handling, axis-aligned clipping/slicing planes, GPU-compute
-level-of-detail (LOD), depth-peel order-independent transparency, shadow-mapped
-grid shadows, screenshot export, and a rich Qt Widgets sidebar with per-page
+level-of-detail (LOD), depth-peel order-independent transparency, screenshot
+export, and a rich Qt Widgets sidebar with per-page
 control panels.
 
 ## Build
@@ -82,8 +82,6 @@ the program can run from the build directory.
   with end-on disc markers and label offset to avoid overlap
 - **Light-direction markers:** visual markers in the gizmo corner showing the
   key/fill/back/head light directions, tinted by the warm setting
-- **Reference grid:** procedural ray-cast ground plane with configurable axis
-  and position, with optional shadow mapping
 - **Bounding box overlay:** axis-aligned bounding box (AABB) wireframe
 - **Quality overlays:** degenerate triangle, open-edge, and non-manifold edge
   visualization with exact vertex welding at 1e-8 tolerance
@@ -122,8 +120,8 @@ It is used only when all of the following hold:
 |------|---------|
 | `src/app/` | Application entry point (`main.cpp`, GPU preference) |
 | `src/core/` | VTK/STL/OBJ parsers, mesh loading, mesh-quality analysis, camera, colormap definitions, isosurface extraction (marching cubes) |
-| `src/render/` | OpenGL renderer, lighting model, mesh/LOD upload, vector glyphs, streamlines, particles, volume pass, colormap manager, colorbar overlay, axis triad, grid renderer, bbox overlay, quality overlay, screenshot capture, depth-peel transparency |
-| `src/shaders/` | GLSL vertex/fragment/compute shaders (mesh, grid, glyph, bbox, streamline, seed, particle, volume, volume slice, quality overlay, LOD compute, depth peel, composite, shadow) |
+| `src/render/` | OpenGL renderer, lighting model, mesh/LOD upload, vector glyphs, streamlines, particles, volume pass, colormap manager, colorbar overlay, axis triad, bbox overlay, quality overlay, screenshot capture, depth-peel transparency |
+| `src/shaders/` | GLSL vertex/fragment/compute shaders (mesh, glyph, bbox, streamline, seed, particle, volume, volume slice, quality overlay, LOD compute, depth peel, composite) |
 | `src/ui/` | Qt Widgets main window, sidebar pages (lighting, slicing, view/display, scalar, vectors, streamlines, screenshot, mesh info, volume), viewport widget |
 | `tests/` | Standalone parser regression harness (`parse_regression.cpp` + `run_tests.{bat,sh}`) |
 | `samples/` | VTK/STL fixture files used by the regression harness |

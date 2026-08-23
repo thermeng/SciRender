@@ -50,17 +50,12 @@ Renderer::~Renderer() {
         streamlineSet.shutdown();
         gizmo.shutdown();
         colorbarOverlay.shutdown();
-        m_grid.shutdown();
         m_bbox.shutdown();
         m_qualityOverlay.shutdown();
         m_streamlines.shutdown();
         destroyPeelFbos();
         m_peelProgram.reset();
         m_compositeProgram.reset();
-        destroyShadowFbo();
-        m_shadowProgram.reset();
-        if (m_shadowUbo) { glDeleteBuffers(1, &m_shadowUbo); m_shadowUbo = 0; }
-        m_shadowUboIndex = -1;
     }
 }
 #pragma GCC diagnostic pop
@@ -113,23 +108,9 @@ void Renderer::initShaders(const ShaderSources& sources) {
 
     meshManager.setComputeShaderSources(sources.lodComp, sources.lodOutputComp, sources.lodTrisComp);
 
-    m_grid.init(sources);
     m_bbox.init(sources);
     m_qualityOverlay.init(sources);
     m_streamlines.init(sources);
-
-    if (!sources.shadowVert.empty() && !sources.shadowFrag.empty()) {
-        m_shadowProgram.reset(compileProgram(sources.shadowVert.c_str(), sources.shadowFrag.c_str(), "Shadow"));
-        if (m_shadowProgram.has()) {
-            m_shadowUboIndex = glGetUniformBlockIndex(m_shadowProgram, "ShadowUBO");
-            if (m_shadowUboIndex != ~0u) {
-                glUniformBlockBinding(m_shadowProgram, m_shadowUboIndex, 3);
-                glCreateBuffers(1, &m_shadowUbo);
-                glNamedBufferData(m_shadowUbo, sizeof(glm::mat4), nullptr, GL_DYNAMIC_DRAW);
-                glBindBufferBase(GL_UNIFORM_BUFFER, 3, m_shadowUbo);
-            }
-        }
-    }
 
     // depth peeling shaders for transparent surfaces
     if (!sources.depthPeelVert.empty() && !sources.depthPeelFrag.empty()) {
@@ -347,7 +328,7 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glDisable(GL_CULL_FACE);
     // The composite left the viewport at peel-buffer size; restore the frame
     // target so every pass after renderTransparent (wireframe overlays, bbox,
-    // grid, glyphs...) draws at full size during screenshot re-renders.
+    // glyphs...) draws at full size during screenshot re-renders.
     glViewport(0, 0, vpW, vpH);
 }
 
@@ -398,56 +379,6 @@ void Renderer::applyLightingPreset(int preset) {
 
 void Renderer::resetLighting() {
     m_state.lighting.reset();
-}
-
-void Renderer::ensureShadowFbo() {
-    if (m_shadowFbo.has()) return;
-    glCreateFramebuffers(1, m_shadowFbo.ptr());
-    glCreateTextures(GL_TEXTURE_2D, 1, m_shadowDepthTex.ptr());
-    glTextureStorage2D(m_shadowDepthTex, 1, GL_DEPTH_COMPONENT24, kShadowMapSize, kShadowMapSize);
-    glTextureParameteri(m_shadowDepthTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTextureParameteri(m_shadowDepthTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTextureParameteri(m_shadowDepthTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTextureParameteri(m_shadowDepthTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    float border[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    glTextureParameterfv(m_shadowDepthTex, GL_TEXTURE_BORDER_COLOR, border);
-    glNamedFramebufferTexture(m_shadowFbo, GL_DEPTH_ATTACHMENT, m_shadowDepthTex, 0);
-    glNamedFramebufferDrawBuffer(m_shadowFbo, GL_NONE);
-    glNamedFramebufferReadBuffer(m_shadowFbo, GL_NONE);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        qWarning() << "[Shadow] FBO incomplete: 0x" << Qt::hex << glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        m_shadowFbo.reset();
-    }
-}
-
-void Renderer::destroyShadowFbo() {
-    m_shadowFbo.reset();
-    m_shadowDepthTex.reset();
-}
-
-void Renderer::drawShadowPass(const std::vector<std::pair<GLuint, int>>& drawList, const glm::mat4& lightMVP) {
-    if (!m_shadowProgram.has() || !m_shadowUbo || drawList.empty() || !meshManager.hasMeshes()) return;
-
-    ensureShadowFbo();
-    if (!m_shadowFbo.has()) return;
-
-    glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFbo);
-    glViewport(0, 0, kShadowMapSize, kShadowMapSize);
-    glClear(GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-    glUseProgram(m_shadowProgram);
-
-    glNamedBufferSubData(m_shadowUbo, 0, sizeof(glm::mat4), glm::value_ptr(lightMVP));
-    glBindBufferBase(GL_UNIFORM_BUFFER, 3, m_shadowUbo);
-
-    for (const auto& item : drawList) {
-        glBindVertexArray(item.first);
-        glDrawElements(GL_TRIANGLES, item.second, GL_UNSIGNED_INT, 0);
-    }
-    glBindVertexArray(0);
-    glUseProgram(0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void Renderer::setState(const RenderRenderState& state) {
@@ -537,7 +468,6 @@ void Renderer::reinitForNewContext() {
         m_compositeProgram.reset();
 
         // Shutdown subsystems — each deletes its own GL handles and zeros them.
-        m_grid.shutdown();
         m_bbox.shutdown();
         m_qualityOverlay.shutdown();
         m_streamlines.shutdown();
@@ -565,11 +495,6 @@ void Renderer::reinitForNewContext() {
     for (auto& tex : m_peelDepthTex) tex.reset();
     m_peelMainDepth.reset(); m_peelDummyVao.reset();
     m_peelFboW = 0; m_peelFboH = 0;
-
-    destroyShadowFbo();
-    m_shadowProgram.reset();
-    if (m_shadowUbo) { glDeleteBuffers(1, &m_shadowUbo); m_shadowUbo = 0; }
-    m_shadowUboIndex = -1;
 
     // Reset transient render state so a recreated context does not inherit a
     // stale animation clock (which would leap forward on the first frame) or
@@ -920,7 +845,6 @@ void Renderer::renderFrame() {
     if (m_clipControlAvailable) {
         glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
     }
-    m_grid.setZeroToOne(m_clipControlAvailable);
 
     int deviceW = effectiveDeviceW();
     int deviceH = effectiveDeviceH();
@@ -951,8 +875,8 @@ void Renderer::renderFrame() {
         farPlane  = camDist + m_state.worldRadius + 250.0;
     }
 
-    // Clip control: switch post-projection NDC to Vulkan-style [0,1] depth so the
-    // grid shader can skip manual gl_FragDepth remap and gain 24-bit extra precision.
+    // Clip control: switch post-projection NDC to Vulkan-style [0,1] depth so
+    // shaders can skip manual gl_FragDepth remap and gain 24-bit extra precision.
     glm::mat4 proj = m_state.orthographic
     ? [&]() {
         if (m_orthoRefDist <= 0.0) m_orthoRefDist = std::max(m_state.camera.distance, 1e-6);
@@ -1062,28 +986,6 @@ void Renderer::renderFrame() {
     }
 
     particlePass.draw(m_state, static_cast<float>(m_lastFrameDt), streamlineSet, colormap);
-
-    if (!m_state.screenshotTransparent) {
-        if (m_state.showGrid && m_state.gridShadows && !drawList.empty()) {
-            glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
-            computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
-
-            glm::vec3 meshCenter(static_cast<float>(m_state.worldCenterX), static_cast<float>(m_state.worldCenterY), static_cast<float>(m_state.worldCenterZ));
-            float r = static_cast<float>(m_state.worldRadius);
-            glm::vec3 lightPos = meshCenter - kDir * (r * 2.0f);
-            glm::mat4 lightView = glm::lookAt(lightPos, meshCenter, glm::vec3(0.0f, 0.0f, 1.0f));
-            float orthoSize = r * 1.5f;
-            glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, r * 0.1f, r * 4.0f);
-            glm::mat4 lightMVP = lightProj * lightView;
-
-            drawShadowPass(drawList, lightMVP);
-
-            m_state.lightMVP = lightMVP;
-        } else {
-            m_state.lightMVP = glm::mat4(1.0f);
-        }
-        m_grid.draw(m_state, view, proj, m_shadowDepthTex);
-    }
 
     float pixelFootprintScale = deviceH > 0 ? std::tan(m_state.fovY * 0.5f) * 2.0f / static_cast<float>(deviceH) : 1.0f;
     m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale);

@@ -125,28 +125,6 @@ void RenderSettings::setScreenshotAASamples(int n) {
     markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 
-void RenderSettings::toggleGrid(bool visible) {
-    if (m_state.showGrid == visible) return;
-    m_state.showGrid = visible;
-    markStateDirty();
-    emit viewChanged(ChangeFlag::Display);
-}
-
-void RenderSettings::setGridAxis(int axis) {
-    int clamped = qBound(0, axis, 5);
-    if (m_state.gridAxis == clamped) return;
-    m_state.gridAxis = clamped;
-    markStateDirty();
-    emit viewChanged(ChangeFlag::Display);
-}
-
-void RenderSettings::setGridShadows(bool enabled) {
-    if (m_state.gridShadows == enabled) return;
-    m_state.gridShadows = enabled;
-    markStateDirty();
-    emit viewChanged(ChangeFlag::Display);
-}
-
 void RenderSettings::toggleSurface(bool visible) {
     if (m_state.showSurface == visible) return;
     m_state.showSurface = visible;
