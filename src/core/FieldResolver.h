@@ -13,6 +13,8 @@ namespace FieldResolver {
 std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested);
 const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax);
 bool hasScalar(const RenderMesh& mesh);
+std::vector<std::string> derivedScalarNames(const RenderMesh& mesh);
+std::vector<std::string> availableScalarNamesWithDerived(const RenderMesh& mesh);
 
 // Vector (point vs cell)
 struct VectorField {

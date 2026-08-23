@@ -183,14 +183,12 @@ void ViewportWidget::paintGL() {
 
     // Scalar-only re-upload if needed.
     if (scene->consumeScalarDirty() && scene->hasGpuMeshes()) {
-        fprintf(stderr, "[scalar-debug] paintGL: scalar-dirty branch enter\n");
         auto scalars = scene->cachedScalars();
         if (scalars) scene->updateScalarsOnGPU(scalars);
         if (scene->consumeVolumeDirty() && scene->hasVolumeData()) {
             auto volMesh = scene->cachedVolumeMesh();
             if (volMesh) scene->uploadVolumeFromScalarDirty(m_settings->snapshot(), scalars, volMesh);
         }
-        fprintf(stderr, "[scalar-debug] paintGL: scalar-dirty branch exit\n");
     }
 
     // Ensure the persistent display FBO matches the current viewport.
@@ -320,15 +318,42 @@ void ViewportWidget::deferredCapture(const QString& path) {
 
 void ViewportWidget::mousePressEvent(QMouseEvent* event) {
     m_lastMousePos = event->pos();
-    m_isRightClick = (event->button() == Qt::RightButton);
+    m_isMiddleClick = (event->button() == Qt::MiddleButton);
+
+    if (event->button() == Qt::LeftButton && m_settings) {
+        ::Renderer* scene = m_settings->backend();
+        if (scene) {
+            const float dpr = static_cast<float>(devicePixelRatioF());
+            const int dw = static_cast<int>(width() * dpr);
+            const int dh = static_cast<int>(height() * dpr);
+            m_colorbarBars = scene->colorbarBars();
+            int hitIdx = scene->colorbarIndexAt(static_cast<int>(event->pos().x() * dpr),
+                                                 static_cast<int>(event->pos().y() * dpr),
+                                                 m_colorbarBars);
+            if (hitIdx >= 0) {
+                beginColorbarDrag(event->pos(), hitIdx);
+                event->accept();
+                return;
+            }
+        }
+    }
     event->accept();
 }
 
 void ViewportWidget::mouseMoveEvent(QMouseEvent* event) {
     if (!m_settings) return;
+
+    if (m_draggingColorbar) {
+        updateColorbarDrag(event->pos());
+        event->accept();
+        return;
+    }
+
+    // Middle button (or shift+left) = pan, Left button = orbit
+    const bool middleOrShift = m_isMiddleClick || (event->buttons() & Qt::MiddleButton);
     QPoint delta = event->pos() - m_lastMousePos;
     m_lastMousePos = event->pos();
-    if (m_isRightClick) {
+    if (middleOrShift) {
         m_settings->pan(delta.x(), delta.y());
     } else {
         m_settings->azimuth(-delta.x() * RenderConfig::defaults().mouseSensitivity);
@@ -340,6 +365,16 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void ViewportWidget::mouseReleaseEvent(QMouseEvent* event) {
+    if (m_draggingColorbar) {
+        endColorbarDrag();
+        event->accept();
+        return;
+    }
+    // Show context menu on right-click release (no drag happened)
+    if (event->button() == Qt::RightButton && !m_isMiddleClick) {
+        QContextMenuEvent* cme = new QContextMenuEvent(QContextMenuEvent::Mouse, event->pos(), event->globalPos());
+        QCoreApplication::postEvent(this, cme);
+    }
     event->accept();
     QTimer::singleShot(RenderConfig::defaults().postMotionRedrawMs, this, [this]() {
         m_dirty = true;
@@ -458,6 +493,60 @@ void ViewportWidget::drawSpinner(QPainter& painter) {
 void ViewportWidget::advanceSpinner() {
     m_spinnerAngle = (m_spinnerAngle + 6) % 360;
     update();
+}
+
+void ViewportWidget::updateColorbarHitState() {
+    m_colorbarHover = false;
+    if (!m_settings || m_draggingColorbar) return;
+    ::Renderer* scene = m_settings->backend();
+    if (!scene) return;
+    const float dpr = static_cast<float>(devicePixelRatioF());
+    int hitIdx = scene->colorbarIndexAt(static_cast<int>(m_lastMousePos.x() * dpr),
+                                         static_cast<int>(m_lastMousePos.y() * dpr),
+                                         m_colorbarBars);
+    m_colorbarHover = (hitIdx >= 0);
+    setCursor(m_colorbarHover ? Qt::OpenHandCursor : Qt::ArrowCursor);
+}
+
+void ViewportWidget::beginColorbarDrag(const QPoint& pos, int barIndex) {
+    m_draggingColorbar = true;
+    m_dragBarIndex = barIndex;
+    m_dragStartPos = pos;
+    setCursor(Qt::ClosedHandCursor);
+}
+
+void ViewportWidget::updateColorbarDrag(const QPoint& pos) {
+    if (!m_settings || m_dragBarIndex < 0) return;
+    ::Renderer* scene = m_settings->backend();
+    if (!scene) return;
+
+    // Refresh from renderer — it holds the updated position
+    m_colorbarBars = scene->colorbarBars();
+
+    const float dpr = static_cast<float>(devicePixelRatioF());
+    const int dw = static_cast<int>(width() * dpr);
+    const int dh = static_cast<int>(height() * dpr);
+
+    // Get current bar rect
+    QRectF rect = scene->colorbarBarRect(dpr, dw, dh, m_colorbarBars[m_dragBarIndex]);
+    const float contentW = rect.width();
+    const float contentH = rect.height();
+
+    const QPoint delta = pos - m_dragStartPos;
+
+    float fracX = qBound(0.0f, (rect.left() + delta.x() * dpr) / (dw - contentW), 1.0f);
+    float fracY = qBound(0.0f, (rect.top() + delta.y() * dpr) / (dh - contentH), 1.0f);
+
+    scene->setColorbarPosition(m_dragBarIndex, fracX, fracY);
+    m_dragStartPos = pos;
+    m_dirty = true;
+    update();
+}
+
+void ViewportWidget::endColorbarDrag() {
+    m_draggingColorbar = false;
+    m_dragBarIndex = -1;
+    setCursor(Qt::ArrowCursor);
 }
 
 bool ViewportWidget::event(QEvent* event) {
