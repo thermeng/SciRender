@@ -405,6 +405,13 @@ public:
     void setViewportOverride(int deviceW, int deviceH) { m_overrideDeviceW = deviceW; m_overrideDeviceH = deviceH; }
     void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; colorbarOverlay.markDirty(); }
 
+    // Actual render-target size in device pixels: the screenshot override when
+    // active, otherwise the widget size scaled by DPR. Every pass must derive
+    // its viewport/FBO sizes from these (not width*devicePixelRatio) so
+    // offscreen re-renders stay full-frame.
+    int effectiveDeviceW() const { return m_overrideDeviceW > 0 ? m_overrideDeviceW : static_cast<int>(width * devicePixelRatio); }
+    int effectiveDeviceH() const { return m_overrideDeviceH > 0 ? m_overrideDeviceH : static_cast<int>(height * devicePixelRatio); }
+
     // Scalar-only re-upload handoff. The payload is a shared_ptr (zero-copy).
     // m_pendingScalarSrc is guarded by meshQueueMutex so the GUI-thread write
     // and the render-thread read in cachedScalars() cannot race.
