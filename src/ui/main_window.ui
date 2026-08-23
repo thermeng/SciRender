@@ -81,6 +81,9 @@
      <height>25</height>
     </rect>
    </property>
+   <property name="styleSheet">
+    <string>QMenuBar::item{padding:2px 8px;margin:0}QMenu::item{padding:4px 20px;font-size:12px}</string>
+   </property>
    <widget class="QMenu" name="menuFile">
     <property name="title">
      <string>&amp;File</string>

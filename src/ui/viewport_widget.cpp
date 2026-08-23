@@ -2,13 +2,19 @@
 #include "viewport_widget.h"
 #include "render/foundation/render_config.h"
 #include <QColorSpace>
+#include <QContextMenuEvent>
+#include <QFileDialog>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPaintEvent>
+#include <QStyle>
 #include <QWheelEvent>
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
+#include <QTimer>
 #include <QElapsedTimer>
+#include <QPainter>
 #include <cmath>
 
 ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
@@ -39,6 +45,11 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     // FPS HUD samples elapsed() in paintGL(); start the clock or the first
     // frame delta is always 0 and the HUD never updates.
     m_fpsClock.start();
+
+    // Spinner timer for loading indicator
+    m_spinnerTimer = new QTimer(this);
+    m_spinnerTimer->setInterval(16); // ~60fps
+    connect(m_spinnerTimer, &QTimer::timeout, this, &ViewportWidget::advanceSpinner);
 }
 
 ViewportWidget::~ViewportWidget() = default;
@@ -61,6 +72,15 @@ void ViewportWidget::setSettings(::RenderSettings* s) {
             m_dirty = true;
             update();
         });
+        connect(m_settings, &::RenderSettings::meshLoadStateChanged, this, [this]() {
+            if (m_settings->isLoading()) {
+                if (!m_spinnerTimer->isActive()) m_spinnerTimer->start();
+            } else {
+                m_spinnerTimer->stop();
+                update();
+            }
+        });
+        if (m_settings->isLoading()) m_spinnerTimer->start();
     }
     update();
 }
@@ -340,9 +360,104 @@ void ViewportWidget::wheelEvent(QWheelEvent* event) {
     event->accept();
 }
 
+void ViewportWidget::contextMenuEvent(QContextMenuEvent* event) {
+    if (!m_settings) return;
+    QMenu menu(this);
+    menu.addAction("Reset Camera", this, [this]() { m_settings->resetCamera(); });
+    menu.addAction("Zoom to Fit", this, [this]() { m_settings->resetCamera(); });
+    menu.addSeparator();
+
+    QAction* wireAction = menu.addAction("Toggle Wireframe", this, [this]() {
+        m_settings->setWireframe(!m_settings->isWireframe());
+    });
+    wireAction->setCheckable(true);
+    wireAction->setChecked(m_settings->isWireframe());
+
+    QAction* surfAction = menu.addAction("Toggle Surface", this, [this]() {
+        m_settings->toggleSurface(!m_settings->isSurfaceVisible());
+    });
+    surfAction->setCheckable(true);
+    surfAction->setChecked(m_settings->isSurfaceVisible());
+
+    menu.addSeparator();
+    menu.addAction("Save Screenshot...", this, [this]() {
+        QString path = QFileDialog::getSaveFileName(nullptr, "Save Screenshot", QString(),
+            "PNG (*.png);;JPEG (*.jpg);;All files (*)");
+        if (!path.isEmpty()) requestScreenshot(path);
+    });
+
+    menu.exec(event->globalPos());
+}
+
 void ViewportWidget::paintEvent(QPaintEvent* event) {
     m_dirty = true;
     QOpenGLWidget::paintEvent(event);
+
+    if (!m_settings) return;
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    if (m_settings->isLoading()) {
+        drawSpinner(painter);
+    } else if (!m_settings->getHasMeshLoaded()) {
+        drawEmptyState(painter);
+    }
+}
+
+void ViewportWidget::drawEmptyState(QPainter& painter) {
+    const int cx = width() / 2;
+    const int cy = height() / 2;
+
+    // Icon
+    QPixmap pix = style()->standardPixmap(QStyle::SP_FileIcon);
+    QPixmap scaled = pix.scaled(32, 32, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    painter.drawPixmap(cx - scaled.width() / 2, cy - 40, scaled);
+
+    // Text
+    QFont f = painter.font();
+    f.setPixelSize(16);
+    painter.setFont(f);
+    painter.setPen(QColor(0x8a, 0x8a, 0x8a));
+    QRect textRect(cx - 120, cy, 240, 24);
+    painter.drawText(textRect, Qt::AlignCenter, "Drop a file here");
+
+    f.setPixelSize(13);
+    painter.setFont(f);
+    painter.setPen(QColor(0x6a, 0x6a, 0x6a));
+    textRect.translate(0, 28);
+    painter.drawText(textRect, Qt::AlignCenter, "or  File > Open Mesh");
+}
+
+void ViewportWidget::drawSpinner(QPainter& painter) {
+    const int cx = width() / 2;
+    const int cy = height() / 2;
+    const int radius = 22;
+
+    // Dark disc background
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(20, 20, 20, 180));
+    painter.drawEllipse(QPoint(cx, cy), radius + 8, radius + 8);
+
+    // Animated arc
+    QPen pen(QColor(0x38, 0xbd, 0xf8), 3);
+    pen.setCapStyle(Qt::RoundCap);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    const int startAngle = m_spinnerAngle * 16;
+    painter.drawArc(cx - radius, cy - radius, radius * 2, radius * 2,
+                    startAngle, 270 * 16);
+
+    // Label
+    painter.setPen(QColor(0xaa, 0xaa, 0xaa));
+    QFont f = painter.font();
+    f.setPixelSize(12);
+    painter.setFont(f);
+    QRect textRect(cx - 60, cy + radius + 12, 120, 20);
+    painter.drawText(textRect, Qt::AlignCenter, "Parsing mesh...");
+}
+
+void ViewportWidget::advanceSpinner() {
+    m_spinnerAngle = (m_spinnerAngle + 6) % 360;
+    update();
 }
 
 bool ViewportWidget::event(QEvent* event) {

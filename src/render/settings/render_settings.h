@@ -305,6 +305,7 @@ public:
     bool isSurfaceVisible() const { return m_state.showSurface; }
 
     bool getHasMeshLoaded() const { return m_state.hasMeshLoaded; }
+    bool isLoading() const { return m_meshWatcher.isRunning(); }
     int getTriangleCount() const { return m_meshData.triangleCount; }
     int getPointCount() const { return m_meshData.pointCount; }
     int getDegenerateFaces() const { return m_meshData.degenerateFaces; }
