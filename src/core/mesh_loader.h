@@ -438,7 +438,7 @@ namespace mesh_utils {
                 switch (v.size()) {
                     case 2: type = 3;  break; // VTK_LINE
                     case 3: type = 5;  break; // VTK_TRIANGLE
-                    case 4: type = 10; break; // VTK_QUAD
+                    case 4: type = 9;  break; // VTK_QUAD
                     case 8: type = 12; break; // VTK_HEXAHEDRON
                     default: type = 0;  break;
                 }
@@ -475,21 +475,25 @@ namespace mesh_utils {
                 break;
             }
             case 8: {  // VTK_PIXEL (BL,BR,TL,TR) — 4 boundary edges (NOT a cyclic loop)
+                if (v.size() < 4) break;
                 static const int pairs[][2] = {{0,1},{1,3},{2,3},{0,2}};
                 for (auto& p : pairs) emitEdge(p[0], p[1]);
                 break;
             }
-            case 10: { // VTK_QUAD — 4 edges (cycle)
+            case 9: { // VTK_QUAD — 4 edges (cycle)
+                if (v.size() < 4) break;
                 for (size_t i = 0; i < 4; ++i) emitEdge(i, (i + 1) % 4);
                 break;
             }
-            case 11: { // VTK_TETRA — all 6 edges
+            case 10: { // VTK_TETRA — all 6 edges
+                if (v.size() < 4) break;
                 static const int pairs[][2] = {{0,1},{0,2},{0,3},{1,2},{1,3},{2,3}};
                 for (auto& p : pairs) emitEdge(p[0], p[1]);
                 break;
             }
-            case 9:   // VTK_VOXEL — vertices reordered to hex in parser, same 12 edges
+            case 11:  // VTK_VOXEL — vertices reordered to hex in parser, same 12 edges
             case 12: { // VTK_HEXAHEDRON — 12 cube edges
+                if (v.size() < 8) break;
                 static const int pairs[][2] = {
                     {0,1},{1,2},{2,3},{3,0},  // bottom
                     {4,5},{5,6},{6,7},{7,4},  // top
@@ -498,19 +502,21 @@ namespace mesh_utils {
                 for (auto& p : pairs) emitEdge(p[0], p[1]);
                 break;
             }
-            case 13: { // VTK_PYRAMID — 8 edges (4 base + 4 lateral)
-                static const int pairs[][2] = {
-                    {0,1},{1,2},{2,3},{3,0},  // base
-                    {0,4},{1,4},{2,4},{3,4}   // lateral to apex
-                };
-                for (auto& p : pairs) emitEdge(p[0], p[1]);
-                break;
-            }
-            case 14: { // VTK_WEDGE — 9 edges (3 bottom + 3 top + 3 vertical)
+            case 13: { // VTK_WEDGE — 9 edges (3 bottom + 3 top + 3 vertical)
+                if (v.size() < 6) break;
                 static const int pairs[][2] = {
                     {0,1},{1,2},{2,0},  // bottom triangle
                     {3,4},{4,5},{5,3},  // top triangle
                     {0,3},{1,4},{2,5}   // verticals
+                };
+                for (auto& p : pairs) emitEdge(p[0], p[1]);
+                break;
+            }
+            case 14: { // VTK_PYRAMID — 8 edges (4 base + 4 lateral)
+                if (v.size() < 5) break;
+                static const int pairs[][2] = {
+                    {0,1},{1,2},{2,3},{3,0},  // base
+                    {0,4},{1,4},{2,4},{3,4}   // lateral to apex
                 };
                 for (auto& p : pairs) emitEdge(p[0], p[1]);
                 break;
