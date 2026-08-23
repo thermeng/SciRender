@@ -100,7 +100,6 @@ struct RenderRenderState {
 
     // Display toggles
     bool showWireframe = false;
-    bool cellWireframe = false; // cell-boundary wireframe (ParaView style); falls back to triangle-edge when false
     bool showSurface = true;
     bool showGizmo = true;
     bool autoRotate = false;

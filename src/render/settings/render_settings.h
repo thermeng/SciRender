@@ -116,7 +116,6 @@ class RenderSettings : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(bool isWireframe READ isWireframe WRITE setWireframe NOTIFY viewChanged)
-    Q_PROPERTY(bool cellWireframe READ isCellWireframe WRITE setCellWireframe NOTIFY viewChanged)
     Q_PROPERTY(bool useLod READ getUseLod WRITE setUseLod NOTIFY viewChanged)
     Q_PROPERTY(int msaaSamples READ getMsaaSamples WRITE setMsaaSamples NOTIFY viewChanged)
     Q_PROPERTY(bool isSurfaceVisible READ isSurfaceVisible WRITE toggleSurface NOTIFY viewChanged)
@@ -296,8 +295,6 @@ public:
     // ---- view state accessors ----
     bool isWireframe() const { return m_state.showWireframe; }
     void setWireframe(bool enabled);
-    bool isCellWireframe() const { return m_state.cellWireframe; }
-    void setCellWireframe(bool enabled);
     bool getUseLod() const { return m_state.useLod; }
     void setUseLod(bool enabled);
     int getMsaaSamples() const { return msaaSamples; }
@@ -367,6 +364,7 @@ public slots:
     QStringList getRecentFiles() const { return recentFiles; }
     void loadRecentFromSettings();
     void saveRecentToSettings() const;
+    void clearRecentFiles();
     void saveStateToSettings() const;
     void restoreStateFromSettings();
     Q_INVOKABLE void setActiveScalarField(const QString& fieldName);

@@ -90,13 +90,6 @@ void RenderSettings::setWireframe(bool enabled) {
     emit viewChanged(ChangeFlag::Display);
 }
 
-void RenderSettings::setCellWireframe(bool enabled) {
-    if (m_state.cellWireframe == enabled) return;
-    m_state.cellWireframe = enabled;
-    markStateDirty();
-    emit viewChanged(ChangeFlag::Display);
-}
-
 void RenderSettings::setUseLod(bool enabled) {
     if (m_state.useLod == enabled) return;
     m_state.useLod = enabled;
@@ -174,6 +167,11 @@ void RenderSettings::saveRecentToSettings() const {
     s.setValue("recentFiles", recentFiles);
 }
 
+void RenderSettings::clearRecentFiles() {
+    recentFiles.clear();
+    saveRecentToSettings();
+}
+
 const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable() {
     static const std::vector<StateEntry> table = [] {
         std::vector<StateEntry> t;
@@ -205,7 +203,6 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("volumeSliceColormapReversed", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapReversed); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapReversed = v.toBool(); });
         add("vectorScaleByMagnitude", [](const RenderSettings& r) { return QVariant(r.m_state.vectorScaleByMagnitude); },     [](RenderSettings& r, const QVariant& v) { r.m_state.vectorScaleByMagnitude = v.toBool(); });
         add("flatShading",         [](const RenderSettings& r) { return QVariant(r.m_state.flatShading); },                   [](RenderSettings& r, const QVariant& v) { r.m_state.flatShading = v.toBool(); });
-        add("cellWireframe",       [](const RenderSettings& r) { return QVariant(r.m_state.cellWireframe); },                  [](RenderSettings& r, const QVariant& v) { r.m_state.cellWireframe = v.toBool(); });
         add("quickBarCollapsed",   [](const RenderSettings& r) { return QVariant(r.quickBarCollapsed); },                     [](RenderSettings& r, const QVariant& v) { r.quickBarCollapsed = v.toBool(); });
         // int members
         add("colormapChoice",      [](const RenderSettings& r) { return QVariant(r.m_state.colormapChoice); },                [](RenderSettings& r, const QVariant& v) { r.m_state.colormapChoice = v.toInt(); });

@@ -8,7 +8,6 @@
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
-#include <QTimer>
 #include <QElapsedTimer>
 #include <cmath>
 

@@ -190,11 +190,10 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
     const bool useCrinkleClip = state.crinkleClipMode && clipShaderProgram.has();
 
     // ── Cell-boundary wireframe (GL_LINES via edge VAOs) ──────────────────────
-    // When cellWireframe is enabled and edge VAOs are available, render cell
-    // edges directly instead of the triangle-edge (glPolygonMode GL_LINE)
-    // fallback. Decimated LOD meshes have no edge VAOs, so they fall through
-    // to the per-mesh GL_LINE approach below.
-    if (state.showWireframe && state.cellWireframe && !edgeDrawList.empty()) {
+    // When wireframe is enabled and cell edge VAOs are available, render cell
+    // boundaries directly (auto-preferred). Decimated LOD meshes have no edge
+    // VAOs, so they fall through to the per-mesh GL_LINE approach below.
+    if (state.showWireframe && !edgeDrawList.empty()) {
         GLStateGuard guard;
 
         ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 1.0f);
@@ -252,7 +251,8 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
     }
 
     // ── Per-mesh overlay pass (triangle-edge wireframe + points) ─────────────
-    const bool useCellEdges = state.showWireframe && state.cellWireframe && !edgeDrawList.empty();
+    // Auto-prefer cell edges when available; otherwise fall back to triangle edges.
+    const bool useCellEdges = state.showWireframe && !edgeDrawList.empty();
     for (size_t di = 0; di < drawList.size(); ++di) {
         glBindVertexArray(drawList[di].first);
 

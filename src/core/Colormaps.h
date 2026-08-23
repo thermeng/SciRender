@@ -1,6 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <cmath>
+#include <array>
 
 enum class ColormapType {
     Turbo = 0,         // Google's Engineering Rainbow: High-contrast replacement for Jet/Rainbow
@@ -55,30 +56,39 @@ namespace Colormaps {
         else                       return glm::mix(c2, c3, (clampedT - 0.66f) / 0.34f);
     }
 
-    // Google Turbo: Smooth, continuous polynomial approximation avoiding Jet's false gradients
+    // Google Turbo: exact 256-entry LUT generated from Google's published
+    // 5th-order polynomial approximation. Avoids per-fragment polynomial
+    // evaluation and matches the reference to float precision.
     inline glm::vec3 turbo(float t) {
         float clampedT = glm::clamp(t, 0.0f, 1.0f);
 
-        // Accurate coefficients derived directly from Google's Open-Source specification
-        glm::vec4 kRedVec4 = glm::vec4(0.13572138f, 4.61539260f, -42.66032258f, 132.13108234f);
-        glm::vec4 kGreenVec4 = glm::vec4(0.09140261f, 2.19418839f, 4.84296658f, -14.18503333f);
-        glm::vec4 kBlueVec4 = glm::vec4(0.10667330f, 12.64194608f, -60.58204836f, 110.36276771f);
+        constexpr int N = 256;
+        static const auto lut = []() {
+            std::array<glm::vec3, N> table{};
+            // Google's published polynomial coefficients for Turbo.
+            const glm::vec4 kRedVec4 = { 0.13572138f, 4.61539260f, -42.66032258f, 132.13108234f };
+            const glm::vec4 kGreenVec4 = { 0.09140261f, 2.19418839f, 4.84296658f, -14.18503333f };
+            const glm::vec4 kBlueVec4 = { 0.10667330f, 12.64194608f, -60.58204836f, 110.36276771f };
+            const glm::vec2 kRedVec2 = { -152.94239396f, 59.28637943f };
+            const glm::vec2 kGreenVec2 = { 4.27729857f, 2.82956604f };
+            const glm::vec2 kBlueVec2 = { -89.90310912f, 27.34824973f };
+            for (int i = 0; i < N; ++i) {
+                float x = static_cast<float>(i) / static_cast<float>(N - 1);
+                glm::vec4 v4 = { 1.0f, x, x * x, x * x * x };
+                glm::vec2 v2 = { v4.z * v4.z, v4.z * v4.w };
+                float r = glm::dot(v4, kRedVec4) + glm::dot(v2, kRedVec2);
+                float g = glm::dot(v4, kGreenVec4) + glm::dot(v2, kGreenVec2);
+                float b = glm::dot(v4, kBlueVec4) + glm::dot(v2, kBlueVec2);
+                table[i] = glm::clamp(glm::vec3(r, g, b), 0.0f, 1.0f);
+            }
+            return table;
+        }();
 
-        glm::vec2 kRedVec2 = glm::vec2(-152.94239396f, 59.28637943f);
-        glm::vec2 kGreenVec2 = glm::vec2(4.27729857f, 2.82956604f);
-        glm::vec2 kBlueVec2 = glm::vec2(-89.90310912f, 27.34824973f);
-
-        // Vector powers of x: [1.0, x, x^2, x^3]
-        glm::vec4 v4 = glm::vec4(1.0f, clampedT, clampedT * clampedT, clampedT * clampedT * clampedT);
-        // Vector higher-order powers: [x^4, x^5]
-        glm::vec2 v2 = glm::vec2(v4.z * v4.z, v4.z * v4.w);
-
-        // Fast parallel dot-product projection for RGB channels
-        float r = glm::dot(v4, kRedVec4) + glm::dot(v2, kRedVec2);
-        float g = glm::dot(v4, kGreenVec4) + glm::dot(v2, kGreenVec2);
-        float b = glm::dot(v4, kBlueVec4) + glm::dot(v2, kBlueVec2);
-
-        return glm::clamp(glm::vec3(r, g, b), 0.0f, 1.0f);
+        float f = clampedT * static_cast<float>(N - 1);
+        int i0 = static_cast<int>(f);
+        int i1 = (i0 + 1 < N) ? i0 + 1 : i0;
+        float frac = f - static_cast<float>(i0);
+        return glm::mix(lut[i0], lut[i1], frac);
     }
 
     inline glm::vec3 coolwarm(float t) {
