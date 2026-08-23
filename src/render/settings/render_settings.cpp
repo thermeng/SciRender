@@ -428,6 +428,7 @@ void RenderSettings::onMeshParsed() {
                 if (mx - mn < 1e-6f) mx = mn + 1.0f;
             }
         }
+        setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
     }
 
     // Isosurface: a fresh mesh starts with the surface off and the threshold
@@ -585,6 +586,21 @@ void RenderSettings::setVectorColormapReversed(bool reversed) {
     if (m_state.vectorColormapReversed == reversed) return;
     m_state.vectorColormapReversed = reversed;
     markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+
+void RenderSettings::setFilterMin(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::min(v, m_state.filterMax);
+    if (m_state.filterMin == v) return;
+    m_state.filterMin = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+void RenderSettings::setFilterMax(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::max(v, m_state.filterMin);
+    if (m_state.filterMax == v) return;
+    m_state.filterMax = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::applyLightingPreset(int preset) {

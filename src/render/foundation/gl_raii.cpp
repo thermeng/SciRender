@@ -33,6 +33,7 @@ GLStateGuard::GLStateGuard() {
     glGetIntegerv(GL_BLEND_DST_ALPHA, &m_blendDstAlpha);
     glGetIntegerv(GL_BLEND_EQUATION_RGB, &m_blendEquationRgb);
     glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &m_blendEquationAlpha);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &m_currentProgram);
     glGetFloatv(GL_LINE_WIDTH, &m_lineWidth);
     m_depthTest  = glIsEnabled(GL_DEPTH_TEST) != 0;
     m_depthClamp = glIsEnabled(GL_DEPTH_CLAMP) != 0;
@@ -60,6 +61,7 @@ GLStateGuard::~GLStateGuard() {
     glClipControl(static_cast<GLenum>(m_clipOrigin), static_cast<GLenum>(m_clipDepthMode));
     glActiveTexture(static_cast<GLenum>(m_activeTexture));
     glLineWidth(m_lineWidth);
+    glUseProgram(static_cast<GLuint>(m_currentProgram));
 }
 
 void setupVertexBuffer(GlVao& vao, GlBuffer& vbo,

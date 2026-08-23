@@ -150,6 +150,7 @@ private:
     int m_clipOrigin = 0, m_clipDepthMode = 0;
     int m_activeTexture = 0;
     float m_lineWidth = 1.0f;
+    GLint m_currentProgram = 0;
 };
 
 // Describes one interleaved vertex attribute: shader location, component

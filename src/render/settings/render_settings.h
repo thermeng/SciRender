@@ -575,8 +575,10 @@ public:
     STATE_PROP(getInvertX, setInvertX, bool, m_state.invertX, Slicing)
     STATE_PROP(getInvertY, setInvertY, bool, m_state.invertY, Slicing)
     STATE_PROP(getInvertZ, setInvertZ, bool, m_state.invertZ, Slicing)
-    STATE_PROP(getFilterMin, setFilterMin, float, m_state.filterMin, Display)
-    STATE_PROP(getFilterMax, setFilterMax, float, m_state.filterMax, Display)
+    float getFilterMin() const { return m_state.filterMin; }
+    void setFilterMin(float v);
+    float getFilterMax() const { return m_state.filterMax; }
+    void setFilterMax(float v);
 
     double getWorldMinX() const { return m_state.worldMinX; }
     double getWorldMaxX() const { return m_state.worldMaxX; }
