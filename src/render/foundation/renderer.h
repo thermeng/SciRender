@@ -47,8 +47,8 @@
 #include "render/passes/ParticlePass.h"
 #include "render/passes/VolumePass.h"
 #include "render/overlays/VolumeSliceOverlay.h"
-#include "render/passes/ColormapSync.h"
 #include "render/passes/LodScheduler.h"
+#include "render/passes/DepthPeelPass.h"
 
 #include <QOpenGLFramebufferObject>
 
@@ -532,8 +532,7 @@ private:
     bool m_clipControlAvailable = false;
 
     // --- extracted responsibility helpers -------------------------------------
-    ColormapManager colormap;     // scalar + vector LUT textures & choices
-    ColormapSync colormapSync;     // batches colormap choice→LUT updates per frame
+    ColormapManager colormap;     // scalar + vector LUT textures & choices — deep seam for colormap
     VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
     StreamlineSet streamlineSet;  // GL_LINES streamline GPU resources + mag range
     MeshGLManager meshManager;     // full + decimated GPU meshes & upload
@@ -547,32 +546,11 @@ private:
     VolumePass m_volume;                      // volume ray-march pass
     VolumeSliceOverlay m_volumeSliceOverlay;  // volume slice plane overlay
 
-    static constexpr int kMaxPeelLayers = 8;
-
-    // --- Depth peeling for transparent surfaces ---
-    GlProgram m_peelProgram;
-    GlProgram m_compositeProgram;
-    GLint m_peelPrevDepthLoc = -1;
-    GLint m_peelLayerLoc = -1;
-    GLint  m_peelLutLoc = -1;
-    GLint  m_peelNumLayersLoc = -1;
-
-    // FBOs for N-layer peeling: 8 dedicated FBOs (1 per layer) — simplest
-    // to avoid ping-pong aliasing where clearing re-attached FBOs destroyed
-    // earlier layers. Each FBO owns its own color+depth.
-    GlFramebuffer m_peelFbo[kMaxPeelLayers];
-    GlTexture m_peelColorTex[kMaxPeelLayers];
-    GlTexture m_peelDepthTex[kMaxPeelLayers];
-    GlTexture m_peelMainDepth;   // opaque geometry depth copied from main FBO
-    GlVao m_peelDummyVao;    // empty VAO for fullscreen triangle
-    int m_peelFboW = 0, m_peelFboH = 0;
-    int m_peelSamples = 0;
-
-    void ensurePeelFbos(int w, int h, int samples);
-    void destroyPeelFbos();
+    // Deep module — N-layer OIT behind one seam
+    DepthPeelPass m_depthPeel;
     void renderTransparent(const glm::mat4& view, const glm::mat4& proj,
-                            GLuint meshUbo,
-                            const std::vector<std::pair<GLuint, int>>& transparentMeshes);
+                             GLuint meshUbo,
+                             const std::vector<std::pair<GLuint, int>>& transparentMeshes);
 };
 
 

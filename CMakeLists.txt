@@ -62,6 +62,8 @@ add_library(CoreLib STATIC
     src/core/Camera.h
     src/core/Colormaps.h
      src/core/mesh_loader.cpp
+    src/core/FieldResolver.cpp
+    src/core/FieldResolver.h
      src/core/mesh_loader.h
      src/core/isosurface.cpp
      src/core/isosurface.h
@@ -108,8 +110,10 @@ add_library(RenderLib STATIC
     src/render/passes/VolumePass.h
     src/render/overlays/VolumeSliceOverlay.cpp
     src/render/overlays/VolumeSliceOverlay.h
-    src/render/passes/ColormapSync.cpp
-    src/render/passes/ColormapSync.h
+    src/render/passes/WireframePass.cpp
+    src/render/passes/WireframePass.h
+    src/render/passes/DepthPeelPass.cpp
+    src/render/passes/DepthPeelPass.h
     src/render/passes/LodScheduler.cpp
     src/render/passes/LodScheduler.h
     src/render/foundation/gl_raii.cpp

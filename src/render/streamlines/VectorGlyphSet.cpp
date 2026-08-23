@@ -1,5 +1,6 @@
 #include "render/streamlines/VectorGlyphSet.h"
 #include "core/mesh_loader.h"
+#include "core/FieldResolver.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -54,52 +55,15 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     teardownGL();
     (void)magTransform;
 
-    bool cellCenter = (placement == 1);
-
-    // Fall-back: if the requested placement has no vector data, try the other
-    // placement. This makes cell-vector datasets visible even when vertex
-    // placement is selected (and vice versa), so legacy .vtk files with only
-    // CELL_DATA VECTORS still render glyphs.
-    if (cellCenter && !mesh.meshHasCellVectors()) {
-        cellCenter = false;
-    } else if (!cellCenter && !mesh.meshHasVectors()) {
-        cellCenter = true;
-    }
-
-    const glm::vec3* data = nullptr;
-    size_t count = 0;
-    int numPts = 0;
-
-    if (!cellCenter) {
-        if (mesh.pointVectorsData.empty()) return;
-        numPts = static_cast<int>(mesh.vertices.size() / 3);
-        auto tryField = [&](const std::string& name) -> bool {
-            if (name.empty()) return false;
-            size_t c = 0;
-            const glm::vec3* d = mesh.vectorFieldData(name, c);
-            if (d && c > 0) { data = d; count = c; return true; }
-            return false;
-        };
-        if (!tryField(fieldName) && !tryField(mesh.vectorName) &&
-            !(mesh.availableVectorNames.empty() ? false : tryField(mesh.availableVectorNames.front()))) {
-            return;
-        }
-    } else {
-        if (mesh.cellCenters.empty()) return;
-        numPts = static_cast<int>(mesh.cellCenters.size());
-        const glm::vec3* d = nullptr;
-        size_t c = 0;
-        if (!fieldName.empty()) d = mesh.cellVectorFieldData(fieldName, c);
-        if (!d || c == 0) d = mesh.cellVectorFieldData(mesh.cellVectorName, c);
-        if (!d || c == 0) {
-            if (!mesh.availableCellVectorNames.empty()) {
-                d = mesh.cellVectorFieldData(mesh.availableCellVectorNames.front(), c);
-            }
-        }
-        if (!d || c == 0) return;
-        data = d;
-        count = c;
-    }
+    auto field = FieldResolver::resolveVector(mesh, fieldName, placement);
+    if (!field.data || field.count == 0) return;
+    bool cellCenter = field.isCell;
+    const glm::vec3* data = field.data;
+    size_t count = field.count;
+    int numPts = cellCenter ? static_cast<int>(mesh.cellCenters.size())
+                            : static_cast<int>(mesh.vertices.size() / 3);
+    if (cellCenter && mesh.cellCenters.empty()) return;
+    if (!cellCenter && mesh.pointVectorsData.empty()) return;
 
     const int limit = std::min(numPts, static_cast<int>(count));
     stride = std::max(1, stride);

@@ -4,11 +4,15 @@
 #include "render/passes/MeshGLManager.h"
 
 bool LodScheduler::tick(const RenderRenderState& state, MeshGLManager& meshManager) {
+    return tick(state, meshManager, std::chrono::steady_clock::now());
+}
+
+bool LodScheduler::tick(const RenderRenderState& state, MeshGLManager& meshManager,
+                        std::chrono::steady_clock::time_point now) {
     // Debounce: once the debounce period elapses with no new motion, clear
     // the moving flag so the next frame uses the full-resolution mesh.
     bool settled = false;
     if (cameraMoving.load()) {
-        auto now = std::chrono::steady_clock::now();
         if (m_lastMotion.time_since_epoch().count() == 0) m_lastMotion = now;
         double dt = std::chrono::duration<double>(now - m_lastMotion).count();
         if (dt >= RenderConfig::defaults().lodDebounceSeconds) {
