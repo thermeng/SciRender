@@ -129,7 +129,6 @@ private:
     QToolButton* m_quickBarHandle = nullptr;
     QHBoxLayout* m_quickBarLayout = nullptr;
     QToolButton* m_qbWireframe = nullptr;
-    QToolButton* m_qbGrid = nullptr;
     QToolButton* m_qbSurface = nullptr;
     QToolButton* m_qbVolume = nullptr;
     QToolButton* m_qbSlice = nullptr;
@@ -137,9 +136,6 @@ private:
     // View & Display page checkboxes (synced with quick bar / keyboard shortcuts)
     QCheckBox* m_vdWireframeCb = nullptr;
     QCheckBox* m_vdCellWireframeCb = nullptr;
-    QCheckBox* m_vdGridCb = nullptr;
-    QComboBox* m_vdGridPosCombo = nullptr;
-    QCheckBox* m_vdGridShadowCb = nullptr;
     QCheckBox* m_vdSurfaceCb = nullptr;
     QCheckBox* m_vdPointsCb = nullptr;
     QCheckBox* m_vdBboxCb = nullptr;

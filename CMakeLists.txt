@@ -118,8 +118,6 @@ add_library(RenderLib STATIC
     src/render/overlays/gizmo.h
     src/render/overlays/colorbar_overlay.cpp
     src/render/overlays/colorbar_overlay.h
-    src/render/overlays/GridRenderer.cpp
-    src/render/overlays/GridRenderer.h
     src/render/overlays/BBoxOverlay.cpp
     src/render/overlays/BBoxOverlay.h
     src/render/overlays/QualityOverlayRenderer.cpp
@@ -179,8 +177,6 @@ qt_add_resources(SciRender "shaders"
         src/shaders/wire.vert
         src/shaders/wire.geo
         src/shaders/wire.frag
-        src/shaders/grid.vert
-        src/shaders/grid.frag
         src/shaders/glyph.vert
         src/shaders/glyph.frag
         src/shaders/bbox.vert
@@ -204,8 +200,6 @@ qt_add_resources(SciRender "shaders"
         src/shaders/depth_peel.frag
         src/shaders/composite.vert
         src/shaders/composite.frag
-        src/shaders/shadow.vert
-        src/shaders/shadow.frag
 )
 
 qt_add_resources(SciRender "icons"
@@ -214,7 +208,6 @@ qt_add_resources(SciRender "icons"
         src/resources/icons/checkmark.svg
         src/resources/icons/downarrow.svg
         src/resources/icons/wireframe.svg
-        src/resources/icons/grid.svg
         src/resources/icons/surface.svg
         src/resources/icons/volume.svg
         src/resources/icons/slice.svg

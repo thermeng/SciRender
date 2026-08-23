@@ -39,7 +39,6 @@
 #include "render/streamlines/VectorGlyphSet.h"
 #include "render/streamlines/StreamlineSet.h"
 #include "render/passes/MeshGLManager.h"
-#include "render/overlays/GridRenderer.h"
 #include "render/overlays/BBoxOverlay.h"
 #include "render/overlays/QualityOverlayRenderer.h"
 #include "render/streamlines/StreamlineController.h"
@@ -62,8 +61,6 @@ struct ShaderSources {
     std::string meshWireVert;
     std::string meshWireGeo;
     std::string meshWireFrag;
-    std::string gridVert;
-    std::string gridFrag;
     std::string glyphVert;
     std::string glyphFrag;
     std::string bboxVert;
@@ -87,8 +84,6 @@ struct ShaderSources {
     std::string volumeFrag;
     std::string volumeSliceVert;
     std::string volumeSliceFrag;
-    std::string shadowVert;
-    std::string shadowFrag;
 };
 
 // ---------------------------------------------------------------------------
@@ -107,8 +102,6 @@ struct RenderRenderState {
     bool showWireframe = false;
     bool cellWireframe = false; // cell-boundary wireframe (ParaView style); falls back to triangle-edge when false
     bool showSurface = true;
-    bool showGrid = false;
-    int gridAxis = 1; // 0=X Min, 1=X Max, 2=Y Min, 3=Y Max, 4=Z Min, 5=Z Max
     bool showGizmo = true;
     bool autoRotate = false;
     bool showFps = false;
@@ -123,8 +116,6 @@ struct RenderRenderState {
     int cullMode = 0;              // ponytail: 0=off by default — mirror of settings default
     bool showBounds = false;     // ponytail: AABB wireframe overlay
     bool showQualityOverlay = false;     // ponytail: highlight degenerate faces + bad edges
-    bool gridShadows = false;            // ponytail: shadow mapping for reference grid
-    glm::mat4 lightMVP = glm::mat4(1.0f); // ponytail: shadow light view-projection
     // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
     // shared_ptr so RenderRenderState copies are O(1) instead of O(n)
     std::shared_ptr<const std::vector<float>> qualityDegenerateTris;
@@ -301,21 +292,6 @@ struct MeshUBOData {
     glm::vec4 shadingMode;      // x = 0.0 smooth, 1.0 flat
 };
 static_assert(sizeof(MeshUBOData) % 16 == 0, "MeshUBOData must be std140-aligned");
-
-// CPU-side UBO layout matching the std140 GridUBO block in grid.vert/frag.
-struct GridUBOData {
-    glm::mat4 invView;
-    glm::mat4 invProj;
-    glm::mat4 view;
-    glm::mat4 proj;
-    glm::vec4 camPos_colorR;    // xyz = camPos, w = colorR
-    glm::vec4 colorBG_falloff;  // xyz = colorG+B, w = falloff
-    glm::vec4 gridAxis_planePos;  // x = normalized axis (0=X,1=Y,2=Z), y = planePos, zw = pad
-    glm::vec4 flags;            // x = useZeroToOne (1.0 or 0.0)
-    glm::mat4 lightMVP;         // shadow light view-projection matrix
-    glm::vec4 shadowParams;     // x = shadowsEnabled, y = bias, zw = pad
-};
-static_assert(sizeof(GridUBOData) % 16 == 0, "GridUBOData must be std140-aligned");
 
 // CPU-side UBO layout matching the std140 GlyphUBO block in glyph.vert/frag.
 struct GlyphUBOData {
@@ -566,24 +542,11 @@ private:
     GlyphPass glyphPass;           // vector glyph shader program + UBO + draw
     ParticlePass particlePass;     // particle shader program + VAO/VBO + draw
     LodScheduler lodScheduler;     // LOD debounce + GPU compute dispatch
-    GridRenderer m_grid;           // procedural ray-cast ground plane
     BBoxOverlay m_bbox;            // AABB wireframe overlay
     QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
     StreamlineController m_streamlines;      // streamline compute + draw + seeds
     VolumePass m_volume;                      // volume ray-march pass
     VolumeSliceOverlay m_volumeSliceOverlay;  // volume slice plane overlay
-
-    // --- Shadow mapping for reference grid ---
-    GlProgram m_shadowProgram;
-    GlFramebuffer m_shadowFbo;
-    GlTexture m_shadowDepthTex;
-    GLuint m_shadowUbo = 0;
-    GLint m_shadowUboIndex = -1;
-    static constexpr int kShadowMapSize = 1024;
-
-    void drawShadowPass(const std::vector<std::pair<GLuint, int>>& drawList, const glm::mat4& lightMVP);
-    void ensureShadowFbo();
-    void destroyShadowFbo();
 
     static constexpr int kMaxPeelLayers = 8;
 

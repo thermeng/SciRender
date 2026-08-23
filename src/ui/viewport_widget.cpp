@@ -107,8 +107,6 @@ void ViewportWidget::loadShaders() {
     sources.meshWireVert    = loadShader(":/src/shaders/wire.vert");
     sources.meshWireGeo     = loadShader(":/src/shaders/wire.geo");
     sources.meshWireFrag    = loadShader(":/src/shaders/wire.frag");
-    sources.gridVert        = loadShader(":/src/shaders/grid.vert");
-    sources.gridFrag        = loadShader(":/src/shaders/grid.frag");
     sources.glyphVert       = loadShader(":/src/shaders/glyph.vert");
     sources.glyphFrag       = loadShader(":/src/shaders/glyph.frag");
     sources.bboxVert        = loadShader(":/src/shaders/bbox.vert");
@@ -132,8 +130,6 @@ void ViewportWidget::loadShaders() {
     sources.depthPeelFrag = loadShader(":/src/shaders/depth_peel.frag");
     sources.compositeVert = loadShader(":/src/shaders/composite.vert");
     sources.compositeFrag = loadShader(":/src/shaders/composite.frag");
-    sources.shadowVert = loadShader(":/src/shaders/shadow.vert");
-    sources.shadowFrag = loadShader(":/src/shaders/shadow.frag");
 
     scene->initShaders(sources);
 }

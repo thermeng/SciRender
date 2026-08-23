@@ -1079,18 +1079,6 @@ QWidget* MainWindow::buildViewDisplayPage() {
     connect(pointsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowPoints);
     m_vdSurfaceCb = surfaceCb;
     m_vdPointsCb = pointsCb;
-    viewUi.refGridCb->setChecked(m_settings->isGridVisible());
-    connect(viewUi.refGridCb, &QCheckBox::toggled, m_settings, &RenderSettings::toggleGrid);
-    m_vdGridCb = viewUi.refGridCb;
-    auto* gridPosCombo = viewUi.gridPosCombo;
-    //gridPosCombo->addItems({"X Min", "X Max", "Y Min", "Y Max", "Z Min", "Z Max"});
-    gridPosCombo->setCurrentIndex(m_settings->getGridAxis());
-    gridPosCombo->setEnabled(m_settings->getHasMeshLoaded());
-    connect(gridPosCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), m_settings, &RenderSettings::setGridAxis);
-    m_vdGridPosCombo = gridPosCombo;
-    viewUi.gridShadowCb->setChecked(m_settings->getGridShadows());
-    connect(viewUi.gridShadowCb, &QCheckBox::toggled, m_settings, &RenderSettings::setGridShadows);
-    m_vdGridShadowCb = viewUi.gridShadowCb;
     viewUi.bboxCb->setChecked(m_settings->getShowBounds());
     connect(viewUi.bboxCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowBounds);
     m_vdBboxCb = viewUi.bboxCb;
@@ -2240,10 +2228,6 @@ void MainWindow::setupQuickBar() {
                                 m_settings->isWireframe(), true, [this]() {
         m_settings->setWireframe(!m_settings->isWireframe());
     });
-    m_qbGrid = addQBButton(":/src/resources/icons/grid.svg", "Ground",
-                           m_settings->isGridVisible(), true, [this]() {
-        m_settings->toggleGrid(!m_settings->isGridVisible());
-    });
     m_qbSurface = addQBButton(":/src/resources/icons/surface.svg", "Surface",
                               m_settings->isSurfaceVisible(), true, [this]() {
         m_settings->toggleSurface(!m_settings->isSurfaceVisible());
@@ -2325,7 +2309,6 @@ void MainWindow::updateQuickBarVisibility() {
 // keyboard shortcuts / View & Display checkboxes, not the quick-bar buttons themselves.
 void MainWindow::syncQuickBar() {
     if (m_qbWireframe) m_qbWireframe->setChecked(m_settings->isWireframe());
-    if (m_qbGrid)      m_qbGrid->setChecked(m_settings->isGridVisible());
     if (m_qbSurface)   m_qbSurface->setChecked(m_settings->isSurfaceVisible());
     if (m_qbVolume)    m_qbVolume->setChecked(m_settings->getShowVolume());
 }
@@ -2388,8 +2371,6 @@ void MainWindow::applyVolumeControlGating() {
 void MainWindow::syncViewDisplayPage() {
     if (m_vdWireframeCb) m_vdWireframeCb->setChecked(m_settings->isWireframe());
     if (m_vdCellWireframeCb) m_vdCellWireframeCb->setChecked(m_settings->isCellWireframe());
-    if (m_vdGridCb)      m_vdGridCb->setChecked(m_settings->isGridVisible());
-    if (m_vdGridPosCombo) m_vdGridPosCombo->setCurrentIndex(m_settings->getGridAxis());
     if (m_vdSurfaceCb)   m_vdSurfaceCb->setChecked(m_settings->isSurfaceVisible());
     if (m_vdPointsCb)    m_vdPointsCb->setChecked(m_settings->getShowPoints());
     if (m_vdBboxCb)      m_vdBboxCb->setChecked(m_settings->getShowBounds());
@@ -2447,7 +2428,6 @@ void MainWindow::setupKeyboardShortcuts() {
     };
     addNav(QKeySequence("R"),            [this]() { m_settings->resetCamera(); });
     addNav(QKeySequence("W"),            [this]() { m_settings->setWireframe(!m_settings->isWireframe()); });
-    addNav(QKeySequence("G"),            [this]() { m_settings->toggleGrid(!m_settings->isGridVisible()); });
     addNav(QKeySequence("S"),            [this]() { saveScreenshot(); });
     addNav(QKeySequence("Left"),         [this]() { m_settings->azimuth(-5); });
     addNav(QKeySequence("Right"),        [this]() { m_settings->azimuth(5); });
@@ -2557,12 +2537,6 @@ void MainWindow::connectSettings() {
             m_volumeFieldCombo->setCurrentText(m_settings->getActiveScalarNameQml());
             m_volumeFieldCombo->setEnabled(m_settings->hasMeshScalars());
             m_volumeFieldCombo->blockSignals(false);
-        }
-        if (m_vdGridPosCombo) {
-            m_vdGridPosCombo->setEnabled(m_settings->getHasMeshLoaded());
-        }
-        if (m_vdGridShadowCb) {
-            m_vdGridShadowCb->setEnabled(m_settings->getHasMeshLoaded());
         }
     });
 
@@ -2714,7 +2688,6 @@ void MainWindow::showShortcuts() {
         "<table style='font-size:12px;'>"
         "<tr><td style='padding-right:16px;'><b>R</b></td><td>Reset camera</td></tr>"
         "<tr><td><b>W</b></td><td>Toggle wireframe</td></tr>"
-        "<tr><td><b>G</b></td><td>Toggle grid</td></tr>"
         "<tr><td><b>S</b></td><td>Save screenshot</td></tr>"
         "<tr><td><b>Left/Right</b></td><td>Orbit (azimuth)</td></tr>"
         "<tr><td><b>Up/Down</b></td><td>Elevation</td></tr>"

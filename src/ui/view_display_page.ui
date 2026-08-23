@@ -114,57 +114,6 @@
       </widget>
      </item>
       <item>
-       <widget class="QCheckBox" name="refGridCb">
-        <property name="text">
-         <string>Reference Grid</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="gridPosCombo">
-        <property name="editable">
-         <bool>false</bool>
-        </property>
-        <item>
-         <property name="text">
-          <string>X Min</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>X Max</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Y Min</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Y Max</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Z Min</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Z Max</string>
-         </property>
-        </item>
-       </widget>
-      </item>
-      <item>
-       <widget class="QCheckBox" name="gridShadowCb">
-        <property name="text">
-         <string>Grid Shadows</string>
-        </property>
-       </widget>
-      </item>
-      <item>
        <widget class="QCheckBox" name="bboxCb">
        <property name="text">
         <string>Bounding Box</string>
