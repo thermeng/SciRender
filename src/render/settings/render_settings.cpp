@@ -491,7 +491,7 @@ void RenderSettings::requestScreenshot(const QString& path) {
 }
 
 void RenderSettings::recomputeScalarRange() {
-    if (m_meshData.guiMeta.scalars.empty()) return;
+    if (m_meshData.guiMeta.scalars.empty()) return; // caller already assigned range (e.g. lazy-derived) — keep, not stale
     float mn = std::numeric_limits<float>::max();
     float mx = -std::numeric_limits<float>::max();
     for (float v : m_meshData.guiMeta.scalars) {
@@ -518,8 +518,16 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     // via FieldResolver seam — one interface, hides point vs cell.
     auto payload = std::make_shared<const std::vector<float>>(*data);
     m_meshData.guiMeta.scalars = *payload;
+    // Trust the resolver's per-field range (lazy-derived computes it exactly);
+    // recompute only refines when the payload scan disagrees (e.g. split vertices).
+    m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
+    m_state.scalarMin = mn;     m_state.scalarMax = mx;
     recomputeScalarRange();
-    setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+    // Reset filter window atomically to the new data range (bypasses the
+    // cross-clamp against the OLD filterMax/filterMin which would freeze
+    // the window on range switches like [0,1] -> [100,200]).
+    m_state.filterMin = m_state.dataScalarMin;
+    m_state.filterMax = m_state.dataScalarMax;
     emit meshLoadStateChanged();
 
     // Trigger a SCALAR-ONLY re-upload on the render thread (shared_ptr, no copy).
@@ -614,6 +622,11 @@ void RenderSettings::resetLighting() {
 }
 
 QStringList RenderSettings::getAvailableScalars() const {
+    if (m_meshData.loadedMesh) {
+        auto names = FieldResolver::availableScalarNamesWithDerived(*m_meshData.loadedMesh);
+        QStringList list; for (auto& n: names) list.append(QString::fromStdString(n));
+        return list;
+    }
     QStringList list;
     for (const auto& name : m_meshData.guiMeta.availableScalarNames)
         list.append(QString::fromStdString(name));

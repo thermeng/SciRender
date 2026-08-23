@@ -339,13 +339,11 @@ void Renderer::uploadVolumeFromScalarDirty(const RenderRenderState& state,
 }
 
 void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars) {
-    fprintf(stderr, "[scalar-debug] updateScalarsOnGPU: enter\n");
     {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         m_pendingScalarSrc = scalars; // shared_ptr, no data copy
     }
     meshManager.updateScalars(scalars);
-    fprintf(stderr, "[scalar-debug] updateScalarsOnGPU: exit\n");
 }
 
 void Renderer::drawGizmo() {
@@ -397,8 +395,15 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         return out;
     };
 
-    std::vector<ColorbarData> bars;
+    m_colorbarBars.clear();
     const int tickCount = m_state.colorbarTicks;
+
+    auto loadBarPosition = [](ColorbarData& d) {
+        QSettings s;
+        QString key = QString("colorbarPos_%1").arg(d.title);
+        d.fracX = s.value(key + "_x", 1.0).toFloat();
+        d.fracY = s.value(key + "_y", 1.0).toFloat();
+    };
 
     // Scalar bar
     if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar) {
@@ -413,7 +418,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
             const float v = m_state.dataScalarMin + range * frac;
             d.tickLabels.append(QString::number(v, 'f', 3));
         }
-        bars.push_back(d);
+        loadBarPosition(d);
+        m_colorbarBars.push_back(d);
     }
 
     // Vector bar
@@ -443,7 +449,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
             const float v = invTxMag(t);
             d.tickLabels.append(QString::number(v, 'f', 3));
         }
-        bars.push_back(d);
+        loadBarPosition(d);
+        m_colorbarBars.push_back(d);
     }
 
     // Streamline bar
@@ -461,7 +468,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
             const float v = sMin + sRange * frac;
             d.tickLabels.append(QString::number(v, 'f', 3));
         }
-        bars.push_back(d);
+        loadBarPosition(d);
+        m_colorbarBars.push_back(d);
     }
 
     // Volume bar
@@ -477,7 +485,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
             const float v = m_state.dataScalarMin + range * frac;
             d.tickLabels.append(QString::number(v, 'f', 3));
         }
-        bars.push_back(d);
+        loadBarPosition(d);
+        m_colorbarBars.push_back(d);
     }
 
     // Slice plane bar (independent colormap, per-slice scalar range)
@@ -493,10 +502,31 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
             const float v = m_state.sliceScalarMin + range * frac;
             d.tickLabels.append(QString::number(v, 'f', 3));
         }
-        bars.push_back(d);
+        loadBarPosition(d);
+        m_colorbarBars.push_back(d);
     }
 
-    colorbarOverlay.drawBars(dpr, deviceW, deviceH, bars);
+    colorbarOverlay.drawBars(dpr, deviceW, deviceH, m_colorbarBars);
+}
+
+int Renderer::colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& bars) const {
+    return colorbarOverlay.barIndexAt(devicePixelRatio, effectiveDeviceW(), effectiveDeviceH(), bars, px, py);
+}
+
+void Renderer::setColorbarPosition(int index, float fracX, float fracY) {
+    if (index >= 0 && index < static_cast<int>(m_colorbarBars.size())) {
+        m_colorbarBars[index].fracX = fracX;
+        m_colorbarBars[index].fracY = fracY;
+        // Persist per-bar position by title
+        QSettings s;
+        QString key = QString("colorbarPos_%1").arg(m_colorbarBars[index].title);
+        s.setValue(key + "_x", fracX);
+        s.setValue(key + "_y", fracY);
+    }
+}
+
+QRectF Renderer::colorbarBarRect(float dpr, int deviceW, int deviceH, const ColorbarData& bar) const {
+    return colorbarOverlay.barRectAt(dpr, deviceW, deviceH, bar);
 }
 
 void Renderer::updateSliceScalarRange() {

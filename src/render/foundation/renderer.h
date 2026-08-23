@@ -380,6 +380,13 @@ public:
     void setViewportOverride(int deviceW, int deviceH) { m_overrideDeviceW = deviceW; m_overrideDeviceH = deviceH; }
     void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; colorbarOverlay.markDirty(); }
 
+    // Colorbar drag support
+    int colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& bars) const;
+    void setColorbarPosition(int index, float fracX, float fracY);
+    void markColorbarDirty() { colorbarOverlay.markDirty(); }
+    QRectF colorbarBarRect(float dpr, int deviceW, int deviceH, const ColorbarData& bar) const;
+    const std::vector<ColorbarData>& colorbarBars() const { return m_colorbarBars; }
+
     // Actual render-target size in device pixels: the screenshot override when
     // active, otherwise the widget size scaled by DPR. Every pass must derive
     // its viewport/FBO sizes from these (not width*devicePixelRatio) so
@@ -482,6 +489,7 @@ private:
     // Viewport Core Transform Tracking
     Gizmo gizmo;
     ColorbarOverlay colorbarOverlay;
+    std::vector<ColorbarData> m_colorbarBars;
 
     double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
     double m_lastOrthoRadius = 1.0;

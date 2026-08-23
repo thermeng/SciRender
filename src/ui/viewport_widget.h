@@ -11,11 +11,14 @@
 #include <QTimer>
 #include <QPainter>
 #include <QContextMenuEvent>
+#include <QFileDialog>
 #include <QMenu>
+#include <QSettings>
 #include <memory>
 #include "render/foundation/renderer.h"
 #include "render/settings/render_settings.h"
 #include "render/overlays/screenshot_capture.h"
+#include "render/overlays/colorbar_overlay.h"
 
 class ViewportWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     Q_OBJECT
@@ -47,12 +50,16 @@ private:
     void drawEmptyState(QPainter& painter);
     void drawSpinner(QPainter& painter);
     void advanceSpinner();
+    void updateColorbarHitState();
+    void beginColorbarDrag(const QPoint& pos, int barIndex);
+    void updateColorbarDrag(const QPoint& pos);
+    void endColorbarDrag();
 
     ::RenderSettings* m_settings = nullptr;
     bool m_initialized = false;
     int m_msaaSamples = 0;
     QPoint m_lastMousePos;
-    bool m_isRightClick = false;
+    bool m_isMiddleClick = false;
 
     QString m_pendingScreenshot;
     ScreenshotCapture m_screenshotCapture;
@@ -67,6 +74,13 @@ private:
 
     QTimer* m_spinnerTimer = nullptr;
     int m_spinnerAngle = 0;
+
+    // Colorbar drag state
+    bool m_draggingColorbar = false;
+    bool m_colorbarHover = false;
+    int m_dragBarIndex = -1;
+    QPoint m_dragStartPos;
+    std::vector<ColorbarData> m_colorbarBars;
 
 private slots:
     void deferredCapture(const QString& path);
