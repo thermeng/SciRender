@@ -1249,7 +1249,8 @@ QWidget* MainWindow::buildScalarPage() {
             double v = field->text().toDouble(&ok);
             if (!ok) v = m_settings->getFilterMin();
             v = qBound(m_settings->getDataScalarMinQml(), v, m_settings->getDataScalarMaxQml());
-            slider->setValue(static_cast<int>(v * 1000));
+            v = std::min(v, static_cast<double>(m_settings->getFilterMax()));
+            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
             m_settings->setFilterMin(v);
         });
     }
@@ -1268,7 +1269,8 @@ QWidget* MainWindow::buildScalarPage() {
             double v = field->text().toDouble(&ok);
             if (!ok) v = m_settings->getFilterMax();
             v = qBound(m_settings->getDataScalarMinQml(), v, m_settings->getDataScalarMaxQml());
-            slider->setValue(static_cast<int>(v * 1000));
+            v = std::max(v, static_cast<double>(m_settings->getFilterMin()));
+            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
             m_settings->setFilterMax(v);
         });
     }
@@ -2105,8 +2107,8 @@ void MainWindow::refreshScalarFilterRange() {
     const double maxVal = m_settings->getDataScalarMaxQml();
     auto applyOne = [minVal, maxVal](QSlider* slider, QLineEdit* field, double filterVal) {
         if (!slider || !field) return;
-        slider->setRange(static_cast<int>(minVal * 1000), static_cast<int>(maxVal * 1000));
-        int vi = static_cast<int>(filterVal * 1000);
+        slider->setRange(static_cast<int>(std::lround(minVal * 1000.0)), static_cast<int>(std::lround(maxVal * 1000.0)));
+        int vi = static_cast<int>(std::lround(filterVal * 1000.0));
         slider->blockSignals(true);
         slider->setValue(vi);
         slider->blockSignals(false);

@@ -188,9 +188,9 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
         glBindVertexArray(drawList[di].first);
 
         if (state.showPoints && drawVerts[di] > 0) {
-            if (useCrinkleClip) {
-                glUseProgram(shaderProgram);
-            }
+            // Wireframe may have bound wireProgram; ensure mesh program for points (isPoint branch lives in mesh.frag)
+            glUseProgram(useCrinkleClip ? clipShaderProgram : shaderProgram);
+            glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
             GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
             glEnable(GL_PROGRAM_POINT_SIZE);
 
