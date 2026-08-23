@@ -223,8 +223,11 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
                                    const std::vector<std::pair<GLuint, int>>& transparentMeshes) {
     if (!m_peelProgram.has() || !m_compositeProgram.has() || transparentMeshes.empty()) return;
 
-    int vpW = static_cast<int>(width * devicePixelRatio);
-    int vpH = static_cast<int>(height * devicePixelRatio);
+    // Honor the screenshot viewport override so peel buffers, the opaque-depth
+    // blit and the composite quad all cover the full render target (not just
+    // the on-screen widget region).
+    int vpW = effectiveDeviceW();
+    int vpH = effectiveDeviceH();
 
     GLint samples = 0;
     glGetIntegerv(GL_SAMPLES, &samples);
@@ -342,6 +345,10 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glDisable(GL_CULL_FACE);
+    // The composite left the viewport at peel-buffer size; restore the frame
+    // target so every pass after renderTransparent (wireframe overlays, bbox,
+    // grid, glyphs...) draws at full size during screenshot re-renders.
+    glViewport(0, 0, vpW, vpH);
 }
 
 void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
@@ -915,10 +922,8 @@ void Renderer::renderFrame() {
     }
     m_grid.setZeroToOne(m_clipControlAvailable);
 
-    int deviceW = m_overrideDeviceW > 0 ? m_overrideDeviceW
-                 : static_cast<int>(width * devicePixelRatio);
-    int deviceH = m_overrideDeviceH > 0 ? m_overrideDeviceH
-                 : static_cast<int>(height * devicePixelRatio);
+    int deviceW = effectiveDeviceW();
+    int deviceH = effectiveDeviceH();
     glViewport(0, 0, deviceW, deviceH);
 
     glDepthMask(GL_TRUE);
