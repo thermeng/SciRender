@@ -8,6 +8,10 @@
 #include <QPoint>
 #include <QElapsedTimer>
 #include <QLabel>
+#include <QTimer>
+#include <QPainter>
+#include <QContextMenuEvent>
+#include <QMenu>
 #include <memory>
 #include "render/foundation/renderer.h"
 #include "render/settings/render_settings.h"
@@ -35,10 +39,14 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
     bool event(QEvent* event) override;
 
 private:
     void loadShaders();
+    void drawEmptyState(QPainter& painter);
+    void drawSpinner(QPainter& painter);
+    void advanceSpinner();
 
     ::RenderSettings* m_settings = nullptr;
     bool m_initialized = false;
@@ -56,6 +64,9 @@ private:
     double m_fpsAccum = 0.0;
 
     QLabel* m_fpsLabel = nullptr;
+
+    QTimer* m_spinnerTimer = nullptr;
+    int m_spinnerAngle = 0;
 
 private slots:
     void deferredCapture(const QString& path);
