@@ -1,6 +1,7 @@
 #include "render/settings/render_settings.h"
 #include "render/foundation/render_config.h"
 #include "core/Colormaps.h"
+#include "core/FieldResolver.h"
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
 #include "core/isosurface.h"
@@ -52,23 +53,10 @@ RenderSettings::RenderSettings(QObject* parent)
 RenderSettings::~RenderSettings() = default;
 
 void RenderSettings::publishRenderState(::Renderer* scene) {
-    if (m_stateDirty) {
-        m_stateDirty = false;
-        if (scene) {
-            // N4: skip copying quality overlay geometry when overlay is hidden
-            if (!m_state.showQualityOverlay) {
-                auto saved0 = std::exchange(m_state.qualityDegenerateTris, nullptr);
-                auto saved1 = std::exchange(m_state.qualityOpenEdges, nullptr);
-                auto saved2 = std::exchange(m_state.qualityNonManifoldEdges, nullptr);
-                scene->setState(m_state);
-                m_state.qualityDegenerateTris = std::move(saved0);
-                m_state.qualityOpenEdges = std::move(saved1);
-                m_state.qualityNonManifoldEdges = std::move(saved2);
-            } else {
-                scene->setState(m_state);
-            }
-        }
-    }
+    if (!m_stateDirty && !m_store.isDirty()) return;
+    m_store.state() = m_state;
+    m_store.markDirty();
+    if (m_store.publish(scene)) m_stateDirty = false;
 }
 
 void RenderSettings::setFpsText(const QString& text) {
@@ -518,17 +506,16 @@ void RenderSettings::recomputeScalarRange() {
 
 void RenderSettings::setActiveScalarField(const QString& fieldName) {
     if (fieldName.toStdString() == m_state.activeScalarName) return;
-    if (!m_meshData.loadedMesh || !m_meshData.loadedMesh->attributes.has_value()) return;
-    auto it = m_meshData.loadedMesh->attributes->pointScalars.find(fieldName.toStdString());
-    if (it == m_meshData.loadedMesh->attributes->pointScalars.end()) return;
-
+    if (!m_meshData.loadedMesh) return;
+    float mn, mx;
+    const auto* data = FieldResolver::scalarData(*m_meshData.loadedMesh, fieldName.toStdString(), mn, mx);
+    if (!data) return;
     m_state.activeScalarName = fieldName.toStdString();
     m_meshData.guiMeta.scalarName = m_state.activeScalarName;
 
     // Build the scalar payload ONCE as a shared_ptr (zero-copy across threads)
-    // and reuse it for both the GUI meta copy and the render-thread handoff,
-    // so the field is copied a single time rather than twice.
-    auto payload = std::make_shared<const std::vector<float>>(it->second);
+    // via FieldResolver seam — one interface, hides point vs cell.
+    auto payload = std::make_shared<const std::vector<float>>(*data);
     m_meshData.guiMeta.scalars = *payload;
     recomputeScalarRange();
     setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);

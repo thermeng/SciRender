@@ -19,6 +19,8 @@ public:
     }
 
     bool tick(const RenderRenderState& state, MeshGLManager& meshManager);
+    bool tick(const RenderRenderState& state, MeshGLManager& meshManager,
+              std::chrono::steady_clock::time_point now);
     bool isCameraMoving() const { return cameraMoving.load(); }
     void markDirty() { gpuDecimationDirty = true; }
     void reset() {

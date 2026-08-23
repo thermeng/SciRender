@@ -44,6 +44,7 @@ public:
     void  markVolumeSliceLutDirty() { volumeSliceLutDirty_ = true; }
     GLuint volumeSliceTexture() const { return volumeSliceTex_.get(); }
 
+    void sync(const struct RenderRenderState& state);
     void update();
     void shutdown();
 

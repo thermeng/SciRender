@@ -27,18 +27,7 @@ void MeshPass::init(const ShaderSources& sources) {
         }
     }
 
-    if (!sources.meshWireVert.empty() && !sources.meshWireGeo.empty()
-        && !sources.meshWireFrag.empty()) {
-        wireProgram.reset(compileProgramWithGS(
-            sources.meshWireVert.c_str(), sources.meshWireGeo.c_str(),
-            sources.meshWireFrag.c_str(), "MeshWire"));
-        if (wireProgram.has()) {
-            wireMvpLoc       = glGetUniformLocation(wireProgram, "uMVP");
-            wireViewportLoc  = glGetUniformLocation(wireProgram, "uViewport");
-            wireHalfWidthLoc = glGetUniformLocation(wireProgram, "uHalfWidth");
-            wireColorLoc     = glGetUniformLocation(wireProgram, "uWireColor");
-        }
-    }
+    wireframePass.init(sources);
 }
 
 MeshPassResult MeshPass::draw(const RenderRenderState& state,
@@ -192,83 +181,11 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
     // ── Cell-boundary wireframe (GL_LINES via edge VAOs) ──────────────────────
     // When wireframe is enabled and cell edge VAOs are available, render cell
     // boundaries directly (auto-preferred). Decimated LOD meshes have no edge
-    // VAOs, so they fall through to the per-mesh GL_LINE approach below.
-    if (state.showWireframe && !edgeDrawList.empty()) {
-        GLStateGuard guard;
+    wireframePass.draw(state, ubo, meshUbo, drawList, edgeDrawList);
 
-        ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 1.0f);
-        glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-
-        // Preferred path: GS-expanded screen-space quads. glLineWidth() is
-        // unreliable in the core profile (drivers may clamp to 1.0), so the
-        // requested thickness is applied by wire.geo in device pixels instead.
-        // Under crinkle clip the legacy path is kept: the clip program's
-        // per-fragment discard cannot apply to the expanded quads.
-        const bool useThickWire = !useCrinkleClip && wireProgram.has()
-                                  && wireMvpLoc >= 0 && wireColorLoc >= 0
-                                  && wireViewportLoc >= 0 && wireHalfWidthLoc >= 0;
-        if (useThickWire) {
-            GLint vp[4];
-            glGetIntegerv(GL_VIEWPORT, vp);
-            glUseProgram(wireProgram);
-            glUniformMatrix4fv(wireMvpLoc, 1, GL_FALSE, glm::value_ptr(ubo.mvp));
-            glUniform4fv(wireColorLoc, 1, glm::value_ptr(ubo.meshColor_wire));
-            glUniform2f(wireViewportLoc, static_cast<float>(vp[2]), static_cast<float>(vp[3]));
-            glUniform1f(wireHalfWidthLoc, 0.5f * state.lineWidth);
-            glDepthFunc(GL_LEQUAL);
-            glDepthMask(GL_FALSE);
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glEnable(GL_POLYGON_OFFSET_FILL);
-            glPolygonOffset(-1.0f, -1.0f);
-            glDisable(GL_CULL_FACE);
-            for (const auto& e : edgeDrawList) {
-                if (e.second <= 0) continue;
-                glBindVertexArray(e.first);
-                glDrawElements(GL_LINES, e.second, GL_UNSIGNED_INT, 0);
-            }
-            glBindVertexArray(0);
-            glDisable(GL_POLYGON_OFFSET_FILL);
-        } else {
-            glLineWidth(state.lineWidth);
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            glEnable(GL_POLYGON_OFFSET_LINE);
-            glPolygonOffset(-1.0f, -1.0f);
-
-            for (const auto& e : edgeDrawList) {
-                if (e.second <= 0) continue;
-                glBindVertexArray(e.first);
-                glDrawElements(GL_LINES, e.second, GL_UNSIGNED_INT, 0);
-            }
-            glBindVertexArray(0);
-
-            glDisable(GL_POLYGON_OFFSET_LINE);
-            glLineWidth(1.0f);
-        }
-
-        ubo.meshColor_wire.w = 0.0f;
-        glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-    }
-
-    // ── Per-mesh overlay pass (triangle-edge wireframe + points) ─────────────
-    // Auto-prefer cell edges when available; otherwise fall back to triangle edges.
-    const bool useCellEdges = state.showWireframe && !edgeDrawList.empty();
+    // ── Per-mesh overlay pass (points) ─────────────
     for (size_t di = 0; di < drawList.size(); ++di) {
         glBindVertexArray(drawList[di].first);
-
-        if (state.showWireframe && !useCellEdges) {
-            glLineWidth(state.lineWidth);
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            glEnable(GL_POLYGON_OFFSET_LINE);
-            glPolygonOffset(-1.0f, -1.0f);
-            ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 1.0f);
-            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-            glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
-            glDisable(GL_POLYGON_OFFSET_LINE);
-            glLineWidth(1.0f);
-            ubo.meshColor_wire.w = 0.0f;
-            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
-        }
 
         if (state.showPoints && drawVerts[di] > 0) {
             if (useCrinkleClip) {
@@ -304,6 +221,7 @@ void MeshPass::shutdown() {
     meshUboIndex = GL_INVALID_INDEX;
     lutTextureLoc = -1;
     clipLutTextureLoc = -1;
+    wireframePass.shutdown();
 }
 
 

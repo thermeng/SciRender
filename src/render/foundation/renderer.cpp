@@ -1,4 +1,5 @@
 #include "render/foundation/renderer.h"
+#include "core/FieldResolver.h"
 #include "render/foundation/shader_utils.h"
 #include "render/foundation/render_config.h"
 #include "render/streamlines/StreamlineSet.h"
@@ -53,9 +54,7 @@ Renderer::~Renderer() {
         m_bbox.shutdown();
         m_qualityOverlay.shutdown();
         m_streamlines.shutdown();
-        destroyPeelFbos();
-        m_peelProgram.reset();
-        m_compositeProgram.reset();
+        m_depthPeel.shutdown();
     }
 }
 #pragma GCC diagnostic pop
@@ -111,22 +110,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
     m_bbox.init(sources);
     m_qualityOverlay.init(sources);
     m_streamlines.init(sources);
-
-    // depth peeling shaders for transparent surfaces
-    if (!sources.depthPeelVert.empty() && !sources.depthPeelFrag.empty()) {
-        m_peelProgram.reset(compileProgram(sources.depthPeelVert.c_str(), sources.depthPeelFrag.c_str(), "DepthPeel"));
-        if (m_peelProgram.has()) {
-            m_peelPrevDepthLoc = glGetUniformLocation(m_peelProgram, "uPrevDepth");
-            m_peelLayerLoc     = glGetUniformLocation(m_peelProgram, "uLayerIndex");
-            m_peelLutLoc      = glGetUniformLocation(m_peelProgram, "uColormapLUT");
-        }
-    }
-    if (!sources.compositeVert.empty() && !sources.compositeFrag.empty()) {
-        m_compositeProgram.reset(compileProgram(sources.compositeVert.c_str(), sources.compositeFrag.c_str(), "Composite"));
-        if (m_compositeProgram.has()) {
-            m_peelNumLayersLoc = glGetUniformLocation(m_compositeProgram, "uNumLayers");
-        }
-    }
+    m_depthPeel.init(sources);
 }
 
 void Renderer::initGizmo() {
@@ -134,202 +118,11 @@ void Renderer::initGizmo() {
     colorbarOverlay.init();
 }
 
-// ---------------------------------------------------------------------------
-// Depth peeling — iterative N-layer OIT for transparent surfaces
-// ---------------------------------------------------------------------------
-void Renderer::ensurePeelFbos(int w, int h, int samples) {
-    if (m_peelFboW == w && m_peelFboH == h && m_peelSamples == samples && m_peelFbo[0].has()) return;
-    destroyPeelFbos();
-    m_peelFboW = w; m_peelFboH = h; m_peelSamples = samples;
-
-    // Peel is surfaces-only: always single-sample. Using `samples` as mip levels
-    // was a bug (glTextureStorage2D arg 2 is levels, not samples). True MSAA
-    // would need glTextureStorage2DMultisample + sampler2DMS + per-sample
-    // fetches; instead peel renders single-sample and the opaque depth is
-    // resolved via BlitFramebuffer when the main FBO is multisampled.
-    auto createStorage = [&](GLenum target, GLenum internalFormat, GLsizei w, GLsizei h) {
-        glTextureStorage2D(target, 1, internalFormat, w, h);
-        // texelFetch bypasses filtering, but default MIN_FILTER is mipmap-
-        // based and would make the texture incomplete (strict drivers sample
-        // prevDepth as 0, discarding every transparent fragment).
-        glTextureParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTextureParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTextureParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    };
-
-    // Use float depth for improved precision on large scenes (world units > 100).
-    // Falls back to 24-bit integer depth if GL_ARB_depth_buffer_float is not supported.
-    GLenum depthFormat = GL_DEPTH24_STENCIL8;
-    if (GLAD_GL_ARB_depth_buffer_float) {
-        depthFormat = GL_DEPTH32F_STENCIL8;
-    }
-    // ... rest of the function using depthFormat variable
-
-    // 8 dedicated FBOs: 1 color+depth per layer, no ping-pong re-attachment.
-    for (int i = 0; i < kMaxPeelLayers; ++i) {
-        glCreateFramebuffers(1, m_peelFbo[i].ptr());
-        glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
-        createStorage(m_peelColorTex[i], GL_RGBA8, w, h);
-        glCreateTextures(GL_TEXTURE_2D, 1, m_peelDepthTex[i].ptr());
-        createStorage(m_peelDepthTex[i], depthFormat, w, h);
-
-        glNamedFramebufferTexture(m_peelFbo[i], GL_COLOR_ATTACHMENT0, m_peelColorTex[i], 0);
-        glNamedFramebufferTexture(m_peelFbo[i], GL_DEPTH_STENCIL_ATTACHMENT, m_peelDepthTex[i], 0);
-        // 32F depth on both display and peel ensures Blit src/dst formats match.
-        if (glCheckNamedFramebufferStatus(m_peelFbo[i], GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            qWarning() << "Peel FBO" << i << "incomplete: 0x" << Qt::hex << glCheckNamedFramebufferStatus(m_peelFbo[i], GL_FRAMEBUFFER);
-        }
-    }
-
-    glCreateTextures(GL_TEXTURE_2D, 1, m_peelMainDepth.ptr());
-    createStorage(m_peelMainDepth, depthFormat, w, h);
-
-    if (!m_peelDummyVao.has()) glCreateVertexArrays(1, m_peelDummyVao.ptr());
-}
-
-void Renderer::destroyPeelFbos() {
-    for (int i = 0; i < kMaxPeelLayers; ++i) {
-        m_peelFbo[i].reset();
-        m_peelDepthTex[i].reset();
-        m_peelColorTex[i].reset();
-    }
-    m_peelMainDepth.reset();
-    m_peelDummyVao.reset();
-    m_peelFboW = m_peelFboH = 0;
-}
-
 void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
                                    GLuint meshUbo,
                                    const std::vector<std::pair<GLuint, int>>& transparentMeshes) {
-    if (!m_peelProgram.has() || !m_compositeProgram.has() || transparentMeshes.empty()) return;
-
-    // Honor the screenshot viewport override so peel buffers, the opaque-depth
-    // blit and the composite quad all cover the full render target (not just
-    // the on-screen widget region).
-    int vpW = effectiveDeviceW();
-    int vpH = effectiveDeviceH();
-
-    GLint samples = 0;
-    glGetIntegerv(GL_SAMPLES, &samples);
-
-    ensurePeelFbos(vpW, vpH, samples);
-
-    // Save the caller's FBO (QOpenGLWidget's offscreen FBO) so we can composite
-    // back to it instead of FBO 0 (the screen default framebuffer).
-    GLint prevFbo;
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
-
-    // Copy opaque depth into m_peelMainDepth. glCopyTexSubImage2D reads from
-    // the color buffer, not depth — using it for a depth texture yields
-    // undefined (often 0) and layer 0 discards every fragment, making the
-    // whole surface vanish when transparency < 1. Always Blit depth.
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-    {
-        GlFramebuffer tempFbo;
-        glCreateFramebuffers(1, tempFbo.ptr());
-        glNamedFramebufferTexture(tempFbo, GL_DEPTH_STENCIL_ATTACHMENT, m_peelMainDepth, 0);
-        glNamedFramebufferDrawBuffer(tempFbo, GL_NONE);
-        glNamedFramebufferReadBuffer(tempFbo, GL_NONE);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, tempFbo);
-        // Source may be multisampled (resolved here) or single-sampled.
-        glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-        glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
-    }
-
-    glDisable(GL_CULL_FACE);
-    glDisable(GL_BLEND);
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-    glDepthMask(GL_TRUE);
-    // Peel layers store linear color in GL_RGBA8 — disable sRGB
-    // conversion while drawing them.
-    glDisable(GL_FRAMEBUFFER_SRGB);
-
-    // Compute peel layer count: respect user setting as primary determinant,
-    // with dynamic adjustment only as a soft upper-bound reduction for
-    // performance on very simple scenes at very high resolution.
-    int numLayers = std::clamp(m_state.maxPeelLayers, 1, kMaxPeelLayers);
-
-    // Soft reduction: lower layers for very simple scenes at high resolution
-    // without ever going below 1 or above the user's explicit choice.
-    if (m_state.maxPeelLayers > 1) {
-        int meshCount = static_cast<int>(transparentMeshes.size());
-        float resolutionFactor = std::sqrt(static_cast<float>(vpW * vpH)) / 2000.0f;
-        int maxByRes = std::max(1, static_cast<int>(kMaxPeelLayers / resolutionFactor));
-        int dynamicCap = std::min(m_state.maxPeelLayers, maxByRes);
-        numLayers = std::max(1, std::min(numLayers, dynamicCap));
-    }
-
-    glUseProgram(m_peelProgram);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
-    glUniform1i(m_peelPrevDepthLoc, 0);
-    if (m_state.meshHasScalars && m_state.meshUseScalarColor && colormap.scalarTexture() != 0) {
-        glBindTextureUnit(2, colormap.scalarTexture());
-        glUniform1i(m_peelLutLoc, 2);
-    }
-
-    // ---- Iterative N-layer peeling with 8 dedicated FBOs ----
-    for (int layer = 0; layer < numLayers; ++layer) {
-        glUniform1i(m_peelLayerLoc, layer);
-
-        glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[layer]);
-        glViewport(0, 0, vpW, vpH);
-        glClearColor(0, 0, 0, 0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        // Bind previous depth: layer 0 uses opaque depth; layer N uses
-        // the depth texture written by layer N-1 (dedicated per layer).
-        if (layer == 0) {
-            glBindTextureUnit(0, m_peelMainDepth);
-        } else {
-            glBindTextureUnit(0, m_peelDepthTex[layer - 1]);
-        }
-
-        for (const auto& mesh : transparentMeshes) {
-            glBindVertexArray(mesh.first);
-            glDrawElements(GL_TRIANGLES, mesh.second, GL_UNSIGNED_INT, 0);
-        }
-    }
-
-    glBindVertexArray(0);
-    glUseProgram(0);
-
-    // ---- Composite: back-to-front onto the caller's framebuffer ----
-    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
-    glViewport(0, 0, vpW, vpH);
-    // Re-enable sRGB for the display FBO (sRGB-capable).
-    glEnable(GL_FRAMEBUFFER_SRGB);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-
-    glUseProgram(m_compositeProgram);
-
-    // Bind all N color textures to texture units 0..N-1.
-    GLint texUnits[kMaxPeelLayers];
-    for (int i = 0; i < numLayers; ++i) {
-        glBindTextureUnit(i, m_peelColorTex[i]);
-        texUnits[i] = i;
-    }
-    glUniform1iv(glGetUniformLocation(m_compositeProgram, "uLayers[0]"), numLayers, texUnits);
-    glUniform1i(m_peelNumLayersLoc, numLayers);
-
-    glDepthMask(GL_FALSE);
-    glBindVertexArray(m_peelDummyVao);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-    glBindVertexArray(0);
-    glDepthMask(GL_TRUE);
-
-    glUseProgram(0);
-    glDisable(GL_BLEND);
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-    glDisable(GL_CULL_FACE);
-    // The composite left the viewport at peel-buffer size; restore the frame
-    // target so every pass after renderTransparent (wireframe overlays, bbox,
-    // glyphs...) draws at full size during screenshot re-renders.
-    glViewport(0, 0, vpW, vpH);
+    (void)view; (void)proj;
+    m_depthPeel.renderTransparent(effectiveDeviceW(), effectiveDeviceH(), m_state, meshUbo, colormap, transparentMeshes);
 }
 
 void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
@@ -463,9 +256,7 @@ void Renderer::reinitForNewContext() {
         glyphPass.shutdown();
         particlePass.shutdown();
         m_volume.shutdown();
-        destroyPeelFbos();
-        m_peelProgram.reset();
-        m_compositeProgram.reset();
+        m_depthPeel.shutdown();
 
         // Shutdown subsystems — each deletes its own GL handles and zeros them.
         m_bbox.shutdown();
@@ -488,13 +279,7 @@ void Renderer::reinitForNewContext() {
 
     // Always land handle slots and integer locs at safe defaults so lazy
     // re-creation in renderFrame()/initShaders() rebuilds them exactly once.
-    m_peelProgram.reset(); m_compositeProgram.reset();
-    m_peelPrevDepthLoc = -1; m_peelLayerLoc = -1; m_peelLutLoc = -1; m_peelNumLayersLoc = -1;
-    for (auto& fbo : m_peelFbo) fbo.reset();
-    for (auto& tex : m_peelColorTex) tex.reset();
-    for (auto& tex : m_peelDepthTex) tex.reset();
-    m_peelMainDepth.reset(); m_peelDummyVao.reset();
-    m_peelFboW = 0; m_peelFboH = 0;
+    m_depthPeel.reinitForNewContext();
 
     // Reset transient render state so a recreated context does not inherit a
     // stale animation clock (which would leap forward on the first frame) or
@@ -583,19 +368,12 @@ void Renderer::drawGizmo() {
 }
 
 std::string Renderer::vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh) {
-    std::string titleField = state.vectorField;
-    if (titleField.empty() && mesh) {
-        if (state.vectorPlacement == 1) {
-            if (!mesh->cellVectorName.empty())
-                titleField = mesh->cellVectorName;
-            else if (!mesh->availableCellVectorNames.empty())
-                titleField = mesh->availableCellVectorNames.front();
-        } else {
-            if (!mesh->availableVectorNames.empty())
-                titleField = mesh->availableVectorNames.front();
-        }
+    if (!mesh) return state.vectorField;
+    if (!state.vectorField.empty()) {
+        auto f = FieldResolver::resolveVector(*mesh, state.vectorField, state.vectorPlacement);
+        if (f.data) return state.vectorField;
     }
-    return titleField;
+    return FieldResolver::resolveVectorName(*mesh, state.vectorField, state.vectorPlacement);
 }
 
 void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
@@ -939,7 +717,7 @@ void Renderer::renderFrame() {
     }
 
     // Push colormap choices into the GPU LUT manager.
-    colormapSync.apply(m_state, colormap);
+    colormap.sync(m_state);
 
     if (!drawList.empty() && meshPass.hasProgram()) {
         auto result =         meshPass.draw(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap);

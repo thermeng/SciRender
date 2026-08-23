@@ -22,6 +22,8 @@
 #include "core/Camera.h"
 #include "core/isosurface.h"
 #include "render/settings/isosurface_controller.h"
+#include "render/settings/StateStore.h"
+#include "core/FieldResolver.h"
 
 // Change flags carried by the consolidated viewChanged signal so receivers
 // can distinguish which domain changed (e.g. lighting vs. colormap) without
@@ -511,13 +513,15 @@ public:
     STATE_PROP(getVectorUseColormap, setVectorUseColormap, bool, m_state.vectorUseColormap, Vectors)
     STATE_PROP(getVectorColormapChoice, setVectorColormapChoice, int, m_state.vectorColormapChoice, Vectors)
     QStringList getAvailableVectors() const {
-        QStringList l;
-        for (const auto& n : m_meshData.guiMeta.availableVectorNames)
-            l.append(QString::fromStdString(n));
-        if (l.isEmpty()) {
-            for (const auto& n : m_meshData.guiMeta.availableCellVectorNames)
+        if (m_meshData.loadedMesh) {
+            QStringList l;
+            for (auto& n : FieldResolver::availableVectorNames(*m_meshData.loadedMesh))
                 l.append(QString::fromStdString(n));
+            if (!l.isEmpty()) return l;
         }
+        QStringList l;
+        for (auto& n : m_meshData.guiMeta.availableVectorNames) l.append(QString::fromStdString(n));
+        if (l.isEmpty()) for (auto& n : m_meshData.guiMeta.availableCellVectorNames) l.append(QString::fromStdString(n));
         return l;
     }
     QString getVectorField() const { return QString::fromStdString(m_meshData.guiMeta.vectorName); }
@@ -608,6 +612,7 @@ private:
     // deep-copies it. GUI-thread mutations write directly to m_state.*.
     RenderRenderState m_state;
     bool m_stateDirty = true;
+    StateStore m_store; // deep seam — snapshot + dirty behind one interface
 
     // ---- backend (render thread) ----
     Renderer m_renderer;

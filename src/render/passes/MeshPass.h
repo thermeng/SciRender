@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/foundation/gl_raii.h"
+#include "render/passes/WireframePass.h"
 
 #include <glm/glm.hpp>
 
@@ -62,17 +63,11 @@ private:
 
     GlProgram shaderProgram;
     GlProgram clipShaderProgram;
-    // Cell-edge wireframe as GS-expanded screen-space quads: glLineWidth > 1
-    // is clamp-prone in the core profile, so thickness lives in wire.geo.
-    GlProgram wireProgram;
+    WireframePass wireframePass;
     GlBuffer meshUbo;
     GLuint meshUboIndex = ~0u;
     GLint lutTextureLoc = -1;
     GLint clipLutTextureLoc = -1;
-    GLint wireViewportLoc = -1;
-    GLint wireHalfWidthLoc = -1;
-    GLint wireMvpLoc = -1;
-    GLint wireColorLoc = -1;
 };
 
 

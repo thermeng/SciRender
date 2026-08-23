@@ -1,5 +1,6 @@
 #include "render/streamlines/StreamlineSet.h"
 #include "core/mesh_loader.h"
+#include "core/FieldResolver.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -611,21 +612,10 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
                                  float ribbonWidth, float taperFactor) {
     StreamlineResult result;
 
-    if (mesh.pointVectorsData.empty()) return result;
-
-    size_t count = 0;
-    const glm::vec3* data = nullptr;
-    auto tryField = [&](const std::string& name) -> bool {
-        if (name.empty()) return false;
-        size_t c = 0;
-        const glm::vec3* d = mesh.vectorFieldData(name, c);
-        if (d && c > 0) { data = d; count = c; return true; }
-        return false;
-    };
-    if (!tryField(fieldName) && !tryField(mesh.vectorName) &&
-        !(mesh.availableVectorNames.empty() ? false : tryField(mesh.availableVectorNames.front()))) {
-        return result;
-    }
+    auto field = FieldResolver::resolveVector(mesh, fieldName, 0);
+    if (!field.data || field.count == 0) return result;
+    const glm::vec3* data = field.data;
+    size_t count = field.count;
 
     int numVerts = static_cast<int>(mesh.vertices.size() / 3);
     const int limit = std::min(numVerts, static_cast<int>(count));

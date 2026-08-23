@@ -1,6 +1,21 @@
 #include "render/passes/ColormapManager.h"
+#include "render/foundation/renderer.h"
 #include "core/Colormaps.h"
 #include <glad/gl.h>
+
+void ColormapManager::sync(const RenderRenderState& state) {
+    setScalarChoice(state.colormapChoice);
+    setScalarReversed(state.colormapReversed);
+    setVectorChoice(state.vectorColormapChoice);
+    setVectorReversed(state.vectorColormapReversed);
+    setStreamlineChoice(state.streamlineColormapChoice);
+    setStreamlineReversed(state.streamlineColormapReversed);
+    setVolumeChoice(state.volumeColormapChoice);
+    setVolumeReversed(state.volumeColormapReversed);
+    setVolumeSliceChoice(state.volumeSliceColormapChoice);
+    setVolumeSliceReversed(state.volumeSliceColormapReversed);
+    update();
+}
 
 void ColormapManager::uploadLUT(GLuint& texOut, int choice, bool reversed) const {
     std::vector<unsigned char> pd; pd.reserve(256 * 3);
