@@ -196,7 +196,7 @@ std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
         int type = (c < static_cast<int>(cellTypes.size())) ? static_cast<int>(cellTypes[c]) : 0;
         if (type == 0) {
             if (numPointsInCell == 3) type = 5;   // VTK_TRIANGLE
-            if (numPointsInCell == 4) type = 10;  // VTK_QUAD
+            if (numPointsInCell == 4) type = 9;   // VTK_QUAD
             if (numPointsInCell == 8) type = 12;  // VTK_HEXAHEDRON
         }
 
@@ -246,7 +246,25 @@ std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
             }
             break;
         }
-        case 9: { // VTK_VOXEL — structured-grid corner ordering, permute to HEX (0,1,3,2,4,5,7,6)
+        case 9: // VTK_QUAD
+            if (idx + 3 < static_cast<int>(rawCellData.size())) {
+                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
+                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
+                mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
+            }
+            break;
+        case 10: { // VTK_TETRA
+            if (idx + 3 < static_cast<int>(rawCellData.size())) {
+                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
+                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
+                mesh.indices.insert(mesh.indices.end(), {
+                    i0, i2, i1,   i0, i1, i3,
+                    i1, i2, i3,   i2, i0, i3
+                });
+            }
+            break;
+        }
+        case 11: { // VTK_VOXEL — structured-grid corner ordering, permute to HEX (0,1,3,2,4,5,7,6)
             if (idx + 7 < static_cast<int>(rawCellData.size())) {
                 uint32_t h0 = static_cast<uint32_t>(rawCellData[idx + 0]), h1 = static_cast<uint32_t>(rawCellData[idx + 1]);
                 uint32_t h2 = static_cast<uint32_t>(rawCellData[idx + 3]), h3 = static_cast<uint32_t>(rawCellData[idx + 2]);
@@ -257,24 +275,6 @@ std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
                     h0, h3, h1, h1, h3, h2, h4, h5, h7, h5, h6, h7,
                     h0, h1, h4, h1, h5, h4, h2, h3, h6, h3, h7, h6,
                     h0, h4, h3, h3, h4, h7, h1, h2, h5, h2, h6, h5
-                });
-            }
-            break;
-        }
-        case 10: // VTK_QUAD
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
-            }
-            break;
-        case 11: { // VTK_TETRA
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1,   i0, i1, i3,
-                    i1, i2, i3,   i2, i0, i3
                 });
             }
             break;
@@ -292,19 +292,7 @@ std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
                 });
             }
             break;
-        case 13: { // VTK_PYRAMID
-            if (idx + 4 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1, i0, i3, i2,
-                    i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
-                });
-            }
-            break;
-        }
-        case 14: { // VTK_WEDGE
+        case 13: { // VTK_WEDGE
             if (idx + 5 < static_cast<int>(rawCellData.size())) {
                 uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
                 uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
@@ -316,6 +304,18 @@ std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
                     i0, i1, i4, i0, i4, i3,
                     i1, i2, i5, i1, i5, i4,
                     i2, i0, i3, i2, i3, i5
+                });
+            }
+            break;
+        }
+        case 14: { // VTK_PYRAMID
+            if (idx + 4 < static_cast<int>(rawCellData.size())) {
+                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
+                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
+                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
+                mesh.indices.insert(mesh.indices.end(), {
+                    i0, i2, i1, i0, i3, i2,
+                    i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
                 });
             }
             break;
