@@ -26,9 +26,9 @@
 #include <QStatusBar>
 #include <QApplication>
 #include <QActionGroup>
-#include <QHash>
 #include <QList>
 #include <QVector>
+#include <QTimeLine>
 
 #include "viewport_widget.h"
 #include "render/settings/render_settings.h"
@@ -55,6 +55,7 @@ public:
 private slots:
     void openMesh();
     void openRecent(const QString& path);
+    void clearRecentFiles();
     void saveScreenshot();
     void clearMeshes();
     void showAbout();
@@ -135,7 +136,6 @@ private:
 
     // View & Display page checkboxes (synced with quick bar / keyboard shortcuts)
     QCheckBox* m_vdWireframeCb = nullptr;
-    QCheckBox* m_vdCellWireframeCb = nullptr;
     QCheckBox* m_vdSurfaceCb = nullptr;
     QCheckBox* m_vdPointsCb = nullptr;
     QCheckBox* m_vdBboxCb = nullptr;

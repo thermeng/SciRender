@@ -7,7 +7,6 @@
 #include <QOpenGLFunctions>
 #include <QPoint>
 #include <QElapsedTimer>
-#include <QTimer>
 #include <QLabel>
 #include <memory>
 #include "render/foundation/renderer.h"

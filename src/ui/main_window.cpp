@@ -466,10 +466,16 @@ void MainWindow::setupMenus() {
     connect(recentMenu, &QMenu::aboutToShow, this, [recentMenu, this]() {
         recentMenu->clear();
         auto files = m_settings->getRecentFiles();
-        if (files.isEmpty()) return;
+        if (files.isEmpty()) {
+            auto* emptyAction = recentMenu->addAction("(No recent files)");
+            emptyAction->setEnabled(false);
+            return;
+        }
         for (const auto& f : files) {
             recentMenu->addAction(f, this, [this, f]() { openRecent(f); });
         }
+        recentMenu->addSeparator();
+        recentMenu->addAction("Clear Recent Files", this, &MainWindow::clearRecentFiles);
     });
 
     fileMenu->addAction("&Clear", this, &MainWindow::clearMeshes);
@@ -1064,12 +1070,6 @@ QWidget* MainWindow::buildViewDisplayPage() {
         connect(slider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setLineWidth(v / 10.0); });
         connect(cb, &QCheckBox::toggled, slider, &QWidget::setEnabled);
         m_vdWireframeCb = cb;
-
-        auto* cellCb = viewUi.cellWireframeCb;
-        cellCb->setChecked(m_settings->isCellWireframe());
-        cellCb->setEnabled(true);
-        connect(cellCb, &QCheckBox::toggled, m_settings, &RenderSettings::setCellWireframe);
-        m_vdCellWireframeCb = cellCb;
     }
     auto* surfaceCb = viewUi.surfaceCb;
     auto* pointsCb = viewUi.pointsCb;
@@ -2370,7 +2370,6 @@ void MainWindow::applyVolumeControlGating() {
 // quick-bar buttons or keyboard shortcuts, so both UIs reflect the same state.
 void MainWindow::syncViewDisplayPage() {
     if (m_vdWireframeCb) m_vdWireframeCb->setChecked(m_settings->isWireframe());
-    if (m_vdCellWireframeCb) m_vdCellWireframeCb->setChecked(m_settings->isCellWireframe());
     if (m_vdSurfaceCb)   m_vdSurfaceCb->setChecked(m_settings->isSurfaceVisible());
     if (m_vdPointsCb)    m_vdPointsCb->setChecked(m_settings->getShowPoints());
     if (m_vdBboxCb)      m_vdBboxCb->setChecked(m_settings->getShowBounds());
@@ -2581,6 +2580,10 @@ void MainWindow::openMesh() {
 
 void MainWindow::openRecent(const QString& path) {
     m_settings->openRecent(path);
+}
+
+void MainWindow::clearRecentFiles() {
+    m_settings->clearRecentFiles();
 }
 
 void MainWindow::saveScreenshot() {
