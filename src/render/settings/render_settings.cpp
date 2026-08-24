@@ -186,6 +186,11 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("volumeSlicePos",      [](const RenderSettings& r) { return QVariant(r.m_state.volumeSlicePos); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSlicePos = v.toFloat(); });
         add("volumeSliceOpacity",  [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceOpacity); },           [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceOpacity = v.toFloat(); });
         add("vectorScale",         [](const RenderSettings& r) { return QVariant(r.m_state.vectorScale); },                  [](RenderSettings& r, const QVariant& v) { r.m_state.vectorScale = v.toFloat(); });
+        add("colorbarFontScale",   [](const RenderSettings& r) { return QVariant(r.m_state.colorbarFontScale); },            [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarFontScale = v.toFloat(); });
+        add("colorbarTickFontScale", [](const RenderSettings& r) { return QVariant(r.m_state.colorbarTickFontScale); },       [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarTickFontScale = v.toFloat(); });
+        add("colorbarLengthScale", [](const RenderSettings& r) { return QVariant(r.m_state.colorbarLengthScale); },          [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarLengthScale = v.toFloat(); });
+        add("colorbarThicknessScale", [](const RenderSettings& r) { return QVariant(r.m_state.colorbarThicknessScale); },    [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarThicknessScale = v.toFloat(); });
+        add("colorbarPanelOpacity",[](const RenderSettings& r) { return QVariant(r.m_state.colorbarPanelOpacity); },         [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarPanelOpacity = v.toFloat(); });
         // bool members
         add("lightKitEnabled",     [](const RenderSettings& r) { return QVariant(r.m_state.lighting.lightKitEnabled); },     [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.lightKitEnabled = v.toBool(); });
         add("colormapReversed",    [](const RenderSettings& r) { return QVariant(r.m_state.colormapReversed); },              [](RenderSettings& r, const QVariant& v) { r.m_state.colormapReversed = v.toBool(); });
@@ -198,6 +203,8 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("volumeSliceColormapReversed", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapReversed); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapReversed = v.toBool(); });
         add("vectorScaleByMagnitude", [](const RenderSettings& r) { return QVariant(r.m_state.vectorScaleByMagnitude); },     [](RenderSettings& r, const QVariant& v) { r.m_state.vectorScaleByMagnitude = v.toBool(); });
         add("flatShading",         [](const RenderSettings& r) { return QVariant(r.m_state.flatShading); },                   [](RenderSettings& r, const QVariant& v) { r.m_state.flatShading = v.toBool(); });
+        add("colorbarPanelEnabled", [](const RenderSettings& r) { return QVariant(r.m_state.colorbarPanelEnabled); },         [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarPanelEnabled = v.toBool(); });
+        add("colorbarShowAnnotation", [](const RenderSettings& r) { return QVariant(r.m_state.colorbarShowAnnotation); },     [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarShowAnnotation = v.toBool(); });
         add("filterEnabled",       [](const RenderSettings& r) { return QVariant(r.m_state.filterEnabled); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.filterEnabled = v.toBool(); });
         add("quickBarCollapsed",   [](const RenderSettings& r) { return QVariant(r.quickBarCollapsed); },                     [](RenderSettings& r, const QVariant& v) { r.quickBarCollapsed = v.toBool(); });
         // int members

@@ -1,6 +1,7 @@
 #include "render/foundation/renderer.h"
 #include "core/FieldResolver.h"
 #include "render/foundation/shader_utils.h"
+#include "render/foundation/NumberFormat.h"
 #include "render/foundation/render_config.h"
 #include "render/streamlines/StreamlineSet.h"
 #include "core/Colormaps.h"
@@ -219,7 +220,14 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.sliceScalarMax != state.sliceScalarMax
         || m_state.activeScalarName != state.activeScalarName
         || m_state.colorbarTicks != state.colorbarTicks;
-    if (colormapChanged || scalarRangeChanged) {
+    bool colorbarStyleChanged = m_state.colorbarFontScale != state.colorbarFontScale
+        || m_state.colorbarTickFontScale != state.colorbarTickFontScale
+        || m_state.colorbarLengthScale != state.colorbarLengthScale
+        || m_state.colorbarThicknessScale != state.colorbarThicknessScale
+        || m_state.colorbarPanelEnabled != state.colorbarPanelEnabled
+        || m_state.colorbarPanelOpacity != state.colorbarPanelOpacity
+        || m_state.colorbarShowAnnotation != state.colorbarShowAnnotation;
+    if (colormapChanged || scalarRangeChanged || colorbarStyleChanged) {
         colorbarOverlay.markDirty();
     }
     double oldRadius = m_lastOrthoRadius;
@@ -421,6 +429,16 @@ std::string Renderer::vectorGlyphTitle(const RenderRenderState& state, const Ren
     return FieldResolver::resolveVectorName(*mesh, state.vectorField, state.vectorPlacement);
 }
 
+namespace {
+
+// One persisted identity per bar TYPE (subtitle), so positions/orientations
+// survive field switches. Subtitles are unique across the five bars.
+QString colorbarPosKey(const ColorbarData& d) {
+    return QString("colorbarPos/%1").arg(d.subtitle);
+}
+
+}
+
 void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     if (deviceW <= 0 || deviceH <= 0) return;
     const float dpr = static_cast<float>(devicePixelRatio);
@@ -445,38 +463,113 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     m_colorbarBars.clear();
     const int tickCount = m_state.colorbarTicks;
 
-    auto loadBarPosition = [](ColorbarData& d) {
-        QSettings s;
-        QString key = QString("colorbarPos_%1").arg(d.title);
-        d.fracX = s.value(key + "_x", 1.0).toFloat();
-        d.fracY = s.value(key + "_y", 1.0).toFloat();
+    auto loadBarPosition = [this](ColorbarData& d) {
+        const QString key = colorbarPosKey(d);
+        std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
+        auto it = m_colorbarPosCache.find(key);
+        if (it == m_colorbarPosCache.end()) {
+            QSettings s;
+            float fx = 1.0f, fy = 1.0f;
+            // Migration chain: per-type key -> per-type+field key (interim
+            // build) -> legacy bare-title key.
+            const QString byField = QString("colorbarPos/%1/%2").arg(d.subtitle, d.title);
+            const QString legacy = QString("colorbarPos_%1").arg(d.title);
+            if (s.contains(key + "_x")) {
+                fx = s.value(key + "_x", 1.0).toFloat();
+                fy = s.value(key + "_y", 1.0).toFloat();
+            } else if (s.contains(byField + "_x")) {
+                fx = s.value(byField + "_x", 1.0).toFloat();
+                fy = s.value(byField + "_y", 1.0).toFloat();
+            } else if (s.contains(legacy + "_x")) {
+                fx = s.value(legacy + "_x", 1.0).toFloat();
+                fy = s.value(legacy + "_y", 1.0).toFloat();
+            }
+            it = m_colorbarPosCache.emplace(key, std::make_pair(fx, fy)).first;
+        }
+        d.fracX = it->second.first;
+        d.fracY = it->second.second;
+    };
+
+    auto loadBarOrientation = [this](ColorbarData& d) {
+        const QString key = colorbarPosKey(d);
+        std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
+        auto it = m_colorbarOrientCache.find(key);
+        if (it == m_colorbarOrientCache.end()) {
+            QSettings s;
+            const QString byField = QString("colorbarPos/%1/%2").arg(d.subtitle, d.title);
+            int o = s.value(key + "_orient", -1).toInt();
+            if (o < 0) o = s.value(byField + "_orient",
+                                   static_cast<int>(ColorbarStyle::Horizontal)).toInt();
+            it = m_colorbarOrientCache.emplace(
+                key, o == ColorbarStyle::Vertical ? ColorbarStyle::Vertical
+                                                  : ColorbarStyle::Horizontal).first;
+        }
+        d.style.orientation = static_cast<ColorbarStyle::Orientation>(it->second);
+    };
+
+    auto loadBarVisible = [this](ColorbarData& d) {
+        const QString key = colorbarPosKey(d);
+        std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
+        auto it = m_colorbarVisibleCache.find(key);
+        if (it == m_colorbarVisibleCache.end()) {
+            QSettings s;
+            it = m_colorbarVisibleCache.emplace(key, s.value(key + "_visible", true).toBool()).first;
+        }
+        d.visible = it->second;
+    };
+
+    auto makeTickLabels = [](auto&& valueAt, int count) {
+        QStringList labels;
+        if (count <= 0) return labels;
+        for (int prec = 2;; ++prec) {
+            labels.clear();
+            for (int i = 0; i < count; ++i)
+                labels.append(formatLabel(valueAt(i), prec));
+            bool distinct = true;
+            for (int i = 1; i < count; ++i) {
+                if (labels[i] == labels[i - 1]) { distinct = false; break; }
+            }
+            if (distinct || prec >= 6) break;
+        }
+        return labels;
+    };
+
+    // Single factory for every bar type: gates stay at the call sites, all
+    // shared assembly (labels, stops, persisted overrides) lives here.
+    auto makeBar = [&](const char* subtitle, const QString& title,
+                       const QVariantList& stops, auto&& valueAt) {
+        ColorbarData d;
+        d.title = title;
+        d.subtitle = subtitle;
+        d.stops = stops;
+        d.tickLabels = makeTickLabels(std::forward<decltype(valueAt)>(valueAt), tickCount);
+        loadBarPosition(d);
+        loadBarOrientation(d);
+        loadBarVisible(d);
+        d.style.fontScale = m_state.colorbarFontScale;
+        d.style.tickFontScale = m_state.colorbarTickFontScale;
+        d.style.lengthScale = m_state.colorbarLengthScale;
+        d.style.thicknessScale = m_state.colorbarThicknessScale;
+        d.style.panelEnabled = m_state.colorbarPanelEnabled;
+        d.style.panelOpacity = m_state.colorbarPanelOpacity;
+        d.style.showAnnotation = m_state.colorbarShowAnnotation;
+        m_colorbarBars.push_back(std::move(d));
     };
 
     // Scalar bar
     if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar) {
-        ColorbarData d;
-        d.visible = true;
-        d.title = QString::fromStdString(m_state.activeScalarName);
-        d.subtitle = "Scalar";
-        d.stops = stopsFor(m_state.colormapChoice, m_state.colormapReversed);
         const float range = m_state.dataScalarMax - m_state.dataScalarMin;
-        for (int i = 0; i < tickCount; ++i) {
-            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float v = m_state.dataScalarMin + range * frac;
-            d.tickLabels.append(QString::number(v, 'f', 3));
-        }
-        loadBarPosition(d);
-        m_colorbarBars.push_back(d);
+        makeBar("Scalar", QString::fromStdString(m_state.activeScalarName),
+                stopsFor(m_state.colormapChoice, m_state.colormapReversed),
+                [&](int i) {
+                    const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                    return m_state.dataScalarMin + range * frac;
+                });
     }
 
     // Vector bar
     if (m_state.showVectors && m_state.vectorUseColormap && m_state.hasMeshLoaded &&
         (m_state.vectorPlacement == 0 ? m_state.meshHasVectors : m_state.meshHasCellVectors)) {
-        ColorbarData d;
-        d.visible = true;
-        d.title = QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())) + QChar(0x27A1);
-        d.subtitle = "Vector";
-        d.stops = stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed);
         auto txMag = [&](float m) -> float {
             if (m_state.vectorMagTransform == 1) return std::sqrt(std::max(m, 0.0f));
             if (m_state.vectorMagTransform == 2) return std::log(1.0f + std::max(m, 0.0f));
@@ -490,67 +583,47 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         const float tMin = txMag(vectorGlyph.magMin);
         const float tMax = txMag(vectorGlyph.magMax);
         const float tRange = tMax - tMin;
-        for (int i = 0; i < tickCount; ++i) {
-            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float t = tMin + tRange * frac;
-            const float v = invTxMag(t);
-            d.tickLabels.append(QString::number(v, 'f', 3));
-        }
-        loadBarPosition(d);
-        m_colorbarBars.push_back(d);
+        makeBar("Vector", QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())) + QChar(0x27A1),
+                stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed),
+                [&](int i) {
+                    const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                    return invTxMag(tMin + tRange * frac);
+                });
     }
 
     // Streamline bar
     if (m_state.showStreamlines && m_state.streamlineUseColormap && m_state.meshHasVectors && m_state.hasMeshLoaded) {
-        ColorbarData d;
-        d.visible = true;
-        d.title = QString::fromStdString(m_state.streamlineVectorField) + QChar(0x27A1);
-        d.subtitle = "Streamline";
-        d.stops = stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed);
         const float sMin = streamlineSet.magMin;
         const float sMax = streamlineSet.magMax;
         const float sRange = sMax - sMin;
-        for (int i = 0; i < tickCount; ++i) {
-            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float v = sMin + sRange * frac;
-            d.tickLabels.append(QString::number(v, 'f', 3));
-        }
-        loadBarPosition(d);
-        m_colorbarBars.push_back(d);
+        makeBar("Streamline", QString::fromStdString(m_state.streamlineVectorField) + QChar(0x27A1),
+                stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed),
+                [&](int i) {
+                    const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                    return sMin + sRange * frac;
+                });
     }
 
     // Volume bar
     if (m_state.showVolume && m_state.volumeUseColormap && m_state.hasMeshLoaded) {
-        ColorbarData d;
-        d.visible = true;
-        d.title = QString::fromStdString(m_state.activeScalarName);
-        d.subtitle = "Volume";
-        d.stops = stopsFor(m_state.volumeColormapChoice, m_state.volumeColormapReversed);
         const float range = m_state.dataScalarMax - m_state.dataScalarMin;
-        for (int i = 0; i < tickCount; ++i) {
-            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float v = m_state.dataScalarMin + range * frac;
-            d.tickLabels.append(QString::number(v, 'f', 3));
-        }
-        loadBarPosition(d);
-        m_colorbarBars.push_back(d);
+        makeBar("Volume", QString::fromStdString(m_state.activeScalarName),
+                stopsFor(m_state.volumeColormapChoice, m_state.volumeColormapReversed),
+                [&](int i) {
+                    const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                    return m_state.dataScalarMin + range * frac;
+                });
     }
 
     // Slice plane bar (independent colormap, per-slice scalar range)
     if (m_state.showVolumeSlice && m_state.volumeSliceUseColormap && m_state.hasMeshLoaded) {
-        ColorbarData d;
-        d.visible = true;
-        d.title = QString::fromStdString(m_state.activeScalarName);
-        d.subtitle = "Slice";
-        d.stops = stopsFor(m_state.volumeSliceColormapChoice, m_state.volumeSliceColormapReversed);
         const float range = m_state.sliceScalarMax - m_state.sliceScalarMin;
-        for (int i = 0; i < tickCount; ++i) {
-            const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-            const float v = m_state.sliceScalarMin + range * frac;
-            d.tickLabels.append(QString::number(v, 'f', 3));
-        }
-        loadBarPosition(d);
-        m_colorbarBars.push_back(d);
+        makeBar("Slice", QString::fromStdString(m_state.activeScalarName),
+                stopsFor(m_state.volumeSliceColormapChoice, m_state.volumeSliceColormapReversed),
+                [&](int i) {
+                    const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                    return m_state.sliceScalarMin + range * frac;
+                });
     }
 
     colorbarOverlay.drawBars(dpr, deviceW, deviceH, m_colorbarBars);
@@ -562,13 +635,52 @@ int Renderer::colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& b
 
 void Renderer::setColorbarPosition(int index, float fracX, float fracY) {
     if (index >= 0 && index < static_cast<int>(m_colorbarBars.size())) {
-        m_colorbarBars[index].fracX = fracX;
-        m_colorbarBars[index].fracY = fracY;
-        // Persist per-bar position by title
-        QSettings s;
-        QString key = QString("colorbarPos_%1").arg(m_colorbarBars[index].title);
-        s.setValue(key + "_x", fracX);
-        s.setValue(key + "_y", fracY);
+        auto& bar = m_colorbarBars[index];
+        bar.fracX = fracX;
+        bar.fracY = fracY;
+        std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
+        m_colorbarPosCache[colorbarPosKey(bar)] = { fracX, fracY };
+    }
+}
+
+void Renderer::setColorbarOrientation(int index, ColorbarStyle::Orientation orient) {
+    if (index >= 0 && index < static_cast<int>(m_colorbarBars.size())) {
+        auto& bar = m_colorbarBars[index];
+        bar.style.orientation = orient;
+        std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
+        m_colorbarOrientCache[colorbarPosKey(bar)] = static_cast<int>(orient);
+    }
+}
+
+void Renderer::setColorbarVisible(int index, bool vis) {
+    if (index >= 0 && index < static_cast<int>(m_colorbarBars.size())) {
+        auto& bar = m_colorbarBars[index];
+        bar.visible = vis;
+        std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
+        m_colorbarVisibleCache[colorbarPosKey(bar)] = vis;
+    }
+}
+
+void Renderer::commitColorbarPositions() {
+    std::map<QString, std::pair<float, float>> posSnapshot;
+    std::map<QString, int> orientSnapshot;
+    std::map<QString, bool> visibleSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
+        posSnapshot = m_colorbarPosCache;
+        orientSnapshot = m_colorbarOrientCache;
+        visibleSnapshot = m_colorbarVisibleCache;
+    }
+    QSettings s;
+    for (const auto& [key, pos] : posSnapshot) {
+        s.setValue(key + "_x", pos.first);
+        s.setValue(key + "_y", pos.second);
+    }
+    for (const auto& [key, orient] : orientSnapshot) {
+        s.setValue(key + "_orient", orient);
+    }
+    for (const auto& [key, vis] : visibleSnapshot) {
+        s.setValue(key + "_visible", vis);
     }
 }
 

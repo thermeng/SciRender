@@ -571,6 +571,13 @@ public:
     void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (m_state.colorbarTicks != c) { m_state.colorbarTicks = c; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getShowScalarColorbar, setShowScalarColorbar, bool, m_state.showScalarColorbar, Display)
     STATE_PROP(getMeshUseScalarColor, setMeshUseScalarColor, bool, m_state.meshUseScalarColor, Display)
+    STATE_PROP(getColorbarFontScale, setColorbarFontScale, float, m_state.colorbarFontScale, Display)
+    STATE_PROP(getColorbarTickFontScale, setColorbarTickFontScale, float, m_state.colorbarTickFontScale, Display)
+    STATE_PROP(getColorbarLengthScale, setColorbarLengthScale, float, m_state.colorbarLengthScale, Display)
+    STATE_PROP(getColorbarThicknessScale, setColorbarThicknessScale, float, m_state.colorbarThicknessScale, Display)
+    STATE_PROP(getColorbarPanelEnabled, setColorbarPanelEnabled, bool, m_state.colorbarPanelEnabled, Display)
+    STATE_PROP(getColorbarPanelOpacity, setColorbarPanelOpacity, float, m_state.colorbarPanelOpacity, Display)
+    STATE_PROP(getColorbarShowAnnotation, setColorbarShowAnnotation, bool, m_state.colorbarShowAnnotation, Display)
 
     STATE_PROP(getClipEnabled, setClipEnabled, bool, m_state.clipEnabled, Slicing)
     STATE_PROP(getCrinkleClipMode, setCrinkleClipMode, bool, m_state.crinkleClipMode, Slicing)
