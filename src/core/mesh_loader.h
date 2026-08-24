@@ -66,8 +66,12 @@ struct DatasetAttributes {
     std::unordered_map<std::string, int> cellTexCoordComponents;
 
     // Global scalar range boundaries (Required by renderer & color LUT mapping)
+    // For backward compat; per-field ranges are authoritative.
     float scalarMin = 0.0f;
     float scalarMax = 1.0f;
+    // Per-field min/max for every scalar field (point + cell). Survives field switches.
+    std::unordered_map<std::string, std::pair<float,float>> pointScalarRanges;
+    std::unordered_map<std::string, std::pair<float,float>> cellScalarRanges;
 };
 
 // ── Render Mesh (GPU-Facing, Clean Geometry) ────────────────────────────────
@@ -224,6 +228,17 @@ struct RenderMesh {
     // available -- the renderer falls back to the triangle-edge (GL_LINE) approach.
     std::vector<uint32_t> cellEdgeIndices;
 
+    // Geometry signature for animation fast path: hash of vertices+indices.
+    // Computed once at parse time (FNV-1a, off-thread). Used to detect
+    // topology-unchanged frames and route through updateScalars() instead of
+    // full upload. 0 means not computed (e.g., empty mesh).
+    uint64_t geometryHash = 0;
+    // Scalar content hash for volume/glyph skip (1.3)
+    uint64_t scalarHash = 0;
+    uint64_t vectorHash = 0;
+    // Estimated memory footprint for cache budgeting (bytes)
+    size_t estimatedBytes = 0;
+
     // Default constructor
     RenderMesh() = default;
 };
@@ -336,6 +351,14 @@ namespace mesh_utils {
 
     void computeNormals(RenderMesh& mesh);
 
+    // Animation fast path: geometry/content hashing (FNV-1a, off-thread)
+    uint64_t hashBytes(const void* data, size_t len, uint64_t seed = 1469598103934665603ULL);
+    uint64_t computeGeometryHash(const RenderMesh& mesh);
+    uint64_t computeScalarHash(const std::vector<float>& scalars);
+    uint64_t computeVectorHash(const RenderMesh& mesh);
+    size_t computeEstimatedBytes(const RenderMesh& mesh);
+    void finalizeGeometrySignatures(RenderMesh& mesh); // fills geometryHash/scalarHash/vectorHash/estimatedBytes
+
     // Convert a flat per-corner triangle soup (9 floats per triangle, may share
     // positions) into an indexed mesh by sort-based position dedup: groups
     // identical quantized positions, emits one vertex per unique position, and
@@ -418,6 +441,98 @@ namespace mesh_utils {
     );
 
     // ── Cell-edge extraction (ParaView-style wireframe) ───────────────────────
+    // ParaView "Surface Edges": only boundary face edges, interior volume faces
+    // are hidden. We build a face → count map (sorted vertex tuple) and keep
+    // only faces with count==1. Edges of those faces are then deduplicated.
+    // For 2D cells (tri/quad/polygon) the face is the cell itself → always kept.
+    // When cellType is 0 type is inferred from vertex count (2->line,3->tri,4->quad,8->hex).
+
+    namespace detail {
+        inline std::vector<std::vector<uint32_t>> cellBoundaryFaces(
+            const std::vector<uint32_t>& v, int type) {
+            std::vector<std::vector<uint32_t>> faces;
+            switch (type) {
+            case 1: case 2: break;
+            case 3: case 4:
+                for (size_t i = 0; i + 1 < v.size(); ++i) faces.push_back({v[i], v[i+1]});
+                // For edge counting we treat lines as faces of 2 verts; kept as boundary
+                return faces;
+            case 5: // tri
+                if (v.size()>=3) faces.push_back({v[0],v[1],v[2]});
+                break;
+            case 6: // strip -> each tri
+                for (size_t i=0;i+2<v.size();++i) faces.push_back({v[i],v[i+1],v[i+2]});
+                break;
+            case 7: // polygon
+                if (!v.empty()) faces.push_back(v);
+                break;
+            case 8: // pixel
+                if (v.size()>=4) faces.push_back({v[0],v[1],v[3],v[2]});
+                break;
+            case 9: // quad
+                if (v.size()>=4) faces.push_back({v[0],v[1],v[2],v[3]});
+                break;
+            case 10: // tetra 4 tris
+                if (v.size()>=4) {
+                    faces.push_back({v[0],v[1],v[2]});
+                    faces.push_back({v[0],v[1],v[3]});
+                    faces.push_back({v[1],v[2],v[3]});
+                    faces.push_back({v[2],v[0],v[3]});
+                }
+                break;
+            case 11: case 12: // hex/voxel 6 quads
+                if (v.size()>=8) {
+                    faces.push_back({v[0],v[1],v[2],v[3]});
+                    faces.push_back({v[4],v[5],v[6],v[7]});
+                    faces.push_back({v[0],v[1],v[5],v[4]});
+                    faces.push_back({v[1],v[2],v[6],v[5]});
+                    faces.push_back({v[2],v[3],v[7],v[6]});
+                    faces.push_back({v[3],v[0],v[4],v[7]});
+                }
+                break;
+            case 13: // wedge 2 tris +3 quads
+                if (v.size()>=6) {
+                    faces.push_back({v[0],v[1],v[2]});
+                    faces.push_back({v[3],v[4],v[5]});
+                    faces.push_back({v[0],v[1],v[4],v[3]});
+                    faces.push_back({v[1],v[2],v[5],v[4]});
+                    faces.push_back({v[2],v[0],v[3],v[5]});
+                }
+                break;
+            case 14: // pyramid 1 quad +4 tris
+                if (v.size()>=5) {
+                    faces.push_back({v[0],v[1],v[2],v[3]});
+                    faces.push_back({v[0],v[1],v[4]});
+                    faces.push_back({v[1],v[2],v[4]});
+                    faces.push_back({v[2],v[3],v[4]});
+                    faces.push_back({v[3],v[0],v[4]});
+                }
+                break;
+            case 15: // pent prism 2 pent +5 quads
+                if (v.size()>=10) {
+                    faces.push_back({v[0],v[1],v[2],v[3],v[4]});
+                    faces.push_back({v[5],v[6],v[7],v[8],v[9]});
+                    faces.push_back({v[0],v[1],v[6],v[5]});
+                    faces.push_back({v[1],v[2],v[7],v[6]});
+                    faces.push_back({v[2],v[3],v[8],v[7]});
+                    faces.push_back({v[3],v[4],v[9],v[8]});
+                    faces.push_back({v[0],v[4],v[9],v[5]});
+                }
+                break;
+            default:
+                if (!v.empty()) faces.push_back(v);
+                break;
+            }
+            return faces;
+        }
+        inline std::vector<uint32_t> sortedKey(const std::vector<uint32_t>& f) {
+            std::vector<uint32_t> k=f; std::sort(k.begin(), k.end()); return k;
+        }
+        struct VecHash { size_t operator()(const std::vector<uint32_t>& v) const noexcept {
+            size_t h= v.size()* 1315423911u;
+            for(uint32_t x: v) h ^= std::hash<uint32_t>{}(x) + 0x9e3779b9 + (h<<6) + (h>>2);
+            return h; } };
+    }
 
     // Extract deduplicated cell-boundary edges from cell-to-vertex connectivity.
     // For each cell, emits the topological edges according to the VTK cell type
@@ -425,130 +540,63 @@ namespace mesh_utils {
     // or the cellTypes vector is empty, type is inferred from the vertex count
     // (2->line, 3->triangle, 4->quad, 8->hex). Returns a flat uint32_t vector of
     // edge pairs (a,b), each pair sorted as (min,max) and globally deduplicated.
+    // ParaView-style: only edges of boundary faces (face count==1) are kept, so
+    // interior volume edges are hidden.
     template<typename IntType>
     std::vector<uint32_t> extractCellEdges(
         const std::vector<std::vector<uint32_t>>& cellToVertices,
         const std::vector<IntType>& cellTypes) {
-        std::vector<uint64_t> edgeKeys;
-        for (size_t c = 0; c < cellToVertices.size(); ++c) {
-            const auto& v = cellToVertices[c];
+        // Resolve types
+        std::vector<int> resolvedTypes(cellToVertices.size(),0);
+        for (size_t c=0;c<cellToVertices.size();++c) {
+            const auto& v=cellToVertices[c];
             int type = (c < cellTypes.size()) ? static_cast<int>(cellTypes[c]) : 0;
-            if (type == 0) {
-                // Infer from vertex count (mirrors parser inference for type==0).
-                switch (v.size()) {
-                    case 2: type = 3;  break; // VTK_LINE
-                    case 3: type = 5;  break; // VTK_TRIANGLE
-                    case 4: type = 9;  break; // VTK_QUAD
-                    case 8: type = 12; break; // VTK_HEXAHEDRON
-                    default: type = 0;  break;
-                }
+            if (type==0) {
+                switch (v.size()) { case 2:type=3;break; case 3:type=5;break; case 4:type=9;break; case 8:type=12;break; default:type=0;break; }
             }
-            // Emit edge index-pairs based on cell type.  For types where the
-            // ordering of vertices within the cell is well-defined (hex, tet,
-            // pyramid, wedge, pent-prism) we use fixed topological tables.
-            // For everything else (polygon, poly-line, triangle strip, unknown)
-            // we fall back to a cyclic chain around the vertex list.
-            auto emitEdge = [&](size_t a, size_t b) {
-                uint32_t va = v[a], vb = v[b];
-                if (va > vb) std::swap(va, vb);
-                edgeKeys.push_back((static_cast<uint64_t>(va) << 32) | static_cast<uint64_t>(vb));
-            };
-            switch (type) {
-            case 1: case 2:  // VERTEX / POLY_VERTEX — no edges
-                break;
-            case 3:  // VTK_LINE — single edge
-            case 4:  // VTK_POLY_LINE — chain
-                for (size_t i = 0; i + 1 < v.size(); ++i) emitEdge(i, i + 1);
-                break;
-            case 5:  // VTK_TRIANGLE — 3 edges (cycle)
-            case 7:  // VTK_POLYGON — N edges (cycle)
-                for (size_t i = 0; i < v.size(); ++i) emitEdge(i, (i + 1) % v.size());
-                break;
-            case 6: {  // VTK_TRIANGLE_STRIP — each triangle as its own cell
-                // For a strip v0..vN, triangles are (v0,v1,v2), (v1,v2,v3), ...
-                // Emit all triangle edges; global dedup handles shared ones.
-                for (size_t i = 0; i + 2 < v.size(); ++i) {
-                    emitEdge(i, i + 1);
-                    emitEdge(i + 1, i + 2);
-                    emitEdge(i + 2, i);
-                }
-                break;
-            }
-            case 8: {  // VTK_PIXEL (BL,BR,TL,TR) — 4 boundary edges (NOT a cyclic loop)
-                if (v.size() < 4) break;
-                static const int pairs[][2] = {{0,1},{1,3},{2,3},{0,2}};
-                for (auto& p : pairs) emitEdge(p[0], p[1]);
-                break;
-            }
-            case 9: { // VTK_QUAD — 4 edges (cycle)
-                if (v.size() < 4) break;
-                for (size_t i = 0; i < 4; ++i) emitEdge(i, (i + 1) % 4);
-                break;
-            }
-            case 10: { // VTK_TETRA — all 6 edges
-                if (v.size() < 4) break;
-                static const int pairs[][2] = {{0,1},{0,2},{0,3},{1,2},{1,3},{2,3}};
-                for (auto& p : pairs) emitEdge(p[0], p[1]);
-                break;
-            }
-            case 11:  // VTK_VOXEL — vertices reordered to hex in parser, same 12 edges
-            case 12: { // VTK_HEXAHEDRON — 12 cube edges
-                if (v.size() < 8) break;
-                static const int pairs[][2] = {
-                    {0,1},{1,2},{2,3},{3,0},  // bottom
-                    {4,5},{5,6},{6,7},{7,4},  // top
-                    {0,4},{1,5},{2,6},{3,7}   // verticals
-                };
-                for (auto& p : pairs) emitEdge(p[0], p[1]);
-                break;
-            }
-            case 13: { // VTK_WEDGE — 9 edges (3 bottom + 3 top + 3 vertical)
-                if (v.size() < 6) break;
-                static const int pairs[][2] = {
-                    {0,1},{1,2},{2,0},  // bottom triangle
-                    {3,4},{4,5},{5,3},  // top triangle
-                    {0,3},{1,4},{2,5}   // verticals
-                };
-                for (auto& p : pairs) emitEdge(p[0], p[1]);
-                break;
-            }
-            case 14: { // VTK_PYRAMID — 8 edges (4 base + 4 lateral)
-                if (v.size() < 5) break;
-                static const int pairs[][2] = {
-                    {0,1},{1,2},{2,3},{3,0},  // base
-                    {0,4},{1,4},{2,4},{3,4}   // lateral to apex
-                };
-                for (auto& p : pairs) emitEdge(p[0], p[1]);
-                break;
-            }
-            case 15: { // VTK_PENTAGONAL_PRISM — 15 edges
-                static const int pairs[][2] = {
-                    {0,1},{1,2},{2,3},{3,4},{4,0},  // bottom pentagon
-                    {5,6},{6,7},{7,8},{8,9},{9,5},  // top pentagon
-                    {0,5},{1,6},{2,7},{3,8},{4,9}   // verticals
-                };
-                for (auto& p : pairs) emitEdge(p[0], p[1]);
-                break;
-            }
-            default:  // Higher-order / unknown — polygon cycle fallback
-                for (size_t i = 0; i < v.size(); ++i) emitEdge(i, (i + 1) % v.size());
-                break;
+            // tolerance for mislabeled types already handled in parser before this call
+            resolvedTypes[c]=type;
+        }
+        // Face count map
+        std::unordered_map<std::vector<uint32_t>, int, detail::VecHash> faceCount;
+        faceCount.reserve(cellToVertices.size()*6);
+        for (size_t c=0;c<cellToVertices.size();++c) {
+            auto faces = detail::cellBoundaryFaces(cellToVertices[c], resolvedTypes[c]);
+            for (auto &f: faces) {
+                if (f.size()<3 && !(resolvedTypes[c]==3||resolvedTypes[c]==4)) continue;
+                // For line cells, faces are edges (2 verts) -> treat as boundary always, skip counting
+                if (f.size()==2) continue;
+                auto k = detail::sortedKey(f);
+                ++faceCount[k];
             }
         }
-
-        // Dedupe: sort, then unique (edges are stored as packed uint64_t keys
-        // with min<max guaranteed by emitEdge above).
+        std::vector<uint64_t> edgeKeys;
+        edgeKeys.reserve(cellToVertices.size()*12);
+        auto emitEdge = [&](uint32_t a, uint32_t b){ if(a>b) std::swap(a,b); edgeKeys.push_back((uint64_t(a)<<32)|b); };
+        for (size_t c=0;c<cellToVertices.size();++c) {
+            const auto& v=cellToVertices[c];
+            int type=resolvedTypes[c];
+            // Line cells: always emit
+            if (type==3||type==4) {
+                for(size_t i=0;i+1<v.size();++i) emitEdge(v[i], v[i+1]);
+                continue;
+            }
+            auto faces = detail::cellBoundaryFaces(v, type);
+            for (auto &f: faces) {
+                if (f.size()<3) continue;
+                auto k = detail::sortedKey(f);
+                auto it = faceCount.find(k);
+                if (it!=faceCount.end() && it->second!=1) continue; // interior face
+                // Emit cycle edges of this boundary face
+                for (size_t i=0;i<f.size();++i) emitEdge(f[i], f[(i+1)%f.size()]);
+            }
+            // For triangle/quad/polygon where face is the cell itself, the above already emitted.
+            // For volume cells the per-face emission replaces the old per-cell 12/6/8 edge tables.
+        }
         std::sort(edgeKeys.begin(), edgeKeys.end());
-        auto last = std::unique(edgeKeys.begin(), edgeKeys.end());
-        edgeKeys.erase(last, edgeKeys.end());
-
-        // Unpack back to uint32_t pairs.
-        std::vector<uint32_t> out;
-        out.reserve(edgeKeys.size() * 2);
-        for (uint64_t k : edgeKeys) {
-            out.push_back(static_cast<uint32_t>((k >> 32) & 0xFFFFFFFF));
-            out.push_back(static_cast<uint32_t>(k & 0xFFFFFFFF));
-        }
+        edgeKeys.erase(std::unique(edgeKeys.begin(), edgeKeys.end()), edgeKeys.end());
+        std::vector<uint32_t> out; out.reserve(edgeKeys.size()*2);
+        for(uint64_t k: edgeKeys){ out.push_back(uint32_t(k>>32)); out.push_back(uint32_t(k&0xFFFFFFFF)); }
         return out;
     }
 

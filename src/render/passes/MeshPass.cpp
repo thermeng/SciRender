@@ -121,7 +121,7 @@ MeshUBOData MeshPass::makeUbo(const RenderRenderState& state,
     ubo.sliceY = glm::vec4(state.sliceHeightX, state.sliceHeightY, state.sliceHeightZ, 0.0f);
     ubo.sliceEn = glm::vec4(state.sliceEnabledX ? 1.0f : 0.0f, state.sliceEnabledY ? 1.0f : 0.0f, state.sliceEnabledZ ? 1.0f : 0.0f, 0.0f);
     ubo.invert = glm::vec4(state.invertX ? 1.0f : 0.0f, state.invertY ? 1.0f : 0.0f, state.invertZ ? 1.0f : 0.0f, 0.0f);
-    ubo.filter = glm::vec4(state.filterMin, state.filterMax, 0.0f, 0.0f);
+    ubo.filter = glm::vec4(state.filterMin, state.filterMax, state.filterEnabled ? 1.0f : 0.0f, 0.0f);
     float keyI = state.lighting.lightKitEnabled ? state.lighting.lightKeyIntensity : 0.0f;
     float kf = std::max(state.lighting.lightKF, 0.001f);
     float kh = std::max(state.lighting.lightKH, 0.001f);

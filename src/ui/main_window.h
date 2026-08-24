@@ -44,6 +44,7 @@ namespace Ui {
     class ScreenshotPage;
     class MeshInfoPage;
     class VolumePage;
+    class AnimationPage;
 }
 
 class MainWindow : public QMainWindow {
@@ -122,8 +123,22 @@ private:
     QWidget* buildScreenshotPage();
     QWidget* buildMeshInfoPage();
     QWidget* buildVolumePage();
+    QWidget* buildAnimationPage();
     void refreshMeshInfoPage();
     QHash<QString, QLabel*> m_meshInfoLabels;
+
+    // Animation page widgets (synced from AnimationController::stateChanged)
+    QPushButton* m_animPlayBtn = nullptr;
+    QToolButton* m_animStepBackBtn = nullptr;
+    QToolButton* m_animStepFwdBtn = nullptr;
+    QSlider* m_animSlider = nullptr;
+    QLabel* m_animTimeLabel = nullptr;
+    QLabel* m_animFrameLabel = nullptr;
+    QLabel* m_animStatusLabel = nullptr;
+    QLabel* m_animSequenceLabel = nullptr;
+    QCheckBox* m_animLoopCb = nullptr;
+    QDoubleSpinBox* m_animFpsSpin = nullptr;
+    void refreshAnimationPage();
 
     // Quick bar
     QWidget* m_quickBar = nullptr;
@@ -218,6 +233,7 @@ private:
     QLineEdit* m_filterMinField = nullptr;
     QSlider* m_filterMaxSlider = nullptr;
     QLineEdit* m_filterMaxField = nullptr;
+    QCheckBox* m_filterEnabledCb = nullptr;
 
     // Mesh info page (rebuilt on mesh load)
     QWidget* m_meshInfoPage = nullptr;
@@ -243,6 +259,8 @@ private:
     QTimer m_autoRotateTimer;
     QTimer m_fpsTimer;
     QTimer m_particleTimer;
+    QTimer m_animSeekDebounce;
+    int m_pendingSeekFrame = -1;
 
     // Dialogs
     QFileDialog* m_openDialog = nullptr;

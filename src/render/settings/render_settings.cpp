@@ -23,6 +23,13 @@ RenderSettings::RenderSettings(QObject* parent)
     connect(&m_meshWatcher, &QFutureWatcher<MeshLoadResult>::finished,
             this, &RenderSettings::onMeshParsed);
 
+    // PVD animation: frames arrive as immutable shared_ptr meshes; errors go
+    // to the status bar.
+    connect(&m_animController, &AnimationController::frameReady,
+            this, &RenderSettings::onAnimationFrame);
+    connect(&m_animController, &AnimationController::errorOccurred,
+            this, [this](const QString& msg) { setStatus(msg); });
+
     // IsosurfaceController signal -> RenderSettings m_state update + signal.
     connect(&m_isoController, &IsosurfaceController::showIsosurfaceChanged,
             this, [this](bool v) {
@@ -191,6 +198,7 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("volumeSliceColormapReversed", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapReversed); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapReversed = v.toBool(); });
         add("vectorScaleByMagnitude", [](const RenderSettings& r) { return QVariant(r.m_state.vectorScaleByMagnitude); },     [](RenderSettings& r, const QVariant& v) { r.m_state.vectorScaleByMagnitude = v.toBool(); });
         add("flatShading",         [](const RenderSettings& r) { return QVariant(r.m_state.flatShading); },                   [](RenderSettings& r, const QVariant& v) { r.m_state.flatShading = v.toBool(); });
+        add("filterEnabled",       [](const RenderSettings& r) { return QVariant(r.m_state.filterEnabled); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.filterEnabled = v.toBool(); });
         add("quickBarCollapsed",   [](const RenderSettings& r) { return QVariant(r.quickBarCollapsed); },                     [](RenderSettings& r, const QVariant& v) { r.quickBarCollapsed = v.toBool(); });
         // int members
         add("colormapChoice",      [](const RenderSettings& r) { return QVariant(r.m_state.colormapChoice); },                [](RenderSettings& r, const QVariant& v) { r.m_state.colormapChoice = v.toInt(); });
@@ -268,6 +276,27 @@ void RenderSettings::loadMesh(const QString& filePath) {
     std::string stdPath = filePath.toStdString();
     if (stdPath.rfind("file:///", 0) == 0) stdPath = stdPath.substr(8);
     else if (stdPath.rfind("file://", 0) == 0) stdPath = stdPath.substr(7);
+
+    // PVD collections are time sequences, not single meshes — they are routed
+    // to AnimationController, which streams frames through onAnimationFrame().
+    const QFileInfo pvdInfo(QString::fromStdString(stdPath));
+    if (pvdInfo.suffix().compare(QLatin1String("pvd"), Qt::CaseInsensitive) == 0) {
+        m_animSequenceActive = false; // fresh sequence re-initializes ranges
+        {
+            QString absPath = pvdInfo.absoluteFilePath();
+            recentFiles.removeAll(absPath);
+            recentFiles.prepend(absPath);
+            while (recentFiles.size() > 8) recentFiles.removeLast();
+            saveRecentToSettings();
+        }
+        setStatus(QString("Loading animation %1…").arg(pvdInfo.fileName()));
+        m_animController.loadPvd(QString::fromStdString(stdPath));
+        return;
+    }
+
+    // A plain mesh replaces any running animation.
+    m_animController.clear();
+    m_animSequenceActive = false;
 
     // Parse OFF the GUI thread so heavy VTK/STL files never block the UI.
     // The parse produces a RenderMesh that we wrap in an immutable shared_ptr;
@@ -398,6 +427,7 @@ void RenderSettings::onMeshParsed() {
         m_state.showScalarColorbar = true;
         m_state.activeScalarName = loaded->scalarName;
         recomputeScalarRange();
+        m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
      } else {
         m_state.meshHasScalars = false;
@@ -428,6 +458,7 @@ void RenderSettings::onMeshParsed() {
                 if (mx - mn < 1e-6f) mx = mn + 1.0f;
             }
         }
+        m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
     }
 
@@ -456,6 +487,147 @@ void RenderSettings::onMeshParsed() {
     saveStateToSettings();
 }
 
+void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, int frameIndex, double time) {
+    if (!mesh || mesh->vertices.empty()) return;
+
+    const bool firstFrame = !m_animSequenceActive;
+    m_animSequenceActive = true;
+
+    // LIGHT per-frame publish: swap the geometry payload + metadata, keep the
+    // camera, display toggles, field selections, filter window, recent files
+    // and quality overlay exactly as the user left them.
+    // Capture the PREVIOUS mesh BEFORE overwriting — the topology fast-path
+    // below must compare against what the GPU actually holds, not against the
+    // frame we just received (a self-compare would always report "unchanged").
+    std::shared_ptr<const RenderMesh> prevMesh = m_meshData.loadedMesh;
+    m_meshData.loadedMesh = mesh;
+    m_meshData.triangleCount = static_cast<int>(mesh->indices.size() / 3);
+    m_meshData.pointCount = mesh->sourcePointCount >= 0
+        ? mesh->sourcePointCount
+        : static_cast<int>(mesh->vertices.size() / 3);
+    m_meshData.datasetType = mesh->datasetType;
+    m_meshData.meshFormat = mesh->fileFormat;
+
+    // World bounds track the frame (usually constant across a sequence) but
+    // the camera is NOT reset — an animation must not yank the view.
+    m_state.worldMinX = mesh->bounds.minX; m_state.worldMaxX = mesh->bounds.maxX;
+    m_state.worldMinY = mesh->bounds.minY; m_state.worldMaxY = mesh->bounds.maxY;
+    m_state.worldMinZ = mesh->bounds.minZ; m_state.worldMaxZ = mesh->bounds.maxZ;
+    m_state.worldCenterX = mesh->bounds.centerX;
+    m_state.worldCenterY = mesh->bounds.centerY;
+    m_state.worldCenterZ = mesh->bounds.centerZ;
+    m_state.worldRadius  = mesh->bounds.worldRadius;
+    m_state.hasMeshLoaded = true;
+
+    // Vector availability gates (same fixups as onMeshParsed, but preserving
+    // show* toggles so playback doesn't switch overlays off every frame).
+    m_state.meshHasVectors = !mesh->pointVectorsData.empty();
+    m_state.meshHasCellVectors = !mesh->cellVectorsData.empty();
+
+    // Field continuity: keep the user's active scalar/vector when this frame
+    // carries it; otherwise fall back to the frame's first available.
+    const std::string resolvedScalar = FieldResolver::resolveActiveScalar(*mesh, m_state.activeScalarName);
+    if (!resolvedScalar.empty()) m_state.activeScalarName = resolvedScalar;
+    m_meshData.guiMeta.scalarName = m_state.activeScalarName;
+    m_meshData.guiMeta.availableScalarNames = mesh->availableScalarNames;
+    m_meshData.guiMeta.availableVectorNames = mesh->availableVectorNames;
+    m_meshData.guiMeta.availableCellVectorNames = mesh->availableCellVectorNames;
+    if (m_state.meshHasVectors) {
+        if (m_state.vectorField.empty()
+            || std::find(mesh->availableVectorNames.begin(), mesh->availableVectorNames.end(),
+                         m_state.vectorField) == mesh->availableVectorNames.end())
+            m_state.vectorField = FieldResolver::resolveVectorName(*mesh, "", 0);
+        if (m_state.streamlineVectorField.empty()
+            || std::find(mesh->availableVectorNames.begin(), mesh->availableVectorNames.end(),
+                         m_state.streamlineVectorField) == mesh->availableVectorNames.end())
+            m_state.streamlineVectorField = m_state.vectorField;
+        m_meshData.guiMeta.vectorName = m_state.vectorField;
+    } else if (m_state.meshHasCellVectors) {
+        m_meshData.guiMeta.vectorName = mesh->cellVectorName;
+    }
+
+    // Scalar range: hold a GLOBAL range across the sequence so the colormap,
+    // colorbar and filters don't flicker between frames. The first frame seeds
+    // it; later frames only ever EXPAND it.
+    float mn = 0.0f, mx = 1.0f;
+    bool haveRange = false;
+    if (!mesh->scalars.empty()) {
+        for (float v : mesh->scalars) {
+            if (!std::isfinite(v)) continue;
+            if (!haveRange) { mn = mx = v; haveRange = true; }
+            else { if (v < mn) mn = v; if (v > mx) mx = v; }
+        }
+    } else if (mesh->attributes && !mesh->attributes->pointScalars.empty()) {
+        auto it = mesh->attributes->pointScalars.find(m_state.activeScalarName);
+        if (it == mesh->attributes->pointScalars.end()) it = mesh->attributes->pointScalars.begin();
+        if (it != mesh->attributes->pointScalars.end()) {
+            for (float v : it->second) {
+                if (!std::isfinite(v)) continue;
+                if (!haveRange) { mn = mx = v; haveRange = true; }
+                else { if (v < mn) mn = v; if (v > mx) mx = v; }
+            }
+        }
+    }
+    if (!haveRange) { mn = 0.0f; mx = 1.0f; }
+    if (mx - mn < 1e-6f) mx = mn + 1.0f;
+    if (firstFrame) {
+        m_animRangeMin = mn;
+        m_animRangeMax = mx;
+        m_state.meshHasScalars = !mesh->scalars.empty() || (mesh->attributes && !mesh->attributes->pointScalars.empty());
+        // Do not auto-enable scalar visualization — user must enable manually
+        m_state.meshUseScalarColor = false;
+        m_state.showScalarColorbar = m_state.meshHasScalars;
+        m_state.filterEnabled = false;
+        m_isoController.reset(mn, mx);
+    } else {
+        m_animRangeMin = std::min(m_animRangeMin, mn);
+        m_animRangeMax = std::max(m_animRangeMax, mx);
+    }
+    m_state.dataScalarMin = m_animRangeMin;
+    m_state.dataScalarMax = m_animRangeMax;
+    m_state.scalarMin = m_animRangeMin;
+    m_state.scalarMax = m_animRangeMax;
+
+    // Isosurface follows the animated mesh (debounced async extraction).
+    m_isoController.setCurrentMesh(mesh, m_state.activeScalarName);
+
+    // Phase 1.1: scalar-only fast path for fixed-mesh animations.
+    // Compare the incoming frame against the mesh the GPU last received
+    // (prevMesh), NOT against m_meshData.loadedMesh (already == mesh above —
+    // that self-compare always reported "unchanged" and silently disabled the
+    // full-upload path for topology-varying sequences).
+    bool topologyUnchanged = false;
+    if (!firstFrame && prevMesh && mesh->geometryHash != 0
+        && prevMesh->geometryHash == mesh->geometryHash
+        && prevMesh->vertices.size() == mesh->vertices.size()
+        && prevMesh->indices.size() == mesh->indices.size()
+        && prevMesh->gridDimX == mesh->gridDimX
+        && prevMesh->gridDimY == mesh->gridDimY
+        && prevMesh->gridDimZ == mesh->gridDimZ) {
+        topologyUnchanged = true;
+    }
+    if (topologyUnchanged) {
+        // Only scalars (and derived) changed — re-upload SBO (+ volume texture).
+        float rmn, rmx;
+        if (auto* d = FieldResolver::scalarData(*mesh, m_state.activeScalarName, rmn, rmx)) {
+            auto payload = std::make_shared<const std::vector<float>>(*d);
+            m_renderer.markScalarDirty(payload);
+            if (mesh->hasVolumeData()) {
+                m_renderer.markVolumeDirty(mesh);
+                // Renderer consumes volumeDirty and uploads via
+                // uploadVolumeFromScalarDirty with the new mesh's dims.
+            }
+        }
+    } else {
+        // Full upload for topology-changing frames (adaptive mesh, first frame)
+        m_renderer.setPendingMesh(mesh);
+    }
+
+    markStateDirty();
+    emit meshLoadStateChanged();
+    emit meshDataUpdated();
+}
+
 void RenderSettings::openRecent(const QString& filePath) {
     if (filePath.isEmpty()) return;
     loadMesh(filePath);
@@ -468,6 +640,8 @@ void RenderSettings::setQuickBarCollapsed(bool collapsed) {
 }
 
 void RenderSettings::clearMeshes() {
+    m_animController.clear();
+    m_animSequenceActive = false;
     m_renderer.clearGpuMeshes();
     m_meshData.loadedMesh.reset();
     m_meshData = MeshData{};
@@ -491,16 +665,44 @@ void RenderSettings::requestScreenshot(const QString& path) {
 }
 
 void RenderSettings::recomputeScalarRange() {
-    if (m_meshData.guiMeta.scalars.empty()) return; // caller already assigned range (e.g. lazy-derived) — keep, not stale
-    float mn = std::numeric_limits<float>::max();
-    float mx = -std::numeric_limits<float>::max();
-    for (float v : m_meshData.guiMeta.scalars) {
-        if (!std::isfinite(v)) continue;
-        if (v < mn) mn = v;
-        if (v > mx) mx = v;
+    float mn = 0.f, mx = 1.f;
+    bool have = false;
+    if (!m_meshData.guiMeta.scalars.empty()) {
+        mn = std::numeric_limits<float>::max();
+        mx = std::numeric_limits<float>::lowest();
+        for (float v : m_meshData.guiMeta.scalars) {
+            if (!std::isfinite(v)) continue;
+            mn = std::min(mn, v);
+            mx = std::max(mx, v);
+            have = true;
+        }
     }
-    if (mn > mx) { mn = 0.0f; mx = 1.0f; }
-    if (mx - mn < 1e-6f) mx = mn + 1.0f;
+    // Structured-grid surface extract clears guiMeta.scalars but the field
+    // lives in loadedMesh->attributes->pointScalars (node-space). Fall back
+    // to the authoritative per-field range via FieldResolver.
+    if (!have && m_meshData.loadedMesh) {
+        float rmn, rmx;
+        if (auto* d = FieldResolver::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, rmn, rmx)) {
+            mn = rmn; mx = rmx; have = true;
+        } else if (m_meshData.loadedMesh->attributes) {
+            auto it = m_meshData.loadedMesh->attributes->pointScalarRanges.find(m_state.activeScalarName);
+            if (it != m_meshData.loadedMesh->attributes->pointScalarRanges.end()) {
+                mn = it->second.first; mx = it->second.second; have = true;
+            } else {
+                auto cit = m_meshData.loadedMesh->attributes->cellScalarRanges.find(m_state.activeScalarName);
+                if (cit != m_meshData.loadedMesh->attributes->cellScalarRanges.end()) {
+                    mn = cit->second.first; mx = cit->second.second; have = true;
+                }
+            }
+        }
+    }
+    if (!have) {
+        // Keep previous range if we still have no data (should not happen)
+        if (m_state.dataScalarMin != m_state.dataScalarMax) return;
+        mn = 0.f; mx = 1.f;
+    }
+    if (mn > mx) { mn = 0.f; mx = 1.f; }
+    if (std::abs(mx - mn) < 1e-6f) mx = mn + 1.0f;
     m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
     m_state.scalarMin = mn; m_state.scalarMax = mx;
 }
@@ -514,36 +716,28 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     m_state.activeScalarName = fieldName.toStdString();
     m_meshData.guiMeta.scalarName = m_state.activeScalarName;
 
-    // Build the scalar payload ONCE as a shared_ptr (zero-copy across threads)
-    // via FieldResolver seam — one interface, hides point vs cell.
     auto payload = std::make_shared<const std::vector<float>>(*data);
     m_meshData.guiMeta.scalars = *payload;
-    // Trust the resolver's per-field range (lazy-derived computes it exactly);
-    // recompute only refines when the payload scan disagrees (e.g. split vertices).
     m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
     m_state.scalarMin = mn;     m_state.scalarMax = mx;
     recomputeScalarRange();
-    // Reset filter window atomically to the new data range (bypasses the
-    // cross-clamp against the OLD filterMax/filterMin which would freeze
-    // the window on range switches like [0,1] -> [100,200]).
     m_state.filterMin = m_state.dataScalarMin;
     m_state.filterMax = m_state.dataScalarMax;
     emit meshLoadStateChanged();
 
-    // Trigger a SCALAR-ONLY re-upload on the render thread (shared_ptr, no copy).
     m_renderer.markScalarDirty(payload);
     if (m_meshData.loadedMesh)
         m_renderer.markVolumeDirty(m_meshData.loadedMesh);
-    markStateDirty(); emit meshDataUpdated();
-    // The active scalar field IS the contour field, so a field switch that the
-    // user has an isosurface enabled for must recontour at the (re-clamped) level.
+    markStateDirty();
+    emit meshDataUpdated();
+    // Also notify viewChanged so isosurface slider (volume_page) and any
+    // display that depends on dataScalarMin/Max refreshes. meshLoadStateChanged
+    // alone does not reach syncVolumePage.
+    emit viewChanged(ChangeFlag::Display);
     if (m_state.showIsosurface && m_state.meshHasScalars) {
         m_isoController.setCurrentField(m_state.activeScalarName);
         m_isoController.recompute();
     }
-    // NOTE: do NOT emit meshLoadStateChanged() here — load state
-    // (hasMeshLoaded / meshHasScalars) is unchanged; activeScalarName is
-    // already covered by meshDataUpdated (render_settings.h:80).
 }
 
 void RenderSettings::setActiveVectorField(const QString& fieldName) {
@@ -608,6 +802,11 @@ void RenderSettings::setFilterMax(float v) {
     v = std::max(v, m_state.filterMin);
     if (m_state.filterMax == v) return;
     m_state.filterMax = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+void RenderSettings::setFilterEnabled(bool v) {
+    if (m_state.filterEnabled == v) return;
+    m_state.filterEnabled = v;
     markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 

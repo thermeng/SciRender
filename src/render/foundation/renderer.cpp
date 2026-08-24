@@ -127,21 +127,49 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
 
 void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     if (!renderMesh) return;
+    // Phase 1.3: gate vector/ volume rebuild on content hash to skip static fields
+    bool vectorChanged = true;
+    bool volumeChanged = true;
+    if (m_lastUploadedMesh) {
+        if (renderMesh->vectorHash != 0 && m_lastUploadedMesh->vectorHash == renderMesh->vectorHash
+            && m_lastUploadedMesh->pointVectorCount == renderMesh->pointVectorCount
+            && m_lastUploadedMesh->cellVectorCount == renderMesh->cellVectorCount) {
+            vectorChanged = false;
+        }
+        if (renderMesh->scalarHash != 0 && m_lastUploadedMesh->scalarHash == renderMesh->scalarHash
+            && renderMesh->gridDimX == m_lastUploadedMesh->gridDimX
+            && renderMesh->gridDimY == m_lastUploadedMesh->gridDimY
+            && renderMesh->gridDimZ == m_lastUploadedMesh->gridDimZ) {
+            volumeChanged = false;
+        }
+    }
     meshManager.upload(renderMesh);
     m_lastUploadedMesh = renderMesh;
-    vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement);
-    streamlineSet.rebuild(*renderMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacing, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+    if (vectorChanged) {
+        vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement);
+    }
+    // Phase 1.2: streamline sync rebuild removed — rely solely on async StreamlineController
+    // (requestRecompute is already debounced at 0.15s and coalesces rapid animation frames)
+    // streamlineSet.rebuild(...) removed to halve CPU per frame
 
     if (renderMesh->gridDimX > 0 && renderMesh->gridDimY > 0 && renderMesh->gridDimZ > 0 && !renderMesh->scalars.empty()) {
-        glm::vec3 boxMin(renderMesh->bounds.minX, renderMesh->bounds.minY, renderMesh->bounds.minZ);
-        glm::vec3 boxMax(renderMesh->bounds.maxX, renderMesh->bounds.maxY, renderMesh->bounds.maxZ);
-        qDebug() << "[DEBUG MESH] bounds:" 
-                 << "min:" << static_cast<float>(renderMesh->bounds.minX) << static_cast<float>(renderMesh->bounds.minY) << static_cast<float>(renderMesh->bounds.minZ)
-                 << "max:" << static_cast<float>(renderMesh->bounds.maxX) << static_cast<float>(renderMesh->bounds.maxY) << static_cast<float>(renderMesh->bounds.maxZ)
-                 << "gridDim:" << renderMesh->gridDimX << renderMesh->gridDimY << renderMesh->gridDimZ;
-        m_volume.uploadVolume(m_state, renderMesh->scalars, renderMesh->gridDimX, renderMesh->gridDimY, renderMesh->gridDimZ, boxMin, boxMax);
+        if (!volumeChanged) {
+            // Scalar content unchanged, skip 64MB 3D texture upload
+        } else {
+            glm::vec3 boxMin(renderMesh->bounds.minX, renderMesh->bounds.minY, renderMesh->bounds.minZ);
+            glm::vec3 boxMax(renderMesh->bounds.maxX, renderMesh->bounds.maxY, renderMesh->bounds.maxZ);
+            qDebug() << "[DEBUG MESH] bounds:"
+                     << "min:" << static_cast<float>(renderMesh->bounds.minX) << static_cast<float>(renderMesh->bounds.minY) << static_cast<float>(renderMesh->bounds.minZ)
+                     << "max:" << static_cast<float>(renderMesh->bounds.maxX) << static_cast<float>(renderMesh->bounds.maxY) << static_cast<float>(renderMesh->bounds.maxZ)
+                     << "gridDim:" << renderMesh->gridDimX << renderMesh->gridDimY << renderMesh->gridDimZ;
+            m_volume.uploadVolume(m_state, renderMesh->scalars, renderMesh->gridDimX, renderMesh->gridDimY, renderMesh->gridDimZ, boxMin, boxMax);
+        }
     } else {
         m_volume.clearVolume();
+    }
+    // Ensure streamlines are recomputed for new mesh via async path
+    if (m_state.showStreamlines) {
+        m_streamlines.requestRecompute();
     }
 }
 
@@ -175,6 +203,25 @@ void Renderer::resetLighting() {
 }
 
 void Renderer::setState(const RenderRenderState& state) {
+    bool colormapChanged = m_state.colormapChoice != state.colormapChoice
+        || m_state.colormapReversed != state.colormapReversed
+        || m_state.vectorColormapChoice != state.vectorColormapChoice
+        || m_state.vectorColormapReversed != state.vectorColormapReversed
+        || m_state.streamlineColormapChoice != state.streamlineColormapChoice
+        || m_state.streamlineColormapReversed != state.streamlineColormapReversed
+        || m_state.volumeColormapChoice != state.volumeColormapChoice
+        || m_state.volumeColormapReversed != state.volumeColormapReversed
+        || m_state.volumeSliceColormapChoice != state.volumeSliceColormapChoice
+        || m_state.volumeSliceColormapReversed != state.volumeSliceColormapReversed;
+    bool scalarRangeChanged = m_state.dataScalarMin != state.dataScalarMin
+        || m_state.dataScalarMax != state.dataScalarMax
+        || m_state.sliceScalarMin != state.sliceScalarMin
+        || m_state.sliceScalarMax != state.sliceScalarMax
+        || m_state.activeScalarName != state.activeScalarName
+        || m_state.colorbarTicks != state.colorbarTicks;
+    if (colormapChanged || scalarRangeChanged) {
+        colorbarOverlay.markDirty();
+    }
     double oldRadius = m_lastOrthoRadius;
     m_state = state;
     if (m_state.orthographic && oldRadius != m_state.worldRadius) {

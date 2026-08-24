@@ -73,7 +73,9 @@ add_library(CoreLib STATIC
     src/core/stl_parser.cpp
     src/core/obj_parser.cpp
     src/core/obj_parser.h
-    src/core/vtk_xml_parser.cpp
+     src/core/vtk_xml_parser.cpp
+    src/core/pvd_parser.cpp
+    src/core/pvd_parser.h
 )
 target_include_directories(CoreLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(CoreLib PUBLIC glm pugixml ZLIB::ZLIB lz4 lzma)
@@ -90,6 +92,8 @@ add_library(RenderLib STATIC
     src/render/foundation/shader_utils.h
     src/render/settings/isosurface_controller.cpp
     src/render/settings/isosurface_controller.h
+    src/render/settings/animation_controller.cpp
+    src/render/settings/animation_controller.h
     src/render/foundation/LightingModel.cpp
     src/render/foundation/LightingModel.h
     src/render/passes/ColormapManager.cpp
@@ -155,6 +159,7 @@ add_executable(SciRender
     src/ui/streamlines_page.ui
     src/ui/screenshot_page.ui
     src/ui/mesh_info_page.ui
+    src/ui/animation_page.ui
     assets/app_icon.rc
 )
 
@@ -223,6 +228,16 @@ qt_add_resources(SciRender "icons"
         src/resources/icons/ortho_nz.svg
         src/resources/icons/reset.svg
         src/resources/icons/collapse.svg
+        src/resources/icons/open_mesh.svg
+        src/resources/icons/lighting.svg
+        src/resources/icons/slicing.svg
+        src/resources/icons/view.svg
+        src/resources/icons/colormap.svg
+        src/resources/icons/vectors.svg
+        src/resources/icons/streamlines.svg
+        src/resources/icons/mesh_info.svg
+        src/resources/icons/screenshot.svg
+        src/resources/icons/animation.svg
 )
 
 # ---------------------------------------------------------------------------

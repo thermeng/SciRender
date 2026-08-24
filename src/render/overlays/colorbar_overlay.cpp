@@ -182,18 +182,34 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
     return img;
 }
 
+QString ColorbarOverlay::barKey(float dpr, const ColorbarData& bar) {
+    // Content hash: dpr + title + subtitle + frac + stops (t + rgb) + ticks
+    QString k = QString::number(dpr, 'f', 3) + "|" + bar.title + "|" + bar.subtitle
+                + "|" + QString::number(bar.fracX, 'f', 4) + "," + QString::number(bar.fracY, 'f', 4) + "|";
+    for (int i=0;i<bar.stops.size();++i) {
+        auto s = bar.stops[i].toList();
+        if (s.size()>=4) k += QString::number(s[0].toFloat(),'f',4) + ":" +
+                             QString::number(s[1].toDouble(),'f',4) + "," +
+                             QString::number(s[2].toDouble(),'f',4) + "," +
+                             QString::number(s[3].toDouble(),'f',4) + ";";
+        else k += bar.stops[i].toString() + ";";
+    }
+    k += "|";
+    for (auto &lbl: bar.tickLabels) k += lbl + ";";
+    return k;
+}
+
 void ColorbarOverlay::drawSingleBar(float dpr, int deviceW, int deviceH,
                                     const ColorbarData& bar) {
-    // Find or create texture cache slot
+    QString key = barKey(dpr, bar);
     TextureCache* cache = nullptr;
     for (auto& tc : cachedTextures_) {
-        if (tc.valid && !tc.image.isNull() && tc.image.text("title") == bar.title) {
+        if (tc.valid && tc.key == key && qFuzzyCompare(tc.dpr, dpr)) {
             cache = &tc;
             break;
         }
     }
     if (!cache) {
-        // Reuse an invalid slot or add new
         for (auto& tc : cachedTextures_) {
             if (!tc.valid) { cache = &tc; break; }
         }
@@ -202,7 +218,8 @@ void ColorbarOverlay::drawSingleBar(float dpr, int deviceW, int deviceH,
             cache = &cachedTextures_.back();
         }
         cache->image = buildSingleBarImage(dpr, bar);
-        cache->image.setText("title", bar.title);
+        cache->key = key;
+        cache->dpr = dpr;
         if (cache->texId) glDeleteTextures(1, &cache->texId);
         glCreateTextures(GL_TEXTURE_2D, 1, &cache->texId);
         glTextureParameteri(cache->texId, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -212,14 +229,15 @@ void ColorbarOverlay::drawSingleBar(float dpr, int deviceW, int deviceH,
         cache->w = cache->image.width();
         cache->h = cache->image.height();
         cache->valid = true;
+        // Allocate immutable storage once
+        QImage gl = cache->image.convertToFormat(QImage::Format_RGBA8888);
+        gl = gl.flipped(Qt::Vertical);
+        glTextureStorage2D(cache->texId, 1, GL_RGBA8, gl.width(), gl.height());
+        glTextureSubImage2D(cache->texId, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
+        glBindTextureUnit(0, cache->texId);
+    } else {
+        glBindTextureUnit(0, cache->texId);
     }
-
-    // Upload texture
-    QImage gl = cache->image.convertToFormat(QImage::Format_RGBA8888);
-    gl = gl.flipped(Qt::Vertical);
-    glBindTextureUnit(0, cache->texId);
-    glTextureStorage2D(cache->texId, 1, GL_RGBA8, gl.width(), gl.height());
-    glTextureSubImage2D(cache->texId, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
 
     // Position in clip space
     const int px = static_cast<int>(bar.fracX * (deviceW - cache->w));

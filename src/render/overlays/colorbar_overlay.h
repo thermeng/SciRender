@@ -54,13 +54,16 @@ private:
 
     bool buildProgram();
 
-    // Per-texture cache keyed by bar title
+    // Per-texture cache keyed by full bar content (title+subtitle+stops+ticks+position+dpr)
     struct TextureCache {
         QImage image;
         GLuint texId = 0;
         int w = 0, h = 0;
         bool valid = false;
+        QString key; // hash of bar content for robust invalidation
+        float dpr = 0.f;
     };
     std::vector<TextureCache> cachedTextures_;
     float cachedDpr_ = 0.0f;
+    static QString barKey(float dpr, const ColorbarData& bar);
 };

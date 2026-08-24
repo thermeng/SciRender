@@ -152,6 +152,7 @@ struct RenderRenderState {
     float dataScalarMax = 1.0f;
     float filterMin = 0.0f;
     float filterMax = 1.0f;
+    bool filterEnabled = false;
     bool showScalarColorbar = true;
     bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
     int colorbarTicks = 6;
@@ -284,7 +285,7 @@ struct MeshUBOData {
     glm::vec4 sliceY;           // x = sliceHeightX, y = sliceHeightY, z = sliceHeightZ, w = 0
     glm::vec4 sliceEn;          // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
     glm::vec4 invert;           // x = invertX, y = invertY, z = invertZ, w = 0
-    glm::vec4 filter;           // x = filterMin, y = filterMax, z = 0, w = 0
+    glm::vec4 filter;           // x = filterMin, y = filterMax, z = filterEnabled(0/1), w = 0
     glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular
     glm::vec4 intensities;      // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
     glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad (Phase 1 PBR)

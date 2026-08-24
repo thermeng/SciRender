@@ -52,6 +52,10 @@ private:
     glm::vec3 boxMax_;
     int dimX_ = 0, dimY_ = 0, dimZ_ = 0;
     bool vaoInitialized_ = false;
+    // PBO double-buffer for async upload (Phase 2.1)
+    GlBuffer pbo_[2];
+    int pboIndex_ = 0;
+    bool pboInitialized_ = false;
 };
 
 

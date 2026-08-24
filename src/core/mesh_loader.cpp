@@ -28,5 +28,10 @@ RenderMesh loadMeshFile(const std::string& filePath) {
     if (ext == "VTM") {
         return parseMultiBlockXML(filePath);
     }
+    if (ext == "PVD") {
+        // A .pvd is a time-series index, not a single dataset — it must go
+        // through AnimationController (RenderSettings routes it there).
+        throw std::runtime_error("'.pvd' is a time-series collection; load it via the animation pipeline (File > Open Mesh)");
+    }
     throw std::runtime_error("unsupported file extension '" + ext + "' (expected .stl, .vtk, .obj, .vtu, .vts, .vti, .vtp, .vtr, .vtm)");
 }
