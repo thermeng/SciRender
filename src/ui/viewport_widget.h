@@ -30,6 +30,10 @@ public:
     ::RenderSettings* settings() const { return m_settings; }
 
     void requestScreenshot(const QString& path);
+
+    // Offscreen render of the CURRENT published state at an arbitrary size;
+    // used by AnimationExporter (GL context work stays on the GUI thread).
+    QImage captureFrameImage(int width, int height, int samples, bool transparent);
     void forceRepaint() { m_dirty = true; update(); }
 
 protected:

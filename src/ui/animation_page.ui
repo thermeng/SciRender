@@ -155,6 +155,16 @@
     </widget>
    </item>
    <item>
+    <widget class="QPushButton" name="exportBtn">
+     <property name="text">
+      <string>Export Animation…</string>
+     </property>
+     <property name="toolTip">
+      <string>Render the loaded sequence to an AVI video or PNG frames</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QLabel" name="statusLabel">
      <property name="text">
       <string/>

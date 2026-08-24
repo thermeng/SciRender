@@ -93,6 +93,23 @@ void ViewportWidget::requestScreenshot(const QString& path) {
     update();
 }
 
+QImage ViewportWidget::captureFrameImage(int width, int height, int samples, bool transparent) {
+    ::Renderer* scene = m_settings ? m_settings->backend() : nullptr;
+    if (!scene || width <= 0 || height <= 0) return QImage();
+
+    makeCurrent();
+    m_screenshotCapture.ensureScreenshotFbo(width, height, samples);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_screenshotCapture.screenshotFboId());
+    scene->setViewportOverride(width, height);
+    scene->renderFrame();
+    scene->clearViewportOverride();
+    QImage img = m_screenshotCapture.readFboToImage(
+        m_screenshotCapture.screenshotFboId(), width, height, samples, transparent);
+    glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+    doneCurrent();
+    return img;
+}
+
 void ViewportWidget::initializeGL() {
     initializeOpenGLFunctions();
     if (!m_settings) return;

@@ -229,25 +229,11 @@ void ScreenshotCapture::restoreState(const GlState& s) {
 // ---------------------------------------------------------------------------
 // Main readback + save
 // ---------------------------------------------------------------------------
-ScreenshotCapture::Result ScreenshotCapture::readFboAndSave(
-    GLuint fboId, int w, int h, int samples,
-    bool transparent, const QString& path) {
+QImage ScreenshotCapture::readFboToImage(GLuint fboId, int w, int h, int samples,
+                                         bool transparent) {
+    if (fboId == 0 || w <= 0 || h <= 0) return QImage();
 
-    Result result;
-    result.savedPath = path;
-
-    if (fboId == 0 || path.isEmpty() || w <= 0 || h <= 0)
-        return result;
-
-    const bool isPng  = path.endsWith(".png", Qt::CaseInsensitive);
-    const bool isJpeg = path.endsWith(".jpg", Qt::CaseInsensitive) || path.endsWith(".jpeg", Qt::CaseInsensitive);
-    const bool isBmp  = path.endsWith(".bmp", Qt::CaseInsensitive);
-    if (!isPng && !isJpeg && !isBmp) {
-        qWarning() << "Screenshot unsupported format:" << path;
-        return result;
-    }
-
-    const bool readTransparent = isPng && transparent;
+    const bool readTransparent = transparent;
     const int channels = readTransparent ? 4 : 3;
     const GLenum format = readTransparent ? GL_RGBA : GL_RGB;
 
@@ -288,7 +274,31 @@ ScreenshotCapture::Result ScreenshotCapture::readFboAndSave(
     }
 
     QImage::Format qf = readTransparent ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
-    QImage img = QImage(flipped.data(), w, h, static_cast<int>(stride), qf).copy();
+    return QImage(flipped.data(), w, h, static_cast<int>(stride), qf).copy();
+}
+
+ScreenshotCapture::Result ScreenshotCapture::readFboAndSave(
+    GLuint fboId, int w, int h, int samples,
+    bool transparent, const QString& path) {
+
+    Result result;
+    result.savedPath = path;
+
+    if (fboId == 0 || path.isEmpty() || w <= 0 || h <= 0)
+        return result;
+
+    const bool isPng  = path.endsWith(".png", Qt::CaseInsensitive);
+    const bool isJpeg = path.endsWith(".jpg", Qt::CaseInsensitive) || path.endsWith(".jpeg", Qt::CaseInsensitive);
+    const bool isBmp  = path.endsWith(".bmp", Qt::CaseInsensitive);
+    if (!isPng && !isJpeg && !isBmp) {
+        qWarning() << "Screenshot unsupported format:" << path;
+        return result;
+    }
+
+    const bool readTransparent = isPng && transparent;
+
+    QImage img = readFboToImage(fboId, w, h, samples, readTransparent);
+    if (img.isNull()) return result;
 
     const char* token = isPng ? "PNG" : (isBmp ? "BMP" : "JPEG");
     result.success = img.save(path, token, -1);

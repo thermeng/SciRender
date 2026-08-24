@@ -58,6 +58,7 @@ private slots:
     void openRecent(const QString& path);
     void clearRecentFiles();
     void saveScreenshot();
+    void exportAnimation();
     void clearMeshes();
     void showAbout();
     void showShortcuts();
@@ -138,6 +139,7 @@ private:
     QLabel* m_animSequenceLabel = nullptr;
     QCheckBox* m_animLoopCb = nullptr;
     QDoubleSpinBox* m_animFpsSpin = nullptr;
+    QPushButton* m_animExportBtn = nullptr;
     void refreshAnimationPage();
 
     // Quick bar

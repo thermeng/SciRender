@@ -34,6 +34,10 @@ public:
     Result readFboAndSave(GLuint fboId, int w, int h, int samples,
                           bool transparent, const QString& path);
 
+    // --- Read from a given FBO and return the image (no file I/O) ---
+    // Same resolve/flip path as readFboAndSave; used by animation export.
+    QImage readFboToImage(GLuint fboId, int w, int h, int samples, bool transparent);
+
     // --- Destroy all GL resources (call on context teardown) ---
     void destroyAll();
 
