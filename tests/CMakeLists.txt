@@ -61,3 +61,53 @@ target_include_directories(isosurface_test PRIVATE
     ${ZLIB_INCLUDE_DIR}
 )
 target_link_libraries(isosurface_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+
+# PVD (.pvd collection index) parser check — no Qt/GL, mirrors the other
+# standalone tests. Run from tests/ (fixtures are written relative to ../samples).
+add_executable(pvd_test
+    pvd_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/pvd_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
+)
+target_include_directories(pvd_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+    ${ZLIB_INCLUDE_DIR}
+)
+target_link_libraries(pvd_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+
+# Streamline direction / integration check — needs glad+GL stubs + StreamlineSet
+add_executable(streamline_direction_test
+    streamline_direction_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
+    ${CMAKE_SOURCE_DIR}/../src/render/foundation/gl_raii.cpp
+    ${CMAKE_SOURCE_DIR}/../src/render/streamlines/StreamlineSet.cpp
+    ${CMAKE_SOURCE_DIR}/../vendor/glad/src/gl.c
+)
+target_include_directories(streamline_direction_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+    ${CMAKE_SOURCE_DIR}/../vendor/glad/include
+    ${ZLIB_INCLUDE_DIR}
+)
+target_link_libraries(streamline_direction_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+
+# CTest wiring — single source of truth for CI; run_tests.{bat,sh} should delegate here
+enable_testing()
+add_test(NAME parse_regression COMMAND parse_regression WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME isosurface_test COMMAND isosurface_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME pvd_test COMMAND pvd_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME streamline_direction_test COMMAND streamline_direction_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

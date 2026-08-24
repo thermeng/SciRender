@@ -167,11 +167,13 @@ static void testClosedSurface() {
     printf("[TEST] closed-isosurface topology (synthetic sphere)\n");
     // 5x5x5 grid, scalar = dist^2 from center (2,2,2). iso chosen strictly
     // between node levels so no node lands exactly on the level -> a smooth,
-    // closed, manifold sphere with no ambiguous 4-4 cells.
+    // closed, manifold sphere with no ambiguous 4-4 cells. (iso=3.0 lands
+    // exactly on corner nodes (dist^2=3) and triggers ambiguous faces;
+    // iso=2.5 is safely between levels)
     RenderMesh g = makeSphereGrid(5, 2.0f, 2.0f, 2.0f);
     CHECK(isosurface::canExtract(g), "canExtract(sphere grid)");
-    auto r = isosurface::extractIsosurface(g, {3.0f});
-    CHECK(!r.vertices.empty(), "sphere iso=3.0 -> non-empty");
+    auto r = isosurface::extractIsosurface(g, {2.5f});
+    CHECK(!r.vertices.empty(), "sphere iso=2.5 -> non-empty");
     CHECK(r.vertices.size()/3 == r.scalars.size(), "sphere scalars match verts");
     CHECK(r.vertices.size()/3 == r.normals.size()/3, "sphere normals match verts");
     for (uint32_t i : r.indices) CHECK(i < r.vertices.size()/3, "sphere index in range");

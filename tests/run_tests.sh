@@ -9,18 +9,18 @@ g++ -std=c++20 -O2 -g ../src/core/vtk_parser.cpp ../src/core/vtk_common.cpp ../s
   ../src/core/vtk_xml_parser.cpp ../vendor/pugixml/pugixml.cpp \
   ../vendor/lz4/lz4.c ../vendor/lzma/LzmaDec.c ../vendor/lzma/7zAlloc.c \
   parse_regression.cpp \
-  -I.. -I../src -I../vendor -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o parse_regression.exe
+  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o parse_regression.exe
 echo "[run_tests] running parse_regression..."
-./parse_regression.exe
+./parse_regression.exe | tee last_parse.log
 echo ""
 echo "[run_tests] building streamline_direction_test..."
-g++ -std=c++20 -O2 -g ../vendor/glad/src/gl.c ../src/core/vtk_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
+g++ -std=c++20 -O2 -g ../vendor/glad/src/gl.c ../src/core/FieldResolver.cpp ../src/core/vtk_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
   ../src/core/stl_parser.cpp ../src/core/obj_parser.cpp ../src/core/mesh_loader.cpp \
   ../src/core/vtk_xml_parser.cpp   ../src/render/foundation/gl_raii.cpp ../src/render/streamlines/StreamlineSet.cpp streamline_direction_test.cpp \
   ../vendor/pugixml/pugixml.cpp ../vendor/lz4/lz4.c ../vendor/lzma/LzmaDec.c ../vendor/lzma/7zAlloc.c \
-  -I.. -I../src -I../vendor -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o streamline_direction_test.exe
+  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o streamline_direction_test.exe
 echo "[run_tests] running streamline_direction_test..."
-./streamline_direction_test.exe
+./streamline_direction_test.exe | tee last_direction.log
 echo ""
 echo "[run_tests] building isosurface_test..."
 g++ -std=c++20 -O2 -g ../src/core/vtk_parser.cpp ../src/core/vtk_xml_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
@@ -28,6 +28,17 @@ g++ -std=c++20 -O2 -g ../src/core/vtk_parser.cpp ../src/core/vtk_xml_parser.cpp 
   ../src/core/isosurface.cpp ../vendor/pugixml/pugixml.cpp \
   ../vendor/lz4/lz4.c ../vendor/lzma/LzmaDec.c ../vendor/lzma/7zAlloc.c \
   isosurface_test.cpp \
-  -I.. -I../src -I../vendor -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o isosurface_test.exe
+  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o isosurface_test.exe
 echo "[run_tests] running isosurface_test..."
-./isosurface_test.exe
+./isosurface_test.exe | tee last_isosurface.log
+echo ""
+echo "[run_tests] building pvd_test..."
+g++ -std=c++20 -O2 -g ../src/core/pvd_parser.cpp ../src/core/vtk_parser.cpp ../src/core/vtk_xml_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
+  ../src/core/stl_parser.cpp ../src/core/obj_parser.cpp ../src/core/mesh_loader.cpp \
+  ../vendor/pugixml/pugixml.cpp ../vendor/lz4/lz4.c ../vendor/lzma/LzmaDec.c ../vendor/lzma/7zAlloc.c \
+  pvd_test.cpp \
+  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o pvd_test.exe
+echo "[run_tests] running pvd_test..."
+./pvd_test.exe | tee last_pvd.log
+echo ""
+echo "[run_tests] ALL TESTS PASSED"
