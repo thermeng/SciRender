@@ -7,6 +7,7 @@
 
 class QDoubleSpinBox;
 class QCheckBox;
+class QComboBox;
 class QSlider;
 class RenderSettings;
 
@@ -20,6 +21,9 @@ protected:
 
 private:
     RenderSettings* m_settings = nullptr;
+    QComboBox* m_fontFamily = nullptr;
+    QCheckBox* m_fontBold = nullptr;
+    QCheckBox* m_fontItalic = nullptr;
     QDoubleSpinBox* m_fontScale = nullptr;
     QDoubleSpinBox* m_tickFontScale = nullptr;
     QDoubleSpinBox* m_lengthScale = nullptr;
@@ -27,6 +31,9 @@ private:
     QCheckBox* m_panelEnabled = nullptr;
     QSlider* m_panelOpacity = nullptr;
     QCheckBox* m_showAnnotation = nullptr;
+    QString m_initialFontFamily;
+    bool m_initialFontBold = false;
+    bool m_initialFontItalic = false;
     float m_initialFontScale = 1.0f;
     float m_initialTickFontScale = 1.0f;
     float m_initialLengthScale = 1.0f;

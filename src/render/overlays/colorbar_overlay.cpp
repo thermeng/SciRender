@@ -36,15 +36,16 @@ void main() {
 }
 )";
 
-QFont scaledTitleFont(float fontScale, float dpr) {
-    QFont f;
-    f.setPixelSize(static_cast<int>(11 * fontScale * dpr));
-    return f;
-}
+enum class FontKind { Title, Tick };
 
-QFont scaledTickFont(float fontScale, float dpr) {
+QFont makeFont(const ColorbarStyle& st, FontKind kind, float dpr) {
     QFont f;
-    f.setPixelSize(static_cast<int>(9 * fontScale * dpr));
+    if (!st.fontFamily.isEmpty()) f.setFamily(st.fontFamily);
+    f.setBold(st.fontBold);
+    f.setItalic(st.fontItalic);
+    const float basePx = (kind == FontKind::Title) ? 11.0f : 9.0f;
+    const float scale = (kind == FontKind::Title) ? st.fontScale : st.tickFontScale;
+    f.setPixelSize(static_cast<int>(basePx * scale * dpr));
     return f;
 }
 
@@ -137,8 +138,8 @@ ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const Colorbar
     Layout lay;
     const ColorbarStyle& st = bar.style;
 
-    const QFontMetrics titleFm(scaledTitleFont(st.fontScale, dpr));
-    const QFontMetrics tickFm(scaledTickFont(st.tickFontScale, dpr));
+    const QFontMetrics titleFm(makeFont(st, FontKind::Title, dpr));
+    const QFontMetrics tickFm(makeFont(st, FontKind::Tick, dpr));
 
     const int gap = static_cast<int>(4 * dpr);
     const int tickLen = static_cast<int>(5 * dpr);
@@ -252,7 +253,7 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
     }
 
     // Annotation line above the field name line
-    const QFont tFont = scaledTitleFont(st.fontScale, dpr);
+    const QFont tFont = makeFont(st, FontKind::Title, dpr);
     p.setFont(tFont);
     if (!lay.annotation.isEmpty()) {
         p.setPen(QColor("#aaaaaa"));
@@ -299,7 +300,7 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
     }
 
     // Tick marks + thinned labels
-    p.setFont(scaledTickFont(st.tickFontScale, dpr));
+    p.setFont(makeFont(st, FontKind::Tick, dpr));
     p.setPen(QColor("#cccccc"));
     for (const TickItem& item : lay.ticks) {
         p.drawLine(item.markFrom, item.markTo);
@@ -319,6 +320,9 @@ QString ColorbarOverlay::barKey(float dpr, const ColorbarData& bar) {
     QString k = QString::number(dpr, 'f', 3) + "|" + bar.title + "|" + bar.subtitle
                 + "|" + bar.units
                 + "|" + QString::number(static_cast<int>(st.orientation))
+                + "|" + st.fontFamily
+                + "," + (st.fontBold ? "b1" : "b0")
+                + "," + (st.fontItalic ? "i1" : "i0")
                 + "," + QString::number(st.fontScale, 'f', 3)
                 + "," + QString::number(st.tickFontScale, 'f', 3)
                 + "," + QString::number(st.lengthScale, 'f', 3)

@@ -13,6 +13,9 @@
 struct ColorbarStyle {
     enum Orientation { Horizontal = 0, Vertical = 1 };
     Orientation orientation = Horizontal;
+    QString fontFamily;          // empty = Qt system default; shared by all text
+    bool fontBold = false;
+    bool fontItalic = false;
     float fontScale = 1.0f;      // title/annotation font size
     float tickFontScale = 1.0f;  // tick label font size (independent of title)
     float lengthScale = 1.0f;    // bar size along its main axis

@@ -220,7 +220,10 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.sliceScalarMax != state.sliceScalarMax
         || m_state.activeScalarName != state.activeScalarName
         || m_state.colorbarTicks != state.colorbarTicks;
-    bool colorbarStyleChanged = m_state.colorbarFontScale != state.colorbarFontScale
+    bool colorbarStyleChanged = m_state.colorbarFontFamily != state.colorbarFontFamily
+        || m_state.colorbarFontBold != state.colorbarFontBold
+        || m_state.colorbarFontItalic != state.colorbarFontItalic
+        || m_state.colorbarFontScale != state.colorbarFontScale
         || m_state.colorbarTickFontScale != state.colorbarTickFontScale
         || m_state.colorbarLengthScale != state.colorbarLengthScale
         || m_state.colorbarThicknessScale != state.colorbarThicknessScale
@@ -546,6 +549,9 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         loadBarPosition(d);
         loadBarOrientation(d);
         loadBarVisible(d);
+        d.style.fontFamily = m_state.colorbarFontFamily;
+        d.style.fontBold = m_state.colorbarFontBold;
+        d.style.fontItalic = m_state.colorbarFontItalic;
         d.style.fontScale = m_state.colorbarFontScale;
         d.style.tickFontScale = m_state.colorbarTickFontScale;
         d.style.lengthScale = m_state.colorbarLengthScale;
@@ -583,7 +589,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         const float tMin = txMag(vectorGlyph.magMin);
         const float tMax = txMag(vectorGlyph.magMax);
         const float tRange = tMax - tMin;
-        makeBar("Vector", QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())) + QChar(0x27A1),
+        makeBar("Vector", QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())),
                 stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed),
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
@@ -596,7 +602,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         const float sMin = streamlineSet.magMin;
         const float sMax = streamlineSet.magMax;
         const float sRange = sMax - sMin;
-        makeBar("Streamline", QString::fromStdString(m_state.streamlineVectorField) + QChar(0x27A1),
+        makeBar("Streamline", QString::fromStdString(m_state.streamlineVectorField),
                 stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed),
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
