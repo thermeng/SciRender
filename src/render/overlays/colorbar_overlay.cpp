@@ -6,8 +6,10 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QFont>
+#include <QFontMetrics>
 #include <QOpenGLContext>
 #include <cstring>
+#include <cmath>
 
 namespace {
 
@@ -33,6 +35,29 @@ void main() {
     frag = c;
 }
 )";
+
+QFont scaledTitleFont(float fontScale, float dpr) {
+    QFont f;
+    f.setPixelSize(static_cast<int>(11 * fontScale * dpr));
+    return f;
+}
+
+QFont scaledTickFont(float fontScale, float dpr) {
+    QFont f;
+    f.setPixelSize(static_cast<int>(9 * fontScale * dpr));
+    return f;
+}
+
+QString displayNameOf(const ColorbarData& bar) {
+    QString t = bar.title;
+    if (!bar.units.isEmpty())
+        t += QString(" (%1)").arg(bar.units);
+    return t;
+}
+
+QString annotationOf(const ColorbarData& bar) {
+    return bar.subtitle.isEmpty() ? QString() : QString("[%1]").arg(bar.subtitle);
+}
 
 } // namespace
 
@@ -76,116 +101,232 @@ void ColorbarOverlay::markDirty() {
     for (auto& tc : cachedTextures_) tc.valid = false;
 }
 
-QSize ColorbarOverlay::singleBarSize(float dpr) const {
-    const int barW = 200;
-    const int barH = 12;
-    const int gap = 4;
-    const int tickLen = 5;
-    const int pad = 8;
+// Greedy label selection along the reading direction (bottom→top when
+// vertical, left→right otherwise). The end label (max) always wins: interior
+// selections that block it are dropped.
+void ColorbarOverlay::selectTickLabels(std::vector<TickItem>& ticks,
+                                       const QStringList& labels, int minGap, bool vertical) {
+    const int n = static_cast<int>(ticks.size());
+    if (n <= 1) return;
+    auto fitsAfter = [&](int cand, int prev) {
+        if (labels[cand] == labels[prev]) return false;
+        return vertical
+            ? ticks[cand].label.bottom() <= ticks[prev].label.top() - minGap
+            : ticks[cand].label.left() >= ticks[prev].label.right() + minGap;
+    };
+    std::vector<int> selected{0};
+    for (int i = 1; i < n; ++i) {
+        if (i == n - 1) {
+            while (!selected.empty()) {
+                if (fitsAfter(i, selected.back())) { selected.push_back(i); break; }
+                if (selected.size() == 1) break; // min label keeps priority
+                selected.pop_back();
+            }
+        } else if (fitsAfter(i, selected.back())) {
+            selected.push_back(i);
+        }
+    }
+    std::vector<char> keep(n, 0);
+    for (int idx : selected) keep[idx] = 1;
+    for (int i = 0; i < n; ++i) {
+        if (!keep[i]) ticks[i].label = QRect();
+    }
+}
 
-    QFont labelFont;
-    labelFont.setPixelSize(11);
-    const int labelH = QFontMetrics(labelFont).height();
-    QFont tickFont;
-    tickFont.setPixelSize(9);
-    const int tickH = QFontMetrics(tickFont).height();
+ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const ColorbarData& bar) const {
+    Layout lay;
+    const ColorbarStyle& st = bar.style;
 
-    const int w = static_cast<int>((barW + pad * 2) * dpr);
-    const int h = static_cast<int>((labelH + gap + barH + tickLen + tickH + pad * 2) * dpr);
-    return QSize(w, h);
+    const QFontMetrics titleFm(scaledTitleFont(st.fontScale, dpr));
+    const QFontMetrics tickFm(scaledTickFont(st.tickFontScale, dpr));
+
+    const int gap = static_cast<int>(4 * dpr);
+    const int tickLen = static_cast<int>(5 * dpr);
+    const int pad = static_cast<int>(8 * dpr);
+    const int titleH = titleFm.height();
+    const int tickH = tickFm.height();
+    const int barMain = static_cast<int>(200 * st.lengthScale * dpr);
+    const int barCross = static_cast<int>(12 * st.thicknessScale * dpr);
+    const int labelGap = static_cast<int>(3 * dpr);
+    const int minGap = static_cast<int>(2 * dpr);
+    const int n = bar.tickLabels.size();
+
+    // Annotation line ("[Scalar]") sits above the field name line.
+    const bool hasAnnotation = st.showAnnotation && !bar.subtitle.isEmpty();
+    const int annotationH = hasAnnotation ? titleH : 0;
+    const int nameW = titleFm.horizontalAdvance(displayNameOf(bar));
+    const int annW = hasAnnotation ? titleFm.horizontalAdvance(annotationOf(bar)) : 0;
+
+    int lwMax = 0;
+    for (const QString& lbl : bar.tickLabels)
+        lwMax = qMax(lwMax, tickFm.horizontalAdvance(lbl));
+
+    if (st.orientation == ColorbarStyle::Vertical) {
+        // Max at top (viz convention): tick i (min + frac*range) sits at
+        // barBottom - frac*barMain; labels run up the right side.
+        const int barX = pad;
+        const int barY = pad + annotationH + titleH + gap;
+        const int titleW = qMax(nameW, annW);
+        const int contentW = qMax(barCross + tickLen + labelGap + lwMax, titleW);
+        const int w = pad + contentW + pad;
+        const int h = barY + barMain + pad;
+        lay.size = QSize(w, h);
+        lay.panel = QRect(QPoint(0, 0), lay.size);
+        lay.annotation = hasAnnotation ? QRect(pad, pad, w - 2 * pad, titleH) : QRect();
+        lay.title = QRect(pad, pad + annotationH, w - 2 * pad, titleH);
+        lay.bar = QRect(barX, barY, barCross, barMain);
+
+        const int barTop = barY;
+        const int barBottom = barY + barMain;
+        const int tickX = barX + barCross;
+        lay.ticks.reserve(n);
+        for (int i = 0; i < n; ++i) {
+            const float frac = n > 1 ? static_cast<float>(i) / static_cast<float>(n - 1) : 0.0f;
+            const int ty = barBottom - static_cast<int>(frac * barMain);
+            TickItem item;
+            item.index = i;
+            item.markFrom = QPointF(tickX, ty);
+            item.markTo = QPointF(tickX + tickLen, ty);
+            const QString& lbl = bar.tickLabels[i];
+            const int lw = tickFm.horizontalAdvance(lbl);
+            QRect lblRect(tickX + tickLen + labelGap, ty - tickH / 2, lw, tickH);
+            if (i == 0) lblRect.moveBottom(barBottom);
+            else if (i == n - 1) lblRect.moveTop(barTop);
+            item.label = lblRect;
+            lay.ticks.push_back(item);
+        }
+        selectTickLabels(lay.ticks, bar.tickLabels, minGap, true);
+        return lay;
+    }
+
+    // Horizontal layout.
+    const int barX = pad;
+    const int barY = pad + annotationH + titleH + gap;
+    lay.size = QSize(barX + barMain + pad, barY + barCross + tickLen + tickH + pad);
+    lay.panel = QRect(QPoint(0, 0), lay.size);
+    lay.annotation = hasAnnotation ? QRect(barX, pad, barMain, titleH) : QRect();
+    lay.title = QRect(barX, pad + annotationH, barMain, titleH);
+    lay.bar = QRect(barX, barY, barMain, barCross);
+
+    // Tick marks at full density; labels thinned so neighbors never overlap.
+    const int tickY = barY + barCross;
+    lay.ticks.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        const float frac = n > 1 ? static_cast<float>(i) / static_cast<float>(n - 1) : 0.0f;
+        const int tx = barX + static_cast<int>(frac * barMain);
+        TickItem item;
+        item.index = i;
+        item.markFrom = QPointF(tx, tickY);
+        item.markTo = QPointF(tx, tickY + tickLen);
+        const QString& lbl = bar.tickLabels[i];
+        const int lw = tickFm.horizontalAdvance(lbl);
+        QRect lblRect(tx - lw / 2, tickY + tickLen, lw, tickH);
+        if (i == 0) lblRect.moveLeft(barX);
+        else if (i == n - 1) lblRect.moveRight(barX + barMain);
+        item.label = lblRect;
+        lay.ticks.push_back(item);
+    }
+    selectTickLabels(lay.ticks, bar.tickLabels, minGap, false);
+    return lay;
 }
 
 QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) const {
-    QSize sz = singleBarSize(dpr);
-    QImage img(sz, QImage::Format_ARGB32);
+    const Layout lay = computeLayout(dpr, bar);
+    QImage img(lay.size, QImage::Format_ARGB32);
     img.fill(Qt::transparent);
 
     QPainter p(&img);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
 
-    const int barW = static_cast<int>(200 * dpr);
-    const int barH = static_cast<int>(12 * dpr);
-    const int gap = static_cast<int>(4 * dpr);
-    const int tickLen = static_cast<int>(5 * dpr);
-    const int pad = static_cast<int>(8 * dpr);
+    const ColorbarStyle& st = bar.style;
 
-    QFont labelFont;
-    labelFont.setPixelSize(static_cast<int>(11 * dpr));
-    const QFontMetrics labelFm(labelFont);
-    const int labelH = labelFm.height();
+    // Background panel
+    if (st.panelEnabled) {
+        QColor panel(16, 16, 16);
+        panel.setAlphaF(qBound(0.0, static_cast<double>(st.panelOpacity), 1.0));
+        QPainterPath path;
+        const int radius = static_cast<int>(4 * dpr);
+        path.addRoundedRect(lay.panel, radius, radius);
+        p.fillPath(path, panel);
+    }
 
-    QFont tickFont;
-    tickFont.setPixelSize(static_cast<int>(9 * dpr));
-    const QFontMetrics tickFm(tickFont);
-    const int tickH = tickFm.height();
+    // Annotation line above the field name line
+    const QFont tFont = scaledTitleFont(st.fontScale, dpr);
+    p.setFont(tFont);
+    if (!lay.annotation.isEmpty()) {
+        p.setPen(QColor("#aaaaaa"));
+        const QString ann = annotationOf(bar);
+        const QString annElided = QFontMetrics(tFont).elidedText(ann, Qt::ElideRight, lay.annotation.width());
+        p.drawText(lay.annotation, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, annElided);
+    }
 
-    const int blockX = pad;
-    const int blockY = pad;
-
-    // Title with annotation prefix
-    p.setFont(labelFont);
+    // Field name line with optional unit suffix
+    p.setFont(tFont);
     p.setPen(QColor("#e8e8e8"));
-    QString displayTitle = bar.title;
-    if (!bar.subtitle.isEmpty())
-        displayTitle = QString("[%1] %2").arg(bar.subtitle, bar.title);
-    const QRect titleRect(blockX, blockY, barW, labelH);
-    p.drawText(titleRect, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, displayTitle);
+    const QString displayTitle = displayNameOf(bar);
+    const QString elided = QFontMetrics(tFont).elidedText(displayTitle, Qt::ElideRight, lay.title.width());
+    p.drawText(lay.title, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, elided);
 
-    const int barX = blockX;
-    const int barY = blockY + labelH + gap;
-
-    // Gradient bar
+    // Gradient bar (vertical bars read bottom→min, top→max)
     {
-        QLinearGradient grad(static_cast<qreal>(barX), 0.0,
-                             static_cast<qreal>(barX + barW), 0.0);
+        const bool vertical = st.orientation == ColorbarStyle::Vertical;
+        QLinearGradient grad(lay.bar.left(), 0.0, lay.bar.right(), 0.0);
+        if (vertical) {
+            grad.setStart(0.0, lay.bar.top());
+            grad.setFinalStop(0.0, lay.bar.bottom());
+        }
         const int n = bar.stops.size();
         for (int i = 0; i < n; ++i) {
             const QVariantList s = bar.stops[i].toList();
             const float t = s[0].toFloat();
-            grad.setColorAt(static_cast<qreal>(t), QColor::fromRgbF(
-                qBound(0.0, s[1].toDouble(), 1.0),
-                qBound(0.0, s[2].toDouble(), 1.0),
-                qBound(0.0, s[3].toDouble(), 1.0)));
+            grad.setColorAt(vertical ? (1.0 - static_cast<qreal>(t)) : static_cast<qreal>(t),
+                QColor::fromRgbF(
+                    qBound(0.0, s[1].toDouble(), 1.0),
+                    qBound(0.0, s[2].toDouble(), 1.0),
+                    qBound(0.0, s[3].toDouble(), 1.0)));
         }
         QPainterPath barPath;
         const int radius = static_cast<int>(3 * dpr);
-        barPath.addRoundedRect(QRectF(barX, barY, barW, barH), radius, radius);
+        barPath.addRoundedRect(lay.bar, radius, radius);
         p.save();
         p.setClipPath(barPath);
-        p.fillRect(barX, barY, barW, barH, grad);
+        p.fillRect(lay.bar, grad);
         p.restore();
         p.setPen(QColor(0, 0, 0, 160));
         p.setBrush(Qt::NoBrush);
-        p.drawRoundedRect(QRectF(barX, barY, barW, barH), radius, radius);
+        p.drawRoundedRect(lay.bar, radius, radius);
     }
 
-    // Ticks
-    p.setFont(tickFont);
+    // Tick marks + thinned labels
+    p.setFont(scaledTickFont(st.tickFontScale, dpr));
     p.setPen(QColor("#cccccc"));
-    const int tickCount = bar.tickLabels.size();
-    if (tickCount > 0) {
-        const int tickY = barY + barH;
-        for (int i = 0; i < tickCount; ++i) {
-            const float frac = tickCount > 1
-                ? static_cast<float>(i) / static_cast<float>(tickCount - 1)
-                : 0.0f;
-            const int tx = barX + static_cast<int>(frac * barW);
-            p.drawLine(tx, tickY, tx, tickY + tickLen);
-            const QString& lbl = bar.tickLabels[i];
-            const int lw = tickFm.horizontalAdvance(lbl);
-            const QRect lblRect(tx - lw / 2, tickY + tickLen, lw, tickH);
-            p.drawText(lblRect, Qt::AlignHCenter | Qt::AlignTop | Qt::TextSingleLine, lbl);
-        }
+    for (const TickItem& item : lay.ticks) {
+        p.drawLine(item.markFrom, item.markTo);
+        if (item.label.isEmpty()) continue;
+        p.drawText(item.label, Qt::AlignLeft | Qt::AlignTop | Qt::TextSingleLine,
+                   bar.tickLabels[item.index]);
     }
 
     return img;
 }
 
 QString ColorbarOverlay::barKey(float dpr, const ColorbarData& bar) {
-    // Content hash: dpr + title + subtitle + frac + stops (t + rgb) + ticks
+    // Content hash: dpr + title + subtitle + units + stops (t + rgb) + ticks + style.
+    // Position intentionally excluded: it is applied via the quad transform, so
+    // drags reuse the cached texture instead of forcing a re-upload per frame.
+    const ColorbarStyle& st = bar.style;
     QString k = QString::number(dpr, 'f', 3) + "|" + bar.title + "|" + bar.subtitle
-                + "|" + QString::number(bar.fracX, 'f', 4) + "," + QString::number(bar.fracY, 'f', 4) + "|";
+                + "|" + bar.units
+                + "|" + QString::number(static_cast<int>(st.orientation))
+                + "," + QString::number(st.fontScale, 'f', 3)
+                + "," + QString::number(st.tickFontScale, 'f', 3)
+                + "," + QString::number(st.lengthScale, 'f', 3)
+                + "," + QString::number(st.thicknessScale, 'f', 3)
+                + "," + (st.panelEnabled ? "p1" : "p0")
+                + "," + QString::number(st.panelOpacity, 'f', 3)
+                + "," + (st.showAnnotation ? "a1" : "a0")
+                + "|";
     for (int i=0;i<bar.stops.size();++i) {
         auto s = bar.stops[i].toList();
         if (s.size()>=4) k += QString::number(s[0].toFloat(),'f',4) + ":" +
@@ -274,7 +415,6 @@ void ColorbarOverlay::drawSingleBar(float dpr, int deviceW, int deviceH,
 void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
                                 const std::vector<ColorbarData>& bars) {
     if (!isInitialized() || deviceW <= 0 || deviceH <= 0) return;
-    cachedDpr_ = dpr;
 
     for (const auto& bar : bars) {
         if (!bar.visible || bar.stops.isEmpty() || bar.title.isEmpty()) continue;
@@ -295,7 +435,7 @@ int ColorbarOverlay::barIndexAt(float dpr, int deviceW, int deviceH,
 
 QRectF ColorbarOverlay::barRectAt(float dpr, int deviceW, int deviceH,
                                    const ColorbarData& bar) const {
-    QSize sz = singleBarSize(dpr);
+    const QSize sz = computeLayout(dpr, bar).size;
     const int px = static_cast<int>(bar.fracX * (deviceW - sz.width()));
     const int py = static_cast<int>(bar.fracY * (deviceH - sz.height()));
     return QRectF(px, py, sz.width(), sz.height());

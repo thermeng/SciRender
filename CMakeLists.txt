@@ -147,6 +147,8 @@ add_executable(SciRender
     src/app/gpu_preference.cpp
     src/ui/viewport_widget.cpp
     src/ui/viewport_widget.h
+    src/ui/colorbar_style_dialog.cpp
+    src/ui/colorbar_style_dialog.h
     src/ui/main_window.cpp
     src/ui/main_window.h
     src/ui/main_window.ui

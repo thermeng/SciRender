@@ -1,5 +1,6 @@
 #include <glad/gl.h>
 #include "viewport_widget.h"
+#include "colorbar_style_dialog.h"
 #include "render/foundation/render_config.h"
 #include <QColorSpace>
 #include <QContextMenuEvent>
@@ -37,6 +38,7 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
 
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setAttribute(Qt::WA_NoSystemBackground, true);
+    setMouseTracking(true); // hover feedback for colorbar drag handles
 
     m_fpsLabel = new QLabel(this);
     m_fpsLabel->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
@@ -349,6 +351,13 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
 
+    if (event->buttons() == Qt::NoButton) {
+        m_lastMousePos = event->pos();
+        updateColorbarHitState();
+        event->accept();
+        return;
+    }
+
     // Middle button (or shift+left) = pan, Left button = orbit
     const bool middleOrShift = m_isMiddleClick || (event->buttons() & Qt::MiddleButton);
     QPoint delta = event->pos() - m_lastMousePos;
@@ -397,6 +406,64 @@ void ViewportWidget::wheelEvent(QWheelEvent* event) {
 
 void ViewportWidget::contextMenuEvent(QContextMenuEvent* event) {
     if (!m_settings) return;
+    ::Renderer* scene = m_settings->backend();
+
+    // Right-click on a colorbar -> per-bar menu (orientation for now)
+    if (scene) {
+        const float dpr = static_cast<float>(devicePixelRatioF());
+        m_colorbarBars = scene->colorbarBars();
+        const int hitIdx = scene->colorbarIndexAt(static_cast<int>(event->pos().x() * dpr),
+                                                  static_cast<int>(event->pos().y() * dpr),
+                                                  m_colorbarBars);
+        if (hitIdx >= 0) {
+            const ColorbarData& bar = m_colorbarBars[hitIdx];
+            const QString name = bar.subtitle.isEmpty()
+                ? bar.title
+                : QString("[%1] %2").arg(bar.subtitle, bar.title);
+
+            QMenu menu(this);
+            menu.addAction(name)->setDisabled(true);
+            menu.addSeparator();
+            QAction* showAct = menu.addAction("Show Bar");
+            showAct->setCheckable(true);
+            showAct->setChecked(bar.visible);
+            QAction* horiz = menu.addAction("Horizontal");
+            QAction* vert = menu.addAction("Vertical");
+            horiz->setCheckable(true);
+            vert->setCheckable(true);
+            horiz->setChecked(bar.style.orientation == ColorbarStyle::Horizontal);
+            vert->setChecked(bar.style.orientation == ColorbarStyle::Vertical);
+            menu.addSeparator();
+            QAction* styleAct = menu.addAction("Style...");
+
+            QAction* chosen = menu.exec(event->globalPos());
+            if (!chosen) {
+                event->accept();
+                return;
+            }
+            if (chosen == showAct) {
+                scene->setColorbarVisible(hitIdx, showAct->isChecked());
+                scene->commitColorbarPositions();
+                m_dirty = true;
+                update();
+            } else if (chosen == styleAct) {
+                ColorbarStyleDialog dlg(m_settings, this);
+                dlg.exec();
+            } else {
+                const ColorbarStyle::Orientation target =
+                    (chosen == vert) ? ColorbarStyle::Vertical : ColorbarStyle::Horizontal;
+                if (target != bar.style.orientation) {
+                    scene->setColorbarOrientation(hitIdx, target);
+                    scene->commitColorbarPositions();
+                    m_dirty = true;
+                    update();
+                }
+            }
+            event->accept();
+            return;
+        }
+    }
+
     QMenu menu(this);
     menu.addAction("Reset Camera", this, [this]() { m_settings->resetCamera(); });
     menu.addAction("Zoom to Fit", this, [this]() { m_settings->resetCamera(); });
@@ -413,6 +480,36 @@ void ViewportWidget::contextMenuEvent(QContextMenuEvent* event) {
     });
     surfAction->setCheckable(true);
     surfAction->setChecked(m_settings->isSurfaceVisible());
+
+    // Colorbars submenu: per-bar show/hide for every currently-gated bar.
+    // Hidden bars stay listed (unchecked) so they can always be restored.
+    if (scene) {
+        const std::vector<ColorbarData>& bars = scene->colorbarBars();
+        if (!bars.empty()) {
+            QMenu* cbMenu = menu.addMenu("Colorbars");
+            for (const ColorbarData& bar : bars) {
+                const QString barName = bar.subtitle.isEmpty()
+                    ? bar.title
+                    : QString("[%1] %2").arg(bar.subtitle, bar.title);
+                QAction* act = cbMenu->addAction(barName);
+                act->setCheckable(true);
+                act->setChecked(bar.visible);
+                connect(act, &QAction::toggled, this,
+                        [this, scene, subtitle = bar.subtitle](bool on) {
+                    const std::vector<ColorbarData>& current = scene->colorbarBars();
+                    for (int k = 0; k < static_cast<int>(current.size()); ++k) {
+                        if (current[k].subtitle == subtitle) {
+                            scene->setColorbarVisible(k, on);
+                            scene->commitColorbarPositions();
+                            break;
+                        }
+                    }
+                    m_dirty = true;
+                    update();
+                });
+            }
+        }
+    }
 
     menu.addSeparator();
     menu.addAction("Save Screenshot...", this, [this]() {
@@ -500,6 +597,7 @@ void ViewportWidget::updateColorbarHitState() {
     if (!m_settings || m_draggingColorbar) return;
     ::Renderer* scene = m_settings->backend();
     if (!scene) return;
+    m_colorbarBars = scene->colorbarBars();
     const float dpr = static_cast<float>(devicePixelRatioF());
     int hitIdx = scene->colorbarIndexAt(static_cast<int>(m_lastMousePos.x() * dpr),
                                          static_cast<int>(m_lastMousePos.y() * dpr),
@@ -544,6 +642,10 @@ void ViewportWidget::updateColorbarDrag(const QPoint& pos) {
 }
 
 void ViewportWidget::endColorbarDrag() {
+    if (m_settings) {
+        if (::Renderer* scene = m_settings->backend())
+            scene->commitColorbarPositions();
+    }
     m_draggingColorbar = false;
     m_dragBarIndex = -1;
     setCursor(Qt::ArrowCursor);

@@ -156,6 +156,14 @@ struct RenderRenderState {
     bool showScalarColorbar = true;
     bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
     int colorbarTicks = 6;
+    // Global colorbar style (per-bar overrides: orientation/visibility via QSettings).
+    float colorbarFontScale = 1.0f;
+    float colorbarTickFontScale = 1.0f;
+    float colorbarLengthScale = 1.0f;
+    float colorbarThicknessScale = 1.0f;
+    bool colorbarPanelEnabled = false;
+    float colorbarPanelOpacity = 0.55f;
+    bool colorbarShowAnnotation = true;
     std::string activeScalarName;
 
     // Slice / clip
@@ -384,6 +392,9 @@ public:
     // Colorbar drag support
     int colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& bars) const;
     void setColorbarPosition(int index, float fracX, float fracY);
+    void setColorbarOrientation(int index, ColorbarStyle::Orientation orient);
+    void setColorbarVisible(int index, bool vis);
+    void commitColorbarPositions();
     void markColorbarDirty() { colorbarOverlay.markDirty(); }
     QRectF colorbarBarRect(float dpr, int deviceW, int deviceH, const ColorbarData& bar) const;
     const std::vector<ColorbarData>& colorbarBars() const { return m_colorbarBars; }
@@ -491,6 +502,10 @@ private:
     Gizmo gizmo;
     ColorbarOverlay colorbarOverlay;
     std::vector<ColorbarData> m_colorbarBars;
+    std::mutex m_colorbarCacheMutex;
+    std::map<QString, std::pair<float, float>> m_colorbarPosCache;
+    std::map<QString, int> m_colorbarOrientCache;
+    std::map<QString, bool> m_colorbarVisibleCache;
 
     double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
     double m_lastOrthoRadius = 1.0;
