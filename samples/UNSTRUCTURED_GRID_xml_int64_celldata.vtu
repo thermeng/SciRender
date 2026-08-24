@@ -15,8 +15,8 @@
           4 8
         </DataArray>
         <DataArray type="UInt8" Name="types" format="ascii">
-          11 11
-        </DataArray>
+           10 10
+         </DataArray>
       </Cells>
       <PointData Scalars="temperature">
         <DataArray type="Float32" Name="temperature" NumberOfComponents="1" format="ascii">
