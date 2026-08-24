@@ -10,7 +10,7 @@ POINTS 4 float
 CELLS 1 5
 4 0 1 2 3
 CELL_TYPES 1
-11
+ 10
 FIELD_DATA 4
 TENSORS cell_tensor double
 1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0

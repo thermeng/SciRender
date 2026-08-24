@@ -1,5 +1,5 @@
 # vtk DataFile Version 3.0
-UNSTRUCTURED_GRID mixed cells: hex(12) tetra(11) pyramid(13) wedge(14)
+UNSTRUCTURED_GRID mixed cells: hex(12) tetra(10) pyramid(14) wedge(13)
 ASCII
 DATASET UNSTRUCTURED_GRID
 POINTS 23 float
@@ -32,10 +32,10 @@ CELLS 4 27
 5 12 13 14 15 16
 6 17 18 19 20 21 22
 CELL_TYPES 4
-12
-11
-13
-14
+  12
+  10
+  14
+  13
 POINT_DATA 23
 SCALARS scalars float 1
 LOOKUP_TABLE default
