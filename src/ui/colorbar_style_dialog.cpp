@@ -3,8 +3,10 @@
 #include "render/settings/render_settings.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFontComboBox>
 #include <QFormLayout>
 #include <QPushButton>
 #include <QSlider>
@@ -12,9 +14,12 @@
 
 ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, QWidget* parent)
     : QDialog(parent), m_settings(settings) {
-    setWindowTitle("Colorbar Legend Style");
+    setWindowTitle("Colorbar Style");
     setModal(true);
 
+    m_initialFontFamily = m_settings->getColorbarFontFamily();
+    m_initialFontBold = m_settings->getColorbarFontBold();
+    m_initialFontItalic = m_settings->getColorbarFontItalic();
     m_initialFontScale = m_settings->getColorbarFontScale();
     m_initialTickFontScale = m_settings->getColorbarTickFontScale();
     m_initialLengthScale = m_settings->getColorbarLengthScale();
@@ -25,33 +30,48 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, QWidget* pare
 
     auto* form = new QFormLayout;
 
+    m_fontFamily = new QFontComboBox(this);
+    m_fontFamily->setCurrentText(m_initialFontFamily);
+    form->addRow("Font", m_fontFamily);
+
+    auto* styleRow = new QWidget(this);
+    auto* styleLayout = new QHBoxLayout(styleRow);
+    styleLayout->setContentsMargins(0, 0, 0, 0);
+    m_fontBold = new QCheckBox("Bold", styleRow);
+    m_fontBold->setChecked(m_initialFontBold);
+    m_fontItalic = new QCheckBox("Italic", styleRow);
+    m_fontItalic->setChecked(m_initialFontItalic);
+    styleLayout->addWidget(m_fontBold);
+    styleLayout->addWidget(m_fontItalic);
+    form->addRow(QString(), styleRow);
+
     m_fontScale = new QDoubleSpinBox(this);
     m_fontScale->setRange(0.6, 2.5);
     m_fontScale->setSingleStep(0.05);
     m_fontScale->setDecimals(2);
     m_fontScale->setValue(m_initialFontScale);
-    form->addRow("Title Font Scale", m_fontScale);
+    form->addRow("Title font scale", m_fontScale);
 
     m_tickFontScale = new QDoubleSpinBox(this);
     m_tickFontScale->setRange(0.6, 2.5);
     m_tickFontScale->setSingleStep(0.05);
     m_tickFontScale->setDecimals(2);
     m_tickFontScale->setValue(m_initialTickFontScale);
-    form->addRow("Tick Font Scale", m_tickFontScale);
+    form->addRow("Tick font scale", m_tickFontScale);
 
     m_lengthScale = new QDoubleSpinBox(this);
     m_lengthScale->setRange(0.5, 2.0);
     m_lengthScale->setSingleStep(0.05);
     m_lengthScale->setDecimals(2);
     m_lengthScale->setValue(m_initialLengthScale);
-    form->addRow("Bar Length", m_lengthScale);
+    form->addRow("Bar length", m_lengthScale);
 
     m_thicknessScale = new QDoubleSpinBox(this);
     m_thicknessScale->setRange(0.5, 3.0);
     m_thicknessScale->setSingleStep(0.05);
     m_thicknessScale->setDecimals(2);
     m_thicknessScale->setValue(m_initialThicknessScale);
-    form->addRow("Bar Thickness", m_thicknessScale);
+    form->addRow("Bar thickness", m_thicknessScale);
 
     m_showAnnotation = new QCheckBox("Show annotation", this);
     m_showAnnotation->setChecked(m_initialShowAnnotation);
@@ -64,7 +84,7 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, QWidget* pare
     m_panelOpacity = new QSlider(Qt::Horizontal, this);
     m_panelOpacity->setRange(0, 90);
     m_panelOpacity->setValue(static_cast<int>(m_initialPanelOpacity * 100.0f));
-    form->addRow("Panel Opacity %", m_panelOpacity);
+    form->addRow("Panel opacity %", m_panelOpacity);
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults, this);
@@ -75,6 +95,12 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, QWidget* pare
     root->addLayout(form);
     root->addWidget(buttons);
 
+    connect(m_fontFamily, &QComboBox::currentTextChanged,
+            m_settings, &RenderSettings::setColorbarFontFamily);
+    connect(m_fontBold, &QCheckBox::toggled,
+            m_settings, &RenderSettings::setColorbarFontBold);
+    connect(m_fontItalic, &QCheckBox::toggled,
+            m_settings, &RenderSettings::setColorbarFontItalic);
     connect(m_fontScale, &QDoubleSpinBox::valueChanged,
             m_settings, &RenderSettings::setColorbarFontScale);
     connect(m_tickFontScale, &QDoubleSpinBox::valueChanged,
@@ -91,6 +117,9 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, QWidget* pare
         m_settings->setColorbarPanelOpacity(v / 100.0f);
     });
     connect(defaultsBtn, &QPushButton::clicked, this, [this]() {
+        m_fontFamily->setCurrentText(QString());
+        m_fontBold->setChecked(false);
+        m_fontItalic->setChecked(false);
         m_fontScale->setValue(1.0);
         m_tickFontScale->setValue(1.0);
         m_lengthScale->setValue(1.0);
@@ -104,6 +133,9 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, QWidget* pare
 }
 
 void ColorbarStyleDialog::reject() {
+    m_settings->setColorbarFontFamily(m_initialFontFamily);
+    m_settings->setColorbarFontBold(m_initialFontBold);
+    m_settings->setColorbarFontItalic(m_initialFontItalic);
     m_settings->setColorbarFontScale(m_initialFontScale);
     m_settings->setColorbarTickFontScale(m_initialTickFontScale);
     m_settings->setColorbarLengthScale(m_initialLengthScale);

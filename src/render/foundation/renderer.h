@@ -157,6 +157,9 @@ struct RenderRenderState {
     bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
     int colorbarTicks = 6;
     // Global colorbar style (per-bar overrides: orientation/visibility via QSettings).
+    QString colorbarFontFamily; // empty = system default
+    bool colorbarFontBold = false;
+    bool colorbarFontItalic = false;
     float colorbarFontScale = 1.0f;
     float colorbarTickFontScale = 1.0f;
     float colorbarLengthScale = 1.0f;

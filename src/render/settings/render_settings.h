@@ -571,6 +571,9 @@ public:
     void setColorbarTicks(int v) { int c = v < 2 ? 2 : v; if (m_state.colorbarTicks != c) { m_state.colorbarTicks = c; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getShowScalarColorbar, setShowScalarColorbar, bool, m_state.showScalarColorbar, Display)
     STATE_PROP(getMeshUseScalarColor, setMeshUseScalarColor, bool, m_state.meshUseScalarColor, Display)
+    STATE_PROP(getColorbarFontFamily, setColorbarFontFamily, QString, m_state.colorbarFontFamily, Display)
+    STATE_PROP(getColorbarFontBold, setColorbarFontBold, bool, m_state.colorbarFontBold, Display)
+    STATE_PROP(getColorbarFontItalic, setColorbarFontItalic, bool, m_state.colorbarFontItalic, Display)
     STATE_PROP(getColorbarFontScale, setColorbarFontScale, float, m_state.colorbarFontScale, Display)
     STATE_PROP(getColorbarTickFontScale, setColorbarTickFontScale, float, m_state.colorbarTickFontScale, Display)
     STATE_PROP(getColorbarLengthScale, setColorbarLengthScale, float, m_state.colorbarLengthScale, Display)
