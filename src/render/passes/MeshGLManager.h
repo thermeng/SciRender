@@ -155,6 +155,10 @@ private:
 
     mutable std::mutex mutex_;
 
+    // PBO double-buffer for scalar SBO streaming (Phase 2.1)
+    GlBuffer scalarPbo_[2];
+    int scalarPboIndex_ = 0;
+
     // Compute shader LOD (GPU-side vertex clustering)
     GlProgram lodProgramAccum;
     GlProgram lodProgramOutput;

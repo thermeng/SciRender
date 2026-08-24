@@ -372,7 +372,7 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent* event) {
     }
     // Show context menu on right-click release (no drag happened)
     if (event->button() == Qt::RightButton && !m_isMiddleClick) {
-        QContextMenuEvent* cme = new QContextMenuEvent(QContextMenuEvent::Mouse, event->pos(), event->globalPos());
+        QContextMenuEvent* cme = new QContextMenuEvent(QContextMenuEvent::Mouse, event->pos(), event->globalPosition().toPoint());
         QCoreApplication::postEvent(this, cme);
     }
     event->accept();

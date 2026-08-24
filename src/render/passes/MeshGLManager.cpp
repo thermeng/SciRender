@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <unordered_map>
 #include <algorithm>
 #include <string>
@@ -433,6 +434,8 @@ void MeshGLManager::clear() {
         hasDecimated_ = false;
         hasFullSource_ = false;
         fullSource_.reset();
+        for (int i=0;i<2;++i) if (scalarPbo_[i].has()) scalarPbo_[i].reset();
+        scalarPboIndex_ = 0;
 
         isosurfaceMeshes_.clear();
         isosurfaceDecimatedMeshes_.clear();
@@ -569,6 +572,8 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
     if (dbgScalars()) fprintf(stderr, "[scalar-debug] updateScalars: clustering decScalars...\n");
     std::vector<float> decScalars = hasData ? decimateScalars(*full) : std::vector<float>{};
 
+    // Ensure PBOs exist
+    for (int i=0;i<2;++i) if (!scalarPbo_[i].has()) { glCreateBuffers(1, scalarPbo_[i].ptr()); }
     auto reupload = [&](std::vector<Mesh>& meshes, const std::vector<float>& data) {
         for (auto& m : meshes) {
             if (!data.empty()) {
@@ -580,8 +585,19 @@ void MeshGLManager::updateScalars(std::shared_ptr<const std::vector<float>> scal
                     glVertexArrayVertexBuffer(m.vao, 2, m.sbo, 0, sizeof(float));
                 }
                 const size_t bytes = data.size() * sizeof(float);
-                glNamedBufferData(m.sbo, bytes, nullptr, GL_STATIC_DRAW);
-                glNamedBufferSubData(m.sbo, 0, bytes, data.data());
+                // PBO streaming for animated scalar uploads (Phase 2.1)
+                GlBuffer& pbo = scalarPbo_[scalarPboIndex_];
+                scalarPboIndex_ = (scalarPboIndex_ + 1) % 2;
+                glNamedBufferData(pbo, bytes, nullptr, GL_STREAM_DRAW);
+                void* ptr = glMapNamedBufferRange(pbo, 0, bytes, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+                if (ptr) {
+                    std::memcpy(ptr, data.data(), bytes);
+                    glUnmapNamedBuffer(pbo);
+                    glNamedBufferData(m.sbo, bytes, nullptr, GL_STREAM_DRAW);
+                    glCopyNamedBufferSubData(pbo.get(), m.sbo.get(), 0, 0, bytes);
+                } else {
+                    glNamedBufferData(m.sbo, bytes, data.data(), GL_STREAM_DRAW);
+                }
             } else if (m.sbo.has()) {
                 m.sbo.reset();
             }

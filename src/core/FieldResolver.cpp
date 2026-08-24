@@ -1,5 +1,6 @@
 #include "core/FieldResolver.h"
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 namespace FieldResolver {
@@ -24,23 +25,58 @@ std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& reque
 }
 
 const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax) {
+    auto computeRange = [](const std::vector<float>& v, float& mn, float& mx){
+        if (v.empty()) { mn=0; mx=1; return; }
+        mn = std::numeric_limits<float>::max();
+        mx = std::numeric_limits<float>::lowest();
+        for (float f: v) { if(!std::isfinite(f)) continue; mn = std::min(mn,f); mx = std::max(mx,f); }
+        if (mn > mx) { mn=0; mx=1; }
+        if (std::abs(mx - mn) < 1e-6f) mx = mn + 1.0f;
+    };
     if (mesh.attributes) {
         auto it = mesh.attributes->pointScalars.find(name);
         if (it != mesh.attributes->pointScalars.end()) {
-            outMin = mesh.attributes->scalarMin;
-            outMax = mesh.attributes->scalarMax;
+            // Prefer stored per-field range, fall back to scan (robust if stale)
+            auto rit = mesh.attributes->pointScalarRanges.find(name);
+            if (rit != mesh.attributes->pointScalarRanges.end()) {
+                outMin = rit->second.first; outMax = rit->second.second;
+            } else {
+                computeRange(it->second, outMin, outMax);
+            }
             return &it->second;
         }
         auto cit = mesh.attributes->cellScalars.find(name);
         if (cit != mesh.attributes->cellScalars.end()) {
-            outMin = mesh.attributes->scalarMin;
-            outMax = mesh.attributes->scalarMax;
+            auto rit = mesh.attributes->cellScalarRanges.find(name);
+            if (rit != mesh.attributes->cellScalarRanges.end()) {
+                outMin = rit->second.first; outMax = rit->second.second;
+            } else {
+                computeRange(cit->second, outMin, outMax);
+            }
             return &cit->second;
+        }
+        // Also check per-field ranges directly (covers extrapolated cell->point case where
+        // pointScalars already contains the averaged data but range map is authoritative)
+        auto rit = mesh.attributes->pointScalarRanges.find(name);
+        if (rit != mesh.attributes->pointScalarRanges.end()) {
+            // Find actual storage (could be pointScalars or cellScalars)
+            auto pit = mesh.attributes->pointScalars.find(name);
+            if (pit != mesh.attributes->pointScalars.end()) {
+                outMin = rit->second.first; outMax = rit->second.second;
+                return &pit->second;
+            }
+            auto cit2 = mesh.attributes->cellScalars.find(name);
+            if (cit2 != mesh.attributes->cellScalars.end()) {
+                auto cr = mesh.attributes->cellScalarRanges.find(name);
+                if (cr != mesh.attributes->cellScalarRanges.end()) { outMin=cr->second.first; outMax=cr->second.second; }
+                else computeRange(cit2->second, outMin, outMax);
+                return &cit2->second;
+            }
         }
     }
     if (!mesh.scalars.empty() && (name == mesh.scalarName || name.empty())) {
-        outMin = mesh.attributes ? mesh.attributes->scalarMin : 0.f;
-        outMax = mesh.attributes ? mesh.attributes->scalarMax : 1.f;
+        // Scan the active scalars vector directly (robust after computeNormals split)
+        computeRange(mesh.scalars, outMin, outMax);
         return &mesh.scalars;
     }
     // Lazy derived vector→scalar: <base>_magnitude / _X / _Y / _Z

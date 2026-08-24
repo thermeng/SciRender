@@ -22,6 +22,7 @@
 #include "core/Camera.h"
 #include "core/isosurface.h"
 #include "render/settings/isosurface_controller.h"
+#include "render/settings/animation_controller.h"
 #include "render/settings/StateStore.h"
 #include "core/FieldResolver.h"
 
@@ -201,6 +202,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool invertZ READ getInvertZ WRITE setInvertZ NOTIFY viewChanged)
     Q_PROPERTY(float filterMin READ getFilterMin WRITE setFilterMin NOTIFY viewChanged)
     Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
+    Q_PROPERTY(bool filterEnabled READ getFilterEnabled WRITE setFilterEnabled NOTIFY viewChanged)
 
     Q_PROPERTY(bool showStreamlines READ getShowStreamlines WRITE setShowStreamlines NOTIFY viewChanged)
     Q_PROPERTY(QString streamlineVectorField READ getStreamlineVectorField WRITE setStreamlineVectorField NOTIFY meshDataUpdated)
@@ -285,6 +287,11 @@ public:
     // ---- backend access (render thread owns the Renderer) ----
     Renderer* backend() { return &m_renderer; }
 
+    // PVD animation playback engine (see AnimationController). The MainWindow
+    // animation page binds directly to the controller; RenderSettings only
+    // routes .pvd loads into it and consumes frameReady() in onAnimationFrame().
+    AnimationController* anim() { return &m_animController; }
+
     // Assembles the per-frame snapshot. No-op now that m_state IS the
     // single source of truth; kept as a trivial inline in the header.
     const RenderRenderState& snapshot() const { return m_state; }
@@ -355,6 +362,7 @@ public:
 public slots:
     void loadMesh(const QString& filePath);
     void onMeshParsed(); // GUI-thread continuation after async parse
+    void onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, int frameIndex, double time); // PVD frame publish
     void openRecent(const QString& filePath);
     void clearMeshes();
     void resetCamera();
@@ -579,6 +587,8 @@ public:
     void setFilterMin(float v);
     float getFilterMax() const { return m_state.filterMax; }
     void setFilterMax(float v);
+    bool getFilterEnabled() const { return m_state.filterEnabled; }
+    void setFilterEnabled(bool v);
 
     double getWorldMinX() const { return m_state.worldMinX; }
     double getWorldMaxX() const { return m_state.worldMaxX; }
@@ -656,6 +666,15 @@ private:
     // zero-copy shared_ptr handoff to the Renderer. RenderSettings delegates
     // the 3 isosurface Q_PROPERTYs to it via thin forwarders.
     IsosurfaceController m_isoController;
+
+    // ---- PVD animation ----
+    AnimationController m_animController;
+    // True while frames are flowing from the CURRENT sequence; reset by
+    // loadMesh()/clearMeshes() so a new sequence re-initializes scalar range
+    // and isosurface bounds on its first frame.
+    bool m_animSequenceActive = false;
+    float m_animRangeMin = 0.0f;   // running global range across seen frames
+    float m_animRangeMax = 1.0f;
 };
 
 

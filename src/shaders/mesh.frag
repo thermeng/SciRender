@@ -20,7 +20,7 @@ layout(std140) uniform MeshUBO {
     vec4  uSliceY;          // x = sliceHeightX, y = sliceHeightY, z = sliceHeightZ, w = 0
     vec4  uSliceEn;         // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
     vec4  uInvert;          // x = invertX, y = invertY, z = invertZ, w = 0
-    vec4  uFilter;          // x = filterMin, y = filterMax, z = 0, w = 0
+    vec4  uFilter;          // x = filterMin, y = filterMax, z = filterEnabled(0/1), w = 0
     vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular
     vec4  uIntensities;     // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
     vec4  uPBR;             // x = matRoughness, y = matMetallic, z = pad, w = pad
@@ -99,6 +99,7 @@ void main() {
         clipped = clipX || clipY || clipZ;
     }
     bool hasScalars = uScalars.z > 0.5;
+    bool filterEnabled = uFilter.z > 0.5;
     // Tolerance scaled to the data range: the filter window snaps to the data
     // min/max on every field switch, so extreme-value faces sit EXACTLY on the
     // bound. Perspective-correct interpolation then produces sub-ULP excursions
@@ -106,7 +107,7 @@ void main() {
     // into discarded fragments — pinholes showing the far side as red/white
     // speckles. Driver-dependent, hence GPU-specific visibility.
     float filterEps = 1e-5 * abs(uScalars.y - uScalars.x) + 1e-9;
-    bool filterScalar = hasScalars && (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
+    bool filterScalar = filterEnabled && hasScalars && (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
     clipped = clipped || filterScalar;
 
     if (clipped) {

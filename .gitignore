@@ -87,6 +87,14 @@ CMakeLists.txt.user*
 /.qtcreator/
 
 
+# Test harness generated logs and sandbox (keep last_parse.log as regression gold)
+tests/fresh_parse.log
+tests/last_direction.log
+tests/last_isosurface.log
+tests/last_pvd.log
+samples/pvd_test_sandbox/
+samples/pvd_animation/
+
 # Ignore vendors
 /vendor/
 

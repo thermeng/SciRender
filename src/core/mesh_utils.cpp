@@ -121,6 +121,7 @@ void finalizeSurfaceMesh(RenderMesh& mesh,
     if (mesh.normals.empty() && !mesh.vertices.empty() && !mesh.indices.empty()) {
         computeNormals(mesh);
     }
+    finalizeGeometrySignatures(mesh);
 
     std::cout << logLabel << mesh.indices.size() / 3 << " triangles, "
               << mesh.vertices.size() / 3 << " unique vertices" << std::endl;
@@ -403,16 +404,20 @@ void computeNormals(RenderMesh& mesh) {
     // per-point vectors: left at the original per-point count (see note above);
     // no vertex-count resize.
 
-    // Ensure scalarMin/scalarMax remain valid after vertex splitting
+    // Ensure scalarMin/scalarMax remain valid after vertex splitting (also per-field)
     if (!mesh.scalars.empty()) {
         float actualMin = 1e30f, actualMax = -1e30f;
         for (float s : mesh.scalars) {
             if (s < actualMin) actualMin = s;
             if (s > actualMax) actualMax = s;
         }
+        if (actualMax - actualMin < 1e-6f) actualMax = actualMin + 1.0f;
         if (mesh.attributes.has_value()) {
             mesh.attributes->scalarMin = actualMin;
             mesh.attributes->scalarMax = actualMax;
+            if (!mesh.scalarName.empty()) {
+                mesh.attributes->pointScalarRanges[mesh.scalarName] = {actualMin, actualMax};
+            }
         }
     }
 }
@@ -548,4 +553,81 @@ std::vector<uint32_t> extractTriEdges(
     }
     return out;
 }
+
+uint64_t hashBytes(const void* data, size_t len, uint64_t seed) {
+    const uint8_t* p = static_cast<const uint8_t*>(data);
+    uint64_t h = seed;
+    for (size_t i = 0; i < len; ++i) {
+        h ^= p[i];
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+uint64_t computeGeometryHash(const RenderMesh& mesh) {
+    if (mesh.vertices.empty() && mesh.indices.empty()) return 0;
+    uint64_t h = 1469598103934665603ULL;
+    if (!mesh.vertices.empty())
+        h = hashBytes(mesh.vertices.data(), mesh.vertices.size() * sizeof(float), h);
+    if (!mesh.indices.empty())
+        h = hashBytes(mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t), h);
+    // Include grid dims for structured volumes (topology)
+    h ^= static_cast<uint64_t>(mesh.gridDimX) * 0x9e3779b97f4a7c15ULL;
+    h ^= static_cast<uint64_t>(mesh.gridDimY) * 0xbf58476d1ce4e5b9ULL;
+    h ^= static_cast<uint64_t>(mesh.gridDimZ) * 0x94d049bb133111ebULL;
+    return h;
+}
+
+uint64_t computeScalarHash(const std::vector<float>& scalars) {
+    if (scalars.empty()) return 0;
+    // FNV over raw bytes; for large arrays, sample first/last/middle to stay O(1) if needed,
+    // but we do full scan off-thread — parse already O(n).
+    return hashBytes(scalars.data(), scalars.size() * sizeof(float));
+}
+
+uint64_t computeVectorHash(const RenderMesh& mesh) {
+    if (mesh.pointVectorsData.empty() && mesh.cellVectorsData.empty()) return 0;
+    uint64_t h = 1469598103934665603ULL;
+    if (!mesh.pointVectorsData.empty())
+        h = hashBytes(mesh.pointVectorsData.data(), mesh.pointVectorsData.size() * sizeof(glm::vec3), h);
+    if (!mesh.cellVectorsData.empty())
+        h = hashBytes(mesh.cellVectorsData.data(), mesh.cellVectorsData.size() * sizeof(glm::vec3), h);
+    return h;
+}
+
+size_t computeEstimatedBytes(const RenderMesh& mesh) {
+    size_t bytes = 0;
+    bytes += mesh.vertices.size() * sizeof(float);
+    bytes += mesh.indices.size() * sizeof(uint32_t);
+    bytes += mesh.normals.size() * sizeof(float);
+    bytes += mesh.scalars.size() * sizeof(float);
+    bytes += mesh.pointVectorsData.size() * sizeof(glm::vec3);
+    bytes += mesh.cellVectorsData.size() * sizeof(glm::vec3);
+    bytes += mesh.cellCenters.size() * sizeof(glm::vec3);
+    bytes += mesh.cellEdgeIndices.size() * sizeof(uint32_t);
+    bytes += mesh.flatVerts.size() * sizeof(float);
+    bytes += mesh.vertexSourceIndex.size() * sizeof(uint32_t);
+    if (mesh.attributes) {
+        for (auto& kv : mesh.attributes->pointScalars) bytes += kv.second.size() * sizeof(float) + kv.first.size();
+        for (auto& kv : mesh.attributes->cellScalars) bytes += kv.second.size() * sizeof(float) + kv.first.size();
+        for (auto& kv : mesh.attributes->pointVectors) bytes += kv.second.size() * sizeof(float) + kv.first.size();
+        // cellVectors are stored as cellVectorsData in RenderMesh, not in DatasetAttributes
+        // estimate for other maps
+        bytes += mesh.attributes->pointScalars.size() * 64;
+        bytes += mesh.attributes->cellScalars.size() * 64;
+    }
+    bytes += mesh.availableScalarNames.size() * 32;
+    bytes += mesh.availableVectorNames.size() * 32;
+    // overhead
+    bytes += sizeof(RenderMesh);
+    return bytes;
+}
+
+void finalizeGeometrySignatures(RenderMesh& mesh) {
+    mesh.geometryHash = computeGeometryHash(mesh);
+    mesh.scalarHash = computeScalarHash(mesh.scalars);
+    mesh.vectorHash = computeVectorHash(mesh);
+    mesh.estimatedBytes = computeEstimatedBytes(mesh);
+}
+
 }

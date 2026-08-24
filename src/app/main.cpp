@@ -7,6 +7,14 @@
 #include "ui/main_window.h"
 
 int main(int argc, char *argv[]) {
+    // Crash handler for post-animation terminate
+    std::set_terminate([](){
+        qCritical() << "[CRASH] std::terminate called";
+        try { std::rethrow_exception(std::current_exception()); }
+        catch (const std::exception& e) { qCritical() << "  exception:" << e.what(); }
+        catch (...) { qCritical() << "  unknown exception"; }
+        std::abort();
+    });
     qDebug() << "[LAUNCH DIAGNOSTIC 1/4] Main entry executed. Allocating resources...";
 
     // Stable QSettings scope (must be set before any QSettings access)
@@ -41,5 +49,10 @@ int main(int argc, char *argv[]) {
 
     qDebug() << "[LAUNCH DIAGNOSTIC 4/4] MainWindow created and shown.";
 
-    return app.exec();
+    int ret = 0;
+    try { ret = app.exec(); }
+    catch (const std::exception& e) { qCritical() << "[CRASH] app.exec exception:" << e.what(); ret = -1; }
+    catch (...) { qCritical() << "[CRASH] app.exec unknown exception"; ret = -1; }
+    qDebug() << "[SHUTDOWN] app.exec returned" << ret;
+    return ret;
 }

@@ -131,14 +131,24 @@
         </item>
        </layout>
       </item>
-      <item>
-       <widget class="QLabel" name="filterHeader"><property name="text">
-         <string>Filter</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="minFilterLayout">
+       <item>
+        <widget class="QLabel" name="filterHeader"><property name="text">
+          <string>Filter</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="filterEnabledCb">
+         <property name="text">
+          <string>Enable Filter</string>
+         </property>
+         <property name="checked">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="minFilterLayout">
         <property name="spacing">
          <number>6</number>
         </property>

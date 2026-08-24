@@ -9,6 +9,7 @@
 #include "ui_screenshot_page.h"
 #include "ui_mesh_info_page.h"
 #include "ui_volume_page.h"
+#include "ui_animation_page.h"
 #include "render/foundation/render_config.h"
 #include "core/Colormaps.h"
 #include <QApplication>
@@ -573,39 +574,45 @@ void MainWindow::setupSidebar() {
     // --- Icon strip (left edge, 48px) ---
     m_iconStrip = ui->iconStrip;
     m_iconStrip->setFixedWidth(kIconStripWidth);
+    m_iconStrip->setStyleSheet("QWidget { background: #1e1e1e; }");
     auto* iconLayout = new QVBoxLayout(m_iconStrip);
     iconLayout->setContentsMargins(4, 0, 0, 0);
     iconLayout->setSpacing(0);
 
+    const QString iconBtnSS =
+        "QToolButton { background: transparent; border: none; border-radius: 6px; }"
+        "QToolButton:hover { background: rgba(255,255,255,25); }"
+        "QToolButton:checked { background: rgba(56,189,248,50); }";
+
     struct IconEntry {
-        const char* icon;
+        const char* iconPath;
         const char* tooltip;
         int section;
     };
     const IconEntry icons[] = {
-        {"\u{1F4C2}", "Open Mesh", -1},
-        {"\u{1F4A1}", "Lighting", 0},
-        {"\u{2702}", "Slicing", 1},
-        {"\u{1F441}", "View & Display", 2},
-        {"\u{1F3A8}", "Colormap", 3},
-        {"♒︎", "Vectors", 4},
-        {"🌀", "Streamlines", 5},
-        {"🧊", "Volume Rendering", 6},
-        {"\u{1F4CA}", "Mesh Info", 7},
-        {"\u{1F4F7}", "Screenshot", 8},
+        {":/src/resources/icons/open_mesh.svg", "Open Mesh", -1},
+        {":/src/resources/icons/lighting.svg", "Lighting", 0},
+        {":/src/resources/icons/slicing.svg", "Slicing", 1},
+        {":/src/resources/icons/view.svg", "View & Display", 2},
+        {":/src/resources/icons/colormap.svg", "Colormap", 3},
+        {":/src/resources/icons/vectors.svg", "Vectors", 4},
+        {":/src/resources/icons/streamlines.svg", "Streamlines", 5},
+        {":/src/resources/icons/volume.svg", "Volume Rendering", 6},
+        {":/src/resources/icons/mesh_info.svg", "Mesh Info", 7},
+        {":/src/resources/icons/screenshot.svg", "Screenshot", 8},
+        {":/src/resources/icons/animation.svg", "Animation (PVD)", 9},
     };
 
     m_iconButtons.clear();
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 11; ++i) {
         auto* btn = new QToolButton;
-        btn->setText(QString::fromUtf8(icons[i].icon));
+        btn->setIcon(QIcon(QString::fromUtf8(icons[i].iconPath)));
+        btn->setIconSize(QSize(28, 28));
         btn->setToolTip(QString::fromUtf8(icons[i].tooltip));
         btn->setFixedSize(44, 44);
         btn->setCheckable(i > 0);
         btn->setCursor(Qt::PointingHandCursor);
-
-        // VS Code-style icon strip: no border, clean look
-        btn->setFont(QFont("Segoe UI", 12, QFont::Normal));
+        btn->setStyleSheet(iconBtnSS);
 
         iconLayout->addWidget(btn);
         m_iconButtons.append(btn);
@@ -667,6 +674,7 @@ void MainWindow::setupSidebar() {
     m_meshInfoPage = buildMeshInfoPage();
     m_sectionStack->addWidget(m_meshInfoPage);            // 7
     m_sectionStack->addWidget(buildScreenshotPage());   // 8
+    m_sectionStack->addWidget(buildAnimationPage());    // 9
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -1235,6 +1243,31 @@ QWidget* MainWindow::buildScalarPage() {
     connect(ticksSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setColorbarTicks);
 
     {
+        auto* filterEnabledCb = scalarUi.filterEnabledCb;
+        m_filterEnabledCb = filterEnabledCb;
+        filterEnabledCb->setChecked(m_settings->getFilterEnabled());
+        connect(filterEnabledCb, &QCheckBox::toggled, m_settings, &RenderSettings::setFilterEnabled);
+        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags) {
+            if (m_filterEnabledCb) {
+                bool en = m_settings->getFilterEnabled();
+                m_filterEnabledCb->blockSignals(true);
+                m_filterEnabledCb->setChecked(en);
+                m_filterEnabledCb->blockSignals(false);
+                m_filterMinSlider->setEnabled(en);
+                m_filterMaxSlider->setEnabled(en);
+                m_filterMinField->setEnabled(en);
+                m_filterMaxField->setEnabled(en);
+            }
+        });
+        // Initial enabled state
+        bool enInit = m_settings->getFilterEnabled();
+        scalarUi.minFilterSlider->setEnabled(enInit);
+        scalarUi.maxFilterSlider->setEnabled(enInit);
+        scalarUi.minFilterField->setEnabled(enInit);
+        scalarUi.maxFilterField->setEnabled(enInit);
+    }
+
+    {
         auto* slider = scalarUi.minFilterSlider;
         auto* field = scalarUi.minFilterField;
         m_filterMinSlider = slider;
@@ -1762,7 +1795,125 @@ QWidget* MainWindow::buildScreenshotPage() {
 }
 
 
-// Section: Mesh Info (7)
+// Section: Animation (9)
+
+QWidget* MainWindow::buildAnimationPage() {
+    auto* page = new QWidget;
+    Ui::AnimationPage animUi;
+    animUi.setupUi(page);
+
+    auto* ctrl = m_settings->anim();
+
+    m_animPlayBtn      = animUi.playBtn;
+    m_animStepBackBtn  = animUi.stepBackBtn;
+    m_animStepFwdBtn   = animUi.stepFwdBtn;
+    m_animSlider       = animUi.frameSlider;
+    m_animTimeLabel    = animUi.timeLabel;
+    m_animFrameLabel   = animUi.frameLabel;
+    m_animStatusLabel  = animUi.statusLabel;
+    m_animSequenceLabel = animUi.sequenceLabel;
+    m_animLoopCb       = animUi.loopCb;
+    m_animFpsSpin      = animUi.fpsSpin;
+
+    // Transport
+    connect(m_animPlayBtn, &QPushButton::clicked, ctrl, &AnimationController::togglePlay);
+    connect(m_animStepBackBtn, &QToolButton::clicked, ctrl, &AnimationController::stepBackward);
+    connect(m_animStepFwdBtn, &QToolButton::clicked, ctrl, &AnimationController::stepForward);
+    connect(m_animLoopCb, &QCheckBox::toggled, ctrl, &AnimationController::setLoop);
+    connect(m_animFpsSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            ctrl, &AnimationController::setFps);
+
+    // Timeline scrubbing: debounce dragging to avoid queue churn (see review 5.5).
+    // sliderMoved fires only on user drag (not programmatic setValue), so we
+    // coalesce rapid drags with a 50ms single-shot timer. Clicks on the track
+    // (valueChanged without drag) seek immediately; release seeks to final.
+    m_animSeekDebounce.setSingleShot(true);
+    m_animSeekDebounce.setInterval(50);
+    connect(&m_animSeekDebounce, &QTimer::timeout, this, [this]() {
+        if (m_pendingSeekFrame >= 0) {
+            m_settings->anim()->seek(m_pendingSeekFrame);
+            m_pendingSeekFrame = -1;
+        }
+    });
+    connect(m_animSlider, &QSlider::sliderMoved, this, [this](int v) {
+        m_pendingSeekFrame = v;
+        m_animSeekDebounce.start();
+    });
+    connect(m_animSlider, &QSlider::sliderReleased, this, [this]() {
+        m_animSeekDebounce.stop();
+        m_pendingSeekFrame = -1;
+        m_settings->anim()->seek(m_animSlider->value());
+    });
+    connect(m_animSlider, &QSlider::valueChanged, this, [this](int v) {
+        if (!m_animSlider->isSliderDown()) {
+            // Track click (programmatic setValue is blocked in refreshAnimationPage)
+            m_settings->anim()->seek(v);
+        }
+    });
+
+    // Open a .pvd straight from the page.
+    connect(animUi.openPvdBtn, &QPushButton::clicked, this, [this]() {
+        QString path = QFileDialog::getOpenFileName(this, "Load PVD Animation", QString(),
+            "PVD collections (*.pvd);;All files (*)");
+        if (!path.isEmpty()) m_settings->loadMesh(path);
+    });
+
+    // Controller → UI sync (stateChanged covers play/pause/seek/load).
+    connect(ctrl, &AnimationController::stateChanged,
+            this, &MainWindow::refreshAnimationPage);
+    QTimer::singleShot(0, this, &MainWindow::refreshAnimationPage);
+    return page;
+}
+
+void MainWindow::refreshAnimationPage() {
+    auto* ctrl = m_settings->anim();
+    const bool has = ctrl->hasSequence();
+
+    m_animPlayBtn->setEnabled(has);
+    m_animStepBackBtn->setEnabled(has);
+    m_animStepFwdBtn->setEnabled(has);
+    m_animLoopCb->setEnabled(has);
+    m_animFpsSpin->setEnabled(has);
+    m_animSlider->setEnabled(has);
+
+    if (!has) {
+        m_animSequenceLabel->setText("No sequence loaded");
+        m_animStatusLabel->setText(QString());
+        m_animFrameLabel->setText("Frame —");
+        m_animTimeLabel->setText("t = —");
+        m_animPlayBtn->setText("Play");
+        return;
+    }
+
+    m_animPlayBtn->setText(ctrl->isPlaying() ? "Pause" : "Play");
+    m_animLoopCb->blockSignals(true);
+    m_animLoopCb->setChecked(ctrl->loop());
+    m_animLoopCb->blockSignals(false);
+    m_animFpsSpin->blockSignals(true);
+    m_animFpsSpin->setValue(ctrl->fps());
+    m_animFpsSpin->blockSignals(false);
+
+    const int n = ctrl->frameCount();
+    m_animSlider->blockSignals(true);
+    m_animSlider->setRange(0, std::max(0, n - 1));
+    m_animSlider->setValue(std::clamp(ctrl->currentFrame(), 0, std::max(0, n - 1)));
+    m_animSlider->blockSignals(false);
+
+    const int cur = ctrl->currentFrame();
+    m_animFrameLabel->setText((cur >= 0)
+        ? QString("Frame %1 / %2").arg(cur + 1).arg(n)
+        : QString("Frame — / %1").arg(n));
+    m_animTimeLabel->setText(QString("t = %1 s").arg(ctrl->currentTime(), 0, 'f', 3));
+    m_animSequenceLabel->setText(ctrl->sequenceName());
+
+    if (ctrl->isBuffering()) {
+        m_animStatusLabel->setText("Buffering…");
+        m_animStatusLabel->setStyleSheet("color: #FFAA44;");
+    } else {
+        m_animStatusLabel->setText(QString());
+        m_animStatusLabel->setStyleSheet(QString());
+    }
+}
 
 QWidget* MainWindow::buildMeshInfoPage() {
     auto* page = new QWidget;
@@ -2123,7 +2274,8 @@ void MainWindow::refreshScalarFilterRange() {
 
 static const char* sectionNames[] = {
     "Lighting", "Slicing", "View & Display", "Scalar",
-    "Vectors", "Streamlines", "Volume Rendering", "Mesh Info", "Screenshot"
+    "Vectors", "Streamlines", "Volume Rendering", "Mesh Info", "Screenshot",
+    "Animation"
 };
 
 void MainWindow::setSidebarSection(int section) {
@@ -2567,7 +2719,7 @@ void MainWindow::updateStatusBar() {
             .arg(m_settings->getPointCount())
             .arg(m_settings->getTriangleCount()));
     } else {
-        sb->showMessage("No mesh loaded | drag a .stl / .vtk / .obj / .vtu / .vts / .vti / .vtp / .vtr file, or use File > Open Mesh");
+        sb->showMessage("No mesh loaded | drag a .stl / .vtk / .obj / .vtu / .vts / .vti / .vtp / .vtr / .pvd file, or use File > Open Mesh");
     }
 }
 
@@ -2576,7 +2728,7 @@ void MainWindow::updateStatusBar() {
 
 void MainWindow::openMesh() {
     QString path = QFileDialog::getOpenFileName(this, "Load Mesh", QString(),
-        "Mesh files (*.stl *.vtk *.obj *.vtu *.vts *.vti *.vtp *.vtr);;All files (*)");
+        "Mesh files (*.stl *.vtk *.obj *.vtu *.vts *.vti *.vtp *.vtr *.pvd);;All files (*)");
     if (!path.isEmpty()) m_settings->loadMesh(path);
 }
 

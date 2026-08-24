@@ -344,8 +344,36 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
         for (auto& [_, cnt] : edgeCount) if (cnt == 1) open++;
     }
 
-    // 4) smooth normals (shared vertices => averaged; sharp-edge split kept).
-    mesh_utils::computeNormals(result);
+    // 4) smooth normals without sharp-edge splitting — isosurfaces of a
+    // continuous scalar field are smooth; splitting would break the
+    // watertight manifold that the edge-shared extraction guarantees.
+    {
+        const size_t nv = result.vertices.size() / 3;
+        const size_t nt = result.indices.size() / 3;
+        result.normals.assign(nv * 3, 0.0f);
+        for (size_t t = 0; t < nt; ++t) {
+            uint32_t i0 = result.indices[t*3], i1 = result.indices[t*3+1], i2 = result.indices[t*3+2];
+            float v0x = result.vertices[i0*3], v0y = result.vertices[i0*3+1], v0z = result.vertices[i0*3+2];
+            float v1x = result.vertices[i1*3], v1y = result.vertices[i1*3+1], v1z = result.vertices[i1*3+2];
+            float v2x = result.vertices[i2*3], v2y = result.vertices[i2*3+1], v2z = result.vertices[i2*3+2];
+            float e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
+            float e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
+            float nx = e1y*e2z - e1z*e2y, ny = e1z*e2x - e1x*e2z, nz = e1x*e2y - e1y*e2x;
+            float len = std::sqrt(nx*nx+ny*ny+nz*nz);
+            if (len < 1e-12f) continue;
+            nx/=len; ny/=len; nz/=len;
+            for (uint32_t idx : {i0,i1,i2}) { result.normals[idx*3]+=nx; result.normals[idx*3+1]+=ny; result.normals[idx*3+2]+=nz; }
+        }
+        for (size_t v = 0; v < nv; ++v) {
+            float nx = result.normals[v*3], ny = result.normals[v*3+1], nz = result.normals[v*3+2];
+            float len = std::sqrt(nx*nx+ny*ny+nz*nz);
+            if (len > 1e-12f) { result.normals[v*3]=nx/len; result.normals[v*3+1]=ny/len; result.normals[v*3+2]=nz/len; }
+            else { result.normals[v*3]=0; result.normals[v*3+1]=0; result.normals[v*3+2]=1; }
+        }
+        result.vertexSourceIndex.clear();
+        result.vertexSourceIndex.reserve(nv);
+        for (size_t i=0;i<nv;++i) result.vertexSourceIndex.push_back(static_cast<int>(i));
+    }
     mesh_utils::computeBounds(result);
 
     // Surface-mesh contract so MeshPass colormap/lighting wire up.

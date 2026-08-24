@@ -124,28 +124,51 @@ std::vector<std::vector<uint32_t>> generateStructuredGridCells(int dX, int dY, i
 // ── Finalize ─────────────────────────────────────────────────────────────────
 
 void calculateScalarRanges(RenderMesh& mesh) {
-    // Ensure attributes are allocated
     if (!mesh.attributes.has_value()) {
         mesh.attributes = DatasetAttributes();
     }
-
-    if (!mesh.scalarName.empty() && mesh.attributes->pointScalars.count(mesh.scalarName)) {
-        const auto& activeVec = mesh.attributes->pointScalars[mesh.scalarName];
-        if (activeVec.empty()) return;
-
-        float minVal = std::numeric_limits<float>::max();
-        float maxVal = -std::numeric_limits<float>::max();
-        for (float val : activeVec) {
-            if (val < minVal) minVal = val;
-            if (val > maxVal) maxVal = val;
+    auto computeRange = [](const std::vector<float>& v) -> std::pair<float,float> {
+        if (v.empty()) return {0.f, 1.f};
+        float mn = std::numeric_limits<float>::max();
+        float mx = std::numeric_limits<float>::lowest();
+        for (float f : v) {
+            if (!std::isfinite(f)) continue;
+            mn = std::min(mn, f);
+            mx = std::max(mx, f);
         }
-
-        mesh.attributes->scalarMin = minVal;
-        mesh.attributes->scalarMax = maxVal;
-
-        if (std::abs(mesh.attributes->scalarMax - mesh.attributes->scalarMin) < 1e-6f) {
-            mesh.attributes->scalarMax = mesh.attributes->scalarMin + 1.0f;
+        if (mn > mx) return {0.f, 1.f};
+        if (std::abs(mx - mn) < 1e-6f) mx = mn + 1.0f;
+        return {mn, mx};
+    };
+    // Per-field ranges for every scalar field (robust, survives switches)
+    for (auto& [name, vec] : mesh.attributes->pointScalars) {
+        auto r = computeRange(vec);
+        mesh.attributes->pointScalarRanges[name] = r;
+    }
+    for (auto& [name, vec] : mesh.attributes->cellScalars) {
+        auto r = computeRange(vec);
+        mesh.attributes->cellScalarRanges[name] = r;
+    }
+    // Global active range for backward compat
+    if (!mesh.scalarName.empty()) {
+        auto it = mesh.attributes->pointScalarRanges.find(mesh.scalarName);
+        if (it != mesh.attributes->pointScalarRanges.end()) {
+            mesh.attributes->scalarMin = it->second.first;
+            mesh.attributes->scalarMax = it->second.second;
+            return;
         }
+        auto cit = mesh.attributes->cellScalarRanges.find(mesh.scalarName);
+        if (cit != mesh.attributes->cellScalarRanges.end()) {
+            mesh.attributes->scalarMin = cit->second.first;
+            mesh.attributes->scalarMax = cit->second.second;
+            return;
+        }
+    }
+    // Fallback: active scalars vector (e.g. isosurface surface mesh)
+    if (!mesh.scalars.empty()) {
+        auto r = computeRange(mesh.scalars);
+        mesh.attributes->scalarMin = r.first;
+        mesh.attributes->scalarMax = r.second;
     }
 }
 
@@ -273,6 +296,7 @@ void finalizeVTKMesh(RenderMesh& mesh, const FinalizeContext& ctx) {
     if (mesh.normals.empty() && !mesh.indices.empty()) {
         mesh_utils::computeNormals(mesh);
     }
+    mesh_utils::finalizeGeometrySignatures(mesh);
 }
 
 } // namespace vtk_common

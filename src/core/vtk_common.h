@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <algorithm>
 
 #include "core/mesh_loader.h"
 
@@ -144,12 +145,6 @@ template<typename IntType>
 std::vector<std::vector<uint32_t>> triangulateTriangleStrips(RenderMesh& mesh,
                                                              const std::vector<IntType>& rawStripData,
                                                              int numStrips) {
-    // A triangle strip is a BAND of triangles, not one polygon. Store each
-    // triangle as its own 3-vertex cell so the cyclic cell-edge emitter draws
-    // true per-triangle boundaries (3 edges, no diagonal, no spurious wrap
-    // edge). Keeping the whole strip as a single "cell" makes the emitter wrap
-    // with a long v_{N-1}->v0 edge across the entire strip — garbage on strip
-    // meshes (e.g. lung.vtk).
     std::vector<std::vector<uint32_t>> cellToVertices;
     cellToVertices.reserve(numStrips > 0 ? numStrips * 3 : 0);
     int idx = 0;
@@ -162,8 +157,6 @@ std::vector<std::vector<uint32_t>> triangulateTriangleStrips(RenderMesh& mesh,
             uint32_t i0 = static_cast<uint32_t>(rawStripData[idx + i]);
             uint32_t i1 = static_cast<uint32_t>(rawStripData[idx + i + 1]);
             uint32_t i2 = static_cast<uint32_t>(rawStripData[idx + i + 2]);
-            // triangle as a cell (winding only affects the cyclic edge order;
-            // all 3 edges are emitted either way)
             cellToVertices.push_back({ i0, i1, i2 });
             if (i % 2 == 0) mesh.indices.insert(mesh.indices.end(), { i0, i1, i2 });
             else mesh.indices.insert(mesh.indices.end(), { i0, i2, i1 });
@@ -181,184 +174,181 @@ std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
     int totalCells) {
     mesh.indices.clear();
     std::vector<std::vector<uint32_t>> cellToVertices(totalCells);
+    std::vector<int> resolvedTypes(totalCells, 0);
     int idx = 0;
     for (int c = 0; c < totalCells; ++c) {
         if (idx >= static_cast<int>(rawCellData.size())) break;
         int numPointsInCell = static_cast<int>(rawCellData[idx++]);
-        // Guard against a malformed/truncated cell claiming more points than
-        // the buffer holds — reading past the end is UB / a crash.
         if (numPointsInCell < 0 || idx + numPointsInCell > static_cast<int>(rawCellData.size())) break;
-
         for (int i = 0; i < numPointsInCell; ++i) {
             cellToVertices[c].push_back(static_cast<uint32_t>(rawCellData[idx + i]));
         }
-
         int type = (c < static_cast<int>(cellTypes.size())) ? static_cast<int>(cellTypes[c]) : 0;
         if (type == 0) {
-            if (numPointsInCell == 3) type = 5;   // VTK_TRIANGLE
-            if (numPointsInCell == 4) type = 9;   // VTK_QUAD
-            if (numPointsInCell == 8) type = 12;  // VTK_HEXAHEDRON
+            if (numPointsInCell == 3) type = 5;
+            if (numPointsInCell == 4) type = 9;
+            if (numPointsInCell == 8) type = 12;
         }
-
-        switch (type) {
-        case 1:  // VTK_VERTEX
-        case 2:  // VTK_POLY_VERTEX
-        case 3:  // VTK_LINE
-        case 4:  // VTK_POLY_LINE
-            break;
-        case 5: // VTK_TRIANGLE
-            if (idx + 2 < static_cast<int>(rawCellData.size())) {
-                mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
-                mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 1]));
-                mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 2]));
-            }
-            break;
-        case 6: { // VTK_TRIANGLE_STRIP
-            for (int i = 0; i + 2 < numPointsInCell; ++i) {
-                if (idx + i + 2 < static_cast<int>(rawCellData.size())) {
-                    if (i & 1) {
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 2]));
-                    } else {
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 2]));
-                    }
-                }
-            }
-            break;
+        if (type == 11 && numPointsInCell == 4) {
+            std::cerr << "VTK Parser Warning: cell " << c << " claims VOXEL(11) but has 4 pts -> treating as TETRA(10)" << std::endl;
+            type = 10;
+        } else if (type == 10 && numPointsInCell == 8) {
+            std::cerr << "VTK Parser Warning: cell " << c << " claims TETRA(10) but has 8 pts -> treating as HEXAHEDRON(12)" << std::endl;
+            type = 12;
+        } else if (type == 13 && numPointsInCell == 5) {
+            std::cerr << "VTK Parser Warning: cell " << c << " claims WEDGE(13) but has 5 pts -> treating as PYRAMID(14)" << std::endl;
+            type = 14;
+        } else if (type == 14 && numPointsInCell == 6) {
+            std::cerr << "VTK Parser Warning: cell " << c << " claims PYRAMID(14) but has 6 pts -> treating as WEDGE(13)" << std::endl;
+            type = 13;
         }
-        case 7: // VTK_POLYGON (triangle fan)
-            for (int i = 1; i < numPointsInCell - 1; ++i) {
-                if (idx + i + 1 < static_cast<int>(rawCellData.size())) {
-                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
-                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-                    mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
-                }
-            }
-            break;
-        case 8: { // VTK_PIXEL (4 pts: BL, BR, TL, TR)
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), { i0, i2, i1, i0, i1, i3 });
-            }
-            break;
-        }
-        case 9: // VTK_QUAD
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), { i0, i1, i2, i0, i2, i3 });
-            }
-            break;
-        case 10: { // VTK_TETRA
-            if (idx + 3 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1,   i0, i1, i3,
-                    i1, i2, i3,   i2, i0, i3
-                });
-            }
-            break;
-        }
-        case 11: { // VTK_VOXEL — structured-grid corner ordering, permute to HEX (0,1,3,2,4,5,7,6)
-            if (idx + 7 < static_cast<int>(rawCellData.size())) {
-                uint32_t h0 = static_cast<uint32_t>(rawCellData[idx + 0]), h1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t h2 = static_cast<uint32_t>(rawCellData[idx + 3]), h3 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t h4 = static_cast<uint32_t>(rawCellData[idx + 4]), h5 = static_cast<uint32_t>(rawCellData[idx + 5]);
-                uint32_t h6 = static_cast<uint32_t>(rawCellData[idx + 7]), h7 = static_cast<uint32_t>(rawCellData[idx + 6]);
-                cellToVertices[c] = {h0, h1, h2, h3, h4, h5, h6, h7};
-                mesh.indices.insert(mesh.indices.end(), {
-                    h0, h3, h1, h1, h3, h2, h4, h5, h7, h5, h6, h7,
-                    h0, h1, h4, h1, h5, h4, h2, h3, h6, h3, h7, h6,
-                    h0, h4, h3, h3, h4, h7, h1, h2, h5, h2, h6, h5
-                });
-            }
-            break;
-        }
-        case 12: // VTK_HEXAHEDRON
-            if (idx + 7 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]), i5 = static_cast<uint32_t>(rawCellData[idx + 5]);
-                uint32_t i6 = static_cast<uint32_t>(rawCellData[idx + 6]), i7 = static_cast<uint32_t>(rawCellData[idx + 7]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i3, i1, i1, i3, i2, i4, i5, i7, i5, i6, i7,
-                    i0, i1, i4, i1, i5, i4, i2, i3, i6, i3, i7, i6,
-                    i0, i4, i3, i3, i4, i7, i1, i2, i5, i2, i6, i5
-                });
-            }
-            break;
-        case 13: { // VTK_WEDGE
-            if (idx + 5 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]);
-                uint32_t i3 = static_cast<uint32_t>(rawCellData[idx + 3]), i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                uint32_t i5 = static_cast<uint32_t>(rawCellData[idx + 5]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1,
-                    i3, i4, i5,
-                    i0, i1, i4, i0, i4, i3,
-                    i1, i2, i5, i1, i5, i4,
-                    i2, i0, i3, i2, i3, i5
-                });
-            }
-            break;
-        }
-        case 14: { // VTK_PYRAMID
-            if (idx + 4 < static_cast<int>(rawCellData.size())) {
-                uint32_t i0 = static_cast<uint32_t>(rawCellData[idx + 0]), i1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t i2 = static_cast<uint32_t>(rawCellData[idx + 2]), i3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t i4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                mesh.indices.insert(mesh.indices.end(), {
-                    i0, i2, i1, i0, i3, i2,
-                    i0, i1, i4, i1, i2, i4, i2, i3, i4, i3, i0, i4
-                });
-            }
-            break;
-        }
-        case 15: { // VTK_PENTAGONAL_PRISM (10 vertices)
-            if (idx + 9 < static_cast<int>(rawCellData.size())) {
-                uint32_t v0 = static_cast<uint32_t>(rawCellData[idx + 0]), v1 = static_cast<uint32_t>(rawCellData[idx + 1]);
-                uint32_t v2 = static_cast<uint32_t>(rawCellData[idx + 2]), v3 = static_cast<uint32_t>(rawCellData[idx + 3]);
-                uint32_t v4 = static_cast<uint32_t>(rawCellData[idx + 4]);
-                uint32_t v5 = static_cast<uint32_t>(rawCellData[idx + 5]), v6 = static_cast<uint32_t>(rawCellData[idx + 6]);
-                uint32_t v7 = static_cast<uint32_t>(rawCellData[idx + 7]), v8 = static_cast<uint32_t>(rawCellData[idx + 8]);
-                uint32_t v9 = static_cast<uint32_t>(rawCellData[idx + 9]);
-                cellToVertices[c] = {v0, v1, v2, v3, v4, v5, v6, v7, v8, v9};
-                mesh.indices.insert(mesh.indices.end(), {
-                    v5, v7, v6, v5, v8, v7, v5, v9, v8,
-                    v4, v2, v3, v4, v3, v1, v4, v1, v0,
-                    v0, v1, v6, v0, v6, v5,
-                    v1, v2, v7, v1, v7, v6,
-                    v2, v3, v8, v2, v8, v7,
-                    v3, v4, v9, v3, v9, v8,
-                    v0, v5, v9, v0, v9, v4
-                });
-            }
-            break;
-        }
-        default:
-            if (type >= 21) {
-                // Higher-order cells need subdivision/refinement; fan-
-                // triangulating them produces garbage geometry, so skip.
-                std::cerr << "VTK Parser Warning: unsupported higher-order cell type "
-                          << type << " (requires subdivision); skipping." << std::endl;
-            } else {
-                for (int i = 1; i < numPointsInCell - 1; ++i) {
-                    if (idx + i + 1 < static_cast<int>(rawCellData.size())) {
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + 0]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i]));
-                        mesh.indices.push_back(static_cast<uint32_t>(rawCellData[idx + i + 1]));
-                    }
-                }
-            }
-            break;
+        resolvedTypes[c] = type;
+        if (type == 11 && numPointsInCell >= 8) {
+            uint32_t h0 = cellToVertices[c][0], h1 = cellToVertices[c][1];
+            uint32_t h2 = cellToVertices[c][3], h3 = cellToVertices[c][2];
+            uint32_t h4 = cellToVertices[c][4], h5 = cellToVertices[c][5];
+            uint32_t h6 = cellToVertices[c][7], h7 = cellToVertices[c][6];
+            cellToVertices[c] = {h0,h1,h2,h3,h4,h5,h6,h7};
+            resolvedTypes[c] = 12;
         }
         idx += numPointsInCell;
+    }
+    // ParaView surface-only: face → count map
+    auto sortedKey = [](const std::vector<uint32_t>& f){ std::vector<uint32_t> k=f; std::sort(k.begin(),k.end()); return k; };
+    struct VecHash { size_t operator()(const std::vector<uint32_t>& v) const noexcept {
+        size_t h=v.size()*1315423911u; for(uint32_t x: v) h ^= std::hash<uint32_t>{}(x)+0x9e3779b9+(h<<6)+(h>>2); return h; } };
+    std::unordered_map<std::vector<uint32_t>, int, VecHash> faceCount;
+    faceCount.reserve(totalCells*6);
+    for (int c=0;c<totalCells;++c) {
+        if (cellToVertices[c].empty()) continue;
+        int type = resolvedTypes[c];
+        const auto& v = cellToVertices[c];
+        std::vector<std::vector<uint32_t>> faces;
+        switch (type) {
+        case 5: if(v.size()>=3) faces.push_back({v[0],v[1],v[2]}); break;
+        case 7: if(!v.empty()) faces.push_back(v); break;
+        case 8: if(v.size()>=4) faces.push_back({v[0],v[1],v[3],v[2]}); break;
+        case 9: if(v.size()>=4) faces.push_back({v[0],v[1],v[2],v[3]}); break;
+        case 10: if(v.size()>=4) { faces.push_back({v[0],v[1],v[2]}); faces.push_back({v[0],v[1],v[3]}); faces.push_back({v[1],v[2],v[3]}); faces.push_back({v[2],v[0],v[3]}); } break;
+        case 12: if(v.size()>=8) { faces.push_back({v[0],v[1],v[2],v[3]}); faces.push_back({v[4],v[5],v[6],v[7]}); faces.push_back({v[0],v[1],v[5],v[4]}); faces.push_back({v[1],v[2],v[6],v[5]}); faces.push_back({v[2],v[3],v[7],v[6]}); faces.push_back({v[3],v[0],v[4],v[7]}); } break;
+        case 13: if(v.size()>=6) { faces.push_back({v[0],v[1],v[2]}); faces.push_back({v[3],v[4],v[5]}); faces.push_back({v[0],v[1],v[4],v[3]}); faces.push_back({v[1],v[2],v[5],v[4]}); faces.push_back({v[2],v[0],v[3],v[5]}); } break;
+        case 14: if(v.size()>=5) { faces.push_back({v[0],v[1],v[2],v[3]}); faces.push_back({v[0],v[1],v[4]}); faces.push_back({v[1],v[2],v[4]}); faces.push_back({v[2],v[3],v[4]}); faces.push_back({v[3],v[0],v[4]}); } break;
+        case 15: if(v.size()>=10) { faces.push_back({v[0],v[1],v[2],v[3],v[4]}); faces.push_back({v[5],v[6],v[7],v[8],v[9]}); faces.push_back({v[0],v[1],v[6],v[5]}); faces.push_back({v[1],v[2],v[7],v[6]}); faces.push_back({v[2],v[3],v[8],v[7]}); faces.push_back({v[3],v[4],v[9],v[8]}); faces.push_back({v[0],v[4],v[9],v[5]}); } break;
+        case 6: for(size_t i=0;i+2<v.size();++i) faces.push_back({v[i],v[i+1],v[i+2]}); break;
+        default: if(!v.empty() && v.size()>=3) faces.push_back(v); break;
+        }
+        for (auto &f: faces) if(f.size()>=3) ++faceCount[sortedKey(f)];
+    }
+    auto isBoundary = [&](const std::vector<uint32_t>& f)->bool{
+        if(f.size()<3) return false;
+        auto it = faceCount.find(sortedKey(f));
+        return it!=faceCount.end() && it->second==1;
+    };
+    // Emit only boundary faces, preserving original triangulation
+    for (int c=0;c<totalCells;++c) {
+        if (cellToVertices[c].empty()) continue;
+        int type = resolvedTypes[c];
+        const auto& v = cellToVertices[c];
+        if (type>=21) {
+            std::cerr << "VTK Parser Warning: unsupported higher-order cell type " << type << " (requires subdivision); skipping." << std::endl;
+            continue;
+        }
+        if (type==1||type==2||type==3||type==4) continue;
+        switch (type) {
+        case 5: {
+            std::vector<uint32_t> f={v[0],v[1],v[2]};
+            if(isBoundary(f)) { mesh.indices.push_back(v[0]); mesh.indices.push_back(v[1]); mesh.indices.push_back(v[2]); }
+            break;
+        }
+        case 7: {
+            std::vector<uint32_t> f=v;
+            if(isBoundary(f)) {
+                for(size_t i=1;i+1<f.size();++i){ mesh.indices.push_back(f[0]); mesh.indices.push_back(f[i]); mesh.indices.push_back(f[i+1]); }
+            }
+            break;
+        }
+        case 8: {
+            std::vector<uint32_t> f={v[0],v[1],v[3],v[2]};
+            if(isBoundary(f)) { mesh.indices.insert(mesh.indices.end(), {v[0],v[2],v[1], v[0],v[1],v[3]}); }
+            break;
+        }
+        case 9: {
+            std::vector<uint32_t> f={v[0],v[1],v[2],v[3]};
+            if(isBoundary(f)) { mesh.indices.insert(mesh.indices.end(), {v[0],v[1],v[2], v[0],v[2],v[3]}); }
+            break;
+        }
+        case 10: {
+            std::vector<std::vector<uint32_t>> faces={{v[0],v[1],v[2]},{v[0],v[1],v[3]},{v[1],v[2],v[3]},{v[2],v[0],v[3]}};
+            std::vector<std::array<uint32_t,3>> tris={{v[0],v[2],v[1]},{v[0],v[1],v[3]},{v[1],v[2],v[3]},{v[2],v[0],v[3]}};
+            for(size_t fi=0;fi<faces.size();++fi) if(isBoundary(faces[fi])) {
+                mesh.indices.push_back(tris[fi][0]); mesh.indices.push_back(tris[fi][1]); mesh.indices.push_back(tris[fi][2]);
+            }
+            break;
+        }
+        case 12: {
+            std::vector<std::vector<uint32_t>> faces={{v[0],v[1],v[2],v[3]},{v[4],v[5],v[6],v[7]},{v[0],v[1],v[5],v[4]},{v[1],v[2],v[6],v[5]},{v[2],v[3],v[7],v[6]},{v[3],v[0],v[4],v[7]}};
+            // Old triangulations per face
+            std::vector<std::pair<std::vector<uint32_t>, std::vector<uint32_t>>> hexTrisPerFace={
+                {{v[0],v[3],v[1]}, {v[1],v[3],v[2]}},
+                {{v[4],v[5],v[7]}, {v[5],v[6],v[7]}},
+                {{v[0],v[1],v[4]}, {v[1],v[5],v[4]}},
+                {{v[1],v[2],v[5]}, {v[2],v[6],v[5]}},
+                {{v[2],v[3],v[6]}, {v[3],v[7],v[6]}},
+                {{v[0],v[4],v[3]}, {v[3],v[4],v[7]}}
+            };
+            for(size_t fi=0;fi<faces.size();++fi) if(isBoundary(faces[fi])) {
+                mesh.indices.push_back(hexTrisPerFace[fi].first[0]); mesh.indices.push_back(hexTrisPerFace[fi].first[1]); mesh.indices.push_back(hexTrisPerFace[fi].first[2]);
+                mesh.indices.push_back(hexTrisPerFace[fi].second[0]); mesh.indices.push_back(hexTrisPerFace[fi].second[1]); mesh.indices.push_back(hexTrisPerFace[fi].second[2]);
+            }
+            break;
+        }
+        case 13: {
+            std::vector<std::vector<uint32_t>> faces={{v[0],v[1],v[2]},{v[3],v[4],v[5]},{v[0],v[1],v[4],v[3]},{v[1],v[2],v[5],v[4]},{v[2],v[0],v[3],v[5]}};
+            if(isBoundary(faces[0])) { mesh.indices.insert(mesh.indices.end(), {v[0],v[2],v[1]}); }
+            if(isBoundary(faces[1])) { mesh.indices.insert(mesh.indices.end(), {v[3],v[4],v[5]}); }
+            if(isBoundary(faces[2])) { mesh.indices.insert(mesh.indices.end(), {v[0],v[1],v[4], v[0],v[4],v[3]}); }
+            if(isBoundary(faces[3])) { mesh.indices.insert(mesh.indices.end(), {v[1],v[2],v[5], v[1],v[5],v[4]}); }
+            if(isBoundary(faces[4])) { mesh.indices.insert(mesh.indices.end(), {v[2],v[0],v[3], v[2],v[3],v[5]}); }
+            break;
+        }
+        case 14: {
+            std::vector<std::vector<uint32_t>> faces={{v[0],v[1],v[2],v[3]},{v[0],v[1],v[4]},{v[1],v[2],v[4]},{v[2],v[3],v[4]},{v[3],v[0],v[4]}};
+            if(isBoundary(faces[0])) { mesh.indices.insert(mesh.indices.end(), {v[0],v[2],v[1], v[0],v[3],v[2]}); }
+            if(isBoundary(faces[1])) { mesh.indices.insert(mesh.indices.end(), {v[0],v[1],v[4]}); }
+            if(isBoundary(faces[2])) { mesh.indices.insert(mesh.indices.end(), {v[1],v[2],v[4]}); }
+            if(isBoundary(faces[3])) { mesh.indices.insert(mesh.indices.end(), {v[2],v[3],v[4]}); }
+            if(isBoundary(faces[4])) { mesh.indices.insert(mesh.indices.end(), {v[3],v[0],v[4]}); }
+            break;
+        }
+        case 15: {
+            // Pent prism: keep original triangulation but gated per face
+            std::vector<std::vector<uint32_t>> faces={{v[0],v[1],v[2],v[3],v[4]},{v[5],v[6],v[7],v[8],v[9]},{v[0],v[1],v[6],v[5]},{v[1],v[2],v[7],v[6]},{v[2],v[3],v[8],v[7]},{v[3],v[4],v[9],v[8]},{v[0],v[4],v[9],v[5]}};
+            if(isBoundary(faces[0])) { mesh.indices.insert(mesh.indices.end(), {v[5],v[7],v[6], v[5],v[8],v[7], v[5],v[9],v[8]}); }
+            if(isBoundary(faces[1])) { mesh.indices.insert(mesh.indices.end(), {v[4],v[2],v[3], v[4],v[3],v[1], v[4],v[1],v[0]}); }
+            if(isBoundary(faces[2])) { mesh.indices.insert(mesh.indices.end(), {v[0],v[1],v[6], v[0],v[6],v[5]}); }
+            if(isBoundary(faces[3])) { mesh.indices.insert(mesh.indices.end(), {v[1],v[2],v[7], v[1],v[7],v[6]}); }
+            if(isBoundary(faces[4])) { mesh.indices.insert(mesh.indices.end(), {v[2],v[3],v[8], v[2],v[8],v[7]}); }
+            if(isBoundary(faces[5])) { mesh.indices.insert(mesh.indices.end(), {v[3],v[4],v[9], v[3],v[9],v[8]}); }
+            if(isBoundary(faces[6])) { mesh.indices.insert(mesh.indices.end(), {v[0],v[5],v[9], v[0],v[9],v[4]}); }
+            break;
+        }
+        case 6: {
+            for(size_t i=0;i+2<v.size();++i){
+                std::vector<uint32_t> f={v[i],v[i+1],v[i+2]};
+                if(!isBoundary(f)) continue;
+                if(i&1){ mesh.indices.push_back(v[i+1]); mesh.indices.push_back(v[i]); mesh.indices.push_back(v[i+2]); }
+                else { mesh.indices.push_back(v[i]); mesh.indices.push_back(v[i+1]); mesh.indices.push_back(v[i+2]); }
+            }
+            break;
+        }
+        default: {
+            std::vector<uint32_t> f=v;
+            if(isBoundary(f)){
+                for(size_t i=1;i+1<f.size();++i){ mesh.indices.push_back(f[0]); mesh.indices.push_back(f[i]); mesh.indices.push_back(f[i+1]); }
+            }
+            break;
+        }
+        }
     }
     return cellToVertices;
 }

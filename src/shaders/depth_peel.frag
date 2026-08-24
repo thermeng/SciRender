@@ -86,10 +86,11 @@ void main() {
         clipped = clipX || clipY || clipZ;
     }
     bool hasScalars = uScalars.z > 0.5;
+    bool filterEnabled = uFilter.z > 0.5;
     // Same epsilon as mesh.frag:108 — avoids pinholes from perspective interpolation
     // sub-ULP excursions when filter bounds snap exactly to data min/max.
     float filterEps = 1e-5 * abs(uScalars.y - uScalars.x) + 1e-9;
-    bool filterScalar = hasScalars && (vScalar < uFilter.x - filterEps || vScalar > uFilter.y + filterEps);
+    bool filterScalar = filterEnabled && hasScalars && (vScalar < uFilter.x - filterEps || vScalar > uFilter.y + filterEps);
     clipped = clipped || filterScalar;
     if (clipped) discard;
 
