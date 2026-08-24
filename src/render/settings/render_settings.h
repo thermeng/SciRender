@@ -26,6 +26,8 @@
 #include "render/settings/StateStore.h"
 #include "core/FieldResolver.h"
 
+class AnimationExporter;
+
 // Change flags carried by the consolidated viewChanged signal so receivers
 // can distinguish which domain changed (e.g. lighting vs. colormap) without
 // subscribing to a dozen fine-grained signals.
@@ -291,6 +293,9 @@ public:
     // animation page binds directly to the controller; RenderSettings only
     // routes .pvd loads into it and consumes frameReady() in onAnimationFrame().
     AnimationController* anim() { return &m_animController; }
+
+    // .pvd frame-sequence export (AVI/PNG); capture callback lives in the viewport.
+    AnimationExporter* animationExporter() const { return m_animationExporter; }
 
     // Assembles the per-frame snapshot. No-op now that m_state IS the
     // single source of truth; kept as a trivial inline in the header.
@@ -679,6 +684,7 @@ private:
 
     // ---- PVD animation ----
     AnimationController m_animController;
+    AnimationExporter* m_animationExporter = nullptr;
     // True while frames are flowing from the CURRENT sequence; reset by
     // loadMesh()/clearMeshes() so a new sequence re-initializes scalar range
     // and isosurface bounds on its first frame.

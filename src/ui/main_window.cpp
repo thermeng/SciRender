@@ -1,5 +1,6 @@
 #include "main_window.h"
 #include "ui_main_window.h"
+#include "animation_export_dialog.h"
 #include "ui_lighting_page.h"
 #include "ui_slicing_page.h"
 #include "ui_view_display_page.h"
@@ -15,6 +16,7 @@
 #include <QApplication>
 #include <QMenuBar>
 #include <QMenu>
+#include <QProgressDialog>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -1814,6 +1816,7 @@ QWidget* MainWindow::buildAnimationPage() {
     m_animSequenceLabel = animUi.sequenceLabel;
     m_animLoopCb       = animUi.loopCb;
     m_animFpsSpin      = animUi.fpsSpin;
+    m_animExportBtn    = animUi.exportBtn;
 
     // Transport
     connect(m_animPlayBtn, &QPushButton::clicked, ctrl, &AnimationController::togglePlay);
@@ -1858,6 +1861,10 @@ QWidget* MainWindow::buildAnimationPage() {
         if (!path.isEmpty()) m_settings->loadMesh(path);
     });
 
+    // Export the loaded sequence (moved here from the File menu).
+    connect(m_animExportBtn, &QPushButton::clicked,
+            this, &MainWindow::exportAnimation);
+
     // Controller → UI sync (stateChanged covers play/pause/seek/load).
     connect(ctrl, &AnimationController::stateChanged,
             this, &MainWindow::refreshAnimationPage);
@@ -1875,6 +1882,7 @@ void MainWindow::refreshAnimationPage() {
     m_animLoopCb->setEnabled(has);
     m_animFpsSpin->setEnabled(has);
     m_animSlider->setEnabled(has);
+    m_animExportBtn->setEnabled(has);
 
     if (!has) {
         m_animSequenceLabel->setText("No sequence loaded");
@@ -2754,8 +2762,41 @@ void MainWindow::saveScreenshot() {
     m_settings->requestScreenshot(path);
 }
 
-void MainWindow::onScreenshotCaptured(const QString& savedPath) {
-    QTimer::singleShot(0, this, [this, savedPath]() {
+void MainWindow::exportAnimation() {
+    AnimationController* ctrl = m_settings->anim();
+    if (!ctrl || !ctrl->hasSequence()) {
+        statusBar()->showMessage("Load a .pvd sequence before exporting an animation", 8000);
+        return;
+    }
+    AnimationExportDialog dlg(ctrl, m_viewport->size(), this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    const AnimationExportConfig cfg = dlg.config();
+
+    auto* exporter = m_settings->animationExporter();
+    exporter->setCaptureFn([this](int w, int h, int s, bool t) {
+        return m_viewport->captureFrameImage(w, h, s, t);
+    });
+
+    QProgressDialog progress(QStringLiteral("Exporting animation..."),
+                             QStringLiteral("Cancel"), 0,
+                             cfg.lastFrame - cfg.firstFrame + 1, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    connect(&progress, &QProgressDialog::canceled, exporter, &AnimationExporter::cancel);
+    connect(exporter, &AnimationExporter::progress, &progress,
+            [&progress](int done, int total) {
+                progress.setMaximum(total);
+                progress.setValue(done);
+            });
+    QString resultMessage;
+    connect(exporter, &AnimationExporter::finished, &progress,
+            [&](bool, const QString& msg) { resultMessage = msg; });
+
+    exporter->start(cfg, m_settings->backend());
+    statusBar()->showMessage(resultMessage, 8000);
+}
+
+void MainWindow::onScreenshotCaptured(const QString& savedPath) {    QTimer::singleShot(0, this, [this, savedPath]() {
         if (savedPath.isEmpty()) {
             QMessageBox::warning(this, "Screenshot failed",
                 "Could not capture the screenshot. The OpenGL framebuffer readback failed.\n"

@@ -94,6 +94,8 @@ add_library(RenderLib STATIC
     src/render/settings/isosurface_controller.h
     src/render/settings/animation_controller.cpp
     src/render/settings/animation_controller.h
+    src/render/settings/AnimationExporter.cpp
+    src/render/settings/AnimationExporter.h
     src/render/foundation/LightingModel.cpp
     src/render/foundation/LightingModel.h
     src/render/passes/ColormapManager.cpp
@@ -134,6 +136,8 @@ add_library(RenderLib STATIC
     src/render/streamlines/StreamlineController.h
     src/render/overlays/screenshot_capture.cpp
     src/render/overlays/screenshot_capture.h
+    src/render/overlays/AviMjpegWriter.cpp
+    src/render/overlays/AviMjpegWriter.h
 )
 target_include_directories(RenderLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(RenderLib PUBLIC CoreLib glad OpenGL::GL
@@ -149,6 +153,8 @@ add_executable(SciRender
     src/ui/viewport_widget.h
     src/ui/colorbar_style_dialog.cpp
     src/ui/colorbar_style_dialog.h
+    src/ui/animation_export_dialog.cpp
+    src/ui/animation_export_dialog.h
     src/ui/main_window.cpp
     src/ui/main_window.h
     src/ui/main_window.ui

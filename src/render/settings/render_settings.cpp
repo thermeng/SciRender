@@ -1,5 +1,6 @@
 #include "render/settings/render_settings.h"
 #include "render/foundation/render_config.h"
+#include "render/settings/AnimationExporter.h"
 #include "core/Colormaps.h"
 #include "core/FieldResolver.h"
 #include "core/mesh_loader.h"
@@ -19,6 +20,9 @@ RenderSettings::RenderSettings(QObject* parent)
     : QObject(parent)
     , m_isoController(m_renderer, this) {
     loadRecentFromSettings();
+
+    m_animationExporter = new AnimationExporter(this);
+    m_animationExporter->wire(&m_animController, this);
 
     connect(&m_meshWatcher, &QFutureWatcher<MeshLoadResult>::finished,
             this, &RenderSettings::onMeshParsed);
