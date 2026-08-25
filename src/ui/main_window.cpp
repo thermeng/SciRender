@@ -1816,6 +1816,7 @@ QWidget* MainWindow::buildAnimationPage() {
     m_animSequenceLabel = animUi.sequenceLabel;
     m_animLoopCb       = animUi.loopCb;
     m_animFpsSpin      = animUi.fpsSpin;
+    m_animScaleCombo   = animUi.scaleCombo;
     m_animExportBtn    = animUi.exportBtn;
 
     // Transport
@@ -1825,6 +1826,8 @@ QWidget* MainWindow::buildAnimationPage() {
     connect(m_animLoopCb, &QCheckBox::toggled, ctrl, &AnimationController::setLoop);
     connect(m_animFpsSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             ctrl, &AnimationController::setFps);
+    connect(m_animScaleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int idx) { m_settings->setAnimScaleGlobal(idx == 0); });
 
     // Timeline scrubbing: debounce dragging to avoid queue churn (see review 5.5).
     // sliderMoved fires only on user drag (not programmatic setValue), so we
@@ -1881,6 +1884,7 @@ void MainWindow::refreshAnimationPage() {
     m_animStepFwdBtn->setEnabled(has);
     m_animLoopCb->setEnabled(has);
     m_animFpsSpin->setEnabled(has);
+    m_animScaleCombo->setEnabled(has);
     m_animSlider->setEnabled(has);
     m_animExportBtn->setEnabled(has);
 
@@ -1900,6 +1904,9 @@ void MainWindow::refreshAnimationPage() {
     m_animFpsSpin->blockSignals(true);
     m_animFpsSpin->setValue(ctrl->fps());
     m_animFpsSpin->blockSignals(false);
+    m_animScaleCombo->blockSignals(true);
+    m_animScaleCombo->setCurrentIndex(m_settings->getAnimScaleGlobal() ? 0 : 1);
+    m_animScaleCombo->blockSignals(false);
 
     const int n = ctrl->frameCount();
     m_animSlider->blockSignals(true);

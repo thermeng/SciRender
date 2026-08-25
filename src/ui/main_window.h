@@ -139,6 +139,7 @@ private:
     QLabel* m_animSequenceLabel = nullptr;
     QCheckBox* m_animLoopCb = nullptr;
     QDoubleSpinBox* m_animFpsSpin = nullptr;
+    QComboBox* m_animScaleCombo = nullptr;
     QPushButton* m_animExportBtn = nullptr;
     void refreshAnimationPage();
 
