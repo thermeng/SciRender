@@ -583,7 +583,7 @@ void StreamlineSet::updateParticles(float dt, float speed) {
 
 void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts) {
     outVerts.clear();
-    outVerts.reserve(particles.size() * 4);
+    outVerts.reserve(particles.size() * 5);
     for (const auto& p : particles) {
         if (p.pathIndex < 0 || p.pathIndex >= static_cast<int>(paths.size())) continue;
         const auto& path = paths[p.pathIndex];
@@ -611,6 +611,7 @@ void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts) {
         outVerts.push_back(pos.y);
         outVerts.push_back(pos.z);
         outVerts.push_back(mag);
+        outVerts.push_back(p.t);   // path parameter for end-fade in particle.frag
     }
 }
 

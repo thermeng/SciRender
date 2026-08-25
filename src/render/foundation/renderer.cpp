@@ -958,7 +958,7 @@ void Renderer::renderFrame() {
         m_streamlines.draw(m_state, streamlineSet, colormap, mvp, m_animationTime, kDir);
     }
 
-    particlePass.draw(m_state, static_cast<float>(m_lastFrameDt), streamlineSet, colormap);
+        particlePass.draw(m_state, static_cast<float>(m_lastFrameDt), mvp, streamlineSet, colormap);
 
     float pixelFootprintScale = deviceH > 0 ? std::tan(m_state.fovY * 0.5f) * 2.0f / static_cast<float>(deviceH) : 1.0f;
     m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale);

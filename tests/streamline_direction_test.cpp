@@ -239,7 +239,7 @@ int main(){
         auto res = set.compute(mesh, 27, 0.05f, 200,
                                "Wind_Flow", "Volume", "Both",
                                0.5, 0.0, 10, 10,
-                               false, 5, 0.02f, 0.01f, 0.3f);
+                               false, 0.15f, 0.02f, 0.01f, 0.3f);
         CHECK(res.seedCount > 0, "compute: seeds produced");
         CHECK(!res.verts.empty(), "compute: ribbon vertices produced");
         CHECK(res.lineCount == static_cast<int>(res.verts.size() / 7),
@@ -251,6 +251,108 @@ int main(){
             if (p.points.size() < 3) { allLongEnough = false; break; }
         CHECK(allLongEnough, "compute: every path has >= 3 points");
     }
+    // -----------------------------------------------------------------------
+    // 8. computeArrowPlacement: logical arrow distribution invariants
+    // -----------------------------------------------------------------------
+    {
+        const float extent = 2.0f;
+
+        // Even spacing with symmetric margins.
+        {
+            auto pos = StreamlineSet::computeArrowPlacement(10.0f, extent, 0.15f, 0.05f, 0.0f);
+            CHECK(!pos.empty(), "placement: arrows produced on a long path");
+            bool even = true;
+            for (size_t i = 1; i < pos.size(); ++i) {
+                if (std::abs((pos[i] - pos[i - 1]) - (pos[1] - pos[0])) > 1e-4f) { even = false; break; }
+            }
+            CHECK(even, "placement: arrows evenly spaced");
+            const float arrowHeight = 0.05f * extent;
+            CHECK(pos.front() > arrowHeight - 1e-4f, "placement: first arrow clear of the tip");
+        }
+
+        // Anti-overlap: spacing never below 2x arrow height.
+        {
+            auto pos = StreamlineSet::computeArrowPlacement(10.0f, extent, 0.001f, 0.05f, 0.0f);
+            bool minGapOk = true;
+            for (size_t i = 1; i < pos.size(); ++i)
+                if (pos[i] - pos[i - 1] < 2.0f * 0.05f * extent - 1e-4f) { minGapOk = false; break; }
+            CHECK(minGapOk, "placement: anti-overlap floor respected");
+        }
+
+        // Short path: no arrows when the arrow would dominate.
+        {
+            auto pos = StreamlineSet::computeArrowPlacement(0.1f, extent, 0.15f, 0.05f, 0.0f);
+            CHECK(pos.empty(), "placement: short path skipped");
+        }
+
+        // Single arrow centered when usable < target spacing.
+        {
+            auto pos = StreamlineSet::computeArrowPlacement(2.6f, extent, 0.9f, 0.05f, 0.0f);
+            CHECK(pos.size() == 1, "placement: single arrow when only one fits");
+            if (pos.size() == 1)
+                CHECK(std::abs(pos[0] - 1.3f) < 1e-3f, "placement: single arrow centered");
+        }
+
+        // Taper pushes arrows further from the tips.
+        {
+            auto noTaper = StreamlineSet::computeArrowPlacement(10.0f, extent, 0.15f, 0.05f, 0.0f);
+            auto tapered = StreamlineSet::computeArrowPlacement(10.0f, extent, 0.15f, 0.05f, 0.5f);
+            CHECK(!tapered.empty() && !noTaper.empty(), "placement: both taper variants produce arrows");
+            if (!tapered.empty() && !noTaper.empty())
+                CHECK(tapered.front() > noTaper.front(), "placement: taper increases tip margin");
+        }
+
+        // Monotonicity: smaller fraction never yields fewer arrows.
+        {
+            auto coarse = StreamlineSet::computeArrowPlacement(10.0f, extent, 0.45f, 0.05f, 0.0f);
+            auto fine   = StreamlineSet::computeArrowPlacement(10.0f, extent, 0.05f, 0.05f, 0.0f);
+            CHECK(fine.size() >= coarse.size(), "placement: smaller fraction yields >= arrows");
+        }
+
+        // Degenerate inputs.
+        {
+            CHECK(StreamlineSet::computeArrowPlacement(0.0f, extent, 0.15f, 0.05f, 0.0f).empty(),
+                  "placement: zero-length path has no arrows");
+            CHECK(StreamlineSet::computeArrowPlacement(10.0f, extent, 0.0f, 0.05f, 0.0f).empty(),
+                  "placement: zero fraction disables arrows");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 9. Particle advance invariants (updateParticles via public API)
+    // -----------------------------------------------------------------------
+    {
+        StreamlineSet set;
+        auto res = set.compute(mesh, 27, 0.05f, 200,
+                               "Wind_Flow", "Volume", "Both",
+                               0.5, 0.0, 10, 10,
+                               false, 0.15f, 0.02f, 0.01f, 0.3f);
+        if (!res.paths.empty()) {
+            // CPU-only: move paths in directly (uploadGL needs a GL context,
+            // which this standalone test does not have).
+            set.paths = std::move(res.paths);
+            set.initParticles(10);
+            CHECK(static_cast<int>(set.paths.size()) > 0, "particles: paths available after uploadGL");
+
+            // Sample t before/after a run of fixed steps; every t must stay in [0,1).
+            std::vector<float> before;
+            for (const auto& p : set.particles) before.push_back(p.t);
+            bool rangeOk = true;
+            for (int step = 0; step < 100; ++step) {
+                set.updateParticles(0.016f, 1.0f);
+                for (const auto& p : set.particles) {
+                    if (!(p.t >= 0.0f && p.t < 1.0f)) { rangeOk = false; break; }
+                }
+                if (!rangeOk) break;
+            }
+            CHECK(rangeOk, "particles: t stays in [0,1) across 100 advances");
+            bool anyMoved = false;
+            for (size_t i = 0; i < set.particles.size(); ++i)
+                if (std::abs(set.particles[i].t - before[i]) > 1e-6f) { anyMoved = true; break; }
+            CHECK(anyMoved, "particles: at least one particle advanced");
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Summary
     // -----------------------------------------------------------------------

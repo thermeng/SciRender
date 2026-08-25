@@ -780,12 +780,19 @@
          </item>
         </layout>
        </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-  </layout>
- </widget>
- <resources/>
- <connections/>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="particleAdditiveCb">
+         <property name="text">
+          <string>Additive glow</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <resources/>
+  <connections/>
 </ui>
