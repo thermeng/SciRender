@@ -52,7 +52,8 @@
        <number>0</number>
       </property>
       <item>
-       <widget class="QLabel" name="volumeFieldHeader"><property name="text">
+       <widget class="QLabel" name="volumeFieldHeader">
+        <property name="text">
          <string>Scalar Field</string>
         </property>
        </widget>
@@ -61,7 +62,8 @@
        <widget class="QComboBox" name="volumeFieldCombo"/>
       </item>
       <item>
-       <widget class="QLabel" name="volumePaletteHeader"><property name="text">
+       <widget class="QLabel" name="volumePaletteHeader">
+        <property name="text">
          <string>Colormap</string>
         </property>
        </widget>
@@ -69,28 +71,44 @@
       <item>
        <widget class="QComboBox" name="volumePaletteCombo"/>
       </item>
-       <item>
-        <widget class="QCheckBox" name="volumeReverseCb">
-         <property name="text">
-          <string>Reverse Palette</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="volumeUseCmapCb">
-         <property name="text">
-          <string>Use Colormap</string>
-         </property>
-        </widget>
-       </item>
       <item>
-       <widget class="QLabel" name="stepHeader"><property name="text">
-         <string>Step Size</string>
+       <widget class="QCheckBox" name="volumeReverseCb">
+        <property name="text">
+         <string>Reverse Palette</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="volumeUseCmapCb">
+        <property name="text">
+         <string>Use Colormap</string>
         </property>
        </widget>
       </item>
       <item>
        <layout class="QHBoxLayout" name="stepRow">
+        <item>
+         <widget class="QLabel" name="stepLabel">
+          <property name="minimumSize">
+           <size>
+            <width>72</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>72</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Step Size</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
         <item>
          <widget class="QSlider" name="stepSlider">
           <property name="orientation">
@@ -111,7 +129,8 @@
             <width>36</width>
             <height>16777215</height>
            </size>
-          </property><property name="text">
+          </property>
+          <property name="text">
            <string>0.010</string>
           </property>
           <property name="alignment">
@@ -122,13 +141,29 @@
        </layout>
       </item>
       <item>
-       <widget class="QLabel" name="opacityHeader"><property name="text">
-         <string>Opacity</string>
-        </property>
-       </widget>
-      </item>
-      <item>
        <layout class="QHBoxLayout" name="opacityRow">
+        <item>
+         <widget class="QLabel" name="opacityLabel">
+          <property name="minimumSize">
+           <size>
+            <width>72</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>72</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Opacity</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
         <item>
          <widget class="QSlider" name="opacitySlider">
           <property name="orientation">
@@ -149,7 +184,8 @@
             <width>36</width>
             <height>16777215</height>
            </size>
-          </property><property name="text">
+          </property>
+          <property name="text">
            <string>1.000</string>
           </property>
           <property name="alignment">
@@ -158,203 +194,263 @@
          </widget>
         </item>
        </layout>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="volumeSliceShowCb">
-         <property name="text">
-          <string>Show Slice</string>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="volumeWireframeCb">
+        <property name="text">
+         <string>Wireframe</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="slicePlaneHeader">
+        <property name="text">
+         <string>Slice Plane</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="volumeSliceShowCb">
+        <property name="text">
+         <string>Show Slice</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="sliceAxisWidget" native="true">
+        <layout class="QHBoxLayout" name="sliceAxisLayout">
+         <property name="spacing">
+          <number>4</number>
          </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="volumeWireframeCb">
-         <property name="text">
-          <string>Wireframe</string>
+         <property name="leftMargin">
+          <number>0</number>
          </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QWidget" name="sliceAxisWidget" native="true">
-         <layout class="QHBoxLayout" name="sliceAxisLayout">
-          <property name="spacing">
-           <number>4</number>
-          </property>
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <widget class="QRadioButton" name="sliceAxisX">
-            <property name="text">
-             <string>X</string>
-            </property>
-            <property name="checked">
-             <bool>false</bool>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QRadioButton" name="sliceAxisY">
-            <property name="text">
-             <string>Y</string>
-            </property>
-            <property name="checked">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QRadioButton" name="sliceAxisZ">
-            <property name="text">
-             <string>Z</string>
-            </property>
-            <property name="checked">
-             <bool>false</bool>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </widget>
-       </item>
-       <item>
-        <layout class="QHBoxLayout" name="slicePosRow">
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
          <item>
-          <widget class="QLabel" name="slicePosHeader"><property name="text">
-            <string>Position</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QSlider" name="slicePosSlider">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="slicePosValue">
+          <widget class="QLabel" name="sliceAxisLabel">
            <property name="minimumSize">
             <size>
-             <width>36</width>
+             <width>72</width>
              <height>0</height>
             </size>
            </property>
            <property name="maximumSize">
             <size>
-             <width>36</width>
+             <width>72</width>
              <height>16777215</height>
             </size>
-           </property><property name="text">
-            <string>50%</string>
+           </property>
+           <property name="text">
+            <string>Slice Axis</string>
            </property>
            <property name="alignment">
-            <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+            <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
            </property>
           </widget>
          </item>
-         </layout>
-        </item>
+         <item>
+          <widget class="QRadioButton" name="sliceAxisX">
+           <property name="text">
+            <string>X</string>
+           </property>
+           <property name="checked">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="sliceAxisY">
+           <property name="text">
+            <string>Y</string>
+           </property>
+           <property name="checked">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="sliceAxisZ">
+           <property name="text">
+            <string>Z</string>
+           </property>
+           <property name="checked">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="slicePosRow">
         <item>
-         <widget class="QLabel" name="sliceOpacityHeader"><property name="text">
-           <string>Slice Opacity</string>
+         <widget class="QLabel" name="slicePosLabel">
+          <property name="minimumSize">
+           <size>
+            <width>72</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>72</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Position</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
           </property>
          </widget>
         </item>
         <item>
-         <layout class="QHBoxLayout" name="sliceOpacityRow">
-          <item>
-           <widget class="QSlider" name="sliceOpacitySlider">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="sliceOpacityValue">
-            <property name="minimumSize">
-             <size>
-              <width>36</width>
-              <height>0</height>
-             </size>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>36</width>
-              <height>16777215</height>
-             </size>
-            </property><property name="text">
-             <string>35%</string>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-            </property>
-           </widget>
-          </item>
-         </layout>
+         <widget class="QSlider" name="slicePosSlider">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
         </item>
         <item>
-         <widget class="QGroupBox" name="isosurfaceGroup">
-          <property name="title">
-           <string>Isosurface</string>
+         <widget class="QLabel" name="slicePosValue">
+          <property name="minimumSize">
+           <size>
+            <width>36</width>
+            <height>0</height>
+           </size>
           </property>
-          <layout class="QVBoxLayout" name="isosurfaceLayout">
-           <item>
-            <widget class="QCheckBox" name="isosurfaceEnableCb">
-             <property name="text">
-              <string>Extract Isosurface</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="isoValueRow">
-             <item>
-              <widget class="QSlider" name="isoValueSlider">
-               <property name="orientation">
-                <enum>Qt::Orientation::Horizontal</enum>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="isoValueLabel">
-               <property name="minimumSize">
-                <size>
-                 <width>52</width>
-                 <height>0</height>
-                </size>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>52</width>
-                 <height>16777215</height>
-                </size>
-               </property>
-               <property name="text">
-                <string>0.500</string>
-               </property>
-               <property name="alignment">
-                <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-          </layout>
+          <property name="maximumSize">
+           <size>
+            <width>36</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>50%</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
          </widget>
         </item>
        </layout>
-      </widget>
-    </item>
-    <item>
-     <spacer name="volumeBottomSpacer">
-
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="sliceOpacityRow">
+        <item>
+         <widget class="QLabel" name="sliceOpacityLabel">
+          <property name="minimumSize">
+           <size>
+            <width>72</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>72</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Slice Opacity</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="sliceOpacitySlider">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="sliceOpacityValue">
+          <property name="minimumSize">
+           <size>
+            <width>36</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>36</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>35%</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="isosurfaceHeader">
+        <property name="text">
+         <string>Isosurface</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="isosurfaceEnableCb">
+        <property name="text">
+         <string>Extract Isosurface</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="isoValueRow">
+        <item>
+         <widget class="QSlider" name="isoValueSlider">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="isoValueLabel">
+          <property name="minimumSize">
+           <size>
+            <width>52</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>52</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>0.500</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="volumeBottomSpacer">
      <property name="orientation">
       <enum>Qt::Orientation::Vertical</enum>
      </property>
