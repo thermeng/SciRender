@@ -1684,9 +1684,12 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(arrowsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowStreamlineArrows);
 
     auto* arrowSpacingSpin = slUi.arrowSpacingSpin;
-    arrowSpacingSpin->setRange(2, 20);
-    arrowSpacingSpin->setValue(m_settings->getStreamlineArrowSpacing());
-    connect(arrowSpacingSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineArrowSpacing);
+    arrowSpacingSpin->setRange(0.02, 0.50);
+    arrowSpacingSpin->setDecimals(2);
+    arrowSpacingSpin->setSingleStep(0.01);
+    arrowSpacingSpin->setValue(m_settings->getStreamlineArrowSpacingFrac());
+    connect(arrowSpacingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            m_settings, &RenderSettings::setStreamlineArrowSpacingFrac);
 
     {
         auto* slider = slUi.arrowSizeSlider;

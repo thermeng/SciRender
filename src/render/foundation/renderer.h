@@ -227,7 +227,7 @@ struct RenderRenderState {
     double seedJitter = 0.0;
     bool showSeeds = false;
     bool showStreamlineArrows = false;
-    int streamlineArrowSpacing = 4;
+    float streamlineArrowSpacingFrac = 0.15f;   // arrow spacing as fraction of mesh extent
     float streamlineArrowSize = 0.05f;
 
     // Particles

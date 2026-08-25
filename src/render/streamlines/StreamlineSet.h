@@ -62,7 +62,7 @@ public:
     StreamlineResult compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                              const std::string& fieldName, const std::string& mode, const std::string& direction,
                              double planePos, double jitter, int planeCountU, int planeCountV,
-                             bool showArrows, int arrowSpacing, float arrowSize,
+                             bool showArrows, float arrowSpacingFrac, float arrowSize,
                              float ribbonWidth, float taperFactor);
 
     void uploadGL(StreamlineResult&& result, bool showArrows, float arrowSize);
@@ -70,7 +70,7 @@ public:
     void rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                  const std::string& fieldName, const std::string& mode, const std::string& direction,
                  double planePos, double jitter, int planeCountU, int planeCountV,
-                 bool showArrows, int arrowSpacing, float arrowSize,
+                 bool showArrows, float arrowSpacingFrac, float arrowSize,
                  float ribbonWidth, float taperFactor);
 
     void shutdown();
@@ -78,6 +78,11 @@ public:
     static float magSq(const glm::vec3& v);
     static glm::mat3 buildFrame(const glm::vec3& dir);
     static std::vector<float> generateArrowhead(const glm::vec3& pos, const glm::vec3& dir, float height, float radius, int segments, float mag);
+    // Logical arrowhead placement: evenly distributed by arc length with tip,
+    // taper, and anti-overlap guards. Returns arc distances from the path start.
+    static std::vector<float> computeArrowPlacement(float pathLength, float extent,
+                                                    float spacingFraction, float arrowSize,
+                                                    float taperFactor);
     static std::vector<glm::vec3> generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter, int planeCountU = 10, int planeCountV = 10);
 
     struct StructuredGridInfo {
