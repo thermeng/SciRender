@@ -29,7 +29,7 @@ void WireframePass::draw(const RenderRenderState& state, MeshUBOData& ubo, GLuin
     if (state.showWireframe && useCellEdges) {
         GLStateGuard guard;
         ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 1.0f);
-        glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+        glNamedBufferSubData(meshUbo, offsetof(MeshUBOData, meshColor_wire), sizeof(glm::vec4), &ubo.meshColor_wire);
         const bool useThickWire = !useCrinkleClip && wireProgram.has()
                                   && wireMvpLoc >=0 && wireColorLoc>=0 && wireViewportLoc>=0 && wireHalfWidthLoc>=0;
         if (useThickWire) {
@@ -49,7 +49,7 @@ void WireframePass::draw(const RenderRenderState& state, MeshUBOData& ubo, GLuin
             for (auto &e: edgeDrawList) if(e.second>0){ glBindVertexArray(e.first); glDrawElements(GL_LINES, e.second, GL_UNSIGNED_INT, 0); }
             glBindVertexArray(0); glDisable(GL_POLYGON_OFFSET_LINE); glLineWidth(1.0f);
         }
-        ubo.meshColor_wire.w = 0.0f; glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+            ubo.meshColor_wire.w = 0.0f; glNamedBufferSubData(meshUbo, offsetof(MeshUBOData, meshColor_wire), sizeof(glm::vec4), &ubo.meshColor_wire);
         return;
     }
     if (state.showWireframe && !useCellEdges) {
@@ -58,10 +58,10 @@ void WireframePass::draw(const RenderRenderState& state, MeshUBOData& ubo, GLuin
             glLineWidth(state.lineWidth); glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             glEnable(GL_POLYGON_OFFSET_LINE); glPolygonOffset(-1.0f,-1.0f);
             ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 1.0f);
-            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+            glNamedBufferSubData(meshUbo, offsetof(MeshUBOData, meshColor_wire), sizeof(glm::vec4), &ubo.meshColor_wire);
             glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
             glDisable(GL_POLYGON_OFFSET_LINE); glLineWidth(1.0f);
-            ubo.meshColor_wire.w = 0.0f; glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+        ubo.meshColor_wire.w = 0.0f; glNamedBufferSubData(meshUbo, offsetof(MeshUBOData, meshColor_wire), sizeof(glm::vec4), &ubo.meshColor_wire);
         }
         glBindVertexArray(0); glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }

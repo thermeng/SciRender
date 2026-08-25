@@ -38,17 +38,22 @@ void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
     vec3 H = normalize(L + viewDir);
     float NdotH = max(dot(norm, H), 0.0);
     float VdotH = max(dot(viewDir, H), 0.0);
-    float a  = clamp(uMatRoughness(), 0.04, 1.0);
+    // Unified to the kit-standard BRDF (squared roughness, Smith k/8, no
+    // extra VdotH term) — matches mesh/glyph/depth_peel shading. [S2]
+    // polynomial Schlick replaces pow().
+    float a  = clamp(uMatRoughness() * uMatRoughness(), 0.04, 1.0);
     float a2 = a * a;
     float d  = NdotH * NdotH * (a2 - 1.0) + 1.0;
     float D  = a2 / (3.14159265 * d * d);
-    float k  = (a + 1.0) * (a + 1.0) / 24.0;
+    float k  = (a + 1.0) * (a + 1.0) / 8.0;
     float Gl = NdotL / (NdotL * (1.0 - k) + k);
     float Gv = NdotV / (NdotV * (1.0 - k) + k);
     float G  = Gl * Gv;
     vec3  F0 = mix(vec3(0.04), baseColor, uMatMetallic());
-    vec3  F  = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
-    float specFactor = D * G * VdotH / (4.0 * NdotL * NdotV + 1e-4);
+    float f  = 1.0 - VdotH;
+    float f2 = f * f;
+    vec3  F  = F0 + (1.0 - F0) * f2 * f2 * f;
+    float specFactor = D * G / (4.0 * NdotL * NdotV + 1e-4);
     specular += lightColor * F * specFactor * intensity * uMatSpecular();
     vec3 kD = (1.0 - F) * (1.0 - uMatMetallic());
     diffuse += lightColor * kD * baseColor * NdotL * intensity * uMatDiffuse();
@@ -61,7 +66,8 @@ void main() {
     float span = max(magMax - magMin, 1e-6);
     float normMag = clamp((vMag - magMin) / span, 0.0, 1.0);
 
-    vec3 baseColor = useColormap ? texture(uColormapLUT, normMag).rgb : uColor_UseColormap.xyz;
+    // [S5] Explicit LOD skips implicit derivatives on the mipless 1D LUT.
+    vec3 baseColor = useColormap ? textureLod(uColormapLUT, normMag, 0.0).rgb : uColor_UseColormap.xyz;
 
     vec3 N = normalize(vNormal);
     vec3 L = normalize(uLightDir.xyz);

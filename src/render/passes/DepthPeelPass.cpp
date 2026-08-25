@@ -8,7 +8,8 @@
 
 void DepthPeelPass::init(const ShaderSources& sources) {
     if (!sources.depthPeelVert.empty() && !sources.depthPeelFrag.empty()) {
-        m_peelProgram.reset(compileProgram(sources.depthPeelVert.c_str(), sources.depthPeelFrag.c_str(), "DepthPeel"));
+        const std::string fragFull = injectPbrCommon(sources.depthPeelFrag.c_str(), sources.pbrFragCommon);
+        m_peelProgram.reset(compileProgram(sources.depthPeelVert.c_str(), fragFull.c_str(), "DepthPeel"));
         if (m_peelProgram.has()) {
             m_peelPrevDepthLoc = glGetUniformLocation(m_peelProgram, "uPrevDepth");
             m_peelLayerLoc     = glGetUniformLocation(m_peelProgram, "uLayerIndex");

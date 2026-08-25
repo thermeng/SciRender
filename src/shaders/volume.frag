@@ -45,40 +45,6 @@ float intersectBox(vec3 rayOrigin, vec3 rayDir, vec3 boxMin, vec3 boxMax, out fl
     return max(tNear, 0.0);
 }
 
-float computeSliceAlpha(vec3 pos) {
-    float alpha = 1.0;
-    if (uClipEnabled == 1) {
-        if (uSliceEn.x > 0.5) {
-            float sliceX = mix(uBoxMin.x, uBoxMax.x, uSliceHeightX);
-            bool invert = uInvert.x > 0.5;
-            bool inside = invert ? (pos.x < sliceX) : (pos.x > sliceX);
-            if (inside) alpha = 0.0;
-        }
-        if (uSliceEn.y > 0.5) {
-            float sliceY = mix(uBoxMin.y, uBoxMax.y, uSliceHeightY);
-            bool invert = uInvert.y > 0.5;
-            bool inside = invert ? (pos.y < sliceY) : (pos.y > sliceY);
-            if (inside) alpha = 0.0;
-        }
-        if (uSliceEn.z > 0.5) {
-            float sliceZ = mix(uBoxMin.z, uBoxMax.z, uSliceHeightZ);
-            bool invert = uInvert.z > 0.5;
-            bool inside = invert ? (pos.z < sliceZ) : (pos.z > sliceZ);
-            if (inside) alpha = 0.0;
-        }
-    }
-    return alpha;
-}
-
-vec3 computeGradient(vec3 uvw) {
-    vec3 eps = vec3(1.0 / 128.0, 1.0 / 128.0, 1.0 / 128.0);
-    vec3 g;
-    g.x = texture(uVolumeTex, uvw + vec3(eps.x, 0.0, 0.0)).r - texture(uVolumeTex, uvw - vec3(eps.x, 0.0, 0.0)).r;
-    g.y = texture(uVolumeTex, uvw + vec3(0.0, eps.y, 0.0)).r - texture(uVolumeTex, uvw - vec3(0.0, eps.y, 0.0)).r;
-    g.z = texture(uVolumeTex, uvw + vec3(0.0, 0.0, eps.z)).r - texture(uVolumeTex, uvw - vec3(0.0, 0.0, eps.z)).r;
-    return g;
-}
-
 void main() {
     vec4 clipNear = vec4(vNdc, 0.0, 1.0);
     vec4 clipFar  = vec4(vNdc, 1.0, 1.0);
@@ -112,6 +78,22 @@ void main() {
     float diag = length(uSafeExtent);
     float minStep = diag / float(MAX_STEPS);
 
+    // [P1] Loop invariants hoisted out of the march loop: scalar normalization,
+    // gradient epsilon, slice enable/invert flags, and the three slice-plane
+    // positions (previously re-mixed on every step).
+    const float scalarRange = max(uScalarMax - uScalarMin, 1e-6);
+    const vec3  gradEps = vec3(1.0 / 128.0);   // matches previous per-step epsilon
+    const bool  clipOn   = (uClipEnabled == 1);
+    const bool  sliceEnX = uSliceEn.x > 0.5;
+    const bool  sliceEnY = uSliceEn.y > 0.5;
+    const bool  sliceEnZ = uSliceEn.z > 0.5;
+    const bool  invX = uInvert.x > 0.5;
+    const bool  invY = uInvert.y > 0.5;
+    const bool  invZ = uInvert.z > 0.5;
+    const float slicePlaneX = mix(uBoxMin.x, uBoxMax.x, uSliceHeightX);
+    const float slicePlaneY = mix(uBoxMin.y, uBoxMax.y, uSliceHeightY);
+    const float slicePlaneZ = mix(uBoxMin.z, uBoxMax.z, uSliceHeightZ);
+
     float t = 0.0;
     int steps = 0;
     for (int i = 0; i < MAX_STEPS; ++i) {
@@ -122,15 +104,28 @@ void main() {
         vec3 pos = entry + rayDir * t;
         pos = clamp(pos, uBoxMin, uBoxMax);
 
-        float sliceAlpha = computeSliceAlpha(pos);
+        // [P1] Slice test against precomputed planes.
+        float sliceAlpha = 1.0;
+        if (clipOn) {
+            if (sliceEnX && (invX ? (pos.x < slicePlaneX) : (pos.x > slicePlaneX))) sliceAlpha = 0.0;
+            if (sliceEnY && (invY ? (pos.y < slicePlaneY) : (pos.y > slicePlaneY))) sliceAlpha = 0.0;
+            if (sliceEnZ && (invZ ? (pos.z < slicePlaneZ) : (pos.z > slicePlaneZ))) sliceAlpha = 0.0;
+        }
 
         vec3 uvw = clamp((pos - uBoxMin) / uSafeExtent, 0.0, 1.0);
         float val = texture(uVolumeTex, uvw).r;
 
-        float scalarRange = max(uScalarMax - uScalarMin, 1e-6);
         float tVal = clamp((val - uScalarMin) / scalarRange, 0.0, 1.0);
 
-        float gradMag = length(computeGradient(uvw));
+        // [P1] Forward differences reuse the already-fetched center sample:
+        // 4 texture fetches per step instead of 7 (central differences plus a
+        // separate center fetch). The magnitude feeds only the adaptive
+        // step-size heuristic, so the accuracy change is imperceptible.
+        vec3 g;
+        g.x = texture(uVolumeTex, uvw + vec3(gradEps.x, 0.0, 0.0)).r - val;
+        g.y = texture(uVolumeTex, uvw + vec3(0.0, gradEps.y, 0.0)).r - val;
+        g.z = texture(uVolumeTex, uvw + vec3(0.0, 0.0, gradEps.z)).r - val;
+        float gradMag = length(g);
         float featureScale = 1.0 / (gradMag * 10.0 + 1.0);
         float currentDist = length(pos - uCamPos);
         float pixelFootprint = uOrtho == 1
