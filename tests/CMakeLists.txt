@@ -82,6 +82,27 @@ target_include_directories(pvd_test PRIVATE
 )
 target_link_libraries(pvd_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
 
+# Vector-field name listing rules (FieldResolver): point + cell lists must
+# merge deduplicated. Header-inline accessors — links FieldResolver.cpp only.
+add_executable(field_names_test
+    field_names_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
+)
+target_include_directories(field_names_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+)
+
+# Animation colormap-range accumulator rules (FieldResolver::AnimRangeState).
+# Header-only logic — compiles the real header, no Qt/GL.
+add_executable(anim_range_test
+    anim_range_test.cpp
+)
+target_include_directories(anim_range_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+)
+
 # Streamline direction / integration check — needs glad+GL stubs + StreamlineSet
 add_executable(streamline_direction_test
     streamline_direction_test.cpp
@@ -110,4 +131,6 @@ enable_testing()
 add_test(NAME parse_regression COMMAND parse_regression WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME isosurface_test COMMAND isosurface_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME pvd_test COMMAND pvd_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME field_names_test COMMAND field_names_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME anim_range_test COMMAND anim_range_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME streamline_direction_test COMMAND streamline_direction_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
