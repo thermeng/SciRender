@@ -625,15 +625,24 @@
          </widget>
         </item>
         <item>
-         <widget class="QSpinBox" name="arrowSpacingSpin">
-          <property name="minimum">
+         <widget class="QDoubleSpinBox" name="arrowSpacingSpin">
+          <property name="toolTip">
+           <string>Distance between direction arrows as a fraction of the dataset extent</string>
+          </property>
+          <property name="decimals">
            <number>2</number>
           </property>
+          <property name="minimum">
+           <double>0.020000000000000</double>
+          </property>
           <property name="maximum">
-           <number>20</number>
+           <double>0.500000000000000</double>
+          </property>
+          <property name="singleStep">
+           <double>0.010000000000000</double>
           </property>
           <property name="value">
-           <number>5</number>
+           <double>0.150000000000000</double>
           </property>
          </widget>
         </item>

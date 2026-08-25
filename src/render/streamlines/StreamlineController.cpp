@@ -54,21 +54,21 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
         double jitter       = state.seedJitter;
         int   planeCountU   = state.seedPlaneCountU;
         int   planeCountV   = state.seedPlaneCountV;
-        bool  showArrows    = state.showStreamlineArrows;
-        int   arrowSpacing  = state.streamlineArrowSpacing;
-        float arrowSize     = state.streamlineArrowSize;
+    bool  showArrows       = state.showStreamlineArrows;
+    float arrowSpacingFrac = state.streamlineArrowSpacingFrac;
+    float arrowSize        = state.streamlineArrowSize;
         float ribbonWidth   = state.streamlineRibbonWidth;
         float taperFactor   = state.streamlineTaperFactor;
 
         m_computeRunning = true;
         m_worker = std::thread(
             [this, &streamlineSet, meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
-             planePos, jitter, planeCountU, planeCountV, showArrows, arrowSpacing,
+             planePos, jitter, planeCountU, planeCountV, showArrows, arrowSpacingFrac,
              arrowSize, ribbonWidth, taperFactor]() {
                 auto result = streamlineSet.compute(
                     *meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
                     planePos, jitter, planeCountU, planeCountV,
-                    showArrows, arrowSpacing, arrowSize, ribbonWidth, taperFactor);
+                    showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor);
 
                 if (m_cancelFlag.load()) {
                     m_computeRunning = false;

@@ -222,7 +222,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double seedJitter READ getSeedJitter WRITE setSeedJitter NOTIFY viewChanged)
     Q_PROPERTY(bool showSeeds READ getShowSeeds WRITE setShowSeeds NOTIFY viewChanged)
     Q_PROPERTY(bool showStreamlineArrows READ getShowStreamlineArrows WRITE setShowStreamlineArrows NOTIFY viewChanged)
-    Q_PROPERTY(int streamlineArrowSpacing READ getStreamlineArrowSpacing WRITE setStreamlineArrowSpacing NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineArrowSpacingFrac READ getStreamlineArrowSpacingFrac WRITE setStreamlineArrowSpacingFrac NOTIFY viewChanged)
     Q_PROPERTY(double streamlineArrowSize READ getStreamlineArrowSize WRITE setStreamlineArrowSize NOTIFY viewChanged)
     Q_PROPERTY(double streamlineOpacity READ getStreamlineOpacity WRITE setStreamlineOpacity NOTIFY viewChanged)
     Q_PROPERTY(double streamlineRibbonWidth READ getStreamlineRibbonWidth WRITE setStreamlineRibbonWidth NOTIFY viewChanged)
@@ -469,8 +469,13 @@ public:
     STATE_PROP(getShowSeeds, setShowSeeds, bool, m_state.showSeeds, Display)
     bool getShowStreamlineArrows() const { return m_state.showStreamlineArrows; }
     void setShowStreamlineArrows(bool v) { if (m_state.showStreamlineArrows != v) { m_state.showStreamlineArrows = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-    int getStreamlineArrowSpacing() const { return m_state.streamlineArrowSpacing; }
-    void setStreamlineArrowSpacing(int v) { if (m_state.streamlineArrowSpacing != v) { m_state.streamlineArrowSpacing = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    double getStreamlineArrowSpacingFrac() const { return m_state.streamlineArrowSpacingFrac; }
+    void setStreamlineArrowSpacingFrac(double v) {
+        float f = static_cast<float>(v);
+        if (f < 0.02f) f = 0.02f;   // clamps stale persisted int values from older builds
+        if (f > 0.50f) f = 0.50f;
+        if (m_state.streamlineArrowSpacingFrac != f) { m_state.streamlineArrowSpacingFrac = f; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
     double getStreamlineArrowSize() const { return m_state.streamlineArrowSize; }
     void setStreamlineArrowSize(double v) { if (m_state.streamlineArrowSize != v) { m_state.streamlineArrowSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP_CAST(getStreamlineOpacity, setStreamlineOpacity, float, m_state.streamlineOpacity, Display)

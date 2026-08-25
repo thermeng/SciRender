@@ -517,6 +517,37 @@ std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const 
     return verts;
 }
 
+std::vector<float> StreamlineSet::computeArrowPlacement(float pathLength, float extent,
+                                                        float spacingFraction, float arrowSize,
+                                                        float taperFactor) {
+    std::vector<float> positions;
+    if (!(pathLength > 0.0f) || !(extent > 0.0f) || spacingFraction <= 0.0f) return positions;
+
+    const float arrowHeight = arrowSize * extent;
+    // Arrow would visually dominate the path.
+    if (pathLength < 2.0f * arrowHeight) return positions;
+
+    // Anti-overlap floor: arrows never closer than twice their height.
+    const float targetSpacing = std::max(spacingFraction * extent, 2.0f * arrowHeight);
+    // Keep arrows off the raw ends and out of the needle-thin tapered tips
+    // (ribbon half-width shrinks with taperFactor towards both ends).
+    const float margin = arrowHeight * (1.0f + taperFactor);
+    const float usable = pathLength - 2.0f * margin;
+    if (usable <= 0.0f) return positions;
+
+    const int count = std::max(1, static_cast<int>(std::lround(usable / targetSpacing)));
+    if (count == 1) {
+        // Lone arrow goes mid-path, not at the start margin.
+        positions.push_back(0.5f * pathLength);
+        return positions;
+    }
+    const float actual = usable / static_cast<float>(count);
+    positions.reserve(static_cast<size_t>(count));
+    for (int k = 0; k < count; ++k)
+        positions.push_back(margin + actual * static_cast<float>(k));
+    return positions;
+}
+
 void StreamlineSet::initParticles(int count) {
     particles.clear();
     if (paths.empty() || count <= 0) return;
@@ -608,7 +639,7 @@ void StreamlineSet::shutdown() {
 StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                                  const std::string& fieldName, const std::string& mode, const std::string& direction,
                                  double planePos, double jitter, int planeCountU, int planeCountV,
-                                 bool showArrows, int arrowSpacing, float arrowSize,
+                                 bool showArrows, float arrowSpacingFrac, float arrowSize,
                                  float ribbonWidth, float taperFactor) {
     StreamlineResult result;
 
@@ -713,8 +744,14 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
     const size_t estimatedSegments = seeds.size() * 2 * maxSteps;
     result.verts.reserve(estimatedSegments * 6 * 7);
     result.seedVerts.reserve(seeds.size() * 3);
-    if (showArrows && arrowSpacing > 0) {
-        size_t estimatedArrows = estimatedSegments / arrowSpacing;
+    if (showArrows && arrowSpacingFrac > 0.0f) {
+        // Rough upper bound: path length budget (maxSteps * h) divided by the
+        // minimum world spacing implied by the extent fraction.
+        const float minSpacing = std::max(arrowSpacingFrac * extent, 2.0f * arrowSize * extent);
+        const size_t arrowsPerPath = minSpacing > 1e-12f
+            ? static_cast<size_t>(static_cast<float>(2 * std::max(maxSteps, 1)) * h / minSpacing) + 1
+            : 0;
+        const size_t estimatedArrows = seeds.size() * arrowsPerPath;
         arrowPositions.reserve(estimatedArrows);
         arrowDirections.reserve(estimatedArrows);
         arrowMagnitudes.reserve(estimatedArrows);
@@ -891,14 +928,30 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
             pushQuadVertex(vc, magB);
         }
 
-        if (showArrows && arrowSpacing > 0 && mergedPts.size() > static_cast<size_t>(arrowSpacing + 1)) {
-            for (size_t i = arrowSpacing; i + 1 < mergedPts.size(); i += arrowSpacing) {
-                const glm::vec3& fieldVal = mergedFieldVecs[i];
-                float mag = mergedSpeeds[i];
-                if (mag > 1e-12f) {
-                    arrowPositions.push_back(mergedPts[i]);
-                    arrowDirections.push_back(fieldVal / mag);
-                    arrowMagnitudes.push_back(mag);
+        if (showArrows && arrowSpacingFrac > 0.0f && mergedPts.size() >= 2) {
+            // [A2+A3] Logical placement: arrows evenly distributed by arc
+            // length, symmetric about the path, with tip/taper margins and an
+            // anti-overlap floor (see computeArrowPlacement).
+            const std::vector<float> arcPos =
+                computeArrowPlacement(totalLength, extent, arrowSpacingFrac, arrowSize, taperFactor);
+            if (!arcPos.empty()) {
+                // Cumulative arc length along the merged path.
+                std::vector<float> cum(mergedPts.size(), 0.0f);
+                for (size_t i = 1; i < mergedPts.size(); ++i)
+                    cum[i] = cum[i - 1] + glm::length(mergedPts[i] - mergedPts[i - 1]);
+
+                size_t seg = 0;
+                for (float s : arcPos) {
+                    while (seg + 2 < mergedPts.size() && cum[seg + 1] < s) ++seg;
+                    const float span = std::max(cum[seg + 1] - cum[seg], 1e-12f);
+                    const float frac = std::min(std::max((s - cum[seg]) / span, 0.0f), 1.0f);
+                    const glm::vec3 fieldVec = glm::mix(mergedFieldVecs[seg], mergedFieldVecs[seg + 1], frac);
+                    const float mag = glm::length(fieldVec);
+                    if (mag > 1e-12f) {
+                        arrowPositions.push_back(glm::mix(mergedPts[seg], mergedPts[seg + 1], frac));
+                        arrowDirections.push_back(fieldVec / mag);
+                        arrowMagnitudes.push_back(mag);
+                    }
                 }
             }
         }
@@ -960,10 +1013,10 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
 void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                                  const std::string& fieldName, const std::string& mode, const std::string& direction,
                                  double planePos, double jitter, int planeCountU, int planeCountV,
-                                 bool showArrows, int arrowSpacing, float arrowSize,
+                                 bool showArrows, float arrowSpacingFrac, float arrowSize,
                                  float ribbonWidth, float taperFactor) {
     auto result = compute(mesh, seedCountParam, stepSize, maxSteps, fieldName, mode, direction,
                           planePos, jitter, planeCountU, planeCountV,
-                          showArrows, arrowSpacing, arrowSize, ribbonWidth, taperFactor);
+                          showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor);
     uploadGL(std::move(result), showArrows, arrowSize);
 }
