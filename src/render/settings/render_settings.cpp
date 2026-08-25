@@ -560,47 +560,39 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         m_meshData.guiMeta.vectorName = mesh->cellVectorName;
     }
 
-    // Scalar range: hold a GLOBAL range across the sequence so the colormap,
-    // colorbar and filters don't flicker between frames. The first frame seeds
-    // it; later frames only ever EXPAND it.
+    // Scalar range: normalize against the ACTIVE field resolved through the
+    // same seam as the GPU payload (FieldResolver::scalarData) — NOT the
+    // parser-default mesh->scalars, which desyncs as soon as the user selects
+    // another field and knows nothing about cell-only or derived fields.
+    // Whole-sequence mode (default) holds a GLOBAL range so colormap, colorbar
+    // and filters don't flicker between frames: seeded on the first frame or a
+    // mid-sequence field switch, expand-only afterwards. Per-frame mode
+    // rescales to each frame's own extent.
     float mn = 0.0f, mx = 1.0f;
-    bool haveRange = false;
-    if (!mesh->scalars.empty()) {
-        for (float v : mesh->scalars) {
-            if (!std::isfinite(v)) continue;
-            if (!haveRange) { mn = mx = v; haveRange = true; }
-            else { if (v < mn) mn = v; if (v > mx) mx = v; }
-        }
-    } else if (mesh->attributes && !mesh->attributes->pointScalars.empty()) {
-        auto it = mesh->attributes->pointScalars.find(m_state.activeScalarName);
-        if (it == mesh->attributes->pointScalars.end()) it = mesh->attributes->pointScalars.begin();
-        if (it != mesh->attributes->pointScalars.end()) {
-            for (float v : it->second) {
-                if (!std::isfinite(v)) continue;
-                if (!haveRange) { mn = mx = v; haveRange = true; }
-                else { if (v < mn) mn = v; if (v > mx) mx = v; }
-            }
-        }
-    }
+    const bool haveRange =
+        FieldResolver::scalarData(*mesh, m_state.activeScalarName, mn, mx) != nullptr;
     if (!haveRange) { mn = 0.0f; mx = 1.0f; }
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
+
+    // Reseeding on a mid-sequence field switch lives inside advance(): expanding
+    // a union across a field switch would map one field's values onto another
+    // field's range.
+    float effMin = mn, effMax = mx;
+    m_animRange.advance(firstFrame, m_state.activeScalarName, mn, mx, effMin, effMax);
+
     if (firstFrame) {
-        m_animRangeMin = mn;
-        m_animRangeMax = mx;
-        m_state.meshHasScalars = !mesh->scalars.empty() || (mesh->attributes && !mesh->attributes->pointScalars.empty());
+        m_state.meshHasScalars = haveRange;
         // Do not auto-enable scalar visualization — user must enable manually
         m_state.meshUseScalarColor = false;
         m_state.showScalarColorbar = m_state.meshHasScalars;
         m_state.filterEnabled = false;
-        m_isoController.reset(mn, mx);
-    } else {
-        m_animRangeMin = std::min(m_animRangeMin, mn);
-        m_animRangeMax = std::max(m_animRangeMax, mx);
+        setFilterMin(effMin); setFilterMax(effMax);
+        m_isoController.reset(effMin, effMax);
     }
-    m_state.dataScalarMin = m_animRangeMin;
-    m_state.dataScalarMax = m_animRangeMax;
-    m_state.scalarMin = m_animRangeMin;
-    m_state.scalarMax = m_animRangeMax;
+    m_state.dataScalarMin = effMin;
+    m_state.dataScalarMax = effMax;
+    m_state.scalarMin = effMin;
+    m_state.scalarMax = effMax;
 
     // Isosurface follows the animated mesh (debounced async extraction).
     m_isoController.setCurrentMesh(mesh, m_state.activeScalarName);
@@ -737,6 +729,15 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     recomputeScalarRange();
     m_state.filterMin = m_state.dataScalarMin;
     m_state.filterMax = m_state.dataScalarMax;
+    // Mid-sequence switch: reseed the animation range accumulator from THIS
+    // frame so playback normalizes the new field against its own range, not
+    // the previous field's union. (AnimRangeState::advance also reseeds on any
+    // field-name mismatch — this covers a paused sequence.)
+    if (m_animSequenceActive) {
+        m_animRange.field = fieldName.toStdString();
+        m_animRange.rangeMin = mn;
+        m_animRange.rangeMax = mx;
+    }
     emit meshLoadStateChanged();
 
     m_renderer.markScalarDirty(payload);
@@ -821,6 +822,15 @@ void RenderSettings::setFilterMax(float v) {
 void RenderSettings::setFilterEnabled(bool v) {
     if (m_state.filterEnabled == v) return;
     m_state.filterEnabled = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+
+void RenderSettings::setAnimScaleGlobal(bool global) {
+    if (m_animRange.global == global) return;
+    m_animRange.global = global;
+    // Drop the accumulated union so the next frame reseeds under the new mode
+    // instead of expanding a range accumulated for the other mode.
+    m_animRange.invalidate();
     markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 

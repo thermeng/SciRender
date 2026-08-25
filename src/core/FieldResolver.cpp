@@ -184,6 +184,11 @@ std::vector<std::string> availableVectorNames(const RenderMesh& mesh) {
     out.reserve(mesh.availableVectorNames.size() + mesh.availableCellVectorNames.size());
     out.insert(out.end(), mesh.availableVectorNames.begin(), mesh.availableVectorNames.end());
     out.insert(out.end(), mesh.availableCellVectorNames.begin(), mesh.availableCellVectorNames.end());
+    // A cell-only field also exists under the same name as the extrapolated
+    // point copy (extrapolateCellDataToPoints), so point+cell lists commonly
+    // overlap — list each field once; the placement combo picks the source.
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;
 }
 

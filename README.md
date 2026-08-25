@@ -27,7 +27,9 @@ Qt 6 + OpenGL 4.6 scientific rendering application supporting the VTK XML format
 (`.vtu`, `.vts`, `.vti`, `.vtp`, `.vtr`, `.vtm` multi-block), VTK legacy
 (`.vtk`), STL, and OBJ files. Maps scalar data to surface colormaps, draws
 instanced vector-field arrow glyphs, integrated streamlines, particle traces,
-volume ray-marching, and isosurface extraction via marching cubes.
+volume ray-marching, and isosurface extraction via marching cubes. Plays
+ParaView `.pvd` time-series collections as streamed animations and exports
+them to MJPEG AVI videos or PNG frame sequences.
 
 Features include a 4-point PBR-calibrated lighting kit, axis triad overlay
 with pole-view handling, axis-aligned clipping/slicing planes, GPU-compute
@@ -87,6 +89,20 @@ the program can run from the build directory.
   visualization with exact vertex welding at 1e-8 tolerance
 - **Screenshot export** (PNG/JPEG/BMP) with optional transparency, arbitrary
   resolution override, and AA sample presets
+- **PVD animation playback:** streams `.pvd` collections through an async,
+  prefetching loader with a bounded LRU frame cache; transport controls
+  (play/pause, step), timeline scrubbing with drag debouncing, FPS rate and
+  loop toggles; fixed-topology sequences take a scalar-only fast upload path
+- **Animation colormap scaling:** *Whole sequence* holds one grow-only range
+  across frames so colors and the colorbar never flicker; *Per frame*
+  rescales to each frame's own extent. Ranges always describe the active
+  field resolved per frame (point/cell/legacy/derived), reseeding on field
+  switches mid-sequence
+- **Animation export:** renders the loaded sequence offscreen to an MJPEG
+  `.avi` video and/or numbered PNG frames with configurable resolution,
+  JPEG quality, fps, and frame range; encoding overlaps capture on worker
+  threads so exports stay fast regardless of viewport size (playback pauses
+  for the duration)
 - **Depth-peel transparency** for correct rendering of translucent surfaces
   (two-layer OIT with separate depth textures)
 - **FPS Head-up Display** (HUD) with smoothed frame-rate counter
@@ -119,11 +135,11 @@ It is used only when all of the following hold:
 | Path | Purpose |
 |------|---------|
 | `src/app/` | Application entry point (`main.cpp`, GPU preference) |
-| `src/core/` | VTK/STL/OBJ parsers, mesh loading, mesh-quality analysis, camera, colormap definitions, isosurface extraction (marching cubes) |
-| `src/render/` | OpenGL renderer, lighting model, mesh/LOD upload, vector glyphs, streamlines, particles, volume pass, colormap manager, colorbar overlay, axis triad, bbox overlay, quality overlay, screenshot capture, depth-peel transparency |
+| `src/core/` | VTK/STL/OBJ parsers, `.pvd` collection parser, mesh loading, mesh-quality analysis, field-name resolution (`FieldResolver`), camera, colormap definitions, isosurface extraction (marching cubes) |
+| `src/render/` | OpenGL renderer, lighting model, mesh/LOD upload, vector glyphs, streamlines, particles, volume pass, colormap manager, colorbar overlay, axis triad, bbox overlay, quality overlay, screenshot capture, depth-peel transparency, animation playback controller + AVI/PNG exporter |
 | `src/shaders/` | GLSL vertex/fragment/compute shaders (mesh, glyph, bbox, streamline, seed, particle, volume, volume slice, quality overlay, LOD compute, depth peel, composite) |
-| `src/ui/` | Qt Widgets main window, sidebar pages (lighting, slicing, view/display, scalar, vectors, streamlines, screenshot, mesh info, volume), viewport widget |
-| `tests/` | Standalone parser regression harness (`parse_regression.cpp` + `run_tests.{bat,sh}`) |
+| `src/ui/` | Qt Widgets main window, sidebar pages (lighting, slicing, view/display, scalar, vectors, streamlines, screenshot, mesh info, volume, animation), animation export dialog, viewport widget |
+| `tests/` | Standalone regression harnesses — parsers, PVD collections, marching-cubes isosurface, streamline direction, animation range rules — driven by `run_tests.{bat,sh}` |
 | `samples/` | VTK/STL fixture files used by the regression harness |
 | `assets/` | Application icon |
 | `vendor/` | GLAD (OpenGL loader), GLM (math), pugixml (XML parsing), LZ4 & LZMA (compression) |

@@ -605,6 +605,10 @@ public:
     bool getFilterEnabled() const { return m_state.filterEnabled; }
     void setFilterEnabled(bool v);
 
+    // Animation colormap scaling: true = whole-sequence range, false = per-frame.
+    bool getAnimScaleGlobal() const { return m_animRange.global; }
+    void setAnimScaleGlobal(bool global);
+
     double getWorldMinX() const { return m_state.worldMinX; }
     double getWorldMaxX() const { return m_state.worldMaxX; }
     double getWorldMinY() const { return m_state.worldMinY; }
@@ -689,8 +693,9 @@ private:
     // loadMesh()/clearMeshes() so a new sequence re-initializes scalar range
     // and isosurface bounds on its first frame.
     bool m_animSequenceActive = false;
-    float m_animRangeMin = 0.0f;   // running global range across seen frames
-    float m_animRangeMax = 1.0f;
+    // Colormap range across frames: whole-sequence union (default) or
+    // per-frame rescale. Rules live in FieldResolver::AnimRangeState.
+    FieldResolver::AnimRangeState m_animRange;
 };
 
 

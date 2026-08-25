@@ -145,6 +145,37 @@
     </layout>
    </item>
    <item>
+    <layout class="QHBoxLayout" name="scaleRow">
+     <item>
+      <widget class="QLabel" name="scaleLabel">
+       <property name="text">
+        <string>Colormap scale</string>
+       </property>
+       <property name="toolTip">
+        <string>Whole sequence: one fixed range across all frames (no color flicker). Per frame: rescale to each frame's own min/max.</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="scaleCombo">
+       <property name="toolTip">
+        <string>Whole sequence: one fixed range across all frames (no color flicker). Per frame: rescale to each frame's own min/max.</string>
+       </property>
+       <item>
+        <property name="text">
+         <string>Whole sequence</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Per frame</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
     <widget class="QCheckBox" name="loopCb">
      <property name="text">
       <string>Loop</string>
