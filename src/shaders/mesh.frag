@@ -52,54 +52,14 @@ float uHeadIntensity()  { return uIntensities.w; }
 float uMatRoughness() { return uPBR.x; }
 float uMatMetallic()  { return uPBR.y; }
 
-// Microfacet (GGX normal distribution + Smith geometry + Schlick Fresnel),
-// energy-conserving. baseColor is the full reflectance (albedo for dielectrics;
-// F0 tint for metals).
-void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
-                          vec3 lightColor, vec3 viewDir, vec3 baseColor,
-                          inout vec3 diffuse, inout vec3 specular) {
-    vec3 L = normalize(rawLightDir);
-    float NdotL = max(dot(norm, L), 0.0);
-    float NdotV = max(dot(norm, viewDir), 0.0);
-    if (NdotL <= 0.0) return;
-
-    vec3 H = normalize(L + viewDir);
-    float NdotH = max(dot(norm, H), 0.0);
-    float VdotH = max(dot(viewDir, H), 0.0);
-
-    float a  = clamp(uMatRoughness() * uMatRoughness(), 0.04, 1.0);
-    float a2 = a * a;
-    float d  = NdotH * NdotH * (a2 - 1.0) + 1.0;
-    float D  = a2 / (3.14159265 * d * d);
-
-    float k  = (a + 1.0) * (a + 1.0) / 8.0;
-    float Gl = NdotL / (NdotL * (1.0 - k) + k);
-    float Gv = NdotV / (NdotV * (1.0 - k) + k);
-    float G  = Gl * Gv;
-
-    vec3  F0 = mix(vec3(0.04), baseColor, uMatMetallic());
-    vec3  F  = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
-
-    float specFactor = D * G / (4.0 * NdotL * NdotV + 1e-4);
-    specular += lightColor * F * specFactor * intensity * uMatSpecular();
-
-    vec3 kD = (1.0 - F) * (1.0 - uMatMetallic());
-    diffuse += lightColor * kD * baseColor * NdotL * intensity * uMatDiffuse();
-}
+// lightContributionPBR injected from pbr_common.glsl at compile time.
 
 void main() {
     // 1. Unified Slicing & Isolation Filtering
-    bool clipped = false;
-    float clipEnabled = uPointClip.w;
-    bool crinkleMode = uShadingMode.y > 0.5;
-    if (clipEnabled > 0.5 && !crinkleMode) {
-        bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (mv.vWorldPos.x < uSliceY.x) : (mv.vWorldPos.x > uSliceY.x));
-        bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (mv.vWorldPos.y < uSliceY.y) : (mv.vWorldPos.y > uSliceY.y));
-        bool clipZ = bool(uSliceEn.z) && ((uInvert.z > 0.5) ? (mv.vWorldPos.z < uSliceY.z) : (mv.vWorldPos.z > uSliceY.z));
-        clipped = clipX || clipY || clipZ;
-    }
+    // [S6] Single fused clip predicate, cheapest test first: the scalar-range
+    // compare runs before the 3-axis slice ladder, which only evaluates when
+    // slice clipping is actually enabled. One discard site total.
     bool hasScalars = uScalars.z > 0.5;
-    bool filterEnabled = uFilter.z > 0.5;
     // Tolerance scaled to the data range: the filter window snaps to the data
     // min/max on every field switch, so extreme-value faces sit EXACTLY on the
     // bound. Perspective-correct interpolation then produces sub-ULP excursions
@@ -107,8 +67,15 @@ void main() {
     // into discarded fragments — pinholes showing the far side as red/white
     // speckles. Driver-dependent, hence GPU-specific visibility.
     float filterEps = 1e-5 * abs(uScalars.y - uScalars.x) + 1e-9;
-    bool filterScalar = filterEnabled && hasScalars && (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
-    clipped = clipped || filterScalar;
+    bool clipped = (uFilter.z > 0.5) && hasScalars &&
+                   (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
+    bool crinkleMode = uShadingMode.y > 0.5;
+    if (!clipped && uPointClip.w > 0.5 && !crinkleMode) {
+        bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (mv.vWorldPos.x < uSliceY.x) : (mv.vWorldPos.x > uSliceY.x));
+        bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (mv.vWorldPos.y < uSliceY.y) : (mv.vWorldPos.y > uSliceY.y));
+        bool clipZ = bool(uSliceEn.z) && ((uInvert.z > 0.5) ? (mv.vWorldPos.z < uSliceY.z) : (mv.vWorldPos.z > uSliceY.z));
+        clipped = clipX || clipY || clipZ;
+    }
 
     if (clipped) {
         discard;
@@ -130,40 +97,58 @@ void main() {
         return;
     }
 
-    vec3 faceNorm = normalize(cross(dFdx(mv.vWorldPos), dFdy(mv.vWorldPos)));
-    if (!gl_FrontFacing) faceNorm = -faceNorm;
-    vec3 norm = uShadingMode.x > 0.5 ? faceNorm : normalize(sphereNormal);
-    if (!gl_FrontFacing) {
-        norm = -norm;
-    }
-    vec3 viewDir = normalize(uViewPos_PS.xyz - mv.vWorldPos);
-
     // baseColor is resolved before lighting: it drives F0 (metals) and the diffuse albedo.
     vec3 baseColor = uSurfaceColor_Op.xyz;
     if (hasScalars && (uScalars.x != uScalars.y)) {
         float t = clamp((mv.vScalar - uScalars.x) / (uScalars.y - uScalars.x), 0.0, 1.0);
-        baseColor = texture(uColormapLUT, t).rgb;
+        // [S5] Explicit LOD fetch skips the implicit derivative pair that
+        // texture() computes for a mipless 1D LUT.
+        baseColor = textureLod(uColormapLUT, t, 0.0).rgb;
     }
     bool pointUseScalar = uPointClip.y > 0.5;
     if (isPoint && !pointUseScalar) {
         baseColor = uSurfaceColor_Op.xyz;
     }
 
+    // [S4] Normal selection gated on the UNIFORM shading flag, so the
+    // screen-space derivative chain (dFdx/dFdy/cross/normalize) executes only
+    // in flat mode; uniform control flow keeps the derivatives well-defined.
+    // Screen-space cross normals are view-oriented regardless of winding, so
+    // only the interpolated attribute normal takes the back-face flip — this
+    // also removes the old double negation on the flat/back-face path while
+    // preserving its net result.
+    vec3 norm;
+    if (uShadingMode.x > 0.5) {
+        norm = normalize(cross(dFdx(mv.vWorldPos), dFdy(mv.vWorldPos)));
+    } else {
+        norm = normalize(sphereNormal);
+        if (!gl_FrontFacing) norm = -norm;
+    }
+    vec3 viewDir = normalize(uViewPos_PS.xyz - mv.vWorldPos);
+
+    // [S1] Microfacet parameters shared by every light in the kit, computed
+    // once per fragment instead of five times.
+    float aa = clamp(uMatRoughness() * uMatRoughness(), 0.04, 1.0);
+    float a2 = aa * aa;
+    float k  = (aa + 1.0) * (aa + 1.0) / 8.0;
+    vec3  F0 = mix(vec3(0.04), baseColor, uMatMetallic());
+    float oneMinusMetallic = 1.0 - uMatMetallic();
+
     vec3 totalDiffuse = vec3(0.0);
     vec3 totalSpecular = vec3(0.0);
-    lightContributionPBR(uLightDir.xyz,   norm, uKeyIntensity(),   uKeyColor.xyz,   viewDir, baseColor, totalDiffuse, totalSpecular);
-    lightContributionPBR(uLightFill.xyz,  norm, uFillIntensity(),  uFillColor.xyz,  viewDir, baseColor, totalDiffuse, totalSpecular);
-    lightContributionPBR(uLightBack1.xyz, norm, uBackIntensity(),  uBackColor.xyz,  viewDir, baseColor, totalDiffuse, totalSpecular);
-    lightContributionPBR(uLightBack2.xyz, norm, uBackIntensity(),  uBackColor.xyz,  viewDir, baseColor, totalDiffuse, totalSpecular);
-    lightContributionPBR(uLightHead.xyz,  norm, uHeadIntensity(),  uHeadColor.xyz,  viewDir, baseColor, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightDir.xyz,   norm, uKeyIntensity(),   uKeyColor.xyz,   viewDir, a2, k, F0, oneMinusMetallic, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightFill.xyz,  norm, uFillIntensity(),  uFillColor.xyz,  viewDir, a2, k, F0, oneMinusMetallic, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightBack1.xyz, norm, uBackIntensity(),  uBackColor.xyz,  viewDir, a2, k, F0, oneMinusMetallic, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightBack2.xyz, norm, uBackIntensity(),  uBackColor.xyz,  viewDir, a2, k, F0, oneMinusMetallic, totalDiffuse, totalSpecular);
+    lightContributionPBR(uLightHead.xyz,  norm, uHeadIntensity(),  uHeadColor.xyz,  viewDir, a2, k, F0, oneMinusMetallic, totalDiffuse, totalSpecular);
 
     float surfaceOpacity = uSurfaceColor_Op.w;
 
-    vec3 ambientComponent = baseColor * uMatAmbient();
-    vec3 diffuseComponent = totalDiffuse;
-    vec3 specularComponent = totalSpecular;
-
-    vec3 finalColor = ambientComponent + diffuseComponent + specularComponent;
+    // [S1] baseColor and the material scalars fold in exactly once, after the
+    // accumulated sums (algebraically identical to the previous per-light form).
+    vec3 finalColor = baseColor * uMatAmbient()
+                    + baseColor * totalDiffuse * uMatDiffuse()
+                    + totalSpecular * uMatSpecular();
     float pointOpacity = uPointClip.z;
     if (isPoint) {
         finalColor += baseColor * 0.15;

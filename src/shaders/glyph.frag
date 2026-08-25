@@ -43,7 +43,10 @@ void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
     float Gv = NdotV / (NdotV * (1.0 - k) + k);
     float G  = Gl * Gv;
     vec3  F0 = mix(vec3(0.04), baseColor, uMatMetallic());
-    vec3  F  = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+    // [S2] (1 - VdotH)^5 expanded: f5 = f^2 * f^2 * f
+    float f  = 1.0 - VdotH;
+    float f2 = f * f;
+    vec3  F  = F0 + (1.0 - F0) * f2 * f2 * f;
     float specFactor = D * G / (4.0 * NdotL * NdotV + 1e-4);
     specular += lightColor * F * specFactor * intensity * uMatSpecular();
     vec3 kD = (1.0 - F) * (1.0 - uMatMetallic());
@@ -56,7 +59,8 @@ void main() {
     vec3 L = normalize(uLightDir_ColorGB.xyz);
     vec3 color = vec3(uMeshExtent_MagTransform_ViewPosY_ColorR.w, uLightDir_ColorGB.w, uColorB_UseColormap.x);
     bool useColormap = uColorB_UseColormap.y > 0.5;
-    vec3 baseColor = useColormap ? texture(uColormapLUT, vMag).rgb : color;
+    // [S5] Explicit LOD skips implicit derivatives on the mipless 1D LUT.
+    vec3 baseColor = useColormap ? textureLod(uColormapLUT, vMag, 0.0).rgb : color;
     vec3 viewDir = normalize(uViewPos - vWorldPos);
 
     vec3 totalDiffuse = vec3(0.0);

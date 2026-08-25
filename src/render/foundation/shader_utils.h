@@ -2,6 +2,17 @@
 
 #include <glad/gl.h>
 #include <iostream>
+#include <string>
+
+// Inserts a shared GLSL snippet right after the #version line so consuming
+// fragment shaders keep their own version directive and uniform declarations.
+inline std::string injectPbrCommon(const char* fragSrc, const std::string& common) {
+    if (common.empty()) return std::string(fragSrc);
+    std::string src(fragSrc);
+    const size_t pos = src.find('\n');
+    src.insert(pos == std::string::npos ? 0 : pos + 1, common);
+    return src;
+}
 
 inline GLuint compileProgramWithGS(const char* vertSrc, const char* geoSrc,
                                    const char* fragSrc, const char* label) {

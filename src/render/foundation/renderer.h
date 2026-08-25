@@ -28,6 +28,7 @@
 #include <map>
 #include <thread>
 #include <memory>
+#include <cstddef>
 
 #include "core/mesh_loader.h"
 #include "render/overlays/gizmo.h"
@@ -84,6 +85,8 @@ struct ShaderSources {
     std::string volumeFrag;
     std::string volumeSliceVert;
     std::string volumeSliceFrag;
+    // Shared PBR chunk injected into mesh/depth_peel fragment shaders.
+    std::string pbrFragCommon;
 };
 
 // ---------------------------------------------------------------------------
@@ -303,6 +306,9 @@ struct MeshUBOData {
     glm::vec4 shadingMode;      // x = 0.0 smooth, 1.0 flat
 };
 static_assert(sizeof(MeshUBOData) % 16 == 0, "MeshUBOData must be std140-aligned");
+// Guards for partial-range glNamedBufferSubData updates of single members.
+static_assert(offsetof(MeshUBOData, meshColor_wire) == 144, "UBO offset drift");
+static_assert(offsetof(MeshUBOData, point_clip) == 176, "UBO offset drift");
 
 // CPU-side UBO layout matching the std140 GlyphUBO block in glyph.vert/frag.
 struct GlyphUBOData {

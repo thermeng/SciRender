@@ -190,6 +190,7 @@ qt_add_resources(SciRender "shaders"
     FILES
         src/shaders/mesh.vert
         src/shaders/mesh.frag
+        src/shaders/pbr_common.glsl
         src/shaders/mesh_clip.geo
         src/shaders/wire.vert
         src/shaders/wire.geo

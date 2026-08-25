@@ -8,7 +8,8 @@
 void MeshPass::init(const ShaderSources& sources) {
     if (sources.meshVert.empty() || sources.meshFrag.empty()) return;
 
-    shaderProgram.reset(compileProgram(sources.meshVert.c_str(), sources.meshFrag.c_str(), "Mesh"));
+    const std::string fragFull = injectPbrCommon(sources.meshFrag.c_str(), sources.pbrFragCommon);
+    shaderProgram.reset(compileProgram(sources.meshVert.c_str(), fragFull.c_str(), "Mesh"));
     if (shaderProgram.has()) {
         meshUboIndex = glGetUniformBlockIndex(shaderProgram, "MeshUBO");
         glUniformBlockBinding(shaderProgram, meshUboIndex, 0);
@@ -18,7 +19,7 @@ void MeshPass::init(const ShaderSources& sources) {
     if (!sources.meshClipGeo.empty()) {
         clipShaderProgram.reset(compileProgramWithGS(
             sources.meshVert.c_str(), sources.meshClipGeo.c_str(),
-            sources.meshFrag.c_str(), "MeshCrinkleClip"));
+            fragFull.c_str(), "MeshCrinkleClip"));
         if (clipShaderProgram.has()) {
             GLuint clipIdx = glGetUniformBlockIndex(clipShaderProgram, "MeshUBO");
             if (clipIdx != GL_INVALID_INDEX)
@@ -197,11 +198,14 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            // [S7a] Toggle only point_clip: 16-byte partial-range update
+            // instead of re-uploading the full 384-byte block twice per mesh.
+            constexpr GLintptr kPointClipOff = GLintptr(offsetof(MeshUBOData, point_clip));
             ubo.point_clip.x = 1.0f;
-            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+            glNamedBufferSubData(meshUbo, kPointClipOff, sizeof(glm::vec4), &ubo.point_clip);
             glDrawArrays(GL_POINTS, 0, drawVerts[di]);
             ubo.point_clip.x = 0.0f;
-            glNamedBufferSubData(meshUbo, 0, sizeof(MeshUBOData), &ubo);
+            glNamedBufferSubData(meshUbo, kPointClipOff, sizeof(glm::vec4), &ubo.point_clip);
             glDisable(GL_BLEND);
 
             if (pointSizeWas) glEnable(GL_PROGRAM_POINT_SIZE); else glDisable(GL_PROGRAM_POINT_SIZE);
