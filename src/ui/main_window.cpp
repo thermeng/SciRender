@@ -91,7 +91,7 @@ struct SliderRow {
     std::function<void(double)> callback;
 };
 
-static SliderRow createLightSlider(const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb) {
+static SliderRow createLightSlider(const QString& label, double value, double from, double to, double step, int decimals, std::function<void(double)> cb, const QString& labelObjName = {}) {
     SliderRow row;
     auto* widget = new QWidget;
     auto* layout = new QHBoxLayout(widget);
@@ -99,6 +99,8 @@ static SliderRow createLightSlider(const QString& label, double value, double fr
     layout->setSpacing(6);
 
     auto* lbl = new QLabel(label);
+    if (!labelObjName.isEmpty()) lbl->setObjectName(labelObjName);
+    lbl->setFixedWidth(kLabelWidth);
     lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     lbl->setWordWrap(false);
     layout->addWidget(lbl);
@@ -1469,38 +1471,59 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(showCb, &QCheckBox::toggled, slUi.optionsGroup, &QWidget::setEnabled);
     slUi.optionsGroup->setEnabled(m_settings->getShowStreamlines());
 
-    m_streamlineCombo = slUi.streamlineCombo;
+    auto* tabs = slUi.slTabs;
+
+    auto addCtlRow = [](QVBoxLayout* lay, const QString& labelObjName,
+                        const QString& text, QWidget* ctl, int ctlStretch = 0) {
+        auto* row = new QWidget;
+        auto* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(6);
+        auto* lbl = new QLabel(text);
+        lbl->setObjectName(labelObjName);
+        lbl->setFixedWidth(kLabelWidth);
+        lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        rowLayout->addWidget(lbl);
+        rowLayout->addWidget(ctl, ctlStretch);
+        lay->addWidget(row);
+    };
+    auto addSliderRow = [this](QVBoxLayout* lay, const QString& labelObjName,
+                               const QString& text, double value, double from,
+                               double to, int decimals,
+                               void (RenderSettings::*setter)(double)) {
+        auto row = createLightSlider(text, value, from, to, 0.001, decimals,
+                                     [this, setter](double v) { (m_settings->*setter)(v); },
+                                     labelObjName);
+        lay->addWidget(row.slider->parentWidget());
+    };
+
+    // Tab: Flow
+
+    auto* flowTab = new QWidget;
+    auto* flowLay = new QVBoxLayout(flowTab);
+    flowLay->setContentsMargins(4, 4, 4, 4);
+    flowLay->setSpacing(4);
+
+    m_streamlineCombo = new QComboBox;
     m_streamlineCombo->addItems(m_settings->getAvailableVectors());
     m_streamlineCombo->setCurrentText(m_settings->getStreamlineVectorField());
     m_streamlineCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
     connect(m_streamlineCombo, &QComboBox::activated, m_settings, [this](int) {
         m_settings->setStreamlineVectorField(m_streamlineCombo->currentText());
     });
+    flowLay->addWidget(m_streamlineCombo);
 
-    {
-        auto* slider = slUi.stepSizeSlider;
-        auto* valueLabel = slUi.stepSizeValue;
-        slider->setRange(static_cast<int>(0.005 * 1000), static_cast<int>(0.1 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineStepSize() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 3));
-            m_settings->setStreamlineStepSize(v);
-        });
-    }
+    addSliderRow(flowLay, "stepSizeLabel", "Step Size",
+                 m_settings->getStreamlineStepSize(), 0.005, 0.1, 3,
+                 &RenderSettings::setStreamlineStepSize);
 
-    auto* maxStepsSpin = slUi.maxStepsSpin;
+    auto* maxStepsSpin = new QSpinBox;
     maxStepsSpin->setRange(10, 500);
     maxStepsSpin->setValue(m_settings->getStreamlineMaxSteps());
     connect(maxStepsSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineMaxSteps);
+    addCtlRow(flowLay, "maxStepsLabel", "Max Steps", maxStepsSpin, 1);
 
-    auto* integrateBtn = slUi.integrateBtn;
-    connect(integrateBtn, &QPushButton::clicked, this, [this]() {
-        m_settings->backend()->markStreamlineDirty();
-        m_viewport->update();
-    });
-
-    auto* directionCombo = slUi.streamlineDirectionCombo;
+    auto* directionCombo = new QComboBox;
     directionCombo->addItems({"Forward", "Backward", "Both"});
     directionCombo->setCurrentText(m_settings->getStreamlineDirection());
     directionCombo->setFixedWidth(100);
@@ -1508,37 +1531,44 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(directionCombo, &QComboBox::activated, m_settings, [this, directionCombo](int) {
         m_settings->setStreamlineDirection(directionCombo->currentText());
     });
+    addCtlRow(flowLay, "directionLabel", "Direction", directionCombo);
 
-    {
-        auto* btn = createSwatchButton("Streamline", m_settings->getStreamlineColorQml(), nullptr);
-        connect(btn, &QPushButton::clicked, this, [this, btn]() {
-            if (!m_streamlineColorDialog) {
-                m_streamlineColorDialog = new QColorDialog(m_settings->getStreamlineColorQml(), this);
-                connect(m_streamlineColorDialog, &QColorDialog::colorSelected, m_settings, &RenderSettings::setStreamlineColorQml);
-                connect(m_streamlineColorDialog, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
-                    QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
-                });
-            }
-            m_streamlineColorDialog->open();
-        });
-        content->layout()->replaceWidget(slUi.streamlineColorBtn, btn);
-        delete slUi.streamlineColorBtn;
-    }
+    auto* arrowsCb = new QCheckBox("Show Direction");
+    arrowsCb->setChecked(m_settings->getShowStreamlineArrows());
+    connect(arrowsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowStreamlineArrows);
+    flowLay->addWidget(arrowsCb);
 
-    auto* slUseCmapCb = slUi.slUseCmapCb;
-    slUseCmapCb->setChecked(m_settings->getStreamlineUseColormap());
-    connect(slUseCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineUseColormap);
+    auto* arrowSpacingSpin = new QDoubleSpinBox;
+    arrowSpacingSpin->setToolTip("Distance between direction arrows as a fraction of the dataset extent");
+    arrowSpacingSpin->setRange(0.02, 0.50);
+    arrowSpacingSpin->setDecimals(2);
+    arrowSpacingSpin->setSingleStep(0.01);
+    arrowSpacingSpin->setValue(m_settings->getStreamlineArrowSpacingFrac());
+    connect(arrowSpacingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            m_settings, &RenderSettings::setStreamlineArrowSpacingFrac);
+    addCtlRow(flowLay, "arrowSpacingLabel", "Arrow spacing", arrowSpacingSpin, 1);
 
-    auto* slCmapCombo = buildColormapCombo(m_settings->getStreamlineColormapChoice(),
-        [this](int i) { m_settings->setStreamlineColormapChoice(i); });
-    slUi.optionsGroup->layout()->replaceWidget(slUi.slCmapCombo, slCmapCombo);
-    delete slUi.slCmapCombo;
+    addSliderRow(flowLay, "arrowSizeLabel", "Arrow Size",
+                 m_settings->getStreamlineArrowSize(), 0.01, 0.2, 2,
+                 &RenderSettings::setStreamlineArrowSize);
 
-    auto* slRevCb = slUi.slRevCb;
-    slRevCb->setChecked(m_settings->getStreamlineColormapReversed());
-    connect(slRevCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineColormapReversed);
+    auto* integrateBtn = new QPushButton("Integrate");
+    connect(integrateBtn, &QPushButton::clicked, this, [this]() {
+        m_settings->backend()->markStreamlineDirty();
+        m_viewport->update();
+    });
+    flowLay->addWidget(integrateBtn);
+    flowLay->addStretch();
+    tabs->addTab(flowTab, tr("Flow"));
 
-    auto* seedModeCombo = slUi.seedModeCombo;
+    // Tab: Seeds
+
+    auto* seedsTab = new QWidget;
+    auto* seedsLay = new QVBoxLayout(seedsTab);
+    seedsLay->setContentsMargins(4, 4, 4, 4);
+    seedsLay->setSpacing(4);
+
+    auto* seedModeCombo = new QComboBox;
     seedModeCombo->addItems({"Volume", "Surface", "Plane XY", "Plane XZ", "Plane YZ"});
     const QStringList modeKeys = {"Volume", "Surface", "PlaneXY", "PlaneXZ", "PlaneYZ"};
     seedModeCombo->setCurrentIndex(modeKeys.indexOf(m_settings->getSeedMode()));
@@ -1546,206 +1576,156 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(seedModeCombo, &QComboBox::activated, m_settings, [this, modeKeys](int idx) {
         m_settings->setSeedMode(modeKeys[idx]);
     });
+    seedsLay->addWidget(seedModeCombo);
 
-    auto* planePosSlider = slUi.planePosSlider;
-    planePosSlider->setRange(0, 1000);
-    planePosSlider->setValue(static_cast<int>(m_settings->getSeedPlanePos() * 1000));
-    connect(planePosSlider, &QSlider::valueChanged, m_settings, [this](int v) { m_settings->setSeedPlanePos(v / 1000.0); });
+    addSliderRow(seedsLay, "planePosLabel", "Plane Position",
+                 m_settings->getSeedPlanePos(), 0.0, 1.0, 2,
+                 &RenderSettings::setSeedPlanePos);
 
-    auto* seedsUSpin = slUi.seedsUSpin;
+    auto* seedsUSpin = new QSpinBox;
     seedsUSpin->setRange(1, 200);
     seedsUSpin->setValue(m_settings->getSeedPlaneCountU());
     connect(seedsUSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setSeedPlaneCountU);
+    addCtlRow(seedsLay, "seedsULabel", "Seeds U", seedsUSpin, 1);
 
-    auto* seedsVSpin = slUi.seedsVSpin;
+    auto* seedsVSpin = new QSpinBox;
     seedsVSpin->setRange(1, 200);
     seedsVSpin->setValue(m_settings->getSeedPlaneCountV());
     connect(seedsVSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setSeedPlaneCountV);
+    addCtlRow(seedsLay, "seedsVLabel", "Seeds V", seedsVSpin, 1);
 
-    {
-        auto* slider = slUi.jitterSlider;
-        auto* valueLabel = slUi.jitterValue;
-        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getSeedJitter() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 2));
-            m_settings->setSeedJitter(v);
-        });
-    }
+    auto updateSeedGridRows = [seedModeCombo, seedsUSpin, seedsVSpin]() {
+        const bool planeSeeds = seedModeCombo->currentText().startsWith("Plane");
+        seedsUSpin->setEnabled(planeSeeds);
+        seedsVSpin->setEnabled(planeSeeds);
+    };
+    connect(seedModeCombo, &QComboBox::activated, seedsUSpin, updateSeedGridRows);
+    updateSeedGridRows();
 
-    auto* showSeedsCb = slUi.showSeedsCb;
+    addSliderRow(seedsLay, "jitterLabel", "Jitter",
+                 m_settings->getSeedJitter(), 0.0, 1.0, 2,
+                 &RenderSettings::setSeedJitter);
+
+    auto* showSeedsCb = new QCheckBox("Show seeds");
     showSeedsCb->setChecked(m_settings->getShowSeeds());
     connect(showSeedsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowSeeds);
+    seedsLay->addWidget(showSeedsCb);
 
-    {
-        auto* slider = slUi.seedSizeSlider;
-        auto* valueLabel = slUi.seedSizeValue;
-        slider->setRange(static_cast<int>(1 * 1000), static_cast<int>(20 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getSeedPointSize() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 1));
-            m_settings->setSeedPointSize(v);
-        });
-    }
+    addSliderRow(seedsLay, "seedSizeLabel", "Seed Size",
+                 m_settings->getSeedPointSize(), 1.0, 20.0, 1,
+                 &RenderSettings::setSeedPointSize);
 
-    {
-        auto* btn = createSwatchButton("Seed color", m_settings->getSeedPointColorQml(), nullptr);
-        connect(btn, &QPushButton::clicked, this, [this, btn]() {
-            if (!m_seedColorDialog) {
-                m_seedColorDialog = new QColorDialog(m_settings->getSeedPointColorQml(), this);
-                connect(m_seedColorDialog, &QColorDialog::colorSelected, m_settings, &RenderSettings::setSeedPointColorQml);
-                connect(m_seedColorDialog, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
-                    QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
-                });
-            }
-            m_seedColorDialog->open();
-        });
-        content->layout()->replaceWidget(slUi.seedColorBtn, btn);
-        delete slUi.seedColorBtn;
-    }
+    auto* seedBtn = createSwatchButton("Seed Color", m_settings->getSeedPointColorQml(), nullptr);
+    connect(seedBtn, &QPushButton::clicked, this, [this, seedBtn]() {
+        if (!m_seedColorDialog) {
+            m_seedColorDialog = new QColorDialog(m_settings->getSeedPointColorQml(), this);
+            connect(m_seedColorDialog, &QColorDialog::colorSelected, m_settings, &RenderSettings::setSeedPointColorQml);
+            connect(m_seedColorDialog, &QColorDialog::colorSelected, seedBtn, [seedBtn](const QColor& c) {
+                QPixmap pix(14, 14); pix.fill(c); seedBtn->setIcon(pix);
+            });
+        }
+        m_seedColorDialog->open();
+    });
+    seedsLay->addWidget(seedBtn);
+    seedsLay->addStretch();
+    tabs->addTab(seedsTab, tr("Seeds"));
 
-    {
-        auto* slider = slUi.opacitySlider;
-        auto* valueLabel = slUi.opacityValue;
-        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineOpacity() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 2));
-            m_settings->setStreamlineOpacity(v);
-        });
-    }
-    {
-        auto* slider = slUi.ribbonWidthSlider;
-        auto* valueLabel = slUi.ribbonWidthValue;
-        slider->setRange(static_cast<int>(0.001 * 1000), static_cast<int>(0.05 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineRibbonWidth() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 3));
-            m_settings->setStreamlineRibbonWidth(v);
-        });
-    }
-    {
-        auto* slider = slUi.taperFactorSlider;
-        auto* valueLabel = slUi.taperFactorValue;
-        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(0.8 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineTaperFactor() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 2));
-            m_settings->setStreamlineTaperFactor(v);
-        });
-    }
+    // Tab: Look
 
-    {
-        auto* slider = slUi.streamlineAmbientSlider;
-        auto* valueLabel = slUi.streamlineAmbientValue;
-        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineAmbient() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 2));
-            m_settings->setStreamlineAmbient(v);
-        });
-    }
-    {
-        auto* slider = slUi.streamlineDiffuseSlider;
-        auto* valueLabel = slUi.streamlineDiffuseValue;
-        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineDiffuse() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 2));
-            m_settings->setStreamlineDiffuse(v);
-        });
-    }
-    {
-        auto* slider = slUi.streamlineSpecularSlider;
-        auto* valueLabel = slUi.streamlineSpecularValue;
-        slider->setRange(static_cast<int>(0 * 1000), static_cast<int>(1 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineSpecular() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 2));
-            m_settings->setStreamlineSpecular(v);
-        });
-    }
+    auto* lookTab = new QWidget;
+    auto* lookLay = new QVBoxLayout(lookTab);
+    lookLay->setContentsMargins(4, 4, 4, 4);
+    lookLay->setSpacing(4);
 
-    auto* specPowerSpin = slUi.specPowerSpin;
+    auto* streamlineBtn = createSwatchButton("Line color", m_settings->getStreamlineColorQml(), nullptr);
+    connect(streamlineBtn, &QPushButton::clicked, this, [this, streamlineBtn]() {
+        if (!m_streamlineColorDialog) {
+            m_streamlineColorDialog = new QColorDialog(m_settings->getStreamlineColorQml(), this);
+            connect(m_streamlineColorDialog, &QColorDialog::colorSelected, m_settings, &RenderSettings::setStreamlineColorQml);
+            connect(m_streamlineColorDialog, &QColorDialog::colorSelected, streamlineBtn, [streamlineBtn](const QColor& c) {
+                QPixmap pix(14, 14); pix.fill(c); streamlineBtn->setIcon(pix);
+            });
+        }
+        m_streamlineColorDialog->open();
+    });
+    lookLay->addWidget(streamlineBtn);
+
+    auto* slUseCmapCb = new QCheckBox("Color by Magnitude");
+    slUseCmapCb->setChecked(m_settings->getStreamlineUseColormap());
+    connect(slUseCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineUseColormap);
+    lookLay->addWidget(slUseCmapCb);
+
+    auto* slCmapCombo = buildColormapCombo(m_settings->getStreamlineColormapChoice(),
+        [this](int i) { m_settings->setStreamlineColormapChoice(i); });
+    lookLay->addWidget(slCmapCombo);
+
+    auto* slRevCb = new QCheckBox("Reverse Palette");
+    slRevCb->setChecked(m_settings->getStreamlineColormapReversed());
+    connect(slRevCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineColormapReversed);
+    lookLay->addWidget(slRevCb);
+
+    addSliderRow(lookLay, "opacityLabel", "Opacity",
+                 m_settings->getStreamlineOpacity(), 0.0, 1.0, 2,
+                 &RenderSettings::setStreamlineOpacity);
+    addSliderRow(lookLay, "ribbonWidthLabel", "Ribbon Width",
+                 m_settings->getStreamlineRibbonWidth(), 0.001, 0.05, 3,
+                 &RenderSettings::setStreamlineRibbonWidth);
+    addSliderRow(lookLay, "taperFactorLabel", "Taper Factor",
+                 m_settings->getStreamlineTaperFactor(), 0.0, 0.8, 2,
+                 &RenderSettings::setStreamlineTaperFactor);
+
+    auto* shadingHeader = new QLabel("Shading");
+    shadingHeader->setObjectName("slShadingHeader");
+    lookLay->addWidget(shadingHeader);
+
+    addSliderRow(lookLay, "streamlineAmbientLabel", "Ambient",
+                 m_settings->getStreamlineAmbient(), 0.0, 1.0, 2,
+                 &RenderSettings::setStreamlineAmbient);
+    addSliderRow(lookLay, "streamlineDiffuseLabel", "Diffuse",
+                 m_settings->getStreamlineDiffuse(), 0.0, 1.0, 2,
+                 &RenderSettings::setStreamlineDiffuse);
+    addSliderRow(lookLay, "streamlineSpecularLabel", "Specular",
+                 m_settings->getStreamlineSpecular(), 0.0, 1.0, 2,
+                 &RenderSettings::setStreamlineSpecular);
+
+    auto* specPowerSpin = new QSpinBox;
     specPowerSpin->setRange(2, 128);
     specPowerSpin->setValue(m_settings->getStreamlineSpecularPower());
     connect(specPowerSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineSpecularPower);
+    addCtlRow(lookLay, "specPowerLabel", "Specular Power", specPowerSpin, 1);
+    lookLay->addStretch();
+    tabs->addTab(lookTab, tr("Look"));
 
-    auto* arrowsCb = slUi.arrowsCb;
-    arrowsCb->setChecked(m_settings->getShowStreamlineArrows());
-    connect(arrowsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowStreamlineArrows);
+    // Animate section (below the tabs so the tab bar stays arrow-free)
 
-    auto* arrowSpacingSpin = slUi.arrowSpacingSpin;
-    arrowSpacingSpin->setRange(0.02, 0.50);
-    arrowSpacingSpin->setDecimals(2);
-    arrowSpacingSpin->setSingleStep(0.01);
-    arrowSpacingSpin->setValue(m_settings->getStreamlineArrowSpacingFrac());
-    connect(arrowSpacingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            m_settings, &RenderSettings::setStreamlineArrowSpacingFrac);
+    auto* optionsLay = qobject_cast<QVBoxLayout*>(slUi.optionsGroup->layout());
 
-    {
-        auto* slider = slUi.arrowSizeSlider;
-        auto* valueLabel = slUi.arrowSizeValue;
-        slider->setRange(static_cast<int>(0.01 * 1000), static_cast<int>(0.2 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getStreamlineArrowSize() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 2));
-            m_settings->setStreamlineArrowSize(v);
-        });
-    }
-
-    auto* particlesCb = slUi.particlesCb;
+    auto* particlesCb = new QCheckBox("Show Particles");
     particlesCb->setChecked(m_settings->getShowParticles());
     connect(particlesCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowParticles);
+    optionsLay->addWidget(particlesCb);
 
     {
-        auto* slider = slUi.particleCountSlider;
-        auto* valueLabel = slUi.particleCountValue;
-        slider->setRange(static_cast<int>(10 * 1000), static_cast<int>(5000 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getParticleCount() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 0));
-            m_settings->setParticleCount(static_cast<int>(v));
-        });
+        auto row = createLightSlider("Particle Count", m_settings->getParticleCount(),
+                                     10.0, 5000.0, 1.0, 0,
+                                     [this](double v) { m_settings->setParticleCount(static_cast<int>(v)); },
+                                     "particleCountLabel");
+        optionsLay->addWidget(row.slider->parentWidget());
     }
-    {
-        auto* slider = slUi.particleSpeedSlider;
-        auto* valueLabel = slUi.particleSpeedValue;
-        slider->setRange(static_cast<int>(0.1 * 1000), static_cast<int>(100 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getParticleSpeed() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 1));
-            m_settings->setParticleSpeed(v);
-        });
-    }
-    {
-        auto* slider = slUi.particleSizeSlider;
-        auto* valueLabel = slUi.particleSizeValue;
-        slider->setRange(static_cast<int>(1 * 1000), static_cast<int>(20 * 1000));
-        slider->setValue(static_cast<int>(m_settings->getParticleSize() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 1));
-            m_settings->setParticleSize(v);
-        });
-    }
+    addSliderRow(optionsLay, "particleSpeedLabel", "Particle Speed",
+                 m_settings->getParticleSpeed(), 0.1, 100.0, 1,
+                 &RenderSettings::setParticleSpeed);
+    addSliderRow(optionsLay, "particleSizeLabel", "Particle Size",
+                 m_settings->getParticleSize(), 1.0, 20.0, 1,
+                 &RenderSettings::setParticleSize);
 
-    auto* particleAdditiveCb = slUi.particleAdditiveCb;
+    auto* particleAdditiveCb = new QCheckBox("Additive Glow");
     particleAdditiveCb->setChecked(m_settings->getParticleAdditive());
     connect(particleAdditiveCb, &QCheckBox::toggled, m_settings, &RenderSettings::setParticleAdditive);
+    optionsLay->addWidget(particleAdditiveCb);
 
-    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+    tabs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+    optionsLay->addStretch();
 
     scroll->setWidget(content);
 
@@ -2178,8 +2158,8 @@ QWidget* MainWindow::buildVolumePage() {
     // Full-volume-rendering-only controls: greyed when "Enable Volume Rendering"
     // is off, but the slice-plane controls above stay enabled whenever volume
     // data exists (see applyVolumeControlGating).
-    m_volumeRenderCtrls << volumeUi.stepHeader << volumeUi.stepSlider << volumeUi.stepValue
-                        << volumeUi.opacityHeader << volumeUi.opacitySlider << volumeUi.opacityValue
+    m_volumeRenderCtrls << volumeUi.stepLabel << volumeUi.stepSlider << volumeUi.stepValue
+                        << volumeUi.opacityLabel << volumeUi.opacitySlider << volumeUi.opacityValue
                         << volumeUi.volumeWireframeCb;
     applyVolumeControlGating();
 
