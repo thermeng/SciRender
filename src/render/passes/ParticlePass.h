@@ -16,6 +16,7 @@ public:
     void init(const ShaderSources& sources);
     void draw(const RenderRenderState& state,
               float frameDt,
+              const glm::mat4& mvp,
               StreamlineSet& streamlines,
               const ColormapManager& colormap);
     void shutdown();
@@ -27,6 +28,8 @@ private:
     GlBuffer particleVbo;
     int m_particleVertexCount = 0;
     GLint particleColorLoc = -1;
+    GLint particleMvpLoc = -1;
+    GLint particleSizeRefWLoc = -1;
     GLint particleLutLoc = -1;
     GLint particlePointSizeLoc = -1;
     GLint particleUseColormapLoc = -1;

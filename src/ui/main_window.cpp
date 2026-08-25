@@ -1741,6 +1741,10 @@ QWidget* MainWindow::buildStreamlinesPage() {
         });
     }
 
+    auto* particleAdditiveCb = slUi.particleAdditiveCb;
+    particleAdditiveCb->setChecked(m_settings->getParticleAdditive());
+    connect(particleAdditiveCb, &QCheckBox::toggled, m_settings, &RenderSettings::setParticleAdditive);
+
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);

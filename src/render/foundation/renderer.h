@@ -235,6 +235,7 @@ struct RenderRenderState {
     int particleCount = 500;
     float particleSpeed = 1.0f;
     float particleSize = 4.0f;
+    bool particleAdditive = true;   // luminous additive blending for particles
 
     // Volume rendering
     bool showVolume = false;

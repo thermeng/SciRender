@@ -238,6 +238,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int particleCount READ getParticleCount WRITE setParticleCount NOTIFY viewChanged)
     Q_PROPERTY(double particleSpeed READ getParticleSpeed WRITE setParticleSpeed NOTIFY viewChanged)
     Q_PROPERTY(double particleSize READ getParticleSize WRITE setParticleSize NOTIFY viewChanged)
+    Q_PROPERTY(bool particleAdditive READ getParticleAdditive WRITE setParticleAdditive NOTIFY viewChanged)
     Q_PROPERTY(bool showVolume READ getShowVolume WRITE setShowVolume NOTIFY viewChanged)
     Q_PROPERTY(bool volumeUseColormap READ getVolumeUseColormap WRITE setVolumeUseColormap NOTIFY viewChanged)
     Q_PROPERTY(int volumeColormapChoice READ getVolumeColormapChoice WRITE setVolumeColormapChoice NOTIFY viewChanged)
@@ -497,6 +498,8 @@ public:
     void setParticleCount(int v) { if (m_state.particleCount != v) { m_state.particleCount = v; m_renderer.markParticleCountDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP_CAST(getParticleSpeed, setParticleSpeed, float, m_state.particleSpeed, Display)
     STATE_PROP_CAST(getParticleSize, setParticleSize, float, m_state.particleSize, Display)
+    bool getParticleAdditive() const { return m_state.particleAdditive; }
+    void setParticleAdditive(bool v) { if (m_state.particleAdditive != v) { m_state.particleAdditive = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getShowVolume, setShowVolume, bool, m_state.showVolume, Display)
     STATE_PROP(getVolumeUseColormap, setVolumeUseColormap, bool, m_state.volumeUseColormap, Colormap)
     STATE_PROP(getVolumeColormapChoice, setVolumeColormapChoice, int, m_state.volumeColormapChoice, Colormap)
