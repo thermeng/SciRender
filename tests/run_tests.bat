@@ -59,6 +59,21 @@ echo [run_tests] running pvd_test...
 pvd_test.exe > last_pvd.log 2>&1
 type last_pvd.log
 if errorlevel 1 set FAIL=1
+:: --- animation colormap-range accumulator rules ---
+echo [run_tests] building anim_range_test...
+%GPP% -std=c++20 -O2 -g anim_range_test.cpp -o anim_range_test.exe %INC%
+if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
+echo [run_tests] running anim_range_test...
+anim_range_test.exe
+if errorlevel 1 set FAIL=1
+:: --- vector-field name dedup rules ---
+echo [run_tests] building field_names_test...
+%GPP% -std=c++20 -O2 -g field_names_test.cpp ..\src\core\FieldResolver.cpp ^
+  -o field_names_test.exe %INC%
+if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
+echo [run_tests] running field_names_test...
+field_names_test.exe
+if errorlevel 1 set FAIL=1
 if %FAIL% NEQ 0 ( echo [run_tests] SOME TESTS FAILED & exit /b 1 )
 echo [run_tests] ALL TESTS PASSED
 if not defined CI pause
