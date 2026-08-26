@@ -1332,6 +1332,69 @@ QWidget* MainWindow::buildScalarPage() {
         refreshScalarFilterRange();
     });
 
+    // ---- Fixed colormap range ----
+    {
+        auto* colorRangeCb = scalarUi.colorRangeCb;
+        m_colorRangeCb = colorRangeCb;
+        colorRangeCb->setChecked(m_settings->getColorRangeOverrideEnabled());
+        connect(colorRangeCb, &QCheckBox::toggled, m_settings, &RenderSettings::setColorRangeOverrideEnabled);
+        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags) {
+            if (!m_colorRangeCb) return;
+            const bool en = m_settings->getColorRangeOverrideEnabled();
+            m_colorRangeCb->blockSignals(true);
+            m_colorRangeCb->setChecked(en);
+            m_colorRangeCb->blockSignals(false);
+            m_colorLoSlider->setEnabled(en);
+            m_colorHiSlider->setEnabled(en);
+            m_colorLoField->setEnabled(en);
+            m_colorHiField->setEnabled(en);
+        });
+        const bool crInit = m_settings->getColorRangeOverrideEnabled();
+        scalarUi.colorLoSlider->setEnabled(crInit);
+        scalarUi.colorHiSlider->setEnabled(crInit);
+        scalarUi.colorLoField->setEnabled(crInit);
+        scalarUi.colorHiField->setEnabled(crInit);
+    }
+    {
+        auto* slider = scalarUi.colorLoSlider;
+        auto* field = scalarUi.colorLoField;
+        m_colorLoSlider = slider;
+        m_colorLoField = field;
+        connect(slider, &QSlider::valueChanged, this, [field, this](int raw) {
+            double v = raw / 1000.0;
+            field->setText(QString::number(v, 'f', 3));
+            m_settings->setColorRangeLo(v);
+        });
+        connect(field, &QLineEdit::editingFinished, this, [field, slider, this]() {
+            bool ok = false;
+            double v = field->text().toDouble(&ok);
+            if (!ok) v = m_settings->getColorRangeLo();
+            v = qBound(m_settings->getDataScalarMinQml(), v, static_cast<double>(m_settings->getColorRangeHi()));
+            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
+            m_settings->setColorRangeLo(v);
+        });
+    }
+    {
+        auto* slider = scalarUi.colorHiSlider;
+        auto* field = scalarUi.colorHiField;
+        m_colorHiSlider = slider;
+        m_colorHiField = field;
+        connect(slider, &QSlider::valueChanged, this, [field, this](int raw) {
+            double v = raw / 1000.0;
+            field->setText(QString::number(v, 'f', 3));
+            m_settings->setColorRangeHi(v);
+        });
+        connect(field, &QLineEdit::editingFinished, this, [field, slider, this]() {
+            bool ok = false;
+            double v = field->text().toDouble(&ok);
+            if (!ok) v = m_settings->getColorRangeHi();
+            v = qBound(static_cast<double>(m_settings->getColorRangeLo()), v, m_settings->getDataScalarMaxQml());
+            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
+            m_settings->setColorRangeHi(v);
+        });
+    }
+    refreshColorRangeBounds();
+
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);
@@ -2283,6 +2346,24 @@ void MainWindow::refreshScalarFilterRange() {
     applyOne(m_filterMaxSlider, m_filterMaxField, m_settings->getFilterMax());
 }
 
+// Slider bounds + displayed values for the fixed colormap range; follows the
+// data range like the filter controls so a new dataset rescales the widgets.
+void MainWindow::refreshColorRangeBounds() {
+    const double minVal = m_settings->getDataScalarMinQml();
+    const double maxVal = m_settings->getDataScalarMaxQml();
+    auto applyOne = [minVal, maxVal](QSlider* slider, QLineEdit* field, double v) {
+        if (!slider || !field) return;
+        slider->setRange(static_cast<int>(std::lround(minVal * 1000.0)), static_cast<int>(std::lround(maxVal * 1000.0)));
+        int vi = static_cast<int>(std::lround(v * 1000.0));
+        slider->blockSignals(true);
+        slider->setValue(vi);
+        slider->blockSignals(false);
+        field->setText(QString::number(v, 'f', 3));
+    };
+    applyOne(m_colorLoSlider, m_colorLoField, m_settings->getColorRangeLo());
+    applyOne(m_colorHiSlider, m_colorHiField, m_settings->getColorRangeHi());
+}
+
 
 // Sidebar section switching
 
@@ -2625,6 +2706,7 @@ void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateQuickBarVisibility);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshSlicingPageBounds);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshScalarFilterRange);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshColorRangeBounds);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this]() {
         const bool hasVectors = m_settings->hasMeshVectors();
         const bool hasCellVectors = m_settings->hasMeshCellVectors();

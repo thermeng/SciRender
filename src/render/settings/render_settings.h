@@ -208,6 +208,9 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float filterMin READ getFilterMin WRITE setFilterMin NOTIFY viewChanged)
     Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
     Q_PROPERTY(bool filterEnabled READ getFilterEnabled WRITE setFilterEnabled NOTIFY viewChanged)
+    Q_PROPERTY(bool colorRangeOverrideEnabled READ getColorRangeOverrideEnabled WRITE setColorRangeOverrideEnabled NOTIFY viewChanged)
+    Q_PROPERTY(float colorRangeLo READ getColorRangeLo WRITE setColorRangeLo NOTIFY viewChanged)
+    Q_PROPERTY(float colorRangeHi READ getColorRangeHi WRITE setColorRangeHi NOTIFY viewChanged)
 
     Q_PROPERTY(bool showStreamlines READ getShowStreamlines WRITE setShowStreamlines NOTIFY viewChanged)
     Q_PROPERTY(QString streamlineVectorField READ getStreamlineVectorField WRITE setStreamlineVectorField NOTIFY meshDataUpdated)
@@ -628,6 +631,20 @@ public:
     void setFilterMax(float v);
     bool getFilterEnabled() const { return m_state.filterEnabled; }
     void setFilterEnabled(bool v);
+
+    // Fixed custom colormap range (surface/point scalar coloring). Values
+    // outside [lo, hi] clamp to the LUT ends. Setters clamp into the current
+    // data range and keep lo <= hi.
+    bool getColorRangeOverrideEnabled() const { return m_state.colorRangeOverrideEnabled; }
+    void setColorRangeOverrideEnabled(bool v);
+    float getColorRangeLo() const { return m_state.colorRangeLo; }
+    void setColorRangeLo(float v);
+    float getColorRangeHi() const { return m_state.colorRangeHi; }
+    void setColorRangeHi(float v);
+    // Disable the override and snap lo/hi to a data range — used on mesh load /
+    // field switch so a stale range never colors a new field.
+    void resetColorRangeOverride();                       // snap to current data range
+    void resetColorRangeOverride(float lo, float hi);     // snap to explicit values
 
     // Animation colormap scaling: true = whole-sequence range, false = per-frame.
     bool getAnimScaleGlobal() const { return m_animRange.global; }

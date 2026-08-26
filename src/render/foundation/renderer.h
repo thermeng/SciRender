@@ -159,6 +159,18 @@ struct RenderRenderState {
     float filterMin = 0.0f;
     float filterMax = 1.0f;
     bool filterEnabled = false;
+    // ponytail: fixed custom colormap range — when enabled, surface/point
+    // scalar->color mapping uses [colorRangeLo, colorRangeHi] and values
+    // outside clamp to the LUT ends (shader already clamps t). Auto-range
+    // tracking (scalarMin/Max) is untouched; the override applies only at
+    // UBO-fill + colorbar read time.
+    float colorRangeLo = 0.0f;
+    float colorRangeHi = 1.0f;
+    bool colorRangeOverrideEnabled = false;
+    // Effective scalar->color mapping range: fixed override when enabled,
+    // otherwise the auto-tracked data range.
+    float colorMapMin() const { return colorRangeOverrideEnabled ? colorRangeLo : scalarMin; }
+    float colorMapMax() const { return colorRangeOverrideEnabled ? colorRangeHi : scalarMax; }
     bool showScalarColorbar = true;
     bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
     int colorbarTicks = 6;
