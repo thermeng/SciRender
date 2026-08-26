@@ -20,11 +20,14 @@
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
 #include "core/Camera.h"
+#include "core/camera_math.h"
 #include "core/isosurface.h"
 #include "render/settings/isosurface_controller.h"
 #include "render/settings/animation_controller.h"
 #include "render/settings/StateStore.h"
 #include "core/FieldResolver.h"
+
+#include <QElapsedTimer>
 
 class AnimationExporter;
 
@@ -374,6 +377,7 @@ public slots:
     void openRecent(const QString& filePath);
     void clearMeshes();
     void resetCamera();
+    void resetCameraInstant();   // no animation — used when the data itself changed (mesh load)
     void snapToOrthoView(int axis);
     Q_INVOKABLE void requestScreenshot(const QString& path);
     void snapToAxisView(int axis, bool flip);
@@ -403,11 +407,12 @@ public slots:
 
 public:
     // VTK Camera forwarders (QML-invokable). Mutate the GUI-side Camera; the
-    // next synchronize() copies it into the render-thread snapshot.
-    Q_INVOKABLE void azimuth(double angle) { m_state.camera.azimuth(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
-    Q_INVOKABLE void elevation(double angle) { m_state.camera.elevation(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
-    Q_INVOKABLE void pan(double dx, double dy) { m_state.camera.pan(dx, dy); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
-    Q_INVOKABLE void dolly(double factor) { m_state.camera.dolly(factor); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
+    // next synchronize() copies it into the render-thread snapshot. Manual
+    // input always cancels an in-flight fly-to-face transition first.
+    Q_INVOKABLE void azimuth(double angle) { cancelCameraTransition(); m_state.camera.azimuth(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
+    Q_INVOKABLE void elevation(double angle) { cancelCameraTransition(); m_state.camera.elevation(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
+    Q_INVOKABLE void pan(double dx, double dy) { cancelCameraTransition(); m_state.camera.pan(dx, dy); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
+    Q_INVOKABLE void dolly(double factor) { cancelCameraTransition(); m_state.camera.dolly(factor); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
 
     float* getMeshColor() { return m_state.meshColor; }
     float* getSurfaceColor() { return m_state.surfaceColor; }
@@ -431,7 +436,13 @@ public:
     STATE_PROP(getCullMode, setCullMode, int, m_state.cullMode, Display)
     STATE_PROP(getShowBounds, setShowBounds, bool, m_state.showBounds, Display)
     STATE_PROP(getShowQualityOverlay, setShowQualityOverlay, bool, m_state.showQualityOverlay, Display)
-    STATE_PROP(getOrthographic, setOrthographic, bool, m_state.orthographic, Display)
+    // Manual (not STATE_PROP): entering/leaving parallel projection must cancel
+    // any in-flight fly-to-face, since the two projection modes interpolate differently.
+    bool getOrthographic() const { return m_state.orthographic; }
+    void setOrthographic(bool v) {
+        cancelCameraTransition();
+        if (m_state.orthographic != v) { m_state.orthographic = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
     QColor getMeshColorQml() const { return QColor::fromRgbF(m_state.meshColor[0], m_state.meshColor[1], m_state.meshColor[2]); }
     void setMeshColorQml(const QColor& c) { m_state.meshColor[0] = c.redF(); m_state.meshColor[1] = c.greenF(); m_state.meshColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(m_state.surfaceColor[0], m_state.surfaceColor[1], m_state.surfaceColor[2]); }
@@ -637,6 +648,29 @@ public:
     // re-assembles it. Called from every GUI-state mutation (see emit sites).
     void markStateDirty() { m_stateDirty = true; }
 
+    // ---- animated camera transitions (fly-to-face) ----
+    // Snap paths (triad clicks, quick-bar ortho buttons, shortcuts) hand the
+    // target pose here instead of assigning it; a 16 ms timer interpolates the
+    // camera over ~400 ms. Any manual camera input cancels immediately.
+    void beginCameraTransition(const CameraPose& to);
+    void cancelCameraTransition();
+    bool isCameraTransitioning() const { return m_camAnimating; }
+    void tickCameraTransition();
+
+    // One delayed repaint after camera motion stops (~postMotionRedrawMs).
+    // LOD recovery needs a frame rendered after the debounce window so
+    // LodScheduler can drop the moving flag and present the full-res swap;
+    // without it the last decimated frame stays on screen indefinitely.
+    void schedulePostMotionRepaint();
+
+    // Computes the pose for an ortho preset (0..5 = +X,-X,+Y,-Y,+Z,-Z) against
+    // the current camera and starts a transition toward it.
+    void snapToPresetAnimated(int preset);
+
+    // Fit-all isometric target: writes distance/maxDistance guards into the
+    // camera immediately and returns the iso corner pose for interpolation.
+    CameraPose computeFitAllIsoPose();
+
     // ---- table-driven QSettings persistence ----
     // One row per scalar setting; saveStateToSettings() and
     // restoreStateFromSettings() share the table. Camera / color-list /
@@ -658,6 +692,13 @@ private:
     RenderRenderState m_state;
     bool m_stateDirty = true;
     StateStore m_store; // deep seam — snapshot + dirty behind one interface
+
+    // ---- camera transition state (GUI thread only) ----
+    QTimer* m_camAnimTimer = nullptr;
+    QElapsedTimer m_camAnimClock;
+    CameraPose m_camAnimFrom{};
+    CameraPose m_camAnimTo{};
+    bool m_camAnimating = false;
 
     // ---- backend (render thread) ----
     Renderer m_renderer;

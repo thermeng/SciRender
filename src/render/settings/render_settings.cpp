@@ -24,6 +24,11 @@ RenderSettings::RenderSettings(QObject* parent)
     m_animationExporter = new AnimationExporter(this);
     m_animationExporter->wire(&m_animController, this);
 
+    // Fly-to-face camera transitions: GUI-side 16 ms driver, see tickCameraTransition().
+    m_camAnimTimer = new QTimer(this);
+    m_camAnimTimer->setInterval(16);
+    connect(m_camAnimTimer, &QTimer::timeout, this, &RenderSettings::tickCameraTransition);
+
     connect(&m_meshWatcher, &QFutureWatcher<MeshLoadResult>::finished,
             this, &RenderSettings::onMeshParsed);
 
@@ -125,16 +130,11 @@ void RenderSettings::toggleSurface(bool visible) {
 }
 
 void RenderSettings::snapToOrthoView(int axis) {
-    m_state.camera.snapToOrthoView(axis);
-    m_renderer.markCameraMoving();
-    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
+    snapToPresetAnimated(axis);
 }
 
 void RenderSettings::snapToAxisView(int axis, bool flip) {
-    int preset = flip ? (axis * 2 + 1) : (axis * 2);
-    m_state.camera.snapToOrthoView(preset);
-    m_renderer.markCameraMoving();
-    markStateDirty(); emit viewChanged(ChangeFlag::Camera);
+    snapToPresetAnimated(flip ? (axis * 2 + 1) : (axis * 2));
 }
 
 void RenderSettings::snapGizmoAxis(int axis) {
@@ -147,22 +147,147 @@ void RenderSettings::snapGizmoAxis(int axis) {
     snapToAxisView(axis, alreadyOnThisFace);
 }
 
-void RenderSettings::resetCamera() {
-    m_state.camera.focalPoint = glm::dvec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
+// ---------------------------------------------------------------------------
+// Animated camera transitions (fly-to-face)
+//
+// Snap paths hand the target pose to beginCameraTransition(); a 16 ms timer
+// interpolates over ~400 ms with cubic ease-in-out. Each tick mirrors exactly
+// what one mouse-move orbit step does (mutate m_state.camera,
+// markCameraMoving, markStateDirty, emit viewChanged(Camera)), so LOD motion
+// handling and repaint scheduling are indistinguishable from a hand orbit.
+// Manual camera input calls cancelCameraTransition() first — no tug-of-war.
+// ---------------------------------------------------------------------------
+namespace {
+constexpr double kCamAnimMs = 400.0;
+}
+
+void RenderSettings::snapToPresetAnimated(int preset) {
+    Camera probe = m_state.camera;          // pure math on a copy
+    probe.snapToOrthoView(preset);
+    const CameraPose to{ probe.position, probe.focalPoint, probe.viewUp };
+    const CameraPose from{ m_state.camera.position, m_state.camera.focalPoint, m_state.camera.viewUp };
+    constexpr double kEps = 1e-12;
+    if (glm::length(from.pos - to.pos) < kEps
+        && glm::length(from.focal - to.focal) < kEps
+        && glm::length(from.up - to.up) < kEps) {
+        return;  // already on that face
+    }
+    beginCameraTransition(to);
+}
+
+void RenderSettings::beginCameraTransition(const CameraPose& to) {
+    // Retargeting mid-flight starts from wherever the camera is right now.
+    m_camAnimFrom = CameraPose{ m_state.camera.position, m_state.camera.focalPoint, m_state.camera.viewUp };
+    m_camAnimTo = to;
+    m_camAnimating = true;
+    m_camAnimClock.restart();
+    if (!m_camAnimTimer->isActive()) m_camAnimTimer->start();
+}
+
+void RenderSettings::cancelCameraTransition() {
+    if (!m_camAnimating) return;
+    m_camAnimating = false;
+    m_camAnimTimer->stop();
+}
+
+void RenderSettings::schedulePostMotionRepaint() {
+    // Mirrors ViewportWidget::mouseReleaseEvent's post-motion redraw. The LOD
+    // debounce (0.14 s) must expire, then one frame clears the moving flag and
+    // presents the full-resolution swap. Guarded: if a newer transition (or a
+    // manual drag) is running when this fires, that path owns recovery.
+    QTimer::singleShot(RenderConfig::defaults().postMotionRedrawMs, this, [this]() {
+        if (!m_camAnimating) {
+            markStateDirty();
+            emit viewChanged(ChangeFlag::Camera);
+        }
+    });
+}
+
+void RenderSettings::tickCameraTransition() {
+    if (!m_camAnimating) { m_camAnimTimer->stop(); return; }
+
+    const double elapsed = static_cast<double>(m_camAnimClock.elapsed());
+    const bool done = elapsed >= kCamAnimMs;
+    // Land bit-exact on the requested pose rather than on the last sample.
+    const CameraPose p = done ? m_camAnimTo
+                              : interpolatePose(m_camAnimFrom, m_camAnimTo,
+                                                easeInOutCubic(elapsed / kCamAnimMs));
+    m_state.camera.position = p.pos;
+    m_state.camera.focalPoint = p.focal;
+    m_state.camera.viewUp = glm::normalize(p.up);
+    m_state.camera.orthogonalizeViewUp();
+    if (done) {
+        m_camAnimating = false;
+        m_camAnimTimer->stop();
+        schedulePostMotionRepaint();
+    }
+    m_renderer.markCameraMoving();
+    markStateDirty();
+    emit viewChanged(ChangeFlag::Camera);
+}
+
+// Target pose for "reset camera": world-center focal point, fit-all distance,
+// classic CAD isometric vantage — camera in the (+X,+Y,+Z) corner so all three
+// axis faces read equally, world +Y kept screen-up (matches the historical
+// default view's orientation). Computed entirely on a probe copy so callers can
+// diff it against the live camera; only the distance/maxDistance guards are
+// written through immediately — they are clamps consumed by dolly, not
+// interpolated visual state, and manual input during a flight cancels anyway.
+CameraPose RenderSettings::computeFitAllIsoPose() {
+    Camera probe = m_state.camera;
+    probe.focalPoint = glm::dvec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
+
     const double dx = m_state.worldMaxX - m_state.worldMinX;
     const double dy = m_state.worldMaxY - m_state.worldMinY;
     const double dz = m_state.worldMaxZ - m_state.worldMinZ;
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     const double fitRadius = diag * 0.5;
+
     const double fov = glm::radians(45.0);
     double dist = fitRadius / std::tan(fov * 0.5);
     dist *= RenderConfig::defaults().cameraFitMultiplier;
-    m_state.camera.distance = dist < 1.0 ? 1.0 : dist;
-    m_state.camera.maxDistance = std::max(1000.0, m_state.camera.distance * 50.0);
-    m_state.camera.position = m_state.camera.focalPoint + glm::dvec3(0.0, 0.0, m_state.camera.distance);
-    m_state.camera.viewUp = glm::dvec3(0.0, 1.0, 0.0);
-    m_state.camera.orthogonalizeViewUp();
+    probe.distance = dist < 1.0 ? 1.0 : dist;
+    probe.maxDistance = std::max(1000.0, probe.distance * 50.0);
+
+    const glm::dvec3 isoDir = glm::normalize(glm::dvec3(1.0, 1.0, 1.0));
+    probe.position = probe.focalPoint + isoDir * probe.distance;
+    probe.viewUp = glm::dvec3(0.0, 1.0, 0.0);
+    probe.orthogonalizeViewUp();
+
+    m_state.camera.distance = probe.distance;
+    m_state.camera.maxDistance = probe.maxDistance;
+
+    return { probe.position, probe.focalPoint, probe.viewUp };
+}
+
+// User-facing reset (menu, button, quick-bar, R key): flies smoothly to the
+// isometric fit-all pose. Retargeting mid-flight starts from the current pose.
+void RenderSettings::resetCamera() {
+    // Capture the start FIRST — computeFitAllIsoPose writes the dolly guards
+    // into the live camera, and the from/to diff below is what decides
+    // whether a transition runs at all.
+    const CameraPose from{ m_state.camera.position, m_state.camera.focalPoint, m_state.camera.viewUp };
+    const CameraPose to = computeFitAllIsoPose();
+    constexpr double kEps = 1e-12;
+    if (glm::length(from.pos - to.pos) < kEps
+        && glm::length(from.focal - to.focal) < kEps
+        && glm::length(from.up - to.up) < kEps) {
+        return;  // already framed
+    }
+    beginCameraTransition(to);
+}
+
+// Instant variant for contexts where a swoosh would be wrong — notably the
+// mesh-load path, where the data itself changed and the user expects a fresh,
+// immediate framing rather than a 400 ms glide from the previous model's view.
+void RenderSettings::resetCameraInstant() {
+    const CameraPose p = computeFitAllIsoPose();
+    m_state.camera.position = p.pos;
+    m_state.camera.focalPoint = p.focal;
+    m_state.camera.viewUp = p.up;
+    m_renderer.markCameraMoving();
     markStateDirty(); emit viewChanged(ChangeFlag::Camera);
+    schedulePostMotionRepaint();  // same LOD-recovery need as any motion burst
 }
 
 void RenderSettings::loadRecentFromSettings() {
@@ -497,7 +622,7 @@ void RenderSettings::onMeshParsed() {
     m_isoController.reset(m_state.dataScalarMin, m_state.dataScalarMax);
     m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.activeScalarName);
 
-    resetCamera();
+    resetCameraInstant();
 
     // Hand the immutable payload to the render thread (shared_ptr, no copy).
     m_renderer.setPendingMesh(m_meshData.loadedMesh);
