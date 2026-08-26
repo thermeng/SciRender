@@ -221,7 +221,10 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.sliceScalarMin != state.sliceScalarMin
         || m_state.sliceScalarMax != state.sliceScalarMax
         || m_state.activeScalarName != state.activeScalarName
-        || m_state.colorbarTicks != state.colorbarTicks;
+        || m_state.colorbarTicks != state.colorbarTicks
+        || m_state.colorRangeOverrideEnabled != state.colorRangeOverrideEnabled
+        || m_state.colorRangeLo != state.colorRangeLo
+        || m_state.colorRangeHi != state.colorRangeHi;
     bool colorbarStyleChanged = m_state.colorbarFontFamily != state.colorbarFontFamily
         || m_state.colorbarFontBold != state.colorbarFontBold
         || m_state.colorbarFontItalic != state.colorbarFontItalic
@@ -571,12 +574,16 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
 
     // Scalar bar
     if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar) {
-        const float range = m_state.dataScalarMax - m_state.dataScalarMin;
+        // Ticks span the effective mapping range: the user's fixed [lo, hi]
+        // when the override is on, otherwise the auto-tracked data range.
+        const float mapMin = m_state.colorMapMin();
+        const float mapMax = m_state.colorMapMax();
+        const float range = mapMax - mapMin;
         makeBar("Scalar", QString::fromStdString(m_state.activeScalarName),
                 stopsFor(m_state.colormapChoice, m_state.colormapReversed),
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-                    return m_state.dataScalarMin + range * frac;
+                    return mapMin + range * frac;
                 });
     }
 

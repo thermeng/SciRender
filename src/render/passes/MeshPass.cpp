@@ -118,7 +118,7 @@ MeshUBOData MeshPass::makeUbo(const RenderRenderState& state,
     ubo.fillColor = glm::vec4(tint * glm::vec3(0.90f, 0.92f, 1.00f), 0.0f);
     ubo.backColor = glm::vec4(tint * glm::vec3(0.95f, 0.95f, 0.98f), 0.0f);
     ubo.headColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
-    ubo.scalars = glm::vec4(state.scalarMin, state.scalarMax, (state.meshHasScalars && state.meshUseScalarColor) ? 1.0f : 0.0f, 0.0f);
+    ubo.scalars = glm::vec4(state.colorMapMin(), state.colorMapMax(), (state.meshHasScalars && state.meshUseScalarColor) ? 1.0f : 0.0f, 0.0f);
     ubo.sliceY = glm::vec4(state.sliceHeightX, state.sliceHeightY, state.sliceHeightZ, 0.0f);
     ubo.sliceEn = glm::vec4(state.sliceEnabledX ? 1.0f : 0.0f, state.sliceEnabledY ? 1.0f : 0.0f, state.sliceEnabledZ ? 1.0f : 0.0f, 0.0f);
     ubo.invert = glm::vec4(state.invertX ? 1.0f : 0.0f, state.invertY ? 1.0f : 0.0f, state.invertZ ? 1.0f : 0.0f, 0.0f);

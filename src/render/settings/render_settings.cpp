@@ -352,10 +352,13 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("showGizmo",           [](const RenderSettings& r) { return QVariant(r.m_state.showGizmo); },                     [](RenderSettings& r, const QVariant& v) { r.m_state.showGizmo = v.toBool(); });
         add("showBounds",          [](const RenderSettings& r) { return QVariant(r.m_state.showBounds); },                    [](RenderSettings& r, const QVariant& v) { r.m_state.showBounds = v.toBool(); });
         add("showLightMarkers",    [](const RenderSettings& r) { return QVariant(r.m_state.lighting.showLightMarkers); },     [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.showLightMarkers = v.toBool(); });
+        add("colorRangeOverrideEnabled", [](const RenderSettings& r) { return QVariant(r.m_state.colorRangeOverrideEnabled); }, [](RenderSettings& r, const QVariant& v) { r.m_state.colorRangeOverrideEnabled = v.toBool(); });
         // int members
         add("colormapChoice",      [](const RenderSettings& r) { return QVariant(r.m_state.colormapChoice); },                [](RenderSettings& r, const QVariant& v) { r.m_state.colormapChoice = v.toInt(); });
         add("gizmoCorner",         [](const RenderSettings& r) { return QVariant(r.m_state.gizmoCorner); },                   [](RenderSettings& r, const QVariant& v) { r.m_state.gizmoCorner = v.toInt(); });
         add("gizmoSizeChoice",     [](const RenderSettings& r) { return QVariant(r.m_state.gizmoSizeChoice); },               [](RenderSettings& r, const QVariant& v) { r.m_state.gizmoSizeChoice = v.toInt(); });
+        add("colorRangeLo",        [](const RenderSettings& r) { return QVariant(r.m_state.colorRangeLo); },                  [](RenderSettings& r, const QVariant& v) { r.m_state.colorRangeLo = v.toFloat(); });
+        add("colorRangeHi",        [](const RenderSettings& r) { return QVariant(r.m_state.colorRangeHi); },                  [](RenderSettings& r, const QVariant& v) { r.m_state.colorRangeHi = v.toFloat(); });
         add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
         add("volumeSliceAxis",     [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceAxis); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceAxis = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
@@ -583,6 +586,7 @@ void RenderSettings::onMeshParsed() {
         recomputeScalarRange();
         m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+        resetColorRangeOverride();
      } else {
         m_state.meshHasScalars = false;
         m_state.meshUseScalarColor = false;
@@ -614,6 +618,7 @@ void RenderSettings::onMeshParsed() {
         }
         m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+        resetColorRangeOverride();
     }
 
     // Isosurface: a fresh mesh starts with the surface off and the threshold
@@ -728,6 +733,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         m_state.filterEnabled = false;
         setFilterMin(effMin); setFilterMax(effMax);
         m_isoController.reset(effMin, effMax);
+        resetColorRangeOverride(effMin, effMax);
     }
     m_state.dataScalarMin = effMin;
     m_state.dataScalarMax = effMax;
@@ -869,6 +875,7 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     recomputeScalarRange();
     m_state.filterMin = m_state.dataScalarMin;
     m_state.filterMax = m_state.dataScalarMax;
+    resetColorRangeOverride();
     // Mid-sequence switch: reseed the animation range accumulator from THIS
     // frame so playback normalizes the new field against its own range, not
     // the previous field's union. (AnimRangeState::advance also reseeds on any
@@ -963,6 +970,50 @@ void RenderSettings::setFilterEnabled(bool v) {
     if (m_state.filterEnabled == v) return;
     m_state.filterEnabled = v;
     markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+
+// ---- fixed custom colormap range -------------------------------------------
+
+void RenderSettings::setColorRangeOverrideEnabled(bool v) {
+    if (m_state.colorRangeOverrideEnabled == v) return;
+    // Enabling with a degenerate/untouched [0,1] window: seed it from the data
+    // range so the first toggle visibly does something sane.
+    if (v && m_state.colorRangeHi - m_state.colorRangeLo <= 0.0f) {
+        m_state.colorRangeLo = m_state.dataScalarMin;
+        m_state.colorRangeHi = m_state.dataScalarMax;
+    }
+    m_state.colorRangeOverrideEnabled = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+
+void RenderSettings::setColorRangeLo(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::min(v, m_state.colorRangeHi);
+    if (m_state.colorRangeLo == v) return;
+    m_state.colorRangeLo = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+
+void RenderSettings::setColorRangeHi(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::max(v, m_state.colorRangeLo);
+    if (m_state.colorRangeHi == v) return;
+    m_state.colorRangeHi = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+
+void RenderSettings::resetColorRangeOverride() {
+    resetColorRangeOverride(m_state.dataScalarMin, m_state.dataScalarMax);
+}
+
+void RenderSettings::resetColorRangeOverride(float lo, float hi) {
+    const bool wasDirty = m_state.colorRangeOverrideEnabled
+        || m_state.colorRangeLo != lo
+        || m_state.colorRangeHi != hi;
+    m_state.colorRangeOverrideEnabled = false;
+    m_state.colorRangeLo = lo;
+    m_state.colorRangeHi = hi;
+    if (wasDirty) { markStateDirty(); emit viewChanged(ChangeFlag::Colormap); }
 }
 
 void RenderSettings::setAnimScaleGlobal(bool global) {

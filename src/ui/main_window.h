@@ -240,6 +240,13 @@ private:
     QLineEdit* m_filterMaxField = nullptr;
     QCheckBox* m_filterEnabledCb = nullptr;
 
+    // Fixed colormap range (Colormap page)
+    QSlider* m_colorLoSlider = nullptr;
+    QLineEdit* m_colorLoField = nullptr;
+    QSlider* m_colorHiSlider = nullptr;
+    QLineEdit* m_colorHiField = nullptr;
+    QCheckBox* m_colorRangeCb = nullptr;
+
     // Mesh info page (rebuilt on mesh load)
     QWidget* m_meshInfoPage = nullptr;
 
@@ -258,6 +265,7 @@ private:
 
     void refreshSlicingPageBounds();
     void refreshScalarFilterRange();
+    void refreshColorRangeBounds();
     void refreshIsosurfaceSlider();
 
     // Timers
