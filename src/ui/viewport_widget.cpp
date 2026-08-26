@@ -355,6 +355,17 @@ void ViewportWidget::mousePressEvent(QMouseEvent* event) {
                 event->accept();
                 return;
             }
+            // Axis triad: click an arrowhead to align the camera to that face;
+            // clicking the same face again flips to its opposite.
+            if (m_settings->isGizmoVisible()) {
+                const int axisHit = scene->gizmoAxisAt(static_cast<int>(event->pos().x() * dpr),
+                                                       static_cast<int>(event->pos().y() * dpr));
+                if (axisHit >= 0) {
+                    m_settings->snapGizmoAxis(axisHit);
+                    event->accept();
+                    return;
+                }
+            }
         }
     }
     event->accept();
@@ -372,6 +383,7 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent* event) {
     if (event->buttons() == Qt::NoButton) {
         m_lastMousePos = event->pos();
         updateColorbarHitState();
+        updateGizmoHover(event->pos());
         event->accept();
         return;
     }
@@ -622,6 +634,41 @@ void ViewportWidget::updateColorbarHitState() {
                                          m_colorbarBars);
     m_colorbarHover = (hitIdx >= 0);
     setCursor(m_colorbarHover ? Qt::OpenHandCursor : Qt::ArrowCursor);
+}
+
+void ViewportWidget::updateGizmoHover(const QPoint& pos) {
+    ::Renderer* scene = m_settings ? m_settings->backend() : nullptr;
+    int axis = -1;
+    if (scene && m_settings->isGizmoVisible()) {
+        const float dpr = static_cast<float>(devicePixelRatioF());
+        axis = scene->gizmoAxisAt(static_cast<int>(pos.x() * dpr),
+                                  static_cast<int>(pos.y() * dpr));
+    }
+    if (axis == m_gizmoHoverAxis) return;
+    m_gizmoHoverAxis = axis;
+    if (scene) scene->setGizmoHoverAxis(axis);
+    // Cursor priority: triad > colorbar > default. updateColorbarHitState()
+    // has already run this event, so only assert PointingHand here and yield
+    // to the colorbar's OpenHand when we just left the triad.
+    if (axis >= 0) {
+        setCursor(Qt::PointingHandCursor);
+    } else if (!m_colorbarHover) {
+        setCursor(Qt::ArrowCursor);
+    }
+    m_dirty = true;
+    update();
+}
+
+void ViewportWidget::leaveEvent(QEvent* event) {
+    if (m_gizmoHoverAxis >= 0) {
+        m_gizmoHoverAxis = -1;
+        if (m_settings) {
+            if (::Renderer* scene = m_settings->backend()) scene->setGizmoHoverAxis(-1);
+        }
+        setCursor(Qt::ArrowCursor);
+        update();
+    }
+    QOpenGLWidget::leaveEvent(event);
 }
 
 void ViewportWidget::beginColorbarDrag(const QPoint& pos, int barIndex) {

@@ -254,6 +254,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool volumeSliceColormapReversed READ getVolumeSliceColormapReversed WRITE setVolumeSliceColormapReversed NOTIFY viewChanged)
 
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
+    Q_PROPERTY(int gizmoCorner READ getGizmoCorner WRITE setGizmoCorner NOTIFY viewChanged)
+    Q_PROPERTY(int gizmoSizeChoice READ getGizmoSizeChoice WRITE setGizmoSizeChoice NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
     Q_PROPERTY(float pointSize READ getPointSize WRITE setPointSize NOTIFY viewChanged)
     Q_PROPERTY(float lineWidth READ getLineWidth WRITE setLineWidth NOTIFY viewChanged)
@@ -375,6 +377,7 @@ public slots:
     void snapToOrthoView(int axis);
     Q_INVOKABLE void requestScreenshot(const QString& path);
     void snapToAxisView(int axis, bool flip);
+    void snapGizmoAxis(int axis);   // ParaView-style: align to axis; second click flips to the opposite face
     void toggleSurface(bool visible);
 
     QStringList getAvailableScalars() const;
@@ -413,6 +416,8 @@ public:
     Q_INVOKABLE void setSidebarWidth(float w) { sidebarWidth = w; }
 
     STATE_PROP(isGizmoVisible, setGizmoVisible, bool, m_state.showGizmo, Display)
+    STATE_PROP(getGizmoCorner, setGizmoCorner, int, m_state.gizmoCorner, Display)
+    STATE_PROP(getGizmoSizeChoice, setGizmoSizeChoice, int, m_state.gizmoSizeChoice, Display)
     STATE_PROP(getAutoRotate, setAutoRotate, bool, m_state.autoRotate, Display)
     STATE_PROP(getShowPoints, setShowPoints, bool, m_state.showPoints, Display)
     STATE_PROP(getPointSize, setPointSize, float, m_state.pointSize, Display)

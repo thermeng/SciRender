@@ -51,6 +51,7 @@ Renderer::~Renderer() {
         vectorGlyph.shutdown();
         streamlineSet.shutdown();
         gizmo.shutdown();
+        m_lightMarkers.shutdown();
         colorbarOverlay.shutdown();
         m_bbox.shutdown();
         m_qualityOverlay.shutdown();
@@ -116,6 +117,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
 
 void Renderer::initGizmo() {
     gizmo.init();
+    m_lightMarkers.init();
     colorbarOverlay.init();
 }
 
@@ -321,6 +323,7 @@ void Renderer::reinitForNewContext() {
         m_qualityOverlay.shutdown();
         m_streamlines.shutdown();
         gizmo.shutdown();
+        m_lightMarkers.shutdown();
         colorbarOverlay.shutdown();
         colormap.shutdown();
         vectorGlyph.shutdown();
@@ -404,11 +407,15 @@ void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scal
     meshManager.updateScalars(scalars);
 }
 
-void Renderer::drawGizmo() {
+void Renderer::drawGizmo(int deviceW, int deviceH) {
     // Save engine state we mutate; restored automatically on scope exit.
     GLStateGuard guard;
     glDisable(GL_DEPTH_TEST);
-    gizmo.draw(m_state.camera.getViewMatrix(), static_cast<float>(devicePixelRatio));
+    const float dpr = static_cast<float>(devicePixelRatio);
+    const int corner = m_state.gizmoCorner;
+    const int foot = Gizmo::footprintFor(m_state.gizmoSizeChoice);
+    gizmo.draw(m_state.camera.getViewMatrix(), dpr, deviceW, deviceH, corner, foot,
+               m_gizmoHoverAxis.load(std::memory_order_relaxed));
     if (m_state.lighting.lightKitEnabled && m_state.lighting.showLightMarkers) {
         glm::vec3 kitDirs[5] = {
             LightingModel::kitDirection(m_state.lighting.lightKeyAzimuth,  m_state.lighting.lightKeyElevation),
@@ -419,7 +426,7 @@ void Renderer::drawGizmo() {
         };
         glm::vec3 tint = LightingModel::warmTint(m_state.lighting.lightWarm);
         glm::vec3 cols[5] = { tint, tint * 0.9f, tint * 0.95f, tint * 0.95f, glm::vec3(1.0f, 1.0f, 1.0f) };
-        gizmo.drawLights(kitDirs, cols, static_cast<float>(devicePixelRatio));
+        m_lightMarkers.draw(kitDirs, cols, dpr, deviceW, deviceH, corner, foot);
     }
 }
 
@@ -637,6 +644,16 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
 
 int Renderer::colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& bars) const {
     return colorbarOverlay.barIndexAt(devicePixelRatio, effectiveDeviceW(), effectiveDeviceH(), bars, px, py);
+}
+
+int Renderer::gizmoAxisAt(int pxDev, int pyDev) const {
+    if (!m_state.showGizmo) return -1;
+    return Gizmo::hitTestAxis(m_state.camera.getViewMatrix(),
+                              static_cast<float>(devicePixelRatio),
+                              effectiveDeviceW(), effectiveDeviceH(),
+                              static_cast<float>(pxDev), static_cast<float>(pyDev),
+                              m_state.gizmoCorner,
+                              Gizmo::footprintFor(m_state.gizmoSizeChoice));
 }
 
 void Renderer::setColorbarPosition(int index, float fracX, float fracY) {
@@ -970,7 +987,7 @@ void Renderer::renderFrame() {
     m_volumeSliceOverlay.draw(m_state, view, proj, colormap, m_volume.volumeTexture(),
                               m_volume.boxMin(), m_volume.boxMax(), m_lastUploadedMesh.get());
 
-    if (m_state.showGizmo) drawGizmo();
+    if (m_state.showGizmo) drawGizmo(deviceW, deviceH);
 
     drawColorbarLegends(deviceW, deviceH);
 
