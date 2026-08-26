@@ -282,6 +282,54 @@
     </layout>
    </item>
    <item>
+    <widget class="QWidget" name="gizmoOptionsRow">
+     <layout class="QVBoxLayout" name="gizmoOptionsLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <layout class="QHBoxLayout" name="gizmoSizeRow">
+        <item>
+         <widget class="QLabel" name="gizmoSizeLabel">
+          <property name="text"><string>Gizmo Size</string></property>
+          <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+          <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="gizmoSizeCombo">
+          <item><property name="text"><string>Small</string></property></item>
+          <item><property name="text"><string>Medium</string></property></item>
+          <item><property name="text"><string>Large</string></property></item>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="gizmoCornerRow">
+        <item>
+         <widget class="QLabel" name="gizmoCornerLabel">
+          <property name="text"><string>Corner</string></property>
+          <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+          <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="gizmoCornerCombo">
+          <item><property name="text"><string>Bottom Left</string></property></item>
+          <item><property name="text"><string>Bottom Right</string></property></item>
+          <item><property name="text"><string>Top Left</string></property></item>
+          <item><property name="text"><string>Top Right</string></property></item>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QLabel" name="colorsHeader">
      <property name="text">
       <string>Colors</string>

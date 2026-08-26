@@ -126,6 +126,8 @@ add_library(RenderLib STATIC
     src/render/foundation/gl_raii.h
     src/render/overlays/gizmo.cpp
     src/render/overlays/gizmo.h
+    src/render/overlays/light_markers.cpp
+    src/render/overlays/light_markers.h
     src/render/overlays/colorbar_overlay.cpp
     src/render/overlays/colorbar_overlay.h
     src/render/overlays/BBoxOverlay.cpp

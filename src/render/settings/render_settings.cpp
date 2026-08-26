@@ -137,6 +137,16 @@ void RenderSettings::snapToAxisView(int axis, bool flip) {
     markStateDirty(); emit viewChanged(ChangeFlag::Camera);
 }
 
+void RenderSettings::snapGizmoAxis(int axis) {
+    if (axis < 0 || axis > 2) return;
+    // ParaView triad semantics: clicking an arrowhead aligns the camera to view
+    // FROM that world axis; clicking it again flips to the opposite face.
+    static const glm::dvec3 axes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+    const glm::dvec3 d = glm::normalize(m_state.camera.position - m_state.camera.focalPoint);
+    const bool alreadyOnThisFace = glm::dot(d, axes[axis]) > 0.995;
+    snapToAxisView(axis, alreadyOnThisFace);
+}
+
 void RenderSettings::resetCamera() {
     m_state.camera.focalPoint = glm::dvec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
     const double dx = m_state.worldMaxX - m_state.worldMinX;
@@ -214,8 +224,13 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("colorbarShowAnnotation", [](const RenderSettings& r) { return QVariant(r.m_state.colorbarShowAnnotation); },     [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarShowAnnotation = v.toBool(); });
         add("filterEnabled",       [](const RenderSettings& r) { return QVariant(r.m_state.filterEnabled); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.filterEnabled = v.toBool(); });
         add("quickBarCollapsed",   [](const RenderSettings& r) { return QVariant(r.quickBarCollapsed); },                     [](RenderSettings& r, const QVariant& v) { r.quickBarCollapsed = v.toBool(); });
+        add("showGizmo",           [](const RenderSettings& r) { return QVariant(r.m_state.showGizmo); },                     [](RenderSettings& r, const QVariant& v) { r.m_state.showGizmo = v.toBool(); });
+        add("showBounds",          [](const RenderSettings& r) { return QVariant(r.m_state.showBounds); },                    [](RenderSettings& r, const QVariant& v) { r.m_state.showBounds = v.toBool(); });
+        add("showLightMarkers",    [](const RenderSettings& r) { return QVariant(r.m_state.lighting.showLightMarkers); },     [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.showLightMarkers = v.toBool(); });
         // int members
         add("colormapChoice",      [](const RenderSettings& r) { return QVariant(r.m_state.colormapChoice); },                [](RenderSettings& r, const QVariant& v) { r.m_state.colormapChoice = v.toInt(); });
+        add("gizmoCorner",         [](const RenderSettings& r) { return QVariant(r.m_state.gizmoCorner); },                   [](RenderSettings& r, const QVariant& v) { r.m_state.gizmoCorner = v.toInt(); });
+        add("gizmoSizeChoice",     [](const RenderSettings& r) { return QVariant(r.m_state.gizmoSizeChoice); },               [](RenderSettings& r, const QVariant& v) { r.m_state.gizmoSizeChoice = v.toInt(); });
         add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
         add("volumeSliceAxis",     [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceAxis); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceAxis = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });

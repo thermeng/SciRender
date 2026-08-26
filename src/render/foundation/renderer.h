@@ -32,6 +32,7 @@
 
 #include "core/mesh_loader.h"
 #include "render/overlays/gizmo.h"
+#include "render/overlays/light_markers.h"
 #include "render/overlays/colorbar_overlay.h"
 #include "core/Camera.h"
 
@@ -117,6 +118,8 @@ struct RenderRenderState {
     int maxPeelLayers = 4;        // depth peeling layers for transparent surfaces (1-8)
     int cullMode = 0;              // ponytail: 0=off by default — mirror of settings default
     bool showBounds = false;     // ponytail: AABB wireframe overlay
+    int gizmoCorner = 0;         // Gizmo::Corner — screen corner pinning the triad square
+    int gizmoSizeChoice = 1;     // index into Gizmo footprint presets (0=S, 1=M, 2=L)
     bool showQualityOverlay = false;     // ponytail: highlight degenerate faces + bad edges
     // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
     // shared_ptr so RenderRenderState copies are O(1) instead of O(n)
@@ -486,6 +489,13 @@ public:
     void snapToOrthoView(int axis);
     void snapToAxisView(int axis, bool flip);
 
+    // Gizmo interaction. gizmoAxisAt maps a click (device px) to a triad axis
+    // 0/1/2, or -1 when the point misses every hit zone. Hover state rides a
+    // relaxed atomic rather than the snapshot: it changes at mouse-move
+    // frequency and only affects the next frame's highlight.
+    int gizmoAxisAt(int pxDev, int pyDev) const;
+    void setGizmoHoverAxis(int axis) { m_gizmoHoverAxis.store(axis, std::memory_order_relaxed); }
+
     // Vector magnitude range (rebuilt on upload by VectorGlyphSet).
     float vectorMagMin() const { return vectorGlyph.magMin; }
     float vectorMagMax() const { return vectorGlyph.magMax; }
@@ -495,7 +505,7 @@ public:
     float streamlineMagMax() const { return streamlineSet.magMax; }
 
 private:
-    void drawGizmo();
+    void drawGizmo(int deviceW, int deviceH);
     void drawColorbarLegends(int deviceW, int deviceH);
     static std::string vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
@@ -510,6 +520,7 @@ private:
 
     // Viewport Core Transform Tracking
     Gizmo gizmo;
+    LightMarkerOverlay m_lightMarkers;   // light-kit direction discs (own seam, shares the triad square)
     ColorbarOverlay colorbarOverlay;
     std::vector<ColorbarData> m_colorbarBars;
     std::mutex m_colorbarCacheMutex;
@@ -525,6 +536,7 @@ private:
     double farPlane = 100.0;
 
     std::atomic<bool> vectorGlyphDirty{false};
+    std::atomic<int>  m_gizmoHoverAxis{-1};   // GUI-written hover axis for triad highlight
 
     bool m_destroying = false;
 

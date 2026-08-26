@@ -1152,6 +1152,18 @@ QWidget* MainWindow::buildViewDisplayPage() {
     connect(gizmoCb, &QCheckBox::toggled, m_settings, &RenderSettings::setGizmoVisible);
     m_vdGizmoCb = gizmoCb;
 
+    auto* gizmoSizeCombo = viewUi.gizmoSizeCombo;
+    gizmoSizeCombo->setCurrentIndex(m_settings->getGizmoSizeChoice());
+    connect(gizmoSizeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setGizmoSizeChoice);
+    m_vdGizmoSizeCombo = gizmoSizeCombo;
+
+    auto* gizmoCornerCombo = viewUi.gizmoCornerCombo;
+    gizmoCornerCombo->setCurrentIndex(m_settings->getGizmoCorner());
+    connect(gizmoCornerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setGizmoCorner);
+    m_vdGizmoCornerCombo = gizmoCornerCombo;
+
     auto* fpsCb = viewUi.fpsCb;
     fpsCb->setChecked(m_settings->getShowFps());
     connect(fpsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowFps);
@@ -2532,6 +2544,8 @@ void MainWindow::syncViewDisplayPage() {
     if (m_vdDefectsCb)   m_vdDefectsCb->setChecked(m_settings->getShowQualityOverlay());
     if (m_vdScalarCb)    m_vdScalarCb->setChecked(m_settings->getPointUseScalar());
     if (m_vdGizmoCb)     m_vdGizmoCb->setChecked(m_settings->isGizmoVisible());
+    if (m_vdGizmoSizeCombo)   m_vdGizmoSizeCombo->setCurrentIndex(m_settings->getGizmoSizeChoice());
+    if (m_vdGizmoCornerCombo) m_vdGizmoCornerCombo->setCurrentIndex(m_settings->getGizmoCorner());
     if (m_vdFpsCb)       m_vdFpsCb->setChecked(m_settings->getShowFps());
     if (m_vdParallelCb)  m_vdParallelCb->setChecked(m_settings->getOrthographic());
 }

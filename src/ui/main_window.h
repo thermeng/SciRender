@@ -160,6 +160,8 @@ private:
     QCheckBox* m_vdDefectsCb = nullptr;
     QCheckBox* m_vdScalarCb = nullptr;
     QCheckBox* m_vdGizmoCb = nullptr;
+    QComboBox* m_vdGizmoSizeCombo = nullptr;
+    QComboBox* m_vdGizmoCornerCombo = nullptr;
     QCheckBox* m_vdFpsCb = nullptr;
     QCheckBox* m_vdParallelCb = nullptr;
 

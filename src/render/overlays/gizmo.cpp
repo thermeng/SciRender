@@ -46,8 +46,9 @@ void main() {
 }
 )";
 
-// Simple solid-color shader for light-marker discs.
-static const char* lightMarkVS = R"(
+// Simple solid-color shader for the origin disc (the light-marker discs live in
+// LightMarkerOverlay; this tiny program is triad-local).
+static const char* discVS = R"(
 #version 460 core
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aColor;
@@ -58,7 +59,7 @@ void main() {
     gl_Position = uMVP * vec4(aPos, 1.0);
 }
 )";
-static const char* lightMarkFS = R"(
+static const char* discFS = R"(
 #version 460 core
 in vec3 vColor;
 out vec4 frag;
@@ -175,13 +176,13 @@ bool Gizmo::buildCapProgram() {
     return capMvpLoc >= 0 && capColorLoc >= 0;
 }
 
-bool Gizmo::buildLightMarkProgram() {
-    lightMarkProgram.reset(compileProgram(lightMarkVS, lightMarkFS, "Gizmo/lightMark"));
-    if (!lightMarkProgram.has()) return false;
-    lightMarkMvpLoc = glGetUniformLocation(lightMarkProgram, "uMVP");
-    GLint posLoc = glGetAttribLocation(lightMarkProgram, "aPos");
-    GLint colLoc = glGetAttribLocation(lightMarkProgram, "aColor");
-    return lightMarkMvpLoc >= 0 && posLoc >= 0 && colLoc >= 0;
+bool Gizmo::buildDiscProgram() {
+    discProgram.reset(compileProgram(discVS, discFS, "Gizmo/disc"));
+    if (!discProgram.has()) return false;
+    discMvpLoc = glGetUniformLocation(discProgram, "uMVP");
+    GLint posLoc = glGetAttribLocation(discProgram, "aPos");
+    GLint colLoc = glGetAttribLocation(discProgram, "aColor");
+    return discMvpLoc >= 0 && posLoc >= 0 && colLoc >= 0;
 }
 
 bool Gizmo::buildTextProgram() {
@@ -197,7 +198,7 @@ bool Gizmo::buildTextProgram() {
 bool Gizmo::init() {
     if (isInitialized()) return true;
 
-    if (!buildAALineProgram() || !buildCapProgram() || !buildLightMarkProgram()
+    if (!buildAALineProgram() || !buildCapProgram() || !buildDiscProgram()
         || !buildTextProgram() || !buildAtlas())
         return false;
 
@@ -252,13 +253,15 @@ bool Gizmo::init() {
                 };
                 verts.insert(verts.end(), v, v + 18);
             }
-            // Cap fan triangles (base face, normal points backward)
+            // Cap fan triangles (base face, normal points backward).
+            // Exactly `segments` triangles — i from 0 wraps naturally at 2π, keeping
+            // the emitted vertex count in lockstep with capVertCount (48 per axis).
+            // An earlier [1, segments) loop emitted one triangle fewer than the
+            // draw call assumed and walked off the end of this buffer.
             glm::vec3 capN = -axes[a];
-            glm::vec3 c0 = base + (perp1 * std::cos(0.0f) + perp2 * std::sin(0.0f)) * coneR;
-            for (int i = 1; i < segments; ++i) {
+            for (int i = 0; i < segments; ++i) {
                 float a0 = (float)i / segments * 6.28318f;
                 float a1 = (float)(i + 1) / segments * 6.28318f;
-                if (i + 1 == segments) a1 = 0.0f;
                 glm::vec3 p0 = base + (perp1 * std::cos(a0) + perp2 * std::sin(a0)) * coneR;
                 glm::vec3 p1 = base + (perp1 * std::cos(a1) + perp2 * std::sin(a1)) * coneR;
                 float v[] = {
@@ -293,8 +296,8 @@ bool Gizmo::init() {
             };
             verts.insert(verts.end(), v, v + 18);
         }
-        GLint lmPosLoc2 = glGetAttribLocation(lightMarkProgram, "aPos");
-        GLint lmColLoc2 = glGetAttribLocation(lightMarkProgram, "aColor");
+        GLint lmPosLoc2 = glGetAttribLocation(discProgram, "aPos");
+        GLint lmColLoc2 = glGetAttribLocation(discProgram, "aColor");
         setupVertexBuffer(originVAO, originVBO, verts.data(), verts.size() * sizeof(float), 6 * sizeof(float),
                           { { lmPosLoc2, 3, 0 }, { lmColLoc2, 3, 3 * sizeof(float) } }, GL_STATIC_DRAW);
     }
@@ -302,14 +305,6 @@ bool Gizmo::init() {
     // ---- Text quad VBO (dynamic): 3 chars × 6 verts × (vec4 px.xy+uv + vec3 color) ----
     setupVertexBuffer(textVAO, textVBO, nullptr, 3 * 6 * 7 * sizeof(float), 7 * sizeof(float),
                       { { textPosLoc, 4, 0 }, { textColLoc, 3, 4 * sizeof(float) } }, GL_DYNAMIC_DRAW);
-
-    // ---- Light-marker disc VBO (dynamic): 5 lights × 6 verts × vec6(px.xy + rgb) ----
-    {
-        GLint lmPosLoc = glGetAttribLocation(lightMarkProgram, "aPos");
-        GLint lmColLoc = glGetAttribLocation(lightMarkProgram, "aColor");
-        setupVertexBuffer(lightMarkVAO, lightMarkVBO, nullptr, 5 * 6 * 6 * sizeof(float), 6 * sizeof(float),
-                          { { lmPosLoc, 3, 0 }, { lmColLoc, 3, 3 * sizeof(float) } }, GL_DYNAMIC_DRAW);
-    }
 
     return true;
 }
@@ -319,21 +314,31 @@ void Gizmo::shutdown() {
     aaLineVAO.reset(); aaLineVBO.reset(); aaLineProgram.reset();
     capVAO.reset(); capVBO.reset(); capProgram.reset();
     originVAO.reset(); originVBO.reset();
-    lightMarkVAO.reset(); lightMarkVBO.reset(); lightMarkProgram.reset();
+    discProgram.reset();
     textVAO.reset(); textVBO.reset(); textProgram.reset();
     glyphTex.reset();
 }
 
-void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
+glm::ivec2 Gizmo::rectOrigin(int deviceW, int deviceH, float dpr, int foot, int corner) {
+    const int s = static_cast<int>(foot * dpr);
+    const int m = static_cast<int>(kMarginPx * dpr);
+    const bool right = (corner == BottomRight || corner == TopRight);
+    const bool top   = (corner == TopLeft     || corner == TopRight);
+    return { right ? deviceW - m - s : m,
+             top   ? deviceH - m - s : m };  // GL convention: origin bottom-left
+}
+
+void Gizmo::draw(const glm::mat4& mainView, float dpr,
+                 int deviceW, int deviceH,
+                 int corner, int foot, int hoverAxis) {
     if (!isInitialized()) return;
 
     // Save engine state we mutate; restored automatically on scope exit.
     GLStateGuard guard;
 
-    const int margin = 10;
     const int s = static_cast<int>(foot * dpr);
-    const int m = static_cast<int>(margin * dpr);
-    glViewport(m, m, s, s);
+    const glm::ivec2 ro = rectOrigin(deviceW, deviceH, dpr, foot, corner);
+    glViewport(ro.x, ro.y, s, s);
 
     const glm::mat4 gizmoView = glm::mat4(glm::mat3(mainView));
     const glm::mat4 gizmoProj = glm::ortho(-1.55f, 1.55f, -1.55f, 1.55f, -10.0f, 10.0f);
@@ -365,6 +370,14 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     const glm::vec3 tips[3]    = { {1,0,0}, {0,1,0}, {0,0,1} };
     const float colors[3][3]   = { {1,0.2f,0.2f}, {0.2f,1,0.2f}, {0.3f,0.5f,1.0f} };
 
+    // Hover feedback: pull the axis color toward white so the hovered shaft,
+    // cone, and label read as one active element.
+    auto axisColor = [&](int i) -> glm::vec3 {
+        glm::vec3 c(colors[i][0], colors[i][1], colors[i][2]);
+        if (i == hoverAxis) c = glm::min(c * 0.45f + 0.55f, glm::vec3(1.0f));
+        return c;
+    };
+
     // Per-axis quad: 6 verts (2 triangles) × (vec2 pos + vec3 col + float dist) = 36 floats
     float quadData[3][36];
     bool axisVisible[3] = { true, true, true };
@@ -381,14 +394,14 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
         if (len < 1e-4f) {
             axisVisible[i] = false;
             // Fill with degenerate quad (will be no-op draw)
-            float r = colors[i][0], g = colors[i][1], b2 = colors[i][2];
+            glm::vec3 col = axisColor(i);
             float q[] = {
-                a.x, a.y, r, g, b2, 0.0f,
-                a.x, a.y, r, g, b2, 0.0f,
-                a.x, a.y, r, g, b2, 0.0f,
-                a.x, a.y, r, g, b2, 0.0f,
-                a.x, a.y, r, g, b2, 0.0f,
-                a.x, a.y, r, g, b2, 0.0f,
+                a.x, a.y, col.r, col.g, col.b, 0.0f,
+                a.x, a.y, col.r, col.g, col.b, 0.0f,
+                a.x, a.y, col.r, col.g, col.b, 0.0f,
+                a.x, a.y, col.r, col.g, col.b, 0.0f,
+                a.x, a.y, col.r, col.g, col.b, 0.0f,
+                a.x, a.y, col.r, col.g, col.b, 0.0f,
             };
             std::memcpy(quadData[i], q, sizeof(q));
             continue;
@@ -400,26 +413,29 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
         glm::vec2 bL = b - perp * hwClip;
         glm::vec2 bR = b + perp * hwClip;
 
-        float r = colors[i][0], g = colors[i][1], b2 = colors[i][2];
+        glm::vec3 col = axisColor(i);
         // Two triangles: (aL,bL,bR) and (aL,bR,aR)
         // vDist: -halfWidth at left edge, +halfWidth at right edge
         float q[] = {
-            aL.x, aL.y, r, g, b2, -halfWidth,
-            bL.x, bL.y, r, g, b2, -halfWidth,
-            bR.x, bR.y, r, g, b2,  halfWidth,
-            aL.x, aL.y, r, g, b2, -halfWidth,
-            bR.x, bR.y, r, g, b2,  halfWidth,
-            aR.x, aR.y, r, g, b2,  halfWidth,
+            aL.x, aL.y, col.r, col.g, col.b, -halfWidth,
+            bL.x, bL.y, col.r, col.g, col.b, -halfWidth,
+            bR.x, bR.y, col.r, col.g, col.b,  halfWidth,
+            aL.x, aL.y, col.r, col.g, col.b, -halfWidth,
+            bR.x, bR.y, col.r, col.g, col.b,  halfWidth,
+            aR.x, aR.y, col.r, col.g, col.b,  halfWidth,
         };
         std::memcpy(quadData[i], q, sizeof(q));
     }
 
     glUseProgram(aaLineProgram);
     glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));  // positions already in clip space
-    glUniform1f(aaLineHalfWidthLoc, halfWidth);
     glBindVertexArray(aaLineVAO);
     glNamedBufferSubData(aaLineVBO, 0, sizeof(quadData), quadData);
-    glDrawArrays(GL_TRIANGLES, 0, 3 * 6);  // 3 axis quads
+    // One draw per axis: the hovered shaft uses a wider AA profile.
+    for (int i = 0; i < 3; ++i) {
+        glUniform1f(aaLineHalfWidthLoc, i == hoverAxis ? 1.0f : halfWidth);
+        glDrawArrays(GL_TRIANGLES, i * 6, 6);
+    }
     glBindVertexArray(0);
 
     // ---- Axis tip cones (solid color) ----
@@ -427,41 +443,47 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
     glBindVertexArray(capVAO);
     for (int i = 0; i < 3; ++i) {
-        glUniform3fv(capColorLoc, 1, colors[i]);
+        const glm::vec3 col = axisColor(i);
+        glUniform3fv(capColorLoc, 1, glm::value_ptr(col));
         glDrawArrays(GL_TRIANGLES, i * (capVertCount / 3), capVertCount / 3);
     }
     glBindVertexArray(0);
 
     // ---- Origin disc (solid white at pivot) ----
-    glUseProgram(lightMarkProgram);
-    glUniformMatrix4fv(lightMarkMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
+    glUseProgram(discProgram);
+    glUniformMatrix4fv(discMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
     glBindVertexArray(originVAO);
     glDrawArrays(GL_TRIANGLES, 0, originVertCount);
     glBindVertexArray(0);
 
     // ---- Pole-view axis markers (for axes viewed end-on) ----
-    // Draw a small disc at origin for axes invisible due to pole view
-    const float poleMarkerRadius = 0.08f;
-    for (int i = 0; i < 3; ++i) {
-        if (axisVisible[i]) continue;
-        const int segments = 16;
+    // Draw a small disc at origin for axes invisible due to pole view.
+    // Batched: one upload + one draw regardless of how many axes are hidden.
+    {
+        const float poleMarkerRadius = 0.08f;
+        constexpr int kSegs = 16;
         std::vector<float> markerVerts;
-        markerVerts.reserve(segments * 3 * 6);
-        for (int s = 0; s < segments; ++s) {
-            float a0 = (float)s / segments * 6.28318f;
-            float a1 = (float)(s + 1) / segments * 6.28318f;
-            float r = colors[i][0], g = colors[i][1], b = colors[i][2];
-            markerVerts.insert(markerVerts.end(), { 0.0f, 0.0f, r, g, b, 0.0f });
-            markerVerts.insert(markerVerts.end(), { std::cos(a0) * poleMarkerRadius, std::sin(a0) * poleMarkerRadius, r, g, b, 0.0f });
-            markerVerts.insert(markerVerts.end(), { std::cos(a1) * poleMarkerRadius, std::sin(a1) * poleMarkerRadius, r, g, b, 0.0f });
+        markerVerts.reserve(3 * kSegs * 18);
+        for (int i = 0; i < 3; ++i) {
+            if (axisVisible[i]) continue;
+            const glm::vec3 col = axisColor(i);
+            for (int t = 0; t < kSegs; ++t) {
+                float a0 = (float)t / kSegs * 6.28318f;
+                float a1 = (float)(t + 1) / kSegs * 6.28318f;
+                markerVerts.insert(markerVerts.end(), { 0.0f, 0.0f, col.r, col.g, col.b, 0.0f });
+                markerVerts.insert(markerVerts.end(), { std::cos(a0) * poleMarkerRadius, std::sin(a0) * poleMarkerRadius, col.r, col.g, col.b, 0.0f });
+                markerVerts.insert(markerVerts.end(), { std::cos(a1) * poleMarkerRadius, std::sin(a1) * poleMarkerRadius, col.r, col.g, col.b, 0.0f });
+            }
         }
-        glUseProgram(aaLineProgram);
-        glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
-        glUniform1f(aaLineHalfWidthLoc, halfWidth);
-        glBindVertexArray(aaLineVAO);
-        glNamedBufferSubData(aaLineVBO, 0, markerVerts.size() * sizeof(float), markerVerts.data());
-        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(markerVerts.size() / 6));
-        glBindVertexArray(0);
+        if (!markerVerts.empty()) {
+            glUseProgram(aaLineProgram);
+            glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+            glUniform1f(aaLineHalfWidthLoc, halfWidth);
+            glBindVertexArray(aaLineVAO);
+            glNamedBufferSubData(aaLineVBO, 0, static_cast<GLsizeiptr>(markerVerts.size() * sizeof(float)), markerVerts.data());
+            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(markerVerts.size() / 6));
+            glBindVertexArray(0);
+        }
     }
 
     // ---- Text labels (per-vertex color, batched: single upload + single draw) ----
@@ -500,14 +522,14 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
         float u0 = i * cellU, u1 = (i + 1) * cellU;
         const float vTop = 0.0f, vBot = 1.0f;
         const float hx = glyph * 0.5f, hy = glyph * 0.5f;
-        const float r = colors[i][0], g = colors[i][1], b = colors[i][2];
+        const glm::vec3 labCol = axisColor(i);
         float tri[6][7] = {
-            { cx - hx, cy + hy, u0, vTop, r, g, b },
-            { cx + hx, cy + hy, u1, vTop, r, g, b },
-            { cx - hx, cy - hy, u0, vBot, r, g, b },
-            { cx + hx, cy + hy, u1, vTop, r, g, b },
-            { cx + hx, cy - hy, u1, vBot, r, g, b },
-            { cx - hx, cy - hy, u0, vBot, r, g, b },
+            { cx - hx, cy + hy, u0, vTop, labCol.r, labCol.g, labCol.b },
+            { cx + hx, cy + hy, u1, vTop, labCol.r, labCol.g, labCol.b },
+            { cx - hx, cy - hy, u0, vBot, labCol.r, labCol.g, labCol.b },
+            { cx + hx, cy + hy, u1, vTop, labCol.r, labCol.g, labCol.b },
+            { cx + hx, cy - hy, u1, vBot, labCol.r, labCol.g, labCol.b },
+            { cx - hx, cy - hy, u0, vBot, labCol.r, labCol.g, labCol.b },
         };
         std::memcpy(quads[i], tri, sizeof(tri));
     }
@@ -523,51 +545,44 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr, int foot) {
     glUseProgram(0);
 }
 
-void Gizmo::drawLights(const glm::vec3 dirs[5], const glm::vec3 cols[5], float dpr, int foot) {
-    if (!isInitialized()) return;
-
-    // Save engine state we mutate; restored automatically on scope exit.
-    GLStateGuard guard;
-
-    const int m = static_cast<int>(10 * dpr);
+int Gizmo::hitTestAxis(const glm::mat4& mainView, float dpr,
+                       int deviceW, int deviceH,
+                       float xDevPx, float yDevPx,
+                       int corner, int foot) {
+    const glm::ivec2 ro = rectOrigin(deviceW, deviceH, dpr, foot, corner);
     const int s = static_cast<int>(foot * dpr);
-    const int y0 = m;
-    glViewport(m, y0, s, s);
+    // Click arrives top-left (Qt); the square lives bottom-left (GL). Convert.
+    const float gx = xDevPx - static_cast<float>(ro.x);
+    const float gy = static_cast<float>(deviceH) - yDevPx - static_cast<float>(ro.y);
+    if (gx < 0.0f || gy < 0.0f || gx > static_cast<float>(s) || gy > static_cast<float>(s))
+        return -1;
 
-    GLint curClipOrigin = GL_UPPER_LEFT;
-    glGetIntegerv(GL_CLIP_ORIGIN, &curClipOrigin);
-    glClipControl(static_cast<GLenum>(curClipOrigin), GL_NEGATIVE_ONE_TO_ONE);
+    // Local clip coords — mirrors glm::ortho(-1.55,1.55,...) over [0,s] px,
+    // i.e. the exact inverse of the viewport transform draw() relies on.
+    constexpr float kExtent = 1.55f;
+    const float inv = (2.0f * kExtent) / static_cast<float>(s);
+    const glm::vec2 click(gx * inv - kExtent, gy * inv - kExtent);
 
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // force filled discs (see draw())
+    // Same matrices as draw(): rotation-only view + fixed ortho.
+    const glm::mat4 mvp = glm::ortho(-kExtent, kExtent, -kExtent, kExtent, -10.0f, 10.0f)
+                        * glm::mat4(glm::mat3(mainView));
 
-    // px space [0..foot]x[0..foot] -> clip; markers are constant kit-local dirs.
-    const glm::mat4 pxMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
-    const float r = 6.0f; // disc radius in px
+    // ~14 logical px of slack around each shaft/cone/label zone.
+    const float thresh = 14.0f * (2.0f * kExtent) / static_cast<float>(foot);
 
-    glUseProgram(lightMarkProgram);
-    glUniformMatrix4fv(lightMarkMvpLoc, 1, GL_FALSE, glm::value_ptr(pxMVP));
-    glBindVertexArray(lightMarkVAO);
-    // Build all 5 marker discs with per-vertex color, then single upload + single draw.
-    float verts[5][6][6];
-    for (int i = 0; i < 5; ++i) {
-        float cx = (dirs[i].x * 0.5f + 0.5f) * foot;
-        float cy = (dirs[i].y * 0.5f + 0.5f) * foot;
-        const float q[6][6] = {
-            { cx - r, cy - r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
-            { cx + r, cy - r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
-            { cx - r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
-            { cx + r, cy - r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
-            { cx + r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
-            { cx - r, cy + r, 0.0f, cols[i].r, cols[i].g, cols[i].b },
-        };
-        std::memcpy(verts[i], q, sizeof(q));
+    const glm::vec3 tips[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+    int best = -1;
+    float bestD = thresh;
+    for (int i = 0; i < 3; ++i) {
+        const glm::vec2 t(mvp * glm::vec4(tips[i], 1.0f));  // ortho: w == 1
+        // Distance from click to segment [origin, tip]; allow overshoot past
+        // the tip so the cone and billboarded label stay clickable.
+        const float len2 = glm::dot(t, t);
+        float u = (len2 > 1e-12f) ? glm::dot(click, t) / len2 : -1.0f;
+        u = glm::clamp(u, 0.0f, 1.45f);
+        const float d = glm::length(click - t * u);
+        if (d < bestD) { bestD = d; best = i; }
     }
-    glNamedBufferSubData(lightMarkVBO, 0, sizeof(verts), verts);
-    glDrawArrays(GL_TRIANGLES, 0, 5 * 6);  // 5 marker discs
-    glBindVertexArray(0);
-    glUseProgram(0);
+    return best;
 }
 

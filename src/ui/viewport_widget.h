@@ -46,6 +46,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void leaveEvent(QEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
     bool event(QEvent* event) override;
 
@@ -55,6 +56,7 @@ private:
     void drawSpinner(QPainter& painter);
     void advanceSpinner();
     void updateColorbarHitState();
+    void updateGizmoHover(const QPoint& pos);
     void beginColorbarDrag(const QPoint& pos, int barIndex);
     void updateColorbarDrag(const QPoint& pos);
     void endColorbarDrag();
@@ -85,6 +87,9 @@ private:
     int m_dragBarIndex = -1;
     QPoint m_dragStartPos;
     std::vector<ColorbarData> m_colorbarBars;
+
+    // Axis-triad hover state (mirrors Renderer's atomic for change detection)
+    int m_gizmoHoverAxis = -1;
 
 private slots:
     void deferredCapture(const QString& path);
