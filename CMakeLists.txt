@@ -60,6 +60,8 @@ target_include_directories(lzma PUBLIC "vendor/lzma")
 add_library(CoreLib STATIC
     src/core/Camera.cpp
     src/core/Camera.h
+    src/core/camera_math.cpp
+    src/core/camera_math.h
     src/core/Colormaps.h
      src/core/mesh_loader.cpp
     src/core/FieldResolver.cpp

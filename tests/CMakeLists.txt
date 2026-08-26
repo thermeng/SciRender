@@ -134,3 +134,16 @@ add_test(NAME pvd_test COMMAND pvd_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE
 add_test(NAME field_names_test COMMAND field_names_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME anim_range_test COMMAND anim_range_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME streamline_direction_test COMMAND streamline_direction_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Fly-to-face camera interpolation (camera_math) + triad footprint rules.
+# Uses the real Camera class; pure GLM, no Qt/GL.
+add_executable(gizmo_math_test
+    gizmo_math_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/camera_math.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/Camera.cpp
+)
+target_include_directories(gizmo_math_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+)
+add_test(NAME gizmo_math_test COMMAND gizmo_math_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
