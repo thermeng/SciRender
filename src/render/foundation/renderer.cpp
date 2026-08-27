@@ -231,12 +231,31 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.sliceColorRangeOverrideEnabled != state.sliceColorRangeOverrideEnabled
         || m_state.sliceColorRangeLo != state.sliceColorRangeLo
         || m_state.sliceColorRangeHi != state.sliceColorRangeHi
-        || m_state.glyphMagRangeOverrideEnabled != state.glyphMagRangeOverrideEnabled
-        || m_state.glyphMagRangeLo != state.glyphMagRangeLo
-        || m_state.glyphMagRangeHi != state.glyphMagRangeHi
+    || m_state.glyphMagRangeOverrideEnabled != state.glyphMagRangeOverrideEnabled
+    || m_state.glyphMagRangeLo != state.glyphMagRangeLo
+    || m_state.glyphMagRangeHi != state.glyphMagRangeHi
+    || m_state.glyphCompRangeOverrideEnabled[0] != state.glyphCompRangeOverrideEnabled[0]
+    || m_state.glyphCompRangeOverrideEnabled[1] != state.glyphCompRangeOverrideEnabled[1]
+    || m_state.glyphCompRangeOverrideEnabled[2] != state.glyphCompRangeOverrideEnabled[2]
+    || m_state.glyphCompRangeLo[0] != state.glyphCompRangeLo[0]
+    || m_state.glyphCompRangeHi[0] != state.glyphCompRangeHi[0]
+    || m_state.glyphCompRangeLo[1] != state.glyphCompRangeLo[1]
+    || m_state.glyphCompRangeHi[1] != state.glyphCompRangeHi[1]
+    || m_state.glyphCompRangeLo[2] != state.glyphCompRangeLo[2]
+    || m_state.glyphCompRangeHi[2] != state.glyphCompRangeHi[2]
         || m_state.streamlineMagRangeOverrideEnabled != state.streamlineMagRangeOverrideEnabled
         || m_state.streamlineMagRangeLo != state.streamlineMagRangeLo
-        || m_state.streamlineMagRangeHi != state.streamlineMagRangeHi;
+        || m_state.streamlineMagRangeHi != state.streamlineMagRangeHi
+        || m_state.streamlineColorMode != state.streamlineColorMode
+        || m_state.streamlineCompRangeOverrideEnabled[0] != state.streamlineCompRangeOverrideEnabled[0]
+        || m_state.streamlineCompRangeOverrideEnabled[1] != state.streamlineCompRangeOverrideEnabled[1]
+        || m_state.streamlineCompRangeOverrideEnabled[2] != state.streamlineCompRangeOverrideEnabled[2]
+        || m_state.streamlineCompRangeLo[0] != state.streamlineCompRangeLo[0]
+        || m_state.streamlineCompRangeHi[0] != state.streamlineCompRangeHi[0]
+        || m_state.streamlineCompRangeLo[1] != state.streamlineCompRangeLo[1]
+        || m_state.streamlineCompRangeHi[1] != state.streamlineCompRangeHi[1]
+        || m_state.streamlineCompRangeLo[2] != state.streamlineCompRangeLo[2]
+        || m_state.streamlineCompRangeHi[2] != state.streamlineCompRangeHi[2];
     bool colorbarStyleChanged = m_state.colorbarFontFamily != state.colorbarFontFamily
         || m_state.colorbarFontBold != state.colorbarFontBold
         || m_state.colorbarFontItalic != state.colorbarFontItalic
@@ -377,6 +396,10 @@ void Renderer::reinitMeshData() {
                             m_state.vectorField, m_state.vectorMagTransform,
                             m_state.vectorPlacement);
         streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+        for (int i = 0; i < 3; ++i) {
+            m_state.streamlineCompMin[i] = streamlineSet.compMin[i];
+            m_state.streamlineCompMax[i] = streamlineSet.compMax[i];
+        }
         streamlineSet.initParticles(m_state.particleCount);
         m_qualityOverlay.markDirty();
 
@@ -647,16 +670,33 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     }
 
     // Streamline bar
-    if (m_state.showStreamlines && m_state.streamlineUseColormap && m_state.meshHasVectors && m_state.hasMeshLoaded) {
-        const float sMin = m_state.streamlineMagRangeOverrideEnabled ? m_state.streamlineMagRangeLo : streamlineSet.magMin;
-        const float sMax = m_state.streamlineMagRangeOverrideEnabled ? m_state.streamlineMagRangeHi : streamlineSet.magMax;
-        const float sRange = sMax - sMin;
-        makeBar("Streamline", QString::fromStdString(m_state.streamlineVectorField),
-                stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed),
-                [&](int i) {
-                    const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-                    return sMin + sRange * frac;
-                });
+    if (m_state.showStreamlines && m_state.streamlineColorMode > 0 && m_state.meshHasVectors && m_state.hasMeshLoaded) {
+        if (m_state.streamlineColorMode == 1) {
+            const float sMin = m_state.streamlineMagRangeOverrideEnabled ? m_state.streamlineMagRangeLo : streamlineSet.magMin;
+            const float sMax = m_state.streamlineMagRangeOverrideEnabled ? m_state.streamlineMagRangeHi : streamlineSet.magMax;
+            const float sRange = sMax - sMin;
+            makeBar("Streamline", QString::fromStdString(m_state.streamlineVectorField),
+                    stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed),
+                    [&](int i) {
+                        const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                        return sMin + sRange * frac;
+                    });
+        } else {
+            int compIdx = m_state.streamlineColorMode - 2;
+            const float cMin = m_state.streamlineCompRangeOverrideEnabled[compIdx]
+                ? m_state.streamlineCompRangeLo[compIdx] : streamlineSet.compMin[compIdx];
+            const float cMax = m_state.streamlineCompRangeOverrideEnabled[compIdx]
+                ? m_state.streamlineCompRangeHi[compIdx] : streamlineSet.compMax[compIdx];
+            const float cRange = cMax - cMin;
+            const char* labels[3] = { " (X)", " (Y)", " (Z)" };
+            QString compTitle = QString::fromStdString(m_state.streamlineVectorField) + labels[compIdx];
+            makeBar("Streamline", compTitle,
+                    stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed),
+                    [&](int i) {
+                        const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                        return cMin + cRange * frac;
+                    });
+        }
     }
 
     // Volume bar
@@ -872,6 +912,7 @@ void Renderer::renderFrame() {
     // Off-thread streamline: debounce, launch compute, consume results
     m_streamlines.dispatchCompute(m_state, m_lastUploadedMesh, streamlineSet);
     m_streamlines.consumeResult(m_state, streamlineSet);
+    m_streamlines.publishComponentRanges(m_state, streamlineSet);
 
     if (m_streamlines.particleCountDirty.exchange(false)) {
         streamlineSet.initParticles(m_state.particleCount);

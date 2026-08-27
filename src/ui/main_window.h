@@ -91,6 +91,7 @@ private:
     void syncVolumePage();
     void applyVolumeControlGating();
     void recreateViewport();
+    void applyThemeAwareStylesheets();
 
     ::RenderSettings* m_settings = nullptr;
     ViewportWidget* m_viewport = nullptr;
@@ -259,8 +260,10 @@ private:
     QCheckBox* m_sliceRangeCb = nullptr;
     RangeEditor* m_glyphMagRangeEditor = nullptr;
     QCheckBox* m_glyphMagRangeCb = nullptr;
+    int m_glyphRangeBoundComp = -1; // -1=magnitude, 0/1/2=X/Y/Z based on vectorColorMode
     RangeEditor* m_streamlineMagRangeEditor = nullptr;
     QCheckBox* m_streamlineMagRangeCb = nullptr;
+    int m_streamlineRangeBoundComp = -1; // -1=magnitude, 0/1/2=X/Y/Z based on streamlineColorMode
 
     // Mesh info page (rebuilt on mesh load)
     QWidget* m_meshInfoPage = nullptr;

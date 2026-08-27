@@ -202,6 +202,9 @@ struct RenderRenderState {
     float streamlineMagRangeLo = 0.0f;
     float streamlineMagRangeHi = -1.0f;
     bool streamlineMagRangeOverrideEnabled = false;
+    float streamlineCompRangeLo[3] = { 0.0f, 0.0f, 0.0f };
+    float streamlineCompRangeHi[3] = { -1.0f, -1.0f, -1.0f };
+    bool streamlineCompRangeOverrideEnabled[3] = { false, false, false };
     bool showScalarColorbar = true;
     bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
     int colorbarTicks = 6;
@@ -236,7 +239,7 @@ struct RenderRenderState {
     float vectorScale = 1.0f;
     int vectorStride = 1;
     float vectorColor[3] = { 0.2f, 0.6f, 1.0f };
-    int vectorColorMode = 0; // 0=FixedColor, 1=Magnitude, 2=CompX, 3=CompY, 4=CompZ
+    int vectorColorMode = 1; // 0=FixedColor, 1=Magnitude, 2=CompX, 3=CompY, 4=CompZ
     bool vectorScaleByMagnitude = false;
     int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
     std::string vectorField;
@@ -246,6 +249,8 @@ struct RenderRenderState {
 
     // Streamline vector field (independent from vector glyphs)
     std::string streamlineVectorField;
+    float streamlineCompMin[3] = { 0.0f, 0.0f, 0.0f };
+    float streamlineCompMax[3] = { 0.0f, 0.0f, 0.0f };
 
     // Streamlines
     bool showStreamlines = false;
@@ -256,6 +261,7 @@ struct RenderRenderState {
     int streamlineColormapChoice = 3;
     bool streamlineColormapReversed = false;
     float streamlineColor[3] = { 0.2f, 0.6f, 1.0f };
+    int streamlineColorMode = 1; // 0=FixedColor, 1=Magnitude, 2=CompX, 3=CompY, 4=CompZ
 
     float streamlineOpacity = 1.0f;
     float streamlineRibbonWidth = 0.005f;
@@ -381,6 +387,9 @@ struct StreamlineUBOData {
     glm::vec4 time_opacity;      // x = uTime, y = opacity
     glm::vec4 color_useColormap; // xyz = color, w = useColormap(0/1)
     glm::vec4 magRange;          // x = magMin, y = magMax, zw = pad
+    glm::vec4 compMin;           // xyz = compMin X,Y,Z, w = pad
+    glm::vec4 compMax;           // xyz = compMax X,Y,Z, w = pad
+    glm::vec4 colorMode;         // x = colorMode(0-4), yzw = pad
     glm::vec4 material;          // x = ambient, y = diffuse, z = specular, w = specularPower
     glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, zw = pad
     glm::vec4 arrowParams;       // x = arrowAnimSpeed, yzw = pad
@@ -552,6 +561,8 @@ public:
     // Streamline magnitude range (rebuilt by StreamlineSet).
     float streamlineMagMin() const { return streamlineSet.magMin; }
     float streamlineMagMax() const { return streamlineSet.magMax; }
+    float streamlineCompMin(int comp) const { return streamlineSet.compMin[comp]; }
+    float streamlineCompMax(int comp) const { return streamlineSet.compMax[comp]; }
 
 private:
     void drawGizmo(int deviceW, int deviceH);

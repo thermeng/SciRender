@@ -223,6 +223,15 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool streamlineMagRangeOverrideEnabled READ getStreamlineMagRangeOverrideEnabled WRITE setStreamlineMagRangeOverrideEnabled NOTIFY viewChanged)
     Q_PROPERTY(float streamlineMagRangeLo READ getStreamlineMagRangeLo WRITE setStreamlineMagRangeLo NOTIFY viewChanged)
     Q_PROPERTY(float streamlineMagRangeHi READ getStreamlineMagRangeHi WRITE setStreamlineMagRangeHi NOTIFY viewChanged)
+    Q_PROPERTY(bool streamlineCompRangeOverrideEnabledX READ getStreamlineCompRangeOverrideEnabledX NOTIFY viewChanged)
+    Q_PROPERTY(float streamlineCompRangeLoX READ getStreamlineCompRangeLoX WRITE setStreamlineCompRangeLoX NOTIFY viewChanged)
+    Q_PROPERTY(float streamlineCompRangeHiX READ getStreamlineCompRangeHiX WRITE setStreamlineCompRangeHiX NOTIFY viewChanged)
+    Q_PROPERTY(bool streamlineCompRangeOverrideEnabledY READ getStreamlineCompRangeOverrideEnabledY NOTIFY viewChanged)
+    Q_PROPERTY(float streamlineCompRangeLoY READ getStreamlineCompRangeLoY WRITE setStreamlineCompRangeLoY NOTIFY viewChanged)
+    Q_PROPERTY(float streamlineCompRangeHiY READ getStreamlineCompRangeHiY WRITE setStreamlineCompRangeHiY NOTIFY viewChanged)
+    Q_PROPERTY(bool streamlineCompRangeOverrideEnabledZ READ getStreamlineCompRangeOverrideEnabledZ NOTIFY viewChanged)
+    Q_PROPERTY(float streamlineCompRangeLoZ READ getStreamlineCompRangeLoZ WRITE setStreamlineCompRangeLoZ NOTIFY viewChanged)
+    Q_PROPERTY(float streamlineCompRangeHiZ READ getStreamlineCompRangeHiZ WRITE setStreamlineCompRangeHiZ NOTIFY viewChanged)
     Q_PROPERTY(float vectorCompMinX READ getVectorCompMinX NOTIFY meshDataUpdated)
     Q_PROPERTY(float vectorCompMaxX READ getVectorCompMaxX NOTIFY meshDataUpdated)
     Q_PROPERTY(float vectorCompMinY READ getVectorCompMinY NOTIFY meshDataUpdated)
@@ -236,6 +245,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double streamlineStepSize READ getStreamlineStepSize WRITE setStreamlineStepSize NOTIFY viewChanged)
     Q_PROPERTY(int streamlineMaxSteps READ getStreamlineMaxSteps WRITE setStreamlineMaxSteps NOTIFY viewChanged)
     Q_PROPERTY(bool streamlineUseColormap READ getStreamlineUseColormap WRITE setStreamlineUseColormap NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineColorMode READ getStreamlineColorMode WRITE setStreamlineColorMode NOTIFY viewChanged)
     Q_PROPERTY(int streamlineColormapChoice READ getStreamlineColormapChoice WRITE setStreamlineColormapChoice NOTIFY viewChanged)
     Q_PROPERTY(bool streamlineColormapReversed READ getStreamlineColormapReversed WRITE setStreamlineColormapReversed NOTIFY viewChanged)
     Q_PROPERTY(QColor streamlineColor READ getStreamlineColorQml WRITE setStreamlineColorQml NOTIFY viewChanged)
@@ -697,6 +707,31 @@ public:
     float getStreamlineMagRangeHi() const { return m_state.streamlineMagRangeHi; }
     void setStreamlineMagRangeHi(float v);
     void resetStreamlineMagRangeOverride();
+
+    int getStreamlineColorMode() const { return m_state.streamlineColorMode; }
+    void setStreamlineColorMode(int v) { int t = (v < 0) ? 0 : (v > 4 ? 4 : v); if (m_state.streamlineColorMode != t) { m_state.streamlineColorMode = t; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getStreamlineCompRangeOverrideEnabled(int comp) const { return m_state.streamlineCompRangeOverrideEnabled[comp]; }
+    void setStreamlineCompRangeOverrideEnabled(int comp, bool v);
+    float getStreamlineCompRangeLo(int comp) const { return m_state.streamlineCompRangeLo[comp]; }
+    void setStreamlineCompRangeLo(int comp, float v);
+    float getStreamlineCompRangeHi(int comp) const { return m_state.streamlineCompRangeHi[comp]; }
+    void setStreamlineCompRangeHi(int comp, float v);
+    void resetStreamlineCompRangeOverride(int comp);
+    bool getStreamlineCompRangeOverrideEnabledX() const { return getStreamlineCompRangeOverrideEnabled(0); }
+    bool getStreamlineCompRangeOverrideEnabledY() const { return getStreamlineCompRangeOverrideEnabled(1); }
+    bool getStreamlineCompRangeOverrideEnabledZ() const { return getStreamlineCompRangeOverrideEnabled(2); }
+    float getStreamlineCompRangeLoX() const { return m_state.streamlineCompRangeLo[0]; }
+    void setStreamlineCompRangeLoX(float v) { setStreamlineCompRangeLo(0, v); }
+    float getStreamlineCompRangeHiX() const { return m_state.streamlineCompRangeHi[0]; }
+    void setStreamlineCompRangeHiX(float v) { setStreamlineCompRangeHi(0, v); }
+    float getStreamlineCompRangeLoY() const { return m_state.streamlineCompRangeLo[1]; }
+    void setStreamlineCompRangeLoY(float v) { setStreamlineCompRangeLo(1, v); }
+    float getStreamlineCompRangeHiY() const { return m_state.streamlineCompRangeHi[1]; }
+    void setStreamlineCompRangeHiY(float v) { setStreamlineCompRangeHi(1, v); }
+    float getStreamlineCompRangeLoZ() const { return m_state.streamlineCompRangeLo[2]; }
+    void setStreamlineCompRangeLoZ(float v) { setStreamlineCompRangeLo(2, v); }
+    float getStreamlineCompRangeHiZ() const { return m_state.streamlineCompRangeHi[2]; }
+    void setStreamlineCompRangeHiZ(float v) { setStreamlineCompRangeHi(2, v); }
 
     bool getGlyphCompRangeOverrideEnabled(int comp) const { return m_state.glyphCompRangeOverrideEnabled[comp]; }
     void setGlyphCompRangeOverrideEnabled(int comp, bool v);

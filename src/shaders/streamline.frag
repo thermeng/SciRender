@@ -3,6 +3,7 @@
 in vec3 vWorldPos;
 in vec3 vNormal;
 in float vMag;
+in float vColorScalar;
 
 layout(std140, binding = 3) uniform StreamlineUBO {
     mat4  uMVP;
@@ -12,6 +13,9 @@ layout(std140, binding = 3) uniform StreamlineUBO {
     vec4  uTime_Opacity;       // x: time, y: opacity
     vec4  uColor_UseColormap;  // xyz: fallback color, w: use colormap flag (0.0 or 1.0)
     vec4  uMagRange;           // x: minMag, y: maxMag
+    vec4  uCompMin;            // xyz: compMin X,Y,Z, w = pad
+    vec4  uCompMax;            // xyz: compMax X,Y,Z, w = pad
+    vec4  uColorMode;          // x: colorMode(0-4), yzw = pad
     vec4  uMaterial;           // x: ambient, y: diffuse, z: specular, w: specularPower
     vec4  uRibbon;            // x = ribbonWidth, y = taperFactor, zw = pad
     vec4  uArrowParams;       // x = arrowAnimSpeed, yzw = pad
@@ -60,14 +64,11 @@ void lightContributionPBR(vec3 rawLightDir, vec3 norm, float intensity,
 }
 
 void main() {
-    bool useColormap = uColor_UseColormap.w > 0.5;
-    float magMin = uMagRange.x;
-    float magMax = uMagRange.y;
-    float span = max(magMax - magMin, 1e-6);
-    float normMag = clamp((vMag - magMin) / span, 0.0, 1.0);
+    int colorMode = int(uColorMode.x);
+    bool useColormap = colorMode > 0;
 
     // [S5] Explicit LOD skips implicit derivatives on the mipless 1D LUT.
-    vec3 baseColor = useColormap ? textureLod(uColormapLUT, normMag, 0.0).rgb : uColor_UseColormap.xyz;
+    vec3 baseColor = useColormap ? textureLod(uColormapLUT, vColorScalar, 0.0).rgb : uColor_UseColormap.xyz;
 
     vec3 N = normalize(vNormal);
     vec3 L = normalize(uLightDir.xyz);

@@ -63,7 +63,7 @@ void ParticlePass::draw(const RenderRenderState& state,
     glUniform1f(particleSizeRefWLoc, sizeRefW);
     glUniform1f(particlePointSizeLoc, state.particleSize);
 
-    if (state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
+    if (state.streamlineColorMode > 0 && colormap.streamlineTexture() != 0) {
         glBindTextureUnit(1, colormap.streamlineTexture());
         glUniform1i(particleLutLoc, 1);
         glUniform1i(particleUseColormapLoc, 1);
