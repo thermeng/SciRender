@@ -47,7 +47,7 @@ private:
     GLint locSafeExtent_ = -1;
     GLint locBaseStepSize_ = -1;
     GLint locPixelFootprintScale_ = -1;
-    GLint locFovY_ = -1;
+    GLint locNumBands_ = -1;
     glm::vec3 boxMin_;
     glm::vec3 boxMax_;
     int dimX_ = 0, dimY_ = 0, dimZ_ = 0;

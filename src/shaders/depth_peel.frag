@@ -33,6 +33,7 @@ in float vScalar;
 
 uniform sampler2D uPrevDepth;
 uniform sampler1D uColormapLUT;
+uniform float uNumBands = 0.0; // 0 = continuous, >1 = discrete bands
 uniform int uLayerIndex;
 
 out vec4 FragColor;
@@ -96,6 +97,9 @@ void main() {
     vec3 baseColor = uSurfaceColor_Op.xyz;
     if (hasScalars && (uScalars.x != uScalars.y)) {
         float t = clamp((vScalar - uScalars.x) / (uScalars.y - uScalars.x), 0.0, 1.0);
+        if (uNumBands > 1.0) {
+            t = floor(t * uNumBands) / (uNumBands - 1.0);
+        }
         // [S5] Explicit LOD skips implicit derivatives on the mipless 1D LUT.
         baseColor = textureLod(uColormapLUT, t, 0.0).rgb;
     }

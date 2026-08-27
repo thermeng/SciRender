@@ -15,6 +15,7 @@ void DepthPeelPass::init(const ShaderSources& sources) {
             m_peelLayerLoc     = glGetUniformLocation(m_peelProgram, "uLayerIndex");
             m_peelLutLoc       = glGetUniformLocation(m_peelProgram, "uLUT");
             if (m_peelLutLoc < 0) m_peelLutLoc = glGetUniformLocation(m_peelProgram, "uColormapLUT");
+            m_peelNumBandsLoc  = glGetUniformLocation(m_peelProgram, "uNumBands");
         }
     }
     if (!sources.compositeVert.empty() && !sources.compositeFrag.empty()) {
@@ -30,12 +31,12 @@ void DepthPeelPass::shutdown() {
     destroyPeelFbos();
     m_peelProgram.reset();
     m_compositeProgram.reset();
-    m_peelPrevDepthLoc = m_peelLayerLoc = m_peelLutLoc = m_peelNumLayersLoc = -1;
+    m_peelPrevDepthLoc = m_peelLayerLoc = m_peelLutLoc = m_peelNumBandsLoc = m_peelNumLayersLoc = -1;
 }
 
 void DepthPeelPass::reinitForNewContext() {
     m_peelProgram.reset(); m_compositeProgram.reset();
-    m_peelPrevDepthLoc = m_peelLayerLoc = m_peelLutLoc = m_peelNumLayersLoc = -1;
+    m_peelPrevDepthLoc = m_peelLayerLoc = m_peelLutLoc = m_peelNumBandsLoc = m_peelNumLayersLoc = -1;
     for (auto& f : m_peelFbo) f.reset();
     for (auto& t : m_peelColorTex) t.reset();
     for (auto& t : m_peelDepthTex) t.reset();
@@ -111,6 +112,7 @@ void DepthPeelPass::renderTransparent(int vpW, int vpH,
     glUseProgram(m_peelProgram);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
     glUniform1i(m_peelPrevDepthLoc, 0);
+    if (m_peelNumBandsLoc != -1) glUniform1f(m_peelNumBandsLoc, static_cast<float>(state.scalarColorBands));
     if (state.meshHasScalars && state.meshUseScalarColor && colormap.scalarTexture() != 0) {
         glBindTextureUnit(2, colormap.scalarTexture());
         glUniform1i(m_peelLutLoc, 2);

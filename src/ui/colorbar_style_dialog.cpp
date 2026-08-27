@@ -10,10 +10,14 @@
 #include <QFormLayout>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
-ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, QWidget* parent)
-    : QDialog(parent), m_settings(settings) {
+#include <functional>
+
+ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString& barSubtitle,
+                                           int initialBandCount, QWidget* parent)
+    : QDialog(parent), m_settings(settings), m_barSubtitle(barSubtitle) {
     setWindowTitle("Colorbar Style");
     setModal(true);
 
@@ -86,6 +90,30 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, QWidget* pare
     m_panelOpacity->setValue(static_cast<int>(m_initialPanelOpacity * 100.0f));
     form->addRow("Panel opacity %", m_panelOpacity);
 
+    // Per-bar band count control. Determine the bar type from its subtitle so we
+    // can map to the correct RenderSettings setter. Hide the spinbox if the bar
+    // type is unrecognized or the index is out of range.
+    m_bandCount = new QSpinBox(this);
+    m_bandCount->setRange(0, 32);
+    m_bandCount->setSuffix(" bands");
+    m_bandCount->setToolTip("Number of discrete color bands (0 = continuous)");
+    {
+        m_initialBandCount = initialBandCount;
+        m_bandCount->setValue(m_initialBandCount);
+        std::function<void(int)> setter = nullptr;
+        if (m_barSubtitle == "Scalar") setter = [&](int v) { m_settings->setScalarColorBands(v); };
+        else if (m_barSubtitle == "Vector") setter = [&](int v) { m_settings->setVectorColorBands(v); };
+        else if (m_barSubtitle == "Streamline") setter = [&](int v) { m_settings->setStreamlineColorBands(v); };
+        else if (m_barSubtitle == "Volume") setter = [&](int v) { m_settings->setVolumeColorBands(v); };
+        else if (m_barSubtitle == "Slice") setter = [&](int v) { m_settings->setVolumeSliceColorBands(v); };
+        if (setter) {
+            connect(m_bandCount, &QSpinBox::valueChanged, this, setter);
+        } else {
+            m_bandCount->hide();
+        }
+    }
+    form->addRow("Color bands", m_bandCount);
+
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults, this);
     auto* defaultsBtn = buttons->button(QDialogButtonBox::RestoreDefaults);
@@ -143,5 +171,12 @@ void ColorbarStyleDialog::reject() {
     m_settings->setColorbarPanelEnabled(m_initialPanelEnabled);
     m_settings->setColorbarPanelOpacity(m_initialPanelOpacity);
     m_settings->setColorbarShowAnnotation(m_initialShowAnnotation);
+    if (m_bandCount->isVisible()) {
+        if (m_barSubtitle == "Scalar") m_settings->setScalarColorBands(m_initialBandCount);
+        else if (m_barSubtitle == "Vector") m_settings->setVectorColorBands(m_initialBandCount);
+        else if (m_barSubtitle == "Streamline") m_settings->setStreamlineColorBands(m_initialBandCount);
+        else if (m_barSubtitle == "Volume") m_settings->setVolumeColorBands(m_initialBandCount);
+        else if (m_barSubtitle == "Slice") m_settings->setVolumeSliceColorBands(m_initialBandCount);
+    }
     QDialog::reject();
 }

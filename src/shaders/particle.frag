@@ -7,6 +7,7 @@ uniform sampler1D uColormapLUT;
 uniform vec4 uColor;
 uniform int uUseColormap;
 uniform vec2 uParticleMagRange; // x=min, y=max
+uniform float uNumBands = 0.0; // 0 = continuous, >1 = discrete bands
 
 out vec4 FragColor;
 
@@ -27,6 +28,9 @@ void main() {
     if (uUseColormap > 0) {
         float span = max(uParticleMagRange.y - uParticleMagRange.x, 1e-6);
         float norm = clamp((vMag - uParticleMagRange.x) / span, 0.0, 1.0);
+        if (uNumBands > 1.0) {
+            norm = floor(norm * uNumBands) / (uNumBands - 1.0);
+        }
         color = texture(uColormapLUT, norm).rgb;
     } else {
         color = uColor.rgb;

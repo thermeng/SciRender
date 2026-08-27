@@ -1145,47 +1145,6 @@ private:
         }
     }
 
-    std::vector<std::vector<uint32_t>> generateStructuredGridIndices(int dX, int dY, int dZ) {
-        int cellsX = std::max(1, dX - 1);
-        int cellsY = std::max(1, dY - 1);
-        int cellsZ = std::max(1, dZ - 1);
-        // 64-bit count — int overflows at ~1290^3 cells
-        size_t totalCells = static_cast<size_t>(cellsX) * cellsY * cellsZ;
-
-        mesh.indices.reserve(totalCells * 36);
-        std::vector<std::vector<uint32_t>> cellToVertices(totalCells);
-
-        int cellIdx = 0;
-        for (int z = 0; z < dZ - 1; ++z) {
-            for (int y = 0; y < dY - 1; ++y) {
-                for (int x = 0; x < dX - 1; ++x) {
-                    uint32_t i0 = x + y * dX + z * dX * dY;
-                    uint32_t i1 = (x + 1) + y * dX + z * dX * dY;
-                    uint32_t i2 = (x + 1) + (y + 1) * dX + z * dX * dY;
-                    uint32_t i3 = x + (y + 1) * dX + z * dX * dY;
-
-                    uint32_t i4 = x + y * dX + (z + 1) * dX * dY;
-                    uint32_t i5 = (x + 1) + y * dX + (z + 1) * dX * dY;
-                    uint32_t i6 = (x + 1) + (y + 1) * dX + (z + 1) * dX * dY;
-                    uint32_t i7 = x + (y + 1) * dX + (z + 1) * dX * dY;
-
-                    mesh.indices.insert(mesh.indices.end(), {
-                        i0, i2, i1, i0, i3, i2,        // bottom  z=0  (-Z)
-                        i4, i5, i6, i4, i6, i7,        // top     z=1  (+Z)
-                        i0, i4, i7, i0, i7, i3,        // x=0     (-X)
-                        i1, i2, i6, i1, i6, i5,        // x=1     (+X)
-                        i0, i1, i5, i0, i5, i4,        // y=0     (-Y)
-                        i3, i7, i6, i3, i6, i2         // y=1     (+Y)
-                    });
-
-                    cellToVertices[cellIdx] = { i0, i1, i2, i3, i4, i5, i6, i7 };
-                    cellIdx++;
-                }
-            }
-        }
-        return cellToVertices;
-    }
-
     // ── Post Processing & Metrics Finalization ──────────────────────────────
 
     void finalizeMeshData() {

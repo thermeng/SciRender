@@ -27,6 +27,7 @@ private:
     GLuint glyphUboIndex = ~0u;
     GLint glyphLutLoc = -1;
     GLint glyphViewPosLoc = -1;
+    GLint glyphNumBandsLoc = -1;
 };
 
 

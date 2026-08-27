@@ -34,6 +34,7 @@ private:
     GLint particlePointSizeLoc = -1;
     GLint particleUseColormapLoc = -1;
     GLint particleMagRangeLoc = -1;
+    GLint particleNumBandsLoc = -1;
 };
 
 

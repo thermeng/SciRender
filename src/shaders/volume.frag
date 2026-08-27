@@ -4,6 +4,7 @@ in vec2 vNdc;
 
 uniform sampler3D uVolumeTex;
 uniform sampler1D uColormapLUT;
+uniform float uNumBands = 0.0; // 0 = continuous, >1 = discrete bands
 uniform vec3 uBoxMin;
 uniform vec3 uBoxMax;
 uniform vec3 uSafeExtent;
@@ -19,7 +20,6 @@ uniform float uSliceHeightZ;
 uniform vec3 uSliceEn;
 uniform vec3 uInvert;
 uniform float uPixelFootprintScale;
-uniform float uFovY;
 uniform int uOrtho;
 uniform mat4 uInvView;
 uniform mat4 uInvProj;
@@ -116,6 +116,9 @@ void main() {
         float val = texture(uVolumeTex, uvw).r;
 
         float tVal = clamp((val - uScalarMin) / scalarRange, 0.0, 1.0);
+        if (uNumBands > 1.0) {
+            tVal = floor(tVal * uNumBands) / (uNumBands - 1.0);
+        }
 
         // [P1] Forward differences reuse the already-fetched center sample:
         // 4 texture fetches per step instead of 7 (central differences plus a

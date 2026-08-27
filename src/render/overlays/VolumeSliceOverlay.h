@@ -35,6 +35,7 @@ private:
     GLint m_scalarMinLoc = -1;
     GLint m_scalarMaxLoc = -1;
     GLint m_alphaLoc = -1;
+    GLint m_numBandsLoc = -1;
 
     float m_worldPos = 0.5f;
     int m_axis = 1;

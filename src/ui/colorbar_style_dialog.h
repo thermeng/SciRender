@@ -9,18 +9,21 @@ class QDoubleSpinBox;
 class QCheckBox;
 class QComboBox;
 class QSlider;
+class QSpinBox;
 class RenderSettings;
 
 class ColorbarStyleDialog : public QDialog {
     Q_OBJECT
 public:
-    explicit ColorbarStyleDialog(RenderSettings* settings, QWidget* parent = nullptr);
+    explicit ColorbarStyleDialog(RenderSettings* settings, const QString& barSubtitle,
+                                 int initialBandCount, QWidget* parent = nullptr);
 
 protected:
     void reject() override;
 
 private:
     RenderSettings* m_settings = nullptr;
+    QString m_barSubtitle;
     QComboBox* m_fontFamily = nullptr;
     QCheckBox* m_fontBold = nullptr;
     QCheckBox* m_fontItalic = nullptr;
@@ -31,6 +34,8 @@ private:
     QCheckBox* m_panelEnabled = nullptr;
     QSlider* m_panelOpacity = nullptr;
     QCheckBox* m_showAnnotation = nullptr;
+    QSpinBox* m_bandCount = nullptr;
+    int m_initialBandCount = 0;
     QString m_initialFontFamily;
     bool m_initialFontBold = false;
     bool m_initialFontItalic = false;

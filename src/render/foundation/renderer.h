@@ -159,6 +159,11 @@ struct RenderRenderState {
     bool colormapReversed = false;
     int vectorColormapChoice = 3;
     bool vectorColormapReversed = false;
+    int scalarColorBands = 0;       // 0 = continuous, 2-32 = discrete bands
+    int vectorColorBands = 0;
+    int streamlineColorBands = 0;
+    int volumeColorBands = 0;
+    int volumeSliceColorBands = 0;
 
     // Scalar field
     bool meshHasScalars = false;

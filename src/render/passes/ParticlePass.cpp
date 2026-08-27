@@ -17,6 +17,7 @@ void ParticlePass::init(const ShaderSources& sources) {
         particlePointSizeLoc = glGetUniformLocation(particleProgram, "uPointSize");
         particleUseColormapLoc = glGetUniformLocation(particleProgram, "uUseColormap");
         particleMagRangeLoc = glGetUniformLocation(particleProgram, "uParticleMagRange");
+        particleNumBandsLoc = glGetUniformLocation(particleProgram, "uNumBands");
     }
 }
 
@@ -77,6 +78,7 @@ void ParticlePass::draw(const RenderRenderState& state,
     const float magLo = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeLo : streamlines.magMin;
     const float magHi = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeHi : streamlines.magMax;
     glUniform2f(particleMagRangeLoc, magLo, magHi);
+    if (particleNumBandsLoc != -1) glUniform1f(particleNumBandsLoc, static_cast<float>(state.streamlineColorBands));
 
     glBindVertexArray(particleVao);
     glDrawArrays(GL_POINTS, 0, m_particleVertexCount);
@@ -95,6 +97,7 @@ void ParticlePass::shutdown() {
     particlePointSizeLoc = -1;
     particleUseColormapLoc = -1;
     particleMagRangeLoc = -1;
+    particleNumBandsLoc = -1;
 }
 
 

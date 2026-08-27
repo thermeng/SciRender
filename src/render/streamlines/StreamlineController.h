@@ -41,6 +41,7 @@ private:
     GlProgram m_streamlineProgram;
     GlBuffer m_streamlineUbo;
     GLint m_streamlineLutLoc = -1;
+    GLint m_streamlineNumBandsLoc = -1;
 
     GlProgram m_seedProgram;
     GLint m_seedMvpLoc = -1;
