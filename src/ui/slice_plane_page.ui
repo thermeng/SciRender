@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>VolumePage</class>
- <widget class="QWidget" name="VolumePage">
+ <class>SlicePlanePage</class>
+ <widget class="QWidget" name="SlicePlanePage">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -27,9 +27,9 @@
     <number>8</number>
    </property>
    <item>
-    <widget class="QCheckBox" name="showVolumeCb">
+    <widget class="QCheckBox" name="showSliceCb">
      <property name="text">
-      <string>Enable Volume Rendering</string>
+      <string>Show Slice Plane</string>
      </property>
     </widget>
    </item>
@@ -52,60 +52,61 @@
        <number>0</number>
       </property>
       <item>
-       <widget class="QLabel" name="volumeFieldHeader">
+       <widget class="QLabel" name="axisHeader">
         <property name="text">
-         <string>Scalar Field</string>
+         <string>Axis</string>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QComboBox" name="volumeFieldCombo"/>
-      </item>
-      <item>
-       <widget class="QLabel" name="volumePaletteHeader">
-        <property name="text">
-         <string>Colormap</string>
+       <layout class="QHBoxLayout" name="axisRow">
+        <property name="spacing">
+         <number>4</number>
         </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="volumePaletteCombo"/>
-      </item>
-      <item>
-       <widget class="QCheckBox" name="volumeReverseCb">
-        <property name="text">
-         <string>Reverse Palette</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QCheckBox" name="volumeUseCmapCb">
-        <property name="text">
-         <string>Use Colormap</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="stepRow">
         <item>
-         <widget class="QLabel" name="stepLabel">
+         <widget class="QRadioButton" name="axisX">
           <property name="text">
-           <string>Step Size</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+           <string>X</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QSlider" name="stepSlider">
+         <widget class="QRadioButton" name="axisY">
+          <property name="text">
+           <string>Y</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="axisZ">
+          <property name="text">
+           <string>Z</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="positionHeader">
+        <property name="text">
+         <string>Position</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="posRow">
+        <item>
+         <widget class="QSlider" name="posSlider">
           <property name="orientation">
            <enum>Qt::Orientation::Horizontal</enum>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="stepValue">
+         <widget class="QLabel" name="posValue">
           <property name="minimumSize">
            <size>
             <width>36</width>
@@ -119,27 +120,24 @@
            </size>
           </property>
           <property name="text">
-           <string>0.010</string>
+           <string>50%</string>
           </property>
           <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignVCenter</set>
           </property>
          </widget>
         </item>
        </layout>
       </item>
       <item>
+       <widget class="QLabel" name="opacityHeader">
+        <property name="text">
+         <string>Opacity</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <layout class="QHBoxLayout" name="opacityRow">
-        <item>
-         <widget class="QLabel" name="opacityLabel">
-          <property name="text">
-           <string>Opacity</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-          </property>
-         </widget>
-        </item>
         <item>
          <widget class="QSlider" name="opacitySlider">
           <property name="orientation">
@@ -162,14 +160,24 @@
            </size>
           </property>
           <property name="text">
-           <string>1.000</string>
+           <string>35%</string>
           </property>
           <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignVCenter</set>
           </property>
          </widget>
         </item>
        </layout>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="rangeCb">
+        <property name="text">
+         <string>Fixed Range</string>
+        </property>
+        <property name="toolTip">
+         <string>Map a fixed value range to the slice palette; values outside clamp to the end colors</string>
+        </property>
+       </widget>
       </item>
       <item>
        <widget class="QWidget" name="rangeContainer" native="true">
@@ -196,7 +204,7 @@
     </widget>
    </item>
    <item>
-    <spacer name="volumeBottomSpacer">
+    <spacer name="bottomSpacer">
      <property name="orientation">
       <enum>Qt::Orientation::Vertical</enum>
      </property>

@@ -3,6 +3,8 @@
 #include <QMainWindow>
 #include <QDockWidget>
 #include <QStackedWidget>
+#include <QToolBar>
+#include <QListWidget>
 #include <QTimer>
 #include <QLabel>
 #include <QToolButton>
@@ -32,6 +34,7 @@
 
 #include "viewport_widget.h"
 #include "render/settings/render_settings.h"
+#include "ui/range_editor.h"
 
 namespace Ui {
     class MainWindow;
@@ -44,6 +47,8 @@ namespace Ui {
     class ScreenshotPage;
     class MeshInfoPage;
     class VolumePage;
+    class SlicePlanePage;
+    class IsosurfacePage;
     class AnimationPage;
 }
 
@@ -73,14 +78,14 @@ protected:
 
 private:
     void setupMenus();
+    void setupTopToolbar();
     void setupSidebar();
-    void setupQuickBar();
+    void setupNavList();
     void setupTimers();
     void setupKeyboardShortcuts();
     void connectSettings();
     void updateStatusBar();
-    void updateQuickBarVisibility();
-    void syncQuickBar();
+    void syncTopToolbar();
     void syncViewDisplayPage();
     void syncLightingPage();
     void syncVolumePage();
@@ -92,6 +97,13 @@ private:
 
     Ui::MainWindow* ui = nullptr;
 
+    // Top toolbar (display toggles)
+    QToolBar* m_topToolbar = nullptr;
+    QAction* m_tbWireframe = nullptr;
+    QAction* m_tbSurface = nullptr;
+    QAction* m_tbVolume = nullptr;
+    QAction* m_tbSlice = nullptr;
+
     // Sidebar
     QDockWidget* m_sidebarDock = nullptr;
     QWidget* m_sidebarWidget = nullptr;
@@ -99,20 +111,19 @@ private:
     QStackedWidget* m_sectionStack = nullptr;
     int m_activeSection = -1;
     bool m_sidebarExpanded = false;
-    static constexpr int kSidebarWidth = 220;
-    static constexpr int kIconStripWidth = 48;
+    static constexpr int kSidebarWidth = 240;
+    static constexpr int kNavWidth = 140;
     static constexpr int kLabelWidth = 72;
     static constexpr int kControlHeight = 24;
     static constexpr int kValueFieldWidth = 48;
 
+    // Navigation list (replaces icon strip)
+    QListWidget* m_navList = nullptr;
+    int m_navWidth = 140; // Dynamic width calculated from text content
+
     // Panel header
     QWidget* m_panelHeader = nullptr;
     QLabel* m_panelTitle = nullptr;
-
-    // Icon strip buttons (indices 1-8 are section toggles)
-    QVector<QToolButton*> m_iconButtons;
-    QWidget* m_iconStrip = nullptr;
-    QToolButton* m_closeBtn = nullptr;
 
     // Section pages
     QWidget* buildLightingPage();
@@ -124,6 +135,8 @@ private:
     QWidget* buildScreenshotPage();
     QWidget* buildMeshInfoPage();
     QWidget* buildVolumePage();
+    QWidget* buildSlicePlanePage();
+    QWidget* buildIsosurfacePage();
     QWidget* buildAnimationPage();
     void refreshMeshInfoPage();
     QHash<QString, QLabel*> m_meshInfoLabels;
@@ -143,16 +156,7 @@ private:
     QPushButton* m_animExportBtn = nullptr;
     void refreshAnimationPage();
 
-    // Quick bar
-    QWidget* m_quickBar = nullptr;
-    QToolButton* m_quickBarHandle = nullptr;
-    QHBoxLayout* m_quickBarLayout = nullptr;
-    QToolButton* m_qbWireframe = nullptr;
-    QToolButton* m_qbSurface = nullptr;
-    QToolButton* m_qbVolume = nullptr;
-    QToolButton* m_qbSlice = nullptr;
-
-    // View & Display page checkboxes (synced with quick bar / keyboard shortcuts)
+    // View & Display page checkboxes (synced with toolbar / keyboard shortcuts)
     QCheckBox* m_vdWireframeCb = nullptr;
     QCheckBox* m_vdSurfaceCb = nullptr;
     QCheckBox* m_vdPointsCb = nullptr;
@@ -246,6 +250,17 @@ private:
     QSlider* m_colorHiSlider = nullptr;
     QLineEdit* m_colorHiField = nullptr;
     QCheckBox* m_colorRangeCb = nullptr;
+    RangeEditor* m_colorRangeEditor = nullptr;
+
+    // Per-pass Fixed Range editors
+    RangeEditor* m_volumeRangeEditor = nullptr;
+    QCheckBox* m_volumeRangeCb = nullptr;
+    RangeEditor* m_sliceRangeEditor = nullptr;
+    QCheckBox* m_sliceRangeCb = nullptr;
+    RangeEditor* m_glyphMagRangeEditor = nullptr;
+    QCheckBox* m_glyphMagRangeCb = nullptr;
+    RangeEditor* m_streamlineMagRangeEditor = nullptr;
+    QCheckBox* m_streamlineMagRangeCb = nullptr;
 
     // Mesh info page (rebuilt on mesh load)
     QWidget* m_meshInfoPage = nullptr;
@@ -266,6 +281,10 @@ private:
     void refreshSlicingPageBounds();
     void refreshScalarFilterRange();
     void refreshColorRangeBounds();
+    void refreshVolumeRangeBounds();
+    void refreshSliceRangeBounds();
+    void refreshGlyphMagRangeBounds();
+    void refreshStreamlineMagRangeBounds();
     void refreshIsosurfaceSlider();
 
     // Timers

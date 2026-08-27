@@ -5,13 +5,16 @@ layout(std140) uniform GlyphUBO {
     vec4  uScale_MagMin_MagMax_ScaleByMag;
     vec4  uMeshExtent_MagTransform_ViewPosY_ColorR;
     vec4  uLightDir_ColorGB;
-    vec4  uColorB_UseColormap;
+    vec4  uColorB_ColorMode;
+    vec4  uCompMin;
+    vec4  uCompMax;
     vec4  uPBR;              // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
 
 in vec3 vNormal;
 in vec3 vWorldPos;
 in float vMag;
+in float vColorScalar;
 
 uniform vec3 uViewPos;
 uniform sampler1D uColormapLUT;
@@ -57,10 +60,11 @@ void main() {
     vec3 n = normalize(vNormal);
     if (!gl_FrontFacing) n = -n;            // preserve legacy double-sided shading
     vec3 L = normalize(uLightDir_ColorGB.xyz);
-    vec3 color = vec3(uMeshExtent_MagTransform_ViewPosY_ColorR.w, uLightDir_ColorGB.w, uColorB_UseColormap.x);
-    bool useColormap = uColorB_UseColormap.y > 0.5;
+    vec3 color = vec3(uMeshExtent_MagTransform_ViewPosY_ColorR.w, uLightDir_ColorGB.w, uColorB_ColorMode.x);
+    int colorMode = int(uColorB_ColorMode.y);
+    bool useColormap = colorMode > 0;
     // [S5] Explicit LOD skips implicit derivatives on the mipless 1D LUT.
-    vec3 baseColor = useColormap ? textureLod(uColormapLUT, vMag, 0.0).rgb : color;
+    vec3 baseColor = useColormap ? textureLod(uColormapLUT, vColorScalar, 0.0).rgb : color;
     vec3 viewDir = normalize(uViewPos - vWorldPos);
 
     vec3 totalDiffuse = vec3(0.0);

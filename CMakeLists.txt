@@ -157,6 +157,8 @@ add_executable(SciRender
     src/ui/viewport_widget.h
     src/ui/colorbar_style_dialog.cpp
     src/ui/colorbar_style_dialog.h
+    src/ui/range_editor.cpp
+    src/ui/range_editor.h
     src/ui/animation_export_dialog.cpp
     src/ui/animation_export_dialog.h
     src/ui/main_window.cpp
@@ -227,8 +229,6 @@ qt_add_resources(SciRender "shaders"
 qt_add_resources(SciRender "icons"
     PREFIX "/"
     FILES
-        src/resources/icons/checkmark.svg
-        src/resources/icons/downarrow.svg
         src/resources/icons/wireframe.svg
         src/resources/icons/surface.svg
         src/resources/icons/volume.svg

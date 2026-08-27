@@ -44,6 +44,8 @@ void VectorGlyphSet::teardownGL() {
     instanceCount = 0;
     magMin = 0.0f;
     magMax = 1.0f;
+    compMin[0] = compMin[1] = compMin[2] = 0.0f;
+    compMax[0] = compMax[1] = compMax[2] = 0.0f;
     meshExtent = 1.0f;
 }
 
@@ -69,12 +71,28 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     stride = std::max(1, stride);
     float mMin = std::numeric_limits<float>::max();
     float mMax = -std::numeric_limits<float>::max();
+    float cMin[3] = {
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max()
+    };
+    float cMax[3] = {
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max()
+    };
     for (int i = 0; i < limit; ++i) {
         float dx = data[i].x, dy = data[i].y, dz = data[i].z;
         float m = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (!std::isfinite(m)) continue;
         if (m < mMin) mMin = m;
         if (m > mMax) mMax = m;
+        if (dx < cMin[0]) cMin[0] = dx;
+        if (dx > cMax[0]) cMax[0] = dx;
+        if (dy < cMin[1]) cMin[1] = dy;
+        if (dy > cMax[1]) cMax[1] = dy;
+        if (dz < cMin[2]) cMin[2] = dz;
+        if (dz > cMax[2]) cMax[2] = dz;
     }
     std::vector<float> inst;
     const float extent = static_cast<float>(mesh.bounds.extent);
@@ -114,6 +132,11 @@ void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::stri
     if (mMin > mMax) { mMin = 0.0f; mMax = 0.0f; }
     magMin = mMin;
     magMax = mMax;
+    for (int i = 0; i < 3; ++i) {
+        if (cMin[i] > cMax[i]) { cMin[i] = 0.0f; cMax[i] = 0.0f; }
+        compMin[i] = cMin[i];
+        compMax[i] = cMax[i];
+    }
     meshExtent = static_cast<float>(mesh.bounds.extent);
 
     std::vector<float> av, an; std::vector<unsigned int> ai;

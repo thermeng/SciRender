@@ -224,7 +224,19 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.colorbarTicks != state.colorbarTicks
         || m_state.colorRangeOverrideEnabled != state.colorRangeOverrideEnabled
         || m_state.colorRangeLo != state.colorRangeLo
-        || m_state.colorRangeHi != state.colorRangeHi;
+        || m_state.colorRangeHi != state.colorRangeHi
+        || m_state.volumeColorRangeOverrideEnabled != state.volumeColorRangeOverrideEnabled
+        || m_state.volumeColorRangeLo != state.volumeColorRangeLo
+        || m_state.volumeColorRangeHi != state.volumeColorRangeHi
+        || m_state.sliceColorRangeOverrideEnabled != state.sliceColorRangeOverrideEnabled
+        || m_state.sliceColorRangeLo != state.sliceColorRangeLo
+        || m_state.sliceColorRangeHi != state.sliceColorRangeHi
+        || m_state.glyphMagRangeOverrideEnabled != state.glyphMagRangeOverrideEnabled
+        || m_state.glyphMagRangeLo != state.glyphMagRangeLo
+        || m_state.glyphMagRangeHi != state.glyphMagRangeHi
+        || m_state.streamlineMagRangeOverrideEnabled != state.streamlineMagRangeOverrideEnabled
+        || m_state.streamlineMagRangeLo != state.streamlineMagRangeLo
+        || m_state.streamlineMagRangeHi != state.streamlineMagRangeHi;
     bool colorbarStyleChanged = m_state.colorbarFontFamily != state.colorbarFontFamily
         || m_state.colorbarFontBold != state.colorbarFontBold
         || m_state.colorbarFontItalic != state.colorbarFontItalic
@@ -588,33 +600,56 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     }
 
     // Vector bar
-    if (m_state.showVectors && m_state.vectorUseColormap && m_state.hasMeshLoaded &&
+    if (m_state.showVectors && m_state.vectorColorMode > 0 && m_state.hasMeshLoaded &&
         (m_state.vectorPlacement == 0 ? m_state.meshHasVectors : m_state.meshHasCellVectors)) {
-        auto txMag = [&](float m) -> float {
-            if (m_state.vectorMagTransform == 1) return std::sqrt(std::max(m, 0.0f));
-            if (m_state.vectorMagTransform == 2) return std::log(1.0f + std::max(m, 0.0f));
-            return m;
-        };
-        auto invTxMag = [&](float t) -> float {
-            if (m_state.vectorMagTransform == 1) return t * t;
-            if (m_state.vectorMagTransform == 2) return std::exp(t) - 1.0f;
-            return t;
-        };
-        const float tMin = txMag(vectorGlyph.magMin);
-        const float tMax = txMag(vectorGlyph.magMax);
-        const float tRange = tMax - tMin;
-        makeBar("Vector", QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())),
-                stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed),
-                [&](int i) {
-                    const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-                    return invTxMag(tMin + tRange * frac);
-                });
+        if (m_state.vectorColorMode == 1) {
+            // Magnitude mode: show magnitude range with optional transform.
+            auto txMag = [&](float m) -> float {
+                if (m_state.vectorMagTransform == 1) return std::sqrt(std::max(m, 0.0f));
+                if (m_state.vectorMagTransform == 2) return std::log(1.0f + std::max(m, 0.0f));
+                return m;
+            };
+            auto invTxMag = [&](float t) -> float {
+                if (m_state.vectorMagTransform == 1) return t * t;
+                if (m_state.vectorMagTransform == 2) return std::exp(t) - 1.0f;
+                return t;
+            };
+            const float tMin = m_state.glyphMagRangeOverrideEnabled
+                ? applyVectorMagTransform(m_state.glyphMagRangeLo, m_state.vectorMagTransform)
+                : txMag(vectorGlyph.magMin);
+            const float tMax = m_state.glyphMagRangeOverrideEnabled
+                ? applyVectorMagTransform(m_state.glyphMagRangeHi, m_state.vectorMagTransform)
+                : txMag(vectorGlyph.magMax);
+            const float tRange = tMax - tMin;
+            makeBar("Vector", QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())),
+                    stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed),
+                    [&](int i) {
+                        const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                        return invTxMag(tMin + tRange * frac);
+                    });
+        } else {
+            // Component mode (X=2, Y=3, Z=4): show the selected component's range.
+            int compIdx = m_state.vectorColorMode - 2; // 0=X, 1=Y, 2=Z
+            const float cMin = m_state.glyphCompRangeOverrideEnabled[compIdx]
+                ? m_state.glyphCompRangeLo[compIdx] : vectorGlyph.compMin[compIdx];
+            const float cMax = m_state.glyphCompRangeOverrideEnabled[compIdx]
+                ? m_state.glyphCompRangeHi[compIdx] : vectorGlyph.compMax[compIdx];
+            const float cRange = cMax - cMin;
+            const char* labels[3] = { " (X)", " (Y)", " (Z)" };
+            QString compTitle = QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())) + labels[compIdx];
+            makeBar("Vector", compTitle,
+                    stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed),
+                    [&](int i) {
+                        const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
+                        return cMin + cRange * frac;
+                    });
+        }
     }
 
     // Streamline bar
     if (m_state.showStreamlines && m_state.streamlineUseColormap && m_state.meshHasVectors && m_state.hasMeshLoaded) {
-        const float sMin = streamlineSet.magMin;
-        const float sMax = streamlineSet.magMax;
+        const float sMin = m_state.streamlineMagRangeOverrideEnabled ? m_state.streamlineMagRangeLo : streamlineSet.magMin;
+        const float sMax = m_state.streamlineMagRangeOverrideEnabled ? m_state.streamlineMagRangeHi : streamlineSet.magMax;
         const float sRange = sMax - sMin;
         makeBar("Streamline", QString::fromStdString(m_state.streamlineVectorField),
                 stopsFor(m_state.streamlineColormapChoice, m_state.streamlineColormapReversed),
@@ -626,23 +661,27 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
 
     // Volume bar
     if (m_state.showVolume && m_state.volumeUseColormap && m_state.hasMeshLoaded) {
-        const float range = m_state.dataScalarMax - m_state.dataScalarMin;
+        const float vMin = m_state.volumeColorRangeOverrideEnabled ? m_state.volumeColorRangeLo : m_state.dataScalarMin;
+        const float vMax = m_state.volumeColorRangeOverrideEnabled ? m_state.volumeColorRangeHi : m_state.dataScalarMax;
+        const float range = vMax - vMin;
         makeBar("Volume", QString::fromStdString(m_state.activeScalarName),
                 stopsFor(m_state.volumeColormapChoice, m_state.volumeColormapReversed),
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-                    return m_state.dataScalarMin + range * frac;
+                    return vMin + range * frac;
                 });
     }
 
     // Slice plane bar (independent colormap, per-slice scalar range)
     if (m_state.showVolumeSlice && m_state.volumeSliceUseColormap && m_state.hasMeshLoaded) {
-        const float range = m_state.sliceScalarMax - m_state.sliceScalarMin;
+        const float slMin = m_state.sliceColorRangeOverrideEnabled ? m_state.sliceColorRangeLo : m_state.sliceScalarMin;
+        const float slMax = m_state.sliceColorRangeOverrideEnabled ? m_state.sliceColorRangeHi : m_state.sliceScalarMax;
+        const float range = slMax - slMin;
         makeBar("Slice", QString::fromStdString(m_state.activeScalarName),
                 stopsFor(m_state.volumeSliceColormapChoice, m_state.volumeSliceColormapReversed),
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
-                    return m_state.sliceScalarMin + range * frac;
+                    return slMin + range * frac;
                 });
     }
 
@@ -820,6 +859,10 @@ void Renderer::renderFrame() {
 
     if (vectorGlyphDirty.exchange(false)) {
         if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement);
+        for (int i = 0; i < 3; ++i) {
+            m_state.vectorCompMin[i] = vectorGlyph.compMin[i];
+            m_state.vectorCompMax[i] = vectorGlyph.compMax[i];
+        }
     }
 
     if (m_streamlines.streamlineDirty.exchange(false)) {
