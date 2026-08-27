@@ -63,9 +63,9 @@
      </property></widget>
    </item>
    <item>
-    <widget class="QWidget" name="wireframeRow">
-     <layout class="QHBoxLayout" name="wireframeLayout">
-      <property name="spacing"><number>4</number></property>
+     <widget class="QWidget" name="wireframeRow">
+      <layout class="QHBoxLayout" name="wireframeLayout">
+       <property name="spacing"><number>6</number></property>
       <property name="leftMargin"><number>0</number></property>
       <property name="topMargin"><number>0</number></property>
       <property name="rightMargin"><number>0</number></property>
@@ -116,23 +116,23 @@
     </layout>
    </item>
    <item>
-    <widget class="QWidget" name="pointGroup" native="true">
-     <layout class="QVBoxLayout" name="pointLayout">
-      <property name="spacing">
-       <number>4</number>
-      </property>
-      <property name="leftMargin">
-       <number>8</number>
-      </property>
-      <property name="topMargin">
-       <number>2</number>
-      </property>
-      <property name="rightMargin">
-       <number>0</number>
-      </property>
-      <property name="bottomMargin">
-       <number>2</number>
-      </property>
+     <widget class="QWidget" name="pointGroup" native="true">
+      <layout class="QVBoxLayout" name="pointLayout">
+       <property name="spacing">
+        <number>4</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
       <item>
        <widget class="QWidget" name="pointSizeRow">
         <layout class="QHBoxLayout" name="pointSizeLayout">

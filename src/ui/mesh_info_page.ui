@@ -35,22 +35,22 @@
    <item>
     <layout class="QHBoxLayout" name="typeRow">
      <item>
-       <widget class="QLabel" name="typeLabel">
-        <property name="text">
-         <string>Type</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="typeLabel">
+         <property name="text">
+          <string>Type</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -69,22 +69,22 @@
    <item>
     <layout class="QHBoxLayout" name="formatRow">
      <item>
-       <widget class="QLabel" name="formatLabel">
-        <property name="text">
-         <string>Format</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="formatLabel">
+         <property name="text">
+          <string>Format</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -109,22 +109,22 @@
    <item>
     <layout class="QHBoxLayout" name="trianglesRow">
      <item>
-       <widget class="QLabel" name="trianglesLabel">
-        <property name="text">
-         <string>Triangles</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="trianglesLabel">
+         <property name="text">
+          <string>Triangles</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -143,22 +143,22 @@
    <item>
     <layout class="QHBoxLayout" name="pointsRow">
      <item>
-       <widget class="QLabel" name="pointsLabel">
-        <property name="text">
-         <string>Points</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="pointsLabel">
+         <property name="text">
+          <string>Points</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -183,22 +183,22 @@
    <item>
     <layout class="QHBoxLayout" name="degenerateRow">
      <item>
-       <widget class="QLabel" name="degenerateLabel">
-        <property name="text">
-         <string>Degenerate</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="degenerateLabel">
+         <property name="text">
+          <string>Degenerate</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -217,22 +217,22 @@
    <item>
     <layout class="QHBoxLayout" name="openEdgesRow">
      <item>
-       <widget class="QLabel" name="openEdgesLabel">
-        <property name="text">
-         <string>Open edges</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="openEdgesLabel">
+         <property name="text">
+          <string>Open edges</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -251,22 +251,22 @@
    <item>
     <layout class="QHBoxLayout" name="nonManifoldERow">
      <item>
-       <widget class="QLabel" name="nonManifoldELabel">
-        <property name="text">
-         <string>Non-manifold E</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="nonManifoldELabel">
+         <property name="text">
+          <string>Non-manifold E</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -285,22 +285,22 @@
    <item>
     <layout class="QHBoxLayout" name="nonManifoldVRow">
      <item>
-       <widget class="QLabel" name="nonManifoldVLabel">
-        <property name="text">
-         <string>Non-manifold V</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="nonManifoldVLabel">
+         <property name="text">
+          <string>Non-manifold V</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
@@ -319,22 +319,22 @@
    <item>
     <layout class="QHBoxLayout" name="watertightRow">
      <item>
-       <widget class="QLabel" name="watertightLabel">
-        <property name="text">
-         <string>Watertight</string>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>80</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>80</width>
-          <height>16777215</height>
-         </size>
-        </property><property name="alignment">
+        <widget class="QLabel" name="watertightLabel">
+         <property name="text">
+          <string>Watertight</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>72</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>72</width>
+           <height>16777215</height>
+          </size>
+         </property><property name="alignment">
         <set>Qt::AlignLeft|Qt::AlignVCenter</set>
        </property>
       </widget>
