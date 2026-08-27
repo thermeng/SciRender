@@ -60,20 +60,6 @@ static constexpr int kSidebarWidth = 220;
 static constexpr int m_navWidth = 140;
 static constexpr int kLabelWidth = 72;
 static constexpr int kControlHeight = 24;
-static constexpr int kValueFieldWidth = 48;
-
-static QString formatSliderValue(double value) {
-    bool neg = value < 0;
-    if (neg) value = -value;
-    QString s = [&] {
-        if (value < 10.0) return QString::number(value, 'f', 3);
-        if (value < 100.0) return QString::number(value, 'f', 2);
-        if (value < 1000.0) return QString::number(value, 'f', 1);
-        return QString::number(value, 'f', 0);
-    }();
-    return neg ? "-" + s : s;
-}
-
 
 // Helper: Does a widget want typing/navigation keys (so viewport shortcuts
 // must stay out of the way)?
@@ -132,93 +118,6 @@ static SliderRow createLightSlider(const QString& label, double value, double fr
 }
 
 
-// Helper: Create a clip slider with editable text field
-
-struct ClipSliderRow {
-    QSlider* slider = nullptr;
-    QLineEdit* field = nullptr;
-    std::function<void(double)> callback;
-};
-
-static ClipSliderRow createClipSlider(const QString& label, double value, double from, double to, std::function<void(double)> cb) {
-    ClipSliderRow row;
-    auto* widget = new QWidget;
-    auto* layout = new QHBoxLayout(widget);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(6);
-
-    auto* lbl = new QLabel(label);
-    lbl->setFixedWidth(kLabelWidth);
-    lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    lbl->setWordWrap(false);
-    layout->addWidget(lbl);
-
-    row.slider = new QSlider(Qt::Horizontal);
-    row.slider->setMinimum(static_cast<int>(from * 1000));
-    row.slider->setMaximum(static_cast<int>(to * 1000));
-    row.slider->setValue(static_cast<int>(value * 1000));
-    layout->addWidget(row.slider, 1, Qt::AlignVCenter);
-
-    row.field = new QLineEdit(formatSliderValue(value));
-    QFontMetrics fm(row.field->font());
-    QString maxText = formatSliderValue(qMax(qAbs(from), qAbs(to)));
-    if (qMin(from, to) < 0) maxText = "-" + maxText;
-    int textWidth = fm.horizontalAdvance(maxText) + 12;
-    row.field->setFixedWidth(qMax(36, textWidth));
-    row.field->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    auto* validator = new QDoubleValidator(from, to, 3);
-    row.field->setValidator(validator);
-    layout->addWidget(row.field, 0, Qt::AlignVCenter);
-
-    row.callback = cb;
-    auto syncFromSlider = [row](int raw) {
-        double v = raw / 1000.0;
-        row.field->setText(formatSliderValue(v));
-    };
-    auto commitFromField = [row, from, to]() {
-        double v = row.field->text().toDouble();
-        v = qBound(from, v, to);
-        row.slider->setValue(static_cast<int>(v * 1000));
-        if (row.callback) row.callback(v);
-    };
-    QObject::connect(row.slider, &QSlider::valueChanged, [syncFromSlider, row](int raw) {
-        syncFromSlider(raw);
-        if (row.callback) row.callback(raw / 1000.0);
-    });
-    QObject::connect(row.field, &QLineEdit::editingFinished, commitFromField);
-    return row;
-}
-
-
-// Helper: Create a functional group with subtle header + thin divider
-
-static QWidget* createGroup(const QString& title, QWidget* content) {
-    auto* group = new QWidget;
-    auto* layout = new QVBoxLayout(group);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(4);
-
-    auto* header = new QLabel(title);
-    header->setObjectName(title + "Header");
-    QFont f = header->font();
-    f.setPixelSize(10);
-    f.setBold(false);
-    f.setLetterSpacing(QFont::AbsoluteSpacing, 0.5);
-    header->setFont(f);
-    header->setStyleSheet("padding-top: 6px;");
-    layout->addWidget(header);
-
-    auto* divider = new QFrame;
-    divider->setFrameShape(QFrame::HLine);
-    divider->setFrameShadow(QFrame::Plain);
-    divider->setStyleSheet("background-color: palette(mid); max-height: 1px;");
-    layout->addWidget(divider);
-
-    layout->addWidget(content);
-    return group;
-}
-
-
 // Helper: Fix layout overflow by making labels and value widgets flexible.
 // .ui files have fixed 72px labels + 36-52px value widgets that overflow
 // when sidebar width < 220px. This removes fixed max sizes and sets
@@ -226,14 +125,6 @@ static QWidget* createGroup(const QString& title, QWidget* content) {
 
 static void fixLayoutOverflow(QWidget* root) {
     if (!root) return;
-    for (QLabel* lbl : root->findChildren<QLabel*>()) {
-        QString name = lbl->objectName();
-        if (name.endsWith("Value") || name.endsWith("Label")) {
-            lbl->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-            lbl->setMaximumWidth(QWIDGETSIZE_MAX);
-            lbl->setMinimumWidth(0);
-        }
-    }
     for (QLineEdit* le : root->findChildren<QLineEdit*>()) {
         le->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         le->setMaximumWidth(QWIDGETSIZE_MAX);
@@ -452,6 +343,47 @@ static QComboBox* buildColormapCombo(int currentChoice, std::function<void(int)>
     QObject::connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
                      [onChoose](int idx) { if (idx >= 0) onChoose(idx); });
     return combo;
+}
+
+static QPushButton* createColorButton(MainWindow* self, RenderSettings* settings, const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
+    auto* btn = createSwatchButton(name, initialColor, nullptr);
+    QObject::connect(btn, &QPushButton::clicked, self, [self, btn, name, initialColor, dialogPtr, settings, setterMember]() {
+        if (!*dialogPtr) {
+            *dialogPtr = new QColorDialog(initialColor, self);
+            (*dialogPtr)->setOption(QColorDialog::ShowAlphaChannel, false);
+            QObject::connect(*dialogPtr, &QColorDialog::colorSelected, settings, setterMember);
+            QObject::connect(*dialogPtr, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
+                QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
+            });
+        }
+        (*dialogPtr)->open();
+    });
+    return btn;
+}
+
+static void addCtlRow(QVBoxLayout* lay, const QString& labelObjName,
+                      const QString& text, QWidget* ctl, int ctlStretch = 0) {
+    auto* row = new QWidget;
+    auto* rowLayout = new QHBoxLayout(row);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->setSpacing(6);
+    auto* lbl = new QLabel(text);
+    lbl->setObjectName(labelObjName);
+    lbl->setFixedWidth(kLabelWidth);
+    lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    rowLayout->addWidget(lbl);
+    rowLayout->addWidget(ctl, ctlStretch);
+    lay->addWidget(row);
+}
+
+static void addSliderRow(RenderSettings* settings, QVBoxLayout* lay, const QString& labelObjName,
+                         const QString& text, double value, double from,
+                         double to, int decimals,
+                         void (RenderSettings::*setter)(double)) {
+    auto row = createLightSlider(text, value, from, to, 0.001, decimals,
+                                 [settings, setter](double v) { (settings->*setter)(v); },
+                                 labelObjName);
+    lay->addWidget(row.slider->parentWidget());
 }
 
 
@@ -949,7 +881,7 @@ QWidget* MainWindow::buildSlicingPage() {
 
     // -- Per-axis setup lambda -----------------------------------------------
     auto setupAxis = [&](QCheckBox* axisCb, QCheckBox* invertCb,
-                         QSlider* slider, QDoubleSpinBox* spinBox,
+                         QSlider* slider, QLabel* valueLabel,
                          bool enabled, bool invert, double from, double to, double val,
                          auto enableSlot, auto setter, auto invertSlot) {
         axisCb->setChecked(enabled);
@@ -963,37 +895,23 @@ QWidget* MainWindow::buildSlicingPage() {
         slider->setRange(minI, maxI);
         slider->setValue(static_cast<int>(val * 1000));
 
-        spinBox->setRange(from, to);
-        spinBox->setDecimals(3);
-        spinBox->setValue(val);
-        spinBox->setAlignment(Qt::AlignCenter);
+        valueLabel->setText(QString::number(val, 'f', 3));
 
-        // Slider -> spinBox + setter
+        // Slider -> valueLabel + setter
         connect(slider, &QSlider::valueChanged, this,
-            [spinBox, setter](int raw) {
+            [valueLabel, setter](int raw) {
                 double v = raw / 1000.0;
-                spinBox->blockSignals(true);
-                spinBox->setValue(v);
-                spinBox->blockSignals(false);
-                setter(v);
-            });
-
-        // SpinBox -> slider + setter
-        connect(spinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, [slider, setter](double v) {
-                slider->blockSignals(true);
-                slider->setValue(static_cast<int>(v * 1000));
-                slider->blockSignals(false);
+                valueLabel->setText(QString::number(v, 'f', 3));
                 setter(v);
             });
     };
 
     // -- X Axis ---------------------------------------------------------------
     m_sliceXSlider = slicingUi.sliceXSlider;
-    m_sliceXSpinBox = slicingUi.xSpinBox;
+    m_sliceXValue = slicingUi.xValue;
     m_sliceAxisXCb = slicingUi.axisX;
     setupAxis(slicingUi.axisX, slicingUi.invX,
-              m_sliceXSlider, m_sliceXSpinBox,
+              m_sliceXSlider, m_sliceXValue,
               m_settings->getSliceEnabledX(), m_settings->getInvertX(),
               m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getSliceX(),
               &RenderSettings::setSliceEnabledX,
@@ -1002,10 +920,10 @@ QWidget* MainWindow::buildSlicingPage() {
 
     // -- Y Axis ---------------------------------------------------------------
     m_sliceYSlider = slicingUi.sliceYSlider;
-    m_sliceYSpinBox = slicingUi.ySpinBox;
+    m_sliceYValue = slicingUi.yValue;
     m_sliceAxisYCb = slicingUi.axisY;
     setupAxis(slicingUi.axisY, slicingUi.invY,
-              m_sliceYSlider, m_sliceYSpinBox,
+              m_sliceYSlider, m_sliceYValue,
               m_settings->getSliceEnabledY(), m_settings->getInvertY(),
               m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getSliceY(),
               &RenderSettings::setSliceEnabledY,
@@ -1014,10 +932,10 @@ QWidget* MainWindow::buildSlicingPage() {
 
     // -- Z Axis ---------------------------------------------------------------
     m_sliceZSlider = slicingUi.sliceZSlider;
-    m_sliceZSpinBox = slicingUi.zSpinBox;
+    m_sliceZValue = slicingUi.zValue;
     m_sliceAxisZCb = slicingUi.axisZ;
     setupAxis(slicingUi.axisZ, slicingUi.invZ,
-              m_sliceZSlider, m_sliceZSpinBox,
+              m_sliceZSlider, m_sliceZValue,
               m_settings->getSliceEnabledZ(), m_settings->getInvertZ(),
               m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ(),
               &RenderSettings::setSliceEnabledZ,
@@ -1197,27 +1115,11 @@ QWidget* MainWindow::buildViewDisplayPage() {
     connect(parallelCb, &QCheckBox::toggled, m_settings, &RenderSettings::setOrthographic);
     m_vdParallelCb = parallelCb;
 
-    auto createColorButton = [this](const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
-        auto* btn = createSwatchButton(name, initialColor, nullptr);
-        connect(btn, &QPushButton::clicked, this, [this, btn, name, initialColor, dialogPtr, setterMember]() {
-            if (!*dialogPtr) {
-                *dialogPtr = new QColorDialog(initialColor, this);
-                (*dialogPtr)->setOption(QColorDialog::ShowAlphaChannel, false);
-                connect(*dialogPtr, &QColorDialog::colorSelected, m_settings, setterMember);
-                connect(*dialogPtr, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
-                    QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
-                });
-            }
-            (*dialogPtr)->open();
-        });
-        return btn;
-    };
-
-    content->layout()->replaceWidget(viewUi.wireframeColorBtn, createColorButton("Wireframe", m_settings->getMeshColorQml(), &m_meshColorDialog, &RenderSettings::setMeshColorQml));
+    content->layout()->replaceWidget(viewUi.wireframeColorBtn, createColorButton(this, m_settings, "Wireframe", m_settings->getMeshColorQml(), &m_meshColorDialog, &RenderSettings::setMeshColorQml));
     delete viewUi.wireframeColorBtn;
-    content->layout()->replaceWidget(viewUi.surfaceColorBtn, createColorButton("Surface", m_settings->getSurfaceColorQml(), &m_surfaceColorDialog, &RenderSettings::setSurfaceColorQml));
+    content->layout()->replaceWidget(viewUi.surfaceColorBtn, createColorButton(this, m_settings, "Surface", m_settings->getSurfaceColorQml(), &m_surfaceColorDialog, &RenderSettings::setSurfaceColorQml));
     delete viewUi.surfaceColorBtn;
-    content->layout()->replaceWidget(viewUi.bgColorBtn, createColorButton("Background", m_settings->getBgColorQml(), &m_bgColorDialog, &RenderSettings::setBgColorQml));
+    content->layout()->replaceWidget(viewUi.bgColorBtn, createColorButton(this, m_settings, "Background", m_settings->getBgColorQml(), &m_bgColorDialog, &RenderSettings::setBgColorQml));
     delete viewUi.bgColorBtn;
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
@@ -1362,12 +1264,10 @@ QWidget* MainWindow::buildScalarPage() {
         m_colorRangeCb = colorRangeCb;
         colorRangeCb->setChecked(m_settings->getColorRangeOverrideEnabled());
         connect(colorRangeCb, &QCheckBox::toggled, m_settings, &RenderSettings::setColorRangeOverrideEnabled);
-        // create RangeEditor inside container
-        auto* container = scalarUi.colorRangeContainer;
-        auto* lay = qobject_cast<QHBoxLayout*>(container->layout());
-        if (!lay) { lay = new QHBoxLayout(container); lay->setContentsMargins(0,0,0,0); }
-        m_colorRangeEditor = new RangeEditor(container);
-        lay->addWidget(m_colorRangeEditor);
+        // create RangeEditor directly in the options layout
+        auto* optionsLay = qobject_cast<QVBoxLayout*>(scalarUi.optionsGroup->layout());
+        m_colorRangeEditor = new RangeEditor();
+        if (optionsLay) optionsLay->addWidget(m_colorRangeEditor);
         m_colorRangeEditor->setEnabled(m_settings->getColorRangeOverrideEnabled());
         connect(m_colorRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
             m_settings->setColorRangeLo(static_cast<float>(lo));
@@ -1471,23 +1371,7 @@ QWidget* MainWindow::buildVectorsPage() {
     magCombo->setCurrentIndex(m_settings->getVectorMagTransform());
     connect(magCombo, &QComboBox::activated, m_settings, [this](int idx) { m_settings->setVectorMagTransform(idx); });
 
-    auto createColorButton = [this](const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
-        auto* btn = createSwatchButton(name, initialColor, nullptr);
-        connect(btn, &QPushButton::clicked, this, [this, btn, name, initialColor, dialogPtr, setterMember]() {
-            if (!*dialogPtr) {
-                *dialogPtr = new QColorDialog(initialColor, this);
-                (*dialogPtr)->setOption(QColorDialog::ShowAlphaChannel, false);
-                connect(*dialogPtr, &QColorDialog::colorSelected, m_settings, setterMember);
-                connect(*dialogPtr, &QColorDialog::colorSelected, btn, [btn](const QColor& c) {
-                    QPixmap pix(14, 14); pix.fill(c); btn->setIcon(pix);
-                });
-            }
-            (*dialogPtr)->open();
-        });
-        return btn;
-    };
-
-    vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vectorColorBtn, createColorButton("Vector", m_settings->getVectorColorQml(), &m_vectorColorDialog, &RenderSettings::setVectorColorQml));
+    vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vectorColorBtn, createColorButton(this, m_settings, "Vector", m_settings->getVectorColorQml(), &m_vectorColorDialog, &RenderSettings::setVectorColorQml));
     delete vectorsUi.vectorColorBtn;
 
     auto* colorModeCombo = new QComboBox;
@@ -1646,30 +1530,6 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     auto* tabs = slUi.slTabs;
 
-    auto addCtlRow = [](QVBoxLayout* lay, const QString& labelObjName,
-                        const QString& text, QWidget* ctl, int ctlStretch = 0) {
-        auto* row = new QWidget;
-        auto* rowLayout = new QHBoxLayout(row);
-        rowLayout->setContentsMargins(0, 0, 0, 0);
-        rowLayout->setSpacing(6);
-        auto* lbl = new QLabel(text);
-        lbl->setObjectName(labelObjName);
-        lbl->setFixedWidth(kLabelWidth);
-        lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        rowLayout->addWidget(lbl);
-        rowLayout->addWidget(ctl, ctlStretch);
-        lay->addWidget(row);
-    };
-    auto addSliderRow = [this](QVBoxLayout* lay, const QString& labelObjName,
-                               const QString& text, double value, double from,
-                               double to, int decimals,
-                               void (RenderSettings::*setter)(double)) {
-        auto row = createLightSlider(text, value, from, to, 0.001, decimals,
-                                     [this, setter](double v) { (m_settings->*setter)(v); },
-                                     labelObjName);
-        lay->addWidget(row.slider->parentWidget());
-    };
-
     // Tab: Flow
 
     auto* flowTab = new QWidget;
@@ -1686,7 +1546,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     });
     flowLay->addWidget(m_streamlineCombo);
 
-    addSliderRow(flowLay, "stepSizeLabel", "Step Size",
+    addSliderRow(m_settings, flowLay, "stepSizeLabel", "Step Size",
                  m_settings->getStreamlineStepSize(), 0.005, 0.1, 3,
                  &RenderSettings::setStreamlineStepSize);
 
@@ -1721,7 +1581,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
             m_settings, &RenderSettings::setStreamlineArrowSpacingFrac);
     addCtlRow(flowLay, "arrowSpacingLabel", "Arrow spacing", arrowSpacingSpin, 1);
 
-    addSliderRow(flowLay, "arrowSizeLabel", "Arrow Size",
+    addSliderRow(m_settings, flowLay, "arrowSizeLabel", "Arrow Size",
                  m_settings->getStreamlineArrowSize(), 0.01, 0.2, 2,
                  &RenderSettings::setStreamlineArrowSize);
 
@@ -1751,7 +1611,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     });
     seedsLay->addWidget(seedModeCombo);
 
-    addSliderRow(seedsLay, "planePosLabel", "Plane Position",
+    addSliderRow(m_settings, seedsLay, "planePosLabel", "Plane Position",
                  m_settings->getSeedPlanePos(), 0.0, 1.0, 2,
                  &RenderSettings::setSeedPlanePos);
 
@@ -1775,7 +1635,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(seedModeCombo, &QComboBox::activated, seedsUSpin, updateSeedGridRows);
     updateSeedGridRows();
 
-    addSliderRow(seedsLay, "jitterLabel", "Jitter",
+    addSliderRow(m_settings, seedsLay, "jitterLabel", "Jitter",
                  m_settings->getSeedJitter(), 0.0, 1.0, 2,
                  &RenderSettings::setSeedJitter);
 
@@ -1784,7 +1644,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(showSeedsCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowSeeds);
     seedsLay->addWidget(showSeedsCb);
 
-    addSliderRow(seedsLay, "seedSizeLabel", "Seed Size",
+    addSliderRow(m_settings, seedsLay, "seedSizeLabel", "Seed Size",
                  m_settings->getSeedPointSize(), 1.0, 20.0, 1,
                  &RenderSettings::setSeedPointSize);
 
@@ -1938,13 +1798,13 @@ QWidget* MainWindow::buildStreamlinesPage() {
         });
     }
 
-    addSliderRow(lookLay, "opacityLabel", "Opacity",
+    addSliderRow(m_settings, lookLay, "opacityLabel", "Opacity",
                  m_settings->getStreamlineOpacity(), 0.0, 1.0, 2,
                  &RenderSettings::setStreamlineOpacity);
-    addSliderRow(lookLay, "ribbonWidthLabel", "Ribbon Width",
+    addSliderRow(m_settings, lookLay, "ribbonWidthLabel", "Ribbon Width",
                  m_settings->getStreamlineRibbonWidth(), 0.001, 0.05, 3,
                  &RenderSettings::setStreamlineRibbonWidth);
-    addSliderRow(lookLay, "taperFactorLabel", "Taper Factor",
+    addSliderRow(m_settings, lookLay, "taperFactorLabel", "Taper Factor",
                  m_settings->getStreamlineTaperFactor(), 0.0, 0.8, 2,
                  &RenderSettings::setStreamlineTaperFactor);
 
@@ -1952,13 +1812,13 @@ QWidget* MainWindow::buildStreamlinesPage() {
     shadingHeader->setObjectName("slShadingHeader");
     lookLay->addWidget(shadingHeader);
 
-    addSliderRow(lookLay, "streamlineAmbientLabel", "Ambient",
+    addSliderRow(m_settings, lookLay, "streamlineAmbientLabel", "Ambient",
                  m_settings->getStreamlineAmbient(), 0.0, 1.0, 2,
                  &RenderSettings::setStreamlineAmbient);
-    addSliderRow(lookLay, "streamlineDiffuseLabel", "Diffuse",
+    addSliderRow(m_settings, lookLay, "streamlineDiffuseLabel", "Diffuse",
                  m_settings->getStreamlineDiffuse(), 0.0, 1.0, 2,
                  &RenderSettings::setStreamlineDiffuse);
-    addSliderRow(lookLay, "streamlineSpecularLabel", "Specular",
+    addSliderRow(m_settings, lookLay, "streamlineSpecularLabel", "Specular",
                  m_settings->getStreamlineSpecular(), 0.0, 1.0, 2,
                  &RenderSettings::setStreamlineSpecular);
 
@@ -1967,7 +1827,6 @@ QWidget* MainWindow::buildStreamlinesPage() {
     specPowerSpin->setValue(m_settings->getStreamlineSpecularPower());
     connect(specPowerSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setStreamlineSpecularPower);
     addCtlRow(lookLay, "specPowerLabel", "Specular Power", specPowerSpin, 1);
-    lookLay->addStretch();
     tabs->addTab(lookTab, tr("Look"));
 
     // Animate section (below the tabs so the tab bar stays arrow-free)
@@ -1986,10 +1845,10 @@ QWidget* MainWindow::buildStreamlinesPage() {
                                      "particleCountLabel");
         optionsLay->addWidget(row.slider->parentWidget());
     }
-    addSliderRow(optionsLay, "particleSpeedLabel", "Particle Speed",
+    addSliderRow(m_settings, optionsLay, "particleSpeedLabel", "Particle Speed",
                  m_settings->getParticleSpeed(), 0.1, 100.0, 1,
                  &RenderSettings::setParticleSpeed);
-    addSliderRow(optionsLay, "particleSizeLabel", "Particle Size",
+    addSliderRow(m_settings, optionsLay, "particleSizeLabel", "Particle Size",
                  m_settings->getParticleSize(), 1.0, 20.0, 1,
                  &RenderSettings::setParticleSize);
 
@@ -2000,7 +1859,6 @@ QWidget* MainWindow::buildStreamlinesPage() {
 
     tabs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     optionsLay->addStretch();
-
     scroll->setWidget(content);
 
     applyPanelStyling(content);
@@ -2029,11 +1887,13 @@ QWidget* MainWindow::buildScreenshotPage() {
     connect(transCb, &QCheckBox::toggled, m_settings, &RenderSettings::setScreenshotTransparent);
 
     m_ssResCombo = ssUi.resCombo;
+    m_ssResCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     m_ssResCombo->setCurrentIndex(m_settings->getScreenshotResolution());
     connect(m_ssResCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             m_settings, &RenderSettings::setScreenshotResolution);
 
     m_ssAaCombo = ssUi.aaCombo;
+    m_ssAaCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     m_ssAaCombo->setCurrentIndex(m_settings->getScreenshotAASamples() <= 0 ? 0 : m_settings->getScreenshotAASamples() <= 2 ? 1 : 2);
     connect(m_ssAaCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int idx) {
@@ -2648,25 +2508,22 @@ void MainWindow::refreshSlicingPageBounds() {
     if (m_sliceAxisYCb)  m_sliceAxisYCb->setChecked(m_settings->getSliceEnabledY());
     if (m_sliceAxisZCb)  m_sliceAxisZCb->setChecked(m_settings->getSliceEnabledZ());
 
-    auto updateSlider = [](QSlider* slider, QDoubleSpinBox* spinBox, double from, double to, double val) {
-        if (!slider || !spinBox) return;
+    auto updateSlider = [](QSlider* slider, QLabel* valueLabel, double from, double to, double val) {
+        if (!slider || !valueLabel) return;
         int minI = static_cast<int>(from * 1000);
         int maxI = static_cast<int>(to * 1000);
         slider->setRange(minI, maxI);
-        spinBox->setRange(from, to);
         double center = (from + to) * 0.5;
         slider->blockSignals(true);
         slider->setValue(static_cast<int>(center * 1000));
         slider->blockSignals(false);
-        spinBox->blockSignals(true);
-        spinBox->setValue(center);
-        spinBox->blockSignals(false);
+        valueLabel->setText(QString::number(center, 'f', 3));
     };
-    updateSlider(m_sliceXSlider, m_sliceXSpinBox,
+    updateSlider(m_sliceXSlider, m_sliceXValue,
                  m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getSliceX());
-    updateSlider(m_sliceYSlider, m_sliceYSpinBox,
+    updateSlider(m_sliceYSlider, m_sliceYValue,
                  m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getSliceY());
-    updateSlider(m_sliceZSlider, m_sliceZSpinBox,
+    updateSlider(m_sliceZSlider, m_sliceZValue,
                   m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ());
 }
 

@@ -10,10 +10,10 @@
     <height>400</height>
    </rect>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout">
-   <property name="spacing">
-    <number>7</number>
-   </property>
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>4</number>
+    </property>
    <property name="leftMargin">
     <number>10</number>
    </property>
@@ -35,10 +35,10 @@
    </item>
    <item>
     <widget class="QWidget" name="optionsGroup" native="true">
-     <layout class="QVBoxLayout" name="optionsLayout">
-      <property name="spacing">
-       <number>7</number>
-      </property>
+      <layout class="QVBoxLayout" name="optionsLayout">
+       <property name="spacing">
+        <number>4</number>
+       </property>
       <property name="leftMargin">
        <number>0</number>
       </property>
@@ -96,15 +96,40 @@
         </property>
        </widget>
       </item>
-      <item>
-       <layout class="QHBoxLayout" name="posRow">
-        <item>
-         <widget class="QSlider" name="posSlider">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-         </widget>
-        </item>
+       <item>
+        <layout class="QHBoxLayout" name="posRow">
+         <property name="spacing">
+          <number>6</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="posLabel">
+           <property name="minimumSize">
+            <size>
+             <width>72</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>72</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>Position</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSlider" name="posSlider">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+          </widget>
+         </item>
         <item>
          <widget class="QLabel" name="posValue">
           <property name="minimumSize">
@@ -136,15 +161,40 @@
         </property>
        </widget>
       </item>
-      <item>
-       <layout class="QHBoxLayout" name="opacityRow">
-        <item>
-         <widget class="QSlider" name="opacitySlider">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-         </widget>
-        </item>
+       <item>
+        <layout class="QHBoxLayout" name="opacityRow">
+         <property name="spacing">
+          <number>6</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="opacityLabel">
+           <property name="minimumSize">
+            <size>
+             <width>72</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>72</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>Opacity</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSlider" name="opacitySlider">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+          </widget>
+         </item>
         <item>
          <widget class="QLabel" name="opacityValue">
           <property name="minimumSize">

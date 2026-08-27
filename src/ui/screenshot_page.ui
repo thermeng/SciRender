@@ -54,19 +54,13 @@
       <string>Resolution</string>
      </property></widget>
    </item>
-   <item>
-    <widget class="QComboBox" name="resCombo">
-     <property name="fixedHeight">
-      <number>24</number>
-     </property>
-     <property name="minimumWidth">
-      <number>160</number>
-     </property>
-     <item>
-      <property name="text">
-       <string>Current Viewport</string>
-      </property>
-     </item>
+    <item>
+     <widget class="QComboBox" name="resCombo">
+      <item>
+       <property name="text">
+        <string>Current Viewport</string>
+       </property>
+      </item>
      <item>
       <property name="text">
        <string>HD (1280×720)</string>
@@ -95,19 +89,13 @@
       <string>Anti-Aliasing</string>
      </property></widget>
    </item>
-   <item>
-    <widget class="QComboBox" name="aaCombo">
-     <property name="fixedHeight">
-      <number>24</number>
-     </property>
-     <property name="minimumWidth">
-      <number>160</number>
-     </property>
-     <item>
-      <property name="text">
-       <string>Off</string>
-      </property>
-     </item>
+    <item>
+     <widget class="QComboBox" name="aaCombo">
+      <item>
+       <property name="text">
+        <string>Off</string>
+       </property>
+      </item>
      <item>
       <property name="text">
        <string>2x</string>

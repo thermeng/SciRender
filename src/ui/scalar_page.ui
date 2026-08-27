@@ -10,10 +10,10 @@
     <height>400</height>
    </rect>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout">
-   <property name="spacing">
-    <number>7</number>
-   </property>
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>4</number>
+    </property>
    <property name="leftMargin">
     <number>10</number>
    </property>
@@ -35,10 +35,10 @@
    </item>
    <item>
     <widget class="QWidget" name="optionsGroup" native="true">
-     <layout class="QVBoxLayout" name="optionsLayout">
-      <property name="spacing">
-       <number>7</number>
-      </property>
+      <layout class="QVBoxLayout" name="optionsLayout">
+       <property name="spacing">
+        <number>4</number>
+       </property>
       <property name="leftMargin">
        <number>0</number>
       </property>
@@ -91,28 +91,7 @@
        </widget>
       </item>
        <item>
-        <widget class="QWidget" name="colorRangeContainer" native="true">
-         <layout class="QHBoxLayout" name="colorRangeContainerLayout">
-          <property name="spacing">
-           <number>0</number>
-          </property>
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-         </layout>
-        </widget>
-       </item>
-      <item>
-       <widget class="QCheckBox" name="showColorbar">
+        <widget class="QCheckBox" name="showColorbar">
         <property name="text">
          <string>Show colorbar</string>
         </property>
@@ -226,20 +205,20 @@
           </property>
          </widget>
         </item>
-        <item>
-         <widget class="QLineEdit" name="minFilterField">
-          <property name="minimumSize">
-           <size>
-            <width>52</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>52</width>
-            <height>16777215</height>
-           </size>
-          </property><property name="text">
+         <item>
+          <widget class="QLineEdit" name="minFilterField">
+           <property name="minimumSize">
+            <size>
+             <width>36</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>36</width>
+             <height>16777215</height>
+            </size>
+           </property><property name="text">
            <string>0.000</string>
           </property>
           <property name="alignment">
@@ -294,20 +273,20 @@
           </property>
          </widget>
         </item>
-        <item>
-         <widget class="QLineEdit" name="maxFilterField">
-          <property name="minimumSize">
-           <size>
-            <width>52</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>52</width>
-            <height>16777215</height>
-           </size>
-          </property><property name="text">
+         <item>
+          <widget class="QLineEdit" name="maxFilterField">
+           <property name="minimumSize">
+            <size>
+             <width>36</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>36</width>
+             <height>16777215</height>
+            </size>
+           </property><property name="text">
            <string>1.000</string>
           </property>
           <property name="alignment">

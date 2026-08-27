@@ -116,7 +116,6 @@ private:
     static constexpr int kNavWidth = 140;
     static constexpr int kLabelWidth = 72;
     static constexpr int kControlHeight = 24;
-    static constexpr int kValueFieldWidth = 48;
 
     // Navigation list (replaces icon strip)
     QListWidget* m_navList = nullptr;
@@ -270,11 +269,11 @@ private:
 
     // Slicing page widgets (for bounds refresh on mesh load)
     QSlider* m_sliceXSlider = nullptr;
-    QDoubleSpinBox* m_sliceXSpinBox = nullptr;
+    QLabel* m_sliceXValue = nullptr;
     QSlider* m_sliceYSlider = nullptr;
-    QDoubleSpinBox* m_sliceYSpinBox = nullptr;
+    QLabel* m_sliceYValue = nullptr;
     QSlider* m_sliceZSlider = nullptr;
-    QDoubleSpinBox* m_sliceZSpinBox = nullptr;
+    QLabel* m_sliceZValue = nullptr;
     QCheckBox* m_sliceEnableCb = nullptr;
     QCheckBox* m_sliceCrinkleCb = nullptr;
     QCheckBox* m_sliceAxisXCb = nullptr;
