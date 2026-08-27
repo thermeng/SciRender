@@ -185,6 +185,11 @@ class RenderSettings : public QObject {
 
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY viewChanged)
     Q_PROPERTY(bool colormapReversed READ getColormapReversed WRITE setColormapReversed NOTIFY viewChanged)
+    Q_PROPERTY(int scalarColorBands READ getScalarColorBands WRITE setScalarColorBands NOTIFY viewChanged)
+    Q_PROPERTY(int vectorColorBands READ getVectorColorBands WRITE setVectorColorBands NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineColorBands READ getStreamlineColorBands WRITE setStreamlineColorBands NOTIFY viewChanged)
+    Q_PROPERTY(int volumeColorBands READ getVolumeColorBands WRITE setVolumeColorBands NOTIFY viewChanged)
+    Q_PROPERTY(int volumeSliceColorBands READ getVolumeSliceColorBands WRITE setVolumeSliceColorBands NOTIFY viewChanged)
     Q_PROPERTY(double worldMinX READ getWorldMinX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMaxX READ getWorldMaxX NOTIFY meshLoadStateChanged)
     Q_PROPERTY(double worldMinY READ getWorldMinY NOTIFY meshLoadStateChanged)
@@ -373,6 +378,16 @@ public:
     void setColormapReversed(bool reversed);
     bool getVectorColormapReversed() const { return m_state.vectorColormapReversed; }
     void setVectorColormapReversed(bool reversed);
+    int getScalarColorBands() const { return m_state.scalarColorBands; }
+    void setScalarColorBands(int bands);
+    int getVectorColorBands() const { return m_state.vectorColorBands; }
+    void setVectorColorBands(int bands);
+    int getStreamlineColorBands() const { return m_state.streamlineColorBands; }
+    void setStreamlineColorBands(int bands);
+    int getVolumeColorBands() const { return m_state.volumeColorBands; }
+    void setVolumeColorBands(int bands);
+    int getVolumeSliceColorBands() const { return m_state.volumeSliceColorBands; }
+    void setVolumeSliceColorBands(int bands);
 
     bool getQuickBarCollapsed() const { return quickBarCollapsed; }
     void setQuickBarCollapsed(bool collapsed);

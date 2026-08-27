@@ -11,6 +11,7 @@ void StreamlineController::init(const ShaderSources& sources) {
         m_streamlineProgram.reset(compileProgram(sources.streamlineVert.c_str(), sources.streamlineFrag.c_str(), "Streamline"));
         if (m_streamlineProgram.has()) {
             m_streamlineLutLoc = glGetUniformLocation(m_streamlineProgram, "uColormapLUT");
+            m_streamlineNumBandsLoc = glGetUniformLocation(m_streamlineProgram, "uNumBands");
             if (!m_streamlineUbo.has()) {
                 glCreateBuffers(1, m_streamlineUbo.ptr());
                 glNamedBufferData(m_streamlineUbo, sizeof(StreamlineUBOData), nullptr, GL_DYNAMIC_DRAW);
@@ -144,6 +145,7 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
             ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
             glBindBufferBase(GL_UNIFORM_BUFFER, 3, m_streamlineUbo);
             glNamedBufferSubData(m_streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
+            if (m_streamlineNumBandsLoc != -1) glUniform1f(m_streamlineNumBandsLoc, static_cast<float>(state.streamlineColorBands));
             if (state.streamlineColorMode > 0 && colormap.streamlineTexture() != 0) {
                 glBindTextureUnit(1, colormap.streamlineTexture());
                 glUniform1i(m_streamlineLutLoc, 1);

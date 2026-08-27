@@ -30,4 +30,9 @@ private:
     GLint wireHalfWidthLoc = -1;
     GLint wireMvpLoc = -1;
     GLint wireColorLoc = -1;
+    GLint wireModelLoc = -1;
+    GLint wireSliceYLoc = -1;
+    GLint wireSliceEnLoc = -1;
+    GLint wireInvertLoc = -1;
+    GLint wireClipEnabledLoc = -1;
 };

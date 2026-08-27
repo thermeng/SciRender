@@ -856,6 +856,7 @@ void RenderSettings::clearMeshes() {
     m_state.showVectors = false;
     m_state.showStreamlines = false;
     m_state.showVolume = false;
+    m_state.showVolumeSlice = false;
     m_isoController.clear();
     markStateDirty();
     m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();
@@ -1004,6 +1005,37 @@ void RenderSettings::setColormapReversed(bool reversed) {
 void RenderSettings::setVectorColormapReversed(bool reversed) {
     if (m_state.vectorColormapReversed == reversed) return;
     m_state.vectorColormapReversed = reversed;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+
+void RenderSettings::setScalarColorBands(int bands) {
+    int b = bands < 0 ? 0 : (bands > 32 ? 32 : bands);
+    if (m_state.scalarColorBands == b) return;
+    m_state.scalarColorBands = b;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setVectorColorBands(int bands) {
+    int b = bands < 0 ? 0 : (bands > 32 ? 32 : bands);
+    if (m_state.vectorColorBands == b) return;
+    m_state.vectorColorBands = b;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setStreamlineColorBands(int bands) {
+    int b = bands < 0 ? 0 : (bands > 32 ? 32 : bands);
+    if (m_state.streamlineColorBands == b) return;
+    m_state.streamlineColorBands = b;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setVolumeColorBands(int bands) {
+    int b = bands < 0 ? 0 : (bands > 32 ? 32 : bands);
+    if (m_state.volumeColorBands == b) return;
+    m_state.volumeColorBands = b;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setVolumeSliceColorBands(int bands) {
+    int b = bands < 0 ? 0 : (bands > 32 ? 32 : bands);
+    if (m_state.volumeSliceColorBands == b) return;
+    m_state.volumeSliceColorBands = b;
     markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 

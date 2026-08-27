@@ -13,9 +13,32 @@ layout(triangle_strip, max_vertices = 4) out;
 
 uniform vec2  uViewport;   // drawable size in device pixels
 uniform float uHalfWidth;  // half line width in device pixels
+uniform vec4  uSliceY;     // xyz = clip plane X,Y,Z positions
+uniform vec4  uSliceEn;    // xyz = enable clip X,Y,Z
+uniform vec4  uInvert;     // xyz = invert X,Y,Z
+uniform float uClipEnabled; // != 0 when crinkle clip active
 
 noperspective out float vDist;
 noperspective out float vHalfW;
+
+in vec3 vWorldPos[];
+
+bool isBehindClip(vec3 wp) {
+    if (uClipEnabled < 0.5) return false;
+    if (uSliceEn.x > 0.5) {
+        bool behind = (uInvert.x > 0.5) ? (wp.x < uSliceY.x) : (wp.x > uSliceY.x);
+        if (behind) return true;
+    }
+    if (uSliceEn.y > 0.5) {
+        bool behind = (uInvert.y > 0.5) ? (wp.y < uSliceY.y) : (wp.y > uSliceY.y);
+        if (behind) return true;
+    }
+    if (uSliceEn.z > 0.5) {
+        bool behind = (uInvert.z > 0.5) ? (wp.z < uSliceY.z) : (wp.z > uSliceY.z);
+        if (behind) return true;
+    }
+    return false;
+}
 
 void emitCorner(vec2 screenPx, float w, float zNdc, float dist, float hw) {
     vec4 c;
@@ -30,6 +53,9 @@ void emitCorner(vec2 screenPx, float w, float zNdc, float dist, float hw) {
 }
 
 void main() {
+    // Crinkle clip: cull line if BOTH endpoints are behind the clip plane
+    if (isBehindClip(vWorldPos[0]) && isBehindClip(vWorldPos[1])) return;
+
     vec4 ca = gl_in[0].gl_Position;
     vec4 cb = gl_in[1].gl_Position;
 

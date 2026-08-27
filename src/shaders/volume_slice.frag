@@ -4,6 +4,7 @@ in vec3 vWorldPos;
 
 uniform sampler3D uVolumeTex;
 uniform sampler1D uColormapLUT;
+uniform float uNumBands = 0.0; // 0 = continuous, >1 = discrete bands
 uniform vec3 uBoxMin;
 uniform vec3 uBoxMax;
 uniform float uScalarMin;
@@ -19,6 +20,9 @@ void main() {
 
     float scalarRange = max(uScalarMax - uScalarMin, 1e-6);
     float tVal = clamp((val - uScalarMin) / scalarRange, 0.0, 1.0);
+    if (uNumBands > 1.0) {
+        tVal = floor(tVal * uNumBands) / (uNumBands - 1.0);
+    }
 
     vec3 color;
     if (uUseColormap == 1) {

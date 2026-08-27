@@ -38,6 +38,7 @@ private:
     GLint m_peelPrevDepthLoc = -1;
     GLint m_peelLayerLoc = -1;
     GLint m_peelLutLoc = -1;
+    GLint m_peelNumBandsLoc = -1;
     GLint m_peelNumLayersLoc = -1;
 
     GlFramebuffer m_peelFbo[kMaxPeelLayers];

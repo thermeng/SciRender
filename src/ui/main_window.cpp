@@ -247,13 +247,23 @@ static void applyPanelStyling(QWidget* root) {
         }
     }
 
+    // // ── Phase 4: Apply Subtle Header Typography ───────────────────────────────
+    // for (const auto& e : headers) {
+    //     QFont f = e.label->font();
+    //     f.setBold(false);
+    //     f.setPixelSize(10);
+    //     f.setLetterSpacing(QFont::AbsoluteSpacing, 0.3);
+
+    //     e.label->setFont(f);
+    //     e.label->setStyleSheet("background: transparent; padding-top: 6px;");
+    // }
+
     // ── Phase 4: Apply Subtle Header Typography ───────────────────────────────
     for (const auto& e : headers) {
         QFont f = e.label->font();
-        f.setBold(false);
-        f.setPixelSize(10);
+        f.setWeight(QFont::Medium);  // or f.setBold(true) with 10px
+        f.setPixelSize(11);
         f.setLetterSpacing(QFont::AbsoluteSpacing, 0.3);
-
         e.label->setFont(f);
         e.label->setStyleSheet("background: transparent; padding-top: 6px;");
     }

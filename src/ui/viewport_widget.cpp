@@ -477,7 +477,7 @@ void ViewportWidget::contextMenuEvent(QContextMenuEvent* event) {
                 m_dirty = true;
                 update();
             } else if (chosen == styleAct) {
-                ColorbarStyleDialog dlg(m_settings, this);
+                ColorbarStyleDialog dlg(m_settings, bar.subtitle, bar.bandCount, this);
                 dlg.exec();
             } else {
                 const ColorbarStyle::Orientation target =

@@ -585,11 +585,12 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     // Single factory for every bar type: gates stay at the call sites, all
     // shared assembly (labels, stops, persisted overrides) lives here.
     auto makeBar = [&](const char* subtitle, const QString& title,
-                       const QVariantList& stops, auto&& valueAt) {
+                       const QVariantList& stops, auto&& valueAt, int bandCount = 0) {
         ColorbarData d;
         d.title = title;
         d.subtitle = subtitle;
         d.stops = stops;
+        d.bandCount = bandCount;
         d.tickLabels = makeTickLabels(std::forward<decltype(valueAt)>(valueAt), tickCount);
         loadBarPosition(d);
         loadBarOrientation(d);
@@ -619,7 +620,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
                     return mapMin + range * frac;
-                });
+                }, m_state.scalarColorBands);
     }
 
     // Vector bar
@@ -649,7 +650,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                     [&](int i) {
                         const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
                         return invTxMag(tMin + tRange * frac);
-                    });
+                    }, m_state.vectorColorBands);
         } else {
             // Component mode (X=2, Y=3, Z=4): show the selected component's range.
             int compIdx = m_state.vectorColorMode - 2; // 0=X, 1=Y, 2=Z
@@ -665,7 +666,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                     [&](int i) {
                         const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
                         return cMin + cRange * frac;
-                    });
+                    }, m_state.vectorColorBands);
         }
     }
 
@@ -680,7 +681,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                     [&](int i) {
                         const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
                         return sMin + sRange * frac;
-                    });
+                    }, m_state.streamlineColorBands);
         } else {
             int compIdx = m_state.streamlineColorMode - 2;
             const float cMin = m_state.streamlineCompRangeOverrideEnabled[compIdx]
@@ -695,7 +696,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                     [&](int i) {
                         const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
                         return cMin + cRange * frac;
-                    });
+                    }, m_state.streamlineColorBands);
         }
     }
 
@@ -709,7 +710,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
                     return vMin + range * frac;
-                });
+                }, m_state.volumeColorBands);
     }
 
     // Slice plane bar (independent colormap, per-slice scalar range)
@@ -722,7 +723,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
                     return slMin + range * frac;
-                });
+                }, m_state.volumeSliceColorBands);
     }
 
     colorbarOverlay.drawBars(dpr, deviceW, deviceH, m_colorbarBars);

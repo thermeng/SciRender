@@ -11,6 +11,7 @@ void GlyphPass::init(const ShaderSources& sources) {
     if (glyphProgram.has()) {
         glyphLutLoc = glGetUniformLocation(glyphProgram, "uColormapLUT");
         glyphViewPosLoc = glGetUniformLocation(glyphProgram, "uViewPos");
+        glyphNumBandsLoc = glGetUniformLocation(glyphProgram, "uNumBands");
         glyphUboIndex = glGetUniformBlockIndex(glyphProgram, "GlyphUBO");
         if (glyphUboIndex != GL_INVALID_INDEX) {
             glUniformBlockBinding(glyphProgram, glyphUboIndex, 1);
@@ -60,6 +61,7 @@ void GlyphPass::draw(const RenderRenderState& state,
     ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
     glNamedBufferSubData(glyphUbo, 0, sizeof(GlyphUBOData), &ubo);
     if (glyphViewPosLoc != -1) glUniform3fv(glyphViewPosLoc, 1, glm::value_ptr(camPos));
+    if (glyphNumBandsLoc != -1) glUniform1f(glyphNumBandsLoc, static_cast<float>(state.vectorColorBands));
     if (state.vectorColorMode > 0 && colormap.vectorTexture() != 0) {
         glBindTextureUnit(1, colormap.vectorTexture());
         glUniform1i(glyphLutLoc, 1);
@@ -76,4 +78,5 @@ void GlyphPass::shutdown() {
     glyphUboIndex = GL_INVALID_INDEX;
     glyphLutLoc = -1;
     glyphViewPosLoc = -1;
+    glyphNumBandsLoc = -1;
 }

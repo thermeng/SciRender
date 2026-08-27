@@ -68,6 +68,8 @@ private:
     GLuint meshUboIndex = ~0u;
     GLint lutTextureLoc = -1;
     GLint clipLutTextureLoc = -1;
+    GLint numBandsLoc = -1;
+    GLint clipNumBandsLoc = -1;
 };
 
 

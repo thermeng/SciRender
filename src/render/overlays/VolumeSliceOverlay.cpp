@@ -19,6 +19,7 @@ void VolumeSliceOverlay::init(const ShaderSources& sources) {
         m_scalarMinLoc   = glGetUniformLocation(m_program, "uScalarMin");
         m_scalarMaxLoc   = glGetUniformLocation(m_program, "uScalarMax");
         m_alphaLoc       = glGetUniformLocation(m_program, "uAlpha");
+        m_numBandsLoc    = glGetUniformLocation(m_program, "uNumBands");
     }
 }
 
@@ -99,6 +100,7 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
     glUniform1f(m_scalarMaxLoc, mapMax);
     glUniform1f(m_alphaLoc, state.volumeSliceOpacity);
     glUniform1i(m_useColormapLoc, state.volumeSliceUseColormap ? 1 : 0);
+    if (m_numBandsLoc != -1) glUniform1f(m_numBandsLoc, static_cast<float>(state.volumeSliceColorBands));
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_3D, volumeTex);

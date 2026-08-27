@@ -24,7 +24,6 @@ void VolumePass::init(const ShaderSources& sources) {
         locSafeExtent_      = glGetUniformLocation(program_, "uSafeExtent");
         locBaseStepSize_    = glGetUniformLocation(program_, "uBaseStepSize");
         locPixelFootprintScale_ = glGetUniformLocation(program_, "uPixelFootprintScale");
-        locFovY_ = glGetUniformLocation(program_, "uFovY");
         locVolumeTex_       = glGetUniformLocation(program_, "uVolumeTex");
         locBoxMin_          = glGetUniformLocation(program_, "uBoxMin");
         locBoxMax_          = glGetUniformLocation(program_, "uBoxMax");
@@ -39,6 +38,7 @@ void VolumePass::init(const ShaderSources& sources) {
         locSliceEn_         = glGetUniformLocation(program_, "uSliceEn");
         locInvert_          = glGetUniformLocation(program_, "uInvert");
         locVolumeUseColormap_ = glGetUniformLocation(program_, "uVolumeUseColormap");
+        locNumBands_ = glGetUniformLocation(program_, "uNumBands");
     }
 }
 
@@ -124,7 +124,6 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glm::vec3 camPos = glm::vec3(state.camera.position);
     glUniform3fv(locCamPos_, 1, glm::value_ptr(camPos));
     glUniform1i(locOrtho_, state.orthographic ? 1 : 0);
-    glUniform1f(locFovY_, state.fovY);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_3D, volumeTex_.get());
@@ -153,6 +152,8 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glUniform3fv(locBoxMax_, 1, glm::value_ptr(boxMax_));
 
     glUniform1i(locVolumeUseColormap_, state.volumeUseColormap ? 1 : 0);
+
+    if (locNumBands_ != -1) glUniform1f(locNumBands_, static_cast<float>(state.volumeColorBands));
 
     if (state.volumeUseColormap && colormap.volumeTexture() != 0) {
         glActiveTexture(GL_TEXTURE1);
@@ -197,7 +198,7 @@ void VolumePass::shutdown() {
     locScalarMin_ = locScalarMax_ = locClipEnabled_ = locSliceHeightX_ = -1;
     locSliceHeightY_ = locSliceHeightZ_ = locSliceEn_ = locInvert_ = locVolumeUseColormap_ = -1;
     locSafeExtent_ = locBaseStepSize_ = locPixelFootprintScale_ = -1;
-    locFovY_ = -1;
+    locNumBands_ = -1;
 }
 
 

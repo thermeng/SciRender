@@ -274,31 +274,74 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
     // Gradient bar (vertical bars read bottom→min, top→max)
     {
         const bool vertical = st.orientation == ColorbarStyle::Vertical;
-        QLinearGradient grad(lay.bar.left(), 0.0, lay.bar.right(), 0.0);
-        if (vertical) {
-            grad.setStart(0.0, lay.bar.top());
-            grad.setFinalStop(0.0, lay.bar.bottom());
-        }
         const int n = bar.stops.size();
-        for (int i = 0; i < n; ++i) {
-            const QVariantList s = bar.stops[i].toList();
-            const float t = s[0].toFloat();
-            grad.setColorAt(vertical ? (1.0 - static_cast<qreal>(t)) : static_cast<qreal>(t),
-                QColor::fromRgbF(
-                    qBound(0.0, s[1].toDouble(), 1.0),
-                    qBound(0.0, s[2].toDouble(), 1.0),
-                    qBound(0.0, s[3].toDouble(), 1.0)));
+        const int bands = bar.bandCount > 1 ? bar.bandCount : 0;
+        if (bands > 1) {
+            // Discrete bands: draw N rectangles, each filled with the quantized color.
+            for (int b = 0; b < bands; ++b) {
+                float t0 = static_cast<float>(b) / static_cast<float>(bands);
+                float t1 = static_cast<float>(b + 1) / static_cast<float>(bands);
+                // Sample color at band center for the fill.
+                float tc = (static_cast<float>(b) + 0.5f) / static_cast<float>(bands);
+                // Map tc to a stop color by interpolating between gradient stops.
+                QColor col;
+                for (int i = 0; i < n - 1; ++i) {
+                    QVariantList s0 = bar.stops[i].toList();
+                    QVariantList s1 = bar.stops[i + 1].toList();
+                    float aT = s0[0].toFloat();
+                    float bT = s1[0].toFloat();
+                    if (tc >= aT && tc <= bT) {
+                        float f = (bT - aT) > 1e-9f ? (tc - aT) / (bT - aT) : 0.0f;
+                        col = QColor::fromRgbF(
+                            qBound(0.0, s0[1].toDouble() + f * (s1[1].toDouble() - s0[1].toDouble()), 1.0),
+                            qBound(0.0, s0[2].toDouble() + f * (s1[2].toDouble() - s0[2].toDouble()), 1.0),
+                            qBound(0.0, s0[3].toDouble() + f * (s1[3].toDouble() - s0[3].toDouble()), 1.0));
+                        break;
+                    }
+                }
+                QRect bandRect;
+                if (vertical) {
+                    int y0 = lay.bar.top() + static_cast<int>(t0 * lay.bar.height());
+                    int y1 = lay.bar.top() + static_cast<int>(t1 * lay.bar.height());
+                    bandRect = QRect(lay.bar.left(), y0, lay.bar.width(), y1 - y0);
+                } else {
+                    int x0 = lay.bar.left() + static_cast<int>(t0 * lay.bar.width());
+                    int x1 = lay.bar.left() + static_cast<int>(t1 * lay.bar.width());
+                    bandRect = QRect(x0, lay.bar.top(), x1 - x0, lay.bar.height());
+                }
+                p.fillRect(bandRect, col);
+            }
+            // Outline the whole bar.
+            p.setPen(QApplication::palette().color(QPalette::Text));
+            p.setBrush(Qt::NoBrush);
+            const int radius = static_cast<int>(3 * dpr);
+            p.drawRoundedRect(lay.bar, radius, radius);
+        } else {
+            QLinearGradient grad(lay.bar.left(), 0.0, lay.bar.right(), 0.0);
+            if (vertical) {
+                grad.setStart(0.0, lay.bar.top());
+                grad.setFinalStop(0.0, lay.bar.bottom());
+            }
+            for (int i = 0; i < n; ++i) {
+                const QVariantList s = bar.stops[i].toList();
+                const float t = s[0].toFloat();
+                grad.setColorAt(vertical ? (1.0 - static_cast<qreal>(t)) : static_cast<qreal>(t),
+                    QColor::fromRgbF(
+                        qBound(0.0, s[1].toDouble(), 1.0),
+                        qBound(0.0, s[2].toDouble(), 1.0),
+                        qBound(0.0, s[3].toDouble(), 1.0)));
+            }
+            QPainterPath barPath;
+            const int radius = static_cast<int>(3 * dpr);
+            barPath.addRoundedRect(lay.bar, radius, radius);
+            p.save();
+            p.setClipPath(barPath);
+            p.fillRect(lay.bar, grad);
+            p.restore();
+            p.setPen(QApplication::palette().color(QPalette::Text));
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(lay.bar, radius, radius);
         }
-        QPainterPath barPath;
-        const int radius = static_cast<int>(3 * dpr);
-        barPath.addRoundedRect(lay.bar, radius, radius);
-        p.save();
-        p.setClipPath(barPath);
-        p.fillRect(lay.bar, grad);
-        p.restore();
-        p.setPen(QApplication::palette().color(QPalette::Text));
-        p.setBrush(Qt::NoBrush);
-        p.drawRoundedRect(lay.bar, radius, radius);
     }
 
     // Tick marks + thinned labels
@@ -322,6 +365,7 @@ QString ColorbarOverlay::barKey(float dpr, const ColorbarData& bar) {
     QString k = QString::number(dpr, 'f', 3) + "|" + bar.title + "|" + bar.subtitle
                 + "|" + bar.units
                 + "|" + QString::number(static_cast<int>(st.orientation))
+                + "|" + QString::number(bar.bandCount)
                 + "|" + st.fontFamily
                 + "," + (st.fontBold ? "b1" : "b0")
                 + "," + (st.fontItalic ? "i1" : "i0")

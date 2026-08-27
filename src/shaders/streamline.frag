@@ -23,6 +23,7 @@ layout(std140, binding = 3) uniform StreamlineUBO {
 };
 
 uniform sampler1D uColormapLUT;
+uniform float uNumBands = 0.0; // 0 = continuous, >1 = discrete bands
 
 out vec4 FragColor;
 
@@ -67,8 +68,12 @@ void main() {
     int colorMode = int(uColorMode.x);
     bool useColormap = colorMode > 0;
 
+    float colorT = vColorScalar;
+    if (uNumBands > 1.0) {
+        colorT = floor(colorT * uNumBands) / (uNumBands - 1.0);
+    }
     // [S5] Explicit LOD skips implicit derivatives on the mipless 1D LUT.
-    vec3 baseColor = useColormap ? textureLod(uColormapLUT, vColorScalar, 0.0).rgb : uColor_UseColormap.xyz;
+    vec3 baseColor = useColormap ? textureLod(uColormapLUT, colorT, 0.0).rgb : uColor_UseColormap.xyz;
 
     vec3 N = normalize(vNormal);
     vec3 L = normalize(uLightDir.xyz);

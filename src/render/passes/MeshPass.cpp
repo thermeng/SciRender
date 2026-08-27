@@ -14,6 +14,7 @@ void MeshPass::init(const ShaderSources& sources) {
         meshUboIndex = glGetUniformBlockIndex(shaderProgram, "MeshUBO");
         glUniformBlockBinding(shaderProgram, meshUboIndex, 0);
         lutTextureLoc = glGetUniformLocation(shaderProgram, "uColormapLUT");
+        numBandsLoc = glGetUniformLocation(shaderProgram, "uNumBands");
     }
 
     if (!sources.meshClipGeo.empty()) {
@@ -25,6 +26,7 @@ void MeshPass::init(const ShaderSources& sources) {
             if (clipIdx != GL_INVALID_INDEX)
                 glUniformBlockBinding(clipShaderProgram, clipIdx, 0);
             clipLutTextureLoc = glGetUniformLocation(clipShaderProgram, "uColormapLUT");
+            clipNumBandsLoc = glGetUniformLocation(clipShaderProgram, "uNumBands");
         }
     }
 
@@ -75,6 +77,8 @@ void MeshPass::activateProgram(const RenderRenderState& state, const ColormapMan
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
 
     GLint activeLutLoc = useCrinkleClip ? clipLutTextureLoc : lutTextureLoc;
+    GLint activeNumBandsLoc = useCrinkleClip ? clipNumBandsLoc : numBandsLoc;
+    if (activeNumBandsLoc != -1) glUniform1f(activeNumBandsLoc, static_cast<float>(state.scalarColorBands));
     if (state.meshHasScalars && state.meshUseScalarColor && colormap.scalarTexture() != 0) {
         glBindTextureUnit(0, colormap.scalarTexture());
         glUniform1i(activeLutLoc, 0);
@@ -225,6 +229,8 @@ void MeshPass::shutdown() {
     meshUboIndex = GL_INVALID_INDEX;
     lutTextureLoc = -1;
     clipLutTextureLoc = -1;
+    numBandsLoc = -1;
+    clipNumBandsLoc = -1;
     wireframePass.shutdown();
 }
 
