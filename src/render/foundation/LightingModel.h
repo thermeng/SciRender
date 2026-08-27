@@ -28,12 +28,12 @@ public:
     // Light Kit state
     bool  lightKitEnabled = true;
     bool  showLightMarkers = false; // triad light-marker overlay (default off)
-    float lightKeyIntensity = 0.5f;  // "Int" — key intensity (0..1)
+    float lightKeyIntensity = 0.6f;  // "Int" — key intensity (0..1)
     float lightWarm = 0.5f;          // kit-wide warm tint (0 cold .. 0.5 neutral .. 1 warm)
 
-    float matAmbient = 0.08f;
+    float matAmbient = 0.2f;
     float matDiffuse = 0.75f;
-    float matSpecular = 0.15f;
+    float matSpecular = 0.0f;
     // PBR microfacet parameters (used by the GGX lighting path in the surface shaders).
     // roughness in [0,1] (higher = rougher surface; clamped in-shader to >=0.04).
     // metallic in [0,1] (0 = dielectric, 1 = conductor; blends F0 from 0.04 to baseColor).

@@ -29,6 +29,8 @@ public:
 
     float magMin = 0.0f;
     float magMax = 1.0f;
+    float compMin[3] = { 0.0f, 0.0f, 0.0f };
+    float compMax[3] = { 0.0f, 0.0f, 0.0f };
 
     struct StreamlinePath {
         std::vector<glm::vec3> points;
@@ -56,7 +58,9 @@ public:
         int lineCount = 0;
         int arrowCount = 0;
         float magMin = 0.0f;
-        float magMax = 0.0f;
+        float magMax = 1.0f;
+        float compMin[3] = { 0.0f, 0.0f, 0.0f };
+        float compMax[3] = { 0.0f, 0.0f, 0.0f };
     };
 
     StreamlineResult compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
@@ -77,7 +81,7 @@ public:
 
     static float magSq(const glm::vec3& v);
     static glm::mat3 buildFrame(const glm::vec3& dir);
-    static std::vector<float> generateArrowhead(const glm::vec3& pos, const glm::vec3& dir, float height, float radius, int segments, float mag);
+    static std::vector<float> generateArrowhead(const glm::vec3& pos, const glm::vec3& dir, float height, float radius, int segments, float mag, const glm::vec3& comp);
     // Logical arrowhead placement: evenly distributed by arc length with tip,
     // taper, and anti-overlap guards. Returns arc distances from the path start.
     static std::vector<float> computeArrowPlacement(float pathLength, float extent,

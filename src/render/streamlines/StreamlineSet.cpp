@@ -471,7 +471,7 @@ glm::mat3 StreamlineSet::buildFrame(const glm::vec3& dir) {
     return glm::mat3(n, b, t);
 }
 
-std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const glm::vec3& dir, float height, float radius, int segments, float mag) {
+std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const glm::vec3& dir, float height, float radius, int segments, float mag, const glm::vec3& comp) {
     std::vector<float> verts;
     float dirLen = glm::length(dir);
     if (dirLen < 1e-8f || height <= 0.0f || radius <= 0.0f || segments < 3) return verts;
@@ -490,6 +490,7 @@ std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const 
     auto push = [&](const glm::vec3& p, const glm::vec3& n) {
         verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
         verts.push_back(mag);
+        verts.push_back(comp.x); verts.push_back(comp.y); verts.push_back(comp.z);
         verts.push_back(n.x); verts.push_back(n.y); verts.push_back(n.z);
     };
 
@@ -737,10 +738,13 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
 
     float mn = std::numeric_limits<float>::max();
     float mx = -std::numeric_limits<float>::max();
+    float cMin[3] = { std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max() };
+    float cMax[3] = { -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() };
 
     std::vector<glm::vec3> arrowPositions;
     std::vector<glm::vec3> arrowDirections;
     std::vector<float> arrowMagnitudes;
+    std::vector<glm::vec3> arrowFieldVecs;
 
     const size_t estimatedSegments = seeds.size() * 2 * maxSteps;
     result.verts.reserve(estimatedSegments * 6 * 7);
@@ -756,6 +760,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
         arrowPositions.reserve(estimatedArrows);
         arrowDirections.reserve(estimatedArrows);
         arrowMagnitudes.reserve(estimatedArrows);
+        arrowFieldVecs.reserve(estimatedArrows);
     }
 
     for (const auto& seed : seeds) {
@@ -912,21 +917,26 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
             glm::vec3 vc = b - side * (baseWidth * taperB);
             glm::vec3 vd = b + side * (baseWidth * taperB);
 
-            auto pushQuadVertex = [&](const glm::vec3& p, float rawMag) {
+            auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, const glm::vec3& rawComp) {
                 result.verts.push_back(p.x); result.verts.push_back(p.y); result.verts.push_back(p.z);
                 result.verts.push_back(rawMag);
+                result.verts.push_back(rawComp.x); result.verts.push_back(rawComp.y); result.verts.push_back(rawComp.z);
                 result.verts.push_back(normal.x); result.verts.push_back(normal.y); result.verts.push_back(normal.z);
                 if (rawMag < mn) mn = rawMag;
                 if (rawMag > mx) mx = rawMag;
+                for (int c = 0; c < 3; ++c) {
+                    if (rawComp[c] < cMin[c]) cMin[c] = rawComp[c];
+                    if (rawComp[c] > cMax[c]) cMax[c] = rawComp[c];
+                }
             };
 
-            pushQuadVertex(va, magA);
-            pushQuadVertex(vb, magA);
-            pushQuadVertex(vc, magB);
+            pushQuadVertex(va, magA, mergedFieldVecs[i]);
+            pushQuadVertex(vb, magA, mergedFieldVecs[i]);
+            pushQuadVertex(vc, magB, mergedFieldVecs[i + 1]);
 
-            pushQuadVertex(vb, magA);
-            pushQuadVertex(vd, magB);
-            pushQuadVertex(vc, magB);
+            pushQuadVertex(vb, magA, mergedFieldVecs[i]);
+            pushQuadVertex(vd, magB, mergedFieldVecs[i + 1]);
+            pushQuadVertex(vc, magB, mergedFieldVecs[i + 1]);
         }
 
         if (showArrows && arrowSpacingFrac > 0.0f && mergedPts.size() >= 2) {
@@ -952,6 +962,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
                         arrowPositions.push_back(glm::mix(mergedPts[seg], mergedPts[seg + 1], frac));
                         arrowDirections.push_back(fieldVec / mag);
                         arrowMagnitudes.push_back(mag);
+                        arrowFieldVecs.push_back(fieldVec);
                     }
                 }
             }
@@ -961,7 +972,11 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
     if (mn > mx) { mn = 0.0f; mx = 0.0f; }
     result.magMin = mn;
     result.magMax = mx;
-    result.lineCount = static_cast<int>(result.verts.size() / 7);
+    for (int c = 0; c < 3; ++c) {
+        result.compMin[c] = cMin[c];
+        result.compMax[c] = cMax[c];
+    }
+    result.lineCount = static_cast<int>(result.verts.size() / 10);
     result.seedCount = static_cast<int>(seeds.size());
 
     // Generate arrowhead vertices on the CPU (no GL needed).
@@ -970,14 +985,14 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
         const float arrowRadius = arrowHeight * 0.35f;
         const int segments = 16;
 
-        const size_t floatsPerArrow = segments * 6 * 7;
+        const size_t floatsPerArrow = segments * 6 * 10;
         result.arrowVerts.reserve(arrowPositions.size() * floatsPerArrow);
 
         for (size_t i = 0; i < arrowPositions.size(); ++i) {
-            auto piece = generateArrowhead(arrowPositions[i], arrowDirections[i], arrowHeight, arrowRadius, segments, arrowMagnitudes[i]);
+            auto piece = generateArrowhead(arrowPositions[i], arrowDirections[i], arrowHeight, arrowRadius, segments, arrowMagnitudes[i], arrowFieldVecs[i]);
             result.arrowVerts.insert(result.arrowVerts.end(), piece.begin(), piece.end());
         }
-        result.arrowCount = static_cast<int>(result.arrowVerts.size() / 7);
+        result.arrowCount = static_cast<int>(result.arrowVerts.size() / 10);
     }
 
     return result;
@@ -988,14 +1003,18 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
 
     magMin = res.magMin;
     magMax = res.magMax;
+    for (int c = 0; c < 3; ++c) {
+        compMin[c] = res.compMin[c];
+        compMax[c] = res.compMax[c];
+    }
     lineCount = res.lineCount;
     seedCount = res.seedCount;
     paths = std::move(res.paths);
     particles.clear();
 
     if (!res.verts.empty()) {
-        setupVertexBuffer(vao, vbo, res.verts.data(), res.verts.size() * sizeof(float), 7 * sizeof(float),
-                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 3, 4 * sizeof(float) } }, GL_STATIC_DRAW);
+        setupVertexBuffer(vao, vbo, res.verts.data(), res.verts.size() * sizeof(float), 10 * sizeof(float),
+                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 3, 4 * sizeof(float) }, { 3, 3, 7 * sizeof(float) } }, GL_STATIC_DRAW);
     }
 
     if (!res.seedVerts.empty()) {
@@ -1006,8 +1025,8 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
     if (showArrows && !res.arrowVerts.empty()) {
         arrowCount = res.arrowCount;
 
-        setupVertexBuffer(arrowVao, arrowVbo, res.arrowVerts.data(), res.arrowVerts.size() * sizeof(float), 7 * sizeof(float),
-                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 3, 4 * sizeof(float) } }, GL_STATIC_DRAW);
+        setupVertexBuffer(arrowVao, arrowVbo, res.arrowVerts.data(), res.arrowVerts.size() * sizeof(float), 10 * sizeof(float),
+                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 3, 4 * sizeof(float) }, { 3, 3, 7 * sizeof(float) } }, GL_STATIC_DRAW);
     }
 }
 

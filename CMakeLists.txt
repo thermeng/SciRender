@@ -241,16 +241,6 @@ qt_add_resources(SciRender "icons"
         src/resources/icons/ortho_nz.svg
         src/resources/icons/reset.svg
         src/resources/icons/collapse.svg
-        src/resources/icons/open_mesh.svg
-        src/resources/icons/lighting.svg
-        src/resources/icons/slicing.svg
-        src/resources/icons/view.svg
-        src/resources/icons/colormap.svg
-        src/resources/icons/vectors.svg
-        src/resources/icons/streamlines.svg
-        src/resources/icons/mesh_info.svg
-        src/resources/icons/screenshot.svg
-        src/resources/icons/animation.svg
 )
 
 # ---------------------------------------------------------------------------

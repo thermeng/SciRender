@@ -169,13 +169,16 @@
          <string>Vector</string>
         </property></widget>
       </item>
-      <item>
-       <widget class="QCheckBox" name="useCmapCb">
-        <property name="text">
-         <string>Color by magnitude</string>
-        </property>
-       </widget>
-      </item>
+       <item>
+        <widget class="QLabel" name="colorByLabel">
+         <property name="text">
+          <string>Color By</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="vectorColorModeCombo"/>
+       </item>
       <item>
        <widget class="QComboBox" name="vCmapCombo"/>
       </item>

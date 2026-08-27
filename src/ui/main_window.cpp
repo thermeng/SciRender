@@ -543,6 +543,7 @@ void MainWindow::setupMenus() {
     cullFront->setChecked(m_settings->getCullMode() == 2);
     connect(cullFront, &QAction::triggered, m_settings, [this]() { m_settings->setCullMode(2); });
 
+    viewMenu->addActions(cullGroup->actions());
     viewMenu->addSeparator();
 
     auto* shadingGroup = new QActionGroup(this);
@@ -1489,11 +1490,14 @@ QWidget* MainWindow::buildVectorsPage() {
     vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vectorColorBtn, createColorButton("Vector", m_settings->getVectorColorQml(), &m_vectorColorDialog, &RenderSettings::setVectorColorQml));
     delete vectorsUi.vectorColorBtn;
 
-    // TODO: getVectorUseColormap/setVectorUseColormap not yet implemented in RenderSettings
-    // auto* useCmapCb = vectorsUi.useCmapCb;
-    // useCmapCb->setChecked(m_settings->getVectorUseColormap());
-    // connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorUseColormap);
-    vectorsUi.useCmapCb->setVisible(false);
+    auto* colorModeCombo = new QComboBox;
+    colorModeCombo->addItems({"Solid Color", "Magnitude", "X Component", "Y Component", "Z Component"});
+    colorModeCombo->setCurrentIndex(m_settings->getVectorColorMode());
+    colorModeCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
+    connect(colorModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setVectorColorMode);
+    vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vectorColorModeCombo, colorModeCombo);
+    delete vectorsUi.vectorColorModeCombo;
 
     auto* vCmapCombo = buildColormapCombo(m_settings->getVectorColormapChoice(),
         [this](int i) { m_settings->setVectorColormapChoice(i); });
@@ -1505,56 +1509,98 @@ QWidget* MainWindow::buildVectorsPage() {
     revCb->setChecked(m_settings->getVectorColormapReversed());
     connect(revCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorColormapReversed);
 
-    // ---- Glyph Magnitude Fixed Range (RangeEditor) ----
+    // ---- Glyph Fixed Range (adaptive: magnitude or active component) ----
     {
         auto* lay = qobject_cast<QVBoxLayout*>(vectorsUi.optionsGroup->layout());
-        auto* hdr = new QLabel("Magnitude Fixed Range");
-        hdr->setObjectName("glyphMagFixedHeader");
+        auto* hdr = new QLabel("Fixed Range");
+        hdr->setObjectName("glyphFixedHeader");
         lay->addWidget(hdr);
         m_glyphMagRangeCb = new QCheckBox("Fixed Range");
-        m_glyphMagRangeCb->setToolTip("Map a fixed magnitude range to glyph palette; values outside clamp to end colors");
-        m_glyphMagRangeCb->setChecked(m_settings->getGlyphMagRangeOverrideEnabled());
+        m_glyphMagRangeCb->setToolTip("Map a fixed range to glyph palette for the active 'Color By' mode; values outside clamp to end colors");
         m_glyphMagRangeCb->setEnabled(m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors());
         lay->addWidget(m_glyphMagRangeCb);
         m_glyphMagRangeEditor = new RangeEditor();
         lay->addWidget(m_glyphMagRangeEditor);
-        m_glyphMagRangeEditor->setEnabled(m_glyphMagRangeCb->isChecked() && m_glyphMagRangeCb->isEnabled());
-        // init bounds from renderer or fallback
-        {
-            double bLo = 0, bHi = 1;
-            if (m_settings->backend()) { bLo = m_settings->backend()->vectorMagMin(); bHi = m_settings->backend()->vectorMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; double lo = m_settings->getGlyphMagRangeLo(); double hi = m_settings->getGlyphMagRangeHi(); if (hi > lo) { bLo = lo; bHi = hi; } } }
+
+        auto bindToActiveMode = [this]() {
+            int mode = m_settings->getVectorColorMode();
+            int comp = (mode >= 2) ? mode - 2 : -1;
+            bool solidOrNone = (mode == 0) || !(m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors());
+            m_glyphRangeBoundComp = comp;
+            double bLo = 0, bHi = 1, lo, hi;
+            bool en = false;
+            if (solidOrNone) {
+                m_glyphMagRangeEditor->setEnabled(false);
+                m_glyphMagRangeCb->setEnabled(false);
+                return;
+            }
+            if (comp < 0) {
+                en = m_settings->getGlyphMagRangeOverrideEnabled();
+                lo = m_settings->getGlyphMagRangeLo();
+                hi = m_settings->getGlyphMagRangeHi();
+                if (m_settings->backend()) { bLo = m_settings->backend()->vectorMagMin(); bHi = m_settings->backend()->vectorMagMax(); if (!(bHi > bLo)) bHi = bLo + 1.0; }
+            } else {
+                en = m_settings->getGlyphCompRangeOverrideEnabled(comp);
+                lo = m_settings->getGlyphCompRangeLo(comp);
+                hi = m_settings->getGlyphCompRangeHi(comp);
+                if (m_settings->backend()) { bLo = m_settings->backend()->vectorCompMin(comp); bHi = m_settings->backend()->vectorCompMax(comp); if (!(bHi > bLo)) bHi = bLo + 1.0; }
+            }
+            m_glyphMagRangeCb->blockSignals(true); m_glyphMagRangeCb->setChecked(en); m_glyphMagRangeCb->blockSignals(false);
+            m_glyphMagRangeCb->setEnabled(true);
+            m_glyphMagRangeEditor->blockSignals(true);
             m_glyphMagRangeEditor->setBounds(bLo, bHi);
-            double lo = m_settings->getGlyphMagRangeLo(), hi = m_settings->getGlyphMagRangeHi();
             if (hi > lo) m_glyphMagRangeEditor->setWindow(lo, hi); else m_glyphMagRangeEditor->setWindow(bLo, bHi);
-        }
+            m_glyphMagRangeEditor->blockSignals(false);
+            m_glyphMagRangeEditor->setEnabled(en && m_glyphMagRangeCb->isEnabled());
+        };
+
+        bindToActiveMode();
+
         connect(m_glyphMagRangeCb, &QCheckBox::toggled, this, [this](bool v){
-            m_settings->setGlyphMagRangeOverrideEnabled(v);
-            if (m_glyphMagRangeEditor) m_glyphMagRangeEditor->setEnabled(v && m_glyphMagRangeCb->isEnabled());
+            int comp = m_glyphRangeBoundComp;
+            if (comp < 0) {
+                m_settings->setGlyphMagRangeOverrideEnabled(v);
+            } else {
+                m_settings->setGlyphCompRangeOverrideEnabled(comp, v);
+            }
+            m_glyphMagRangeEditor->setEnabled(v && m_glyphMagRangeCb->isEnabled());
         });
+
         connect(m_glyphMagRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
-            m_settings->setGlyphMagRangeLo(static_cast<float>(lo));
-            m_settings->setGlyphMagRangeHi(static_cast<float>(hi));
-        });
-        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
-            if (!m_glyphMagRangeCb || !m_glyphMagRangeEditor) return;
-            if (f & ChangeFlag::Colormap) {
-                bool en = m_settings->getGlyphMagRangeOverrideEnabled();
-                m_glyphMagRangeCb->blockSignals(true); m_glyphMagRangeCb->setChecked(en); m_glyphMagRangeCb->blockSignals(false);
-                m_glyphMagRangeEditor->setEnabled(en && m_glyphMagRangeCb->isEnabled());
-                double lo = m_settings->getGlyphMagRangeLo(), hi = m_settings->getGlyphMagRangeHi();
-                auto cur = m_glyphMagRangeEditor->window();
-                if (hi > lo && (cur.first != lo || cur.second != hi)) { m_glyphMagRangeEditor->blockSignals(true); m_glyphMagRangeEditor->setWindow(lo,hi); m_glyphMagRangeEditor->blockSignals(false); }
+            int comp = m_glyphRangeBoundComp;
+            if (comp < 0) {
+                m_settings->setGlyphMagRangeLo(static_cast<float>(lo));
+                m_settings->setGlyphMagRangeHi(static_cast<float>(hi));
+            } else {
+                m_settings->setGlyphCompRangeLo(comp, static_cast<float>(lo));
+                m_settings->setGlyphCompRangeHi(comp, static_cast<float>(hi));
             }
         });
-        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){
-            if (!m_glyphMagRangeCb || !m_glyphMagRangeEditor) return;
-            bool ok = m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors();
-            m_glyphMagRangeCb->setEnabled(ok);
-            if (!ok) { m_glyphMagRangeCb->blockSignals(true); m_glyphMagRangeCb->setChecked(false); m_glyphMagRangeCb->blockSignals(false); }
-            m_glyphMagRangeEditor->setEnabled(m_glyphMagRangeCb->isChecked() && ok);
-            if (ok) refreshGlyphMagRangeBounds();
+
+        connect(m_settings, &RenderSettings::viewChanged, this, [this, bindToActiveMode](ChangeFlags flags){
+            if (flags & ChangeFlag::Vectors) {
+                bindToActiveMode();
+            } else if ((flags & ChangeFlag::Colormap) && m_glyphMagRangeCb && m_glyphMagRangeEditor) {
+                int comp = m_glyphRangeBoundComp;
+                bool en = (comp < 0) ? m_settings->getGlyphMagRangeOverrideEnabled()
+                                     : m_settings->getGlyphCompRangeOverrideEnabled(comp);
+                m_glyphMagRangeCb->blockSignals(true); m_glyphMagRangeCb->setChecked(en); m_glyphMagRangeCb->blockSignals(false);
+                m_glyphMagRangeEditor->setEnabled(en && m_glyphMagRangeCb->isEnabled());
+                double lo = (comp < 0) ? m_settings->getGlyphMagRangeLo() : m_settings->getGlyphCompRangeLo(comp);
+                double hi = (comp < 0) ? m_settings->getGlyphMagRangeHi() : m_settings->getGlyphCompRangeHi(comp);
+                auto cur = m_glyphMagRangeEditor->window();
+                if (hi > lo && (cur.first != lo || cur.second != hi)) {
+                    m_glyphMagRangeEditor->blockSignals(true); m_glyphMagRangeEditor->setWindow(lo, hi); m_glyphMagRangeEditor->blockSignals(false);
+                }
+            }
         });
-        connect(m_settings, &RenderSettings::meshDataUpdated, this, [this](){ refreshGlyphMagRangeBounds(); });
+
+        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this, bindToActiveMode](){
+            bindToActiveMode();
+        });
+        connect(m_settings, &RenderSettings::meshDataUpdated, this, [this, bindToActiveMode](){
+            bindToActiveMode();
+        });
     }
 
     connect(showCb, &QCheckBox::toggled, vectorsUi.optionsGroup, &QWidget::setEnabled);
@@ -1777,10 +1823,18 @@ QWidget* MainWindow::buildStreamlinesPage() {
     });
     lookLay->addWidget(streamlineBtn);
 
-    auto* slUseCmapCb = new QCheckBox("Color by Magnitude");
-    slUseCmapCb->setChecked(m_settings->getStreamlineUseColormap());
-    connect(slUseCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineUseColormap);
-    lookLay->addWidget(slUseCmapCb);
+    // ---- Streamline Color By (combo) ----
+    auto* slColorByLabel = new QLabel("Color By");
+    slColorByLabel->setObjectName("slColorByLabel");
+    lookLay->addWidget(slColorByLabel);
+    auto* slColorModeCombo = new QComboBox;
+    slColorModeCombo->setObjectName("streamlineColorModeCombo");
+    slColorModeCombo->addItems({"Solid Color", "Magnitude", "X Component", "Y Component", "Z Component"});
+    slColorModeCombo->setCurrentIndex(m_settings->getStreamlineColorMode());
+    slColorModeCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
+    connect(slColorModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setStreamlineColorMode);
+    lookLay->addWidget(slColorModeCombo);
 
     auto* slCmapCombo = buildColormapCombo(m_settings->getStreamlineColormapChoice(),
         [this](int i) { m_settings->setStreamlineColormapChoice(i); });
@@ -1791,54 +1845,97 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(slRevCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineColormapReversed);
     lookLay->addWidget(slRevCb);
 
-    // ---- Streamline Magnitude Fixed Range (RangeEditor) ----
+    // ---- Streamline Fixed Range (adaptive: magnitude or active component) ----
     {
-        auto* hdr = new QLabel("Magnitude Fixed Range");
-        hdr->setObjectName("streamlineMagFixedHeader");
+        auto* hdr = new QLabel("Fixed Range");
+        hdr->setObjectName("streamlineFixedHeader");
         lookLay->addWidget(hdr);
         m_streamlineMagRangeCb = new QCheckBox("Fixed Range");
-        m_streamlineMagRangeCb->setToolTip("Map a fixed magnitude range to streamline palette; values outside clamp to end colors");
-        m_streamlineMagRangeCb->setChecked(m_settings->getStreamlineMagRangeOverrideEnabled());
+        m_streamlineMagRangeCb->setToolTip("Map a fixed range to streamline palette for the active 'Color By' mode; values outside clamp to end colors");
         m_streamlineMagRangeCb->setEnabled(m_settings->hasMeshVectors());
         lookLay->addWidget(m_streamlineMagRangeCb);
         m_streamlineMagRangeEditor = new RangeEditor();
         lookLay->addWidget(m_streamlineMagRangeEditor);
-        m_streamlineMagRangeEditor->setEnabled(m_streamlineMagRangeCb->isChecked() && m_streamlineMagRangeCb->isEnabled());
-        {
-            double bLo = 0, bHi = 1;
-            if (m_settings->backend()) { bLo = m_settings->backend()->streamlineMagMin(); bHi = m_settings->backend()->streamlineMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; double lo = m_settings->getStreamlineMagRangeLo(); double hi = m_settings->getStreamlineMagRangeHi(); if (hi > lo) { bLo = lo; bHi = hi; } } }
+
+        auto bindToActiveMode = [this]() {
+            int mode = m_settings->getStreamlineColorMode();
+            int comp = (mode >= 2) ? mode - 2 : -1;
+            bool solidOrNone = (mode == 0) || !m_settings->hasMeshVectors();
+            m_streamlineRangeBoundComp = comp;
+            double bLo = 0, bHi = 1, lo, hi;
+            bool en = false;
+            if (solidOrNone) {
+                m_streamlineMagRangeEditor->setEnabled(false);
+                m_streamlineMagRangeCb->setEnabled(false);
+                return;
+            }
+            if (comp < 0) {
+                en = m_settings->getStreamlineMagRangeOverrideEnabled();
+                lo = m_settings->getStreamlineMagRangeLo();
+                hi = m_settings->getStreamlineMagRangeHi();
+                if (m_settings->backend()) { bLo = m_settings->backend()->streamlineMagMin(); bHi = m_settings->backend()->streamlineMagMax(); if (!(bHi > bLo)) bHi = bLo + 1.0; }
+            } else {
+                en = m_settings->getStreamlineCompRangeOverrideEnabled(comp);
+                lo = m_settings->getStreamlineCompRangeLo(comp);
+                hi = m_settings->getStreamlineCompRangeHi(comp);
+                if (m_settings->backend()) { bLo = m_settings->backend()->streamlineCompMin(comp); bHi = m_settings->backend()->streamlineCompMax(comp); if (!(bHi > bLo)) bHi = bLo + 1.0; }
+            }
+            m_streamlineMagRangeCb->blockSignals(true); m_streamlineMagRangeCb->setChecked(en); m_streamlineMagRangeCb->blockSignals(false);
+            m_streamlineMagRangeCb->setEnabled(true);
+            m_streamlineMagRangeEditor->blockSignals(true);
             m_streamlineMagRangeEditor->setBounds(bLo, bHi);
-            double lo = m_settings->getStreamlineMagRangeLo(), hi = m_settings->getStreamlineMagRangeHi();
             if (hi > lo) m_streamlineMagRangeEditor->setWindow(lo, hi); else m_streamlineMagRangeEditor->setWindow(bLo, bHi);
-        }
+            m_streamlineMagRangeEditor->blockSignals(false);
+            m_streamlineMagRangeEditor->setEnabled(en && m_streamlineMagRangeCb->isEnabled());
+        };
+
+        bindToActiveMode();
+
         connect(m_streamlineMagRangeCb, &QCheckBox::toggled, this, [this](bool v){
-            m_settings->setStreamlineMagRangeOverrideEnabled(v);
-            if (m_streamlineMagRangeEditor) m_streamlineMagRangeEditor->setEnabled(v && m_streamlineMagRangeCb->isEnabled());
+            int comp = m_streamlineRangeBoundComp;
+            if (comp < 0) {
+                m_settings->setStreamlineMagRangeOverrideEnabled(v);
+            } else {
+                m_settings->setStreamlineCompRangeOverrideEnabled(comp, v);
+            }
+            m_streamlineMagRangeEditor->setEnabled(v && m_streamlineMagRangeCb->isEnabled());
         });
+
         connect(m_streamlineMagRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
-            m_settings->setStreamlineMagRangeLo(static_cast<float>(lo));
-            m_settings->setStreamlineMagRangeHi(static_cast<float>(hi));
-        });
-        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
-            if (!m_streamlineMagRangeCb || !m_streamlineMagRangeEditor) return;
-            if (f & ChangeFlag::Colormap) {
-                bool en = m_settings->getStreamlineMagRangeOverrideEnabled();
-                m_streamlineMagRangeCb->blockSignals(true); m_streamlineMagRangeCb->setChecked(en); m_streamlineMagRangeCb->blockSignals(false);
-                m_streamlineMagRangeEditor->setEnabled(en && m_streamlineMagRangeCb->isEnabled());
-                double lo = m_settings->getStreamlineMagRangeLo(), hi = m_settings->getStreamlineMagRangeHi();
-                auto cur = m_streamlineMagRangeEditor->window();
-                if (hi > lo && (cur.first != lo || cur.second != hi)) { m_streamlineMagRangeEditor->blockSignals(true); m_streamlineMagRangeEditor->setWindow(lo,hi); m_streamlineMagRangeEditor->blockSignals(false); }
+            int comp = m_streamlineRangeBoundComp;
+            if (comp < 0) {
+                m_settings->setStreamlineMagRangeLo(static_cast<float>(lo));
+                m_settings->setStreamlineMagRangeHi(static_cast<float>(hi));
+            } else {
+                m_settings->setStreamlineCompRangeLo(comp, static_cast<float>(lo));
+                m_settings->setStreamlineCompRangeHi(comp, static_cast<float>(hi));
             }
         });
-        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){
-            if (!m_streamlineMagRangeCb || !m_streamlineMagRangeEditor) return;
-            bool ok = m_settings->hasMeshVectors();
-            m_streamlineMagRangeCb->setEnabled(ok);
-            if (!ok) { m_streamlineMagRangeCb->blockSignals(true); m_streamlineMagRangeCb->setChecked(false); m_streamlineMagRangeCb->blockSignals(false); }
-            m_streamlineMagRangeEditor->setEnabled(m_streamlineMagRangeCb->isChecked() && ok);
-            if (ok) refreshStreamlineMagRangeBounds();
+
+        connect(m_settings, &RenderSettings::viewChanged, this, [this, bindToActiveMode](ChangeFlags flags){
+            if (flags & ChangeFlag::Display) {
+                bindToActiveMode();
+            } else if ((flags & ChangeFlag::Colormap) && m_streamlineMagRangeCb && m_streamlineMagRangeEditor) {
+                int comp = m_streamlineRangeBoundComp;
+                bool en = (comp < 0) ? m_settings->getStreamlineMagRangeOverrideEnabled()
+                                     : m_settings->getStreamlineCompRangeOverrideEnabled(comp);
+                m_streamlineMagRangeCb->blockSignals(true); m_streamlineMagRangeCb->setChecked(en); m_streamlineMagRangeCb->blockSignals(false);
+                m_streamlineMagRangeEditor->setEnabled(en && m_streamlineMagRangeCb->isEnabled());
+                double lo = (comp < 0) ? m_settings->getStreamlineMagRangeLo() : m_settings->getStreamlineCompRangeLo(comp);
+                double hi = (comp < 0) ? m_settings->getStreamlineMagRangeHi() : m_settings->getStreamlineCompRangeHi(comp);
+                auto cur = m_streamlineMagRangeEditor->window();
+                if (hi > lo && (cur.first != lo || cur.second != hi)) {
+                    m_streamlineMagRangeEditor->blockSignals(true); m_streamlineMagRangeEditor->setWindow(lo, hi); m_streamlineMagRangeEditor->blockSignals(false);
+                }
+            }
         });
-        connect(m_settings, &RenderSettings::meshDataUpdated, this, [this](){ refreshStreamlineMagRangeBounds(); });
+
+        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this, bindToActiveMode](){
+            bindToActiveMode();
+        });
+        connect(m_settings, &RenderSettings::meshDataUpdated, this, [this, bindToActiveMode](){
+            bindToActiveMode();
+        });
     }
 
     addSliderRow(lookLay, "opacityLabel", "Opacity",
@@ -2629,12 +2726,17 @@ void MainWindow::refreshSliceRangeBounds() {
 }
 void MainWindow::refreshGlyphMagRangeBounds() {
     if (!m_glyphMagRangeEditor) return;
-    // magnitude range in raw data units, seed from renderer if degenerate
-    double lo = m_settings->getGlyphMagRangeLo();
-    double hi = m_settings->getGlyphMagRangeHi();
-    double bLo = 0, bHi = 1;
-    if (m_settings->backend()) { bLo = m_settings->backend()->vectorMagMin(); bHi = m_settings->backend()->vectorMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; } }
-    else { bLo = std::min(lo, hi); bHi = std::max(lo, hi); if (!(bHi > bLo)) bHi = bLo + 1.0; }
+    int comp = m_glyphRangeBoundComp;
+    double lo, hi, bLo = 0, bHi = 1;
+    if (comp < 0) {
+        lo = m_settings->getGlyphMagRangeLo();
+        hi = m_settings->getGlyphMagRangeHi();
+        if (m_settings->backend()) { bLo = m_settings->backend()->vectorMagMin(); bHi = m_settings->backend()->vectorMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; } }
+    } else {
+        lo = m_settings->getGlyphCompRangeLo(comp);
+        hi = m_settings->getGlyphCompRangeHi(comp);
+        if (m_settings->backend()) { bLo = m_settings->backend()->vectorCompMin(comp); bHi = m_settings->backend()->vectorCompMax(comp); if (!(bHi > bLo)) { bHi = bLo + 1.0; } }
+    }
     m_glyphMagRangeEditor->blockSignals(true); m_glyphMagRangeEditor->setBounds(bLo, bHi); if (hi > lo) m_glyphMagRangeEditor->setWindow(lo, hi); else m_glyphMagRangeEditor->setWindow(bLo, bHi); m_glyphMagRangeEditor->blockSignals(false);
 }
 void MainWindow::refreshStreamlineMagRangeBounds() {
@@ -3148,9 +3250,46 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
 void MainWindow::changeEvent(QEvent* ev) {
     QMainWindow::changeEvent(ev);
     if (!m_viewport) return;
+
+    if (ev->type() == QEvent::PaletteChange) {
+        applyThemeAwareStylesheets();
+        return;
+    }
+
     if (ev->type() == QEvent::Show
         || (ev->type() == QEvent::WindowStateChange && !isMinimized() && isVisible())) {
         m_viewport->forceRepaint();
+    }
+}
+
+void MainWindow::applyThemeAwareStylesheets() {
+    if (m_navList) {
+        m_navList->setStyleSheet(
+            "QListWidget { border: none; outline: none; }"
+            "QListWidget::item { padding: 10px 12px; font-size: 13px; }"
+            "QListWidget::item:selected { background: palette(highlight); color: palette(highlightedText); }"
+            "QListWidget::item:hover:!selected { background: palette(midlight); }");
+    }
+    if (m_topToolbar) {
+        m_topToolbar->setStyleSheet(
+            "QToolBar { border: none; padding: 4px; spacing: 4px; }"
+            "QToolButton { background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 4px 8px; }"
+            "QToolButton:hover { background: palette(midlight); }"
+            "QToolButton:checked { background: palette(highlight); border: 1px solid palette(highlight); }");
+    }
+
+    // Section headers (object name ends with "Header") and their dividers
+    for (QLabel* lbl : findChildren<QLabel*>()) {
+        if (lbl->objectName().endsWith("Header")) {
+            lbl->setStyleSheet("background: transparent; padding-top: 6px;");
+        }
+    }
+    // Dividers created by createGroup and applyPanelStyling
+    for (QFrame* frame : findChildren<QFrame*>()) {
+        if (frame->property("isHeaderDivider").toBool()
+            || frame->frameShape() == QFrame::HLine) {
+            frame->setStyleSheet("background-color: palette(mid); max-height: 1px;");
+        }
     }
 }
 

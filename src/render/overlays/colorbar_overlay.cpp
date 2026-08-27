@@ -9,6 +9,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QOpenGLContext>
+#include <QPalette>
 #include <cstring>
 #include <cmath>
 

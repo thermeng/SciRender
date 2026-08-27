@@ -93,6 +93,13 @@ void StreamlineController::consumeResult(const RenderRenderState& state, Streaml
     }
 }
 
+void StreamlineController::publishComponentRanges(RenderRenderState& state, const StreamlineSet& streamlineSet) {
+    for (int i = 0; i < 3; ++i) {
+        state.streamlineCompMin[i] = streamlineSet.compMin[i];
+        state.streamlineCompMax[i] = streamlineSet.compMax[i];
+    }
+}
+
 void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& streamlineSet,
                                  const ColormapManager& colormap, const glm::mat4& mvp,
                                  double animationTime, const glm::vec3& lightDir) {
@@ -116,17 +123,28 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
             ubo.viewPos = glm::vec4(camPos, 0.0f);
             ubo.lightDir = glm::vec4(lightDir, 0.0f);
             ubo.time_opacity = glm::vec4(static_cast<float>(animationTime), state.streamlineOpacity, 0.0f, 0.0f);
-            ubo.color_useColormap = glm::vec4(state.streamlineColor[0], state.streamlineColor[1], state.streamlineColor[2], state.streamlineUseColormap ? 1.0f : 0.0f);
+            ubo.color_useColormap = glm::vec4(state.streamlineColor[0], state.streamlineColor[1], state.streamlineColor[2], state.streamlineColorMode > 0 ? 1.0f : 0.0f);
             const float magLo = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeLo : streamlineSet.magMin;
             const float magHi = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeHi : streamlineSet.magMax;
             ubo.magRange = glm::vec4(magLo, magHi, 0.0f, 0.0f);
+            glm::vec3 cMin(streamlineSet.compMin[0], streamlineSet.compMin[1], streamlineSet.compMin[2]);
+            glm::vec3 cMax(streamlineSet.compMax[0], streamlineSet.compMax[1], streamlineSet.compMax[2]);
+            for (int i = 0; i < 3; ++i) {
+                if (state.streamlineCompRangeOverrideEnabled[i]) {
+                    cMin[i] = state.streamlineCompRangeLo[i];
+                    cMax[i] = state.streamlineCompRangeHi[i];
+                }
+            }
+            ubo.compMin = glm::vec4(cMin, 0.0f);
+            ubo.compMax = glm::vec4(cMax, 0.0f);
+            ubo.colorMode = glm::vec4(static_cast<float>(state.streamlineColorMode), 0.0f, 0.0f, 0.0f);
             ubo.material = glm::vec4(state.streamlineAmbient, state.streamlineDiffuse, state.streamlineSpecular, static_cast<float>(state.streamlineSpecularPower));
             ubo.ribbon = glm::vec4(state.streamlineRibbonWidth, state.streamlineTaperFactor, 0.0f, 0.0f);
             ubo.arrowParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
             ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
             glBindBufferBase(GL_UNIFORM_BUFFER, 3, m_streamlineUbo);
             glNamedBufferSubData(m_streamlineUbo, 0, sizeof(StreamlineUBOData), &ubo);
-            if (state.streamlineUseColormap && colormap.streamlineTexture() != 0) {
+            if (state.streamlineColorMode > 0 && colormap.streamlineTexture() != 0) {
                 glBindTextureUnit(1, colormap.streamlineTexture());
                 glUniform1i(m_streamlineLutLoc, 1);
             }

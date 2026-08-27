@@ -23,6 +23,8 @@ public:
 
     void consumeResult(const RenderRenderState& state, StreamlineSet& streamlineSet);
 
+    void publishComponentRanges(RenderRenderState& state, const StreamlineSet& streamlineSet);
+
     void draw(const RenderRenderState& state, StreamlineSet& streamlineSet,
               const ColormapManager& colormap, const glm::mat4& mvp,
               double animationTime, const glm::vec3& lightDir);

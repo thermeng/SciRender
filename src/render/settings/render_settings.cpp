@@ -369,8 +369,27 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("sliceColorRangeHi",   [](const RenderSettings& r) { return QVariant(r.m_state.sliceColorRangeHi); },             [](RenderSettings& r, const QVariant& v) { r.m_state.sliceColorRangeHi = v.toFloat(); });
         add("glyphMagRangeLo",     [](const RenderSettings& r) { return QVariant(r.m_state.glyphMagRangeLo); },               [](RenderSettings& r, const QVariant& v) { r.m_state.glyphMagRangeLo = v.toFloat(); });
         add("glyphMagRangeHi",     [](const RenderSettings& r) { return QVariant(r.m_state.glyphMagRangeHi); },               [](RenderSettings& r, const QVariant& v) { r.m_state.glyphMagRangeHi = v.toFloat(); });
+        add("glyphCompRangeOverrideEnabledX", [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeOverrideEnabled[0]); }, [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeOverrideEnabled[0] = v.toBool(); });
+        add("glyphCompRangeOverrideEnabledY", [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeOverrideEnabled[1]); }, [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeOverrideEnabled[1] = v.toBool(); });
+        add("glyphCompRangeOverrideEnabledZ", [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeOverrideEnabled[2]); }, [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeOverrideEnabled[2] = v.toBool(); });
+        add("glyphCompRangeLoX",   [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeLo[0]); },            [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeLo[0] = v.toFloat(); });
+        add("glyphCompRangeHiX",   [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeHi[0]); },            [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeHi[0] = v.toFloat(); });
+        add("glyphCompRangeLoY",   [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeLo[1]); },            [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeLo[1] = v.toFloat(); });
+        add("glyphCompRangeHiY",   [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeHi[1]); },            [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeHi[1] = v.toFloat(); });
+        add("glyphCompRangeLoZ",   [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeLo[2]); },            [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeLo[2] = v.toFloat(); });
+        add("glyphCompRangeHiZ",   [](const RenderSettings& r) { return QVariant(r.m_state.glyphCompRangeHi[2]); },            [](RenderSettings& r, const QVariant& v) { r.m_state.glyphCompRangeHi[2] = v.toFloat(); });
         add("streamlineMagRangeLo",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineMagRangeLo); },          [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineMagRangeLo = v.toFloat(); });
         add("streamlineMagRangeHi",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineMagRangeHi); },          [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineMagRangeHi = v.toFloat(); });
+        add("streamlineColorMode",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineColorMode); },            [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineColorMode = v.toInt(); });
+        add("streamlineCompRangeOverrideEnabledX", [](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeOverrideEnabled[0]); }, [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeOverrideEnabled[0] = v.toBool(); });
+        add("streamlineCompRangeOverrideEnabledY", [](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeOverrideEnabled[1]); }, [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeOverrideEnabled[1] = v.toBool(); });
+        add("streamlineCompRangeOverrideEnabledZ", [](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeOverrideEnabled[2]); }, [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeOverrideEnabled[2] = v.toBool(); });
+        add("streamlineCompRangeLoX",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeLo[0]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeLo[0] = v.toFloat(); });
+        add("streamlineCompRangeHiX",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeHi[0]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeHi[0] = v.toFloat(); });
+        add("streamlineCompRangeLoY",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeLo[1]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeLo[1] = v.toFloat(); });
+        add("streamlineCompRangeHiY",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeHi[1]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeHi[1] = v.toFloat(); });
+        add("streamlineCompRangeLoZ",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeLo[2]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeLo[2] = v.toFloat(); });
+        add("streamlineCompRangeHiZ",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeHi[2]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeHi[2] = v.toFloat(); });
         add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
         add("volumeSliceAxis",     [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceAxis); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceAxis = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
@@ -571,7 +590,7 @@ void RenderSettings::onMeshParsed() {
     // Reset per-mesh vector state.
     m_state.showVectors = false;
     m_state.showVolume = false;
-    m_state.vectorColorMode = 0;
+    m_state.vectorColorMode = 1;
     m_state.glyphMagRangeOverrideEnabled = false;
     m_state.glyphMagRangeLo = 0.0f;
     m_state.glyphMagRangeHi = -1.0f;
@@ -1183,6 +1202,47 @@ void RenderSettings::resetStreamlineMagRangeOverride() {
     m_state.streamlineMagRangeOverrideEnabled = false;
     m_state.streamlineMagRangeLo = 0.0f;
     m_state.streamlineMagRangeHi = -1.0f;
+    for (int i = 0; i < 3; ++i) {
+        m_state.streamlineCompRangeOverrideEnabled[i] = false;
+        m_state.streamlineCompRangeLo[i] = 0.0f;
+        m_state.streamlineCompRangeHi[i] = -1.0f;
+    }
+    if (wasDirty) { markStateDirty(); emit viewChanged(ChangeFlag::Colormap); }
+}
+
+void RenderSettings::setStreamlineCompRangeOverrideEnabled(int comp, bool v) {
+    comp = std::clamp(comp, 0, 2);
+    if (m_state.streamlineCompRangeOverrideEnabled[comp] == v) return;
+    if (v && m_state.streamlineCompRangeHi[comp] - m_state.streamlineCompRangeLo[comp] <= 0.0f) {
+        const float cMin = m_renderer.streamlineCompMin(comp);
+        const float cMax = m_renderer.streamlineCompMax(comp);
+        m_state.streamlineCompRangeLo[comp] = cMin;
+        m_state.streamlineCompRangeHi[comp] = std::max(cMax, cMin + 1e-6f);
+    }
+    m_state.streamlineCompRangeOverrideEnabled[comp] = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setStreamlineCompRangeLo(int comp, float v) {
+    comp = std::clamp(comp, 0, 2);
+    v = std::min(v, m_state.streamlineCompRangeHi[comp]);
+    if (m_state.streamlineCompRangeLo[comp] == v) return;
+    m_state.streamlineCompRangeLo[comp] = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setStreamlineCompRangeHi(int comp, float v) {
+    comp = std::clamp(comp, 0, 2);
+    v = std::max(v, m_state.streamlineCompRangeLo[comp]);
+    if (m_state.streamlineCompRangeHi[comp] == v) return;
+    m_state.streamlineCompRangeHi[comp] = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::resetStreamlineCompRangeOverride(int comp) {
+    comp = std::clamp(comp, 0, 2);
+    const bool wasDirty = m_state.streamlineCompRangeOverrideEnabled[comp]
+        || m_state.streamlineCompRangeHi[comp] >= m_state.streamlineCompRangeLo[comp];
+    m_state.streamlineCompRangeOverrideEnabled[comp] = false;
+    m_state.streamlineCompRangeLo[comp] = 0.0f;
+    m_state.streamlineCompRangeHi[comp] = -1.0f;
     if (wasDirty) { markStateDirty(); emit viewChanged(ChangeFlag::Colormap); }
 }
 
