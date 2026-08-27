@@ -37,14 +37,30 @@ void GlyphPass::draw(const RenderRenderState& state,
     glm::vec3 camPos = glm::vec3(state.camera.position);
     GlyphUBOData ubo{};
     ubo.mvp = proj * view * glm::mat4(1.0f);
-    ubo.scale_magMin_magMax_scaleByMag = glm::vec4(state.vectorScale, glyphs.magMin, glyphs.magMax, state.vectorScaleByMagnitude ? 1.0f : 0.0f);
+    // Fixed magnitude window, pre-transformed into the shader's normalized
+    // space (glyph.vert transforms raw magnitude before normalizing).
+    const float magMin = state.glyphMagRangeOverrideEnabled
+        ? applyVectorMagTransform(state.glyphMagRangeLo, state.vectorMagTransform) : glyphs.magMin;
+    const float magMax = state.glyphMagRangeOverrideEnabled
+        ? applyVectorMagTransform(state.glyphMagRangeHi, state.vectorMagTransform) : glyphs.magMax;
+    ubo.scale_magMin_magMax_scaleByMag = glm::vec4(state.vectorScale, magMin, magMax, state.vectorScaleByMagnitude ? 1.0f : 0.0f);
     ubo.meshExtent_magTransform_viewPosY_colorR = glm::vec4(glyphs.meshExtent, float(state.vectorMagTransform), camPos.y, state.vectorColor[0]);
     ubo.lightDir_colorGB = glm::vec4(kDir, state.vectorColor[1]);
-    ubo.colorB_useColormap = glm::vec4(state.vectorColor[2], state.vectorUseColormap ? 1.0f : 0.0f, 0.0f, 0.0f);
+    ubo.colorB_colormode = glm::vec4(state.vectorColor[2], float(state.vectorColorMode), 0.0f, 0.0f);
+    glm::vec3 cMin(glyphs.compMin[0], glyphs.compMin[1], glyphs.compMin[2]);
+    glm::vec3 cMax(glyphs.compMax[0], glyphs.compMax[1], glyphs.compMax[2]);
+    for (int i = 0; i < 3; ++i) {
+        if (state.glyphCompRangeOverrideEnabled[i]) {
+            cMin[i] = state.glyphCompRangeLo[i];
+            cMax[i] = state.glyphCompRangeHi[i];
+        }
+    }
+    ubo.compMin = glm::vec4(cMin, 0.0f);
+    ubo.compMax = glm::vec4(cMax, 0.0f);
     ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
     glNamedBufferSubData(glyphUbo, 0, sizeof(GlyphUBOData), &ubo);
     if (glyphViewPosLoc != -1) glUniform3fv(glyphViewPosLoc, 1, glm::value_ptr(camPos));
-    if (state.vectorUseColormap && colormap.vectorTexture() != 0) {
+    if (state.vectorColorMode > 0 && colormap.vectorTexture() != 0) {
         glBindTextureUnit(1, colormap.vectorTexture());
         glUniform1i(glyphLutLoc, 1);
     }
@@ -61,5 +77,3 @@ void GlyphPass::shutdown() {
     glyphLutLoc = -1;
     glyphViewPosLoc = -1;
 }
-
-

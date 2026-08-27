@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     qDebug() << "[LAUNCH DIAGNOSTIC 2/4] Graphics API bound to desktop OpenGL 4.6 Core.";
 
     QApplication app(argc, argv);
-    app.setStyle("modernwindows");
+    app.setStyle("Fusion");
 
     // Window icon
     {

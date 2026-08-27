@@ -2,6 +2,7 @@
 
 #include <glad/gl.h>
 #include "render/foundation/shader_utils.h"
+#include <QApplication>
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
@@ -244,7 +245,7 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
 
     // Background panel
     if (st.panelEnabled) {
-        QColor panel(16, 16, 16);
+        QColor panel = QApplication::palette().color(QPalette::Window);
         panel.setAlphaF(qBound(0.0, static_cast<double>(st.panelOpacity), 1.0));
         QPainterPath path;
         const int radius = static_cast<int>(4 * dpr);
@@ -256,7 +257,7 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
     const QFont tFont = makeFont(st, FontKind::Title, dpr);
     p.setFont(tFont);
     if (!lay.annotation.isEmpty()) {
-        p.setPen(QColor("#aaaaaa"));
+        p.setPen(QApplication::palette().color(QPalette::Text));
         const QString ann = annotationOf(bar);
         const QString annElided = QFontMetrics(tFont).elidedText(ann, Qt::ElideRight, lay.annotation.width());
         p.drawText(lay.annotation, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, annElided);
@@ -264,7 +265,7 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
 
     // Field name line with optional unit suffix
     p.setFont(tFont);
-    p.setPen(QColor("#e8e8e8"));
+    p.setPen(QApplication::palette().color(QPalette::Text));
     const QString displayTitle = displayNameOf(bar);
     const QString elided = QFontMetrics(tFont).elidedText(displayTitle, Qt::ElideRight, lay.title.width());
     p.drawText(lay.title, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, elided);
@@ -294,14 +295,14 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
         p.setClipPath(barPath);
         p.fillRect(lay.bar, grad);
         p.restore();
-        p.setPen(QColor(0, 0, 0, 160));
+        p.setPen(QApplication::palette().color(QPalette::Text));
         p.setBrush(Qt::NoBrush);
         p.drawRoundedRect(lay.bar, radius, radius);
     }
 
     // Tick marks + thinned labels
     p.setFont(makeFont(st, FontKind::Tick, dpr));
-    p.setPen(QColor("#cccccc"));
+    p.setPen(QApplication::palette().color(QPalette::Text));
     for (const TickItem& item : lay.ticks) {
         p.drawLine(item.markFrom, item.markTo);
         if (item.label.isEmpty()) continue;

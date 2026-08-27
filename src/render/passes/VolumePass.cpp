@@ -143,8 +143,12 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glUniform1f(locPixelFootprintScale_, pixelFootprintScale);
     glUniform1f(locOpacity_, state.volumeOpacity);
 
-    glUniform1f(locScalarMin_, state.dataScalarMin);
-    glUniform1f(locScalarMax_, state.dataScalarMax);
+    // Fixed colormap window (coupled: also drives Beer-Lambert density) or the
+    // auto-tracked data range.
+    const float mapMin = state.volumeColorRangeOverrideEnabled ? state.volumeColorRangeLo : state.dataScalarMin;
+    const float mapMax = state.volumeColorRangeOverrideEnabled ? state.volumeColorRangeHi : state.dataScalarMax;
+    glUniform1f(locScalarMin_, mapMin);
+    glUniform1f(locScalarMax_, mapMax);
     glUniform3fv(locBoxMin_, 1, glm::value_ptr(boxMin_));
     glUniform3fv(locBoxMax_, 1, glm::value_ptr(boxMax_));
 

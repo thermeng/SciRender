@@ -10,13 +10,16 @@ layout(std140) uniform GlyphUBO {
     vec4  uScale_MagMin_MagMax_ScaleByMag; // x=scale, y=magMin, z=magMax, w=scaleByMag
     vec4  uMeshExtent_MagTransform_ViewPosY_ColorR; // x=meshExtent, y=magTransform, z=viewPos.y, w=colorR
     vec4  uLightDir_ColorGB; // xyz=lightDir, w=colorG
-    vec4  uColorB_UseColormap; // x=colorB, y=useColormap(0/1), z=0, w=0
+    vec4  uColorB_ColorMode; // x=colorB, y=colorMode(0-4), zw=pad
+    vec4  uCompMin; // xyz=compMin X,Y,Z, w=pad
+    vec4  uCompMax; // xyz=compMax X,Y,Z, w=pad
     vec4  uPBR;              // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
 
 out vec3 vNormal;
 out vec3 vWorldPos;
 out float vMag;
+out float vColorScalar;
 
 float txMag(float m) {
     int mode = int(uMeshExtent_MagTransform_ViewPosY_ColorR.y);
@@ -42,6 +45,19 @@ void main() {
     float magMax = uScale_MagMin_MagMax_ScaleByMag.z;
     float span = max(txMag(magMax) - txMag(magMin), 1e-6);
     vMag = clamp((txMag(mag) - txMag(magMin)) / span, 0.0, 1.0);
+
+    // Per-component normalization
+    vec3 cMin = uCompMin.xyz;
+    vec3 cMax = uCompMax.xyz;
+    vec3 cSpan = max(cMax - cMin, vec3(1e-6));
+    vec3 vComp = clamp((iDir - cMin) / cSpan, 0.0, 1.0);
+
+    int colorMode = int(uColorB_ColorMode.y);
+    if (colorMode == 1)      vColorScalar = vMag;
+    else if (colorMode == 2) vColorScalar = vComp.x;
+    else if (colorMode == 3) vColorScalar = vComp.y;
+    else if (colorMode == 4) vColorScalar = vComp.z;
+    else                     vColorScalar = 0.0;
 
     float scale = uScale_MagMin_MagMax_ScaleByMag.x;
     float scaleByMag = uScale_MagMin_MagMax_ScaleByMag.w;

@@ -92,8 +92,11 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
     glUniformMatrix4fv(m_mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniform3fv(m_boxMinLoc, 1, glm::value_ptr(boxMin));
     glUniform3fv(m_boxMaxLoc, 1, glm::value_ptr(boxMax));
-    glUniform1f(m_scalarMinLoc, state.sliceScalarMin);
-    glUniform1f(m_scalarMaxLoc, state.sliceScalarMax);
+    // Fixed colormap window freezes the per-plane adaptive range while sweeping.
+    const float mapMin = state.sliceColorRangeOverrideEnabled ? state.sliceColorRangeLo : state.sliceScalarMin;
+    const float mapMax = state.sliceColorRangeOverrideEnabled ? state.sliceColorRangeHi : state.sliceScalarMax;
+    glUniform1f(m_scalarMinLoc, mapMin);
+    glUniform1f(m_scalarMaxLoc, mapMax);
     glUniform1f(m_alphaLoc, state.volumeSliceOpacity);
     glUniform1i(m_useColormapLoc, state.volumeSliceUseColormap ? 1 : 0);
 

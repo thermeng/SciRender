@@ -117,7 +117,9 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
             ubo.lightDir = glm::vec4(lightDir, 0.0f);
             ubo.time_opacity = glm::vec4(static_cast<float>(animationTime), state.streamlineOpacity, 0.0f, 0.0f);
             ubo.color_useColormap = glm::vec4(state.streamlineColor[0], state.streamlineColor[1], state.streamlineColor[2], state.streamlineUseColormap ? 1.0f : 0.0f);
-            ubo.magRange = glm::vec4(streamlineSet.magMin, streamlineSet.magMax, 0.0f, 0.0f);
+            const float magLo = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeLo : streamlineSet.magMin;
+            const float magHi = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeHi : streamlineSet.magMax;
+            ubo.magRange = glm::vec4(magLo, magHi, 0.0f, 0.0f);
             ubo.material = glm::vec4(state.streamlineAmbient, state.streamlineDiffuse, state.streamlineSpecular, static_cast<float>(state.streamlineSpecularPower));
             ubo.ribbon = glm::vec4(state.streamlineRibbonWidth, state.streamlineTaperFactor, 0.0f, 0.0f);
             ubo.arrowParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);

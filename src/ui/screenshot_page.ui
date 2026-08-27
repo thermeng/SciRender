@@ -42,8 +42,14 @@
      </property>
     </widget>
    </item>
-   <item>
-    <widget class="QLabel" name="resLabel">
+    <item>
+     <widget class="QLabel" name="outputHeader">
+      <property name="text">
+       <string>Output</string>
+      </property></widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="resLabel">
      <property name="text">
       <string>Resolution</string>
      </property></widget>

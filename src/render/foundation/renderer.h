@@ -26,6 +26,7 @@
 #include <optional>
 #include <chrono>
 #include <map>
+#include <cmath>
 #include <thread>
 #include <memory>
 #include <cstddef>
@@ -89,6 +90,15 @@ struct ShaderSources {
     // Shared PBR chunk injected into mesh/depth_peel fragment shaders.
     std::string pbrFragCommon;
 };
+
+// Magnitude pre-transform shared by glyph rendering and CPU-side range
+// overrides — MUST stay in lockstep with glyph.vert so a user-defined range
+// expressed in raw data units lands in the same space the shader normalizes.
+inline float applyVectorMagTransform(float m, int mode) {
+    if (mode == 1) return std::sqrt(std::max(m, 0.0f));
+    if (mode == 2) return std::log(1.0f + std::max(m, 0.0f));
+    return m;
+}
 
 // ---------------------------------------------------------------------------
 // RenderRenderState
@@ -171,6 +181,27 @@ struct RenderRenderState {
     // otherwise the auto-tracked data range.
     float colorMapMin() const { return colorRangeOverrideEnabled ? colorRangeLo : scalarMin; }
     float colorMapMax() const { return colorRangeOverrideEnabled ? colorRangeHi : scalarMax; }
+
+    // Per-pass fixed colormap ranges (fully independent windows). Each pass's
+    // fill site picks its override pair when enabled, else its auto range.
+    // Volume/slice track the active scalar; glyph/streamline track vector
+    // magnitude (stored in RAW data units — the mag transform is applied at
+    // use time via applyVectorMagTransform so overrides match shader space).
+    float volumeColorRangeLo = 0.0f;
+    float volumeColorRangeHi = 1.0f;
+    bool volumeColorRangeOverrideEnabled = false;
+    float sliceColorRangeLo = 0.0f;
+    float sliceColorRangeHi = 1.0f;
+    bool sliceColorRangeOverrideEnabled = false;
+    float glyphMagRangeLo = 0.0f;
+    float glyphMagRangeHi = -1.0f;   // degenerate until first enable seeds it
+    bool glyphMagRangeOverrideEnabled = false;
+    float glyphCompRangeLo[3] = { 0.0f, 0.0f, 0.0f };
+    float glyphCompRangeHi[3] = { -1.0f, -1.0f, -1.0f };
+    bool glyphCompRangeOverrideEnabled[3] = { false, false, false };
+    float streamlineMagRangeLo = 0.0f;
+    float streamlineMagRangeHi = -1.0f;
+    bool streamlineMagRangeOverrideEnabled = false;
     bool showScalarColorbar = true;
     bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
     int colorbarTicks = 6;
@@ -205,11 +236,13 @@ struct RenderRenderState {
     float vectorScale = 1.0f;
     int vectorStride = 1;
     float vectorColor[3] = { 0.2f, 0.6f, 1.0f };
-    bool vectorUseColormap = false;
+    int vectorColorMode = 0; // 0=FixedColor, 1=Magnitude, 2=CompX, 3=CompY, 4=CompZ
     bool vectorScaleByMagnitude = false;
     int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
     std::string vectorField;
     int vectorPlacement = 0; // 0 = vertex glyphs (per-vertex vectors), 1 = cell-center glyphs
+    float vectorCompMin[3] = { 0.0f, 0.0f, 0.0f };
+    float vectorCompMax[3] = { 0.0f, 0.0f, 0.0f };
 
     // Streamline vector field (independent from vector glyphs)
     std::string streamlineVectorField;
@@ -332,7 +365,9 @@ struct GlyphUBOData {
     glm::vec4 scale_magMin_magMax_scaleByMag; // x=scale, y=magMin, z=magMax, w=scaleByMag
     glm::vec4 meshExtent_magTransform_viewPosY_colorR; // x=meshExtent, y=magTransform, z=viewPos.y, w=colorR
     glm::vec4 lightDir_colorGB; // xyz=lightDir, w=colorG
-    glm::vec4 colorB_useColormap; // x=colorB, y=useColormap(0/1), zw=pad
+    glm::vec4 colorB_colormode; // x=colorB, y=colorMode(0-4), zw=pad
+    glm::vec4 compMin; // xyz=compMin X,Y,Z, w=pad
+    glm::vec4 compMax; // xyz=compMax X,Y,Z, w=pad
     glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad
 };
 static_assert(sizeof(GlyphUBOData) % 16 == 0, "GlyphUBOData must be std140-aligned");
@@ -511,6 +546,8 @@ public:
     // Vector magnitude range (rebuilt on upload by VectorGlyphSet).
     float vectorMagMin() const { return vectorGlyph.magMin; }
     float vectorMagMax() const { return vectorGlyph.magMax; }
+    float vectorCompMin(int comp) const { return vectorGlyph.compMin[comp]; }
+    float vectorCompMax(int comp) const { return vectorGlyph.compMax[comp]; }
 
     // Streamline magnitude range (rebuilt by StreamlineSet).
     float streamlineMagMin() const { return streamlineSet.magMin; }

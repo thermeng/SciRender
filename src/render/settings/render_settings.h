@@ -175,7 +175,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(QColor vectorColor READ getVectorColorQml WRITE setVectorColorQml NOTIFY viewChanged)
     Q_PROPERTY(QString vectorField READ getVectorField WRITE setActiveVectorField NOTIFY meshDataUpdated)
     Q_PROPERTY(QStringList availableVectors READ getAvailableVectors NOTIFY meshDataUpdated)
-    Q_PROPERTY(bool vectorUseColormap READ getVectorUseColormap WRITE setVectorUseColormap NOTIFY viewChanged)
+    Q_PROPERTY(int vectorColorMode READ getVectorColorMode WRITE setVectorColorMode NOTIFY viewChanged)
     Q_PROPERTY(int vectorColormapChoice READ getVectorColormapChoice WRITE setVectorColormapChoice NOTIFY viewChanged)
     Q_PROPERTY(bool vectorColormapReversed READ getVectorColormapReversed WRITE setVectorColormapReversed NOTIFY viewChanged)
     Q_PROPERTY(int vectorPlacement READ getVectorPlacement WRITE setVectorPlacement NOTIFY viewChanged)
@@ -211,6 +211,24 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool colorRangeOverrideEnabled READ getColorRangeOverrideEnabled WRITE setColorRangeOverrideEnabled NOTIFY viewChanged)
     Q_PROPERTY(float colorRangeLo READ getColorRangeLo WRITE setColorRangeLo NOTIFY viewChanged)
     Q_PROPERTY(float colorRangeHi READ getColorRangeHi WRITE setColorRangeHi NOTIFY viewChanged)
+    Q_PROPERTY(bool volumeColorRangeOverrideEnabled READ getVolumeColorRangeOverrideEnabled WRITE setVolumeColorRangeOverrideEnabled NOTIFY viewChanged)
+    Q_PROPERTY(float volumeColorRangeLo READ getVolumeColorRangeLo WRITE setVolumeColorRangeLo NOTIFY viewChanged)
+    Q_PROPERTY(float volumeColorRangeHi READ getVolumeColorRangeHi WRITE setVolumeColorRangeHi NOTIFY viewChanged)
+    Q_PROPERTY(bool sliceColorRangeOverrideEnabled READ getSliceColorRangeOverrideEnabled WRITE setSliceColorRangeOverrideEnabled NOTIFY viewChanged)
+    Q_PROPERTY(float sliceColorRangeLo READ getSliceColorRangeLo WRITE setSliceColorRangeLo NOTIFY viewChanged)
+    Q_PROPERTY(float sliceColorRangeHi READ getSliceColorRangeHi WRITE setSliceColorRangeHi NOTIFY viewChanged)
+    Q_PROPERTY(bool glyphMagRangeOverrideEnabled READ getGlyphMagRangeOverrideEnabled WRITE setGlyphMagRangeOverrideEnabled NOTIFY viewChanged)
+    Q_PROPERTY(float glyphMagRangeLo READ getGlyphMagRangeLo WRITE setGlyphMagRangeLo NOTIFY viewChanged)
+    Q_PROPERTY(float glyphMagRangeHi READ getGlyphMagRangeHi WRITE setGlyphMagRangeHi NOTIFY viewChanged)
+    Q_PROPERTY(bool streamlineMagRangeOverrideEnabled READ getStreamlineMagRangeOverrideEnabled WRITE setStreamlineMagRangeOverrideEnabled NOTIFY viewChanged)
+    Q_PROPERTY(float streamlineMagRangeLo READ getStreamlineMagRangeLo WRITE setStreamlineMagRangeLo NOTIFY viewChanged)
+    Q_PROPERTY(float streamlineMagRangeHi READ getStreamlineMagRangeHi WRITE setStreamlineMagRangeHi NOTIFY viewChanged)
+    Q_PROPERTY(float vectorCompMinX READ getVectorCompMinX NOTIFY meshDataUpdated)
+    Q_PROPERTY(float vectorCompMaxX READ getVectorCompMaxX NOTIFY meshDataUpdated)
+    Q_PROPERTY(float vectorCompMinY READ getVectorCompMinY NOTIFY meshDataUpdated)
+    Q_PROPERTY(float vectorCompMaxY READ getVectorCompMaxY NOTIFY meshDataUpdated)
+    Q_PROPERTY(float vectorCompMinZ READ getVectorCompMinZ NOTIFY meshDataUpdated)
+    Q_PROPERTY(float vectorCompMaxZ READ getVectorCompMaxZ NOTIFY meshDataUpdated)
 
     Q_PROPERTY(bool showStreamlines READ getShowStreamlines WRITE setShowStreamlines NOTIFY viewChanged)
     Q_PROPERTY(QString streamlineVectorField READ getStreamlineVectorField WRITE setStreamlineVectorField NOTIFY meshDataUpdated)
@@ -551,7 +569,8 @@ public:
      Q_INVOKABLE void recomputeIsosurface() { m_isoController.recompute(); }
 
 
-    STATE_PROP(getVectorUseColormap, setVectorUseColormap, bool, m_state.vectorUseColormap, Vectors)
+    int getVectorColorMode() const { return m_state.vectorColorMode; }
+    void setVectorColorMode(int v) { int t = (v < 0) ? 0 : (v > 4 ? 4 : v); if (m_state.vectorColorMode != t) { m_state.vectorColorMode = t; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
     STATE_PROP(getVectorColormapChoice, setVectorColormapChoice, int, m_state.vectorColormapChoice, Vectors)
     QStringList getAvailableVectors() const {
         if (m_meshData.loadedMesh) {
@@ -646,6 +665,53 @@ public:
     void resetColorRangeOverride();                       // snap to current data range
     void resetColorRangeOverride(float lo, float hi);     // snap to explicit values
 
+    // Per-pass fixed colormap windows (fully independent). Volume/slice clamp
+    // into the scalar data range; glyph/streamline magnitude pairs enforce
+    // ordering only (the GUI holds no copy of mag ranges — enables seed from
+    // the renderer's current scan values).
+    bool getVolumeColorRangeOverrideEnabled() const { return m_state.volumeColorRangeOverrideEnabled; }
+    void setVolumeColorRangeOverrideEnabled(bool v);
+    float getVolumeColorRangeLo() const { return m_state.volumeColorRangeLo; }
+    void setVolumeColorRangeLo(float v);
+    float getVolumeColorRangeHi() const { return m_state.volumeColorRangeHi; }
+    void setVolumeColorRangeHi(float v);
+    void resetVolumeColorRangeOverride();
+    bool getSliceColorRangeOverrideEnabled() const { return m_state.sliceColorRangeOverrideEnabled; }
+    void setSliceColorRangeOverrideEnabled(bool v);
+    float getSliceColorRangeLo() const { return m_state.sliceColorRangeLo; }
+    void setSliceColorRangeLo(float v);
+    float getSliceColorRangeHi() const { return m_state.sliceColorRangeHi; }
+    void setSliceColorRangeHi(float v);
+    void resetSliceColorRangeOverride();
+    bool getGlyphMagRangeOverrideEnabled() const { return m_state.glyphMagRangeOverrideEnabled; }
+    void setGlyphMagRangeOverrideEnabled(bool v);
+    float getGlyphMagRangeLo() const { return m_state.glyphMagRangeLo; }
+    void setGlyphMagRangeLo(float v);
+    float getGlyphMagRangeHi() const { return m_state.glyphMagRangeHi; }
+    void setGlyphMagRangeHi(float v);
+    void resetGlyphMagRangeOverride();
+    bool getStreamlineMagRangeOverrideEnabled() const { return m_state.streamlineMagRangeOverrideEnabled; }
+    void setStreamlineMagRangeOverrideEnabled(bool v);
+    float getStreamlineMagRangeLo() const { return m_state.streamlineMagRangeLo; }
+    void setStreamlineMagRangeLo(float v);
+    float getStreamlineMagRangeHi() const { return m_state.streamlineMagRangeHi; }
+    void setStreamlineMagRangeHi(float v);
+    void resetStreamlineMagRangeOverride();
+
+    bool getGlyphCompRangeOverrideEnabled(int comp) const { return m_state.glyphCompRangeOverrideEnabled[comp]; }
+    void setGlyphCompRangeOverrideEnabled(int comp, bool v);
+    float getGlyphCompRangeLo(int comp) const { return m_state.glyphCompRangeLo[comp]; }
+    void setGlyphCompRangeLo(int comp, float v);
+    float getGlyphCompRangeHi(int comp) const { return m_state.glyphCompRangeHi[comp]; }
+    void setGlyphCompRangeHi(int comp, float v);
+    void resetGlyphCompRangeOverride(int comp);
+    float getVectorCompMinX() const { return m_state.vectorCompMin[0]; }
+    float getVectorCompMaxX() const { return m_state.vectorCompMax[0]; }
+    float getVectorCompMinY() const { return m_state.vectorCompMin[1]; }
+    float getVectorCompMaxY() const { return m_state.vectorCompMax[1]; }
+    float getVectorCompMinZ() const { return m_state.vectorCompMin[2]; }
+    float getVectorCompMaxZ() const { return m_state.vectorCompMax[2]; }
+
     // Animation colormap scaling: true = whole-sequence range, false = per-frame.
     bool getAnimScaleGlobal() const { return m_animRange.global; }
     void setAnimScaleGlobal(bool global);
@@ -687,6 +753,11 @@ public:
     // Fit-all isometric target: writes distance/maxDistance guards into the
     // camera immediately and returns the iso corner pose for interpolation.
     CameraPose computeFitAllIsoPose();
+
+    // Shared body of every *ColorRangeOverride reset: disable + snap to
+    // [snapLo, snapHi], emitting only when something actually changed.
+    void resetColorRangeOverrideImpl(bool& enabled, float& lo, float& hi,
+                                     float snapLo, float snapHi);
 
     // ---- table-driven QSettings persistence ----
     // One row per scalar setting; saveStateToSettings() and

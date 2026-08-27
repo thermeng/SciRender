@@ -72,7 +72,11 @@ void ParticlePass::draw(const RenderRenderState& state,
         glUniform4fv(particleColorLoc, 1, glm::value_ptr(pc));
         glUniform1i(particleUseColormapLoc, 0);
     }
-    glUniform2f(particleMagRangeLoc, streamlines.magMin, streamlines.magMax);
+    // Particles visualize the streamline traces, so they follow the
+    // streamline magnitude window by design.
+    const float magLo = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeLo : streamlines.magMin;
+    const float magHi = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeHi : streamlines.magMax;
+    glUniform2f(particleMagRangeLoc, magLo, magHi);
 
     glBindVertexArray(particleVao);
     glDrawArrays(GL_POINTS, 0, m_particleVertexCount);

@@ -10,6 +10,8 @@
 #include "ui_screenshot_page.h"
 #include "ui_mesh_info_page.h"
 #include "ui_volume_page.h"
+#include "ui_slice_plane_page.h"
+#include "ui_isosurface_page.h"
 #include "ui_animation_page.h"
 #include "render/foundation/render_config.h"
 #include "core/Colormaps.h"
@@ -55,7 +57,7 @@
 // UI layout constants (mirrors MainWindow private members for use by free helpers)
 
 static constexpr int kSidebarWidth = 220;
-static constexpr int kIconStripWidth = 48;
+static constexpr int m_navWidth = 140;
 static constexpr int kLabelWidth = 72;
 static constexpr int kControlHeight = 24;
 static constexpr int kValueFieldWidth = 48;
@@ -188,6 +190,68 @@ static ClipSliderRow createClipSlider(const QString& label, double value, double
 }
 
 
+// Helper: Create a functional group with subtle header + thin divider
+
+static QWidget* createGroup(const QString& title, QWidget* content) {
+    auto* group = new QWidget;
+    auto* layout = new QVBoxLayout(group);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(4);
+
+    auto* header = new QLabel(title);
+    header->setObjectName(title + "Header");
+    QFont f = header->font();
+    f.setPixelSize(10);
+    f.setBold(false);
+    f.setLetterSpacing(QFont::AbsoluteSpacing, 0.5);
+    header->setFont(f);
+    header->setStyleSheet("padding-top: 6px;");
+    layout->addWidget(header);
+
+    auto* divider = new QFrame;
+    divider->setFrameShape(QFrame::HLine);
+    divider->setFrameShadow(QFrame::Plain);
+    divider->setStyleSheet("background-color: palette(mid); max-height: 1px;");
+    layout->addWidget(divider);
+
+    layout->addWidget(content);
+    return group;
+}
+
+
+// Helper: Fix layout overflow by making labels and value widgets flexible.
+// .ui files have fixed 72px labels + 36-52px value widgets that overflow
+// when sidebar width < 220px. This removes fixed max sizes and sets
+// size policies so the layout can shrink gracefully.
+
+static void fixLayoutOverflow(QWidget* root) {
+    if (!root) return;
+    for (QLabel* lbl : root->findChildren<QLabel*>()) {
+        QString name = lbl->objectName();
+        if (name.endsWith("Value") || name.endsWith("Label")) {
+            lbl->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+            lbl->setMaximumWidth(QWIDGETSIZE_MAX);
+            lbl->setMinimumWidth(0);
+        }
+    }
+    for (QLineEdit* le : root->findChildren<QLineEdit*>()) {
+        le->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        le->setMaximumWidth(QWIDGETSIZE_MAX);
+        le->setMinimumWidth(32);
+    }
+    for (QSpinBox* sb : root->findChildren<QSpinBox*>()) {
+        sb->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        sb->setMaximumWidth(QWIDGETSIZE_MAX);
+        sb->setMinimumWidth(40);
+    }
+    for (QDoubleSpinBox* dsb : root->findChildren<QDoubleSpinBox*>()) {
+        dsb->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        dsb->setMaximumWidth(QWIDGETSIZE_MAX);
+        dsb->setMinimumWidth(40);
+    }
+}
+
+
 // Helper: Apply panel styling (section headers, parameter labels, dividers)
 
 static void applyPanelStyling(QWidget* root) {
@@ -208,13 +272,6 @@ static void applyPanelStyling(QWidget* root) {
             f.setPixelSize(kParamFontSize);
             f.setBold(false);
             lbl->setFont(f);
-            // Route color through the palette (not a pinned styleSheet color) so the
-            // label greys out automatically when its container is disabled.
-            QPalette pal = lbl->palette();
-            pal.setColor(QPalette::Active,   QPalette::Text, QColor("#A0A0A0"));
-            pal.setColor(QPalette::Inactive, QPalette::Text, QColor("#A0A0A0"));
-            pal.setColor(QPalette::Disabled, QPalette::Text, QColor("#777777"));
-            lbl->setPalette(pal);
             lbl->setStyleSheet("background: transparent;");
         }
     }
@@ -294,45 +351,20 @@ static void applyPanelStyling(QWidget* root) {
             line->setProperty("isHeaderDivider", true); // Flag to prevent duplicate insertion on re-runs
             line->setFrameShape(QFrame::NoFrame);
             line->setFixedHeight(1);
-            line->setStyleSheet("background-color: #333333; margin-top: 8px; margin-bottom: 4px;");
+            line->setStyleSheet("background-color: palette(mid); margin-top: 8px; margin-bottom: 4px;");
             it.key()->insertWidget(idx, line);
         }
     }
 
-    // ── Phase 4: Apply Section Header Typography ─────────────────────────────
+    // ── Phase 4: Apply Subtle Header Typography ───────────────────────────────
     for (const auto& e : headers) {
         QFont f = e.label->font();
-        f.setBold(true);
-        f.setPixelSize(kHeaderFontSize);
-        f.setLetterSpacing(QFont::AbsoluteSpacing, 1.2);
-        
-        e.label->setFont(f);
-        e.label->setText(e.label->text().toUpper());
-        //e.label->setStyleSheet("color: #FFFFFF; padding-top: 4px;");
-        // 🎨 Tinted header bar background
-        // e.label->setStyleSheet(
-        //     "color: #60A5FA;"                          // Brighter text color
-        //     "background-color: rgba(59, 130, 246, 0.1);" // 10% opacity blue tint
-        //     "border-radius: 4px;"                      // Rounded corners
-        //     "padding: 4px 8px;"                        // Inner spacing
-        // );
-        // 🎨 Colored indicator strip on the left of the header
-        // Route text color through the palette (not a pinned styleSheet color) so
-        // section headers grey out when their parent optionsGroup is disabled. A
-        // static "color" in the styleSheet overrides Qt's disabled color group and
-        // would keep headers bright while sibling controls grey out.
-        QPalette pal = e.label->palette();
-        pal.setColor(QPalette::Active,   QPalette::Text, QColor("#FFFFFF"));
-        pal.setColor(QPalette::Inactive, QPalette::Text, QColor("#FFFFFF"));
-        pal.setColor(QPalette::Disabled, QPalette::Text, QColor("#888888"));
-        e.label->setPalette(pal);
+        f.setBold(false);
+        f.setPixelSize(10);
+        f.setLetterSpacing(QFont::AbsoluteSpacing, 0.3);
 
-        e.label->setStyleSheet(
-            "background: transparent;"
-            "border-left: 3px solid #3B82F6;" // 3px accent bar on the left
-            "padding-left: 6px;"               // Push text slightly right
-            "padding-top: 2px;"
-        );
+        e.label->setFont(f);
+        e.label->setStyleSheet("background: transparent; padding-top: 6px;");
     }
 }
 
@@ -342,7 +374,7 @@ static void applyPanelStyling(QWidget* root) {
 static QPushButton* createSwatchButton(const QString& text, const QColor& color, std::function<void()> onClicked) {
     auto* btn = new QPushButton(text);
     btn->setFixedHeight(kControlHeight);
-    btn->setMinimumWidth(kSidebarWidth - kIconStripWidth - 36);
+    btn->setMinimumWidth(kSidebarWidth - m_navWidth - 36);
     QPixmap pix(14, 14);
     pix.fill(color);
     btn->setIcon(pix);
@@ -409,7 +441,7 @@ static QComboBox* buildColormapCombo(int currentChoice, std::function<void(int)>
     combo->setItemDelegate(new PalettePreviewDelegate(combo));
     combo->setFixedHeight(kControlHeight);
     combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    combo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    combo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
 
     int count = static_cast<int>(ColormapType::Count);
     for (int i = 0; i < count; ++i) {
@@ -442,8 +474,8 @@ MainWindow::MainWindow(QWidget* parent)
     setAcceptDrops(true);
 
     setupMenus();
+    setupTopToolbar();
     setupSidebar();
-    setupQuickBar();
     setupTimers();
     setupKeyboardShortcuts();
     connectSettings();
@@ -489,8 +521,9 @@ void MainWindow::setupMenus() {
 
     // View menu
     auto* viewMenu = ui->menuView;
-    viewMenu->addAction("&Lighting", this, [this]() { setSidebarSection(0); });
-    viewMenu->addAction("&Slicing", this, [this]() { setSidebarSection(1); });
+    viewMenu->addAction("&Mesh Info", this, [this]() { setSidebarSection(0); });
+    viewMenu->addAction("&Lighting", this, [this]() { setSidebarSection(1); });
+    viewMenu->addAction("&Slicing", this, [this]() { setSidebarSection(2); });
     viewMenu->addSeparator();
 
     auto* cullGroup = new QActionGroup(this);
@@ -575,61 +608,46 @@ void MainWindow::setupSidebar() {
         mainLayout->setSpacing(0);
     }
 
-    // --- Icon strip (left edge, 48px) ---
-    m_iconStrip = ui->iconStrip;
-    m_iconStrip->setFixedWidth(kIconStripWidth);
-    m_iconStrip->setStyleSheet("QWidget { background: #1e1e1e; }");
-    auto* iconLayout = new QVBoxLayout(m_iconStrip);
-    iconLayout->setContentsMargins(4, 0, 0, 0);
-    iconLayout->setSpacing(0);
+    // --- Navigation list (left edge, text-based) ---
+    m_navList = new QListWidget;
+    // m_navList->setStyleSheet(
+    //     "QListWidget { border: none; outline: none; background: transparent; }"
+    //     "QListWidget::item { padding: 10px 12px; font-size: 13px; }"
+    //     "QListWidget::item:selected { background: palette(highlight); color: palette(highlightedText); }"
+    //     "QListWidget::item:hover:!selected { background: palette(midlight); }");
 
-    const QString iconBtnSS =
-        "QToolButton { background: transparent; border: none; border-radius: 6px; }"
-        "QToolButton:hover { background: rgba(255,255,255,25); }"
-        "QToolButton:checked { background: rgba(56,189,248,50); }";
+    m_navList->setStyleSheet(
+    "QListWidget { border: none; outline: none; }"
+    "QListWidget::item { padding: 10px 12px; font-size: 13px; }");
 
-    struct IconEntry {
-        const char* iconPath;
-        const char* tooltip;
-        int section;
-    };
-    const IconEntry icons[] = {
-        {":/src/resources/icons/open_mesh.svg", "Open Mesh", -1},
-        {":/src/resources/icons/lighting.svg", "Lighting", 0},
-        {":/src/resources/icons/slicing.svg", "Slicing", 1},
-        {":/src/resources/icons/view.svg", "View & Display", 2},
-        {":/src/resources/icons/colormap.svg", "Colormap", 3},
-        {":/src/resources/icons/vectors.svg", "Vectors", 4},
-        {":/src/resources/icons/streamlines.svg", "Streamlines", 5},
-        {":/src/resources/icons/volume.svg", "Volume Rendering", 6},
-        {":/src/resources/icons/mesh_info.svg", "Mesh Info", 7},
-        {":/src/resources/icons/screenshot.svg", "Screenshot", 8},
-        {":/src/resources/icons/animation.svg", "Animation (PVD)", 9},
+    m_navList->setFrameShape(QFrame::NoFrame);
+    m_navList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_navList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_navList->setFocusPolicy(Qt::NoFocus);
+
+    const QString navItems[] = {
+        "Mesh Info", "Lighting", "Slicing", "View & Display", "Scalar",
+        "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
+        "Screenshot", "Animation"
     };
 
-    m_iconButtons.clear();
-    for (int i = 0; i < 11; ++i) {
-        auto* btn = new QToolButton;
-        btn->setIcon(QIcon(QString::fromUtf8(icons[i].iconPath)));
-        btn->setIconSize(QSize(28, 28));
-        btn->setToolTip(QString::fromUtf8(icons[i].tooltip));
-        btn->setFixedSize(44, 44);
-        btn->setCheckable(i > 0);
-        btn->setCursor(Qt::PointingHandCursor);
-        btn->setStyleSheet(iconBtnSS);
-
-        iconLayout->addWidget(btn);
-        m_iconButtons.append(btn);
-
-        if (i == 0) {
-            // Open button — no checkable, just opens file
-            connect(btn, &QToolButton::clicked, this, &MainWindow::openMesh);
-        } else {
-            int section = icons[i].section;
-            connect(btn, &QToolButton::clicked, this, [this, section]() { setSidebarSection(section); });
-        }
+    // Calculate width dynamically based on longest text + padding
+    QFontMetrics fm(m_navList->font());
+    int maxTextWidth = 0;
+    for (const auto& name : navItems) {
+        maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(name));
     }
-    iconLayout->addStretch();
+    m_navWidth = maxTextWidth + 48; // 24px padding each side
+
+    for (const auto& name : navItems) {
+        auto* item = new QListWidgetItem(name, m_navList);
+        item->setSizeHint(QSize(m_navWidth, 36));
+    }
+    m_navList->setFixedWidth(m_navWidth);
+
+    connect(m_navList, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (row >= 0) setSidebarSection(row);
+    });
 
     // --- Section stack with panel header ---
     m_rightPanel = ui->rightPanel;
@@ -655,7 +673,6 @@ void MainWindow::setupSidebar() {
     headerLayout->addWidget(m_panelTitle, 1);
 
     auto* closeBtn = new QToolButton;
-    m_closeBtn = closeBtn;
     closeBtn->setText("\u00D7");
     closeBtn->setFixedSize(24, 24);
     closeBtn->setToolTip("Close panel");
@@ -668,27 +685,29 @@ void MainWindow::setupSidebar() {
     // Stacked widget (section pages)
     m_sectionStack = new QStackedWidget;
 
-    m_sectionStack->addWidget(buildLightingPage());     // 0
-    m_sectionStack->addWidget(buildSlicingPage());      // 1
-    m_sectionStack->addWidget(buildViewDisplayPage());  // 2
-    m_sectionStack->addWidget(buildScalarPage());     // 3
-    m_sectionStack->addWidget(buildVectorsPage());      // 4
-    m_sectionStack->addWidget(buildStreamlinesPage());  // 5
-    m_sectionStack->addWidget(buildVolumePage());       // 6
-    m_meshInfoPage = buildMeshInfoPage();
-    m_sectionStack->addWidget(m_meshInfoPage);            // 7
-    m_sectionStack->addWidget(buildScreenshotPage());   // 8
-    m_sectionStack->addWidget(buildAnimationPage());    // 9
+    m_sectionStack->addWidget(buildMeshInfoPage());       // 0
+    m_meshInfoPage = m_sectionStack->widget(0);
+    m_sectionStack->addWidget(buildLightingPage());     // 1
+    m_sectionStack->addWidget(buildSlicingPage());      // 2
+    m_sectionStack->addWidget(buildViewDisplayPage());  // 3
+    m_sectionStack->addWidget(buildScalarPage());     // 4
+    m_sectionStack->addWidget(buildVectorsPage());      // 5
+    m_sectionStack->addWidget(buildStreamlinesPage());  // 6
+    m_sectionStack->addWidget(buildVolumePage());       // 7
+    m_sectionStack->addWidget(buildSlicePlanePage());   // 8
+    m_sectionStack->addWidget(buildIsosurfacePage());   // 9
+    m_sectionStack->addWidget(buildScreenshotPage());   // 10
+    m_sectionStack->addWidget(buildAnimationPage());    // 11
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
 
-    mainLayout->addWidget(m_iconStrip);
+    mainLayout->addWidget(m_navList);
     mainLayout->addWidget(m_rightPanel, 1);
 
     m_sidebarDock->setWidget(m_sidebarWidget);
-    m_sidebarDock->setMinimumWidth(kIconStripWidth);
-    m_sidebarDock->setMaximumWidth(kIconStripWidth + kSidebarWidth);
+    m_sidebarDock->setMinimumWidth(m_navWidth);
+    m_sidebarDock->setMaximumWidth(m_navWidth + kSidebarWidth);
     addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
 }
 
@@ -704,6 +723,7 @@ QWidget* MainWindow::buildLightingPage() {
     auto* content = new QWidget;
     Ui::LightingPage lightingUi;
     lightingUi.setupUi(content);
+    fixLayoutOverflow(content);
 
     auto* resetBtn = lightingUi.resetBtn;
     connect(resetBtn, &QPushButton::clicked, m_settings, &RenderSettings::resetLighting);
@@ -909,6 +929,7 @@ QWidget* MainWindow::buildSlicingPage() {
     auto* page = new QWidget;
     Ui::SlicingPage slicingUi;
     slicingUi.setupUi(page);
+    fixLayoutOverflow(page);
 
     // -- Master enable --------------------------------------------------------
     auto* enableCb = slicingUi.enableCb;
@@ -1029,6 +1050,7 @@ QWidget* MainWindow::buildViewDisplayPage() {
     auto* content = new QWidget;
     Ui::ViewDisplayPage viewUi;
     viewUi.setupUi(content);
+    fixLayoutOverflow(content);
 
     auto* orthoCb = viewUi.parallelCb;
     orthoCb->setChecked(m_settings->getOrthographic());
@@ -1222,6 +1244,7 @@ QWidget* MainWindow::buildScalarPage() {
     auto* content = new QWidget;
     Ui::ScalarPage scalarUi;
     scalarUi.setupUi(content);
+    fixLayoutOverflow(content);
 
     // Wire up static controls from .ui file
     auto* showCb = scalarUi.showCb;
@@ -1235,14 +1258,14 @@ QWidget* MainWindow::buildScalarPage() {
     m_scalarCombo->addItems(m_settings->getAvailableScalars());
     m_scalarCombo->setCurrentText(m_settings->getActiveScalarNameQml());
     m_scalarCombo->setEnabled(m_settings->hasMeshScalars());
-    m_scalarCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    m_scalarCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     connect(m_scalarCombo, &QComboBox::activated, m_settings, [this](int idx) {
         m_settings->setActiveScalarField(m_scalarCombo->itemText(idx));
     });
 
     auto* paletteCombo = buildColormapCombo(m_settings->getColormapChoice(),
         [this](int i) { m_settings->setColormapChoice(i); });
-    paletteCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    paletteCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     scalarUi.optionsGroup->layout()->replaceWidget(scalarUi.paletteCombo, paletteCombo);
     delete scalarUi.paletteCombo;
 
@@ -1332,65 +1355,38 @@ QWidget* MainWindow::buildScalarPage() {
         refreshScalarFilterRange();
     });
 
-    // ---- Fixed colormap range ----
+    // ---- Fixed colormap range (RangeEditor) ----
     {
         auto* colorRangeCb = scalarUi.colorRangeCb;
         m_colorRangeCb = colorRangeCb;
         colorRangeCb->setChecked(m_settings->getColorRangeOverrideEnabled());
         connect(colorRangeCb, &QCheckBox::toggled, m_settings, &RenderSettings::setColorRangeOverrideEnabled);
-        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags) {
-            if (!m_colorRangeCb) return;
-            const bool en = m_settings->getColorRangeOverrideEnabled();
-            m_colorRangeCb->blockSignals(true);
-            m_colorRangeCb->setChecked(en);
-            m_colorRangeCb->blockSignals(false);
-            m_colorLoSlider->setEnabled(en);
-            m_colorHiSlider->setEnabled(en);
-            m_colorLoField->setEnabled(en);
-            m_colorHiField->setEnabled(en);
+        // create RangeEditor inside container
+        auto* container = scalarUi.colorRangeContainer;
+        auto* lay = qobject_cast<QHBoxLayout*>(container->layout());
+        if (!lay) { lay = new QHBoxLayout(container); lay->setContentsMargins(0,0,0,0); }
+        m_colorRangeEditor = new RangeEditor(container);
+        lay->addWidget(m_colorRangeEditor);
+        m_colorRangeEditor->setEnabled(m_settings->getColorRangeOverrideEnabled());
+        connect(m_colorRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
+            m_settings->setColorRangeLo(static_cast<float>(lo));
+            m_settings->setColorRangeHi(static_cast<float>(hi));
         });
-        const bool crInit = m_settings->getColorRangeOverrideEnabled();
-        scalarUi.colorLoSlider->setEnabled(crInit);
-        scalarUi.colorHiSlider->setEnabled(crInit);
-        scalarUi.colorLoField->setEnabled(crInit);
-        scalarUi.colorHiField->setEnabled(crInit);
-    }
-    {
-        auto* slider = scalarUi.colorLoSlider;
-        auto* field = scalarUi.colorLoField;
-        m_colorLoSlider = slider;
-        m_colorLoField = field;
-        connect(slider, &QSlider::valueChanged, this, [field, this](int raw) {
-            double v = raw / 1000.0;
-            field->setText(QString::number(v, 'f', 3));
-            m_settings->setColorRangeLo(v);
-        });
-        connect(field, &QLineEdit::editingFinished, this, [field, slider, this]() {
-            bool ok = false;
-            double v = field->text().toDouble(&ok);
-            if (!ok) v = m_settings->getColorRangeLo();
-            v = qBound(m_settings->getDataScalarMinQml(), v, static_cast<double>(m_settings->getColorRangeHi()));
-            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
-            m_settings->setColorRangeLo(v);
-        });
-    }
-    {
-        auto* slider = scalarUi.colorHiSlider;
-        auto* field = scalarUi.colorHiField;
-        m_colorHiSlider = slider;
-        m_colorHiField = field;
-        connect(slider, &QSlider::valueChanged, this, [field, this](int raw) {
-            double v = raw / 1000.0;
-            field->setText(QString::number(v, 'f', 3));
-            m_settings->setColorRangeHi(v);
-        });
-        connect(field, &QLineEdit::editingFinished, this, [field, slider, this]() {
-            bool ok = false;
-            double v = field->text().toDouble(&ok);
-            if (!ok) v = m_settings->getColorRangeHi();
-            v = qBound(static_cast<double>(m_settings->getColorRangeLo()), v, m_settings->getDataScalarMaxQml());
-            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
-            m_settings->setColorRangeHi(v);
+        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
+            if (!m_colorRangeCb || !m_colorRangeEditor) return;
+            if (f & ChangeFlag::Colormap) {
+                const bool en = m_settings->getColorRangeOverrideEnabled();
+                m_colorRangeCb->blockSignals(true); m_colorRangeCb->setChecked(en); m_colorRangeCb->blockSignals(false);
+                m_colorRangeEditor->setEnabled(en);
+                const double lo = m_settings->getColorRangeLo();
+                const double hi = m_settings->getColorRangeHi();
+                auto cur = m_colorRangeEditor->window();
+                if (cur.first != lo || cur.second != hi) {
+                    m_colorRangeEditor->blockSignals(true);
+                    m_colorRangeEditor->setWindow(lo, hi);
+                    m_colorRangeEditor->blockSignals(false);
+                }
+            }
         });
     }
     refreshColorRangeBounds();
@@ -1415,6 +1411,7 @@ QWidget* MainWindow::buildVectorsPage() {
     auto* page = new QWidget;
     Ui::VectorsPage vectorsUi;
     vectorsUi.setupUi(page);
+    fixLayoutOverflow(page);
 
     auto* showCb = vectorsUi.showCb;
     m_vecShowCb = showCb;
@@ -1424,7 +1421,7 @@ QWidget* MainWindow::buildVectorsPage() {
     m_vectorCombo = vectorsUi.vectorCombo;
     m_vectorCombo->addItems(m_settings->getAvailableVectors());
     m_vectorCombo->setCurrentText(m_settings->getVectorField());
-    m_vectorCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    m_vectorCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     connect(m_vectorCombo, &QComboBox::activated, m_settings, [this](int) {
         m_settings->setActiveVectorField(m_vectorCombo->currentText());
     });
@@ -1492,19 +1489,73 @@ QWidget* MainWindow::buildVectorsPage() {
     vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vectorColorBtn, createColorButton("Vector", m_settings->getVectorColorQml(), &m_vectorColorDialog, &RenderSettings::setVectorColorQml));
     delete vectorsUi.vectorColorBtn;
 
-    auto* useCmapCb = vectorsUi.useCmapCb;
-    useCmapCb->setChecked(m_settings->getVectorUseColormap());
-    connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorUseColormap);
+    // TODO: getVectorUseColormap/setVectorUseColormap not yet implemented in RenderSettings
+    // auto* useCmapCb = vectorsUi.useCmapCb;
+    // useCmapCb->setChecked(m_settings->getVectorUseColormap());
+    // connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorUseColormap);
+    vectorsUi.useCmapCb->setVisible(false);
 
     auto* vCmapCombo = buildColormapCombo(m_settings->getVectorColormapChoice(),
         [this](int i) { m_settings->setVectorColormapChoice(i); });
-    vCmapCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    vCmapCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vCmapCombo, vCmapCombo);
     delete vectorsUi.vCmapCombo;
 
     auto* revCb = vectorsUi.revCb;
     revCb->setChecked(m_settings->getVectorColormapReversed());
     connect(revCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorColormapReversed);
+
+    // ---- Glyph Magnitude Fixed Range (RangeEditor) ----
+    {
+        auto* lay = qobject_cast<QVBoxLayout*>(vectorsUi.optionsGroup->layout());
+        auto* hdr = new QLabel("Magnitude Fixed Range");
+        hdr->setObjectName("glyphMagFixedHeader");
+        lay->addWidget(hdr);
+        m_glyphMagRangeCb = new QCheckBox("Fixed Range");
+        m_glyphMagRangeCb->setToolTip("Map a fixed magnitude range to glyph palette; values outside clamp to end colors");
+        m_glyphMagRangeCb->setChecked(m_settings->getGlyphMagRangeOverrideEnabled());
+        m_glyphMagRangeCb->setEnabled(m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors());
+        lay->addWidget(m_glyphMagRangeCb);
+        m_glyphMagRangeEditor = new RangeEditor();
+        lay->addWidget(m_glyphMagRangeEditor);
+        m_glyphMagRangeEditor->setEnabled(m_glyphMagRangeCb->isChecked() && m_glyphMagRangeCb->isEnabled());
+        // init bounds from renderer or fallback
+        {
+            double bLo = 0, bHi = 1;
+            if (m_settings->backend()) { bLo = m_settings->backend()->vectorMagMin(); bHi = m_settings->backend()->vectorMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; double lo = m_settings->getGlyphMagRangeLo(); double hi = m_settings->getGlyphMagRangeHi(); if (hi > lo) { bLo = lo; bHi = hi; } } }
+            m_glyphMagRangeEditor->setBounds(bLo, bHi);
+            double lo = m_settings->getGlyphMagRangeLo(), hi = m_settings->getGlyphMagRangeHi();
+            if (hi > lo) m_glyphMagRangeEditor->setWindow(lo, hi); else m_glyphMagRangeEditor->setWindow(bLo, bHi);
+        }
+        connect(m_glyphMagRangeCb, &QCheckBox::toggled, this, [this](bool v){
+            m_settings->setGlyphMagRangeOverrideEnabled(v);
+            if (m_glyphMagRangeEditor) m_glyphMagRangeEditor->setEnabled(v && m_glyphMagRangeCb->isEnabled());
+        });
+        connect(m_glyphMagRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
+            m_settings->setGlyphMagRangeLo(static_cast<float>(lo));
+            m_settings->setGlyphMagRangeHi(static_cast<float>(hi));
+        });
+        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
+            if (!m_glyphMagRangeCb || !m_glyphMagRangeEditor) return;
+            if (f & ChangeFlag::Colormap) {
+                bool en = m_settings->getGlyphMagRangeOverrideEnabled();
+                m_glyphMagRangeCb->blockSignals(true); m_glyphMagRangeCb->setChecked(en); m_glyphMagRangeCb->blockSignals(false);
+                m_glyphMagRangeEditor->setEnabled(en && m_glyphMagRangeCb->isEnabled());
+                double lo = m_settings->getGlyphMagRangeLo(), hi = m_settings->getGlyphMagRangeHi();
+                auto cur = m_glyphMagRangeEditor->window();
+                if (hi > lo && (cur.first != lo || cur.second != hi)) { m_glyphMagRangeEditor->blockSignals(true); m_glyphMagRangeEditor->setWindow(lo,hi); m_glyphMagRangeEditor->blockSignals(false); }
+            }
+        });
+        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){
+            if (!m_glyphMagRangeCb || !m_glyphMagRangeEditor) return;
+            bool ok = m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors();
+            m_glyphMagRangeCb->setEnabled(ok);
+            if (!ok) { m_glyphMagRangeCb->blockSignals(true); m_glyphMagRangeCb->setChecked(false); m_glyphMagRangeCb->blockSignals(false); }
+            m_glyphMagRangeEditor->setEnabled(m_glyphMagRangeCb->isChecked() && ok);
+            if (ok) refreshGlyphMagRangeBounds();
+        });
+        connect(m_settings, &RenderSettings::meshDataUpdated, this, [this](){ refreshGlyphMagRangeBounds(); });
+    }
 
     connect(showCb, &QCheckBox::toggled, vectorsUi.optionsGroup, &QWidget::setEnabled);
     vectorsUi.optionsGroup->setEnabled(m_settings->getShowVectors());
@@ -1538,6 +1589,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     auto* content = new QWidget;
     Ui::StreamlinesPage slUi;
     slUi.setupUi(content);
+    fixLayoutOverflow(content);
 
     auto* showCb = slUi.showCb;
     m_slShowCb = showCb;
@@ -1582,7 +1634,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     m_streamlineCombo = new QComboBox;
     m_streamlineCombo->addItems(m_settings->getAvailableVectors());
     m_streamlineCombo->setCurrentText(m_settings->getStreamlineVectorField());
-    m_streamlineCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    m_streamlineCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     connect(m_streamlineCombo, &QComboBox::activated, m_settings, [this](int) {
         m_settings->setStreamlineVectorField(m_streamlineCombo->currentText());
     });
@@ -1647,7 +1699,7 @@ QWidget* MainWindow::buildStreamlinesPage() {
     seedModeCombo->addItems({"Volume", "Surface", "Plane XY", "Plane XZ", "Plane YZ"});
     const QStringList modeKeys = {"Volume", "Surface", "PlaneXY", "PlaneXZ", "PlaneYZ"};
     seedModeCombo->setCurrentIndex(modeKeys.indexOf(m_settings->getSeedMode()));
-    seedModeCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    seedModeCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     connect(seedModeCombo, &QComboBox::activated, m_settings, [this, modeKeys](int idx) {
         m_settings->setSeedMode(modeKeys[idx]);
     });
@@ -1739,6 +1791,56 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(slRevCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineColormapReversed);
     lookLay->addWidget(slRevCb);
 
+    // ---- Streamline Magnitude Fixed Range (RangeEditor) ----
+    {
+        auto* hdr = new QLabel("Magnitude Fixed Range");
+        hdr->setObjectName("streamlineMagFixedHeader");
+        lookLay->addWidget(hdr);
+        m_streamlineMagRangeCb = new QCheckBox("Fixed Range");
+        m_streamlineMagRangeCb->setToolTip("Map a fixed magnitude range to streamline palette; values outside clamp to end colors");
+        m_streamlineMagRangeCb->setChecked(m_settings->getStreamlineMagRangeOverrideEnabled());
+        m_streamlineMagRangeCb->setEnabled(m_settings->hasMeshVectors());
+        lookLay->addWidget(m_streamlineMagRangeCb);
+        m_streamlineMagRangeEditor = new RangeEditor();
+        lookLay->addWidget(m_streamlineMagRangeEditor);
+        m_streamlineMagRangeEditor->setEnabled(m_streamlineMagRangeCb->isChecked() && m_streamlineMagRangeCb->isEnabled());
+        {
+            double bLo = 0, bHi = 1;
+            if (m_settings->backend()) { bLo = m_settings->backend()->streamlineMagMin(); bHi = m_settings->backend()->streamlineMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; double lo = m_settings->getStreamlineMagRangeLo(); double hi = m_settings->getStreamlineMagRangeHi(); if (hi > lo) { bLo = lo; bHi = hi; } } }
+            m_streamlineMagRangeEditor->setBounds(bLo, bHi);
+            double lo = m_settings->getStreamlineMagRangeLo(), hi = m_settings->getStreamlineMagRangeHi();
+            if (hi > lo) m_streamlineMagRangeEditor->setWindow(lo, hi); else m_streamlineMagRangeEditor->setWindow(bLo, bHi);
+        }
+        connect(m_streamlineMagRangeCb, &QCheckBox::toggled, this, [this](bool v){
+            m_settings->setStreamlineMagRangeOverrideEnabled(v);
+            if (m_streamlineMagRangeEditor) m_streamlineMagRangeEditor->setEnabled(v && m_streamlineMagRangeCb->isEnabled());
+        });
+        connect(m_streamlineMagRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
+            m_settings->setStreamlineMagRangeLo(static_cast<float>(lo));
+            m_settings->setStreamlineMagRangeHi(static_cast<float>(hi));
+        });
+        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
+            if (!m_streamlineMagRangeCb || !m_streamlineMagRangeEditor) return;
+            if (f & ChangeFlag::Colormap) {
+                bool en = m_settings->getStreamlineMagRangeOverrideEnabled();
+                m_streamlineMagRangeCb->blockSignals(true); m_streamlineMagRangeCb->setChecked(en); m_streamlineMagRangeCb->blockSignals(false);
+                m_streamlineMagRangeEditor->setEnabled(en && m_streamlineMagRangeCb->isEnabled());
+                double lo = m_settings->getStreamlineMagRangeLo(), hi = m_settings->getStreamlineMagRangeHi();
+                auto cur = m_streamlineMagRangeEditor->window();
+                if (hi > lo && (cur.first != lo || cur.second != hi)) { m_streamlineMagRangeEditor->blockSignals(true); m_streamlineMagRangeEditor->setWindow(lo,hi); m_streamlineMagRangeEditor->blockSignals(false); }
+            }
+        });
+        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){
+            if (!m_streamlineMagRangeCb || !m_streamlineMagRangeEditor) return;
+            bool ok = m_settings->hasMeshVectors();
+            m_streamlineMagRangeCb->setEnabled(ok);
+            if (!ok) { m_streamlineMagRangeCb->blockSignals(true); m_streamlineMagRangeCb->setChecked(false); m_streamlineMagRangeCb->blockSignals(false); }
+            m_streamlineMagRangeEditor->setEnabled(m_streamlineMagRangeCb->isChecked() && ok);
+            if (ok) refreshStreamlineMagRangeBounds();
+        });
+        connect(m_settings, &RenderSettings::meshDataUpdated, this, [this](){ refreshStreamlineMagRangeBounds(); });
+    }
+
     addSliderRow(lookLay, "opacityLabel", "Opacity",
                  m_settings->getStreamlineOpacity(), 0.0, 1.0, 2,
                  &RenderSettings::setStreamlineOpacity);
@@ -1820,6 +1922,7 @@ QWidget* MainWindow::buildScreenshotPage() {
     auto* page = new QWidget;
     Ui::ScreenshotPage ssUi;
     ssUi.setupUi(page);
+    fixLayoutOverflow(page);
 
     auto* saveBtn = ssUi.saveBtn;
     connect(saveBtn, &QPushButton::clicked, this, &MainWindow::saveScreenshot);
@@ -1865,6 +1968,7 @@ QWidget* MainWindow::buildAnimationPage() {
     auto* page = new QWidget;
     Ui::AnimationPage animUi;
     animUi.setupUi(page);
+    fixLayoutOverflow(page);
 
     auto* ctrl = m_settings->anim();
 
@@ -1996,6 +2100,7 @@ QWidget* MainWindow::buildMeshInfoPage() {
     auto* page = new QWidget;
     Ui::MeshInfoPage meshUi;
     meshUi.setupUi(page);
+    fixLayoutOverflow(page);
     m_meshInfoLabels.clear();
 
     auto addInfoRow = [this, &meshUi](const QString& label, QLabel* valueWidget, const QString& value) {
@@ -2078,6 +2183,7 @@ QWidget* MainWindow::buildVolumePage() {
     auto* content = new QWidget;
     Ui::VolumePage volumeUi;
     volumeUi.setupUi(content);
+    fixLayoutOverflow(content);
 
     auto* showCb = volumeUi.showVolumeCb;
     m_volumeShowCb = showCb;
@@ -2086,9 +2192,7 @@ QWidget* MainWindow::buildVolumePage() {
     showCb->setEnabled(m_settings->hasVolumeData());
     if (!m_settings->hasVolumeData()) showCb->setChecked(false);
     connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolume);
-    // Slice-plane controls must stay configurable with volume rendering OFF, so the
-    // group is gated only on data availability; the full-volume controls (step size,
-    // opacity, wireframe) are individually disabled when showVolume is off.
+    // Full-volume controls (step size, opacity) are individually disabled when showVolume is off.
     connect(showCb, &QCheckBox::toggled, this, [this](bool) { applyVolumeControlGating(); });
     applyVolumeControlGating();
 
@@ -2096,7 +2200,7 @@ QWidget* MainWindow::buildVolumePage() {
     m_volumeFieldCombo->addItems(m_settings->getAvailableScalars());
     m_volumeFieldCombo->setCurrentText(m_settings->getActiveScalarNameQml());
     m_volumeFieldCombo->setEnabled(m_settings->hasMeshScalars());
-    m_volumeFieldCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    m_volumeFieldCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     connect(m_volumeFieldCombo, &QComboBox::activated, m_settings, [this](int idx) {
         m_volumeFieldCombo->setCurrentIndex(idx);
         m_settings->setActiveScalarField(m_volumeFieldCombo->itemText(idx));
@@ -2104,7 +2208,7 @@ QWidget* MainWindow::buildVolumePage() {
 
     auto* paletteCombo = buildColormapCombo(m_settings->getVolumeColormapChoice(),
         [this](int i) { m_settings->setVolumeColormapChoice(i); });
-    paletteCombo->setMinimumWidth(kSidebarWidth - kIconStripWidth - 20);
+    paletteCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
     volumeUi.optionsGroup->layout()->replaceWidget(volumeUi.volumePaletteCombo, paletteCombo);
     delete volumeUi.volumePaletteCombo;
 
@@ -2115,6 +2219,57 @@ QWidget* MainWindow::buildVolumePage() {
     auto* useCmapCb = volumeUi.volumeUseCmapCb;
     useCmapCb->setChecked(m_settings->getVolumeUseColormap());
     connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeUseColormap);
+
+    // ---- Volume Fixed Range (RangeEditor) ----
+    {
+        auto* lay = qobject_cast<QVBoxLayout*>(volumeUi.optionsGroup->layout());
+        auto* hdr = new QLabel("Volume Fixed Range");
+        hdr->setObjectName("volumeFixedHeader");
+        lay->addWidget(hdr);
+        m_volumeRangeCb = new QCheckBox("Fixed Range");
+        m_volumeRangeCb->setToolTip("Map a fixed value range to the volume palette; values outside clamp to the end colors");
+        m_volumeRangeCb->setChecked(m_settings->getVolumeColorRangeOverrideEnabled());
+        m_volumeRangeCb->setEnabled(m_settings->hasVolumeData());
+        lay->addWidget(m_volumeRangeCb);
+        m_volumeRangeEditor = new RangeEditor();
+        lay->addWidget(m_volumeRangeEditor);
+        m_volumeRangeEditor->setEnabled(m_volumeRangeCb->isChecked() && m_volumeRangeCb->isEnabled());
+        // init bounds/window
+        {
+            double mn = m_settings->getDataScalarMinQml(), mx = m_settings->getDataScalarMaxQml();
+            if (!(mx > mn)) { mn = 0; mx = 1; }
+            m_volumeRangeEditor->setBounds(mn, mx);
+            m_volumeRangeEditor->setWindow(m_settings->getVolumeColorRangeLo(), m_settings->getVolumeColorRangeHi());
+        }
+        connect(m_volumeRangeCb, &QCheckBox::toggled, this, [this](bool v){
+            m_settings->setVolumeColorRangeOverrideEnabled(v);
+            if (m_volumeRangeEditor) m_volumeRangeEditor->setEnabled(v && m_volumeRangeCb->isEnabled());
+        });
+        connect(m_volumeRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
+            m_settings->setVolumeColorRangeLo(static_cast<float>(lo));
+            m_settings->setVolumeColorRangeHi(static_cast<float>(hi));
+        });
+        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
+            if (!m_volumeRangeCb || !m_volumeRangeEditor) return;
+            if (f & ChangeFlag::Colormap) {
+                bool en = m_settings->getVolumeColorRangeOverrideEnabled();
+                m_volumeRangeCb->blockSignals(true); m_volumeRangeCb->setChecked(en); m_volumeRangeCb->blockSignals(false);
+                m_volumeRangeEditor->setEnabled(en && m_volumeRangeCb->isEnabled());
+                auto cur = m_volumeRangeEditor->window();
+                double lo = m_settings->getVolumeColorRangeLo(), hi = m_settings->getVolumeColorRangeHi();
+                if (cur.first != lo || cur.second != hi) {
+                    m_volumeRangeEditor->blockSignals(true); m_volumeRangeEditor->setWindow(lo,hi); m_volumeRangeEditor->blockSignals(false);
+                }
+            }
+        });
+        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){
+            if (!m_volumeRangeCb || !m_volumeRangeEditor) return;
+            bool ok = m_settings->hasVolumeData();
+            m_volumeRangeCb->setEnabled(ok);
+            if (!ok) { m_volumeRangeCb->blockSignals(true); m_volumeRangeCb->setChecked(false); m_volumeRangeCb->blockSignals(false); }
+            m_volumeRangeEditor->setEnabled(m_volumeRangeCb->isChecked() && ok);
+        });
+    }
 
     {
         auto* slider = volumeUi.stepSlider;
@@ -2140,38 +2295,70 @@ QWidget* MainWindow::buildVolumePage() {
         });
     }
 
-    {
-        auto* showCb = volumeUi.volumeSliceShowCb;
-        m_volumeSliceShowCb = showCb;
-        showCb->setChecked(m_settings->getShowVolumeSlice());
-        showCb->setEnabled(m_settings->hasVolumeData());
-        if (!m_settings->hasVolumeData()) showCb->setChecked(false);
-        connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolumeSlice);
-    }
+    // Full-volume-rendering-only controls: greyed when "Enable Volume Rendering" is off.
+    m_volumeRenderCtrls << volumeUi.stepLabel << volumeUi.stepSlider << volumeUi.stepValue
+                        << volumeUi.opacityLabel << volumeUi.opacitySlider << volumeUi.opacityValue;
+    applyVolumeControlGating();
 
-    {
-        auto* axisX = volumeUi.sliceAxisX;
-        auto* axisY = volumeUi.sliceAxisY;
-        auto* axisZ = volumeUi.sliceAxisZ;
-        m_sliceAxisXRb = axisX;
-        m_sliceAxisYRb = axisY;
-        m_sliceAxisZRb = axisZ;
-        int currentAxis = m_settings->getVolumeSliceAxis();
-        axisX->setChecked(currentAxis == 0);
-        axisY->setChecked(currentAxis == 1);
-        axisZ->setChecked(currentAxis == 2);
-        auto* axisGroup = new QButtonGroup(this);
-        axisGroup->addButton(axisX, 0);
-        axisGroup->addButton(axisY, 1);
-        axisGroup->addButton(axisZ, 2);
-        connect(axisGroup, &QButtonGroup::idToggled, m_settings, [this](int id, bool checked) {
-            if (checked) m_settings->setVolumeSliceAxis(id);
-        });
-    }
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
+    scroll->setWidget(content);
+
+    applyPanelStyling(content);
+
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(scroll);
+    return wrapper;
+}
+
+// Section: Slice Plane (7)
+
+QWidget* MainWindow::buildSlicePlanePage() {
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    auto* content = new QWidget;
+    Ui::SlicePlanePage sliceUi;
+    sliceUi.setupUi(content);
+    fixLayoutOverflow(content);
+
+    // -- Show slice checkbox --
+    auto* showCb = sliceUi.showSliceCb;
+    m_volumeSliceShowCb = showCb;
+    showCb->setChecked(m_settings->getShowVolumeSlice());
+    showCb->setEnabled(m_settings->hasVolumeData());
+    if (!m_settings->hasVolumeData()) showCb->setChecked(false);
+    connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolumeSlice);
+    connect(showCb, &QCheckBox::toggled, sliceUi.optionsGroup, &QWidget::setEnabled);
+    sliceUi.optionsGroup->setEnabled(m_settings->getShowVolumeSlice());
+
+    // -- Slice axis radio buttons --
+    auto* axisX = sliceUi.axisX;
+    auto* axisY = sliceUi.axisY;
+    auto* axisZ = sliceUi.axisZ;
+    m_sliceAxisXRb = axisX;
+    m_sliceAxisYRb = axisY;
+    m_sliceAxisZRb = axisZ;
+    int currentAxis = m_settings->getVolumeSliceAxis();
+    axisX->setChecked(currentAxis == 0);
+    axisY->setChecked(currentAxis == 1);
+    axisZ->setChecked(currentAxis == 2);
+    auto* axisGroup = new QButtonGroup(this);
+    axisGroup->addButton(axisX, 0);
+    axisGroup->addButton(axisY, 1);
+    axisGroup->addButton(axisZ, 2);
+    connect(axisGroup, &QButtonGroup::idToggled, m_settings, [this](int id, bool checked) {
+        if (checked) m_settings->setVolumeSliceAxis(id);
+    });
+
+    // -- Slice position slider --
     {
-        auto* slider = volumeUi.slicePosSlider;
-        auto* valueLabel = volumeUi.slicePosValue;
+        auto* slider = sliceUi.posSlider;
+        auto* valueLabel = sliceUi.posValue;
         m_slicePosSlider = slider;
         m_slicePosValue = valueLabel;
         slider->setRange(0, 1000);
@@ -2183,15 +2370,10 @@ QWidget* MainWindow::buildVolumePage() {
         });
     }
 
+    // -- Slice opacity slider --
     {
-        auto* wfCb = volumeUi.volumeWireframeCb;
-        wfCb->setChecked(m_settings->isWireframe());
-        connect(wfCb, &QCheckBox::toggled, m_settings, &RenderSettings::setWireframe);
-    }
-
-    {
-        auto* slider = volumeUi.sliceOpacitySlider;
-        auto* valueLabel = volumeUi.sliceOpacityValue;
+        auto* slider = sliceUi.opacitySlider;
+        auto* valueLabel = sliceUi.opacityValue;
         slider->setRange(0, 1000);
         slider->setValue(static_cast<int>(m_settings->getVolumeSliceOpacity() * 1000));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
@@ -2201,42 +2383,103 @@ QWidget* MainWindow::buildVolumePage() {
         });
     }
 
+    // -- Slice Fixed Range (RangeEditor) --
     {
-        // Isosurface controls: the contour field is the active scalar (the page's
-        // field combo already drives setActiveScalarField, which recontours on a
-        // switch), so these controls only manage enable + isovalue level.
-        auto* enableCb = volumeUi.isosurfaceEnableCb;
-        m_isoEnableCb = enableCb;
-        enableCb->setChecked(m_settings->getShowIsosurface());
-        enableCb->setEnabled(m_settings->getIsosurfaceAvailable() || m_settings->hasVolumeData());
-        if (!m_settings->getIsosurfaceAvailable() && !m_settings->hasVolumeData()) enableCb->setChecked(false);
-        connect(enableCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowIsosurface);
-
-        auto* slider = volumeUi.isoValueSlider;
-        auto* valueLabel = volumeUi.isoValueLabel;
-        m_isoValueSlider = slider;
-        m_isoValueLabel = valueLabel;
-        slider->setRange(0, 1000);
-        refreshIsosurfaceSlider();
-        // The range is read live (not captured) so a scalar-field switch that
-        // changes dataScalarMin/Max is reflected without re-wiring the lambda.
-        connect(slider, &QSlider::valueChanged, this, [this, valueLabel](int raw) {
-            double lo = m_settings->getDataScalarMinQml();
-            double hi = m_settings->getDataScalarMaxQml();
-            if (hi <= lo) hi = lo + 1.0;
-            double v = lo + (raw / 1000.0) * (hi - lo);
-            m_settings->setIsovalue(v);
-            valueLabel->setText(QString::number(m_settings->getIsovalue(), 'f', 3));
+        auto* container = sliceUi.rangeContainer;
+        auto* lay = qobject_cast<QHBoxLayout*>(container->layout());
+        if (!lay) { lay = new QHBoxLayout(container); lay->setContentsMargins(0,0,0,0); }
+        m_sliceRangeEditor = new RangeEditor(container);
+        lay->addWidget(m_sliceRangeEditor);
+        m_sliceRangeCb = sliceUi.rangeCb;
+        m_sliceRangeCb->setToolTip("Map a fixed value range to the slice palette; values outside clamp to the end colors");
+        m_sliceRangeCb->setChecked(m_settings->getSliceColorRangeOverrideEnabled());
+        m_sliceRangeCb->setEnabled(m_settings->hasVolumeData());
+        m_sliceRangeEditor->setEnabled(m_sliceRangeCb->isChecked() && m_sliceRangeCb->isEnabled());
+        {
+            double mn = m_settings->getDataScalarMinQml(), mx = m_settings->getDataScalarMaxQml();
+            if (!(mx > mn)) { mn = 0; mx = 1; }
+            m_sliceRangeEditor->setBounds(mn, mx);
+            m_sliceRangeEditor->setWindow(m_settings->getSliceColorRangeLo(), m_settings->getSliceColorRangeHi());
+        }
+        connect(m_sliceRangeCb, &QCheckBox::toggled, this, [this](bool v){
+            m_settings->setSliceColorRangeOverrideEnabled(v);
+            if (m_sliceRangeEditor) m_sliceRangeEditor->setEnabled(v && m_sliceRangeCb->isEnabled());
+        });
+        connect(m_sliceRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
+            m_settings->setSliceColorRangeLo(static_cast<float>(lo));
+            m_settings->setSliceColorRangeHi(static_cast<float>(hi));
+        });
+        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
+            if (!m_sliceRangeCb || !m_sliceRangeEditor) return;
+            if (f & ChangeFlag::Colormap) {
+                bool en = m_settings->getSliceColorRangeOverrideEnabled();
+                m_sliceRangeCb->blockSignals(true); m_sliceRangeCb->setChecked(en); m_sliceRangeCb->blockSignals(false);
+                m_sliceRangeEditor->setEnabled(en && m_sliceRangeCb->isEnabled());
+                auto cur = m_sliceRangeEditor->window();
+                double lo = m_settings->getSliceColorRangeLo(), hi = m_settings->getSliceColorRangeHi();
+                if (cur.first != lo || cur.second != hi) { m_sliceRangeEditor->blockSignals(true); m_sliceRangeEditor->setWindow(lo,hi); m_sliceRangeEditor->blockSignals(false); }
+            }
+        });
+        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){
+            if (!m_sliceRangeCb || !m_sliceRangeEditor) return;
+            bool ok = m_settings->hasVolumeData();
+            m_sliceRangeCb->setEnabled(ok);
+            if (!ok) { m_sliceRangeCb->blockSignals(true); m_sliceRangeCb->setChecked(false); m_sliceRangeCb->blockSignals(false); }
+            m_sliceRangeEditor->setEnabled(m_sliceRangeCb->isChecked() && ok);
         });
     }
 
-    // Full-volume-rendering-only controls: greyed when "Enable Volume Rendering"
-    // is off, but the slice-plane controls above stay enabled whenever volume
-    // data exists (see applyVolumeControlGating).
-    m_volumeRenderCtrls << volumeUi.stepLabel << volumeUi.stepSlider << volumeUi.stepValue
-                        << volumeUi.opacityLabel << volumeUi.opacitySlider << volumeUi.opacityValue
-                        << volumeUi.volumeWireframeCb;
-    applyVolumeControlGating();
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+
+    scroll->setWidget(content);
+
+    applyPanelStyling(content);
+
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(scroll);
+    return wrapper;
+}
+
+// Section: Isosurface (8)
+
+QWidget* MainWindow::buildIsosurfacePage() {
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    auto* content = new QWidget;
+    Ui::IsosurfacePage isoUi;
+    isoUi.setupUi(content);
+    fixLayoutOverflow(content);
+
+    // -- Isosurface enable checkbox --
+    auto* enableCb = isoUi.enableCb;
+    m_isoEnableCb = enableCb;
+    enableCb->setChecked(m_settings->getShowIsosurface());
+    enableCb->setEnabled(m_settings->getIsosurfaceAvailable() || m_settings->hasVolumeData());
+    if (!m_settings->getIsosurfaceAvailable() && !m_settings->hasVolumeData()) enableCb->setChecked(false);
+    connect(enableCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowIsosurface);
+    connect(enableCb, &QCheckBox::toggled, isoUi.optionsGroup, &QWidget::setEnabled);
+    isoUi.optionsGroup->setEnabled(enableCb->isChecked() && enableCb->isEnabled());
+
+    // -- Isovalue slider --
+    auto* slider = isoUi.valueSlider;
+    auto* valueLabel = isoUi.valueLabel;
+    m_isoValueSlider = slider;
+    m_isoValueLabel = valueLabel;
+    slider->setRange(0, 1000);
+    refreshIsosurfaceSlider();
+    connect(slider, &QSlider::valueChanged, this, [this, valueLabel](int raw) {
+        double lo = m_settings->getDataScalarMinQml();
+        double hi = m_settings->getDataScalarMaxQml();
+        if (hi <= lo) hi = lo + 1.0;
+        double v = lo + (raw / 1000.0) * (hi - lo);
+        m_settings->setIsovalue(v);
+        valueLabel->setText(QString::number(m_settings->getIsovalue(), 'f', 3));
+    });
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
@@ -2349,28 +2592,68 @@ void MainWindow::refreshScalarFilterRange() {
 // Slider bounds + displayed values for the fixed colormap range; follows the
 // data range like the filter controls so a new dataset rescales the widgets.
 void MainWindow::refreshColorRangeBounds() {
+    if (!m_colorRangeEditor) return;
     const double minVal = m_settings->getDataScalarMinQml();
     const double maxVal = m_settings->getDataScalarMaxQml();
-    auto applyOne = [minVal, maxVal](QSlider* slider, QLineEdit* field, double v) {
-        if (!slider || !field) return;
-        slider->setRange(static_cast<int>(std::lround(minVal * 1000.0)), static_cast<int>(std::lround(maxVal * 1000.0)));
-        int vi = static_cast<int>(std::lround(v * 1000.0));
-        slider->blockSignals(true);
-        slider->setValue(vi);
-        slider->blockSignals(false);
-        field->setText(QString::number(v, 'f', 3));
-    };
-    applyOne(m_colorLoSlider, m_colorLoField, m_settings->getColorRangeLo());
-    applyOne(m_colorHiSlider, m_colorHiField, m_settings->getColorRangeHi());
+    const double lo = m_settings->getColorRangeLo();
+    const double hi = m_settings->getColorRangeHi();
+    if (!(maxVal > minVal)) {
+        m_colorRangeEditor->blockSignals(true);
+        m_colorRangeEditor->setBounds(minVal, minVal + 1.0);
+        m_colorRangeEditor->setWindow(lo, hi);
+        m_colorRangeEditor->blockSignals(false);
+        return;
+    }
+    m_colorRangeEditor->blockSignals(true);
+    m_colorRangeEditor->setBounds(minVal, maxVal);
+    m_colorRangeEditor->setWindow(lo, hi);
+    m_colorRangeEditor->blockSignals(false);
+}
+void MainWindow::refreshVolumeRangeBounds() {
+    if (!m_volumeRangeEditor) return;
+    const double minVal = m_settings->getDataScalarMinQml();
+    const double maxVal = m_settings->getDataScalarMaxQml();
+    const double lo = m_settings->getVolumeColorRangeLo();
+    const double hi = m_settings->getVolumeColorRangeHi();
+    if (!(maxVal > minVal)) { m_volumeRangeEditor->blockSignals(true); m_volumeRangeEditor->setBounds(minVal, minVal+1.0); m_volumeRangeEditor->setWindow(lo,hi); m_volumeRangeEditor->blockSignals(false); return; }
+    m_volumeRangeEditor->blockSignals(true); m_volumeRangeEditor->setBounds(minVal, maxVal); m_volumeRangeEditor->setWindow(lo,hi); m_volumeRangeEditor->blockSignals(false);
+}
+void MainWindow::refreshSliceRangeBounds() {
+    if (!m_sliceRangeEditor) return;
+    const double minVal = m_settings->getDataScalarMinQml();
+    const double maxVal = m_settings->getDataScalarMaxQml();
+    const double lo = m_settings->getSliceColorRangeLo();
+    const double hi = m_settings->getSliceColorRangeHi();
+    if (!(maxVal > minVal)) { m_sliceRangeEditor->blockSignals(true); m_sliceRangeEditor->setBounds(minVal, minVal+1.0); m_sliceRangeEditor->setWindow(lo,hi); m_sliceRangeEditor->blockSignals(false); return; }
+    m_sliceRangeEditor->blockSignals(true); m_sliceRangeEditor->setBounds(minVal, maxVal); m_sliceRangeEditor->setWindow(lo,hi); m_sliceRangeEditor->blockSignals(false);
+}
+void MainWindow::refreshGlyphMagRangeBounds() {
+    if (!m_glyphMagRangeEditor) return;
+    // magnitude range in raw data units, seed from renderer if degenerate
+    double lo = m_settings->getGlyphMagRangeLo();
+    double hi = m_settings->getGlyphMagRangeHi();
+    double bLo = 0, bHi = 1;
+    if (m_settings->backend()) { bLo = m_settings->backend()->vectorMagMin(); bHi = m_settings->backend()->vectorMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; } }
+    else { bLo = std::min(lo, hi); bHi = std::max(lo, hi); if (!(bHi > bLo)) bHi = bLo + 1.0; }
+    m_glyphMagRangeEditor->blockSignals(true); m_glyphMagRangeEditor->setBounds(bLo, bHi); if (hi > lo) m_glyphMagRangeEditor->setWindow(lo, hi); else m_glyphMagRangeEditor->setWindow(bLo, bHi); m_glyphMagRangeEditor->blockSignals(false);
+}
+void MainWindow::refreshStreamlineMagRangeBounds() {
+    if (!m_streamlineMagRangeEditor) return;
+    double lo = m_settings->getStreamlineMagRangeLo();
+    double hi = m_settings->getStreamlineMagRangeHi();
+    double bLo = 0, bHi = 1;
+    if (m_settings->backend()) { bLo = m_settings->backend()->streamlineMagMin(); bHi = m_settings->backend()->streamlineMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; } }
+    else { bLo = std::min(lo,hi); bHi = std::max(lo,hi); if (!(bHi > bLo)) bHi = bLo + 1.0; }
+    m_streamlineMagRangeEditor->blockSignals(true); m_streamlineMagRangeEditor->setBounds(bLo, bHi); if (hi > lo) m_streamlineMagRangeEditor->setWindow(lo,hi); else m_streamlineMagRangeEditor->setWindow(bLo,bHi); m_streamlineMagRangeEditor->blockSignals(false);
 }
 
 
 // Sidebar section switching
 
 static const char* sectionNames[] = {
-    "Lighting", "Slicing", "View & Display", "Scalar",
-    "Vectors", "Streamlines", "Volume Rendering", "Mesh Info", "Screenshot",
-    "Animation"
+    "Mesh Info", "Lighting", "Slicing", "View & Display", "Scalar",
+    "Vectors", "Streamlines", "Volume Rendering", "Slice Plane", "Isosurface",
+    "Screenshot", "Animation"
 };
 
 void MainWindow::setSidebarSection(int section) {
@@ -2380,8 +2663,7 @@ void MainWindow::setSidebarSection(int section) {
         m_sidebarExpanded = false;
         m_sectionStack->setVisible(false);
         m_panelHeader->setVisible(false);
-        // Uncheck all icon buttons
-        for (auto* btn : m_iconButtons) btn->setChecked(false);
+        m_navList->clearSelection();
     } else {
         // Expand
         m_activeSection = section;
@@ -2390,13 +2672,10 @@ void MainWindow::setSidebarSection(int section) {
         m_sectionStack->setVisible(true);
         m_panelHeader->setVisible(true);
         m_panelTitle->setText(QString::fromUtf8(sectionNames[section]));
-        // Update icon strip check state
-        for (int i = 0; i < m_iconButtons.size(); ++i) {
-            m_iconButtons[i]->setChecked(i == section + 1);
-        }
+        m_navList->setCurrentRow(section, QItemSelectionModel::ClearAndSelect);
     }
-    m_settings->setSidebarWidth(m_sidebarExpanded ? kIconStripWidth + kSidebarWidth : kIconStripWidth);
-    m_sidebarDock->setFixedWidth(m_sidebarExpanded ? kIconStripWidth + kSidebarWidth : kIconStripWidth);
+    m_settings->setSidebarWidth(m_sidebarExpanded ? m_navWidth + kSidebarWidth : m_navWidth);
+    m_sidebarDock->setFixedWidth(m_sidebarExpanded ? m_navWidth + kSidebarWidth : m_navWidth);
 }
 
 
@@ -2432,65 +2711,42 @@ void MainWindow::setupTimers() {
 }
 
 
-// Quick bar (floating display toggles, top-left of viewport)
+// Top toolbar (display toggles)
 
-void MainWindow::setupQuickBar() {
-    m_quickBar = new QWidget(m_viewport);
-    m_quickBar->setStyleSheet(
-        "QWidget { background: rgba(30,30,30,200); border: 1px solid rgba(60,60,60,150); border-radius: 8px; }");
-    m_quickBarLayout = new QHBoxLayout(m_quickBar);
-    m_quickBarLayout->setContentsMargins(8, 6, 8, 6);
-    m_quickBarLayout->setSpacing(4);
+void MainWindow::setupTopToolbar() {
+    m_topToolbar = new QToolBar(this);
+    m_topToolbar->setMovable(false);
+    m_topToolbar->setStyleSheet(
+        "QToolBar { border: none; padding: 4px; spacing: 4px; }"
+        "QToolButton { background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 4px 8px; }"
+        "QToolButton:hover { background: palette(midlight); }"
+        "QToolButton:checked { background: palette(highlight); border: 1px solid palette(highlight); }");
+    m_topToolbar->setIconSize(QSize(20, 20));
+    m_topToolbar->setFixedHeight(40);
 
-    const QString btnSS =
-        "QToolButton { background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 3px; }"
-        "QToolButton:hover { background: rgba(255,255,255,30); }"
-        "QToolButton:checked { background: rgba(56,189,248,40); border: 1px solid rgba(56,189,248,150); }";
+    m_tbWireframe = m_topToolbar->addAction(QIcon(":/src/resources/icons/wireframe.svg"), "Wireframe");
+    m_tbWireframe->setCheckable(true);
+    m_tbWireframe->setChecked(m_settings->isWireframe());
+    connect(m_tbWireframe, &QAction::toggled, m_settings, &RenderSettings::setWireframe);
 
-    auto addQBButton = [this, &btnSS](const QString& iconPath, const QString& tooltip,
-                                      bool active, bool checkable,
-                                      std::function<void()> onClicked) -> QToolButton* {
-        auto* btn = new QToolButton;
-        btn->setIcon(QIcon(iconPath));
-        btn->setIconSize(QSize(32, 32));
-        btn->setToolTip(tooltip);
-        btn->setFixedSize(38, 36);
-        btn->setCheckable(checkable);
-        btn->setChecked(active);
-        btn->setCursor(Qt::PointingHandCursor);
-        btn->setStyleSheet(btnSS);
-        connect(btn, &QToolButton::clicked, onClicked);
-        m_quickBarLayout->addWidget(btn);
-        return btn;
-    };
+    m_tbSurface = m_topToolbar->addAction(QIcon(":/src/resources/icons/surface.svg"), "Surface");
+    m_tbSurface->setCheckable(true);
+    m_tbSurface->setChecked(m_settings->isSurfaceVisible());
+    connect(m_tbSurface, &QAction::toggled, m_settings, &RenderSettings::toggleSurface);
 
-    auto addSeparator = [this]() {
-        auto* sep = new QFrame;
-        sep->setFrameShape(QFrame::VLine);
-        sep->setFixedSize(1, 28);
-        sep->setStyleSheet("color: rgba(80,80,80,120);");
-        m_quickBarLayout->addWidget(sep);
-    };
+    m_tbVolume = m_topToolbar->addAction(QIcon(":/src/resources/icons/volume.svg"), "Volume");
+    m_tbVolume->setCheckable(true);
+    m_tbVolume->setChecked(m_settings->getShowVolume());
+    m_tbVolume->setEnabled(m_settings->hasVolumeData());
+    connect(m_tbVolume, &QAction::toggled, m_settings, &RenderSettings::setShowVolume);
 
-    // Display toggles
-    m_qbWireframe = addQBButton(":/src/resources/icons/wireframe.svg", "Wireframe",
-                                m_settings->isWireframe(), true, [this]() {
-        m_settings->setWireframe(!m_settings->isWireframe());
-    });
-    m_qbSurface = addQBButton(":/src/resources/icons/surface.svg", "Surface",
-                              m_settings->isSurfaceVisible(), true, [this]() {
-        m_settings->toggleSurface(!m_settings->isSurfaceVisible());
-    });
-    m_qbVolume = addQBButton(":/src/resources/icons/volume.svg", "Volume",
-                             m_settings->getShowVolume(), true, [this]() {
-        m_settings->setShowVolume(!m_settings->getShowVolume());
-    });
-    m_qbSlice = addQBButton(":/src/resources/icons/slice.svg", "Slice Plane",
-                            m_settings->getShowVolumeSlice(), true, [this]() {
-        m_settings->setShowVolumeSlice(!m_settings->getShowVolumeSlice());
-    });
+    m_tbSlice = m_topToolbar->addAction(QIcon(":/src/resources/icons/slice.svg"), "Slice");
+    m_tbSlice->setCheckable(true);
+    m_tbSlice->setChecked(m_settings->getShowVolumeSlice());
+    m_tbSlice->setEnabled(m_settings->hasVolumeData());
+    connect(m_tbSlice, &QAction::toggled, m_settings, &RenderSettings::setShowVolumeSlice);
 
-    addSeparator();
+    m_topToolbar->addSeparator();
 
     // Ortho snaps
     const char* orthoIcons[] = {
@@ -2503,63 +2759,30 @@ void MainWindow::setupQuickBar() {
     };
     const char* orthoTips[] = {"Ortho +X", "Ortho -X", "Ortho +Y", "Ortho -Y", "Ortho +Z", "Ortho -Z"};
     for (int i = 0; i < 6; ++i) {
-        addQBButton(orthoIcons[i], orthoTips[i], false, false,
-                    [this, i]() { m_settings->snapToOrthoView(i); });
+        auto* act = m_topToolbar->addAction(QIcon(orthoIcons[i]), orthoTips[i]);
+        connect(act, &QAction::triggered, this, [this, i]() { m_settings->snapToOrthoView(i); });
     }
 
-    addSeparator();
+    m_topToolbar->addSeparator();
 
     // Reset camera
-    addQBButton(":/src/resources/icons/reset.svg", "Reset Camera", false, false,
-                [this]() { m_settings->resetCamera(); });
-    // Collapse
-    addQBButton(":/src/resources/icons/collapse.svg", "Collapse quick-bar", false, false, [this]() {
-        m_settings->setQuickBarCollapsed(true);
-        updateQuickBarVisibility();
-    });
+    auto* resetAct = m_topToolbar->addAction(QIcon(":/src/resources/icons/reset.svg"), "Reset Camera");
+    connect(resetAct, &QAction::triggered, m_settings, &RenderSettings::resetCamera);
 
-    // Handle (shown when collapsed)
-    m_quickBarHandle = new QToolButton(m_viewport);
-    m_quickBarHandle->setIcon(QIcon(":/src/resources/icons/collapse.svg"));
-    m_quickBarHandle->setIconSize(QSize(32, 32));
-    m_quickBarHandle->setToolTip("Show display quick-bar");
-    m_quickBarHandle->setFixedSize(38, 36);
-    m_quickBarHandle->setCursor(Qt::PointingHandCursor);
-    m_quickBarHandle->setStyleSheet(btnSS);
-    connect(m_quickBarHandle, &QToolButton::clicked, this, [this]() {
-        m_settings->setQuickBarCollapsed(false);
-        updateQuickBarVisibility();
-    });
-
-    updateQuickBarVisibility();
+    addToolBar(Qt::TopToolBarArea, m_topToolbar);
 }
 
-void MainWindow::updateQuickBarVisibility() {
-    bool hasMesh = m_settings->getHasMeshLoaded();
-    bool collapsed = m_settings->getQuickBarCollapsed();
-    m_quickBar->setVisible(hasMesh && !collapsed);
-    m_quickBarHandle->setVisible(hasMesh && collapsed);
-    // The Volume quick-bar toggle is only actionable when volume data exists;
-    // gate it (and refresh its checked state) on mesh load/clear so it never
-    // shows a stale "on" state while disabled, mirroring the Volume page checkbox.
-    if (m_qbVolume) {
-        bool hasVol = m_settings->hasVolumeData();
-        m_qbVolume->setEnabled(hasVol);
-        m_qbVolume->setChecked(m_settings->getShowVolume());
+void MainWindow::syncTopToolbar() {
+    if (m_tbWireframe) m_tbWireframe->setChecked(m_settings->isWireframe());
+    if (m_tbSurface)   m_tbSurface->setChecked(m_settings->isSurfaceVisible());
+    if (m_tbVolume) {
+        m_tbVolume->setEnabled(m_settings->hasVolumeData());
+        m_tbVolume->setChecked(m_settings->getShowVolume());
     }
-    if (m_qbSlice) {
-        bool hasVol = m_settings->hasVolumeData();
-        m_qbSlice->setEnabled(hasVol);
-        m_qbSlice->setChecked(m_settings->getShowVolumeSlice());
+    if (m_tbSlice) {
+        m_tbSlice->setEnabled(m_settings->hasVolumeData());
+        m_tbSlice->setChecked(m_settings->getShowVolumeSlice());
     }
-}
-
-// Keep the quick-bar display toggles in sync with settings that are changed via
-// keyboard shortcuts / View & Display checkboxes, not the quick-bar buttons themselves.
-void MainWindow::syncQuickBar() {
-    if (m_qbWireframe) m_qbWireframe->setChecked(m_settings->isWireframe());
-    if (m_qbSurface)   m_qbSurface->setChecked(m_settings->isSurfaceVisible());
-    if (m_qbVolume)    m_qbVolume->setChecked(m_settings->getShowVolume());
 }
 
 void MainWindow::syncVolumePage() {
@@ -2571,10 +2794,6 @@ void MainWindow::syncVolumePage() {
     if (m_volumeSliceShowCb) {
         m_volumeSliceShowCb->setEnabled(hasVol);
         m_volumeSliceShowCb->setChecked(hasVol && m_settings->getShowVolumeSlice());
-    }
-    if (m_qbSlice) {
-        m_qbSlice->setEnabled(hasVol);
-        m_qbSlice->setChecked(hasVol && m_settings->getShowVolumeSlice());
     }
     if (m_isoEnableCb) {
         bool isoAvail = m_settings->getIsosurfaceAvailable();
@@ -2703,10 +2922,13 @@ void MainWindow::setupKeyboardShortcuts() {
 
 void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
-    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateQuickBarVisibility);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshSlicingPageBounds);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshScalarFilterRange);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshColorRangeBounds);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshVolumeRangeBounds);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshSliceRangeBounds);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshGlyphMagRangeBounds);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshStreamlineMagRangeBounds);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this]() {
         const bool hasVectors = m_settings->hasMeshVectors();
         const bool hasCellVectors = m_settings->hasMeshCellVectors();
@@ -2791,13 +3013,13 @@ void MainWindow::connectSettings() {
         }
     });
 
-    // Mirror quick-bar and View & Display toggles whenever the corresponding
-    // settings change (keyboard shortcuts, quick-bar buttons, side-panel checkboxes).
+    // Mirror toolbar and View & Display toggles whenever the corresponding
+    // settings change (keyboard shortcuts, toolbar buttons, side-panel checkboxes).
     // Sync runs on every view change, but the setChecked calls only emit when the
     // value actually differs.
     connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags flags) {
         if (flags.testFlag(ChangeFlag::Lighting)) syncLightingPage();
-        syncQuickBar();
+        syncTopToolbar();
         syncViewDisplayPage();
         syncVolumePage();
     });
@@ -2921,14 +3143,6 @@ void MainWindow::dropEvent(QDropEvent* event) {
 
 void MainWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
-    if (!m_viewport) return;
-
-    // Reposition quick bar and handle within the viewport
-    if (m_quickBar && m_viewport) {
-        int margin = 8;
-        m_quickBar->move(margin, margin);
-        m_quickBarHandle->move(margin, margin);
-    }
 }
 
 void MainWindow::changeEvent(QEvent* ev) {
@@ -2949,10 +3163,6 @@ void MainWindow::recreateViewport() {
     // Reconnect timers
     connect(&m_fpsTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
     connect(&m_particleTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
-
-    // Re-parent quick bar widgets
-    if (m_quickBar) { m_quickBar->setParent(m_viewport); m_quickBar->show(); }
-    if (m_quickBarHandle) { m_quickBarHandle->setParent(m_viewport); m_quickBarHandle->show(); }
 
     old->deleteLater();
     m_viewport->update();

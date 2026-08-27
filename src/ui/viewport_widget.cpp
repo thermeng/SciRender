@@ -578,13 +578,13 @@ void ViewportWidget::drawEmptyState(QPainter& painter) {
     QFont f = painter.font();
     f.setPixelSize(16);
     painter.setFont(f);
-    painter.setPen(QColor(0x8a, 0x8a, 0x8a));
+    painter.setPen(palette().color(QPalette::Text));
     QRect textRect(cx - 120, cy, 240, 24);
     painter.drawText(textRect, Qt::AlignCenter, "Drop a file here");
 
     f.setPixelSize(13);
     painter.setFont(f);
-    painter.setPen(QColor(0x6a, 0x6a, 0x6a));
+    painter.setPen(palette().color(QPalette::Text));
     textRect.translate(0, 28);
     painter.drawText(textRect, Qt::AlignCenter, "or  File > Open Mesh");
 }
@@ -594,13 +594,14 @@ void ViewportWidget::drawSpinner(QPainter& painter) {
     const int cy = height() / 2;
     const int radius = 22;
 
-    // Dark disc background
+    QPalette pal = palette();
+    QColor bg = pal.color(QPalette::Window);
+    bg.setAlpha(180);
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(20, 20, 20, 180));
+    painter.setBrush(bg);
     painter.drawEllipse(QPoint(cx, cy), radius + 8, radius + 8);
 
-    // Animated arc
-    QPen pen(QColor(0x38, 0xbd, 0xf8), 3);
+    QPen pen(pal.color(QPalette::Highlight), 3);
     pen.setCapStyle(Qt::RoundCap);
     painter.setPen(pen);
     painter.setBrush(Qt::NoBrush);
@@ -608,8 +609,7 @@ void ViewportWidget::drawSpinner(QPainter& painter) {
     painter.drawArc(cx - radius, cy - radius, radius * 2, radius * 2,
                     startAngle, 270 * 16);
 
-    // Label
-    painter.setPen(QColor(0xaa, 0xaa, 0xaa));
+    painter.setPen(pal.color(QPalette::Text));
     QFont f = painter.font();
     f.setPixelSize(12);
     painter.setFont(f);

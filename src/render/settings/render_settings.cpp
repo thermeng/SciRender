@@ -353,12 +353,24 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("showBounds",          [](const RenderSettings& r) { return QVariant(r.m_state.showBounds); },                    [](RenderSettings& r, const QVariant& v) { r.m_state.showBounds = v.toBool(); });
         add("showLightMarkers",    [](const RenderSettings& r) { return QVariant(r.m_state.lighting.showLightMarkers); },     [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.showLightMarkers = v.toBool(); });
         add("colorRangeOverrideEnabled", [](const RenderSettings& r) { return QVariant(r.m_state.colorRangeOverrideEnabled); }, [](RenderSettings& r, const QVariant& v) { r.m_state.colorRangeOverrideEnabled = v.toBool(); });
+        add("volumeColorRangeOverrideEnabled", [](const RenderSettings& r) { return QVariant(r.m_state.volumeColorRangeOverrideEnabled); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColorRangeOverrideEnabled = v.toBool(); });
+        add("sliceColorRangeOverrideEnabled", [](const RenderSettings& r) { return QVariant(r.m_state.sliceColorRangeOverrideEnabled); }, [](RenderSettings& r, const QVariant& v) { r.m_state.sliceColorRangeOverrideEnabled = v.toBool(); });
+        add("glyphMagRangeOverrideEnabled", [](const RenderSettings& r) { return QVariant(r.m_state.glyphMagRangeOverrideEnabled); }, [](RenderSettings& r, const QVariant& v) { r.m_state.glyphMagRangeOverrideEnabled = v.toBool(); });
+        add("streamlineMagRangeOverrideEnabled", [](const RenderSettings& r) { return QVariant(r.m_state.streamlineMagRangeOverrideEnabled); }, [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineMagRangeOverrideEnabled = v.toBool(); });
         // int members
         add("colormapChoice",      [](const RenderSettings& r) { return QVariant(r.m_state.colormapChoice); },                [](RenderSettings& r, const QVariant& v) { r.m_state.colormapChoice = v.toInt(); });
         add("gizmoCorner",         [](const RenderSettings& r) { return QVariant(r.m_state.gizmoCorner); },                   [](RenderSettings& r, const QVariant& v) { r.m_state.gizmoCorner = v.toInt(); });
         add("gizmoSizeChoice",     [](const RenderSettings& r) { return QVariant(r.m_state.gizmoSizeChoice); },               [](RenderSettings& r, const QVariant& v) { r.m_state.gizmoSizeChoice = v.toInt(); });
         add("colorRangeLo",        [](const RenderSettings& r) { return QVariant(r.m_state.colorRangeLo); },                  [](RenderSettings& r, const QVariant& v) { r.m_state.colorRangeLo = v.toFloat(); });
         add("colorRangeHi",        [](const RenderSettings& r) { return QVariant(r.m_state.colorRangeHi); },                  [](RenderSettings& r, const QVariant& v) { r.m_state.colorRangeHi = v.toFloat(); });
+        add("volumeColorRangeLo",  [](const RenderSettings& r) { return QVariant(r.m_state.volumeColorRangeLo); },            [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColorRangeLo = v.toFloat(); });
+        add("volumeColorRangeHi",  [](const RenderSettings& r) { return QVariant(r.m_state.volumeColorRangeHi); },            [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColorRangeHi = v.toFloat(); });
+        add("sliceColorRangeLo",   [](const RenderSettings& r) { return QVariant(r.m_state.sliceColorRangeLo); },             [](RenderSettings& r, const QVariant& v) { r.m_state.sliceColorRangeLo = v.toFloat(); });
+        add("sliceColorRangeHi",   [](const RenderSettings& r) { return QVariant(r.m_state.sliceColorRangeHi); },             [](RenderSettings& r, const QVariant& v) { r.m_state.sliceColorRangeHi = v.toFloat(); });
+        add("glyphMagRangeLo",     [](const RenderSettings& r) { return QVariant(r.m_state.glyphMagRangeLo); },               [](RenderSettings& r, const QVariant& v) { r.m_state.glyphMagRangeLo = v.toFloat(); });
+        add("glyphMagRangeHi",     [](const RenderSettings& r) { return QVariant(r.m_state.glyphMagRangeHi); },               [](RenderSettings& r, const QVariant& v) { r.m_state.glyphMagRangeHi = v.toFloat(); });
+        add("streamlineMagRangeLo",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineMagRangeLo); },          [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineMagRangeLo = v.toFloat(); });
+        add("streamlineMagRangeHi",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineMagRangeHi); },          [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineMagRangeHi = v.toFloat(); });
         add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
         add("volumeSliceAxis",     [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceAxis); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceAxis = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
@@ -559,7 +571,15 @@ void RenderSettings::onMeshParsed() {
     // Reset per-mesh vector state.
     m_state.showVectors = false;
     m_state.showVolume = false;
-    m_state.vectorUseColormap = false;
+    m_state.vectorColorMode = 0;
+    m_state.glyphMagRangeOverrideEnabled = false;
+    m_state.glyphMagRangeLo = 0.0f;
+    m_state.glyphMagRangeHi = -1.0f;
+    for (int i = 0; i < 3; ++i) {
+        m_state.glyphCompRangeOverrideEnabled[i] = false;
+        m_state.glyphCompRangeLo[i] = 0.0f;
+        m_state.glyphCompRangeHi[i] = -1.0f;
+    }
     m_state.clipEnabled = false;
     m_state.crinkleClipMode = false;
     m_state.sliceEnabledX = m_state.sliceEnabledY = m_state.sliceEnabledZ = false;
@@ -587,6 +607,10 @@ void RenderSettings::onMeshParsed() {
         m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
         resetColorRangeOverride();
+        resetVolumeColorRangeOverride();
+        resetSliceColorRangeOverride();
+        resetGlyphMagRangeOverride();
+        resetStreamlineMagRangeOverride();
      } else {
         m_state.meshHasScalars = false;
         m_state.meshUseScalarColor = false;
@@ -619,6 +643,10 @@ void RenderSettings::onMeshParsed() {
         m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
         resetColorRangeOverride();
+        resetVolumeColorRangeOverride();
+        resetSliceColorRangeOverride();
+        resetGlyphMagRangeOverride();
+        resetStreamlineMagRangeOverride();
     }
 
     // Isosurface: a fresh mesh starts with the surface off and the threshold
@@ -734,6 +762,10 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         setFilterMin(effMin); setFilterMax(effMax);
         m_isoController.reset(effMin, effMax);
         resetColorRangeOverride(effMin, effMax);
+        resetVolumeColorRangeOverride();
+        resetSliceColorRangeOverride();
+        resetGlyphMagRangeOverride();
+        resetStreamlineMagRangeOverride();
     }
     m_state.dataScalarMin = effMin;
     m_state.dataScalarMax = effMax;
@@ -876,6 +908,8 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     m_state.filterMin = m_state.dataScalarMin;
     m_state.filterMax = m_state.dataScalarMax;
     resetColorRangeOverride();
+    resetVolumeColorRangeOverride();
+    resetSliceColorRangeOverride();
     // Mid-sequence switch: reseed the animation range accumulator from THIS
     // frame so playback normalizes the new field against its own range, not
     // the previous field's union. (AnimRangeState::advance also reseeds on any
@@ -917,6 +951,7 @@ void RenderSettings::setActiveVectorField(const QString& fieldName) {
     m_meshData.guiMeta.vectorName = name;
     m_state.vectorField = name;
     m_renderer.markVectorGlyphDirty();
+    resetGlyphMagRangeOverride();
     markStateDirty(); emit meshDataUpdated();
 }
 
@@ -931,6 +966,7 @@ void RenderSettings::setStreamlineVectorField(const QString& fieldName) {
     }
     m_state.streamlineVectorField = fieldName.toStdString();
     m_renderer.markStreamlineDirty();
+    resetStreamlineMagRangeOverride();
     markStateDirty(); emit meshDataUpdated();
 }
 
@@ -1013,6 +1049,176 @@ void RenderSettings::resetColorRangeOverride(float lo, float hi) {
     m_state.colorRangeOverrideEnabled = false;
     m_state.colorRangeLo = lo;
     m_state.colorRangeHi = hi;
+    if (wasDirty) { markStateDirty(); emit viewChanged(ChangeFlag::Colormap); }
+}
+
+// ---- per-pass fixed colormap windows ---------------------------------------
+// Volume/slice clamp into the scalar data range (GUI-owned copy). Magnitude
+// pairs enforce ordering only and seed from the renderer's scan values on
+// first enable; their resets park the pair in a degenerate state so a later
+// enable re-seeds against whatever data is current.
+
+void RenderSettings::resetColorRangeOverrideImpl(bool& enabled, float& lo, float& hi,
+                                                 float snapLo, float snapHi) {
+    const bool wasDirty = enabled || lo != snapLo || hi != snapHi;
+    enabled = false;
+    lo = snapLo;
+    hi = snapHi;
+    if (wasDirty) { markStateDirty(); emit viewChanged(ChangeFlag::Colormap); }
+}
+
+void RenderSettings::setVolumeColorRangeOverrideEnabled(bool v) {
+    if (m_state.volumeColorRangeOverrideEnabled == v) return;
+    if (v && m_state.volumeColorRangeHi - m_state.volumeColorRangeLo <= 0.0f) {
+        m_state.volumeColorRangeLo = m_state.dataScalarMin;
+        m_state.volumeColorRangeHi = m_state.dataScalarMax;
+    }
+    m_state.volumeColorRangeOverrideEnabled = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setVolumeColorRangeLo(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::min(v, m_state.volumeColorRangeHi);
+    if (m_state.volumeColorRangeLo == v) return;
+    m_state.volumeColorRangeLo = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setVolumeColorRangeHi(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::max(v, m_state.volumeColorRangeLo);
+    if (m_state.volumeColorRangeHi == v) return;
+    m_state.volumeColorRangeHi = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::resetVolumeColorRangeOverride() {
+    resetColorRangeOverrideImpl(m_state.volumeColorRangeOverrideEnabled,
+                                m_state.volumeColorRangeLo, m_state.volumeColorRangeHi,
+                                m_state.dataScalarMin, m_state.dataScalarMax);
+}
+
+void RenderSettings::setSliceColorRangeOverrideEnabled(bool v) {
+    if (m_state.sliceColorRangeOverrideEnabled == v) return;
+    if (v && m_state.sliceColorRangeHi - m_state.sliceColorRangeLo <= 0.0f) {
+        m_state.sliceColorRangeLo = m_state.dataScalarMin;
+        m_state.sliceColorRangeHi = m_state.dataScalarMax;
+    }
+    m_state.sliceColorRangeOverrideEnabled = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setSliceColorRangeLo(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::min(v, m_state.sliceColorRangeHi);
+    if (m_state.sliceColorRangeLo == v) return;
+    m_state.sliceColorRangeLo = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setSliceColorRangeHi(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::max(v, m_state.sliceColorRangeLo);
+    if (m_state.sliceColorRangeHi == v) return;
+    m_state.sliceColorRangeHi = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::resetSliceColorRangeOverride() {
+    resetColorRangeOverrideImpl(m_state.sliceColorRangeOverrideEnabled,
+                                m_state.sliceColorRangeLo, m_state.sliceColorRangeHi,
+                                m_state.dataScalarMin, m_state.dataScalarMax);
+}
+
+void RenderSettings::setGlyphMagRangeOverrideEnabled(bool v) {
+    if (m_state.glyphMagRangeOverrideEnabled == v) return;
+    if (v && m_state.glyphMagRangeHi - m_state.glyphMagRangeLo <= 0.0f) {
+        m_state.glyphMagRangeLo = m_renderer.vectorMagMin();
+        m_state.glyphMagRangeHi = std::max(m_renderer.vectorMagMax(), m_renderer.vectorMagMin() + 1e-6f);
+    }
+    m_state.glyphMagRangeOverrideEnabled = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setGlyphMagRangeLo(float v) {
+    v = std::min(v, m_state.glyphMagRangeHi);
+    if (m_state.glyphMagRangeLo == v) return;
+    m_state.glyphMagRangeLo = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setGlyphMagRangeHi(float v) {
+    v = std::max(v, m_state.glyphMagRangeLo);
+    if (m_state.glyphMagRangeHi == v) return;
+    m_state.glyphMagRangeHi = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::resetGlyphMagRangeOverride() {
+    const bool wasDirty = m_state.glyphMagRangeOverrideEnabled
+        || m_state.glyphMagRangeHi >= m_state.glyphMagRangeLo;
+    // Park degenerate so the next enable re-seeds against current data.
+    m_state.glyphMagRangeOverrideEnabled = false;
+    m_state.glyphMagRangeLo = 0.0f;
+    m_state.glyphMagRangeHi = -1.0f;
+    if (wasDirty) { markStateDirty(); emit viewChanged(ChangeFlag::Colormap); }
+}
+
+void RenderSettings::setStreamlineMagRangeOverrideEnabled(bool v) {
+    if (m_state.streamlineMagRangeOverrideEnabled == v) return;
+    if (v && m_state.streamlineMagRangeHi - m_state.streamlineMagRangeLo <= 0.0f) {
+        m_state.streamlineMagRangeLo = m_renderer.streamlineMagMin();
+        m_state.streamlineMagRangeHi = std::max(m_renderer.streamlineMagMax(), m_renderer.streamlineMagMin() + 1e-6f);
+    }
+    m_state.streamlineMagRangeOverrideEnabled = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setStreamlineMagRangeLo(float v) {
+    v = std::min(v, m_state.streamlineMagRangeHi);
+    if (m_state.streamlineMagRangeLo == v) return;
+    m_state.streamlineMagRangeLo = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setStreamlineMagRangeHi(float v) {
+    v = std::max(v, m_state.streamlineMagRangeLo);
+    if (m_state.streamlineMagRangeHi == v) return;
+    m_state.streamlineMagRangeHi = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::resetStreamlineMagRangeOverride() {
+    const bool wasDirty = m_state.streamlineMagRangeOverrideEnabled
+        || m_state.streamlineMagRangeHi >= m_state.streamlineMagRangeLo;
+    m_state.streamlineMagRangeOverrideEnabled = false;
+    m_state.streamlineMagRangeLo = 0.0f;
+    m_state.streamlineMagRangeHi = -1.0f;
+    if (wasDirty) { markStateDirty(); emit viewChanged(ChangeFlag::Colormap); }
+}
+
+void RenderSettings::setGlyphCompRangeOverrideEnabled(int comp, bool v) {
+    comp = std::clamp(comp, 0, 2);
+    if (m_state.glyphCompRangeOverrideEnabled[comp] == v) return;
+    if (v && m_state.glyphCompRangeHi[comp] - m_state.glyphCompRangeLo[comp] <= 0.0f) {
+        const float cMin = m_state.vectorCompMin[comp];
+        const float cMax = m_state.vectorCompMax[comp];
+        m_state.glyphCompRangeLo[comp] = cMin;
+        m_state.glyphCompRangeHi[comp] = std::max(cMax, cMin + 1e-6f);
+    }
+    m_state.glyphCompRangeOverrideEnabled[comp] = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setGlyphCompRangeLo(int comp, float v) {
+    comp = std::clamp(comp, 0, 2);
+    v = std::min(v, m_state.glyphCompRangeHi[comp]);
+    if (m_state.glyphCompRangeLo[comp] == v) return;
+    m_state.glyphCompRangeLo[comp] = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::setGlyphCompRangeHi(int comp, float v) {
+    comp = std::clamp(comp, 0, 2);
+    v = std::max(v, m_state.glyphCompRangeLo[comp]);
+    if (m_state.glyphCompRangeHi[comp] == v) return;
+    m_state.glyphCompRangeHi[comp] = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+void RenderSettings::resetGlyphCompRangeOverride(int comp) {
+    comp = std::clamp(comp, 0, 2);
+    const bool wasDirty = m_state.glyphCompRangeOverrideEnabled[comp]
+        || m_state.glyphCompRangeHi[comp] >= m_state.glyphCompRangeLo[comp];
+    m_state.glyphCompRangeOverrideEnabled[comp] = false;
+    m_state.glyphCompRangeLo[comp] = 0.0f;
+    m_state.glyphCompRangeHi[comp] = -1.0f;
     if (wasDirty) { markStateDirty(); emit viewChanged(ChangeFlag::Colormap); }
 }
 

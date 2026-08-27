@@ -23,6 +23,8 @@ public:
 
     float magMin = 0.0f;
     float magMax = 1.0f;
+    float compMin[3] = { 0.0f, 0.0f, 0.0f };
+    float compMax[3] = { 0.0f, 0.0f, 0.0f };
     float meshExtent = 1.0f;
 
     bool empty() const { return instanceCount == 0; }
