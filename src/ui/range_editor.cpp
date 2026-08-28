@@ -10,7 +10,6 @@ RangeEditor::RangeEditor(QWidget* parent) : QWidget(parent) {
     m_minSpin = new QDoubleSpinBox(this);
     m_maxSpin = new QDoubleSpinBox(this);
     m_resetBtn = new QPushButton("Reset", this);
-    // Global app.qss provides Fusion-like styling centrally
 
     for (auto* sp : {m_minSpin, m_maxSpin}) {
         sp->setDecimals(3);
@@ -28,8 +27,6 @@ RangeEditor::RangeEditor(QWidget* parent) : QWidget(parent) {
     }
 
     m_resetBtn->setToolTip("Reset to full data range");
-    m_resetBtn->setFixedWidth(44);
-    m_resetBtn->setFixedHeight(28);
     m_resetBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
     auto* lay = new QHBoxLayout(this);

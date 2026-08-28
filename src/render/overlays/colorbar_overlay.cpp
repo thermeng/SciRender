@@ -311,11 +311,7 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
                 }
                 p.fillRect(bandRect, col);
             }
-            // Outline the whole bar.
-            p.setPen(QApplication::palette().color(QPalette::Text));
-            p.setBrush(Qt::NoBrush);
-            const int radius = static_cast<int>(3 * dpr);
-            p.drawRoundedRect(lay.bar, radius, radius);
+            // No border — sharp publication style (keep fill only).
         } else {
             QLinearGradient grad(lay.bar.left(), 0.0, lay.bar.right(), 0.0);
             if (vertical) {
@@ -332,15 +328,12 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
                         qBound(0.0, s[3].toDouble(), 1.0)));
             }
             QPainterPath barPath;
-            const int radius = static_cast<int>(3 * dpr);
-            barPath.addRoundedRect(lay.bar, radius, radius);
+            barPath.addRect(lay.bar);
             p.save();
             p.setClipPath(barPath);
             p.fillRect(lay.bar, grad);
             p.restore();
-            p.setPen(QApplication::palette().color(QPalette::Text));
-            p.setBrush(Qt::NoBrush);
-            p.drawRoundedRect(lay.bar, radius, radius);
+            // No border — sharp publication style.
         }
     }
 
