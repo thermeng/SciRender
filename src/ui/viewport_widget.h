@@ -66,6 +66,10 @@ private:
     int m_msaaSamples = 0;
     QPoint m_lastMousePos;
     bool m_isMiddleClick = false;
+    bool m_isRightDragging = false;
+    bool m_rightDragging = false;
+    QPoint m_rightPressPos;
+    bool m_suppressContextMenu = false;
 
     QString m_pendingScreenshot;
     ScreenshotCapture m_screenshotCapture;
