@@ -253,12 +253,10 @@ void Renderer::setState(const RenderRenderState& state) {
     if (colormapChanged || scalarRangeChanged || colorbarStyleChanged) {
         colorbarOverlay.markDirty();
     }
-    double oldRadius = m_lastOrthoRadius;
     m_state = state;
-    if (m_state.orthographic && oldRadius != m_state.worldRadius) {
-        m_orthoRefDist = m_state.camera.distance > 0.0 ? m_state.camera.distance : 1.0;
-        m_lastOrthoRadius = m_state.worldRadius;
-    }
+    // Keep ortho zoom baseline stable — only seed lazily in renderFrame or on
+    // explicit resetCamera. Don't snap on every radius change (mesh load).
+    m_lastOrthoRadius = m_state.worldRadius;
 }
 
 void Renderer::resetCamera() {
@@ -939,17 +937,21 @@ void Renderer::renderFrame() {
     glm::mat4 view = m_state.camera.getViewMatrix();
 
     double camDist = m_state.camera.distance;
+    // Robust near/far: distance-aware for both modes, keeps panned/off-center
+    // meshes inside the depth range. Scene radius clamped to avoid zero.
+    double sceneR = std::max(static_cast<double>(m_state.worldRadius), 1e-4);
+    glm::dvec3 camPos = m_state.camera.position;
+    glm::dvec3 center(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
+    double distToCenter = glm::length(camPos - center);
     if (m_state.orthographic) {
-        // Orthographic projection: depth range based on world bounds for
-        // adequate depth precision in volume ray-marching. The frustum size
-        // is already controlled by worldRadius and camera distance via
-        // m_orthoRefDist in the ortho matrix setup.
-        nearPlane = std::max(0.01, static_cast<double>(m_state.worldRadius * 0.1));
-        farPlane  = std::max(100.0, static_cast<double>(m_state.worldRadius * 3.0));
+        nearPlane = std::max(0.01, camDist * 0.001);
+        farPlane  = distToCenter + sceneR * 1.5 + 250.0;
     } else {
         nearPlane = std::max(0.01, camDist * 0.001);
-        farPlane  = camDist + m_state.worldRadius + 250.0;
+        farPlane  = distToCenter + sceneR + 250.0;
     }
+    // Ensure far > near even for degenerate bounds
+    if (farPlane <= nearPlane + 1.0) farPlane = nearPlane + 100.0;
 
     // Clip control: switch post-projection NDC to Vulkan-style [0,1] depth so
     // shaders can skip manual gl_FragDepth remap and gain 24-bit extra precision.
@@ -957,7 +959,9 @@ void Renderer::renderFrame() {
     ? [&]() {
         if (m_orthoRefDist <= 0.0) m_orthoRefDist = std::max(m_state.camera.distance, 1e-6);
         float d = static_cast<float>(m_state.camera.distance / m_orthoRefDist);
-        float half = static_cast<float>(m_state.worldRadius * d);
+        float effR = std::max(static_cast<float>(m_state.worldRadius), 0.01f);
+        float half = effR * d;
+        half = std::max(half, 0.01f);
         float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
         m_state.fovY = glm::radians(45.0f);  // orthographic: use reference FOV for footprint scaling
         float n = static_cast<float>(nearPlane);
