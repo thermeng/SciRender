@@ -7,13 +7,13 @@
     <x>0</x>
     <y>0</y>
     <width>240</width>
-    <height>400</height>
+    <height>500</height>
    </rect>
   </property>
-   <layout class="QVBoxLayout" name="verticalLayout">
-    <property name="spacing">
-     <number>4</number>
-    </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
    <property name="leftMargin">
     <number>10</number>
    </property>
@@ -29,16 +29,19 @@
    <item>
     <widget class="QCheckBox" name="showSliceCb">
      <property name="text">
-      <string>Show Slice Plane</string>
+      <string>Show Slice Planes</string>
+     </property>
+     <property name="toolTip">
+      <string>Master toggle for all slice planes</string>
      </property>
     </widget>
    </item>
    <item>
     <widget class="QWidget" name="optionsGroup" native="true">
-      <layout class="QVBoxLayout" name="optionsLayout">
-       <property name="spacing">
-        <number>4</number>
-       </property>
+     <layout class="QVBoxLayout" name="optionsLayout">
+      <property name="spacing">
+       <number>4</number>
+      </property>
       <property name="leftMargin">
        <number>0</number>
       </property>
@@ -51,174 +54,328 @@
       <property name="bottomMargin">
        <number>0</number>
       </property>
+      <!-- ===== X Plane ===== -->
       <item>
-       <widget class="QLabel" name="axisHeader">
-        <property name="text">
-         <string>Axis</string>
+       <widget class="QGroupBox" name="xGroup">
+        <property name="title">
+         <string>X Plane</string>
         </property>
-       </widget>
-      </item>
-      <item>
-       <layout class="QHBoxLayout" name="axisRow">
-        <property name="spacing">
-         <number>4</number>
-        </property>
-        <item>
-         <widget class="QRadioButton" name="axisX">
-          <property name="text">
-           <string>X</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QRadioButton" name="axisY">
-          <property name="text">
-           <string>Y</string>
-          </property>
-          <property name="checked">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QRadioButton" name="axisZ">
-          <property name="text">
-           <string>Z</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item>
-       <widget class="QLabel" name="positionHeader">
-        <property name="text">
-         <string>Position</string>
-        </property>
-       </widget>
-      </item>
-       <item>
-        <layout class="QHBoxLayout" name="posRow">
+        <layout class="QVBoxLayout" name="xLayout">
          <property name="spacing">
-          <number>6</number>
+          <number>2</number>
          </property>
          <item>
-          <widget class="QLabel" name="posLabel">
-           <property name="minimumSize">
-            <size>
-             <width>72</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>72</width>
-             <height>16777215</height>
-            </size>
-           </property>
+          <widget class="QCheckBox" name="enableX">
            <property name="text">
-            <string>Position</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+            <string>Enable</string>
            </property>
           </widget>
          </item>
          <item>
-          <widget class="QSlider" name="posSlider">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
+          <layout class="QHBoxLayout" name="xPosRow">
+           <item>
+            <widget class="QLabel" name="xPosLabel">
+             <property name="minimumSize">
+              <size>
+               <width>50</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Pos</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QSlider" name="posXSlider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="xPosValue">
+             <property name="minimumSize">
+              <size>
+               <width>36</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>50%</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="xOpacityRow">
+           <item>
+            <widget class="QLabel" name="xOpacityLabel">
+             <property name="minimumSize">
+              <size>
+               <width>50</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Alpha</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QSlider" name="opacityXSlider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="xOpacityValue">
+             <property name="minimumSize">
+              <size>
+               <width>36</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>35%</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="colorbarX">
+           <property name="text">
+            <string>Show Colorbar</string>
            </property>
           </widget>
          </item>
-        <item>
-         <widget class="QLabel" name="posValue">
-          <property name="minimumSize">
-           <size>
-            <width>36</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>36</width>
-            <height>16777215</height>
-           </size>
-          </property>
-          <property name="text">
-           <string>50%</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignVCenter</set>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item>
-       <widget class="QLabel" name="opacityHeader">
-        <property name="text">
-         <string>Opacity</string>
-        </property>
+        </layout>
        </widget>
       </item>
-       <item>
-        <layout class="QHBoxLayout" name="opacityRow">
+      <!-- ===== Y Plane ===== -->
+      <item>
+       <widget class="QGroupBox" name="yGroup">
+        <property name="title">
+         <string>Y Plane</string>
+        </property>
+        <layout class="QVBoxLayout" name="yLayout">
          <property name="spacing">
-          <number>6</number>
+          <number>2</number>
          </property>
          <item>
-          <widget class="QLabel" name="opacityLabel">
-           <property name="minimumSize">
-            <size>
-             <width>72</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>72</width>
-             <height>16777215</height>
-            </size>
-           </property>
+          <widget class="QCheckBox" name="enableY">
            <property name="text">
-            <string>Opacity</string>
-           </property>
-           <property name="alignment">
-            <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+            <string>Enable</string>
            </property>
           </widget>
          </item>
          <item>
-          <widget class="QSlider" name="opacitySlider">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
+          <layout class="QHBoxLayout" name="yPosRow">
+           <item>
+            <widget class="QLabel" name="yPosLabel">
+             <property name="minimumSize">
+              <size>
+               <width>50</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Pos</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QSlider" name="posYSlider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="yPosValue">
+             <property name="minimumSize">
+              <size>
+               <width>36</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>50%</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="yOpacityRow">
+           <item>
+            <widget class="QLabel" name="yOpacityLabel">
+             <property name="minimumSize">
+              <size>
+               <width>50</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Alpha</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QSlider" name="opacityYSlider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="yOpacityValue">
+             <property name="minimumSize">
+              <size>
+               <width>36</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>35%</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="colorbarY">
+           <property name="text">
+            <string>Show Colorbar</string>
            </property>
           </widget>
          </item>
-        <item>
-         <widget class="QLabel" name="opacityValue">
-          <property name="minimumSize">
-           <size>
-            <width>36</width>
-            <height>0</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>36</width>
-            <height>16777215</height>
-           </size>
-          </property>
-          <property name="text">
-           <string>35%</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignVCenter</set>
-          </property>
-         </widget>
-        </item>
-       </layout>
+        </layout>
+       </widget>
       </item>
+      <!-- ===== Z Plane ===== -->
+      <item>
+       <widget class="QGroupBox" name="zGroup">
+        <property name="title">
+         <string>Z Plane</string>
+        </property>
+        <layout class="QVBoxLayout" name="zLayout">
+         <property name="spacing">
+          <number>2</number>
+         </property>
+         <item>
+          <widget class="QCheckBox" name="enableZ">
+           <property name="text">
+            <string>Enable</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="zPosRow">
+           <item>
+            <widget class="QLabel" name="zPosLabel">
+             <property name="minimumSize">
+              <size>
+               <width>50</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Pos</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QSlider" name="posZSlider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="zPosValue">
+             <property name="minimumSize">
+              <size>
+               <width>36</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>50%</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="zOpacityRow">
+           <item>
+            <widget class="QLabel" name="zOpacityLabel">
+             <property name="minimumSize">
+              <size>
+               <width>50</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Alpha</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QSlider" name="opacityZSlider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="zOpacityValue">
+             <property name="minimumSize">
+              <size>
+               <width>36</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>35%</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="colorbarZ">
+           <property name="text">
+            <string>Show Colorbar</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <!-- ===== Fixed Range ===== -->
       <item>
        <widget class="QCheckBox" name="rangeCb">
         <property name="text">

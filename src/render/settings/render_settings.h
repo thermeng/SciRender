@@ -284,10 +284,18 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool volumeColormapReversed READ getVolumeColormapReversed WRITE setVolumeColormapReversed NOTIFY viewChanged)
     Q_PROPERTY(double volumeStepSize READ getVolumeStepSize WRITE setVolumeStepSize NOTIFY viewChanged)
     Q_PROPERTY(double volumeOpacity READ getVolumeOpacity WRITE setVolumeOpacity NOTIFY viewChanged)
-    Q_PROPERTY(bool showVolumeSlice READ getShowVolumeSlice WRITE setShowVolumeSlice NOTIFY viewChanged)
-    Q_PROPERTY(int volumeSliceAxis READ getVolumeSliceAxis WRITE setVolumeSliceAxis NOTIFY viewChanged)
-    Q_PROPERTY(double volumeSlicePos READ getVolumeSlicePos WRITE setVolumeSlicePos NOTIFY viewChanged)
-    Q_PROPERTY(double volumeSliceOpacity READ getVolumeSliceOpacity WRITE setVolumeSliceOpacity NOTIFY viewChanged)
+    Q_PROPERTY(bool slicePlaneEnabledX READ getSlicePlaneEnabledX WRITE setSlicePlaneEnabledX NOTIFY viewChanged)
+    Q_PROPERTY(bool slicePlaneEnabledY READ getSlicePlaneEnabledY WRITE setSlicePlaneEnabledY NOTIFY viewChanged)
+    Q_PROPERTY(bool slicePlaneEnabledZ READ getSlicePlaneEnabledZ WRITE setSlicePlaneEnabledZ NOTIFY viewChanged)
+    Q_PROPERTY(double slicePlanePosX READ getSlicePlanePosX WRITE setSlicePlanePosX NOTIFY viewChanged)
+    Q_PROPERTY(double slicePlanePosY READ getSlicePlanePosY WRITE setSlicePlanePosY NOTIFY viewChanged)
+    Q_PROPERTY(double slicePlanePosZ READ getSlicePlanePosZ WRITE setSlicePlanePosZ NOTIFY viewChanged)
+    Q_PROPERTY(double slicePlaneOpacityX READ getSlicePlaneOpacityX WRITE setSlicePlaneOpacityX NOTIFY viewChanged)
+    Q_PROPERTY(double slicePlaneOpacityY READ getSlicePlaneOpacityY WRITE setSlicePlaneOpacityY NOTIFY viewChanged)
+    Q_PROPERTY(double slicePlaneOpacityZ READ getSlicePlaneOpacityZ WRITE setSlicePlaneOpacityZ NOTIFY viewChanged)
+    Q_PROPERTY(bool slicePlaneShowColorbarX READ getSlicePlaneShowColorbarX WRITE setSlicePlaneShowColorbarX NOTIFY viewChanged)
+    Q_PROPERTY(bool slicePlaneShowColorbarY READ getSlicePlaneShowColorbarY WRITE setSlicePlaneShowColorbarY NOTIFY viewChanged)
+    Q_PROPERTY(bool slicePlaneShowColorbarZ READ getSlicePlaneShowColorbarZ WRITE setSlicePlaneShowColorbarZ NOTIFY viewChanged)
     Q_PROPERTY(bool volumeSliceUseColormap READ getVolumeSliceUseColormap WRITE setVolumeSliceUseColormap NOTIFY viewChanged)
     Q_PROPERTY(int volumeSliceColormapChoice READ getVolumeSliceColormapChoice WRITE setVolumeSliceColormapChoice NOTIFY viewChanged)
     Q_PROPERTY(bool volumeSliceColormapReversed READ getVolumeSliceColormapReversed WRITE setVolumeSliceColormapReversed NOTIFY viewChanged)
@@ -568,11 +576,26 @@ public:
     STATE_PROP(getVolumeColormapReversed, setVolumeColormapReversed, bool, m_state.volumeColormapReversed, Colormap)
     STATE_PROP_CAST(getVolumeStepSize, setVolumeStepSize, float, m_state.volumeStepSize, Display)
     STATE_PROP_CAST(getVolumeOpacity, setVolumeOpacity, float, m_state.volumeOpacity, Display)
-    STATE_PROP(getShowVolumeSlice, setShowVolumeSlice, bool, m_state.showVolumeSlice, Display)
-    int getVolumeSliceAxis() const { return m_state.volumeSliceAxis; }
-    void setVolumeSliceAxis(int a) { int ax = std::clamp(a, 0, 2); if (m_state.volumeSliceAxis != ax) { m_state.volumeSliceAxis = ax; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-    STATE_PROP_CAST(getVolumeSlicePos, setVolumeSlicePos, float, m_state.volumeSlicePos, Display)
-    STATE_PROP_CAST(getVolumeSliceOpacity, setVolumeSliceOpacity, float, m_state.volumeSliceOpacity, Display)
+    bool getSlicePlaneEnabledX() const { return m_state.slicePlaneEnabled[0]; }
+    void setSlicePlaneEnabledX(bool v) { if (m_state.slicePlaneEnabled[0] != v) { m_state.slicePlaneEnabled[0] = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getSlicePlaneEnabledY() const { return m_state.slicePlaneEnabled[1]; }
+    void setSlicePlaneEnabledY(bool v) { if (m_state.slicePlaneEnabled[1] != v) { m_state.slicePlaneEnabled[1] = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getSlicePlaneEnabledZ() const { return m_state.slicePlaneEnabled[2]; }
+    void setSlicePlaneEnabledZ(bool v) { if (m_state.slicePlaneEnabled[2] != v) { m_state.slicePlaneEnabled[2] = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    STATE_PROP_CAST(getSlicePlanePosX, setSlicePlanePosX, float, m_state.slicePlanePos[0], Display)
+    STATE_PROP_CAST(getSlicePlanePosY, setSlicePlanePosY, float, m_state.slicePlanePos[1], Display)
+    STATE_PROP_CAST(getSlicePlanePosZ, setSlicePlanePosZ, float, m_state.slicePlanePos[2], Display)
+    STATE_PROP_CAST(getSlicePlaneOpacityX, setSlicePlaneOpacityX, float, m_state.slicePlaneOpacity[0], Display)
+    STATE_PROP_CAST(getSlicePlaneOpacityY, setSlicePlaneOpacityY, float, m_state.slicePlaneOpacity[1], Display)
+    STATE_PROP_CAST(getSlicePlaneOpacityZ, setSlicePlaneOpacityZ, float, m_state.slicePlaneOpacity[2], Display)
+    bool getSlicePlaneShowColorbarX() const { return m_state.slicePlaneShowColorbar[0]; }
+    void setSlicePlaneShowColorbarX(bool v) { if (m_state.slicePlaneShowColorbar[0] != v) { m_state.slicePlaneShowColorbar[0] = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getSlicePlaneShowColorbarY() const { return m_state.slicePlaneShowColorbar[1]; }
+    void setSlicePlaneShowColorbarY(bool v) { if (m_state.slicePlaneShowColorbar[1] != v) { m_state.slicePlaneShowColorbar[1] = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    bool getSlicePlaneShowColorbarZ() const { return m_state.slicePlaneShowColorbar[2]; }
+    void setSlicePlaneShowColorbarZ(bool v) { if (m_state.slicePlaneShowColorbar[2] != v) { m_state.slicePlaneShowColorbar[2] = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setSlicePlaneField(int axis, const QString& fieldName);
+    QString getSlicePlaneField(int axis) const { return QString::fromStdString(m_state.sliceScalarName[axis]); }
     STATE_PROP(getVolumeSliceUseColormap, setVolumeSliceUseColormap, bool, m_state.volumeSliceUseColormap, Colormap)
     STATE_PROP(getVolumeSliceColormapChoice, setVolumeSliceColormapChoice, int, m_state.volumeSliceColormapChoice, Colormap)
     STATE_PROP(getVolumeSliceColormapReversed, setVolumeSliceColormapReversed, bool, m_state.volumeSliceColormapReversed, Colormap)

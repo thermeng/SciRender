@@ -49,6 +49,7 @@
 #include "render/passes/GlyphPass.h"
 #include "render/passes/ParticlePass.h"
 #include "render/passes/VolumePass.h"
+#include "render/passes/VolumeTextureCache.h"
 #include "render/overlays/VolumeSliceOverlay.h"
 #include "render/passes/LodScheduler.h"
 #include "render/passes/DepthPeelPass.h"
@@ -305,19 +306,24 @@ struct RenderRenderState {
     float volumeOpacity = 1.0f;
     float fovY = glm::radians(45.0f);  // vertical field of view in radians
 
-    // Volume slice overlay
-    bool showVolumeSlice = false;
-    int  volumeSliceAxis = 1;
-    float volumeSlicePos = 0.5f;
-    float volumeSliceOpacity = 0.35f;
-    // The slice plane renders with its own colormap (independent of the full-volume
-    // one) and a value range computed from the data actually visible on the slice,
-    // so colors remap as the plane moves through the volume.
+    // Volume slice overlay (up to 3 planes, one per axis: 0=X, 1=Y, 2=Z)
+    bool slicePlaneEnabled[3] = {false, false, false};
+    float slicePlanePos[3] = {0.5f, 0.5f, 0.5f};
+    float slicePlaneOpacity[3] = {0.35f, 0.35f, 0.35f};
+    bool slicePlaneShowColorbar[3] = {false, false, false};
+    // The slice planes render with their own colormap (independent of the full-volume
+    // one) and a value range computed from the data actually visible on each slice,
+    // so colors remap as the planes move through the volume.
     bool volumeSliceUseColormap = true;
     int  volumeSliceColormapChoice = 3;
     bool volumeSliceColormapReversed = false;
-    float sliceScalarMin = 0.0f;
-    float sliceScalarMax = 1.0f;
+    float sliceScalarMin[3] = {0.0f, 0.0f, 0.0f};
+    float sliceScalarMax[3] = {1.0f, 1.0f, 1.0f};
+    std::string sliceScalarName[3];
+
+    bool anySlicePlaneEnabled() const {
+        return slicePlaneEnabled[0] || slicePlaneEnabled[1] || slicePlaneEnabled[2];
+    }
 
     // Screenshot export options
     bool screenshotTransparent = false;
@@ -655,6 +661,7 @@ private:
     QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
     StreamlineController m_streamlines;      // streamline compute + draw + seeds
     VolumePass m_volume;                      // volume ray-march pass
+    VolumeTextureCache m_volumeCache;         // per-field 3D texture cache (shared by volume + slices)
     VolumeSliceOverlay m_volumeSliceOverlay;  // volume slice plane overlay
 
     // Deep module — N-layer OIT behind one seam
