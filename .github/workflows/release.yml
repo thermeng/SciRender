@@ -59,6 +59,7 @@ jobs:
           Compress-Archive -Path package/* -DestinationPath dist/SciRender-win64.zip -Force
 
       - name: Upload Release assets
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
