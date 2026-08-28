@@ -11,19 +11,16 @@ class ColormapManager;
 class VolumePass {
 public:
     void init(const ShaderSources& sources);
-    void uploadVolume(const RenderRenderState& state, const std::vector<float>& scalars, int dimX, int dimY, int dimZ, const glm::vec3& boxMin, const glm::vec3& boxMax);
     void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
-              const ColormapManager& colormap, float pixelFootprintScale);
+              const ColormapManager& colormap, float pixelFootprintScale,
+              GLuint volumeTex, const glm::vec3& boxMin, const glm::vec3& boxMax);
     void shutdown();
     void clearVolume();
-    GLuint volumeTexture() const { return volumeTex_.get(); }
-    bool hasVolume() const { return volumeTex_.has(); }
     const glm::vec3& boxMin() const { return boxMin_; }
     const glm::vec3& boxMax() const { return boxMax_; }
 
 private:
     GlProgram program_;
-    GlTexture volumeTex_;
     GlVao quadVao_;
     GlBuffer quadVbo_;
     GLint locInvView_ = -1;
@@ -50,12 +47,7 @@ private:
     GLint locNumBands_ = -1;
     glm::vec3 boxMin_;
     glm::vec3 boxMax_;
-    int dimX_ = 0, dimY_ = 0, dimZ_ = 0;
     bool vaoInitialized_ = false;
-    // PBO double-buffer for async upload (Phase 2.1)
-    GlBuffer pbo_[2];
-    int pboIndex_ = 0;
-    bool pboInitialized_ = false;
 };
 
 

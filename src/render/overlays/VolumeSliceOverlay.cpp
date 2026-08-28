@@ -20,6 +20,7 @@ void VolumeSliceOverlay::init(const ShaderSources& sources) {
         m_scalarMaxLoc   = glGetUniformLocation(m_program, "uScalarMax");
         m_alphaLoc       = glGetUniformLocation(m_program, "uAlpha");
         m_numBandsLoc    = glGetUniformLocation(m_program, "uNumBands");
+        m_axisLoc        = glGetUniformLocation(m_program, "uAxis");
     }
 }
 
@@ -63,20 +64,10 @@ void VolumeSliceOverlay::buildQuad(float worldPos, int axis, const glm::vec3& bo
 }
 
 void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
-                              const ColormapManager& colormap, GLuint volumeTex,
+                              const ColormapManager& colormap, GLuint sliceTex[3],
                               const glm::vec3& boxMin, const glm::vec3& boxMax,
                               const RenderMesh* mesh) {
-    if (!state.showVolumeSlice || !volumeTex || !m_program.has()) return;
-
-    const float worldPos = boxMin[state.volumeSliceAxis] + (boxMax[state.volumeSliceAxis] - boxMin[state.volumeSliceAxis]) * state.volumeSlicePos;
-
-    if (m_worldPos != worldPos || m_axis != state.volumeSliceAxis || m_boxMin != boxMin || m_boxMax != boxMax) {
-        buildQuad(worldPos, state.volumeSliceAxis, boxMin, boxMax);
-        m_worldPos = worldPos;
-        m_axis = state.volumeSliceAxis;
-        m_boxMin = boxMin;
-        m_boxMax = boxMax;
-    }
+    if (!state.anySlicePlaneEnabled() || !m_program.has()) return;
 
     glm::mat4 mvp = proj * view;
 
@@ -87,24 +78,14 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
-    glDepthMask(GL_FALSE);
+    glDepthMask(GL_TRUE);
 
     glUseProgram(m_program);
     glUniformMatrix4fv(m_mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniform3fv(m_boxMinLoc, 1, glm::value_ptr(boxMin));
     glUniform3fv(m_boxMaxLoc, 1, glm::value_ptr(boxMax));
-    // Fixed colormap window freezes the per-plane adaptive range while sweeping.
-    const float mapMin = state.sliceColorRangeOverrideEnabled ? state.sliceColorRangeLo : state.sliceScalarMin;
-    const float mapMax = state.sliceColorRangeOverrideEnabled ? state.sliceColorRangeHi : state.sliceScalarMax;
-    glUniform1f(m_scalarMinLoc, mapMin);
-    glUniform1f(m_scalarMaxLoc, mapMax);
-    glUniform1f(m_alphaLoc, state.volumeSliceOpacity);
     glUniform1i(m_useColormapLoc, state.volumeSliceUseColormap ? 1 : 0);
     if (m_numBandsLoc != -1) glUniform1f(m_numBandsLoc, static_cast<float>(state.volumeSliceColorBands));
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_3D, volumeTex);
-    glUniform1i(m_volumeTexLoc, 0);
 
     if (state.volumeSliceUseColormap && colormap.volumeSliceTexture() != 0) {
         glActiveTexture(GL_TEXTURE1);
@@ -114,9 +95,23 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
         glUniform1i(m_lutLoc, 0);
     }
 
-    glBindVertexArray(m_vao);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glDrawArrays(GL_LINE_LOOP, 4, 4);
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!state.slicePlaneEnabled[axis] || !sliceTex[axis]) continue;
+        float worldPos = boxMin[axis] + (boxMax[axis] - boxMin[axis]) * state.slicePlanePos[axis];
+        buildQuad(worldPos, axis, boxMin, boxMax);
+        const float mapMin = state.sliceColorRangeOverrideEnabled ? state.sliceColorRangeLo : state.sliceScalarMin[axis];
+        const float mapMax = state.sliceColorRangeOverrideEnabled ? state.sliceColorRangeHi : state.sliceScalarMax[axis];
+        glUniform1f(m_scalarMinLoc, mapMin);
+        glUniform1f(m_scalarMaxLoc, mapMax);
+        glUniform1f(m_alphaLoc, state.slicePlaneOpacity[axis]);
+        if (m_axisLoc != -1) glUniform1i(m_axisLoc, axis);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_3D, sliceTex[axis]);
+        glUniform1i(m_volumeTexLoc, 0);
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glDrawArrays(GL_LINE_LOOP, 4, 4);
+    }
 
     glBindVertexArray(0);
 

@@ -103,7 +103,6 @@ private:
     QAction* m_tbWireframe = nullptr;
     QAction* m_tbSurface = nullptr;
     QAction* m_tbVolume = nullptr;
-    QAction* m_tbSlice = nullptr;
 
     // Sidebar
     QDockWidget* m_sidebarDock = nullptr;
@@ -224,13 +223,14 @@ private:
     QCheckBox* m_vecShowCb = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;
     QCheckBox* m_volumeSliceShowCb = nullptr;
+    QCheckBox* m_sliceShowCb = nullptr;
+    QCheckBox* m_sliceEnableX = nullptr;
+    QCheckBox* m_sliceEnableY = nullptr;
+    QCheckBox* m_sliceEnableZ = nullptr;
+    QWidget* m_sliceOptionsGroup = nullptr;
+    QComboBox* m_sliceFieldCombo[3] = {nullptr, nullptr, nullptr};
     QWidget* m_volumeOptionsGroup = nullptr;          // gated on data availability only
     QList<QWidget*> m_volumeRenderCtrls;              // volume-rendering-only controls (gated on showVolume)
-    QRadioButton* m_sliceAxisXRb = nullptr;
-    QRadioButton* m_sliceAxisYRb = nullptr;
-    QRadioButton* m_sliceAxisZRb = nullptr;
-    QSlider* m_slicePosSlider = nullptr;
-    QLabel* m_slicePosValue = nullptr;
 
     // Isosurface controls (on the Volume page, gated on structured volume data)
     QCheckBox* m_isoEnableCb = nullptr;
@@ -244,25 +244,8 @@ private:
     QLineEdit* m_filterMaxField = nullptr;
     QCheckBox* m_filterEnabledCb = nullptr;
 
-    // Fixed colormap range (Colormap page)
-    QSlider* m_colorLoSlider = nullptr;
-    QLineEdit* m_colorLoField = nullptr;
-    QSlider* m_colorHiSlider = nullptr;
-    QLineEdit* m_colorHiField = nullptr;
-    QCheckBox* m_colorRangeCb = nullptr;
-    RangeEditor* m_colorRangeEditor = nullptr;
-
-    // Per-pass Fixed Range editors
-    RangeEditor* m_volumeRangeEditor = nullptr;
-    QCheckBox* m_volumeRangeCb = nullptr;
-    RangeEditor* m_sliceRangeEditor = nullptr;
-    QCheckBox* m_sliceRangeCb = nullptr;
-    RangeEditor* m_glyphMagRangeEditor = nullptr;
-    QCheckBox* m_glyphMagRangeCb = nullptr;
-    int m_glyphRangeBoundComp = -1; // -1=magnitude, 0/1/2=X/Y/Z based on vectorColorMode
-    RangeEditor* m_streamlineMagRangeEditor = nullptr;
-    QCheckBox* m_streamlineMagRangeCb = nullptr;
-    int m_streamlineRangeBoundComp = -1; // -1=magnitude, 0/1/2=X/Y/Z based on streamlineColorMode
+    // Fixed colormap range now in Colorbar Style dialog — removed from sidebar
+    // (RenderSettings still owns the state; dialog performs live-apply.)
 
     // Mesh info page (rebuilt on mesh load)
     QWidget* m_meshInfoPage = nullptr;
@@ -282,11 +265,6 @@ private:
 
     void refreshClippingPageBounds();
     void refreshScalarFilterRange();
-    void refreshColorRangeBounds();
-    void refreshVolumeRangeBounds();
-    void refreshSliceRangeBounds();
-    void refreshGlyphMagRangeBounds();
-    void refreshStreamlineMagRangeBounds();
     void refreshIsosurfaceSlider();
 
     // Timers

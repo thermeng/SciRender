@@ -130,20 +130,13 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
 
 void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     if (!renderMesh) return;
-    // Phase 1.3: gate vector/ volume rebuild on content hash to skip static fields
+    // Phase 1.3: gate vector rebuild on content hash to skip static fields
     bool vectorChanged = true;
-    bool volumeChanged = true;
     if (m_lastUploadedMesh) {
         if (renderMesh->vectorHash != 0 && m_lastUploadedMesh->vectorHash == renderMesh->vectorHash
             && m_lastUploadedMesh->pointVectorCount == renderMesh->pointVectorCount
             && m_lastUploadedMesh->cellVectorCount == renderMesh->cellVectorCount) {
             vectorChanged = false;
-        }
-        if (renderMesh->scalarHash != 0 && m_lastUploadedMesh->scalarHash == renderMesh->scalarHash
-            && renderMesh->gridDimX == m_lastUploadedMesh->gridDimX
-            && renderMesh->gridDimY == m_lastUploadedMesh->gridDimY
-            && renderMesh->gridDimZ == m_lastUploadedMesh->gridDimZ) {
-            volumeChanged = false;
         }
     }
     meshManager.upload(renderMesh);
@@ -155,21 +148,8 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     // (requestRecompute is already debounced at 0.15s and coalesces rapid animation frames)
     // streamlineSet.rebuild(...) removed to halve CPU per frame
 
-    if (renderMesh->gridDimX > 0 && renderMesh->gridDimY > 0 && renderMesh->gridDimZ > 0 && !renderMesh->scalars.empty()) {
-        if (!volumeChanged) {
-            // Scalar content unchanged, skip 64MB 3D texture upload
-        } else {
-            glm::vec3 boxMin(renderMesh->bounds.minX, renderMesh->bounds.minY, renderMesh->bounds.minZ);
-            glm::vec3 boxMax(renderMesh->bounds.maxX, renderMesh->bounds.maxY, renderMesh->bounds.maxZ);
-            qDebug() << "[DEBUG MESH] bounds:"
-                     << "min:" << static_cast<float>(renderMesh->bounds.minX) << static_cast<float>(renderMesh->bounds.minY) << static_cast<float>(renderMesh->bounds.minZ)
-                     << "max:" << static_cast<float>(renderMesh->bounds.maxX) << static_cast<float>(renderMesh->bounds.maxY) << static_cast<float>(renderMesh->bounds.maxZ)
-                     << "gridDim:" << renderMesh->gridDimX << renderMesh->gridDimY << renderMesh->gridDimZ;
-            m_volume.uploadVolume(m_state, renderMesh->scalars, renderMesh->gridDimX, renderMesh->gridDimY, renderMesh->gridDimZ, boxMin, boxMax);
-        }
-    } else {
-        m_volume.clearVolume();
-    }
+    // Invalidate the field-texture cache so textures rebuild from the new mesh on next draw.
+    m_volumeCache.invalidateAll();
     // Ensure streamlines are recomputed for new mesh via async path
     if (m_state.showStreamlines) {
         m_streamlines.requestRecompute();
@@ -218,8 +198,12 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.volumeSliceColormapReversed != state.volumeSliceColormapReversed;
     bool scalarRangeChanged = m_state.dataScalarMin != state.dataScalarMin
         || m_state.dataScalarMax != state.dataScalarMax
-        || m_state.sliceScalarMin != state.sliceScalarMin
-        || m_state.sliceScalarMax != state.sliceScalarMax
+        || m_state.sliceScalarMin[0] != state.sliceScalarMin[0]
+        || m_state.sliceScalarMax[0] != state.sliceScalarMax[0]
+        || m_state.sliceScalarMin[1] != state.sliceScalarMin[1]
+        || m_state.sliceScalarMax[1] != state.sliceScalarMax[1]
+        || m_state.sliceScalarMin[2] != state.sliceScalarMin[2]
+        || m_state.sliceScalarMax[2] != state.sliceScalarMax[2]
         || m_state.activeScalarName != state.activeScalarName
         || m_state.colorbarTicks != state.colorbarTicks
         || m_state.colorRangeOverrideEnabled != state.colorRangeOverrideEnabled
@@ -350,6 +334,7 @@ void Renderer::reinitForNewContext() {
         glyphPass.shutdown();
         particlePass.shutdown();
         m_volume.shutdown();
+        m_volumeCache.shutdown();
         m_depthPeel.shutdown();
 
         // Shutdown subsystems — each deletes its own GL handles and zeros them.
@@ -404,9 +389,7 @@ void Renderer::reinitMeshData() {
         m_qualityOverlay.markDirty();
 
         if (m_lastUploadedMesh->hasVolumeData()) {
-            glm::vec3 boxMin(m_lastUploadedMesh->bounds.minX, m_lastUploadedMesh->bounds.minY, m_lastUploadedMesh->bounds.minZ);
-            glm::vec3 boxMax(m_lastUploadedMesh->bounds.maxX, m_lastUploadedMesh->bounds.maxY, m_lastUploadedMesh->bounds.maxZ);
-            m_volume.uploadVolume(m_state, m_lastUploadedMesh->scalars, m_lastUploadedMesh->gridDimX, m_lastUploadedMesh->gridDimY, m_lastUploadedMesh->gridDimZ, boxMin, boxMax);
+            m_volumeCache.invalidateAll();
         }
 
         // Isosurface survives GL-context resets: re-upload the last extracted
@@ -429,12 +412,14 @@ bool Renderer::consumeVolumeDirty() {
 void Renderer::uploadVolumeFromScalarDirty(const RenderRenderState& state,
     std::shared_ptr<const std::vector<float>> scalars,
     std::shared_ptr<const RenderMesh> mesh) {
-    if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0
-        || !scalars || scalars->empty()) return;
-    glm::vec3 boxMin(mesh->bounds.minX, mesh->bounds.minY, mesh->bounds.minZ);
-    glm::vec3 boxMax(mesh->bounds.maxX, mesh->bounds.maxY, mesh->bounds.maxZ);
-    m_volume.uploadVolume(state, *scalars, mesh->gridDimX, mesh->gridDimY, mesh->gridDimZ,
-                          boxMin, boxMax);
+    if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0) return;
+    // Drop cached textures so they rebuild from the new active field on next draw.
+    m_volumeCache.invalidate(m_state.activeScalarName);
+    for (int axis = 0; axis < 3; ++axis) {
+        const std::string& field = m_state.sliceScalarName[axis].empty()
+            ? m_state.activeScalarName : m_state.sliceScalarName[axis];
+        m_volumeCache.invalidate(field);
+    }
 }
 
 void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars) {
@@ -713,12 +698,19 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 }, m_state.volumeColorBands);
     }
 
-    // Slice plane bar (independent colormap, per-slice scalar range)
-    if (m_state.showVolumeSlice && m_state.volumeSliceUseColormap && m_state.hasMeshLoaded) {
-        const float slMin = m_state.sliceColorRangeOverrideEnabled ? m_state.sliceColorRangeLo : m_state.sliceScalarMin;
-        const float slMax = m_state.sliceColorRangeOverrideEnabled ? m_state.sliceColorRangeHi : m_state.sliceScalarMax;
+    // Slice plane bars (independent colormap, per-slice scalar range)
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!m_state.slicePlaneEnabled[axis] || !m_state.slicePlaneShowColorbar[axis]) continue;
+        if (!m_state.volumeSliceUseColormap || !m_state.hasMeshLoaded) continue;
+        const char* axisLabel[3] = { "X", "Y", "Z" };
+        const float slMin = m_state.sliceColorRangeOverrideEnabled ? m_state.sliceColorRangeLo : m_state.sliceScalarMin[axis];
+        const float slMax = m_state.sliceColorRangeOverrideEnabled ? m_state.sliceColorRangeHi : m_state.sliceScalarMax[axis];
         const float range = slMax - slMin;
-        makeBar("Slice", QString::fromStdString(m_state.activeScalarName),
+        std::string subtitle = std::string("Slice ") + axisLabel[axis];
+        const std::string& field = m_state.sliceScalarName[axis].empty()
+            ? m_state.activeScalarName : m_state.sliceScalarName[axis];
+        QString title = QString::fromStdString(field);
+        makeBar(subtitle.c_str(), title,
                 stopsFor(m_state.volumeSliceColormapChoice, m_state.volumeSliceColormapReversed),
                 [&](int i) {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
@@ -800,63 +792,65 @@ QRectF Renderer::colorbarBarRect(float dpr, int deviceW, int deviceH, const Colo
 
 void Renderer::updateSliceScalarRange() {
     const RenderMesh* mesh = m_lastUploadedMesh.get();
-    if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0 ||
-        mesh->scalars.empty()) {
-        m_state.sliceScalarMin = 0.0f;
-        m_state.sliceScalarMax = 1.0f;
+    if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0) {
+        for (int a = 0; a < 3; ++a) { m_state.sliceScalarMin[a] = 0.0f; m_state.sliceScalarMax[a] = 1.0f; }
         return;
     }
-    const std::vector<float>& s = mesh->scalars;
     const int dx = mesh->gridDimX, dy = mesh->gridDimY, dz = mesh->gridDimZ;
-    const int axis = m_state.volumeSliceAxis;
-    const int dim = (axis == 0) ? dx : (axis == 1) ? dy : dz;
-    int i0 = static_cast<int>(std::floor(m_state.volumeSlicePos * static_cast<float>(dim - 1)));
-    if (i0 < 0) i0 = 0;
-    if (i0 >= dim) i0 = dim - 1;
-    int i1 = i0 + 1;
-    if (i1 >= dim) i1 = dim - 1;
 
-    const int total = static_cast<int>(s.size());
-    // Initialize from +/-inf (NOT s[0]): s[0] is one corner of the whole volume and is
-    // almost never on the current slice, so seeding mn from it pins the reported
-    // minimum to an off-slice value and squashes the colormap to the top of the range.
-    float mn = std::numeric_limits<float>::max();
-    float mx = std::numeric_limits<float>::lowest();
-    // The 3D texture uses GL_LINEAR, so the slice quad trilinearly interpolates between
-    // the two grid planes straddling the position. Scanning BOTH planes captures the
-    // exact value range the slice can display (otherwise a true [5,10] slice is
-    // reported as [7,10] and the low end of the colormap is clipped).
-    auto scanPlane = [&](int plane) {
-        if (axis == 0) {
-            for (int iy = 0; iy < dy; ++iy)
-                for (int iz = 0; iz < dz; ++iz) {
-                    int i = plane + iy * dx + iz * dx * dy;
-                    if (i < total) { float v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-                }
-        } else if (axis == 1) {
-            for (int ix = 0; ix < dx; ++ix)
-                for (int iz = 0; iz < dz; ++iz) {
-                    int i = ix + plane * dx + iz * dx * dy;
-                    if (i < total) { float v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-                }
-        } else {
-            for (int ix = 0; ix < dx; ++ix)
-                for (int iy = 0; iy < dy; ++iy) {
-                    int i = ix + iy * dx + plane * dx * dy;
-                    if (i < total) { float v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-                }
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!m_state.slicePlaneEnabled[axis]) continue;
+        const std::string& field = m_state.sliceScalarName[axis].empty()
+            ? m_state.activeScalarName : m_state.sliceScalarName[axis];
+        float rngMin, rngMax;
+        const std::vector<float>* s = FieldResolver::scalarData(*mesh, field, rngMin, rngMax);
+        if (!s || s->empty()) {
+            m_state.sliceScalarMin[axis] = 0.0f;
+            m_state.sliceScalarMax[axis] = 1.0f;
+            continue;
         }
-    };
-    scanPlane(i0);
-    if (i1 != i0) scanPlane(i1);
-    if (mn > mx) {
-        mn = 0.0f;
-        mx = 1.0f;
-    } else if (mx - mn < 1e-6f) {
-        mx = mn + 1.0f;
+        const int total = static_cast<int>(s->size());
+        const int dim = (axis == 0) ? dx : (axis == 1) ? dy : dz;
+        int i0 = static_cast<int>(std::floor(m_state.slicePlanePos[axis] * static_cast<float>(dim - 1)));
+        if (i0 < 0) i0 = 0;
+        if (i0 >= dim) i0 = dim - 1;
+        int i1 = i0 + 1;
+        if (i1 >= dim) i1 = dim - 1;
+
+        float mn = std::numeric_limits<float>::max();
+        float mx = std::numeric_limits<float>::lowest();
+        auto scanPlane = [&](int plane) {
+            if (axis == 0) {
+                for (int iy = 0; iy < dy; ++iy)
+                    for (int iz = 0; iz < dz; ++iz) {
+                        int i = plane + iy * dx + iz * dx * dy;
+                        if (i < total) { float v = (*s)[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+                    }
+            } else if (axis == 1) {
+                for (int ix = 0; ix < dx; ++ix)
+                    for (int iz = 0; iz < dz; ++iz) {
+                        int i = ix + plane * dx + iz * dx * dy;
+                        if (i < total) { float v = (*s)[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+                    }
+            } else {
+                for (int ix = 0; ix < dx; ++ix)
+                    for (int iy = 0; iy < dy; ++iy) {
+                        int i = ix + iy * dx + plane * dx * dy;
+                        if (i < total) { float v = (*s)[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+                    }
+            }
+        };
+        scanPlane(i0);
+        if (i1 != i0) scanPlane(i1);
+        if (mn > mx) {
+            mn = 0.0f;
+            mx = 1.0f;
+        } else if (mx - mn < 1e-6f) {
+            mx = mn + 1.0f;
+        }
+        m_state.sliceScalarMin[axis] = mn;
+        m_state.sliceScalarMax[axis] = mx;
     }
-    m_state.sliceScalarMin = mn;
-    m_state.sliceScalarMax = mx;
 }
 
 void Renderer::renderFrame() {
@@ -1070,14 +1064,28 @@ void Renderer::renderFrame() {
         particlePass.draw(m_state, static_cast<float>(m_lastFrameDt), mvp, streamlineSet, colormap);
 
     float pixelFootprintScale = deviceH > 0 ? std::tan(m_state.fovY * 0.5f) * 2.0f / static_cast<float>(deviceH) : 1.0f;
-    m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale);
 
-    // Recompute the slice plane's scalar range from the current data slice so the
-    // colormap remaps as the plane moves (only needed when a slice is visible).
-    if (m_state.showVolumeSlice) updateSliceScalarRange();
+    glm::vec3 boxMin(0.0f), boxMax(0.0f);
+    if (m_lastUploadedMesh) {
+        boxMin = glm::vec3(m_lastUploadedMesh->bounds.minX, m_lastUploadedMesh->bounds.minY, m_lastUploadedMesh->bounds.minZ);
+        boxMax = glm::vec3(m_lastUploadedMesh->bounds.maxX, m_lastUploadedMesh->bounds.maxY, m_lastUploadedMesh->bounds.maxZ);
+    }
 
-    m_volumeSliceOverlay.draw(m_state, view, proj, colormap, m_volume.volumeTexture(),
-                              m_volume.boxMin(), m_volume.boxMax(), m_lastUploadedMesh.get());
+    GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_lastUploadedMesh.get(), boxMin, boxMax);
+    m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale, volTex, boxMin, boxMax);
+
+    // Recompute the slice planes' scalar ranges from the current data slices so the
+    // colormap remaps as the planes move (only needed when a slice is visible).
+    if (m_state.anySlicePlaneEnabled()) updateSliceScalarRange();
+
+    GLuint sliceTex[3] = {0, 0, 0};
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!m_state.slicePlaneEnabled[axis]) continue;
+        const std::string& field = m_state.sliceScalarName[axis].empty()
+            ? m_state.activeScalarName : m_state.sliceScalarName[axis];
+        sliceTex[axis] = m_volumeCache.textureForField(field, m_lastUploadedMesh.get(), boxMin, boxMax);
+    }
+    m_volumeSliceOverlay.draw(m_state, view, proj, colormap, sliceTex, boxMin, boxMax, m_lastUploadedMesh.get());
 
     if (m_state.showGizmo) drawGizmo(deviceW, deviceH);
 

@@ -14,7 +14,7 @@ class VolumeSliceOverlay {
 public:
     void init(const ShaderSources& sources);
     void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
-              const ColormapManager& colormap, GLuint volumeTex,
+              const ColormapManager& colormap, GLuint sliceTex[3],
               const glm::vec3& boxMin, const glm::vec3& boxMax,
               const RenderMesh* mesh);
     void shutdown();
@@ -36,11 +36,5 @@ private:
     GLint m_scalarMaxLoc = -1;
     GLint m_alphaLoc = -1;
     GLint m_numBandsLoc = -1;
-
-    float m_worldPos = 0.5f;
-    int m_axis = 1;
-    glm::vec3 m_boxMin{0.0f};
-    glm::vec3 m_boxMax{1.0f};
+    GLint m_axisLoc = -1;
 };
-
-

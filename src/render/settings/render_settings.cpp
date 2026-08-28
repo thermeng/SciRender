@@ -322,8 +322,12 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("lightWarm",           [](const RenderSettings& r) { return QVariant(r.m_state.lighting.lightWarm); },           [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.lightWarm = v.toFloat(); });
         add("volumeStepSize",      [](const RenderSettings& r) { return QVariant(r.m_state.volumeStepSize); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeStepSize = v.toFloat(); });
         add("volumeOpacity",       [](const RenderSettings& r) { return QVariant(r.m_state.volumeOpacity); },                [](RenderSettings& r, const QVariant& v) { r.m_state.volumeOpacity = v.toFloat(); });
-        add("volumeSlicePos",      [](const RenderSettings& r) { return QVariant(r.m_state.volumeSlicePos); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSlicePos = v.toFloat(); });
-        add("volumeSliceOpacity",  [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceOpacity); },           [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceOpacity = v.toFloat(); });
+        add("slicePlanePosX",        [](const RenderSettings& r) { return QVariant(r.m_state.slicePlanePos[0]); },              [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlanePos[0] = v.toFloat(); });
+        add("slicePlanePosY",        [](const RenderSettings& r) { return QVariant(r.m_state.slicePlanePos[1]); },              [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlanePos[1] = v.toFloat(); });
+        add("slicePlanePosZ",        [](const RenderSettings& r) { return QVariant(r.m_state.slicePlanePos[2]); },              [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlanePos[2] = v.toFloat(); });
+        add("slicePlaneOpacityX",    [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneOpacity[0]); },          [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneOpacity[0] = v.toFloat(); });
+        add("slicePlaneOpacityY",    [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneOpacity[1]); },          [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneOpacity[1] = v.toFloat(); });
+        add("slicePlaneOpacityZ",    [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneOpacity[2]); },          [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneOpacity[2] = v.toFloat(); });
         add("vectorScale",         [](const RenderSettings& r) { return QVariant(r.m_state.vectorScale); },                  [](RenderSettings& r, const QVariant& v) { r.m_state.vectorScale = v.toFloat(); });
         add("colorbarFontFamily",  [](const RenderSettings& r) { return QVariant(r.m_state.colorbarFontFamily); },   [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarFontFamily = v.toString(); });
         add("colorbarFontBold",    [](const RenderSettings& r) { return QVariant(r.m_state.colorbarFontBold); },     [](RenderSettings& r, const QVariant& v) { r.m_state.colorbarFontBold = v.toBool(); });
@@ -340,7 +344,15 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("showVolume",          [](const RenderSettings& r) { return QVariant(r.m_state.showVolume); },                    [](RenderSettings& r, const QVariant& v) { r.m_state.showVolume = v.toBool(); });
         add("volumeUseColormap",   [](const RenderSettings& r) { return QVariant(r.m_state.volumeUseColormap); },             [](RenderSettings& r, const QVariant& v) { r.m_state.volumeUseColormap = v.toBool(); });
         add("volumeColormapReversed", [](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapReversed); },     [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapReversed = v.toBool(); });
-        add("showVolumeSlice",     [](const RenderSettings& r) { return QVariant(r.m_state.showVolumeSlice); },               [](RenderSettings& r, const QVariant& v) { r.m_state.showVolumeSlice = v.toBool(); });
+        add("slicePlaneEnabledX",   [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneEnabled[0]); },          [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneEnabled[0] = v.toBool(); });
+        add("slicePlaneEnabledY",   [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneEnabled[1]); },          [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneEnabled[1] = v.toBool(); });
+        add("slicePlaneEnabledZ",   [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneEnabled[2]); },          [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneEnabled[2] = v.toBool(); });
+        add("slicePlaneShowColorbarX", [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneShowColorbar[0]); },  [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneShowColorbar[0] = v.toBool(); });
+        add("slicePlaneShowColorbarY", [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneShowColorbar[1]); },  [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneShowColorbar[1] = v.toBool(); });
+        add("slicePlaneShowColorbarZ", [](const RenderSettings& r) { return QVariant(r.m_state.slicePlaneShowColorbar[2]); },  [](RenderSettings& r, const QVariant& v) { r.m_state.slicePlaneShowColorbar[2] = v.toBool(); });
+        add("sliceScalarNameX", [](const RenderSettings& r) { return QVariant(QString::fromStdString(r.m_state.sliceScalarName[0])); }, [](RenderSettings& r, const QVariant& v) { r.m_state.sliceScalarName[0] = v.toString().toStdString(); });
+        add("sliceScalarNameY", [](const RenderSettings& r) { return QVariant(QString::fromStdString(r.m_state.sliceScalarName[1])); }, [](RenderSettings& r, const QVariant& v) { r.m_state.sliceScalarName[1] = v.toString().toStdString(); });
+        add("sliceScalarNameZ", [](const RenderSettings& r) { return QVariant(QString::fromStdString(r.m_state.sliceScalarName[2])); }, [](RenderSettings& r, const QVariant& v) { r.m_state.sliceScalarName[2] = v.toString().toStdString(); });
         add("volumeSliceUseColormap", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceUseColormap); },     [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceUseColormap = v.toBool(); });
         add("volumeSliceColormapReversed", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapReversed); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapReversed = v.toBool(); });
         add("vectorScaleByMagnitude", [](const RenderSettings& r) { return QVariant(r.m_state.vectorScaleByMagnitude); },     [](RenderSettings& r, const QVariant& v) { r.m_state.vectorScaleByMagnitude = v.toBool(); });
@@ -391,7 +403,6 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("streamlineCompRangeLoZ",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeLo[2]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeLo[2] = v.toFloat(); });
         add("streamlineCompRangeHiZ",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeHi[2]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeHi[2] = v.toFloat(); });
         add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
-        add("volumeSliceAxis",     [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceAxis); },               [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceAxis = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
         add("vectorPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.vectorPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.vectorPlacement = v.toInt(); });
         add("maxPeelLayers",       [](const RenderSettings& r) { return QVariant(r.m_state.maxPeelLayers); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.maxPeelLayers = v.toInt(); });
@@ -590,6 +601,7 @@ void RenderSettings::onMeshParsed() {
     // Reset per-mesh vector state.
     m_state.showVectors = false;
     m_state.showVolume = false;
+    m_state.slicePlaneEnabled[0] = m_state.slicePlaneEnabled[1] = m_state.slicePlaneEnabled[2] = false;
     m_state.vectorColorMode = 1;
     m_state.glyphMagRangeOverrideEnabled = false;
     m_state.glyphMagRangeLo = 0.0f;
@@ -856,7 +868,10 @@ void RenderSettings::clearMeshes() {
     m_state.showVectors = false;
     m_state.showStreamlines = false;
     m_state.showVolume = false;
-    m_state.showVolumeSlice = false;
+    m_state.slicePlaneEnabled[0] = m_state.slicePlaneEnabled[1] = m_state.slicePlaneEnabled[2] = false;
+    m_state.sliceScalarName[0].clear();
+    m_state.sliceScalarName[1].clear();
+    m_state.sliceScalarName[2].clear();
     m_isoController.clear();
     markStateDirty();
     m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();
@@ -954,6 +969,16 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
         m_isoController.setCurrentField(m_state.activeScalarName);
         m_isoController.recompute();
     }
+}
+
+void RenderSettings::setSlicePlaneField(int axis, const QString& fieldName) {
+    if (axis < 0 || axis > 2) return;
+    std::string name = fieldName.toStdString();
+    if (m_state.sliceScalarName[axis] == name) return;
+    m_state.sliceScalarName[axis] = name;
+    m_renderer.markVolumeDirty(m_meshData.loadedMesh);
+    markStateDirty();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::setActiveVectorField(const QString& fieldName) {

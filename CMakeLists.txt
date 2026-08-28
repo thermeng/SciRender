@@ -94,6 +94,7 @@ add_library(RenderLib STATIC
     src/render/passes/GlyphPass.cpp
     src/render/passes/ParticlePass.cpp
     src/render/passes/VolumePass.cpp
+    src/render/passes/VolumeTextureCache.cpp
     src/render/overlays/VolumeSliceOverlay.cpp
     src/render/passes/WireframePass.cpp
     src/render/passes/DepthPeelPass.cpp
@@ -121,6 +122,8 @@ add_executable(SciRender
     src/ui/viewport_widget.h
     src/ui/colorbar_style_dialog.cpp
     src/ui/colorbar_style_dialog.h
+    src/ui/colormap_combo.cpp
+    src/ui/colormap_combo.h
     src/ui/range_editor.cpp
     src/ui/range_editor.h
     src/ui/animation_export_dialog.cpp

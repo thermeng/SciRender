@@ -288,72 +288,7 @@ static QPushButton* createSwatchButton(const QString& text, const QColor& color,
     return btn;
 }
 
-class PalettePreviewDelegate : public QStyledItemDelegate {
-public:
-    explicit PalettePreviewDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
-
-    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
-        painter->save();
-
-        QStyleOptionViewItem opt = option;
-        initStyleOption(&opt, index);
-
-        QStyle* style = opt.widget ? opt.widget->style() : QApplication::style();
-        style->drawPrimitive(QStyle::PE_PanelItemViewItem, &opt, painter, opt.widget);
-
-        int colormapIndex = index.row();
-        ColormapType type = static_cast<ColormapType>(colormapIndex);
-
-        int previewWidth = 56;
-        int previewHeight = 14;
-        int margin = 4;
-        QRect previewRect(opt.rect.left() + margin,
-                         opt.rect.top() + (opt.rect.height() - previewHeight) / 2,
-                         previewWidth, previewHeight);
-
-        QImage img(previewWidth, previewHeight, QImage::Format_RGB888);
-        for (int x = 0; x < previewWidth; ++x) {
-            float t = static_cast<float>(x) / static_cast<float>(previewWidth - 1);
-            glm::vec3 c = Colormaps::evaluate(t, type);
-            int r = static_cast<int>(glm::clamp(c.r, 0.0f, 1.0f) * 255.0f);
-            int g = static_cast<int>(glm::clamp(c.g, 0.0f, 1.0f) * 255.0f);
-            int b = static_cast<int>(glm::clamp(c.b, 0.0f, 1.0f) * 255.0f);
-            for (int y = 0; y < previewHeight; ++y) img.setPixel(x, y, qRgb(r, g, b));
-        }
-        painter->drawImage(previewRect, img);
-
-        QString name = QString::fromUtf8(Colormaps::getName(type));
-        painter->setPen(opt.palette.color(QPalette::Text));
-        painter->drawText(opt.rect.adjusted(previewRect.right() + 6, 0, -margin, 0),
-                         Qt::AlignVCenter | Qt::AlignLeft, name);
-
-        painter->restore();
-    }
-
-    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override {
-        Q_UNUSED(option);
-        Q_UNUSED(index);
-        return QSize(180, kControlHeight);
-    }
-};
-
-static QComboBox* buildColormapCombo(int currentChoice, std::function<void(int)> onChoose) {
-    auto* combo = new QComboBox;
-    combo->setItemDelegate(new PalettePreviewDelegate(combo));
-    combo->setFixedHeight(kControlHeight);
-    combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    combo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
-
-    int count = static_cast<int>(ColormapType::Count);
-    for (int i = 0; i < count; ++i) {
-        combo->addItem(QString::fromUtf8(Colormaps::getName(static_cast<ColormapType>(i))));
-    }
-    combo->setCurrentIndex(currentChoice);
-
-    QObject::connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                     [onChoose](int idx) { if (idx >= 0) onChoose(idx); });
-    return combo;
-}
+// Palette now in Colorbar Style dialog — sidebar alias removed
 
 static QPushButton* createColorButton(MainWindow* self, RenderSettings* settings, const QString& name, QColor initialColor, QColorDialog** dialogPtr, auto setterMember) {
     auto* btn = createSwatchButton(name, initialColor, nullptr);
@@ -1176,15 +1111,10 @@ QWidget* MainWindow::buildScalarPage() {
         m_settings->setActiveScalarField(m_scalarCombo->itemText(idx));
     });
 
-    auto* paletteCombo = buildColormapCombo(m_settings->getColormapChoice(),
-        [this](int i) { m_settings->setColormapChoice(i); });
-    paletteCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
-    scalarUi.optionsGroup->layout()->replaceWidget(scalarUi.paletteCombo, paletteCombo);
-    delete scalarUi.paletteCombo;
-
-    auto* reversedCb = scalarUi.reversePalette;
-    reversedCb->setChecked(m_settings->getColormapReversed());
-    connect(reversedCb, &QCheckBox::toggled, m_settings, &RenderSettings::setColormapReversed);
+    // Palette now in Colorbar Style dialog — hide sidebar alias
+    scalarUi.paletteHeader->hide();
+    scalarUi.paletteCombo->hide();
+    scalarUi.reversePalette->hide();
 
     auto* showBarCb = scalarUi.showColorbar;
     showBarCb->setChecked(m_settings->getShowScalarColorbar());
@@ -1268,39 +1198,8 @@ QWidget* MainWindow::buildScalarPage() {
         refreshScalarFilterRange();
     });
 
-    // ---- Fixed colormap range (RangeEditor) ----
-    {
-        auto* colorRangeCb = scalarUi.colorRangeCb;
-        m_colorRangeCb = colorRangeCb;
-        colorRangeCb->setChecked(m_settings->getColorRangeOverrideEnabled());
-        connect(colorRangeCb, &QCheckBox::toggled, m_settings, &RenderSettings::setColorRangeOverrideEnabled);
-        // create RangeEditor directly in the options layout
-        auto* optionsLay = qobject_cast<QVBoxLayout*>(scalarUi.optionsGroup->layout());
-        m_colorRangeEditor = new RangeEditor();
-        if (optionsLay) optionsLay->addWidget(m_colorRangeEditor);
-        m_colorRangeEditor->setEnabled(m_settings->getColorRangeOverrideEnabled());
-        connect(m_colorRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
-            m_settings->setColorRangeLo(static_cast<float>(lo));
-            m_settings->setColorRangeHi(static_cast<float>(hi));
-        });
-        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
-            if (!m_colorRangeCb || !m_colorRangeEditor) return;
-            if (f & ChangeFlag::Colormap) {
-                const bool en = m_settings->getColorRangeOverrideEnabled();
-                m_colorRangeCb->blockSignals(true); m_colorRangeCb->setChecked(en); m_colorRangeCb->blockSignals(false);
-                m_colorRangeEditor->setEnabled(en);
-                const double lo = m_settings->getColorRangeLo();
-                const double hi = m_settings->getColorRangeHi();
-                auto cur = m_colorRangeEditor->window();
-                if (cur.first != lo || cur.second != hi) {
-                    m_colorRangeEditor->blockSignals(true);
-                    m_colorRangeEditor->setWindow(lo, hi);
-                    m_colorRangeEditor->blockSignals(false);
-                }
-            }
-        });
-    }
-    refreshColorRangeBounds();
+    // Fixed Range now in Colorbar Style dialog — hide sidebar alias
+    scalarUi.colorRangeCb->hide();
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
@@ -1393,110 +1292,11 @@ QWidget* MainWindow::buildVectorsPage() {
     vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vectorColorModeCombo, colorModeCombo);
     delete vectorsUi.vectorColorModeCombo;
 
-    auto* vCmapCombo = buildColormapCombo(m_settings->getVectorColormapChoice(),
-        [this](int i) { m_settings->setVectorColormapChoice(i); });
-    vCmapCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
-    vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vCmapCombo, vCmapCombo);
-    delete vectorsUi.vCmapCombo;
+    // Palette now in Colorbar Style dialog — hide sidebar alias
+    vectorsUi.vCmapCombo->hide();
+    vectorsUi.revCb->hide();
 
-    auto* revCb = vectorsUi.revCb;
-    revCb->setChecked(m_settings->getVectorColormapReversed());
-    connect(revCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVectorColormapReversed);
-
-    // ---- Glyph Fixed Range (adaptive: magnitude or active component) ----
-    {
-        auto* lay = qobject_cast<QVBoxLayout*>(vectorsUi.optionsGroup->layout());
-        auto* hdr = new QLabel("Fixed Range");
-        hdr->setObjectName("glyphFixedHeader");
-        lay->addWidget(hdr);
-        m_glyphMagRangeCb = new QCheckBox("Fixed Range");
-        m_glyphMagRangeCb->setToolTip("Map a fixed range to glyph palette for the active 'Color By' mode; values outside clamp to end colors");
-        m_glyphMagRangeCb->setEnabled(m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors());
-        lay->addWidget(m_glyphMagRangeCb);
-        m_glyphMagRangeEditor = new RangeEditor();
-        lay->addWidget(m_glyphMagRangeEditor);
-
-        auto bindToActiveMode = [this]() {
-            int mode = m_settings->getVectorColorMode();
-            int comp = (mode >= 2) ? mode - 2 : -1;
-            bool solidOrNone = (mode == 0) || !(m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors());
-            m_glyphRangeBoundComp = comp;
-            double bLo = 0, bHi = 1, lo, hi;
-            bool en = false;
-            if (solidOrNone) {
-                m_glyphMagRangeEditor->setEnabled(false);
-                m_glyphMagRangeCb->setEnabled(false);
-                return;
-            }
-            if (comp < 0) {
-                en = m_settings->getGlyphMagRangeOverrideEnabled();
-                lo = m_settings->getGlyphMagRangeLo();
-                hi = m_settings->getGlyphMagRangeHi();
-                if (m_settings->backend()) { bLo = m_settings->backend()->vectorMagMin(); bHi = m_settings->backend()->vectorMagMax(); if (!(bHi > bLo)) bHi = bLo + 1.0; }
-            } else {
-                en = m_settings->getGlyphCompRangeOverrideEnabled(comp);
-                lo = m_settings->getGlyphCompRangeLo(comp);
-                hi = m_settings->getGlyphCompRangeHi(comp);
-                if (m_settings->backend()) { bLo = m_settings->backend()->vectorCompMin(comp); bHi = m_settings->backend()->vectorCompMax(comp); if (!(bHi > bLo)) bHi = bLo + 1.0; }
-            }
-            m_glyphMagRangeCb->blockSignals(true); m_glyphMagRangeCb->setChecked(en); m_glyphMagRangeCb->blockSignals(false);
-            m_glyphMagRangeCb->setEnabled(true);
-            m_glyphMagRangeEditor->blockSignals(true);
-            m_glyphMagRangeEditor->setBounds(bLo, bHi);
-            if (hi > lo) m_glyphMagRangeEditor->setWindow(lo, hi); else m_glyphMagRangeEditor->setWindow(bLo, bHi);
-            m_glyphMagRangeEditor->blockSignals(false);
-            m_glyphMagRangeEditor->setEnabled(en && m_glyphMagRangeCb->isEnabled());
-        };
-
-        bindToActiveMode();
-
-        connect(m_glyphMagRangeCb, &QCheckBox::toggled, this, [this](bool v){
-            int comp = m_glyphRangeBoundComp;
-            if (comp < 0) {
-                m_settings->setGlyphMagRangeOverrideEnabled(v);
-            } else {
-                m_settings->setGlyphCompRangeOverrideEnabled(comp, v);
-            }
-            m_glyphMagRangeEditor->setEnabled(v && m_glyphMagRangeCb->isEnabled());
-        });
-
-        connect(m_glyphMagRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
-            int comp = m_glyphRangeBoundComp;
-            if (comp < 0) {
-                m_settings->setGlyphMagRangeLo(static_cast<float>(lo));
-                m_settings->setGlyphMagRangeHi(static_cast<float>(hi));
-            } else {
-                m_settings->setGlyphCompRangeLo(comp, static_cast<float>(lo));
-                m_settings->setGlyphCompRangeHi(comp, static_cast<float>(hi));
-            }
-        });
-
-        connect(m_settings, &RenderSettings::viewChanged, this, [this, bindToActiveMode](ChangeFlags flags){
-            if (flags & ChangeFlag::Vectors) {
-                bindToActiveMode();
-            } else if ((flags & ChangeFlag::Colormap) && m_glyphMagRangeCb && m_glyphMagRangeEditor) {
-                int comp = m_glyphRangeBoundComp;
-                bool en = (comp < 0) ? m_settings->getGlyphMagRangeOverrideEnabled()
-                                     : m_settings->getGlyphCompRangeOverrideEnabled(comp);
-                m_glyphMagRangeCb->blockSignals(true); m_glyphMagRangeCb->setChecked(en); m_glyphMagRangeCb->blockSignals(false);
-                m_glyphMagRangeEditor->setEnabled(en && m_glyphMagRangeCb->isEnabled());
-                double lo = (comp < 0) ? m_settings->getGlyphMagRangeLo() : m_settings->getGlyphCompRangeLo(comp);
-                double hi = (comp < 0) ? m_settings->getGlyphMagRangeHi() : m_settings->getGlyphCompRangeHi(comp);
-                auto cur = m_glyphMagRangeEditor->window();
-                if (hi > lo && (cur.first != lo || cur.second != hi)) {
-                    m_glyphMagRangeEditor->blockSignals(true); m_glyphMagRangeEditor->setWindow(lo, hi); m_glyphMagRangeEditor->blockSignals(false);
-                }
-            }
-        });
-
-        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this, bindToActiveMode](){
-            bindToActiveMode();
-        });
-        connect(m_settings, &RenderSettings::meshDataUpdated, this, [this, bindToActiveMode](){
-            bindToActiveMode();
-        });
-    }
-
+    // Glyph Fixed Range now in Colorbar Style dialog — removed from sidebar
     connect(showCb, &QCheckBox::toggled, vectorsUi.optionsGroup, &QWidget::setEnabled);
     vectorsUi.optionsGroup->setEnabled(m_settings->getShowVectors());
 
@@ -1705,109 +1505,8 @@ QWidget* MainWindow::buildStreamlinesPage() {
     connect(slColorModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             m_settings, &RenderSettings::setStreamlineColorMode);
     lookLay->addWidget(slColorModeCombo);
-
-    auto* slCmapCombo = buildColormapCombo(m_settings->getStreamlineColormapChoice(),
-        [this](int i) { m_settings->setStreamlineColormapChoice(i); });
-    lookLay->addWidget(slCmapCombo);
-
-    auto* slRevCb = new QCheckBox("Reverse Palette");
-    slRevCb->setChecked(m_settings->getStreamlineColormapReversed());
-    connect(slRevCb, &QCheckBox::toggled, m_settings, &RenderSettings::setStreamlineColormapReversed);
-    lookLay->addWidget(slRevCb);
-
-    // ---- Streamline Fixed Range (adaptive: magnitude or active component) ----
-    {
-        auto* hdr = new QLabel("Fixed Range");
-        hdr->setObjectName("streamlineFixedHeader");
-        lookLay->addWidget(hdr);
-        m_streamlineMagRangeCb = new QCheckBox("Fixed Range");
-        m_streamlineMagRangeCb->setToolTip("Map a fixed range to streamline palette for the active 'Color By' mode; values outside clamp to end colors");
-        m_streamlineMagRangeCb->setEnabled(m_settings->hasMeshVectors());
-        lookLay->addWidget(m_streamlineMagRangeCb);
-        m_streamlineMagRangeEditor = new RangeEditor();
-        lookLay->addWidget(m_streamlineMagRangeEditor);
-
-        auto bindToActiveMode = [this]() {
-            int mode = m_settings->getStreamlineColorMode();
-            int comp = (mode >= 2) ? mode - 2 : -1;
-            bool solidOrNone = (mode == 0) || !m_settings->hasMeshVectors();
-            m_streamlineRangeBoundComp = comp;
-            double bLo = 0, bHi = 1, lo, hi;
-            bool en = false;
-            if (solidOrNone) {
-                m_streamlineMagRangeEditor->setEnabled(false);
-                m_streamlineMagRangeCb->setEnabled(false);
-                return;
-            }
-            if (comp < 0) {
-                en = m_settings->getStreamlineMagRangeOverrideEnabled();
-                lo = m_settings->getStreamlineMagRangeLo();
-                hi = m_settings->getStreamlineMagRangeHi();
-                if (m_settings->backend()) { bLo = m_settings->backend()->streamlineMagMin(); bHi = m_settings->backend()->streamlineMagMax(); if (!(bHi > bLo)) bHi = bLo + 1.0; }
-            } else {
-                en = m_settings->getStreamlineCompRangeOverrideEnabled(comp);
-                lo = m_settings->getStreamlineCompRangeLo(comp);
-                hi = m_settings->getStreamlineCompRangeHi(comp);
-                if (m_settings->backend()) { bLo = m_settings->backend()->streamlineCompMin(comp); bHi = m_settings->backend()->streamlineCompMax(comp); if (!(bHi > bLo)) bHi = bLo + 1.0; }
-            }
-            m_streamlineMagRangeCb->blockSignals(true); m_streamlineMagRangeCb->setChecked(en); m_streamlineMagRangeCb->blockSignals(false);
-            m_streamlineMagRangeCb->setEnabled(true);
-            m_streamlineMagRangeEditor->blockSignals(true);
-            m_streamlineMagRangeEditor->setBounds(bLo, bHi);
-            if (hi > lo) m_streamlineMagRangeEditor->setWindow(lo, hi); else m_streamlineMagRangeEditor->setWindow(bLo, bHi);
-            m_streamlineMagRangeEditor->blockSignals(false);
-            m_streamlineMagRangeEditor->setEnabled(en && m_streamlineMagRangeCb->isEnabled());
-        };
-
-        bindToActiveMode();
-
-        connect(m_streamlineMagRangeCb, &QCheckBox::toggled, this, [this](bool v){
-            int comp = m_streamlineRangeBoundComp;
-            if (comp < 0) {
-                m_settings->setStreamlineMagRangeOverrideEnabled(v);
-            } else {
-                m_settings->setStreamlineCompRangeOverrideEnabled(comp, v);
-            }
-            m_streamlineMagRangeEditor->setEnabled(v && m_streamlineMagRangeCb->isEnabled());
-        });
-
-        connect(m_streamlineMagRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
-            int comp = m_streamlineRangeBoundComp;
-            if (comp < 0) {
-                m_settings->setStreamlineMagRangeLo(static_cast<float>(lo));
-                m_settings->setStreamlineMagRangeHi(static_cast<float>(hi));
-            } else {
-                m_settings->setStreamlineCompRangeLo(comp, static_cast<float>(lo));
-                m_settings->setStreamlineCompRangeHi(comp, static_cast<float>(hi));
-            }
-        });
-
-        connect(m_settings, &RenderSettings::viewChanged, this, [this, bindToActiveMode](ChangeFlags flags){
-            if (flags & ChangeFlag::Display) {
-                bindToActiveMode();
-            } else if ((flags & ChangeFlag::Colormap) && m_streamlineMagRangeCb && m_streamlineMagRangeEditor) {
-                int comp = m_streamlineRangeBoundComp;
-                bool en = (comp < 0) ? m_settings->getStreamlineMagRangeOverrideEnabled()
-                                     : m_settings->getStreamlineCompRangeOverrideEnabled(comp);
-                m_streamlineMagRangeCb->blockSignals(true); m_streamlineMagRangeCb->setChecked(en); m_streamlineMagRangeCb->blockSignals(false);
-                m_streamlineMagRangeEditor->setEnabled(en && m_streamlineMagRangeCb->isEnabled());
-                double lo = (comp < 0) ? m_settings->getStreamlineMagRangeLo() : m_settings->getStreamlineCompRangeLo(comp);
-                double hi = (comp < 0) ? m_settings->getStreamlineMagRangeHi() : m_settings->getStreamlineCompRangeHi(comp);
-                auto cur = m_streamlineMagRangeEditor->window();
-                if (hi > lo && (cur.first != lo || cur.second != hi)) {
-                    m_streamlineMagRangeEditor->blockSignals(true); m_streamlineMagRangeEditor->setWindow(lo, hi); m_streamlineMagRangeEditor->blockSignals(false);
-                }
-            }
-        });
-
-        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this, bindToActiveMode](){
-            bindToActiveMode();
-        });
-        connect(m_settings, &RenderSettings::meshDataUpdated, this, [this, bindToActiveMode](){
-            bindToActiveMode();
-        });
-    }
-
+    // Palette now in Colorbar Style dialog — hide sidebar alias
+    // Streamline Fixed Range now in Colorbar Style dialog — removed from sidebar
     addSliderRow(m_settings, lookLay, "opacityLabel", "Opacity",
                  m_settings->getStreamlineOpacity(), 0.0, 1.0, 2,
                  &RenderSettings::setStreamlineOpacity);
@@ -2173,70 +1872,17 @@ QWidget* MainWindow::buildVolumePage() {
         m_settings->setActiveScalarField(m_volumeFieldCombo->itemText(idx));
     });
 
-    auto* paletteCombo = buildColormapCombo(m_settings->getVolumeColormapChoice(),
-        [this](int i) { m_settings->setVolumeColormapChoice(i); });
-    paletteCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
-    volumeUi.optionsGroup->layout()->replaceWidget(volumeUi.volumePaletteCombo, paletteCombo);
-    delete volumeUi.volumePaletteCombo;
-
-    auto* reversedCb = volumeUi.volumeReverseCb;
-    reversedCb->setChecked(m_settings->getVolumeColormapReversed());
-    connect(reversedCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeColormapReversed);
+    // Palette now in Colorbar Style dialog — hide sidebar alias
+    volumeUi.volumePaletteHeader->hide();
+    volumeUi.volumePaletteCombo->hide();
+    volumeUi.volumeReverseCb->hide();
+    volumeUi.rangeContainer->hide();
 
     auto* useCmapCb = volumeUi.volumeUseCmapCb;
     useCmapCb->setChecked(m_settings->getVolumeUseColormap());
     connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeUseColormap);
 
-    // ---- Volume Fixed Range (RangeEditor) ----
-    {
-        auto* lay = qobject_cast<QVBoxLayout*>(volumeUi.optionsGroup->layout());
-        auto* hdr = new QLabel("Volume Fixed Range");
-        hdr->setObjectName("volumeFixedHeader");
-        lay->addWidget(hdr);
-        m_volumeRangeCb = new QCheckBox("Fixed Range");
-        m_volumeRangeCb->setToolTip("Map a fixed value range to the volume palette; values outside clamp to the end colors");
-        m_volumeRangeCb->setChecked(m_settings->getVolumeColorRangeOverrideEnabled());
-        m_volumeRangeCb->setEnabled(m_settings->hasVolumeData());
-        lay->addWidget(m_volumeRangeCb);
-        m_volumeRangeEditor = new RangeEditor();
-        lay->addWidget(m_volumeRangeEditor);
-        m_volumeRangeEditor->setEnabled(m_volumeRangeCb->isChecked() && m_volumeRangeCb->isEnabled());
-        // init bounds/window
-        {
-            double mn = m_settings->getDataScalarMinQml(), mx = m_settings->getDataScalarMaxQml();
-            if (!(mx > mn)) { mn = 0; mx = 1; }
-            m_volumeRangeEditor->setBounds(mn, mx);
-            m_volumeRangeEditor->setWindow(m_settings->getVolumeColorRangeLo(), m_settings->getVolumeColorRangeHi());
-        }
-        connect(m_volumeRangeCb, &QCheckBox::toggled, this, [this](bool v){
-            m_settings->setVolumeColorRangeOverrideEnabled(v);
-            if (m_volumeRangeEditor) m_volumeRangeEditor->setEnabled(v && m_volumeRangeCb->isEnabled());
-        });
-        connect(m_volumeRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
-            m_settings->setVolumeColorRangeLo(static_cast<float>(lo));
-            m_settings->setVolumeColorRangeHi(static_cast<float>(hi));
-        });
-        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
-            if (!m_volumeRangeCb || !m_volumeRangeEditor) return;
-            if (f & ChangeFlag::Colormap) {
-                bool en = m_settings->getVolumeColorRangeOverrideEnabled();
-                m_volumeRangeCb->blockSignals(true); m_volumeRangeCb->setChecked(en); m_volumeRangeCb->blockSignals(false);
-                m_volumeRangeEditor->setEnabled(en && m_volumeRangeCb->isEnabled());
-                auto cur = m_volumeRangeEditor->window();
-                double lo = m_settings->getVolumeColorRangeLo(), hi = m_settings->getVolumeColorRangeHi();
-                if (cur.first != lo || cur.second != hi) {
-                    m_volumeRangeEditor->blockSignals(true); m_volumeRangeEditor->setWindow(lo,hi); m_volumeRangeEditor->blockSignals(false);
-                }
-            }
-        });
-        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){
-            if (!m_volumeRangeCb || !m_volumeRangeEditor) return;
-            bool ok = m_settings->hasVolumeData();
-            m_volumeRangeCb->setEnabled(ok);
-            if (!ok) { m_volumeRangeCb->blockSignals(true); m_volumeRangeCb->setChecked(false); m_volumeRangeCb->blockSignals(false); }
-            m_volumeRangeEditor->setEnabled(m_volumeRangeCb->isChecked() && ok);
-        });
-    }
+    // Volume Fixed Range now in Colorbar Style dialog — removed from sidebar
 
     {
         auto* slider = volumeUi.stepSlider;
@@ -2293,109 +1939,98 @@ QWidget* MainWindow::buildSlicePlanePage() {
     sliceUi.setupUi(content);
     fixLayoutOverflow(content);
 
-    // -- Show slice checkbox --
+    // -- Master enable (toggles all options group) --
     auto* showCb = sliceUi.showSliceCb;
-    m_volumeSliceShowCb = showCb;
-    showCb->setChecked(m_settings->getShowVolumeSlice());
+    m_sliceShowCb = showCb;
+    m_sliceOptionsGroup = sliceUi.optionsGroup;
     showCb->setEnabled(m_settings->hasVolumeData());
     if (!m_settings->hasVolumeData()) showCb->setChecked(false);
-    connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVolumeSlice);
     connect(showCb, &QCheckBox::toggled, sliceUi.optionsGroup, &QWidget::setEnabled);
-    sliceUi.optionsGroup->setEnabled(m_settings->getShowVolumeSlice());
+    sliceUi.optionsGroup->setEnabled(showCb->isChecked() && showCb->isEnabled());
 
-    // -- Slice axis radio buttons --
-    auto* axisX = sliceUi.axisX;
-    auto* axisY = sliceUi.axisY;
-    auto* axisZ = sliceUi.axisZ;
-    m_sliceAxisXRb = axisX;
-    m_sliceAxisYRb = axisY;
-    m_sliceAxisZRb = axisZ;
-    int currentAxis = m_settings->getVolumeSliceAxis();
-    axisX->setChecked(currentAxis == 0);
-    axisY->setChecked(currentAxis == 1);
-    axisZ->setChecked(currentAxis == 2);
-    auto* axisGroup = new QButtonGroup(this);
-    axisGroup->addButton(axisX, 0);
-    axisGroup->addButton(axisY, 1);
-    axisGroup->addButton(axisZ, 2);
-    connect(axisGroup, &QButtonGroup::idToggled, m_settings, [this](int id, bool checked) {
-        if (checked) m_settings->setVolumeSliceAxis(id);
-    });
+    // -- Per-plane setup helper --
+    auto setupPlane = [&](QCheckBox* enableCb, QComboBox* fieldCombo, QSlider* posSlider, QLabel* posValue,
+                          QSlider* opacitySlider, QLabel* opacityValue, QCheckBox* colorbarCb,
+                          int axis, bool enabled, float pos, float opacity, bool showColorbar,
+                          auto setEnabled, auto setPos, auto setOpacity, auto setShowColorbar) {
+        enableCb->setChecked(enabled);
+        connect(enableCb, &QCheckBox::toggled, m_settings, setEnabled);
 
-    // -- Slice position slider --
-    {
-        auto* slider = sliceUi.posSlider;
-        auto* valueLabel = sliceUi.posValue;
-        m_slicePosSlider = slider;
-        m_slicePosValue = valueLabel;
-        slider->setRange(0, 1000);
-        slider->setValue(static_cast<int>(m_settings->getVolumeSlicePos() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+        fieldCombo->addItems(m_settings->getAvailableScalars());
+        fieldCombo->setCurrentText(m_settings->getActiveScalarNameQml());
+        fieldCombo->setEnabled(m_settings->hasMeshScalars());
+        connect(fieldCombo, &QComboBox::activated, this, [this, fieldCombo, axis](int idx) {
+            fieldCombo->setCurrentIndex(idx);
+            m_settings->setSlicePlaneField(axis, fieldCombo->itemText(idx));
+        });
+
+        posSlider->setRange(0, 1000);
+        posSlider->setValue(static_cast<int>(pos * 1000));
+        connect(posSlider, &QSlider::valueChanged, this, [posValue, setPos, this](int raw) {
             double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v * 100.0, 'f', 0) + "%");
-            m_settings->setVolumeSlicePos(v);
+            posValue->setText(QString::number(v * 100.0, 'f', 0) + "%");
+            setPos(v);
         });
-    }
 
-    // -- Slice opacity slider --
-    {
-        auto* slider = sliceUi.opacitySlider;
-        auto* valueLabel = sliceUi.opacityValue;
-        slider->setRange(0, 1000);
-        slider->setValue(static_cast<int>(m_settings->getVolumeSliceOpacity() * 1000));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+        opacitySlider->setRange(0, 1000);
+        opacitySlider->setValue(static_cast<int>(opacity * 1000));
+        connect(opacitySlider, &QSlider::valueChanged, this, [opacityValue, setOpacity, this](int raw) {
             double v = raw / 1000.0;
-            valueLabel->setText(QString::number(v * 100.0, 'f', 0) + "%");
-            m_settings->setVolumeSliceOpacity(v);
+            opacityValue->setText(QString::number(v * 100.0, 'f', 0) + "%");
+            setOpacity(v);
         });
-    }
 
-    // -- Slice Fixed Range (RangeEditor) --
-    {
-        auto* container = sliceUi.rangeContainer;
-        auto* lay = qobject_cast<QHBoxLayout*>(container->layout());
-        if (!lay) { lay = new QHBoxLayout(container); lay->setContentsMargins(0,0,0,0); }
-        m_sliceRangeEditor = new RangeEditor(container);
-        lay->addWidget(m_sliceRangeEditor);
-        m_sliceRangeCb = sliceUi.rangeCb;
-        m_sliceRangeCb->setToolTip("Map a fixed value range to the slice palette; values outside clamp to the end colors");
-        m_sliceRangeCb->setChecked(m_settings->getSliceColorRangeOverrideEnabled());
-        m_sliceRangeCb->setEnabled(m_settings->hasVolumeData());
-        m_sliceRangeEditor->setEnabled(m_sliceRangeCb->isChecked() && m_sliceRangeCb->isEnabled());
-        {
-            double mn = m_settings->getDataScalarMinQml(), mx = m_settings->getDataScalarMaxQml();
-            if (!(mx > mn)) { mn = 0; mx = 1; }
-            m_sliceRangeEditor->setBounds(mn, mx);
-            m_sliceRangeEditor->setWindow(m_settings->getSliceColorRangeLo(), m_settings->getSliceColorRangeHi());
-        }
-        connect(m_sliceRangeCb, &QCheckBox::toggled, this, [this](bool v){
-            m_settings->setSliceColorRangeOverrideEnabled(v);
-            if (m_sliceRangeEditor) m_sliceRangeEditor->setEnabled(v && m_sliceRangeCb->isEnabled());
-        });
-        connect(m_sliceRangeEditor, &RangeEditor::windowEdited, this, [this](double lo, double hi){
-            m_settings->setSliceColorRangeLo(static_cast<float>(lo));
-            m_settings->setSliceColorRangeHi(static_cast<float>(hi));
-        });
-        connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags f){
-            if (!m_sliceRangeCb || !m_sliceRangeEditor) return;
-            if (f & ChangeFlag::Colormap) {
-                bool en = m_settings->getSliceColorRangeOverrideEnabled();
-                m_sliceRangeCb->blockSignals(true); m_sliceRangeCb->setChecked(en); m_sliceRangeCb->blockSignals(false);
-                m_sliceRangeEditor->setEnabled(en && m_sliceRangeCb->isEnabled());
-                auto cur = m_sliceRangeEditor->window();
-                double lo = m_settings->getSliceColorRangeLo(), hi = m_settings->getSliceColorRangeHi();
-                if (cur.first != lo || cur.second != hi) { m_sliceRangeEditor->blockSignals(true); m_sliceRangeEditor->setWindow(lo,hi); m_sliceRangeEditor->blockSignals(false); }
-            }
-        });
-        connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){
-            if (!m_sliceRangeCb || !m_sliceRangeEditor) return;
-            bool ok = m_settings->hasVolumeData();
-            m_sliceRangeCb->setEnabled(ok);
-            if (!ok) { m_sliceRangeCb->blockSignals(true); m_sliceRangeCb->setChecked(false); m_sliceRangeCb->blockSignals(false); }
-            m_sliceRangeEditor->setEnabled(m_sliceRangeCb->isChecked() && ok);
-        });
-    }
+        colorbarCb->setChecked(showColorbar);
+        connect(colorbarCb, &QCheckBox::toggled, m_settings, setShowColorbar);
+    };
 
+    m_sliceFieldCombo[0] = new QComboBox;
+    m_sliceFieldCombo[1] = new QComboBox;
+    m_sliceFieldCombo[2] = new QComboBox;
+
+    setupPlane(sliceUi.enableX, m_sliceFieldCombo[0], sliceUi.posXSlider, sliceUi.xPosValue,
+               sliceUi.opacityXSlider, sliceUi.xOpacityValue, sliceUi.colorbarX,
+               0, m_settings->getSlicePlaneEnabledX(), m_settings->getSlicePlanePosX(),
+               m_settings->getSlicePlaneOpacityX(), m_settings->getSlicePlaneShowColorbarX(),
+               &RenderSettings::setSlicePlaneEnabledX,
+               [this](double v) { m_settings->setSlicePlanePosX(v); },
+               [this](double v) { m_settings->setSlicePlaneOpacityX(v); },
+               &RenderSettings::setSlicePlaneShowColorbarX);
+
+    setupPlane(sliceUi.enableY, m_sliceFieldCombo[1], sliceUi.posYSlider, sliceUi.yPosValue,
+               sliceUi.opacityYSlider, sliceUi.yOpacityValue, sliceUi.colorbarY,
+               1, m_settings->getSlicePlaneEnabledY(), m_settings->getSlicePlanePosY(),
+               m_settings->getSlicePlaneOpacityY(), m_settings->getSlicePlaneShowColorbarY(),
+               &RenderSettings::setSlicePlaneEnabledY,
+               [this](double v) { m_settings->setSlicePlanePosY(v); },
+               [this](double v) { m_settings->setSlicePlaneOpacityY(v); },
+               &RenderSettings::setSlicePlaneShowColorbarY);
+
+    setupPlane(sliceUi.enableZ, m_sliceFieldCombo[2], sliceUi.posZSlider, sliceUi.zPosValue,
+               sliceUi.opacityZSlider, sliceUi.zOpacityValue, sliceUi.colorbarZ,
+               2, m_settings->getSlicePlaneEnabledZ(), m_settings->getSlicePlanePosZ(),
+               m_settings->getSlicePlaneOpacityZ(), m_settings->getSlicePlaneShowColorbarZ(),
+               &RenderSettings::setSlicePlaneEnabledZ,
+               [this](double v) { m_settings->setSlicePlanePosZ(v); },
+               [this](double v) { m_settings->setSlicePlaneOpacityZ(v); },
+               &RenderSettings::setSlicePlaneShowColorbarZ);
+
+    m_sliceEnableX = sliceUi.enableX;
+    m_sliceEnableY = sliceUi.enableY;
+    m_sliceEnableZ = sliceUi.enableZ;
+
+    // Insert per-axis field combo boxes below each enable checkbox.
+    auto insertFieldCombo = [](QWidget* group, QComboBox* combo) {
+        if (auto* lay = qobject_cast<QVBoxLayout*>(group->layout()))
+            lay->insertWidget(1, combo);
+    };
+    insertFieldCombo(sliceUi.xGroup, m_sliceFieldCombo[0]);
+    insertFieldCombo(sliceUi.yGroup, m_sliceFieldCombo[1]);
+    insertFieldCombo(sliceUi.zGroup, m_sliceFieldCombo[2]);
+    sliceUi.rangeCb->hide();
+    sliceUi.rangeContainer->hide();
+
+        // Slice Fixed Range now in Colorbar Style dialog — removed from sidebar
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);
@@ -2553,70 +2188,6 @@ void MainWindow::refreshScalarFilterRange() {
     applyOne(m_filterMaxSlider, m_filterMaxField, m_settings->getFilterMax());
 }
 
-// Slider bounds + displayed values for the fixed colormap range; follows the
-// data range like the filter controls so a new dataset rescales the widgets.
-void MainWindow::refreshColorRangeBounds() {
-    if (!m_colorRangeEditor) return;
-    const double minVal = m_settings->getDataScalarMinQml();
-    const double maxVal = m_settings->getDataScalarMaxQml();
-    const double lo = m_settings->getColorRangeLo();
-    const double hi = m_settings->getColorRangeHi();
-    if (!(maxVal > minVal)) {
-        m_colorRangeEditor->blockSignals(true);
-        m_colorRangeEditor->setBounds(minVal, minVal + 1.0);
-        m_colorRangeEditor->setWindow(lo, hi);
-        m_colorRangeEditor->blockSignals(false);
-        return;
-    }
-    m_colorRangeEditor->blockSignals(true);
-    m_colorRangeEditor->setBounds(minVal, maxVal);
-    m_colorRangeEditor->setWindow(lo, hi);
-    m_colorRangeEditor->blockSignals(false);
-}
-void MainWindow::refreshVolumeRangeBounds() {
-    if (!m_volumeRangeEditor) return;
-    const double minVal = m_settings->getDataScalarMinQml();
-    const double maxVal = m_settings->getDataScalarMaxQml();
-    const double lo = m_settings->getVolumeColorRangeLo();
-    const double hi = m_settings->getVolumeColorRangeHi();
-    if (!(maxVal > minVal)) { m_volumeRangeEditor->blockSignals(true); m_volumeRangeEditor->setBounds(minVal, minVal+1.0); m_volumeRangeEditor->setWindow(lo,hi); m_volumeRangeEditor->blockSignals(false); return; }
-    m_volumeRangeEditor->blockSignals(true); m_volumeRangeEditor->setBounds(minVal, maxVal); m_volumeRangeEditor->setWindow(lo,hi); m_volumeRangeEditor->blockSignals(false);
-}
-void MainWindow::refreshSliceRangeBounds() {
-    if (!m_sliceRangeEditor) return;
-    const double minVal = m_settings->getDataScalarMinQml();
-    const double maxVal = m_settings->getDataScalarMaxQml();
-    const double lo = m_settings->getSliceColorRangeLo();
-    const double hi = m_settings->getSliceColorRangeHi();
-    if (!(maxVal > minVal)) { m_sliceRangeEditor->blockSignals(true); m_sliceRangeEditor->setBounds(minVal, minVal+1.0); m_sliceRangeEditor->setWindow(lo,hi); m_sliceRangeEditor->blockSignals(false); return; }
-    m_sliceRangeEditor->blockSignals(true); m_sliceRangeEditor->setBounds(minVal, maxVal); m_sliceRangeEditor->setWindow(lo,hi); m_sliceRangeEditor->blockSignals(false);
-}
-void MainWindow::refreshGlyphMagRangeBounds() {
-    if (!m_glyphMagRangeEditor) return;
-    int comp = m_glyphRangeBoundComp;
-    double lo, hi, bLo = 0, bHi = 1;
-    if (comp < 0) {
-        lo = m_settings->getGlyphMagRangeLo();
-        hi = m_settings->getGlyphMagRangeHi();
-        if (m_settings->backend()) { bLo = m_settings->backend()->vectorMagMin(); bHi = m_settings->backend()->vectorMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; } }
-    } else {
-        lo = m_settings->getGlyphCompRangeLo(comp);
-        hi = m_settings->getGlyphCompRangeHi(comp);
-        if (m_settings->backend()) { bLo = m_settings->backend()->vectorCompMin(comp); bHi = m_settings->backend()->vectorCompMax(comp); if (!(bHi > bLo)) { bHi = bLo + 1.0; } }
-    }
-    m_glyphMagRangeEditor->blockSignals(true); m_glyphMagRangeEditor->setBounds(bLo, bHi); if (hi > lo) m_glyphMagRangeEditor->setWindow(lo, hi); else m_glyphMagRangeEditor->setWindow(bLo, bHi); m_glyphMagRangeEditor->blockSignals(false);
-}
-void MainWindow::refreshStreamlineMagRangeBounds() {
-    if (!m_streamlineMagRangeEditor) return;
-    double lo = m_settings->getStreamlineMagRangeLo();
-    double hi = m_settings->getStreamlineMagRangeHi();
-    double bLo = 0, bHi = 1;
-    if (m_settings->backend()) { bLo = m_settings->backend()->streamlineMagMin(); bHi = m_settings->backend()->streamlineMagMax(); if (!(bHi > bLo)) { bHi = bLo + 1.0; } }
-    else { bLo = std::min(lo,hi); bHi = std::max(lo,hi); if (!(bHi > bLo)) bHi = bLo + 1.0; }
-    m_streamlineMagRangeEditor->blockSignals(true); m_streamlineMagRangeEditor->setBounds(bLo, bHi); if (hi > lo) m_streamlineMagRangeEditor->setWindow(lo,hi); else m_streamlineMagRangeEditor->setWindow(bLo,bHi); m_streamlineMagRangeEditor->blockSignals(false);
-}
-
-
 // Sidebar section switching
 
 static const char* sectionNames[] = {
@@ -2709,12 +2280,6 @@ void MainWindow::setupTopToolbar() {
     m_tbVolume->setEnabled(m_settings->hasVolumeData());
     connect(m_tbVolume, &QAction::toggled, m_settings, &RenderSettings::setShowVolume);
 
-    m_tbSlice = m_topToolbar->addAction(QIcon(":/src/resources/icons/slice.svg"), "Slice");
-    m_tbSlice->setCheckable(true);
-    m_tbSlice->setChecked(m_settings->getShowVolumeSlice());
-    m_tbSlice->setEnabled(m_settings->hasVolumeData());
-    connect(m_tbSlice, &QAction::toggled, m_settings, &RenderSettings::setShowVolumeSlice);
-
     m_topToolbar->addSeparator();
 
     // Ortho snaps
@@ -2748,10 +2313,6 @@ void MainWindow::syncTopToolbar() {
         m_tbVolume->setEnabled(m_settings->hasVolumeData());
         m_tbVolume->setChecked(m_settings->getShowVolume());
     }
-    if (m_tbSlice) {
-        m_tbSlice->setEnabled(m_settings->hasVolumeData());
-        m_tbSlice->setChecked(m_settings->getShowVolumeSlice());
-    }
 }
 
 void MainWindow::syncVolumePage() {
@@ -2762,7 +2323,8 @@ void MainWindow::syncVolumePage() {
     }
     if (m_volumeSliceShowCb) {
         m_volumeSliceShowCb->setEnabled(hasVol);
-        m_volumeSliceShowCb->setChecked(hasVol && m_settings->getShowVolumeSlice());
+        bool anyEnabled = m_settings->getSlicePlaneEnabledX() || m_settings->getSlicePlaneEnabledY() || m_settings->getSlicePlaneEnabledZ();
+        m_volumeSliceShowCb->setChecked(hasVol && anyEnabled);
     }
     if (m_isoEnableCb) {
         bool isoAvail = m_settings->getIsosurfaceAvailable();
@@ -2892,12 +2454,7 @@ void MainWindow::setupKeyboardShortcuts() {
 void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshClippingPageBounds);
-    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshScalarFilterRange);
-    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshColorRangeBounds);
-    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshVolumeRangeBounds);
-    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshSliceRangeBounds);
-    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshGlyphMagRangeBounds);
-    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshStreamlineMagRangeBounds);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshScalarFilterRange);    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::syncVolumePage);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this]() {
         const bool hasVectors = m_settings->hasMeshVectors();
         const bool hasCellVectors = m_settings->hasMeshCellVectors();
@@ -2929,7 +2486,33 @@ void MainWindow::connectSettings() {
         if (m_volumeSliceShowCb) {
             bool ok = m_settings->hasVolumeData();
             m_volumeSliceShowCb->setEnabled(ok);
-            if (!ok) m_volumeSliceShowCb->setChecked(false);
+            if (!ok) {
+                m_volumeSliceShowCb->blockSignals(true);
+                m_volumeSliceShowCb->setChecked(false);
+                m_volumeSliceShowCb->blockSignals(false);
+            }
+        }
+        if (m_sliceShowCb) {
+            bool ok = m_settings->hasVolumeData();
+            m_sliceShowCb->setEnabled(ok);
+            m_sliceShowCb->blockSignals(true);
+            m_sliceShowCb->setChecked(false);
+            m_sliceShowCb->blockSignals(false);
+            if (m_sliceOptionsGroup) m_sliceOptionsGroup->setEnabled(false);
+            if (m_sliceEnableX) m_sliceEnableX->setChecked(false);
+            if (m_sliceEnableY) m_sliceEnableY->setChecked(false);
+            if (m_sliceEnableZ) m_sliceEnableZ->setChecked(false);
+        }
+        for (int axis = 0; axis < 3; ++axis) {
+            if (!m_sliceFieldCombo[axis]) continue;
+            m_sliceFieldCombo[axis]->blockSignals(true);
+            m_sliceFieldCombo[axis]->clear();
+            m_sliceFieldCombo[axis]->addItems(m_settings->getAvailableScalars());
+            QString field = m_settings->getSlicePlaneField(axis);
+            if (field.isEmpty()) field = m_settings->getActiveScalarNameQml();
+            m_sliceFieldCombo[axis]->setCurrentText(field);
+            m_sliceFieldCombo[axis]->setEnabled(m_settings->hasVolumeData());
+            m_sliceFieldCombo[axis]->blockSignals(false);
         }
         applyVolumeControlGating();
     });

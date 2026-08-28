@@ -4,7 +4,6 @@
 #include "render/passes/ColormapManager.h"
 #include <glad/gl.h>
 #include <cmath>
-#include <cstring>
 
 static const float QUAD_VERTS[] = {
     -1.0f, -1.0f,
@@ -40,61 +39,6 @@ void VolumePass::init(const ShaderSources& sources) {
         locVolumeUseColormap_ = glGetUniformLocation(program_, "uVolumeUseColormap");
         locNumBands_ = glGetUniformLocation(program_, "uNumBands");
     }
-}
-
-void VolumePass::uploadVolume(const RenderRenderState& state, const std::vector<float>& scalars, int dimX, int dimY, int dimZ, const glm::vec3& boxMin, const glm::vec3& boxMax) {
-    if (dimX <= 0 || dimY <= 0 || dimZ <= 0 || scalars.empty()) return;
-
-    bool dimsChanged = (dimX_ != dimX || dimY_ != dimY || dimZ_ != dimZ);
-    dimX_ = dimX;
-    dimY_ = dimY;
-    dimZ_ = dimZ;
-    boxMin_ = boxMin;
-    boxMax_ = boxMax;
-
-    GLuint raw = volumeTex_.get();
-    if (!raw || dimsChanged) {
-        if (raw) {
-            volumeTex_.reset();
-        }
-        glCreateTextures(GL_TEXTURE_3D, 1, &raw);
-        glTextureStorage3D(raw, 1, GL_R32F, dimX, dimY, dimZ);
-        glTextureParameteri(raw, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(raw, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(raw, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(raw, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTextureParameteri(raw, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        volumeTex_.reset(raw);
-        // Reset PBOs on dims change
-        for (int i=0;i<2;++i) if (pbo_[i].has()) pbo_[i].reset();
-        pboInitialized_ = false;
-    }
-    // PBO double-buffered async upload (Phase 2.1)
-    if (!pboInitialized_) {
-        for (int i=0;i<2;++i) {
-            if (!pbo_[i].has()) glCreateBuffers(1, pbo_[i].ptr());
-        }
-        pboInitialized_ = true;
-    }
-    size_t bytes = scalars.size() * sizeof(float);
-    if (pbo_[0].has() && bytes > 0) {
-        GlBuffer& pbo = pbo_[pboIndex_];
-        pboIndex_ = (pboIndex_ + 1) % 2;
-        glNamedBufferData(pbo, bytes, nullptr, GL_STREAM_DRAW);
-        void* ptr = glMapNamedBufferRange(pbo, 0, bytes, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-        if (ptr) {
-            std::memcpy(ptr, scalars.data(), bytes);
-            glUnmapNamedBuffer(pbo);
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo.get());
-            glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, nullptr);
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-        } else {
-            glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, scalars.data());
-        }
-    } else {
-        glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, scalars.data());
-    }
-
     if (!vaoInitialized_) {
         setupVertexBuffer(quadVao_, quadVbo_, QUAD_VERTS, sizeof(QUAD_VERTS), 2 * sizeof(float),
                           { { 0, 2, 0 } }, GL_STATIC_DRAW);
@@ -103,8 +47,12 @@ void VolumePass::uploadVolume(const RenderRenderState& state, const std::vector<
 }
 
 void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
-                      const ColormapManager& colormap, float pixelFootprintScale) {
-    if (!state.showVolume || !volumeTex_.has() || !program_.has()) return;
+                      const ColormapManager& colormap, float pixelFootprintScale,
+                      GLuint volumeTex, const glm::vec3& boxMin, const glm::vec3& boxMax) {
+    if (!state.showVolume || !volumeTex || !program_.has()) return;
+
+    boxMin_ = boxMin;
+    boxMax_ = boxMax;
 
     // Save engine state we mutate; restored automatically on scope exit.
     GLStateGuard guard;
@@ -126,7 +74,7 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glUniform1i(locOrtho_, state.orthographic ? 1 : 0);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_3D, volumeTex_.get());
+    glBindTexture(GL_TEXTURE_3D, volumeTex);
     glUniform1i(locVolumeTex_, 0);
 
     glm::vec3 boxExtent = boxMax_ - boxMin_;
@@ -178,21 +126,14 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
 }
 
 void VolumePass::clearVolume() {
-    volumeTex_.reset();
-    for (int i=0;i<2;++i) if (pbo_[i].has()) pbo_[i].reset();
-    pboInitialized_ = false;
-    dimX_ = dimY_ = dimZ_ = 0;
+    boxMin_ = boxMax_ = glm::vec3(0.0f);
 }
 
 void VolumePass::shutdown() {
     program_.reset();
-    volumeTex_.reset();
-    for (int i=0;i<2;++i) if (pbo_[i].has()) pbo_[i].reset();
-    pboInitialized_ = false;
     quadVao_.reset();
     quadVbo_.reset();
     vaoInitialized_ = false;
-    dimX_ = dimY_ = dimZ_ = 0;
     locInvView_ = locInvProj_ = locCamPos_ = locOrtho_ = locVolumeTex_ = -1;
     locBoxMin_ = locBoxMax_ = locLut_ = locOpacity_ = -1;
     locScalarMin_ = locScalarMax_ = locClipEnabled_ = locSliceHeightX_ = -1;
@@ -200,5 +141,3 @@ void VolumePass::shutdown() {
     locSafeExtent_ = locBaseStepSize_ = locPixelFootprintScale_ = -1;
     locNumBands_ = -1;
 }
-
-
