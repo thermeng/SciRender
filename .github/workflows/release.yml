@@ -32,9 +32,8 @@ jobs:
 
       - name: Run windeployqt
         run: |
-          # Use windeployqt from PATH (set by install-qt-action) with fallback to hardcoded local path
-          $windeployqt = (Get-Command windeployqt -ErrorAction SilentlyContinue)?.Source
-          if (-not $windeployqt) { $windeployqt = "C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe" }
+          $windeployqt = (Get-Command windeployqt -ErrorAction SilentlyContinue).Source
+          if (-not $windeployqt) { Write-Error "windeployqt not on PATH. Check install-qt-action output."; exit 1 }
           & $windeployqt --release --no-translations --compiler-runtime package/SciRender.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

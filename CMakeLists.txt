@@ -22,17 +22,8 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 # ---------------------------------------------------------------------------
 # 1. Locate Qt 6 and System Graphics Dependencies
 # ---------------------------------------------------------------------------
-set(QT_ROOT "C:/Qt/6.11.1/mingw_64" CACHE PATH "Qt installation prefix")
-list(APPEND CMAKE_PREFIX_PATH "${QT_ROOT}")
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGLWidgets)
 find_package(OpenGL REQUIRED)
-
-# Set ZLIB hints before searching
-if(NOT DEFINED ZLIB_ROOT AND EXISTS "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32")
-    set(ZLIB_ROOT "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32" CACHE PATH
-        "Path to a zlib installation")
-endif()
-find_package(ZLIB REQUIRED)
 
 # ---------------------------------------------------------------------------
 # 2. Configure Vendor Libraries
@@ -52,8 +43,27 @@ target_include_directories(lz4 PUBLIC "vendor/lz4")
 add_library(lzma STATIC
     "vendor/lzma/LzmaDec.c"
     "vendor/lzma/7zAlloc.c"
-)
+    )
 target_include_directories(lzma PUBLIC "vendor/lzma")
+
+add_library(zlib STATIC
+    "vendor/zlib/adler32.c"
+    "vendor/zlib/compress.c"
+    "vendor/zlib/crc32.c"
+    "vendor/zlib/deflate.c"
+    "vendor/zlib/gzclose.c"
+    "vendor/zlib/gzlib.c"
+    "vendor/zlib/gzread.c"
+    "vendor/zlib/gzwrite.c"
+    "vendor/zlib/infback.c"
+    "vendor/zlib/inffast.c"
+    "vendor/zlib/inflate.c"
+    "vendor/zlib/inftrees.c"
+    "vendor/zlib/trees.c"
+    "vendor/zlib/uncompr.c"
+    "vendor/zlib/zutil.c"
+    )
+target_include_directories(zlib PUBLIC "vendor/zlib")
 
 # ---------------------------------------------------------------------------
 # 3. CoreLib — parser, mesh, camera, colormaps
@@ -74,7 +84,7 @@ add_library(CoreLib STATIC
     src/core/pvd_parser.cpp
 )
 target_include_directories(CoreLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(CoreLib PUBLIC glm pugixml ZLIB::ZLIB lz4 lzma)
+target_link_libraries(CoreLib PUBLIC glm pugixml zlib lz4 lzma)
 
 # ---------------------------------------------------------------------------
 # 4. RenderLib — renderer, GL managers, streamlines, glyphs, overlays
