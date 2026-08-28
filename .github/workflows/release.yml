@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.1'
+          arch: 'win64_mingw'
+          cache: true
+
+      - name: Configure (MinGW)
+        run: cmake -G "MinGW Makefiles" -S . -B build-mingw -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-mingw -j4
+
+      - name: Stage package
+        run: cmake --install build-mingw --prefix package
+
+      - name: Run windeployqt
+        run: |
+          $qtBin = "C:/Qt/6.11.1/mingw_64/bin"
+          & "$qtBin/windeployqt.exe" --release --no-translations --compiler-runtime package/SciRender.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          if (-not $version -or $version -eq "") { $version = "0.1.0" }
+          $version = $version.TrimStart('v')
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer/SciRender.iss" "/DAppVersion=$version"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Create portable ZIP
+        shell: pwsh
+        run: |
+          if (Test-Path dist/SciRender-win64.zip) { Remove-Item dist/SciRender-win64.zip }
+          Compress-Archive -Path package/* -DestinationPath dist/SciRender-win64.zip -Force
+
+      - name: Upload Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/SciRender-Setup.exe
+            dist/SciRender-win64.zip
+          fail_on_unmatched_files: true

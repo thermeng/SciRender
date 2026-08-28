@@ -222,3 +222,11 @@ add_custom_command(TARGET SciRender POST_BUILD
             "$<TARGET_FILE_DIR:SciRender>/shaders"
     COMMENT "--- Synchronizing runtime GLSL shader files ---"
 )
+
+# ---------------------------------------------------------------------------
+# 8. Install & Packaging (for windeployqt + Inno Setup portable ZIP)
+#    Used by CI: cmake --install build --prefix package
+# ---------------------------------------------------------------------------
+install(TARGETS SciRender DESTINATION .)
+install(DIRECTORY src/shaders DESTINATION shaders)
+install(FILES README.md DESTINATION . OPTIONAL)

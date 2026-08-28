@@ -37,7 +37,20 @@ level-of-detail (LOD), depth-peel order-independent transparency, screenshot
 export, and a rich Qt Widgets sidebar with per-page
 control panels.
 
-## Build
+## Download (no build needed)
+
+For users who don't want to build from source:
+
+- **Installer (recommended):** `SciRender-Setup.exe` from the latest
+  [GitHub Release](../../releases) → Next → Finish → Start Menu `SciRender`.
+- **Portable (no install, no admin):** `SciRender-win64.zip` from the same
+  Release → Extract All → double-click `SciRender.exe`.
+
+Then drag-drop a `.vtu`/`.vts`/`.vti`/`.vtp`/`.vtr`/`.vtm`/`.vtk`/`.stl`/`.obj`/`.pvd`
+file onto the window, or use `File > Open Mesh`. No Qt install required; all
+`Qt6` DLLs and `shaders/` are included via `windeployqt`.
+
+## Build (for developers)
 
 Requires **Qt 6** (Core, Gui, Widgets, OpenGLWidgets), **OpenGL 4.6**,
 a C++20 compiler, CMake ≥ 3.19, and **ZLIB** (system-installed or
@@ -51,6 +64,17 @@ cmake --build build -j4
 
 The shaders in `src/shaders/` are copied next to the binary at build time, so
 the program can run from the build directory.
+
+To reproduce the Release package locally:
+
+```bash
+cmake -G "MinGW Makefiles" -S . -B build-mingw -DCMAKE_BUILD_TYPE=Release
+cmake --build build-mingw -j4
+cmake --install build-mingw --prefix package
+C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --compiler-runtime package/SciRender.exe
+# ZIP: Compress-Archive package/* SciRender-win64.zip
+# Setup: iscc installer/SciRender.iss /DAppVersion=0.1.0  # requires Inno Setup 6
+```
 
 ## Features
 
