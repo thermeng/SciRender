@@ -15,10 +15,10 @@
 <table>
   <tr>
     <td align="center" width="50%">
-      <video src="https://github.com/user-attachments/assets/09954fdb-5e38-4243-adc0-6afaba627894" style="max-width:100%;" controls autoplay loop muted></video>
+      <video src="https://github.com/user-attachments/assets/dd3ff780-3794-4423-9b90-c11270f603b1" style="max-width:100%;" controls autoplay loop muted></video>
     </td>
     <td align="center" width="50%">
-      <video src="https://github.com/user-attachments/assets/ea3a350b-f5c7-4a2e-afab-9eb410e4da90" style="max-width:100%;" controls autoplay loop muted></video>
+      <video src="https://github.com/user-attachments/assets/ada6ad70-fcd5-4333-a003-832757237655" style="max-width:100%;" controls autoplay loop muted></video>
     </td>
   </tr>
 </table>
