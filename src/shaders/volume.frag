@@ -14,10 +14,10 @@ uniform float uScalarMin;
 uniform float uScalarMax;
 uniform int uVolumeUseColormap;
 uniform int uClipEnabled;
-uniform float uSliceHeightX;
-uniform float uSliceHeightY;
-uniform float uSliceHeightZ;
-uniform vec3 uSliceEn;
+uniform float uClipHeightX;
+uniform float uClipHeightY;
+uniform float uClipHeightZ;
+uniform vec3 uClipEn;
 uniform vec3 uInvert;
 uniform float uPixelFootprintScale;
 uniform int uOrtho;
@@ -84,15 +84,15 @@ void main() {
     const float scalarRange = max(uScalarMax - uScalarMin, 1e-6);
     const vec3  gradEps = vec3(1.0 / 128.0);   // matches previous per-step epsilon
     const bool  clipOn   = (uClipEnabled == 1);
-    const bool  sliceEnX = uSliceEn.x > 0.5;
-    const bool  sliceEnY = uSliceEn.y > 0.5;
-    const bool  sliceEnZ = uSliceEn.z > 0.5;
+    const bool  clipEnX = uClipEn.x > 0.5;
+    const bool  clipEnY = uClipEn.y > 0.5;
+    const bool  clipEnZ = uClipEn.z > 0.5;
     const bool  invX = uInvert.x > 0.5;
     const bool  invY = uInvert.y > 0.5;
     const bool  invZ = uInvert.z > 0.5;
-    const float slicePlaneX = mix(uBoxMin.x, uBoxMax.x, uSliceHeightX);
-    const float slicePlaneY = mix(uBoxMin.y, uBoxMax.y, uSliceHeightY);
-    const float slicePlaneZ = mix(uBoxMin.z, uBoxMax.z, uSliceHeightZ);
+    const float clipPlaneX = mix(uBoxMin.x, uBoxMax.x, uClipHeightX);
+    const float clipPlaneY = mix(uBoxMin.y, uBoxMax.y, uClipHeightY);
+    const float clipPlaneZ = mix(uBoxMin.z, uBoxMax.z, uClipHeightZ);
 
     float t = 0.0;
     int steps = 0;
@@ -107,9 +107,9 @@ void main() {
         // [P1] Slice test against precomputed planes.
         float sliceAlpha = 1.0;
         if (clipOn) {
-            if (sliceEnX && (invX ? (pos.x < slicePlaneX) : (pos.x > slicePlaneX))) sliceAlpha = 0.0;
-            if (sliceEnY && (invY ? (pos.y < slicePlaneY) : (pos.y > slicePlaneY))) sliceAlpha = 0.0;
-            if (sliceEnZ && (invZ ? (pos.z < slicePlaneZ) : (pos.z > slicePlaneZ))) sliceAlpha = 0.0;
+            if (clipEnX && (invX ? (pos.x < clipPlaneX) : (pos.x > clipPlaneX))) sliceAlpha = 0.0;
+            if (clipEnY && (invY ? (pos.y < clipPlaneY) : (pos.y > clipPlaneY))) sliceAlpha = 0.0;
+            if (clipEnZ && (invZ ? (pos.z < clipPlaneZ) : (pos.z > clipPlaneZ))) sliceAlpha = 0.0;
         }
 
         vec3 uvw = clamp((pos - uBoxMin) / uSafeExtent, 0.0, 1.0);

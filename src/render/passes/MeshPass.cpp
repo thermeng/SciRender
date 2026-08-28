@@ -123,8 +123,8 @@ MeshUBOData MeshPass::makeUbo(const RenderRenderState& state,
     ubo.backColor = glm::vec4(tint * glm::vec3(0.95f, 0.95f, 0.98f), 0.0f);
     ubo.headColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
     ubo.scalars = glm::vec4(state.colorMapMin(), state.colorMapMax(), (state.meshHasScalars && state.meshUseScalarColor) ? 1.0f : 0.0f, 0.0f);
-    ubo.sliceY = glm::vec4(state.sliceHeightX, state.sliceHeightY, state.sliceHeightZ, 0.0f);
-    ubo.sliceEn = glm::vec4(state.sliceEnabledX ? 1.0f : 0.0f, state.sliceEnabledY ? 1.0f : 0.0f, state.sliceEnabledZ ? 1.0f : 0.0f, 0.0f);
+    ubo.clipY = glm::vec4(state.clipHeightX, state.clipHeightY, state.clipHeightZ, 0.0f);
+    ubo.clipEn = glm::vec4(state.clipEnabledX ? 1.0f : 0.0f, state.clipEnabledY ? 1.0f : 0.0f, state.clipEnabledZ ? 1.0f : 0.0f, 0.0f);
     ubo.invert = glm::vec4(state.invertX ? 1.0f : 0.0f, state.invertY ? 1.0f : 0.0f, state.invertZ ? 1.0f : 0.0f, 0.0f);
     ubo.filter = glm::vec4(state.filterMin, state.filterMax, state.filterEnabled ? 1.0f : 0.0f, 0.0f);
     float keyI = state.lighting.lightKitEnabled ? state.lighting.lightKeyIntensity : 0.0f;

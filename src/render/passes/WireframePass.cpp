@@ -12,8 +12,8 @@ void WireframePass::init(const ShaderSources& sources) {
             wireHalfWidthLoc = glGetUniformLocation(wireProgram, "uHalfWidth");
             wireColorLoc = glGetUniformLocation(wireProgram, "uWireColor");
             wireModelLoc = glGetUniformLocation(wireProgram, "uModel");
-            wireSliceYLoc = glGetUniformLocation(wireProgram, "uSliceY");
-            wireSliceEnLoc = glGetUniformLocation(wireProgram, "uSliceEn");
+            wireSliceYLoc = glGetUniformLocation(wireProgram, "uClipY");
+            wireSliceEnLoc = glGetUniformLocation(wireProgram, "uClipEn");
             wireInvertLoc = glGetUniformLocation(wireProgram, "uInvert");
             wireClipEnabledLoc = glGetUniformLocation(wireProgram, "uClipEnabled");
         }
@@ -46,8 +46,8 @@ void WireframePass::draw(const RenderRenderState& state, MeshUBOData& ubo, GLuin
             glUniform2f(wireViewportLoc, float(vp[2]), float(vp[3]));
             glUniform1f(wireHalfWidthLoc, 0.5f * state.lineWidth);
             glUniformMatrix4fv(wireModelLoc, 1, GL_FALSE, glm::value_ptr(ubo.model));
-            glUniform4fv(wireSliceYLoc, 1, glm::value_ptr(ubo.sliceY));
-            glUniform4fv(wireSliceEnLoc, 1, glm::value_ptr(ubo.sliceEn));
+            glUniform4fv(wireSliceYLoc, 1, glm::value_ptr(ubo.clipY));
+            glUniform4fv(wireSliceEnLoc, 1, glm::value_ptr(ubo.clipEn));
             glUniform4fv(wireInvertLoc, 1, glm::value_ptr(ubo.invert));
             glUniform1f(wireClipEnabledLoc, ubo.point_clip.w);
             glDepthFunc(GL_LEQUAL); glDepthMask(GL_FALSE); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

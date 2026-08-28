@@ -32,10 +32,10 @@ void VolumePass::init(const ShaderSources& sources) {
         locScalarMin_       = glGetUniformLocation(program_, "uScalarMin");
         locScalarMax_       = glGetUniformLocation(program_, "uScalarMax");
         locClipEnabled_     = glGetUniformLocation(program_, "uClipEnabled");
-        locSliceHeightX_    = glGetUniformLocation(program_, "uSliceHeightX");
-        locSliceHeightY_    = glGetUniformLocation(program_, "uSliceHeightY");
-        locSliceHeightZ_    = glGetUniformLocation(program_, "uSliceHeightZ");
-        locSliceEn_         = glGetUniformLocation(program_, "uSliceEn");
+        locSliceHeightX_    = glGetUniformLocation(program_, "uClipHeightX");
+        locSliceHeightY_    = glGetUniformLocation(program_, "uClipHeightY");
+        locSliceHeightZ_    = glGetUniformLocation(program_, "uClipHeightZ");
+        locSliceEn_         = glGetUniformLocation(program_, "uClipEn");
         locInvert_          = glGetUniformLocation(program_, "uInvert");
         locVolumeUseColormap_ = glGetUniformLocation(program_, "uVolumeUseColormap");
         locNumBands_ = glGetUniformLocation(program_, "uNumBands");
@@ -164,10 +164,10 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     }
 
     glUniform1i(locClipEnabled_, state.clipEnabled ? 1 : 0);
-    glUniform1f(locSliceHeightX_, state.sliceHeightX);
-    glUniform1f(locSliceHeightY_, state.sliceHeightY);
-    glUniform1f(locSliceHeightZ_, state.sliceHeightZ);
-    glUniform3f(locSliceEn_, state.sliceEnabledX ? 1.0f : 0.0f, state.sliceEnabledY ? 1.0f : 0.0f, state.sliceEnabledZ ? 1.0f : 0.0f);
+    glUniform1f(locSliceHeightX_, state.clipHeightX);
+    glUniform1f(locSliceHeightY_, state.clipHeightY);
+    glUniform1f(locSliceHeightZ_, state.clipHeightZ);
+    glUniform3f(locSliceEn_, state.clipEnabledX ? 1.0f : 0.0f, state.clipEnabledY ? 1.0f : 0.0f, state.clipEnabledZ ? 1.0f : 0.0f);
     glUniform3f(locInvert_, state.invertX ? 1.0f : 0.0f, state.invertY ? 1.0f : 0.0f, state.invertZ ? 1.0f : 0.0f);
 
     glBindVertexArray(quadVao_);

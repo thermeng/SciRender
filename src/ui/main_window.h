@@ -39,7 +39,7 @@
 namespace Ui {
     class MainWindow;
     class LightingPage;
-    class SlicingPage;
+    class ClippingPage;
     class ViewDisplayPage;
     class ScalarPage;
     class VectorsPage;
@@ -127,7 +127,7 @@ private:
 
     // Section pages
     QWidget* buildLightingPage();
-    QWidget* buildSlicingPage();
+    QWidget* buildClippingPage();
     QWidget* buildViewDisplayPage();
     QWidget* buildScalarPage();
     QWidget* buildVectorsPage();
@@ -267,20 +267,20 @@ private:
     // Mesh info page (rebuilt on mesh load)
     QWidget* m_meshInfoPage = nullptr;
 
-    // Slicing page widgets (for bounds refresh on mesh load)
-    QSlider* m_sliceXSlider = nullptr;
-    QLabel* m_sliceXValue = nullptr;
-    QSlider* m_sliceYSlider = nullptr;
-    QLabel* m_sliceYValue = nullptr;
-    QSlider* m_sliceZSlider = nullptr;
-    QLabel* m_sliceZValue = nullptr;
-    QCheckBox* m_sliceEnableCb = nullptr;
-    QCheckBox* m_sliceCrinkleCb = nullptr;
-    QCheckBox* m_sliceAxisXCb = nullptr;
-    QCheckBox* m_sliceAxisYCb = nullptr;
-    QCheckBox* m_sliceAxisZCb = nullptr;
+    // Clipping page widgets (for bounds refresh on mesh load)
+    QSlider* m_clipXSlider = nullptr;
+    QLabel* m_clipXValue = nullptr;
+    QSlider* m_clipYSlider = nullptr;
+    QLabel* m_clipYValue = nullptr;
+    QSlider* m_clipZSlider = nullptr;
+    QLabel* m_clipZValue = nullptr;
+    QCheckBox* m_clipEnableCb = nullptr;
+    QCheckBox* m_clipCrinkleCb = nullptr;
+    QCheckBox* m_clipAxisXCb = nullptr;
+    QCheckBox* m_clipAxisYCb = nullptr;
+    QCheckBox* m_clipAxisZCb = nullptr;
 
-    void refreshSlicingPageBounds();
+    void refreshClippingPageBounds();
     void refreshScalarFilterRange();
     void refreshColorRangeBounds();
     void refreshVolumeRangeBounds();

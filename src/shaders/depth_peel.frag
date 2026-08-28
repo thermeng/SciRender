@@ -17,8 +17,8 @@ layout(std140) uniform MeshUBO {
     vec4  uBackColor;
     vec4  uHeadColor;
     vec4  uScalars;
-    vec4  uSliceY;
-    vec4  uSliceEn;
+    vec4  uClipY;
+    vec4  uClipEn;
     vec4  uInvert;
     vec4  uFilter;
     vec4  uMaterial;
@@ -62,9 +62,9 @@ void main() {
     // Peel is surfaces-only, but keep the crinkle gate so slice clipping is
     // consistent between opaque and transparent layers.
     if (!clipped && uPointClip.w > 0.5 && !crinkleMode) {
-        bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (vWorldPos.x < uSliceY.x) : (vWorldPos.x > uSliceY.x));
-        bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (vWorldPos.y < uSliceY.y) : (vWorldPos.y > uSliceY.y));
-        bool clipZ = bool(uSliceEn.z) && ((uInvert.z > 0.5) ? (vWorldPos.z < uSliceY.z) : (vWorldPos.z > uSliceY.z));
+        bool clipX = bool(uClipEn.x) && ((uInvert.x > 0.5) ? (vWorldPos.x < uClipY.x) : (vWorldPos.x > uClipY.x));
+        bool clipY = bool(uClipEn.y) && ((uInvert.y > 0.5) ? (vWorldPos.y < uClipY.y) : (vWorldPos.y > uClipY.y));
+        bool clipZ = bool(uClipEn.z) && ((uInvert.z > 0.5) ? (vWorldPos.z < uClipY.z) : (vWorldPos.z > uClipY.z));
         clipped = clipX || clipY || clipZ;
     }
     if (clipped) discard;

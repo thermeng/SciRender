@@ -19,8 +19,8 @@ layout(std140) uniform MeshUBO {
     vec4  uBackColor;
     vec4  uHeadColor;
     vec4  uScalars;
-    vec4  uSliceY;
-    vec4  uSliceEn;
+    vec4  uClipY;
+    vec4  uClipEn;
     vec4  uInvert;
     vec4  uFilter;
     vec4  uMaterial;
@@ -44,32 +44,32 @@ out MeshVarying {
 void main() {
     if (uPointClip.w > 0.5) {
         bool cull = false;
-        if (bool(uSliceEn.x)) {
+        if (bool(uClipEn.x)) {
             bool allBehind = true;
             for (int i = 0; i < 3; ++i) {
                 bool behind = (uInvert.x > 0.5)
-                    ? (gs_in[i].vWorldPos.x < uSliceY.x)
-                    : (gs_in[i].vWorldPos.x > uSliceY.x);
+                    ? (gs_in[i].vWorldPos.x < uClipY.x)
+                    : (gs_in[i].vWorldPos.x > uClipY.x);
                 if (!behind) { allBehind = false; break; }
             }
             if (allBehind) cull = true;
         }
-        if (!cull && bool(uSliceEn.y)) {
+        if (!cull && bool(uClipEn.y)) {
             bool allBehind = true;
             for (int i = 0; i < 3; ++i) {
                 bool behind = (uInvert.y > 0.5)
-                    ? (gs_in[i].vWorldPos.y < uSliceY.y)
-                    : (gs_in[i].vWorldPos.y > uSliceY.y);
+                    ? (gs_in[i].vWorldPos.y < uClipY.y)
+                    : (gs_in[i].vWorldPos.y > uClipY.y);
                 if (!behind) { allBehind = false; break; }
             }
             if (allBehind) cull = true;
         }
-        if (!cull && bool(uSliceEn.z)) {
+        if (!cull && bool(uClipEn.z)) {
             bool allBehind = true;
             for (int i = 0; i < 3; ++i) {
                 bool behind = (uInvert.z > 0.5)
-                    ? (gs_in[i].vWorldPos.z < uSliceY.z)
-                    : (gs_in[i].vWorldPos.z > uSliceY.z);
+                    ? (gs_in[i].vWorldPos.z < uClipY.z)
+                    : (gs_in[i].vWorldPos.z > uClipY.z);
                 if (!behind) { allBehind = false; break; }
             }
             if (allBehind) cull = true;

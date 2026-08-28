@@ -229,12 +229,12 @@ struct RenderRenderState {
     // Slice / clip
     bool clipEnabled = false;
     bool crinkleClipMode = false;
-    float sliceHeightX = 0.0f;
-    float sliceHeightY = 0.0f;
-    float sliceHeightZ = 0.0f;
-    bool sliceEnabledX = false;
-    bool sliceEnabledY = false;
-    bool sliceEnabledZ = false;
+    float clipHeightX = 0.0f;
+    float clipHeightY = 0.0f;
+    float clipHeightZ = 0.0f;
+    bool clipEnabledX = false;
+    bool clipEnabledY = false;
+    bool clipEnabledZ = false;
     bool invertX = false;
     bool invertY = false;
     bool invertZ = false;
@@ -356,8 +356,8 @@ struct MeshUBOData {
     glm::vec4 backColor;
     glm::vec4 headColor;
     glm::vec4 scalars;          // x = scalarMin, y = scalarMax, z = hasScalars(0/1), w = 0
-    glm::vec4 sliceY;           // x = sliceHeightX, y = sliceHeightY, z = sliceHeightZ, w = 0
-    glm::vec4 sliceEn;          // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
+    glm::vec4 clipY;            // x = clipHeightX, y = clipHeightY, z = clipHeightZ, w = 0
+    glm::vec4 clipEn;           // x = clipEnabledX, y = clipEnabledY, z = clipEnabledZ, w = 0
     glm::vec4 invert;           // x = invertX, y = invertY, z = invertZ, w = 0
     glm::vec4 filter;           // x = filterMin, y = filterMax, z = filterEnabled(0/1), w = 0
     glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular

@@ -20,8 +20,8 @@ layout(std140) uniform MeshUBO {
     vec4  uBackColor;
     vec4  uHeadColor;
     vec4  uScalars;         // x = scalarMin, y = scalarMax, z = hasScalars(0/1), w = 0
-    vec4  uSliceY;          // x = sliceHeightX, y = sliceHeightY, z = sliceHeightZ, w = 0
-    vec4  uSliceEn;         // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
+    vec4  uClipY;           // x = clipHeightX, y = clipHeightY, z = clipHeightZ, w = 0
+    vec4  uClipEn;          // x = clipEnabledX, y = clipEnabledY, z = clipEnabledZ, w = 0
     vec4  uInvert;          // x = invertX, y = invertY, z = invertZ, w = 0
     vec4  uFilter;          // x = filterMin, y = filterMax, z = filterEnabled(0/1), w = 0
     vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular

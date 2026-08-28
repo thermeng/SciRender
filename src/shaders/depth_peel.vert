@@ -20,8 +20,8 @@ layout(std140) uniform MeshUBO {
     vec4  uBackColor;
     vec4  uHeadColor;
     vec4  uScalars;
-    vec4  uSliceY;
-    vec4  uSliceEn;
+    vec4  uClipY;
+    vec4  uClipEn;
     vec4  uInvert;
     vec4  uFilter;
     vec4  uMaterial;
