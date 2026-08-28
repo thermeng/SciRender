@@ -2,6 +2,7 @@
 #include "viewport_widget.h"
 #include "colorbar_style_dialog.h"
 #include "render/foundation/render_config.h"
+#include <QApplication>
 #include <QColorSpace>
 #include <QContextMenuEvent>
 #include <QFileDialog>
@@ -339,6 +340,11 @@ void ViewportWidget::deferredCapture(const QString& path) {
 void ViewportWidget::mousePressEvent(QMouseEvent* event) {
     m_lastMousePos = event->pos();
     m_isMiddleClick = (event->button() == Qt::MiddleButton);
+    if (event->button() == Qt::RightButton) {
+        m_isRightDragging = true;
+        m_rightDragging = false;
+        m_rightPressPos = event->pos();
+    }
 
     if (event->button() == Qt::LeftButton && m_settings) {
         ::Renderer* scene = m_settings->backend();
@@ -388,7 +394,30 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent* event) {
         return;
     }
 
-    // Middle button (or shift+left) = pan, Left button = orbit
+    // Right-button drag = pan (thresholded to keep single click for menu)
+    if ((event->buttons() & Qt::RightButton) && m_isRightDragging) {
+        int dist = (event->pos() - m_rightPressPos).manhattanLength();
+        if (!m_rightDragging && dist < QApplication::startDragDistance())
+        {
+            // Not yet dragging — update last pos to avoid jump, no pan/orbit
+            m_lastMousePos = event->pos();
+            event->accept();
+            return;
+        }
+        if (!m_rightDragging) {
+            m_rightDragging = true;
+            setCursor(Qt::ClosedHandCursor);
+        }
+        QPoint delta = event->pos() - m_lastMousePos;
+        m_lastMousePos = event->pos();
+        m_settings->pan(delta.x(), delta.y());
+        m_dirty = true;
+        update();
+        event->accept();
+        return;
+    }
+
+    // Middle button (or shift+left) = pan, Left button = orbit (middle kept as alias)
     const bool middleOrShift = m_isMiddleClick || (event->buttons() & Qt::MiddleButton);
     QPoint delta = event->pos() - m_lastMousePos;
     m_lastMousePos = event->pos();
@@ -409,11 +438,31 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent* event) {
         event->accept();
         return;
     }
-    // Show context menu on right-click release (no drag happened)
-    if (event->button() == Qt::RightButton && !m_isMiddleClick) {
+    if (event->button() == Qt::RightButton && m_isRightDragging) {
+        bool wasDragging = m_rightDragging;
+        m_isRightDragging = false;
+        m_rightDragging = false;
+        setCursor(Qt::ArrowCursor);
+        if (!wasDragging && !m_isMiddleClick) {
+            QContextMenuEvent* cme = new QContextMenuEvent(QContextMenuEvent::Mouse, event->pos(), event->globalPosition().toPoint());
+            QCoreApplication::postEvent(this, cme);
+        } else {
+            // Was a pan drag — suppress both synthetic and Qt auto menu
+            m_suppressContextMenu = true;
+        }
+        event->accept();
+        QTimer::singleShot(RenderConfig::defaults().postMotionRedrawMs, this, [this]() {
+            m_dirty = true;
+            update();
+        });
+        return;
+    }
+    // Fallback: right-click without our tracking (should not happen)
+    if (event->button() == Qt::RightButton && !m_isMiddleClick && !m_rightDragging) {
         QContextMenuEvent* cme = new QContextMenuEvent(QContextMenuEvent::Mouse, event->pos(), event->globalPosition().toPoint());
         QCoreApplication::postEvent(this, cme);
     }
+    if (event->button() == Qt::MiddleButton) m_isMiddleClick = false;
     event->accept();
     QTimer::singleShot(RenderConfig::defaults().postMotionRedrawMs, this, [this]() {
         m_dirty = true;
@@ -423,7 +472,12 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent* event) {
 
 void ViewportWidget::wheelEvent(QWheelEvent* event) {
     if (!m_settings) return;
-    double factor = (event->angleDelta().y() > 0) ? 1.1 : 0.9;
+    // Inverted: wheel forward (positive delta) zooms out, wheel back zooms in
+    double deltaY = 0;
+    if (!event->angleDelta().isNull()) deltaY = event->angleDelta().y();
+    else if (!event->pixelDelta().isNull()) deltaY = event->pixelDelta().y();
+    if (deltaY == 0) { event->accept(); return; }
+    double factor = (deltaY > 0) ? 0.9 : 1.1;
     m_settings->dolly(factor);
     m_dirty = true;
     update();
@@ -435,6 +489,11 @@ void ViewportWidget::wheelEvent(QWheelEvent* event) {
 }
 
 void ViewportWidget::contextMenuEvent(QContextMenuEvent* event) {
+    if (m_suppressContextMenu) {
+        m_suppressContextMenu = false;
+        event->accept();
+        return;
+    }
     if (!m_settings) return;
     ::Renderer* scene = m_settings->backend();
 
