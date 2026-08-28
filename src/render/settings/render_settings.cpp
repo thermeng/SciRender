@@ -601,7 +601,7 @@ void RenderSettings::onMeshParsed() {
     }
     m_state.clipEnabled = false;
     m_state.crinkleClipMode = false;
-    m_state.sliceEnabledX = m_state.sliceEnabledY = m_state.sliceEnabledZ = false;
+    m_state.clipEnabledX = m_state.clipEnabledY = m_state.clipEnabledZ = false;
     if (!loaded->pointVectorsData.empty()) {
         m_meshData.guiMeta.vectorName = loaded->availableVectorNames.front();
         m_state.vectorField = loaded->availableVectorNames.front();

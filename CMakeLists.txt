@@ -130,7 +130,7 @@ add_executable(SciRender
     src/ui/main_window.ui
     src/ui/scalar_page.ui
     src/ui/lighting_page.ui
-    src/ui/slicing_page.ui
+    src/ui/clipping_page.ui
     src/ui/view_display_page.ui
     src/ui/vectors_page.ui
     src/ui/volume_page.ui

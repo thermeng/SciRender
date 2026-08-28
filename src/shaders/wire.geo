@@ -13,8 +13,8 @@ layout(triangle_strip, max_vertices = 4) out;
 
 uniform vec2  uViewport;   // drawable size in device pixels
 uniform float uHalfWidth;  // half line width in device pixels
-uniform vec4  uSliceY;     // xyz = clip plane X,Y,Z positions
-uniform vec4  uSliceEn;    // xyz = enable clip X,Y,Z
+uniform vec4  uClipY;     // xyz = clip plane X,Y,Z positions
+uniform vec4  uClipEn;    // xyz = enable clip X,Y,Z
 uniform vec4  uInvert;     // xyz = invert X,Y,Z
 uniform float uClipEnabled; // != 0 when crinkle clip active
 
@@ -25,16 +25,16 @@ in vec3 vWorldPos[];
 
 bool isBehindClip(vec3 wp) {
     if (uClipEnabled < 0.5) return false;
-    if (uSliceEn.x > 0.5) {
-        bool behind = (uInvert.x > 0.5) ? (wp.x < uSliceY.x) : (wp.x > uSliceY.x);
+    if (uClipEn.x > 0.5) {
+        bool behind = (uInvert.x > 0.5) ? (wp.x < uClipY.x) : (wp.x > uClipY.x);
         if (behind) return true;
     }
-    if (uSliceEn.y > 0.5) {
-        bool behind = (uInvert.y > 0.5) ? (wp.y < uSliceY.y) : (wp.y > uSliceY.y);
+    if (uClipEn.y > 0.5) {
+        bool behind = (uInvert.y > 0.5) ? (wp.y < uClipY.y) : (wp.y > uClipY.y);
         if (behind) return true;
     }
-    if (uSliceEn.z > 0.5) {
-        bool behind = (uInvert.z > 0.5) ? (wp.z < uSliceY.z) : (wp.z > uSliceY.z);
+    if (uClipEn.z > 0.5) {
+        bool behind = (uInvert.z > 0.5) ? (wp.z < uClipY.z) : (wp.z > uClipY.z);
         if (behind) return true;
     }
     return false;

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>SlicingPage</class>
- <widget class="QWidget" name="SlicingPage">
+ <class>ClippingPage</class>
+ <widget class="QWidget" name="ClippingPage">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -29,14 +29,14 @@
    <item>
     <widget class="QCheckBox" name="enableCb">
      <property name="text">
-      <string>Enable Slicing</string>
+      <string>Enable Clipping</string>
      </property>
     </widget>
    </item>
    <item>
     <widget class="QLabel" name="slicePlanesHeader">
      <property name="text">
-      <string>Slice Planes</string>
+       <string>Clip Planes</string>
      </property>
     </widget>
    </item>

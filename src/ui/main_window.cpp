@@ -2,7 +2,7 @@
 #include "ui_main_window.h"
 #include "animation_export_dialog.h"
 #include "ui_lighting_page.h"
-#include "ui_slicing_page.h"
+#include "ui_clipping_page.h"
 #include "ui_view_display_page.h"
 #include "ui_scalar_page.h"
 #include "ui_vectors_page.h"
@@ -465,7 +465,7 @@ void MainWindow::setupMenus() {
     auto* viewMenu = ui->menuView;
     viewMenu->addAction("&Mesh Info", this, [this]() { setSidebarSection(0); });
     viewMenu->addAction("&Lighting", this, [this]() { setSidebarSection(1); });
-    viewMenu->addAction("&Slicing", this, [this]() { setSidebarSection(2); });
+    viewMenu->addAction("&Clipping", this, [this]() { setSidebarSection(2); });
     viewMenu->addSeparator();
 
     auto* cullGroup = new QActionGroup(this);
@@ -569,7 +569,7 @@ void MainWindow::setupSidebar() {
     m_navList->setFocusPolicy(Qt::NoFocus);
 
     const QString navItems[] = {
-        "Mesh Info", "Lighting", "Slicing", "View & Display", "Scalar",
+        "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar",
         "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
         "Screenshot", "Animation"
     };
@@ -631,7 +631,7 @@ void MainWindow::setupSidebar() {
     m_sectionStack->addWidget(buildMeshInfoPage());       // 0
     m_meshInfoPage = m_sectionStack->widget(0);
     m_sectionStack->addWidget(buildLightingPage());     // 1
-    m_sectionStack->addWidget(buildSlicingPage());      // 2
+    m_sectionStack->addWidget(buildClippingPage());      // 2
     m_sectionStack->addWidget(buildViewDisplayPage());  // 3
     m_sectionStack->addWidget(buildScalarPage());     // 4
     m_sectionStack->addWidget(buildVectorsPage());      // 5
@@ -861,33 +861,33 @@ QWidget* MainWindow::buildLightingPage() {
 }
 
 
-// Section: Slicing (1)
+// Section: Clipping (1)
 
-QWidget* MainWindow::buildSlicingPage() {
+QWidget* MainWindow::buildClippingPage() {
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scroll->setFrameShape(QFrame::NoFrame);
 
     auto* page = new QWidget;
-    Ui::SlicingPage slicingUi;
-    slicingUi.setupUi(page);
+    Ui::ClippingPage clippingUi;
+    clippingUi.setupUi(page);
     fixLayoutOverflow(page);
 
     // -- Master enable --------------------------------------------------------
-    auto* enableCb = slicingUi.enableCb;
-    m_sliceEnableCb = enableCb;
+    auto* enableCb = clippingUi.enableCb;
+    m_clipEnableCb = enableCb;
     enableCb->setChecked(m_settings->getClipEnabled());
     connect(enableCb, &QCheckBox::toggled, m_settings, &RenderSettings::setClipEnabled);
-    connect(enableCb, &QCheckBox::toggled, slicingUi.optionsGroup, &QWidget::setEnabled);
-    slicingUi.optionsGroup->setEnabled(m_settings->getClipEnabled());
+    connect(enableCb, &QCheckBox::toggled, clippingUi.optionsGroup, &QWidget::setEnabled);
+    clippingUi.optionsGroup->setEnabled(m_settings->getClipEnabled());
 
     // -- Crinkle Clip checkbox -----------------------------------------------
-    m_sliceCrinkleCb = slicingUi.crinkleCb;
-    m_sliceCrinkleCb->setEnabled(m_settings->getClipEnabled());
-    m_sliceCrinkleCb->setChecked(m_settings->getCrinkleClipMode());
-    connect(enableCb, &QCheckBox::toggled, m_sliceCrinkleCb, &QWidget::setEnabled);
-    connect(m_sliceCrinkleCb, &QCheckBox::toggled, m_settings, &RenderSettings::setCrinkleClipMode);
+    m_clipCrinkleCb = clippingUi.crinkleCb;
+    m_clipCrinkleCb->setEnabled(m_settings->getClipEnabled());
+    m_clipCrinkleCb->setChecked(m_settings->getCrinkleClipMode());
+    connect(enableCb, &QCheckBox::toggled, m_clipCrinkleCb, &QWidget::setEnabled);
+    connect(m_clipCrinkleCb, &QCheckBox::toggled, m_settings, &RenderSettings::setCrinkleClipMode);
 
     // -- Per-axis setup lambda -----------------------------------------------
     auto setupAxis = [&](QCheckBox* axisCb, QCheckBox* invertCb,
@@ -917,39 +917,39 @@ QWidget* MainWindow::buildSlicingPage() {
     };
 
     // -- X Axis ---------------------------------------------------------------
-    m_sliceXSlider = slicingUi.sliceXSlider;
-    m_sliceXValue = slicingUi.xValue;
-    m_sliceAxisXCb = slicingUi.axisX;
-    setupAxis(slicingUi.axisX, slicingUi.invX,
-              m_sliceXSlider, m_sliceXValue,
-              m_settings->getSliceEnabledX(), m_settings->getInvertX(),
-              m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getSliceX(),
-              &RenderSettings::setSliceEnabledX,
-              [this](double v) { m_settings->setSliceX(v); },
+    m_clipXSlider = clippingUi.sliceXSlider;
+    m_clipXValue = clippingUi.xValue;
+    m_clipAxisXCb = clippingUi.axisX;
+    setupAxis(clippingUi.axisX, clippingUi.invX,
+              m_clipXSlider, m_clipXValue,
+              m_settings->getClipEnabledX(), m_settings->getInvertX(),
+              m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getClipX(),
+              &RenderSettings::setClipEnabledX,
+              [this](double v) { m_settings->setClipX(v); },
               &RenderSettings::setInvertX);
 
     // -- Y Axis ---------------------------------------------------------------
-    m_sliceYSlider = slicingUi.sliceYSlider;
-    m_sliceYValue = slicingUi.yValue;
-    m_sliceAxisYCb = slicingUi.axisY;
-    setupAxis(slicingUi.axisY, slicingUi.invY,
-              m_sliceYSlider, m_sliceYValue,
-              m_settings->getSliceEnabledY(), m_settings->getInvertY(),
-              m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getSliceY(),
-              &RenderSettings::setSliceEnabledY,
-              [this](double v) { m_settings->setSliceY(v); },
+    m_clipYSlider = clippingUi.sliceYSlider;
+    m_clipYValue = clippingUi.yValue;
+    m_clipAxisYCb = clippingUi.axisY;
+    setupAxis(clippingUi.axisY, clippingUi.invY,
+              m_clipYSlider, m_clipYValue,
+              m_settings->getClipEnabledY(), m_settings->getInvertY(),
+              m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getClipY(),
+              &RenderSettings::setClipEnabledY,
+              [this](double v) { m_settings->setClipY(v); },
               &RenderSettings::setInvertY);
 
     // -- Z Axis ---------------------------------------------------------------
-    m_sliceZSlider = slicingUi.sliceZSlider;
-    m_sliceZValue = slicingUi.zValue;
-    m_sliceAxisZCb = slicingUi.axisZ;
-    setupAxis(slicingUi.axisZ, slicingUi.invZ,
-              m_sliceZSlider, m_sliceZValue,
-              m_settings->getSliceEnabledZ(), m_settings->getInvertZ(),
-              m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ(),
-              &RenderSettings::setSliceEnabledZ,
-              [this](double v) { m_settings->setSliceZ(v); },
+    m_clipZSlider = clippingUi.sliceZSlider;
+    m_clipZValue = clippingUi.zValue;
+    m_clipAxisZCb = clippingUi.axisZ;
+    setupAxis(clippingUi.axisZ, clippingUi.invZ,
+              m_clipZSlider, m_clipZValue,
+              m_settings->getClipEnabledZ(), m_settings->getInvertZ(),
+              m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getClipZ(),
+              &RenderSettings::setClipEnabledZ,
+              [this](double v) { m_settings->setClipZ(v); },
               &RenderSettings::setInvertZ);
 
     qobject_cast<QVBoxLayout*>(page->layout())->addStretch();
@@ -2508,15 +2508,15 @@ void MainWindow::refreshMeshInfoPage() {
     }
 }
 
-void MainWindow::refreshSlicingPageBounds() {
-    if (m_sliceEnableCb) m_sliceEnableCb->setChecked(m_settings->getClipEnabled());
-    if (m_sliceCrinkleCb) {
-        m_sliceCrinkleCb->setEnabled(m_settings->getClipEnabled());
-        m_sliceCrinkleCb->setChecked(m_settings->getCrinkleClipMode());
+void MainWindow::refreshClippingPageBounds() {
+    if (m_clipEnableCb) m_clipEnableCb->setChecked(m_settings->getClipEnabled());
+    if (m_clipCrinkleCb) {
+        m_clipCrinkleCb->setEnabled(m_settings->getClipEnabled());
+        m_clipCrinkleCb->setChecked(m_settings->getCrinkleClipMode());
     }
-    if (m_sliceAxisXCb)  m_sliceAxisXCb->setChecked(m_settings->getSliceEnabledX());
-    if (m_sliceAxisYCb)  m_sliceAxisYCb->setChecked(m_settings->getSliceEnabledY());
-    if (m_sliceAxisZCb)  m_sliceAxisZCb->setChecked(m_settings->getSliceEnabledZ());
+    if (m_clipAxisXCb)  m_clipAxisXCb->setChecked(m_settings->getClipEnabledX());
+    if (m_clipAxisYCb)  m_clipAxisYCb->setChecked(m_settings->getClipEnabledY());
+    if (m_clipAxisZCb)  m_clipAxisZCb->setChecked(m_settings->getClipEnabledZ());
 
     auto updateSlider = [](QSlider* slider, QLabel* valueLabel, double from, double to, double val) {
         if (!slider || !valueLabel) return;
@@ -2529,12 +2529,12 @@ void MainWindow::refreshSlicingPageBounds() {
         slider->blockSignals(false);
         valueLabel->setText(QString::number(center, 'f', 3));
     };
-    updateSlider(m_sliceXSlider, m_sliceXValue,
-                 m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getSliceX());
-    updateSlider(m_sliceYSlider, m_sliceYValue,
-                 m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getSliceY());
-    updateSlider(m_sliceZSlider, m_sliceZValue,
-                  m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getSliceZ());
+    updateSlider(m_clipXSlider, m_clipXValue,
+                 m_settings->getWorldMinX(), m_settings->getWorldMaxX(), m_settings->getClipX());
+    updateSlider(m_clipYSlider, m_clipYValue,
+                 m_settings->getWorldMinY(), m_settings->getWorldMaxY(), m_settings->getClipY());
+    updateSlider(m_clipZSlider, m_clipZValue,
+                 m_settings->getWorldMinZ(), m_settings->getWorldMaxZ(), m_settings->getClipZ());
 }
 
 void MainWindow::refreshScalarFilterRange() {
@@ -2891,7 +2891,7 @@ void MainWindow::setupKeyboardShortcuts() {
 
 void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
-    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshSlicingPageBounds);
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshClippingPageBounds);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshScalarFilterRange);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshColorRangeBounds);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshVolumeRangeBounds);

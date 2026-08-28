@@ -17,8 +17,8 @@ layout(std140) uniform MeshUBO {
     vec4  uBackColor;
     vec4  uHeadColor;
     vec4  uScalars;         // x = scalarMin, y = scalarMax, z = hasScalars(0/1), w = 0
-    vec4  uSliceY;          // x = sliceHeightX, y = sliceHeightY, z = sliceHeightZ, w = 0
-    vec4  uSliceEn;         // x = sliceEnabledX, y = sliceEnabledY, z = sliceEnabledZ, w = 0
+    vec4  uClipY;           // x = clipHeightX, y = clipHeightY, z = clipHeightZ, w = 0
+    vec4  uClipEn;          // x = clipEnabledX, y = clipEnabledY, z = clipEnabledZ, w = 0
     vec4  uInvert;          // x = invertX, y = invertY, z = invertZ, w = 0
     vec4  uFilter;          // x = filterMin, y = filterMax, z = filterEnabled(0/1), w = 0
     vec4  uMaterial;        // x = matAmbient, y = matDiffuse, z = matSpecular
@@ -72,9 +72,9 @@ void main() {
                    (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
     bool crinkleMode = uShadingMode.y > 0.5;
     if (!clipped && uPointClip.w > 0.5 && !crinkleMode) {
-        bool clipX = bool(uSliceEn.x) && ((uInvert.x > 0.5) ? (mv.vWorldPos.x < uSliceY.x) : (mv.vWorldPos.x > uSliceY.x));
-        bool clipY = bool(uSliceEn.y) && ((uInvert.y > 0.5) ? (mv.vWorldPos.y < uSliceY.y) : (mv.vWorldPos.y > uSliceY.y));
-        bool clipZ = bool(uSliceEn.z) && ((uInvert.z > 0.5) ? (mv.vWorldPos.z < uSliceY.z) : (mv.vWorldPos.z > uSliceY.z));
+        bool clipX = bool(uClipEn.x) && ((uInvert.x > 0.5) ? (mv.vWorldPos.x < uClipY.x) : (mv.vWorldPos.x > uClipY.x));
+        bool clipY = bool(uClipEn.y) && ((uInvert.y > 0.5) ? (mv.vWorldPos.y < uClipY.y) : (mv.vWorldPos.y > uClipY.y));
+        bool clipZ = bool(uClipEn.z) && ((uInvert.z > 0.5) ? (mv.vWorldPos.z < uClipY.z) : (mv.vWorldPos.z > uClipY.z));
         clipped = clipX || clipY || clipZ;
     }
 
