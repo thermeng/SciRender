@@ -97,8 +97,7 @@ tests/last_pvd.log
 samples/pvd_test_sandbox/
 samples/pvd_animation/
 
-# Ignore vendors
-/vendor/
+# Ignore vendors — source is tracked; build artifacts (*.a, *.o) already ignored above
 
 # Ignore 
 /.hermes/
