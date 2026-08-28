@@ -20,6 +20,8 @@ jobs:
           version: '6.11.1'
           arch: 'win64_mingw'
           cache: false
+          aqtversion: '==3.4.*'
+          py7zrversion: '==1.0.*'
 
       - name: Configure (MinGW)
         run: cmake -G "MinGW Makefiles" -S . -B build-mingw -DCMAKE_BUILD_TYPE=Release
