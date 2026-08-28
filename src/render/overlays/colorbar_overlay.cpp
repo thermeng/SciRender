@@ -414,8 +414,11 @@ void ColorbarOverlay::drawSingleBar(float dpr, int deviceW, int deviceH,
         cache->h = cache->image.height();
         cache->valid = true;
         // Allocate immutable storage once
-        QImage gl = cache->image.convertToFormat(QImage::Format_RGBA8888);
-        gl = gl.flipped(Qt::Vertical);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 11, 0)
+        QImage gl = cache->image.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Vertical);
+#else
+        QImage gl = cache->image.convertToFormat(QImage::Format_RGBA8888).mirrored(false, true);
+#endif
         glTextureStorage2D(cache->texId, 1, GL_RGBA8, gl.width(), gl.height());
         glTextureSubImage2D(cache->texId, 0, 0, 0, gl.width(), gl.height(), GL_RGBA, GL_UNSIGNED_BYTE, gl.constBits());
         glBindTextureUnit(0, cache->texId);
