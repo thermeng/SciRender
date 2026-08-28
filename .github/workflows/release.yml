@@ -17,9 +17,10 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.3'
+          version: '6.11.1'
           arch: 'win64_mingw'
           cache: true
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head
 
       - name: Configure (MinGW)
         run: cmake -G "MinGW Makefiles" -S . -B build-mingw -DCMAKE_BUILD_TYPE=Release
