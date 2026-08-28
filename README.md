@@ -68,11 +68,13 @@ the program can run from the build directory.
 - **Isosurface extraction** via marching cubes with debounced async computation;
   isosurface surfaces are shaded by the colormap LUT with PBR lighting and
   participate in depth-peel transparency and LOD
-- **Colorbar legend:** GPU-composited colorbar overlay (gradient bar + tick
-  labels + title) rendered into the viewport FBO so it is captured in screenshots.
+- **Colorbar legend:** GPU-composited colorbar overlay — sharp, borderless
+  gradient bar (optional rounded background panel) + tick labels + title
+  rendered into the viewport FBO so it is captured in screenshots.
   User-controllable tick count (`colorbarTicks`, 2–20) across the live data range.
   Supports independent colorbars for scalar, vector-magnitude, streamline,
-  volume, and volume-slice data
+  volume, and volume-slice data; palette, reverse, fixed-range window and
+  discrete bands are configured per colorbar via right-click → **Style…** dialog
 - **Lighting system:** 4-point light kit (key/fill/back/head) that tracks the
   camera, key intensity + K-ratios (key/fill/back/head), kit-wide warm tint,
   PBR material parameters (roughness, metallic, ambient/diffuse/specular)/.
@@ -82,6 +84,8 @@ the program can run from the build directory.
   camera rotation. Anti-aliased clip-space axis lines, solid-color conical tips,
   solid origin disc, and texture-atlas text labels. Handles pole views (±X/±Y/±Z)
   with end-on disc markers and label offset to avoid overlap
+- **Viewport navigation:** left-drag orbit, right-drag pan (middle-drag alias
+  retained), inverted wheel zoom, and triad click-to-snap
 - **Light-direction markers:** visual markers in the gizmo corner showing the
   key/fill/back/head light directions, tinted by the warm setting
 - **Bounding box overlay:** axis-aligned bounding box (AABB) wireframe
@@ -138,7 +142,7 @@ It is used only when all of the following hold:
 | `src/core/` | VTK/STL/OBJ parsers, `.pvd` collection parser, mesh loading, mesh-quality analysis, field-name resolution (`FieldResolver`), camera, colormap definitions, isosurface extraction (marching cubes) |
 | `src/render/` | OpenGL renderer, lighting model, mesh/LOD upload, vector glyphs, streamlines, particles, volume pass, colormap manager, colorbar overlay, axis triad, bbox overlay, quality overlay, screenshot capture, depth-peel transparency, animation playback controller + AVI/PNG exporter |
 | `src/shaders/` | GLSL vertex/fragment/compute shaders (mesh, glyph, bbox, streamline, seed, particle, volume, volume slice, quality overlay, LOD compute, depth peel, composite) |
-| `src/ui/` | Qt Widgets main window, sidebar pages (lighting, slicing, view/display, scalar, vectors, streamlines, screenshot, mesh info, volume, animation), animation export dialog, viewport widget |
+| `src/ui/` | Qt Widgets main window, sidebar pages (lighting, slicing, view/display, scalar, vectors, streamlines, screenshot, mesh info, volume, animation), animation export dialog, viewport widget, colorbar style dialog with per-colorbar palette/fixed-range (sharp, borderless bar) |
 | `tests/` | Standalone regression harnesses — parsers, PVD collections, marching-cubes isosurface, streamline direction, animation range rules — driven by `run_tests.{bat,sh}` |
 | `samples/` | VTK/STL fixture files used by the regression harness |
 | `assets/` | Application icon |
