@@ -19,7 +19,7 @@ jobs:
         with:
           version: '6.11.1'
           arch: 'win64_mingw'
-          cache: true
+          cache: false
 
       - name: Configure (MinGW)
         run: cmake -G "MinGW Makefiles" -S . -B build-mingw -DCMAKE_BUILD_TYPE=Release
@@ -32,8 +32,10 @@ jobs:
 
       - name: Run windeployqt
         run: |
-          $qtBin = "C:/Qt/6.11.1/mingw_64/bin"
-          & "$qtBin/windeployqt.exe" --release --no-translations --compiler-runtime package/SciRender.exe
+          # Use windeployqt from PATH (set by install-qt-action) with fallback to hardcoded local path
+          $windeployqt = (Get-Command windeployqt -ErrorAction SilentlyContinue)?.Source
+          if (-not $windeployqt) { $windeployqt = "C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe" }
+          & $windeployqt --release --no-translations --compiler-runtime package/SciRender.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install Inno Setup
