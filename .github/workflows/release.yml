@@ -37,6 +37,17 @@ jobs:
           & $windeployqt --release --no-translations --compiler-runtime package/SciRender.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Copy correct MinGW runtime DLLs
+        run: |
+          $packageDir = "package"
+          $mingwBin = Split-Path (Get-Command g++ -ErrorAction SilentlyContinue).Source -Parent
+          if (-not $mingwBin) { $mingwBin = "$env:QT_ROOT_DIR\..\..\Tools\mingw1310_64\bin" }
+          if (-not (Test-Path $mingwBin)) { Write-Error "Cannot find MinGW bin directory"; exit 1 }
+          foreach ($dll in @("libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll")) {
+            $src = Join-Path $mingwBin $dll
+            if (Test-Path $src) { Copy-Item $src $packageDir -Force } else { Write-Warning "Missing: $src" }
+          }
+
       - name: Install Inno Setup
         run: choco install innosetup -y
 
