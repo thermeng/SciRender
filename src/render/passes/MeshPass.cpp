@@ -17,6 +17,50 @@ void MeshPass::init(const ShaderSources& sources) {
         numBandsLoc = glGetUniformLocation(shaderProgram, "uNumBands");
     }
 
+    if (!sources.meshVert.empty() && !sources.surfaceLicFrag.empty()) {
+        const std::string licFragFull = injectPbrCommon(sources.surfaceLicFrag.c_str(), sources.pbrFragCommon);
+        licShaderProgram.reset(compileProgram(sources.meshVert.c_str(), licFragFull.c_str(), "SurfaceLIC"));
+        if (licShaderProgram.has()) {
+            GLuint licIdx = glGetUniformBlockIndex(licShaderProgram, "MeshUBO");
+            if (licIdx != GL_INVALID_INDEX)
+                glUniformBlockBinding(licShaderProgram, licIdx, 0);
+            licLutTextureLoc = glGetUniformLocation(licShaderProgram, "uColormapLUT");
+            licNumBandsLoc = glGetUniformLocation(licShaderProgram, "uNumBands");
+            licVectorTexLoc = glGetUniformLocation(licShaderProgram, "uVectorTex");
+            licNoiseTexLoc = glGetUniformLocation(licShaderProgram, "uNoiseTex");
+            licBoxMinLoc = glGetUniformLocation(licShaderProgram, "uBoxMin");
+            licBoxMaxLoc = glGetUniformLocation(licShaderProgram, "uBoxMax");
+            licStepsLoc = glGetUniformLocation(licShaderProgram, "uLicSteps");
+            licStepSizeLoc = glGetUniformLocation(licShaderProgram, "uLicStepSize");
+            licNoiseFreqLoc = glGetUniformLocation(licShaderProgram, "uLicNoiseFreq");
+            licBoundaryModeLoc = glGetUniformLocation(licShaderProgram, "uLicBoundaryMode");
+            licUvwScaleLoc = glGetUniformLocation(licShaderProgram, "uUvwScale");
+            licUvwOffsetLoc = glGetUniformLocation(licShaderProgram, "uUvwOffset");
+        }
+        if (!sources.meshClipGeo.empty() && licShaderProgram.has()) {
+            licClipShaderProgram.reset(compileProgramWithGS(
+                sources.meshVert.c_str(), sources.meshClipGeo.c_str(),
+                licFragFull.c_str(), "SurfaceLICCrinkleClip"));
+            if (licClipShaderProgram.has()) {
+                GLuint licClipIdx = glGetUniformBlockIndex(licClipShaderProgram, "MeshUBO");
+                if (licClipIdx != GL_INVALID_INDEX)
+                    glUniformBlockBinding(licClipShaderProgram, licClipIdx, 0);
+                licClipLutTextureLoc = glGetUniformLocation(licClipShaderProgram, "uColormapLUT");
+                licClipNumBandsLoc = glGetUniformLocation(licClipShaderProgram, "uNumBands");
+                licClipVectorTexLoc = glGetUniformLocation(licClipShaderProgram, "uVectorTex");
+                licClipNoiseTexLoc = glGetUniformLocation(licClipShaderProgram, "uNoiseTex");
+                licClipBoxMinLoc = glGetUniformLocation(licClipShaderProgram, "uBoxMin");
+                licClipBoxMaxLoc = glGetUniformLocation(licClipShaderProgram, "uBoxMax");
+                licClipStepsLoc = glGetUniformLocation(licClipShaderProgram, "uLicSteps");
+                licClipStepSizeLoc = glGetUniformLocation(licClipShaderProgram, "uLicStepSize");
+                licClipNoiseFreqLoc = glGetUniformLocation(licClipShaderProgram, "uLicNoiseFreq");
+                licClipBoundaryModeLoc = glGetUniformLocation(licClipShaderProgram, "uLicBoundaryMode");
+                licClipUvwScaleLoc = glGetUniformLocation(licClipShaderProgram, "uUvwScale");
+                licClipUvwOffsetLoc = glGetUniformLocation(licClipShaderProgram, "uUvwOffset");
+            }
+        }
+    }
+
     if (!sources.meshClipGeo.empty()) {
         clipShaderProgram.reset(compileProgramWithGS(
             sources.meshVert.c_str(), sources.meshClipGeo.c_str(),
@@ -42,30 +86,14 @@ MeshPassResult MeshPass::draw(const RenderRenderState& state,
                                 const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                                 const MeshGLManager& meshManager,
                                 const ColormapManager& colormap) {
-    MeshPassResult result;
-
-     if (!meshManager.hasMeshes() || !shaderProgram.has()) return result;
-
-    activateProgram(state, colormap);
-    MeshUBOData ubo = makeUbo(state, view, proj, model);
-
-    if (state.showSurface) {
-        const bool opaque = state.surfaceOpacity >= 1.0f;
-        if (opaque) {
-            drawOpaque(state, drawList);
-            drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
-        } else {
-            // Surface goes through depth peeling; overlays are drawn later by
-            // drawOverlaysAfterTransparent() so the wireframe/points survive.
-            result.transparentMeshes = drawList;
-        }
-    } else {
-        drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
-    }
-
-    glUseProgram(0);
-
-    return result;
+    if (!meshManager.hasMeshes() || !shaderProgram.has())
+        return {};
+    return drawCommon(state, view, proj, model, drawList, drawVerts, edgeDrawList,
+                      meshManager, colormap,
+                      [&](const RenderRenderState& s, const ColormapManager& c) {
+                          activateProgram(s, c);
+                      },
+                      false);
 }
 
 void MeshPass::activateProgram(const RenderRenderState& state, const ColormapManager& colormap) {
@@ -100,9 +128,9 @@ MeshUBOData MeshPass::makeUbo(const RenderRenderState& state,
     ubo.model = model;
     ubo.viewPos_ps = glm::vec4(glm::vec3(state.camera.position), state.pointSize);
     ubo.meshColor_wire = glm::vec4(state.meshColor[0], state.meshColor[1], state.meshColor[2], 0.0f);
-    // Perceptual remap: linear slider feels "dead" until ~0.3 because
-    // effective A=1-(1-a)^N with N=4. Map a->a^1.8 so 0.8 shows ~0.67
-    // and 0.5 shows ~0.28, matching ParaView-like responsiveness.
+
+
+
     float rawA = std::clamp(state.surfaceOpacity, 0.0f, 1.0f);
     float remappedA = (rawA <= 0.0f) ? 0.0f : std::pow(rawA, 1.8f);
     ubo.surfaceColor_sop = glm::vec4(state.surfaceColor[0], state.surfaceColor[1], state.surfaceColor[2], remappedA);
@@ -175,6 +203,133 @@ void MeshPass::drawOpaque(const RenderRenderState& state,
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
+void MeshPass::activateLicProgram(const RenderRenderState& state, const ColormapManager& colormap,
+                                    GLuint vectorTex, GLuint noiseTex,
+                                    const glm::vec3& boxMin, const glm::vec3& boxMax,
+                                    int texDimX, int texDimY, int texDimZ) {
+    const bool useCrinkleClip = state.crinkleClipMode && licClipShaderProgram.has();
+    GlProgram& prog = useCrinkleClip ? licClipShaderProgram : licShaderProgram;
+    glUseProgram(prog);
+    if (meshUboIndex != GL_INVALID_INDEX)
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
+    GLint numBandsLocActive = useCrinkleClip ? licClipNumBandsLoc : licNumBandsLoc;
+    GLint vecTexLocActive = useCrinkleClip ? licClipVectorTexLoc : licVectorTexLoc;
+    GLint noiseTexLocActive = useCrinkleClip ? licClipNoiseTexLoc : licNoiseTexLoc;
+    GLint boxMinLocActive = useCrinkleClip ? licClipBoxMinLoc : licBoxMinLoc;
+    GLint boxMaxLocActive = useCrinkleClip ? licClipBoxMaxLoc : licBoxMaxLoc;
+    GLint stepsLocActive = useCrinkleClip ? licClipStepsLoc : licStepsLoc;
+    GLint stepSizeLocActive = useCrinkleClip ? licClipStepSizeLoc : licStepSizeLoc;
+    GLint noiseFreqLocActive = useCrinkleClip ? licClipNoiseFreqLoc : licNoiseFreqLoc;
+    GLint boundaryLocActive = useCrinkleClip ? licClipBoundaryModeLoc : licBoundaryModeLoc;
+    GLint lutLocActive = useCrinkleClip ? licClipLutTextureLoc : licLutTextureLoc;
+    GLint uvwScaleLocActive = useCrinkleClip ? licClipUvwScaleLoc : licUvwScaleLoc;
+    GLint uvwOffsetLocActive = useCrinkleClip ? licClipUvwOffsetLoc : licUvwOffsetLoc;
+    if (numBandsLocActive != -1) glUniform1f(numBandsLocActive, static_cast<float>(state.scalarColorBands));
+    if (vecTexLocActive != -1 && vectorTex != 0) {
+        glBindTextureUnit(2, vectorTex);
+        glUniform1i(vecTexLocActive, 2);
+    }
+    if (noiseTexLocActive != -1 && noiseTex != 0) {
+        glBindTextureUnit(3, noiseTex);
+        glUniform1i(noiseTexLocActive, 3);
+    }
+    if (boxMinLocActive != -1) glUniform3fv(boxMinLocActive, 1, &boxMin.x);
+    if (boxMaxLocActive != -1) glUniform3fv(boxMaxLocActive, 1, &boxMax.x);
+    if (stepsLocActive != -1) glUniform1i(stepsLocActive, state.licSteps);
+    if (stepSizeLocActive != -1) {
+        glm::vec3 extent = boxMax - boxMin;
+        float diag = glm::length(extent);
+        if (!(diag > 1e-6f)) diag = 1.0f;
+        float worldStep = state.licStepSize * diag;
+        worldStep = std::clamp(worldStep, 1e-6f, diag * 2.0f);
+        glUniform1f(stepSizeLocActive, worldStep);
+    }
+    if (noiseFreqLocActive != -1) glUniform1f(noiseFreqLocActive, state.licNoiseFreq);
+    if (boundaryLocActive != -1) glUniform1i(boundaryLocActive, 0);
+    glm::vec3 uvwScale(1.0f);
+    glm::vec3 uvwOffset(0.0f);
+    (void)texDimX; (void)texDimY; (void)texDimZ;
+    if (uvwScaleLocActive != -1) glUniform3fv(uvwScaleLocActive, 1, &uvwScale.x);
+    if (uvwOffsetLocActive != -1) glUniform3fv(uvwOffsetLocActive, 1, &uvwOffset.x);
+    GLuint lutTex = colormap.scalarTexture() ? colormap.scalarTexture() : colormap.vectorTexture();
+    if (lutLocActive != -1 && lutTex != 0) {
+        glBindTextureUnit(1, lutTex);
+        glUniform1i(lutLocActive, 1);
+    }
+}
+
+MeshPassResult MeshPass::drawLic(const RenderRenderState& state,
+                        const glm::mat4& view,
+                        const glm::mat4& proj,
+                        const glm::mat4& model,
+                        const std::vector<std::pair<GLuint, int>>& drawList,
+                        const std::vector<int>& drawVerts,
+                        const std::vector<std::pair<GLuint, int>>& edgeDrawList,
+                        const MeshGLManager& meshManager,
+                        const ColormapManager& colormap,
+                        const LicResources& licRes) {
+    if (!meshManager.hasMeshes() || !licShaderProgram.has() || !licRes.valid())
+        return {};
+    return drawCommon(state, view, proj, model, drawList, drawVerts, edgeDrawList,
+                      meshManager, colormap,
+                      [&](const RenderRenderState& s, const ColormapManager& c) {
+                           activateLicProgram(s, c, licRes.vectorTex, licRes.noiseTex, licRes.boxMin, licRes.boxMax, licRes.texDimX, licRes.texDimY, licRes.texDimZ);
+                      },
+                      true);
+}
+
+template <typename Activator>
+MeshPassResult MeshPass::drawCommon(const RenderRenderState& state,
+                                    const glm::mat4& view,
+                                    const glm::mat4& proj,
+                                    const glm::mat4& model,
+                                    const std::vector<std::pair<GLuint, int>>& drawList,
+                                    const std::vector<int>& drawVerts,
+                                    const std::vector<std::pair<GLuint, int>>& edgeDrawList,
+                                    const MeshGLManager& meshManager,
+                                    const ColormapManager& colormap,
+                                    Activator activate,
+                                    bool licTransparent) {
+    MeshPassResult result;
+    activate(state, colormap);
+    MeshUBOData ubo = makeUbo(state, view, proj, model);
+
+    if (state.showSurface) {
+        const bool opaque = state.surfaceOpacity >= 1.0f;
+        if (opaque) {
+            drawOpaque(state, drawList);
+            drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
+        } else if (licTransparent) {
+
+
+
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            for (size_t di = 0; di < drawList.size(); ++di) {
+                glBindVertexArray(drawList[di].first);
+                const bool cull = state.cullMode != 0;
+                if (cull) { glEnable(GL_CULL_FACE); glCullFace(state.cullMode == 2 ? GL_FRONT : GL_BACK); }
+                else glDisable(GL_CULL_FACE);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glDrawElements(GL_TRIANGLES, drawList[di].second, GL_UNSIGNED_INT, 0);
+                if (cull) glDisable(GL_CULL_FACE);
+            }
+            glBindVertexArray(0);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            glDisable(GL_BLEND);
+            drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
+        } else {
+
+
+            result.transparentMeshes = drawList;
+        }
+    } else {
+        drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
+    }
+    glUseProgram(0);
+    return result;
+}
+
 void MeshPass::drawOverlays(const RenderRenderState& state,
                             MeshUBOData& ubo,
                             const std::vector<std::pair<GLuint, int>>& drawList,
@@ -183,17 +338,17 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
                             const MeshGLManager& meshManager) {
     const bool useCrinkleClip = state.crinkleClipMode && clipShaderProgram.has();
 
-    // ── Cell-boundary wireframe (GL_LINES via edge VAOs) ──────────────────────
-    // When wireframe is enabled and cell edge VAOs are available, render cell
-    // boundaries directly (auto-preferred). Decimated LOD meshes have no edge
+
+
+
     wireframePass.draw(state, ubo, meshUbo, drawList, edgeDrawList);
 
-    // ── Per-mesh overlay pass (points) ─────────────
+
     for (size_t di = 0; di < drawList.size(); ++di) {
         glBindVertexArray(drawList[di].first);
 
         if (state.showPoints && drawVerts[di] > 0) {
-            // Wireframe may have bound wireProgram; ensure mesh program for points (isPoint branch lives in mesh.frag)
+
             glUseProgram(useCrinkleClip ? clipShaderProgram : shaderProgram);
             glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
             GLboolean pointSizeWas = glIsEnabled(GL_PROGRAM_POINT_SIZE);
@@ -202,8 +357,8 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            // [S7a] Toggle only point_clip: 16-byte partial-range update
-            // instead of re-uploading the full 384-byte block twice per mesh.
+
+
             constexpr GLintptr kPointClipOff = GLintptr(offsetof(MeshUBOData, point_clip));
             ubo.point_clip.x = 1.0f;
             glNamedBufferSubData(meshUbo, kPointClipOff, sizeof(glm::vec4), &ubo.point_clip);
@@ -225,13 +380,37 @@ void MeshPass::drawOverlays(const RenderRenderState& state,
 void MeshPass::shutdown() {
     shaderProgram.reset();
     clipShaderProgram.reset();
+    licShaderProgram.reset();
+    licClipShaderProgram.reset();
     meshUbo.reset();
     meshUboIndex = GL_INVALID_INDEX;
     lutTextureLoc = -1;
     clipLutTextureLoc = -1;
     numBandsLoc = -1;
     clipNumBandsLoc = -1;
+    licLutTextureLoc = -1;
+    licClipLutTextureLoc = -1;
+    licNumBandsLoc = -1;
+    licClipNumBandsLoc = -1;
+    licVectorTexLoc = -1;
+    licClipVectorTexLoc = -1;
+    licNoiseTexLoc = -1;
+    licClipNoiseTexLoc = -1;
+    licBoxMinLoc = -1;
+    licClipBoxMinLoc = -1;
+    licBoxMaxLoc = -1;
+    licClipBoxMaxLoc = -1;
+    licStepsLoc = -1;
+    licClipStepsLoc = -1;
+    licStepSizeLoc = -1;
+    licClipStepSizeLoc = -1;
+    licNoiseFreqLoc = -1;
+    licClipNoiseFreqLoc = -1;
+    licBoundaryModeLoc = -1;
+    licClipBoundaryModeLoc = -1;
+    licUvwScaleLoc = -1;
+    licClipUvwScaleLoc = -1;
+    licUvwOffsetLoc = -1;
+    licClipUvwOffsetLoc = -1;
     wireframePass.shutdown();
 }
-
-

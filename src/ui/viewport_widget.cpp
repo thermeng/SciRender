@@ -160,6 +160,7 @@ void ViewportWidget::loadShaders() {
     sources.volumeFrag      = loadShader(":/src/shaders/volume.frag");
     sources.volumeSliceVert = loadShader(":/src/shaders/volume_slice.vert");
     sources.volumeSliceFrag = loadShader(":/src/shaders/volume_slice.frag");
+    sources.surfaceLicFrag = loadShader(":/src/shaders/surface_lic.frag");
     sources.lodComp         = loadShader(":/src/shaders/lod.comp");
     sources.lodOutputComp   = loadShader(":/src/shaders/lod_output.comp");
     sources.lodTrisComp     = loadShader(":/src/shaders/lod_tris.comp");

@@ -105,6 +105,7 @@ add_library(RenderLib STATIC
     src/render/passes/ParticlePass.cpp
     src/render/passes/VolumePass.cpp
     src/render/passes/VolumeTextureCache.cpp
+    src/render/passes/VectorTextureCache.cpp
     src/render/overlays/VolumeSliceOverlay.cpp
     src/render/passes/WireframePass.cpp
     src/render/passes/DepthPeelPass.cpp
@@ -199,6 +200,7 @@ set(SHADER_FILES
     src/shaders/depth_peel.frag
     src/shaders/composite.vert
     src/shaders/composite.frag
+    src/shaders/surface_lic.frag
 )
 qt_add_resources(SciRender "shaders"
     PREFIX "/"

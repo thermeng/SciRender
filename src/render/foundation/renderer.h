@@ -9,10 +9,10 @@
 #endif
 #endif
 
-// Raw OpenGL / math dependencies only. NO Qt Object macros: this class runs
-// strictly on the QSG render thread and must never be touched from the GUI
-// thread. All view/visual state arrives via a deep-copied RenderRenderState
-// produced on the GUI thread by RenderSettings::publishRenderState().
+
+
+
+
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -50,14 +50,15 @@
 #include "render/passes/ParticlePass.h"
 #include "render/passes/VolumePass.h"
 #include "render/passes/VolumeTextureCache.h"
+#include "render/passes/VectorTextureCache.h"
 #include "render/overlays/VolumeSliceOverlay.h"
 #include "render/passes/LodScheduler.h"
 #include "render/passes/DepthPeelPass.h"
 
 #include <QOpenGLFramebufferObject>
 
-// Shader source bundle — loaded by the caller (which has Qt resource access)
-// and passed to Renderer::initShaders() so the Renderer stays Qt-free.
+
+
 struct ShaderSources {
     std::string meshVert;
     std::string meshFrag;
@@ -88,85 +89,86 @@ struct ShaderSources {
     std::string volumeFrag;
     std::string volumeSliceVert;
     std::string volumeSliceFrag;
-    // Shared PBR chunk injected into mesh/depth_peel fragment shaders.
+    std::string surfaceLicFrag;
+
     std::string pbrFragCommon;
 };
 
-// Magnitude pre-transform shared by glyph rendering and CPU-side range
-// overrides — MUST stay in lockstep with glyph.vert so a user-defined range
-// expressed in raw data units lands in the same space the shader normalizes.
+
+
+
 inline float applyVectorMagTransform(float m, int mode) {
     if (mode == 1) return std::sqrt(std::max(m, 0.0f));
     if (mode == 2) return std::log(1.0f + std::max(m, 0.0f));
     return m;
 }
 
-// ---------------------------------------------------------------------------
-// RenderRenderState
-//
-// Plain-C++ snapshot of every visual / camera parameter the render thread
-// needs to draw one frame. RenderSettings (GUI thread) produces a copy of
-// this; ViewportFboRenderer::synchronize() deep-copies it into the backend
-// Renderer. No QObject, no shared pointers across threads — a value copy.
-// ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
 struct RenderRenderState {
-    // View / camera (value copy, no aliasing)
+
     Camera camera;
 
-    // Display toggles
+
     bool showWireframe = false;
     bool showSurface = true;
     bool showGizmo = true;
     bool autoRotate = false;
     bool showFps = false;
     bool useLod = true;
-    float pointSize = 4.0f; // ponytail: CPU-driven gl_PointSize for point clouds
-    float lineWidth = 1.0f; // ponytail: wireframe glLineWidth in px
-    bool showPoints = false; // ponytail: draw vertices as GL_POINTS
-    bool pointUseScalar = true;  // ponytail: color points by scalar; else solid
-    float pointOpacity = 1.0f;   // ponytail: point sprite alpha
-    float surfaceOpacity = 1.0f; // ponytail: surface fill alpha
-    int maxPeelLayers = 4;        // depth peeling layers for transparent surfaces (1-8)
-    int cullMode = 0;              // ponytail: 0=off by default — mirror of settings default
-    bool showBounds = false;     // ponytail: AABB wireframe overlay
-    int gizmoCorner = 0;         // Gizmo::Corner — screen corner pinning the triad square
-    int gizmoSizeChoice = 1;     // index into Gizmo footprint presets (0=S, 1=M, 2=L)
-    bool showQualityOverlay = false;     // ponytail: highlight degenerate faces + bad edges
-    // ponytail: overlay geometry (xyz floats), copied from RenderSettings at load
-    // shared_ptr so RenderRenderState copies are O(1) instead of O(n)
+    float pointSize = 4.0f;
+    float lineWidth = 1.0f;
+    bool showPoints = false;
+    bool pointUseScalar = true;
+    float pointOpacity = 1.0f;
+    float surfaceOpacity = 1.0f;
+    int maxPeelLayers = 4;
+    int cullMode = 0;
+    bool showBounds = false;
+    int gizmoCorner = 0;
+    int gizmoSizeChoice = 1;
+    bool showQualityOverlay = false;
+
+
     std::shared_ptr<const std::vector<float>> qualityDegenerateTris;
     std::shared_ptr<const std::vector<float>> qualityOpenEdges;
     std::shared_ptr<const std::vector<float>> qualityNonManifoldEdges;
-    bool orthographic = false;    // ponytail: orthographic (parallel) projection
+    bool orthographic = false;
 
-    // Colors
+
     float meshColor[3] = { 0.4f, 0.9f, 0.4f };
     float surfaceColor[3] = { 1.0f, 1.0f, 1.0f };
     float bgColor[3] = { 0.12f, 0.12f, 0.12f };
 
-    // World bounds / extents (for camera fit + clip range context)
+
     double worldCenterX = 0, worldCenterY = 0, worldCenterZ = 0;
     double worldRadius = 1.0;
     double worldMinX = -10.0, worldMaxX = 10.0;
     double worldMinY = -10.0, worldMaxY = 10.0;
     double worldMinZ = -10.0, worldMaxZ = 10.0;
 
-    // Lighting (value copy)
+
     LightingModel lighting;
 
-    // Colormap choices/reversed only; the LUT textures themselves are built on
-    // the render thread by ColormapManager (GL resources cannot cross threads).
+
+
     int colormapChoice = 3;
     bool colormapReversed = false;
     int vectorColormapChoice = 3;
     bool vectorColormapReversed = false;
-    int scalarColorBands = 0;       // 0 = continuous, 2-32 = discrete bands
+    int scalarColorBands = 0;
     int vectorColorBands = 0;
     int streamlineColorBands = 0;
     int volumeColorBands = 0;
     int volumeSliceColorBands = 0;
 
-    // Scalar field
+
     bool meshHasScalars = false;
     float scalarMin = 0.0f;
     float scalarMax = 1.0f;
@@ -175,24 +177,24 @@ struct RenderRenderState {
     float filterMin = 0.0f;
     float filterMax = 1.0f;
     bool filterEnabled = false;
-    // ponytail: fixed custom colormap range — when enabled, surface/point
-    // scalar->color mapping uses [colorRangeLo, colorRangeHi] and values
-    // outside clamp to the LUT ends (shader already clamps t). Auto-range
-    // tracking (scalarMin/Max) is untouched; the override applies only at
-    // UBO-fill + colorbar read time.
+
+
+
+
+
     float colorRangeLo = 0.0f;
     float colorRangeHi = 1.0f;
     bool colorRangeOverrideEnabled = false;
-    // Effective scalar->color mapping range: fixed override when enabled,
-    // otherwise the auto-tracked data range.
+
+
     float colorMapMin() const { return colorRangeOverrideEnabled ? colorRangeLo : scalarMin; }
     float colorMapMax() const { return colorRangeOverrideEnabled ? colorRangeHi : scalarMax; }
 
-    // Per-pass fixed colormap ranges (fully independent windows). Each pass's
-    // fill site picks its override pair when enabled, else its auto range.
-    // Volume/slice track the active scalar; glyph/streamline track vector
-    // magnitude (stored in RAW data units — the mag transform is applied at
-    // use time via applyVectorMagTransform so overrides match shader space).
+
+
+
+
+
     float volumeColorRangeLo = 0.0f;
     float volumeColorRangeHi = 1.0f;
     bool volumeColorRangeOverrideEnabled = false;
@@ -200,7 +202,7 @@ struct RenderRenderState {
     float sliceColorRangeHi = 1.0f;
     bool sliceColorRangeOverrideEnabled = false;
     float glyphMagRangeLo = 0.0f;
-    float glyphMagRangeHi = -1.0f;   // degenerate until first enable seeds it
+    float glyphMagRangeHi = -1.0f;
     bool glyphMagRangeOverrideEnabled = false;
     float glyphCompRangeLo[3] = { 0.0f, 0.0f, 0.0f };
     float glyphCompRangeHi[3] = { -1.0f, -1.0f, -1.0f };
@@ -212,10 +214,10 @@ struct RenderRenderState {
     float streamlineCompRangeHi[3] = { -1.0f, -1.0f, -1.0f };
     bool streamlineCompRangeOverrideEnabled[3] = { false, false, false };
     bool showScalarColorbar = true;
-    bool meshUseScalarColor = false; // ponytail: gate surface colormap; off until user enables
+    bool meshUseScalarColor = false;
     int colorbarTicks = 6;
-    // Global colorbar style (per-bar overrides: orientation/visibility via QSettings).
-    QString colorbarFontFamily; // empty = system default
+
+    QString colorbarFontFamily;
     bool colorbarFontBold = false;
     bool colorbarFontItalic = false;
     float colorbarFontScale = 1.0f;
@@ -227,7 +229,7 @@ struct RenderRenderState {
     bool colorbarShowAnnotation = true;
     std::string activeScalarName;
 
-    // Slice / clip
+
     bool clipEnabled = false;
     bool crinkleClipMode = false;
     float clipHeightX = 0.0f;
@@ -240,25 +242,33 @@ struct RenderRenderState {
     bool invertY = false;
     bool invertZ = false;
 
-    // Vector glyphs
+
     bool showVectors = false;
     float vectorScale = 1.0f;
     int vectorStride = 1;
     float vectorColor[3] = { 0.2f, 0.6f, 1.0f };
-    int vectorColorMode = 1; // 0=FixedColor, 1=Magnitude, 2=CompX, 3=CompY, 4=CompZ
+    int vectorColorMode = 1;
     bool vectorScaleByMagnitude = false;
-    int vectorMagTransform = 0; // 0 = linear, 1 = sqrt, 2 = log
+    int vectorMagTransform = 0;
     std::string vectorField;
-    int vectorPlacement = 0; // 0 = vertex glyphs (per-vertex vectors), 1 = cell-center glyphs
+    int vectorPlacement = 0;
     float vectorCompMin[3] = { 0.0f, 0.0f, 0.0f };
     float vectorCompMax[3] = { 0.0f, 0.0f, 0.0f };
 
-    // Streamline vector field (independent from vector glyphs)
+    bool showLic = false;
+    int vectorVisMode = 0;
+    int licSteps = 32;
+    float licStepSize = 0.02f;
+    float licNoiseFreq = 8.0f;
+    int licNoiseGrain = 256;
+    int licBoundaryMode = 0;
+
+
     std::string streamlineVectorField;
     float streamlineCompMin[3] = { 0.0f, 0.0f, 0.0f };
     float streamlineCompMax[3] = { 0.0f, 0.0f, 0.0f };
 
-    // Streamlines
+
     bool showStreamlines = false;
     int streamlineSeedCount = 25;
     float streamlineStepSize = 0.02f;
@@ -267,7 +277,7 @@ struct RenderRenderState {
     int streamlineColormapChoice = 3;
     bool streamlineColormapReversed = false;
     float streamlineColor[3] = { 0.2f, 0.6f, 1.0f };
-    int streamlineColorMode = 1; // 0=FixedColor, 1=Magnitude, 2=CompX, 3=CompY, 4=CompZ
+    int streamlineColorMode = 1;
 
     float streamlineOpacity = 1.0f;
     float streamlineRibbonWidth = 0.005f;
@@ -287,33 +297,33 @@ struct RenderRenderState {
     double seedJitter = 0.0;
     bool showSeeds = false;
     bool showStreamlineArrows = false;
-    float streamlineArrowSpacingFrac = 0.15f;   // arrow spacing as fraction of mesh extent
+    float streamlineArrowSpacingFrac = 0.15f;
     float streamlineArrowSize = 0.05f;
 
-    // Particles
+
     bool showParticles = false;
     int particleCount = 500;
     float particleSpeed = 1.0f;
     float particleSize = 4.0f;
-    bool particleAdditive = true;   // luminous additive blending for particles
+    bool particleAdditive = true;
 
-    // Volume rendering
+
     bool showVolume = false;
     bool volumeUseColormap = true;
     int  volumeColormapChoice = 3;
     bool volumeColormapReversed = false;
     float volumeStepSize = 0.01f;
     float volumeOpacity = 1.0f;
-    float fovY = glm::radians(45.0f);  // vertical field of view in radians
+    float fovY = glm::radians(45.0f);
 
-    // Volume slice overlay (up to 3 planes, one per axis: 0=X, 1=Y, 2=Z)
+
     bool slicePlaneEnabled[3] = {false, false, false};
     float slicePlanePos[3] = {0.5f, 0.5f, 0.5f};
     float slicePlaneOpacity[3] = {0.35f, 0.35f, 0.35f};
     bool slicePlaneShowColorbar[3] = {false, false, false};
-    // The slice planes render with their own colormap (independent of the full-volume
-    // one) and a value range computed from the data actually visible on each slice,
-    // so colors remap as the planes move through the volume.
+
+
+
     bool volumeSliceUseColormap = true;
     int  volumeSliceColormapChoice = 3;
     bool volumeSliceColormapReversed = false;
@@ -325,7 +335,7 @@ struct RenderRenderState {
         return slicePlaneEnabled[0] || slicePlaneEnabled[1] || slicePlaneEnabled[2];
     }
 
-    // Screenshot export options
+
     bool screenshotTransparent = false;
 
      bool hasMeshLoaded = false;
@@ -333,25 +343,25 @@ struct RenderRenderState {
     bool meshHasCellVectors = false;
     bool flatShading = true;
 
-    // Isosurface (marching cubes). The extracted surface is rendered as an
-    // additional mesh through the existing MeshPass pipeline (colormap LUT +
-    // PBR lighting + depth-peel transparency), so no dedicated shader is
-    // needed. `isovalue` is an absolute scalar threshold in data units;
-    // `showIsosurface` gates its visibility (independent of showSurface, so a
-    // surface shell can be hidden while the isosurface stays visible).
+
+
+
+
+
+
     bool showIsosurface = false;
     float isovalue = 0.0f;
 };
 
-// CPU-side UBO layout matching the std140 MeshUBO block in mesh.vert/frag.
-// Members are padded to 16 bytes per std140 rules by using glm::vec4.
+
+
 struct MeshUBOData {
     glm::mat4 mvp;
     glm::mat4 model;
-    glm::vec4 viewPos_ps;       // xyz = viewPos, w = pointSize
-    glm::vec4 meshColor_wire;   // xyz = meshColor, w = wireframe(0/1)
-    glm::vec4 surfaceColor_sop; // xyz = surfaceColor, w = surfaceOpacity
-    glm::vec4 point_clip;       // x = isPoint, y = pointUseScalar, z = pointOpacity, w = clipEnabled
+    glm::vec4 viewPos_ps;
+    glm::vec4 meshColor_wire;
+    glm::vec4 surfaceColor_sop;
+    glm::vec4 point_clip;
     glm::vec4 lightDir;
     glm::vec4 lightFill;
     glm::vec4 lightBack1;
@@ -361,101 +371,101 @@ struct MeshUBOData {
     glm::vec4 fillColor;
     glm::vec4 backColor;
     glm::vec4 headColor;
-    glm::vec4 scalars;          // x = scalarMin, y = scalarMax, z = hasScalars(0/1), w = 0
-    glm::vec4 clipY;            // x = clipHeightX, y = clipHeightY, z = clipHeightZ, w = 0
-    glm::vec4 clipEn;           // x = clipEnabledX, y = clipEnabledY, z = clipEnabledZ, w = 0
-    glm::vec4 invert;           // x = invertX, y = invertY, z = invertZ, w = 0
-    glm::vec4 filter;           // x = filterMin, y = filterMax, z = filterEnabled(0/1), w = 0
-    glm::vec4 material;         // x = matAmbient, y = matDiffuse, z = matSpecular
-    glm::vec4 intensities;      // x = keyIntensity, y = fillIntensity, z = backIntensity, w = headIntensity
-    glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad (Phase 1 PBR)
-    glm::vec4 shadingMode;      // x = 0.0 smooth, 1.0 flat
+    glm::vec4 scalars;
+    glm::vec4 clipY;
+    glm::vec4 clipEn;
+    glm::vec4 invert;
+    glm::vec4 filter;
+    glm::vec4 material;
+    glm::vec4 intensities;
+    glm::vec4 pbr;
+    glm::vec4 shadingMode;
 };
 static_assert(sizeof(MeshUBOData) % 16 == 0, "MeshUBOData must be std140-aligned");
-// Guards for partial-range glNamedBufferSubData updates of single members.
+
 static_assert(offsetof(MeshUBOData, meshColor_wire) == 144, "UBO offset drift");
 static_assert(offsetof(MeshUBOData, point_clip) == 176, "UBO offset drift");
 
-// CPU-side UBO layout matching the std140 GlyphUBO block in glyph.vert/frag.
+
 struct GlyphUBOData {
     glm::mat4 mvp;
-    glm::vec4 scale_magMin_magMax_scaleByMag; // x=scale, y=magMin, z=magMax, w=scaleByMag
-    glm::vec4 meshExtent_magTransform_viewPosY_colorR; // x=meshExtent, y=magTransform, z=viewPos.y, w=colorR
-    glm::vec4 lightDir_colorGB; // xyz=lightDir, w=colorG
-    glm::vec4 colorB_colormode; // x=colorB, y=colorMode(0-4), zw=pad
-    glm::vec4 compMin; // xyz=compMin X,Y,Z, w=pad
-    glm::vec4 compMax; // xyz=compMax X,Y,Z, w=pad
-    glm::vec4 pbr;              // x = matRoughness, y = matMetallic, z = pad, w = pad
+    glm::vec4 scale_magMin_magMax_scaleByMag;
+    glm::vec4 meshExtent_magTransform_viewPosY_colorR;
+    glm::vec4 lightDir_colorGB;
+    glm::vec4 colorB_colormode;
+    glm::vec4 compMin;
+    glm::vec4 compMax;
+    glm::vec4 pbr;
 };
 static_assert(sizeof(GlyphUBOData) % 16 == 0, "GlyphUBOData must be std140-aligned");
 
-// CPU-side UBO layout matching the std140 StreamlineUBO block in streamline.vert/frag.
+
 struct StreamlineUBOData {
     glm::mat4 mvp;
     glm::mat4 model;
-    glm::vec4 viewPos;           // xyz = viewPos
-    glm::vec4 lightDir;          // xyz = lightDir
-    glm::vec4 time_opacity;      // x = uTime, y = opacity
-    glm::vec4 color_useColormap; // xyz = color, w = useColormap(0/1)
-    glm::vec4 magRange;          // x = magMin, y = magMax, zw = pad
-    glm::vec4 compMin;           // xyz = compMin X,Y,Z, w = pad
-    glm::vec4 compMax;           // xyz = compMax X,Y,Z, w = pad
-    glm::vec4 colorMode;         // x = colorMode(0-4), yzw = pad
-    glm::vec4 material;          // x = ambient, y = diffuse, z = specular, w = specularPower
-    glm::vec4 ribbon;            // x = ribbonWidth, y = taperFactor, zw = pad
-    glm::vec4 arrowParams;       // x = arrowAnimSpeed, yzw = pad
-    glm::vec4 pbr;               // x = matRoughness, y = matMetallic, z = pad, w = pad
+    glm::vec4 viewPos;
+    glm::vec4 lightDir;
+    glm::vec4 time_opacity;
+    glm::vec4 color_useColormap;
+    glm::vec4 magRange;
+    glm::vec4 compMin;
+    glm::vec4 compMax;
+    glm::vec4 colorMode;
+    glm::vec4 material;
+    glm::vec4 ribbon;
+    glm::vec4 arrowParams;
+    glm::vec4 pbr;
 };
 static_assert(sizeof(StreamlineUBOData) % 16 == 0, "StreamlineUBOData must be std140-aligned");
 
-// ---------------------------------------------------------------------------
-// Renderer — PURE C++ backend.
-//
-// Owns the high-level GPU/state responsibilities and delegates to four
-// cohesive helpers:
-//   - LightingModel    : 4-point light kit params, presets, direction math
-//   - ColormapManager  : scalar + vector-magnitude LUT textures & choices
-//   - VectorGlyphSet   : instanced arrow glyph GPU resources + magnitude range
-//   - MeshGLManager    : full + decimated (LOD) GPU meshes & upload/teardown
-//
-// It holds NO QObject / Q_PROPERTY / Q_INVOKABLE / signals. The GUI thread
-// never reads or writes its members; the render thread drives it exclusively
-// through setState(), the mesh/scalar handoff queues, and renderFrame().
-// ---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class Renderer {
 public:
     Renderer();
     ~Renderer();
 
-    // Core Initialization & Graphics Lifecycle Routines (render thread).
+
     void initGLAD();
     void initShaders(const ShaderSources& sources);
     void initGizmo();
     void renderFrame();
 
-    // Deep-copy the GUI-thread snapshot into this render-thread instance.
+
     void setState(const RenderRenderState& state);
 
-    // Snapshot accessors used by the FBO renderer (drawn state only).
+
     bool autoRotate() const { return m_state.autoRotate; }
     bool showFps() const { return m_state.showFps; }
     bool isParticlesAnimating() const { return m_state.showParticles; }
 
-    // Uploads CPU geometry to the GPU. Safe to call on the render thread.
+
     void uploadMesh(std::shared_ptr<const RenderMesh> renderMesh);
 
-    // Pending mesh handoff (GUI -> render thread). setPendingMesh() stores a
-    // shared_ptr (no copy) plus a dirty flag; renderFrame() consumes it and
-    // uploads on the render thread under the GL context.
+
+
+
     void setPendingMesh(std::shared_ptr<const RenderMesh> renderMesh);
 
-    // Isosurface handoff (GUI -> render thread). Same zero-copy shared_ptr
-    // pattern as setPendingMesh(); renderFrame() consumes it and uploads only
-    // the surface VAO (no vector/streamline/volume rebuild, since the isosurface
-    // is a plain triangle mesh, not a structured grid).
+
+
+
+
     void setPendingIsosurface(std::shared_ptr<const RenderMesh> isoMesh);
 
-    // Mark the camera as moving and (re)start the LOD debounce timer.
+
     void markCameraMoving();
     void markVectorGlyphDirty() { vectorGlyphDirty = true; }
     void markStreamlineDirty() { m_streamlines.streamlineDirty = true; }
@@ -464,12 +474,12 @@ public:
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }
 
-    // Temporary viewport override for screenshot re-render at arbitrary resolution.
-    // Pass {0,0} to clear the override and revert to the widget dimensions.
+
+
     void setViewportOverride(int deviceW, int deviceH) { m_overrideDeviceW = deviceW; m_overrideDeviceH = deviceH; }
     void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; colorbarOverlay.markDirty(); }
 
-    // Colorbar drag support
+
     int colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& bars) const;
     void setColorbarPosition(int index, float fracX, float fracY);
     void setColorbarOrientation(int index, ColorbarStyle::Orientation orient);
@@ -479,16 +489,16 @@ public:
     QRectF colorbarBarRect(float dpr, int deviceW, int deviceH, const ColorbarData& bar) const;
     const std::vector<ColorbarData>& colorbarBars() const { return m_colorbarBars; }
 
-    // Actual render-target size in device pixels: the screenshot override when
-    // active, otherwise the widget size scaled by DPR. Every pass must derive
-    // its viewport/FBO sizes from these (not width*devicePixelRatio) so
-    // offscreen re-renders stay full-frame.
+
+
+
+
     int effectiveDeviceW() const { return m_overrideDeviceW > 0 ? m_overrideDeviceW : static_cast<int>(width * devicePixelRatio); }
     int effectiveDeviceH() const { return m_overrideDeviceH > 0 ? m_overrideDeviceH : static_cast<int>(height * devicePixelRatio); }
 
-    // Scalar-only re-upload handoff. The payload is a shared_ptr (zero-copy).
-    // m_pendingScalarSrc is guarded by meshQueueMutex so the GUI-thread write
-    // and the render-thread read in cachedScalars() cannot race.
+
+
+
     bool consumeScalarDirty();
     void markScalarDirty(std::shared_ptr<const std::vector<float>> src) {
         {
@@ -499,9 +509,9 @@ public:
     }
     void updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars);
 
-    // Volume scalar-switch handoff. When the active scalar field changes and the
-    // mesh has structured-grid volume data, the render loop re-uploads the 3D
-    // texture in the same tick (same GL context) as the surface scalar SBO update.
+
+
+
     bool consumeVolumeDirty();
     void markVolumeDirty(std::shared_ptr<const RenderMesh> mesh) {
         {
@@ -519,57 +529,57 @@ public:
         std::shared_ptr<const std::vector<float>> scalars,
         std::shared_ptr<const RenderMesh> mesh);
 
-    // Drop all GPU meshes (GUI-thread request, safe to call any time; real GL
-    // teardown happens in meshManager with a current context on the render thread).
+
+
     void clearGpuMeshes();
 
-    // Re-initialize after a GL context change (e.g. MSAA viewport recreation).
-    // Zeros stale handles and shuts down subsystems so the next initShaders()
-    // / initGizmo() call creates fresh resources.
+
+
+
     void reinitForNewContext();
 
-    // Re-upload mesh geometry, vector glyphs, and colormap textures from
-    // CPU-side copies.  Call after reinitForNewContext() + initShaders().
+
+
     void reinitMeshData();
 
     void setClipControlAvailable(bool available) { m_clipControlAvailable = available; }
     bool clipControlAvailable() const { return m_clipControlAvailable; }
 
-    // Render-thread accessors used by ViewportFboRenderer.
+
     bool hasGpuMeshes() const { return meshManager.hasMeshes(); }
-    // Returns the shared scalar payload (no copy); may be null if none queued.
-    // Guarded by meshQueueMutex to pair with markScalarDirty().
+
+
     std::shared_ptr<const std::vector<float>> cachedScalars() const {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         return m_pendingScalarSrc;
     }
 
-    // Lighting presets resolve in pure data (no signals needed on backend).
+
     void applyLightingPreset(int preset);
     void resetLighting();
 
-    // Camera reset needs world bounds — done on the backend from the snapshot
-    // so the GUI camera and the render camera stay consistent. Returns nothing;
-    // the new camera lives in m_state.camera until the next snapshot.
+
+
+
     void resetCamera();
 
     void snapToOrthoView(int axis);
     void snapToAxisView(int axis, bool flip);
 
-    // Gizmo interaction. gizmoAxisAt maps a click (device px) to a triad axis
-    // 0/1/2, or -1 when the point misses every hit zone. Hover state rides a
-    // relaxed atomic rather than the snapshot: it changes at mouse-move
-    // frequency and only affects the next frame's highlight.
+
+
+
+
     int gizmoAxisAt(int pxDev, int pyDev) const;
     void setGizmoHoverAxis(int axis) { m_gizmoHoverAxis.store(axis, std::memory_order_relaxed); }
 
-    // Vector magnitude range (rebuilt on upload by VectorGlyphSet).
+
     float vectorMagMin() const { return vectorGlyph.magMin; }
     float vectorMagMax() const { return vectorGlyph.magMax; }
     float vectorCompMin(int comp) const { return vectorGlyph.compMin[comp]; }
     float vectorCompMax(int comp) const { return vectorGlyph.compMax[comp]; }
 
-    // Streamline magnitude range (rebuilt by StreamlineSet).
+
     float streamlineMagMin() const { return streamlineSet.magMin; }
     float streamlineMagMax() const { return streamlineSet.magMax; }
     float streamlineCompMin(int comp) const { return streamlineSet.compMin[comp]; }
@@ -582,16 +592,19 @@ private:
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     void updateSliceScalarRange();
 
-    // Display Dimension Registers
+    void ensureLicNoiseTexture(int grain);
+    void shutdownLic();
+
+
     int width = 800;
     int height = 600;
     float devicePixelRatio = 1.0f;
     int m_overrideDeviceW = 0;
     int m_overrideDeviceH = 0;
 
-    // Viewport Core Transform Tracking
+
     Gizmo gizmo;
-    LightMarkerOverlay m_lightMarkers;   // light-kit direction discs (own seam, shares the triad square)
+    LightMarkerOverlay m_lightMarkers;
     ColorbarOverlay colorbarOverlay;
     std::vector<ColorbarData> m_colorbarBars;
     std::mutex m_colorbarCacheMutex;
@@ -599,7 +612,7 @@ private:
     std::map<QString, int> m_colorbarOrientCache;
     std::map<QString, bool> m_colorbarVisibleCache;
 
-    double m_orthoRefDist = 0.0; // ponytail: baseline camera.distance for ortho dolly zoom
+    double m_orthoRefDist = 0.0;
     double m_lastOrthoRadius = 1.0;
 
     double camDistance = 3.0;
@@ -607,20 +620,20 @@ private:
     double farPlane = 100.0;
 
     std::atomic<bool> vectorGlyphDirty{false};
-    std::atomic<int>  m_gizmoHoverAxis{-1};   // GUI-written hover axis for triad highlight
+    std::atomic<int>  m_gizmoHoverAxis{-1};
 
     bool m_destroying = false;
 
-    // Animation clock (drives arrow animation independent of frame rate)
+
     double m_animationTime = 0.0;
     double m_lastFrameDt = 0.0;
     std::chrono::steady_clock::time_point m_lastFrameTime;
 
-    // Scalar-field switch signal: set on the GUI thread and consumed here.
+
     std::atomic<bool> scalarDirty{false};
 
-    // LOD settle/dispatch signal: one more frame is needed to present the
-    // full-resolution swap after the camera-motion debounce expires.
+
+
     std::atomic<bool> lodSettleDirty{false};
 
   public:
@@ -628,47 +641,48 @@ private:
 
   private:
 
-      std::shared_ptr<const RenderMesh> m_pendingMesh;        // handoff from GUI (shared, no copy)
-    std::shared_ptr<const RenderMesh> m_lastUploadedMesh;   // kept for deferred vector-glyph rebuilds
-    std::shared_ptr<const RenderMesh> m_pendingIsosurface;  // isosurface handoff (shared, no copy)
-    std::shared_ptr<const RenderMesh> m_lastIsosurfaceMesh; // kept for deferred re-upload across GL context resets
+      std::shared_ptr<const RenderMesh> m_pendingMesh;
+    std::shared_ptr<const RenderMesh> m_lastUploadedMesh;
+    std::shared_ptr<const RenderMesh> m_pendingIsosurface;
+    std::shared_ptr<const RenderMesh> m_lastIsosurfaceMesh;
     std::atomic<bool> isosurfaceDirty{false};
 
     mutable std::mutex meshQueueMutex;
-    std::shared_ptr<const std::vector<float>> m_pendingScalarSrc; // scalar handoff (zero-copy)
+    std::shared_ptr<const std::vector<float>> m_pendingScalarSrc;
 
 
-    // Volume-specific scalar-switch handoff. Paired with markVolumeDirty() /
-    // consumeVolumeDirty() and guarded by the same meshQueueMutex.
+
+
     std::atomic<bool> volumeDirty{false};
     std::shared_ptr<const RenderMesh> m_pendingVolumeMesh;
 
-    // Deep-copied snapshot; the ONLY source of truth renderFrame() reads.
+
     RenderRenderState m_state;
 
     bool m_clipControlAvailable = false;
 
-    // --- extracted responsibility helpers -------------------------------------
-    ColormapManager colormap;     // scalar + vector LUT textures & choices — deep seam for colormap
-    VectorGlyphSet vectorGlyph;   // instanced arrow GPU resources + mag range
-    StreamlineSet streamlineSet;  // GL_LINES streamline GPU resources + mag range
-    MeshGLManager meshManager;     // full + decimated GPU meshes & upload
-    MeshPass meshPass;             // mesh shader program + UBO + surface draw passes
-    GlyphPass glyphPass;           // vector glyph shader program + UBO + draw
-    ParticlePass particlePass;     // particle shader program + VAO/VBO + draw
-    LodScheduler lodScheduler;     // LOD debounce + GPU compute dispatch
-    BBoxOverlay m_bbox;            // AABB wireframe overlay
-    QualityOverlayRenderer m_qualityOverlay; // mesh defect highlights
-    StreamlineController m_streamlines;      // streamline compute + draw + seeds
-    VolumePass m_volume;                      // volume ray-march pass
-    VolumeTextureCache m_volumeCache;         // per-field 3D texture cache (shared by volume + slices)
-    VolumeSliceOverlay m_volumeSliceOverlay;  // volume slice plane overlay
 
-    // Deep module — N-layer OIT behind one seam
+    ColormapManager colormap;
+    VectorGlyphSet vectorGlyph;
+    StreamlineSet streamlineSet;
+    MeshGLManager meshManager;
+    MeshPass meshPass;
+    GlyphPass glyphPass;
+    ParticlePass particlePass;
+    LodScheduler lodScheduler;
+    BBoxOverlay m_bbox;
+    QualityOverlayRenderer m_qualityOverlay;
+    StreamlineController m_streamlines;
+    VolumePass m_volume;
+    VolumeTextureCache m_volumeCache;
+    VectorTextureCache m_vectorCache;
+    VolumeSliceOverlay m_volumeSliceOverlay;
+    GlTexture m_licNoiseTex;
+    int m_licNoiseGrain = 0;
+
+
     DepthPeelPass m_depthPeel;
     void renderTransparent(const glm::mat4& view, const glm::mat4& proj,
                              GLuint meshUbo,
                              const std::vector<std::pair<GLuint, int>>& transparentMeshes);
 };
-
-

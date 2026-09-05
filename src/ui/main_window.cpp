@@ -15,6 +15,7 @@
 #include "ui_animation_page.h"
 #include "render/foundation/render_config.h"
 #include "core/Colormaps.h"
+#include <cmath>
 #include <QApplication>
 #include <QMenuBar>
 #include <QMenu>
@@ -1223,10 +1224,21 @@ QWidget* MainWindow::buildVectorsPage() {
     vectorsUi.setupUi(page);
     fixLayoutOverflow(page);
 
+    // Unified visualization mode: Off / Glyph / Surface LIC (single active field)
+    auto* visModeCombo = vectorsUi.visModeCombo;
+    m_vectorVisModeCombo = visModeCombo;
+    visModeCombo->addItems({"Off", "Glyph", "Surface LIC"});
+    visModeCombo->setCurrentIndex(m_settings->getVectorVisMode());
+    visModeCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
+    visModeCombo->setEnabled(!m_settings->getAvailableVectors().isEmpty());
+    connect(visModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setVectorVisMode);
+
+    // Legacy checkboxes kept hidden for backward compat but not used as primary UI
     auto* showCb = vectorsUi.showCb;
     m_vecShowCb = showCb;
+    showCb->hide();
     showCb->setChecked(m_settings->getShowVectors());
-    connect(showCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowVectors);
 
     m_vectorCombo = vectorsUi.vectorCombo;
     m_vectorCombo->addItems(m_settings->getAvailableVectors());
@@ -1275,6 +1287,89 @@ QWidget* MainWindow::buildVectorsPage() {
         });
     }
 
+    auto* licToggle = vectorsUi.licToggle;
+    licToggle->hide();
+    licToggle->setChecked(m_settings->getShowLic());
+    licToggle->setEnabled(!m_settings->getVectorField().isEmpty());
+    m_licToggle = licToggle;
+
+    auto* licGroup = vectorsUi.licGroup;
+    auto* optionsGroup = vectorsUi.optionsGroup;
+    auto* fieldGroup = vectorsUi.fieldGroup;
+    m_vectorFieldGroup = fieldGroup;
+    m_vectorGlyphGroup = optionsGroup;
+    m_vectorLicGroup = licGroup;
+    // Mode-driven group enable: Glyph=1, LIC=2 — Field is shared (enabled for any non-Off mode)
+    bool hasVectorsAvail = !m_settings->getAvailableVectors().isEmpty();
+    fieldGroup->setEnabled(hasVectorsAvail && m_settings->getVectorVisMode() != 0);
+    licGroup->setEnabled(m_settings->getVectorVisMode() == 2);
+    optionsGroup->setEnabled(m_settings->getVectorVisMode() == 1);
+    connect(visModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [licGroup, optionsGroup, fieldGroup, this](int idx) {
+                bool hasVec = !m_settings->getAvailableVectors().isEmpty();
+                fieldGroup->setEnabled(hasVec && idx != 0);
+                licGroup->setEnabled(idx == 2);
+                optionsGroup->setEnabled(idx == 1);
+            });
+
+    {
+        auto* slider = vectorsUi.licStepsSlider;
+        auto* valueLabel = vectorsUi.licStepsValue;
+        slider->setRange(4, 128);
+        slider->setValue(m_settings->getLicSteps());
+        valueLabel->setText(QString::number(m_settings->getLicSteps()));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            valueLabel->setText(QString::number(raw));
+            m_settings->setLicSteps(raw);
+        });
+    }
+    {
+        auto* slider = vectorsUi.licStepSizeSlider;
+        auto* valueLabel = vectorsUi.licStepSizeValue;
+        // Map 0.001..2.0 to 1..2000 (step 0.001)
+        slider->setRange(1, 2000);
+        slider->setValue(static_cast<int>(std::round(m_settings->getLicStepSize() * 1000.0)));
+        valueLabel->setText(QString::number(m_settings->getLicStepSize(), 'f', 3));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = static_cast<double>(raw) / 1000.0;
+            valueLabel->setText(QString::number(v, 'f', 3));
+            m_settings->setLicStepSize(v);
+        });
+    }
+    {
+        auto* slider = vectorsUi.licFreqSlider;
+        auto* valueLabel = vectorsUi.licFreqValue;
+        // Map 0.5..64.0 to 5..640 (step 0.1)
+        slider->setRange(5, 640);
+        slider->setValue(static_cast<int>(std::round(m_settings->getLicNoiseFreq() * 10.0)));
+        valueLabel->setText(QString::number(m_settings->getLicNoiseFreq(), 'f', 1));
+        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
+            double v = static_cast<double>(raw) / 10.0;
+            valueLabel->setText(QString::number(v, 'f', 1));
+            m_settings->setLicNoiseFreq(v);
+        });
+    }
+
+    auto* licGrainCombo = vectorsUi.licGrainCombo;
+    licGrainCombo->addItems({"64", "128", "256", "512"});
+    licGrainCombo->setCurrentText(QString::number(m_settings->getLicNoiseGrain()));
+    connect(licGrainCombo, &QComboBox::activated, this, [this](int idx) {
+        int grain = 64;
+        switch (idx) {
+            case 0: grain = 64; break;
+            case 1: grain = 128; break;
+            case 2: grain = 256; break;
+            case 3: grain = 512; break;
+        }
+        m_settings->setLicNoiseGrain(grain);
+    });
+
+    auto* licBoundaryCombo = vectorsUi.licBoundaryCombo;
+    licBoundaryCombo->addItems(m_settings->getLicBoundaryModeOptions());
+    licBoundaryCombo->setCurrentIndex(m_settings->getLicBoundaryMode());
+    connect(licBoundaryCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setLicBoundaryMode);
+
     auto* magCombo = vectorsUi.magCombo;
     magCombo->addItems({"Linear", "Square root", "Logarithmic"});
     magCombo->setCurrentIndex(m_settings->getVectorMagTransform());
@@ -1295,10 +1390,6 @@ QWidget* MainWindow::buildVectorsPage() {
     // Palette now in Colorbar Style dialog — hide sidebar alias
     vectorsUi.vCmapCombo->hide();
     vectorsUi.revCb->hide();
-
-    // Glyph Fixed Range now in Colorbar Style dialog — removed from sidebar
-    connect(showCb, &QCheckBox::toggled, vectorsUi.optionsGroup, &QWidget::setEnabled);
-    vectorsUi.optionsGroup->setEnabled(m_settings->getShowVectors());
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
@@ -2462,6 +2553,15 @@ void MainWindow::connectSettings() {
             m_slShowCb->setEnabled(hasVectors);
             if (!hasVectors) m_slShowCb->setChecked(false);
         }
+        if (m_vectorVisModeCombo) {
+            bool hasAny = hasVectors || hasCellVectors;
+            m_vectorVisModeCombo->setEnabled(hasAny);
+            if (!hasAny) m_vectorVisModeCombo->setCurrentIndex(0);
+        }
+        if (m_vectorFieldGroup) {
+            bool hasAny = hasVectors || hasCellVectors;
+            m_vectorFieldGroup->setEnabled(hasAny && m_settings->getVectorVisMode() != 0);
+        }
         if (m_vecShowCb) {
             m_vecShowCb->setEnabled(hasVectors || hasCellVectors);
             if (!(hasVectors || hasCellVectors)) m_vecShowCb->setChecked(false);
@@ -2543,6 +2643,16 @@ void MainWindow::connectSettings() {
             m_vectorPlacementCombo->setEnabled(m_settings->hasMeshCellVectors());
             m_vectorPlacementCombo->blockSignals(false);
         }
+        if (m_vectorVisModeCombo) {
+            bool hasField = !m_settings->getVectorField().isEmpty();
+            // Keep LIC option available only when field selected; otherwise force Off
+            if (!hasField && m_vectorVisModeCombo->currentIndex() == 2) {
+                m_vectorVisModeCombo->setCurrentIndex(0);
+            }
+        }
+        if (m_licToggle) {
+            m_licToggle->setEnabled(!m_settings->getVectorField().isEmpty());
+        }
         if (m_streamlineCombo) {
             m_streamlineCombo->blockSignals(true);
             m_streamlineCombo->clear();
@@ -2574,6 +2684,20 @@ void MainWindow::connectSettings() {
         syncTopToolbar();
         syncViewDisplayPage();
         syncVolumePage();
+        if (m_vectorVisModeCombo) {
+            m_vectorVisModeCombo->blockSignals(true);
+            m_vectorVisModeCombo->setCurrentIndex(m_settings->getVectorVisMode());
+            m_vectorVisModeCombo->blockSignals(false);
+        }
+        // Keep field/glyph/LIC groups in sync when visMode changes from code (e.g., legacy setters)
+        if (m_vectorFieldGroup) {
+            bool hasAny = m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors();
+            m_vectorFieldGroup->setEnabled(hasAny && m_settings->getVectorVisMode() != 0);
+        }
+        if (m_vectorGlyphGroup) m_vectorGlyphGroup->setEnabled(m_settings->getVectorVisMode() == 1);
+        if (m_vectorLicGroup) m_vectorLicGroup->setEnabled(m_settings->getVectorVisMode() == 2);
+        if (m_vecShowCb) m_vecShowCb->setChecked(m_settings->getShowVectors());
+        if (m_licToggle) m_licToggle->setChecked(m_settings->getShowLic());
     });
 
     connect(m_settings, &RenderSettings::screenshotCaptured, this, &MainWindow::onScreenshotCaptured);

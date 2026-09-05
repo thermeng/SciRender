@@ -405,6 +405,7 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
         add("vectorPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.vectorPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.vectorPlacement = v.toInt(); });
+        add("vectorVisMode",       [](const RenderSettings& r) { return QVariant(r.m_state.vectorVisMode); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.vectorVisMode = v.toInt(); });
         add("maxPeelLayers",       [](const RenderSettings& r) { return QVariant(r.m_state.maxPeelLayers); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.maxPeelLayers = v.toInt(); });
         return t;
     }();
@@ -455,6 +456,21 @@ void RenderSettings::restoreStateFromSettings() {
     // colormap fields.
     for (const auto& e : persistenceTable())
         if (s.contains(e.key)) e.set(*this, s.value(e.key));
+    // Sync vectorVisMode ↔ showVectors/showLic for legacy settings that stored
+    // the two bools directly. New path stores vectorVisMode.
+    if (!s.contains("vectorVisMode")) {
+        bool hasOldVectors = s.contains("showVectors");
+        bool hasOldLic = s.contains("showLic");
+        if (hasOldVectors || hasOldLic) {
+            bool sv = hasOldVectors ? s.value("showVectors").toBool() : m_state.showVectors;
+            bool sl = hasOldLic ? s.value("showLic").toBool() : m_state.showLic;
+            if (sl) m_state.vectorVisMode = 2;
+            else if (sv) m_state.vectorVisMode = 1;
+            else m_state.vectorVisMode = 0;
+        }
+    }
+    m_state.showVectors = (m_state.vectorVisMode == 1);
+    m_state.showLic = (m_state.vectorVisMode == 2);
     // GUI members with bespoke validation.
     if (s.contains("msaaSamples")) {
         const int n = s.value("msaaSamples").toInt();
@@ -600,6 +616,8 @@ void RenderSettings::onMeshParsed() {
 
     // Reset per-mesh vector state.
     m_state.showVectors = false;
+    m_state.showLic = false;
+    m_state.vectorVisMode = 0;
     m_state.showVolume = false;
     m_state.slicePlaneEnabled[0] = m_state.slicePlaneEnabled[1] = m_state.slicePlaneEnabled[2] = false;
     m_state.vectorColorMode = 1;
