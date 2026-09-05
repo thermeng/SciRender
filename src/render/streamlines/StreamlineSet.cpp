@@ -18,16 +18,73 @@ float StreamlineSet::magSq(const glm::vec3& v) {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
+// Uniform-grid spatial index for O(1) average nearest-neighbor lookups.
+// Built once per mesh, reused across all streamline integations.
+struct UniformGrid {
+    glm::vec3 origin;
+    float cellSize;
+    int nx, ny, nz;
+    std::vector<std::vector<int>> cells;
+
+    UniformGrid(const float* verts, int count, float avgSpacing, const glm::vec3& minB, const glm::vec3& maxB) {
+        cellSize = std::max(avgSpacing * 2.0f, 1e-6f);
+        origin = minB;
+        glm::vec3 extent = maxB - minB;
+        nx = std::max(1, static_cast<int>(std::ceil(extent.x / cellSize)));
+        ny = std::max(1, static_cast<int>(std::ceil(extent.y / cellSize)));
+        nz = std::max(1, static_cast<int>(std::ceil(extent.z / cellSize)));
+        cells.resize(static_cast<size_t>(nx) * ny * nz);
+        for (int i = 0; i < count; ++i) {
+            int cx = std::clamp(static_cast<int>((verts[i * 3 + 0] - origin.x) / cellSize), 0, nx - 1);
+            int cy = std::clamp(static_cast<int>((verts[i * 3 + 1] - origin.y) / cellSize), 0, ny - 1);
+            int cz = std::clamp(static_cast<int>((verts[i * 3 + 2] - origin.z) / cellSize), 0, nz - 1);
+            cells[static_cast<size_t>(cx) + cy * nx + cz * nx * ny].push_back(i);
+        }
+    }
+
+    // Find nearest vertex index within maxDistSq, or -1 if none found.
+    int nearest(const glm::vec3& pos, const float* verts, int count, float maxDistSq) const {
+        int cx = static_cast<int>((pos.x - origin.x) / cellSize);
+        int cy = static_cast<int>((pos.y - origin.y) / cellSize);
+        int cz = static_cast<int>((pos.z - origin.z) / cellSize);
+        cx = std::clamp(cx, 0, nx - 1);
+        cy = std::clamp(cy, 0, ny - 1);
+        cz = std::clamp(cz, 0, nz - 1);
+
+        float bestD2 = maxDistSq;
+        int bestIdx = -1;
+
+        // Search 3x3x3 neighborhood of cells
+        for (int dz = -1; dz <= 1; ++dz) {
+            int z = cz + dz;
+            if (z < 0 || z >= nz) continue;
+            for (int dy = -1; dy <= 1; ++dy) {
+                int y = cy + dy;
+                if (y < 0 || y >= ny) continue;
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int x = cx + dx;
+                    if (x < 0 || x >= nx) continue;
+                    const auto& cell = cells[static_cast<size_t>(x) + y * nx + z * nx * ny];
+                    for (int idx : cell) {
+                        int vi = idx * 3;
+                        if (vi + 2 >= count * 3) continue;
+                        float dx2 = verts[vi + 0] - pos.x;
+                        float dy2 = verts[vi + 1] - pos.y;
+                        float dz2 = verts[vi + 2] - pos.z;
+                        float d2 = dx2 * dx2 + dy2 * dy2 + dz2 * dz2;
+                        if (d2 < bestD2) { bestD2 = d2; bestIdx = idx; }
+                    }
+                }
+            }
+        }
+        return bestIdx;
+    }
+};
+
 glm::vec3 StreamlineSet::evalFieldNearest(const RenderMesh& mesh, const glm::vec3& pos, const glm::vec3* data, int count, int searchCount) {
     if (!data || count <= 0) return glm::vec3(0.0f);
 
     const float* verts = mesh.vertices.data();
-    const int maxSamples = 4096;
-    const int stride = std::max(1, count / maxSamples);
-
-    // Estimate characteristic point spacing from bounding box volume and point count.
-    // Use 2x this spacing as the distance cutoff: points within the mesh should be
-    // closer than this, while points in holes/gaps will be farther away.
     const float vol = std::abs(static_cast<float>(
         (mesh.bounds.maxX - mesh.bounds.minX) *
         (mesh.bounds.maxY - mesh.bounds.minY) *
@@ -37,22 +94,12 @@ glm::vec3 StreamlineSet::evalFieldNearest(const RenderMesh& mesh, const glm::vec
         : static_cast<float>(mesh.bounds.extent);
     const float cutoffDistSq = 4.0f * avgSpacing * avgSpacing;
 
-    float bestD2 = std::numeric_limits<float>::max();
-    int bestIdx = -1;
-    for (int i = 0; i < count; i += stride) {
-        int vi = i * 3;
-        if (vi + 2 >= static_cast<int>(mesh.vertices.size())) break;
-        float dx = verts[vi + 0] - pos.x;
-        float dy = verts[vi + 1] - pos.y;
-        float dz = verts[vi + 2] - pos.z;
-        float d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 < bestD2) {
-            bestD2 = d2;
-            bestIdx = i;
-        }
-    }
+    glm::vec3 minB(static_cast<float>(mesh.bounds.minX), static_cast<float>(mesh.bounds.minY), static_cast<float>(mesh.bounds.minZ));
+    glm::vec3 maxB(static_cast<float>(mesh.bounds.maxX), static_cast<float>(mesh.bounds.maxY), static_cast<float>(mesh.bounds.maxZ));
+    const UniformGrid grid(verts, count, avgSpacing, minB, maxB);
 
-    if (bestIdx < 0 || bestD2 > cutoffDistSq) return glm::vec3(0.0f);
+    int bestIdx = grid.nearest(pos, verts, count, cutoffDistSq);
+    if (bestIdx < 0) return glm::vec3(0.0f);
     if (magSq(data[bestIdx]) < 1e-12f) return glm::vec3(0.0f);
     return data[bestIdx];
 }
@@ -109,6 +156,15 @@ StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const R
         static_cast<int>(allZ.size()) != dimZ) {
         return info;
     }
+
+    bool monotonic = true;
+    for (int t = 1; t < dimX && monotonic; ++t)
+        if (allX[t] < allX[t - 1]) monotonic = false;
+    for (int t = 1; t < dimY && monotonic; ++t)
+        if (allY[t] < allY[t - 1]) monotonic = false;
+    for (int t = 1; t < dimZ && monotonic; ++t)
+        if (allZ[t] < allZ[t - 1]) monotonic = false;
+    if (!monotonic) return info;
 
     info.xs = std::move(allX);
     info.ys = std::move(allY);
@@ -305,6 +361,7 @@ bool StreamlineSet::isInsideDomain(const StreamlineSet::StructuredGridInfo& info
         else if (axis == 1) span = glm::length(vPos(0, dY-1, 0) - vPos(0, 0, 0));
         else span = glm::length(vPos(0, 0, dZ-1) - vPos(0, 0, 0));
         float spacing = span / static_cast<float>(std::max(1, n - 1));
+        if (dist < 1e-6f) return true;
         return dist < spacing * 0.5f;
     };
 
@@ -373,11 +430,14 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
 
     if (mode == "Surface") {
         int numVerts = static_cast<int>(mesh.vertices.size() / 3);
-        int step = std::max(1, numVerts / seedCount);
-        for (int i = 0; i < numVerts && static_cast<int>(seeds.size()) < seedCount; i += step) {
-            float x = mesh.vertices[i * 3 + 0];
-            float y = mesh.vertices[i * 3 + 1];
-            float z = mesh.vertices[i * 3 + 2];
+        if (numVerts <= 0) return seeds;
+        int actualCount = std::min(seedCount, numVerts);
+        float stride = static_cast<float>(numVerts) / static_cast<float>(actualCount);
+        for (int i = 0; i < actualCount; ++i) {
+            int idx = static_cast<int>(i * stride);
+            float x = mesh.vertices[idx * 3 + 0];
+            float y = mesh.vertices[idx * 3 + 1];
+            float z = mesh.vertices[idx * 3 + 2];
             if (jitter > 0.0) {
                 float dx = (maxX - minX) * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
                 float dy = (maxY - minY) * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
@@ -395,70 +455,77 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
         float pos = static_cast<float>(planePos);
         int nU = std::max(1, planeCountU);
         int nV = std::max(1, planeCountV);
+        int totalGrid = nU * nV;
+        int actualCount = std::min(seedCount, totalGrid);
+        if (actualCount <= 0) return seeds;
+        float stride = static_cast<float>(totalGrid) / static_cast<float>(actualCount);
         float sx = maxX - minX;
         float sy = maxY - minY;
         float sz = maxZ - minZ;
 
-        for (int ix = 0; ix < nU && static_cast<int>(seeds.size()) < nU * nV; ++ix) {
-            for (int iy = 0; iy < nV && static_cast<int>(seeds.size()) < nU * nV; ++iy) {
-                float tx = (ix + 0.5f) / nU;
-                float ty = (iy + 0.5f) / nV;
-                float x = minX + tx * sx;
-                float y = minY + ty * sy;
-                float z = minZ + pos * sz;
+        for (int i = 0; i < actualCount; ++i) {
+            int idx = static_cast<int>(i * stride);
+            int ix = idx % nU;
+            int iy = idx / nU;
+            float tx = (ix + 0.5f) / nU;
+            float ty = (iy + 0.5f) / nV;
+            float x = minX + tx * sx;
+            float y = minY + ty * sy;
+            float z = minZ + pos * sz;
 
-                if (mode == "PlaneXZ") {
-                    y = minY + pos * sy;
-                    z = minZ + ty * sz;
-                } else if (mode == "PlaneYZ") {
-                    x = minX + pos * sx;
-                    y = minY + ty * sy;
-                    z = minZ + tx * sz;
-                }
-
-                if (jitter > 0.0) {
-                    float dx = (maxX - minX) * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    float dy = (maxY - minY) * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    float dz = (maxZ - minZ) * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    x = std::clamp(x + dx, minX, maxX);
-                    y = std::clamp(y + dy, minY, maxY);
-                    z = std::clamp(z + dz, minZ, maxZ);
-                }
-
-                seeds.emplace_back(x, y, z);
+            if (mode == "PlaneXZ") {
+                y = minY + pos * sy;
+                z = minZ + ty * sz;
+            } else if (mode == "PlaneYZ") {
+                x = minX + pos * sx;
+                y = minY + ty * sy;
+                z = minZ + tx * sz;
             }
+
+            if (jitter > 0.0) {
+                float dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                float dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                float dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                x = std::clamp(x + dx, minX, maxX);
+                y = std::clamp(y + dy, minY, maxY);
+                z = std::clamp(z + dz, minZ, maxZ);
+            }
+
+            seeds.emplace_back(x, y, z);
         }
         return seeds;
     }
 
     int n = static_cast<int>(std::ceil(std::cbrt(static_cast<double>(seedCount))));
     n = std::max(1, n);
+    int totalPts = n * n * n;
+    float stride = static_cast<float>(totalPts) / static_cast<float>(seedCount);
     float sx = maxX - minX;
     float sy = maxY - minY;
     float sz = maxZ - minZ;
 
-    for (int ix = 0; ix < n && static_cast<int>(seeds.size()) < seedCount; ++ix) {
-        for (int iy = 0; iy < n && static_cast<int>(seeds.size()) < seedCount; ++iy) {
-            for (int iz = 0; iz < n && static_cast<int>(seeds.size()) < seedCount; ++iz) {
-                float tx = (ix + 0.5f) / n;
-                float ty = (iy + 0.5f) / n;
-                float tz = (iz + 0.5f) / n;
-                float x = minX + tx * sx;
-                float y = minY + ty * sy;
-                float z = minZ + tz * sz;
+    for (int i = 0; i < seedCount; ++i) {
+        int idx = static_cast<int>(i * stride);
+        int ix = idx % n;
+        int iy = (idx / n) % n;
+        int iz = idx / (n * n);
+        float tx = (ix + 0.5f) / n;
+        float ty = (iy + 0.5f) / n;
+        float tz = (iz + 0.5f) / n;
+        float x = minX + tx * sx;
+        float y = minY + ty * sy;
+        float z = minZ + tz * sz;
 
-                if (jitter > 0.0) {
-                    float dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    float dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    float dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    x = std::clamp(x + dx, minX, maxX);
-                    y = std::clamp(y + dy, minY, maxY);
-                    z = std::clamp(z + dz, minZ, maxZ);
-                }
-
-                seeds.emplace_back(x, y, z);
-            }
+        if (jitter > 0.0) {
+            float dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+            float dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+            float dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+            x = std::clamp(x + dx, minX, maxX);
+            y = std::clamp(y + dy, minY, maxY);
+            z = std::clamp(z + dz, minZ, maxZ);
         }
+
+        seeds.emplace_back(x, y, z);
     }
     return seeds;
 }

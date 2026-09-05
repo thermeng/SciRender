@@ -1040,6 +1040,7 @@ private:
 
     void readExtentAttributes(const pugi::xml_node& node) {
         std::string we = node.attribute("WholeExtent").value();
+        if (we.empty()) we = node.attribute("Extent").value();
         if (!we.empty()) {
             const char* p = we.data();
             const char* end = p + we.size();

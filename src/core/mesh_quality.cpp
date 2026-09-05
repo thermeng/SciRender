@@ -3,6 +3,7 @@
 #include <cmath>
 #include <vector>
 #include <algorithm>
+#include <unordered_map>
 
 MeshQuality analyzeMeshQuality(const RenderMesh& mesh) {
     MeshQuality q;
@@ -182,21 +183,21 @@ MeshQuality analyzeMeshQuality(const RenderMesh& mesh) {
         const size_t numNb = neighbors.size();
         if (numNb == 0) continue;
         link.assign(numNb, {});
-        auto getNeighborIdx = [&](uint32_t v) -> int {
-            for (size_t i = 0; i < numNb; ++i) if (neighbors[i] == v) return static_cast<int>(i);
-            return -1;
-        };
+        // O(1) hash map for neighbor index lookup (was O(N) linear scan)
+        std::unordered_map<uint32_t, int> nbIdx;
+        nbIdx.reserve(numNb * 2);
+        for (size_t i = 0; i < numNb; ++i) nbIdx[neighbors[i]] = static_cast<int>(i);
         for (uint32_t t : tris) {
             uint32_t a = weld[t * 3], b = weld[t * 3 + 1], c = weld[t * 3 + 2];
             uint32_t x = 0, y = 0, found = 0;
             if (a != s) { x = a; found++; }
             if (b != s) { if (found == 0) { x = b; found++; } else y = b; }
             if (c != s) { if (found == 0) { x = c; found++; } else y = c; }
-            int ix = getNeighborIdx(x);
-            int iy = getNeighborIdx(y);
-            if (ix != -1 && iy != -1) {
-                link[ix].push_back(iy);
-                link[iy].push_back(ix);
+            auto itX = nbIdx.find(x);
+            auto itY = nbIdx.find(y);
+            if (itX != nbIdx.end() && itY != nbIdx.end()) {
+                link[itX->second].push_back(itY->second);
+                link[itY->second].push_back(itX->second);
             }
         }
         linkVis.assign(numNb, 0);

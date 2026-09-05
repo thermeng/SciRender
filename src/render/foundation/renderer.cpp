@@ -4,6 +4,7 @@
 #include "render/foundation/NumberFormat.h"
 #include "render/foundation/render_config.h"
 #include "render/streamlines/StreamlineSet.h"
+#include "render/passes/VectorTextureCache.h"
 #include "core/Colormaps.h"
 #include "core/Camera.h"
 #include "core/mesh_loader.h"
@@ -13,6 +14,8 @@
 #include <cmath>
 #include <memory>
 #include <vector>
+#include <random>
+#include <algorithm>
 #include <algorithm>
 #include <limits>
 #include <QTimer>
@@ -23,8 +26,8 @@
 
 Renderer::Renderer()
     : m_state() {
-    // Default system initialization parameters (mirror RenderSettings defaults;
-    // the first synchronize() overwrites these with the GUI snapshot).
+
+
     m_state.meshColor[0] = 0.4f; m_state.meshColor[1] = 0.9f; m_state.meshColor[2] = 0.4f;
     m_state.surfaceColor[0] = 1.0f; m_state.surfaceColor[1] = 1.0f; m_state.surfaceColor[2] = 1.0f;
     m_state.bgColor[0] = 0.12f; m_state.bgColor[1] = 0.12f; m_state.bgColor[2] = 0.12f;
@@ -38,7 +41,7 @@ Renderer::Renderer()
 Renderer::~Renderer() {
     m_destroying = true;
 
-    // Join the background streamline worker before destroying GL resources.
+
     m_streamlines.cancelAndJoin();
 
     if (QOpenGLContext::currentContext()) {
@@ -130,7 +133,7 @@ void Renderer::renderTransparent(const glm::mat4& view, const glm::mat4& proj,
 
 void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     if (!renderMesh) return;
-    // Phase 1.3: gate vector rebuild on content hash to skip static fields
+
     bool vectorChanged = true;
     if (m_lastUploadedMesh) {
         if (renderMesh->vectorHash != 0 && m_lastUploadedMesh->vectorHash == renderMesh->vectorHash
@@ -144,13 +147,14 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     if (vectorChanged) {
         vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement);
     }
-    // Phase 1.2: streamline sync rebuild removed — rely solely on async StreamlineController
-    // (requestRecompute is already debounced at 0.15s and coalesces rapid animation frames)
-    // streamlineSet.rebuild(...) removed to halve CPU per frame
 
-    // Invalidate the field-texture cache so textures rebuild from the new mesh on next draw.
+
+
+
+
     m_volumeCache.invalidateAll();
-    // Ensure streamlines are recomputed for new mesh via async path
+    m_vectorCache.invalidateAll();
+
     if (m_state.showStreamlines) {
         m_streamlines.requestRecompute();
     }
@@ -254,8 +258,8 @@ void Renderer::setState(const RenderRenderState& state) {
         colorbarOverlay.markDirty();
     }
     m_state = state;
-    // Keep ortho zoom baseline stable — only seed lazily in renderFrame or on
-    // explicit resetCamera. Don't snap on every radius change (mesh load).
+
+
     m_lastOrthoRadius = m_state.worldRadius;
 }
 
@@ -278,8 +282,8 @@ void Renderer::resetCamera() {
     dist *= RenderConfig::defaults().cameraFitMultiplier;
 
     camera.distance = dist;
-    // ponytail: keep ortho zoom baseline in sync with the fit distance so
-    // dolly-zoom tracks correctly after a reset (m_orthoRefDist is seeded once).
+
+
     m_orthoRefDist = camera.distance;
     if (camera.distance < 1.0) camera.distance = 1.0;
     camera.maxDistance = std::max(1000.0, camera.distance * 50.0);
@@ -305,7 +309,7 @@ void Renderer::resizeViewport(int w, int h) {
 }
 
 void Renderer::clearGpuMeshes() {
-    // Join the background streamline worker before tearing down GL resources.
+
     m_streamlines.cancelAndJoin();
 
     meshManager.clear();
@@ -322,10 +326,10 @@ void Renderer::clearGpuMeshes() {
 }
 
 void Renderer::reinitForNewContext() {
-    // Tear down GL resources from the previous context. In the normal Qt
-    // initializeGL path the old context is already gone, so glDelete* here are
-    // no-ops; the guard also keeps this correct for shared-context or in-place
-    // reinit where the old context may still be current.
+
+
+
+
     const bool haveCtx = QOpenGLContext::currentContext() != nullptr;
     if (haveCtx) {
         meshPass.shutdown();
@@ -335,7 +339,7 @@ void Renderer::reinitForNewContext() {
         m_volumeCache.shutdown();
         m_depthPeel.shutdown();
 
-        // Shutdown subsystems — each deletes its own GL handles and zeros them.
+
         m_bbox.shutdown();
         m_qualityOverlay.shutdown();
         m_streamlines.shutdown();
@@ -346,23 +350,25 @@ void Renderer::reinitForNewContext() {
         vectorGlyph.shutdown();
         streamlineSet.shutdown();
         m_volumeSliceOverlay.shutdown();
+        m_vectorCache.shutdown();
+        shutdownLic();
 
-        // Drop mesh geometry from the old context (previously only LOD compute
-        // was cleared, leaving stale VAO/VBO/EBO/SBO handles and stale
-        // hasMeshes()/hasFullSource()/hasDecimated() flags). fullSource_ is
-        // reset here because reinitMeshData() re-uploads from m_lastUploadedMesh.
+
+
+
+
         meshManager.clear();
         meshManager.cleanupLodCompute();
     }
 
-    // Always land handle slots and integer locs at safe defaults so lazy
-    // re-creation in renderFrame()/initShaders() rebuilds them exactly once.
+
+
     m_depthPeel.reinitForNewContext();
 
-    // Reset transient render state so a recreated context does not inherit a
-    // stale animation clock (which would leap forward on the first frame) or
-    // stale LOD/dirty flags (which could spuriously dispatch LOD compute or
-    // trigger a redundant vector-glyph rebuild).
+
+
+
+
     m_lastFrameTime = {};
     m_lastFrameDt = 0.0;
     m_animationTime = 0.0;
@@ -390,8 +396,8 @@ void Renderer::reinitMeshData() {
             m_volumeCache.invalidateAll();
         }
 
-        // Isosurface survives GL-context resets: re-upload the last extracted
-        // surface (no recompute needed -- the CPU mesh is unchanged).
+
+
         if (m_state.showIsosurface && m_lastIsosurfaceMesh) {
             meshManager.uploadIsosurface(m_lastIsosurfaceMesh);
         }
@@ -411,7 +417,7 @@ void Renderer::uploadVolumeFromScalarDirty(const RenderRenderState& state,
     std::shared_ptr<const std::vector<float>> scalars,
     std::shared_ptr<const RenderMesh> mesh) {
     if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0) return;
-    // Drop cached textures so they rebuild from the new active field on next draw.
+
     m_volumeCache.invalidate(m_state.activeScalarName);
     for (int axis = 0; axis < 3; ++axis) {
         const std::string& field = m_state.sliceScalarName[axis].empty()
@@ -423,13 +429,13 @@ void Renderer::uploadVolumeFromScalarDirty(const RenderRenderState& state,
 void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars) {
     {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
-        m_pendingScalarSrc = scalars; // shared_ptr, no data copy
+        m_pendingScalarSrc = scalars;
     }
     meshManager.updateScalars(scalars);
 }
 
 void Renderer::drawGizmo(int deviceW, int deviceH) {
-    // Save engine state we mutate; restored automatically on scope exit.
+
     GLStateGuard guard;
     glDisable(GL_DEPTH_TEST);
     const float dpr = static_cast<float>(devicePixelRatio);
@@ -462,8 +468,8 @@ std::string Renderer::vectorGlyphTitle(const RenderRenderState& state, const Ren
 
 namespace {
 
-// One persisted identity per bar TYPE (subtitle), so positions/orientations
-// survive field switches. Subtitles are unique across the five bars.
+
+
 QString colorbarPosKey(const ColorbarData& d) {
     return QString("colorbarPos/%1").arg(d.subtitle);
 }
@@ -474,8 +480,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     if (deviceW <= 0 || deviceH <= 0) return;
     const float dpr = static_cast<float>(devicePixelRatio);
 
-    // deviceW/deviceH are already the actual render target dimensions from renderFrame
-    // (Qt widget size for live rendering, override size for screenshots).
+
+
 
     const auto stopsFor = [&](int choice, bool reversed) {
         QVariantList out;
@@ -501,8 +507,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         if (it == m_colorbarPosCache.end()) {
             QSettings s;
             float fx = 1.0f, fy = 1.0f;
-            // Migration chain: per-type key -> per-type+field key (interim
-            // build) -> legacy bare-title key.
+
+
             const QString byField = QString("colorbarPos/%1/%2").arg(d.subtitle, d.title);
             const QString legacy = QString("colorbarPos_%1").arg(d.title);
             if (s.contains(key + "_x")) {
@@ -565,8 +571,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         return labels;
     };
 
-    // Single factory for every bar type: gates stay at the call sites, all
-    // shared assembly (labels, stops, persisted overrides) lives here.
+
+
     auto makeBar = [&](const char* subtitle, const QString& title,
                        const QVariantList& stops, auto&& valueAt, int bandCount = 0) {
         ColorbarData d;
@@ -591,10 +597,10 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         m_colorbarBars.push_back(std::move(d));
     };
 
-    // Scalar bar
+
     if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar) {
-        // Ticks span the effective mapping range: the user's fixed [lo, hi]
-        // when the override is on, otherwise the auto-tracked data range.
+
+
         const float mapMin = m_state.colorMapMin();
         const float mapMax = m_state.colorMapMax();
         const float range = mapMax - mapMin;
@@ -606,11 +612,11 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 }, m_state.scalarColorBands);
     }
 
-    // Vector bar
+
     if (m_state.showVectors && m_state.vectorColorMode > 0 && m_state.hasMeshLoaded &&
         (m_state.vectorPlacement == 0 ? m_state.meshHasVectors : m_state.meshHasCellVectors)) {
         if (m_state.vectorColorMode == 1) {
-            // Magnitude mode: show magnitude range with optional transform.
+
             auto txMag = [&](float m) -> float {
                 if (m_state.vectorMagTransform == 1) return std::sqrt(std::max(m, 0.0f));
                 if (m_state.vectorMagTransform == 2) return std::log(1.0f + std::max(m, 0.0f));
@@ -635,8 +641,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                         return invTxMag(tMin + tRange * frac);
                     }, m_state.vectorColorBands);
         } else {
-            // Component mode (X=2, Y=3, Z=4): show the selected component's range.
-            int compIdx = m_state.vectorColorMode - 2; // 0=X, 1=Y, 2=Z
+
+            int compIdx = m_state.vectorColorMode - 2;
             const float cMin = m_state.glyphCompRangeOverrideEnabled[compIdx]
                 ? m_state.glyphCompRangeLo[compIdx] : vectorGlyph.compMin[compIdx];
             const float cMax = m_state.glyphCompRangeOverrideEnabled[compIdx]
@@ -653,7 +659,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         }
     }
 
-    // Streamline bar
+
     if (m_state.showStreamlines && m_state.streamlineColorMode > 0 && m_state.meshHasVectors && m_state.hasMeshLoaded) {
         if (m_state.streamlineColorMode == 1) {
             const float sMin = m_state.streamlineMagRangeOverrideEnabled ? m_state.streamlineMagRangeLo : streamlineSet.magMin;
@@ -683,7 +689,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         }
     }
 
-    // Volume bar
+
     if (m_state.showVolume && m_state.volumeUseColormap && m_state.hasMeshLoaded) {
         const float vMin = m_state.volumeColorRangeOverrideEnabled ? m_state.volumeColorRangeLo : m_state.dataScalarMin;
         const float vMax = m_state.volumeColorRangeOverrideEnabled ? m_state.volumeColorRangeHi : m_state.dataScalarMax;
@@ -696,7 +702,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 }, m_state.volumeColorBands);
     }
 
-    // Slice plane bars (independent colormap, per-slice scalar range)
+
     for (int axis = 0; axis < 3; ++axis) {
         if (!m_state.slicePlaneEnabled[axis] || !m_state.slicePlaneShowColorbar[axis]) continue;
         if (!m_state.volumeSliceUseColormap || !m_state.hasMeshLoaded) continue;
@@ -851,8 +857,34 @@ void Renderer::updateSliceScalarRange() {
     }
 }
 
+void Renderer::ensureLicNoiseTexture(int grain) {
+    if (m_licNoiseTex.has() && m_licNoiseGrain == grain) return;
+    if (grain <= 0) grain = 256;
+    if (m_licNoiseTex.has()) m_licNoiseTex.reset();
+    std::vector<unsigned char> noise;
+    noise.resize(static_cast<size_t>(grain) * grain);
+    std::mt19937 rng(12345);
+    std::uniform_int_distribution<int> dist(0, 255);
+    for (size_t i = 0; i < noise.size(); ++i) {
+        noise[i] = static_cast<unsigned char>(dist(rng));
+    }
+    glCreateTextures(GL_TEXTURE_2D, 1, m_licNoiseTex.ptr());
+    glTextureStorage2D(m_licNoiseTex, 1, GL_R8, grain, grain);
+    glTextureSubImage2D(m_licNoiseTex, 0, 0, 0, grain, grain, GL_RED, GL_UNSIGNED_BYTE, noise.data());
+    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    m_licNoiseGrain = grain;
+}
+
+void Renderer::shutdownLic() {
+    m_licNoiseTex.reset();
+    m_licNoiseGrain = 0;
+}
+
 void Renderer::renderFrame() {
-    // Advance animation clock with real elapsed time (drives arrow animation).
+
     {
         auto now = std::chrono::steady_clock::now();
         if (m_lastFrameTime.time_since_epoch().count() == 0) m_lastFrameTime = now;
@@ -862,15 +894,15 @@ void Renderer::renderFrame() {
         m_animationTime += dt;
     }
 
-    // LOD debounce, throttle, and compute dispatch (owned by LodScheduler).
-    // A true return means the visible state changed (dispatch or settle) —
-    // schedule one more frame so the swap is actually presented.
+
+
+
     if (lodScheduler.tick(m_state, meshManager)) {
         lodSettleDirty = true;
     }
 
-     // Consume a pending mesh handoff from the GUI thread (shared_ptr; no copy).
-    // Uploading here keeps all GL work inside render() with the context current.
+
+
     {
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         if (m_pendingMesh) {
@@ -878,11 +910,11 @@ void Renderer::renderFrame() {
             m_pendingMesh.reset();
             m_qualityOverlay.markDirty();
             m_streamlines.requestRecompute();
-            // Note: uploadMesh() already re-uploads the volume texture, so no
-            // separate volume invalidation is needed here.
+
+
         }
-        // Isosurface handoff (same zero-copy shared_ptr pattern). Uploaded into
-        // the dedicated iso mesh slot; no vector/streamline/volume rebuild.
+
+
         if (isosurfaceDirty.exchange(false)) {
             m_lastIsosurfaceMesh = m_pendingIsosurface;
             meshManager.uploadIsosurface(m_lastIsosurfaceMesh);
@@ -902,7 +934,7 @@ void Renderer::renderFrame() {
         m_streamlines.requestRecompute();
     }
 
-    // Off-thread streamline: debounce, launch compute, consume results
+
     m_streamlines.dispatchCompute(m_state, m_lastUploadedMesh, streamlineSet);
     m_streamlines.consumeResult(m_state, streamlineSet);
     m_streamlines.publishComponentRanges(m_state, streamlineSet);
@@ -926,8 +958,8 @@ void Renderer::renderFrame() {
 
     glDepthMask(GL_TRUE);
     glDisable(GL_SCISSOR_TEST);
-    // Linear → sRGB conversion for the sRGB-capable display FBO so
-    // translucency blending stays in linear space (ParaView-like).
+
+
     glEnable(GL_FRAMEBUFFER_SRGB);
 
     const float clearAlpha = m_state.screenshotTransparent ? 0.0f : 1.0f;
@@ -937,8 +969,8 @@ void Renderer::renderFrame() {
     glm::mat4 view = m_state.camera.getViewMatrix();
 
     double camDist = m_state.camera.distance;
-    // Robust near/far: distance-aware for both modes, keeps panned/off-center
-    // meshes inside the depth range. Scene radius clamped to avoid zero.
+
+
     double sceneR = std::max(static_cast<double>(m_state.worldRadius), 1e-4);
     glm::dvec3 camPos = m_state.camera.position;
     glm::dvec3 center(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
@@ -950,11 +982,11 @@ void Renderer::renderFrame() {
         nearPlane = std::max(0.01, camDist * 0.001);
         farPlane  = distToCenter + sceneR + 250.0;
     }
-    // Ensure far > near even for degenerate bounds
+
     if (farPlane <= nearPlane + 1.0) farPlane = nearPlane + 100.0;
 
-    // Clip control: switch post-projection NDC to Vulkan-style [0,1] depth so
-    // shaders can skip manual gl_FragDepth remap and gain 24-bit extra precision.
+
+
     glm::mat4 proj = m_state.orthographic
     ? [&]() {
         if (m_orthoRefDist <= 0.0) m_orthoRefDist = std::max(m_state.camera.distance, 1e-6);
@@ -963,7 +995,7 @@ void Renderer::renderFrame() {
         float half = effR * d;
         half = std::max(half, 0.01f);
         float aspect = (deviceH > 0) ? static_cast<float>(deviceW) / static_cast<float>(deviceH) : 1.0f;
-        m_state.fovY = glm::radians(45.0f);  // orthographic: use reference FOV for footprint scaling
+        m_state.fovY = glm::radians(45.0f);
         float n = static_cast<float>(nearPlane);
         float f = static_cast<float>(farPlane);
         const float r = half * aspect;
@@ -981,7 +1013,7 @@ void Renderer::renderFrame() {
         float n = static_cast<float>(nearPlane);
         float f = static_cast<float>(farPlane);
         float fov = glm::radians(45.0f);
-        m_state.fovY = fov;  // store for volume ray casting footprint scale
+        m_state.fovY = fov;
         float tanHalf = std::tan(fov * 0.5f);
         float r = 1.0f / (aspect * tanHalf);
         float t = 1.0f / tanHalf;
@@ -1005,12 +1037,12 @@ void Renderer::renderFrame() {
         meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawVerts, &edgeDrawList);
     }
 
-    // Isosurface draw list (independent of showSurface): the extractor emits a
-    // plain triangle mesh colored by the colormap LUT, so MeshPass renders it
-    // with the SAME shader/UBO as the surface mesh -- no dedicated program.
+
+
+
     std::vector<std::pair<GLuint, int>> isoDrawList;
     std::vector<int> isoDrawVerts;
-    static const std::vector<std::pair<GLuint, int>> emptyEdges; // isosurface has no cell edges
+    static const std::vector<std::pair<GLuint, int>> emptyEdges;
     if (m_state.showIsosurface && meshManager.hasIsosurfaceMeshes()) {
         meshManager.snapshotIsosurfaceDrawList(isoDrawList,
                                                m_state.useLod,
@@ -1018,24 +1050,47 @@ void Renderer::renderFrame() {
                                                isoDrawVerts);
     }
 
-    // Push colormap choices into the GPU LUT manager.
+
     colormap.sync(m_state);
 
     if (!drawList.empty() && meshPass.hasProgram()) {
-        auto result =         meshPass.draw(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap);
-        if (!result.transparentMeshes.empty()) {
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);
-            meshPass.drawOverlaysAfterTransparent(m_state, view, proj, model,
-                                                  drawList, drawVerts, edgeDrawList, meshManager, colormap);
+        MeshPass::LicResources licRes;
+        if (m_state.showLic && meshPass.hasLicProgram() && m_lastUploadedMesh) {
+            glm::vec3 boxMinF(static_cast<float>(m_lastUploadedMesh->bounds.minX),
+                              static_cast<float>(m_lastUploadedMesh->bounds.minY),
+                              static_cast<float>(m_lastUploadedMesh->bounds.minZ));
+            glm::vec3 boxMaxF(static_cast<float>(m_lastUploadedMesh->bounds.maxX),
+                              static_cast<float>(m_lastUploadedMesh->bounds.maxY),
+                              static_cast<float>(m_lastUploadedMesh->bounds.maxZ));
+            ensureLicNoiseTexture(m_state.licNoiseGrain);
+            GLuint vecTex = m_vectorCache.textureForField(
+                m_state.vectorField, m_lastUploadedMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.licBoundaryMode);
+            if (vecTex != 0 && m_licNoiseTex.has()) {
+                licRes.vectorTex = vecTex;
+                licRes.noiseTex = m_licNoiseTex.get();
+                licRes.boxMin = boxMinF;
+                licRes.boxMax = boxMaxF;
+                m_vectorCache.getTextureDims(m_state.vectorField, m_state.vectorPlacement, m_state.licBoundaryMode, m_lastUploadedMesh.get(), licRes.texDimX, licRes.texDimY, licRes.texDimZ);
+            }
+        }
+        if (licRes.valid()) {
+            meshPass.drawLic(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap, licRes);
+        } else {
+            auto result =         meshPass.draw(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap);
+            if (!result.transparentMeshes.empty()) {
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);
+                meshPass.drawOverlaysAfterTransparent(m_state, view, proj, model,
+                                                      drawList, drawVerts, edgeDrawList, meshManager, colormap);
+            }
         }
     }
 
-    // Isosurface surface-pass (separate draw list so it can stay visible when
-    // showSurface is off). We pass a state copy with showSurface=true purely to
-    // pass MeshPass::draw()'s opaque gate -- the VAO list passed in is the
-    // isosurface list, so only the iso triangles are drawn, decoupled from the
-    // boundary shell. MeshPass reuses the colormap LUT + PBR shader (no new GL).
+
+
+
+
+
     if (!isoDrawList.empty() && meshPass.hasProgram()) {
         RenderRenderState isoState = m_state;
         isoState.showSurface = true;
@@ -1058,7 +1113,7 @@ void Renderer::renderFrame() {
 
     glyphPass.draw(m_state, view, proj, vectorGlyph, colormap);
 
-    // Streamlines + seeds (delegated to StreamlineController)
+
     {
         glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
         computeLightDirections(kDir, fDir, b1Dir, b2Dir, hDir);
@@ -1078,8 +1133,8 @@ void Renderer::renderFrame() {
     GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_lastUploadedMesh.get(), boxMin, boxMax);
     m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale, volTex, boxMin, boxMax);
 
-    // Recompute the slice planes' scalar ranges from the current data slices so the
-    // colormap remaps as the planes move (only needed when a slice is visible).
+
+
     if (m_state.anySlicePlaneEnabled()) updateSliceScalarRange();
 
     GLuint sliceTex[3] = {0, 0, 0};
@@ -1097,6 +1152,4 @@ void Renderer::renderFrame() {
 
     glBindVertexArray(0);
 }
-
-
 

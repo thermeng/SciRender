@@ -216,11 +216,18 @@ private:
     QComboBox* m_streamlineDirectionCombo = nullptr;
     QComboBox* m_volumeFieldCombo = nullptr;
 
+    // Vector vis mode (single active field Glyph ↔ LIC)
+    QComboBox* m_vectorVisModeCombo = nullptr;
+    QWidget* m_vectorFieldGroup = nullptr;
+    QWidget* m_vectorGlyphGroup = nullptr;
+    QWidget* m_vectorLicGroup = nullptr;
+
     // "Show" checkboxes for vector/streamline/volume/scalar pages (gated on data availability)
     QCheckBox* m_scalarShowCb = nullptr;
     QWidget* m_scalarOptionsGroup = nullptr;
     QCheckBox* m_slShowCb = nullptr;
     QCheckBox* m_vecShowCb = nullptr;
+    QCheckBox* m_licToggle = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;
     QCheckBox* m_volumeSliceShowCb = nullptr;
     QCheckBox* m_sliceShowCb = nullptr;

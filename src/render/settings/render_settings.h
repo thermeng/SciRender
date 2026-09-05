@@ -180,6 +180,13 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool vectorColormapReversed READ getVectorColormapReversed WRITE setVectorColormapReversed NOTIFY viewChanged)
     Q_PROPERTY(int vectorPlacement READ getVectorPlacement WRITE setVectorPlacement NOTIFY viewChanged)
     Q_PROPERTY(QStringList vectorPlacementOptions READ getVectorPlacementOptions CONSTANT)
+    Q_PROPERTY(int vectorVisMode READ getVectorVisMode WRITE setVectorVisMode NOTIFY viewChanged)
+    Q_PROPERTY(bool showLic READ getShowLic WRITE setShowLic NOTIFY viewChanged)
+    Q_PROPERTY(int licSteps READ getLicSteps WRITE setLicSteps NOTIFY viewChanged)
+    Q_PROPERTY(double licStepSize READ getLicStepSize WRITE setLicStepSize NOTIFY viewChanged)
+    Q_PROPERTY(double licNoiseFreq READ getLicNoiseFreq WRITE setLicNoiseFreq NOTIFY viewChanged)
+    Q_PROPERTY(int licNoiseGrain READ getLicNoiseGrain WRITE setLicNoiseGrain NOTIFY viewChanged)
+    Q_PROPERTY(int licBoundaryMode READ getLicBoundaryMode WRITE setLicBoundaryMode NOTIFY viewChanged)
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
@@ -502,7 +509,30 @@ public:
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(m_state.surfaceColor[0], m_state.surfaceColor[1], m_state.surfaceColor[2]); }
     void setSurfaceColorQml(const QColor& c) { m_state.surfaceColor[0] = c.redF(); m_state.surfaceColor[1] = c.greenF(); m_state.surfaceColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
 
-    STATE_PROP(getShowVectors, setShowVectors, bool, m_state.showVectors, Vectors)
+    int getVectorVisMode() const { return m_state.vectorVisMode; }
+    void setVectorVisMode(int v) {
+        int t = (v < 0) ? 0 : (v > 2 ? 2 : v);
+        if (m_state.vectorVisMode != t) {
+            m_state.vectorVisMode = t;
+            m_state.showVectors = (t == 1);
+            m_state.showLic = (t == 2);
+            m_renderer.markVectorGlyphDirty();
+            markStateDirty();
+            emit viewChanged(ChangeFlag::Vectors);
+            emit viewChanged(ChangeFlag::Display);
+        }
+    }
+    bool getShowVectors() const { return m_state.showVectors; }
+    void setShowVectors(bool v) {
+        // Keep legacy bool in sync with visMode (Off/Glyph/LIC)
+        int desired = v ? 1 : 0;
+        // If currently LIC, turning Glyph on switches to Glyph, off goes to Off
+        if (v && m_state.vectorVisMode == 2) desired = 1;
+        if (!v && m_state.vectorVisMode == 1) desired = 0;
+        if (m_state.showVectors != v || m_state.vectorVisMode != desired) {
+            setVectorVisMode(desired);
+        }
+    }
     STATE_PROP(getVectorScaleByMagnitude, setVectorScaleByMagnitude, bool, m_state.vectorScaleByMagnitude, Vectors)
     int getVectorMagTransform() const { return m_state.vectorMagTransform; }
     void setVectorMagTransform(int v) { int t = (v < 0) ? 0 : (v > 2 ? 2 : v); if (m_state.vectorMagTransform != t) { m_state.vectorMagTransform = t; markStateDirty(); emit viewChanged(ChangeFlag::Colormap); } }
@@ -512,6 +542,45 @@ public:
     int getVectorPlacement() const { return m_state.vectorPlacement; }
     void setVectorPlacement(int v) { int p = (v < 0) ? 0 : (v > 1 ? 1 : v); if (m_state.vectorPlacement != p) { m_state.vectorPlacement = p; m_renderer.markVectorGlyphDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
     QStringList getVectorPlacementOptions() const { return {"Vertex", "Cell Center"}; }
+    bool getShowLic() const { return m_state.showLic; }
+    void setShowLic(bool v) {
+        int desired = v ? 2 : 0;
+        if (v && m_state.vectorVisMode == 1) desired = 2;
+        if (!v && m_state.vectorVisMode == 2) desired = 0;
+        if (m_state.showLic != v || m_state.vectorVisMode != desired) {
+            setVectorVisMode(desired);
+        }
+    }
+    int getLicSteps() const { return m_state.licSteps; }
+    void setLicSteps(int v) {
+        int s = v < 4 ? 4 : (v > 128 ? 128 : v);
+        if (m_state.licSteps != s) { m_state.licSteps = s; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
+    double getLicStepSize() const { return m_state.licStepSize; }
+    void setLicStepSize(double v) {
+        float f = static_cast<float>(v);
+        if (f < 0.001f) f = 0.001f;
+        if (f > 2.0f) f = 2.0f;
+        if (m_state.licStepSize != f) { m_state.licStepSize = f; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
+    double getLicNoiseFreq() const { return m_state.licNoiseFreq; }
+    void setLicNoiseFreq(double v) {
+        float f = static_cast<float>(v);
+        if (f < 0.5f) f = 0.5f;
+        if (f > 64.0f) f = 64.0f;
+        if (m_state.licNoiseFreq != f) { m_state.licNoiseFreq = f; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
+    int getLicNoiseGrain() const { return m_state.licNoiseGrain; }
+    void setLicNoiseGrain(int v) {
+        int g = (v <= 64) ? 64 : (v <= 128) ? 128 : (v <= 256) ? 256 : 512;
+        if (m_state.licNoiseGrain != g) { m_state.licNoiseGrain = g; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
+    int getLicBoundaryMode() const { return 0; }
+    void setLicBoundaryMode(int v) {
+        (void)v;
+        if (m_state.licBoundaryMode != 0) { m_state.licBoundaryMode = 0; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
+    QStringList getLicBoundaryModeOptions() const { return {"Clamp (Zero)"}; }
     QColor getVectorColorQml() const { return QColor::fromRgbF(m_state.vectorColor[0], m_state.vectorColor[1], m_state.vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { m_state.vectorColor[0] = c.redF(); m_state.vectorColor[1] = c.greenF(); m_state.vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); }
     bool getShowStreamlines() const { return m_state.showStreamlines; }
