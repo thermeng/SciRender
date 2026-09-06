@@ -1,10 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <path fill="none" stroke="#ffffff" stroke-width="1.5" d="M16 5 L26 10 L26 22 L16 27 L6 22 L6 10 Z"/>
-  <line x1="16" y1="5" x2="16" y2="27" stroke="#ffffff" stroke-width="1.5"/>
-  <line x1="6" y1="10" x2="16" y2="15" stroke="#ffffff" stroke-width="1.5"/>
-  <line x1="26" y1="10" x2="16" y2="15" stroke="#ffffff" stroke-width="1.5"/>
-  <line x1="11" y1="10" x2="11" y2="22" stroke="#ffffff" stroke-width="1" opacity="0.6"/>
-  <line x1="16" y1="10" x2="16" y2="22" stroke="#ffffff" stroke-width="1" opacity="0.6"/>
-  <line x1="21" y1="10" x2="21" y2="22" stroke="#ffffff" stroke-width="1" opacity="0.6"/>
-  <line x1="6" y1="16" x2="26" y2="16" stroke="#ffffff" stroke-width="1" opacity="0.6"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="3 6 24 24">
+  <defs>
+    <!-- Radial gradients to simulate glowing density / volumetric clouds -->
+    <radialGradient id="volCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#93c5fd" stop-opacity="0.95"/>
+      <stop offset="50%" stop-color="#3b82f6" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="volSub" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Cage gradient for a polished look -->
+    <linearGradient id="cageGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#bfdbfe"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Volumetric internal density field / cloud layers -->
+  <g opacity="0.85">
+    <ellipse cx="15" cy="18" rx="6.5" ry="4.5" fill="url(#volCore)"/>
+    <circle cx="12" cy="16" r="4.5" fill="url(#volSub)"/>
+    <circle cx="18" cy="20" r="5" fill="url(#volSub)"/>
+    <ellipse cx="15" cy="15" rx="4" ry="2.5" fill="#dbeafe" opacity="0.5"/>
+  </g>
+
+  <!-- Outer isometric wireframe cage to define the volume bounds -->
+  <g stroke="url(#cageGrad)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Top face edges -->
+    <line x1="15" y1="10" x2="23" y2="14" />
+    <line x1="23" y1="14" x2="15" y2="18" />
+    <line x1="15" y1="18" x2="7" y2="14" />
+    <line x1="7" y1="14" x2="15" y2="10" />
+    
+    <!-- Vertical pillars -->
+    <line x1="7" y1="14" x2="7" y2="22" />
+    <line x1="23" y1="14" x2="23" y2="22" />
+    <line x1="15" y1="18" x2="15" y2="26" />
+    
+    <!-- Bottom face edges -->
+    <line x1="7" y1="22" x2="15" y2="26" />
+    <line x1="15" y1="26" x2="23" y2="22" />
+  </g>
 </svg>

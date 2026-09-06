@@ -62,6 +62,7 @@ private slots:
     void openMesh();
     void openRecent(const QString& path);
     void clearRecentFiles();
+    void reloadMesh();
     void saveScreenshot();
     void exportAnimation();
     void clearMeshes();
@@ -289,6 +290,8 @@ private:
     QColorDialog* m_vectorColorDialog = nullptr;
     QColorDialog* m_streamlineColorDialog = nullptr;
     QColorDialog* m_seedColorDialog = nullptr;
+
+    QString m_currentFile;
 
     // Theme
     QActionGroup* m_shadingGroup = nullptr;

@@ -599,7 +599,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     };
 
 
-    if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar) {
+    if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar && !m_state.showIsosurface) {
 
 
         const float mapMin = m_state.colorMapMin();
