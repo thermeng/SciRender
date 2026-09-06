@@ -858,21 +858,27 @@ void Renderer::updateSliceScalarRange() {
 }
 
 void Renderer::ensureLicNoiseTexture(int grain) {
+    // 3D isotropic noise — eliminates planar stretch on non-planar geometry (replaces 2D tri-planar).
+    // Mesh-UV path reserved: if native UVs become available, shader can branch to uNoiseTex2D_Fallback.
     if (m_licNoiseTex.has() && m_licNoiseGrain == grain) return;
-    if (grain <= 0) grain = 256;
+    if (grain <= 0) grain = 64; // 3D default smaller than 2D to bound VRAM (64^3=256KB, 128^3=2MB)
+    // Clamp 3D grain to avoid 256^3=16MB / 512^3=134MB blow-up; quantize UI 256/512 down to 64 for 3D
+    if (grain > 128) grain = 64;
     if (m_licNoiseTex.has()) m_licNoiseTex.reset();
+    size_t total = static_cast<size_t>(grain) * grain * grain;
     std::vector<unsigned char> noise;
-    noise.resize(static_cast<size_t>(grain) * grain);
+    noise.resize(total);
     std::mt19937 rng(12345);
     std::uniform_int_distribution<int> dist(0, 255);
     for (size_t i = 0; i < noise.size(); ++i) {
         noise[i] = static_cast<unsigned char>(dist(rng));
     }
-    glCreateTextures(GL_TEXTURE_2D, 1, m_licNoiseTex.ptr());
-    glTextureStorage2D(m_licNoiseTex, 1, GL_R8, grain, grain);
-    glTextureSubImage2D(m_licNoiseTex, 0, 0, 0, grain, grain, GL_RED, GL_UNSIGNED_BYTE, noise.data());
+    glCreateTextures(GL_TEXTURE_3D, 1, m_licNoiseTex.ptr());
+    glTextureStorage3D(m_licNoiseTex, 1, GL_R8, grain, grain, grain);
+    glTextureSubImage3D(m_licNoiseTex, 0, 0, 0, 0, grain, grain, grain, GL_RED, GL_UNSIGNED_BYTE, noise.data());
     glTextureParameteri(m_licNoiseTex, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTextureParameteri(m_licNoiseTex, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_WRAP_R, GL_REPEAT);
     glTextureParameteri(m_licNoiseTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTextureParameteri(m_licNoiseTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     m_licNoiseGrain = grain;
@@ -881,6 +887,7 @@ void Renderer::ensureLicNoiseTexture(int grain) {
 void Renderer::shutdownLic() {
     m_licNoiseTex.reset();
     m_licNoiseGrain = 0;
+    m_lastLicError.clear();
 }
 
 void Renderer::renderFrame() {
@@ -1055,22 +1062,47 @@ void Renderer::renderFrame() {
 
     if (!drawList.empty() && meshPass.hasProgram()) {
         MeshPass::LicResources licRes;
+        m_lastLicError.clear();
         if (m_state.showLic && meshPass.hasLicProgram() && m_lastUploadedMesh) {
-            glm::vec3 boxMinF(static_cast<float>(m_lastUploadedMesh->bounds.minX),
-                              static_cast<float>(m_lastUploadedMesh->bounds.minY),
-                              static_cast<float>(m_lastUploadedMesh->bounds.minZ));
-            glm::vec3 boxMaxF(static_cast<float>(m_lastUploadedMesh->bounds.maxX),
-                              static_cast<float>(m_lastUploadedMesh->bounds.maxY),
-                              static_cast<float>(m_lastUploadedMesh->bounds.maxZ));
-            ensureLicNoiseTexture(m_state.licNoiseGrain);
-            GLuint vecTex = m_vectorCache.textureForField(
-                m_state.vectorField, m_lastUploadedMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.licBoundaryMode);
-            if (vecTex != 0 && m_licNoiseTex.has()) {
-                licRes.vectorTex = vecTex;
-                licRes.noiseTex = m_licNoiseTex.get();
-                licRes.boxMin = boxMinF;
-                licRes.boxMax = boxMaxF;
-                m_vectorCache.getTextureDims(m_state.vectorField, m_state.vectorPlacement, m_state.licBoundaryMode, m_lastUploadedMesh.get(), licRes.texDimX, licRes.texDimY, licRes.texDimZ);
+            if (m_state.vectorField.empty()) {
+                m_lastLicError = "LIC disabled: no vector field selected";
+            } else if (!m_lastUploadedMesh->meshHasVectors() && !m_lastUploadedMesh->meshHasCellVectors()) {
+                m_lastLicError = "LIC disabled: mesh has no vector data";
+            } else {
+                glm::vec3 boxMinF(static_cast<float>(m_lastUploadedMesh->bounds.minX),
+                                  static_cast<float>(m_lastUploadedMesh->bounds.minY),
+                                  static_cast<float>(m_lastUploadedMesh->bounds.minZ));
+                glm::vec3 boxMaxF(static_cast<float>(m_lastUploadedMesh->bounds.maxX),
+                                  static_cast<float>(m_lastUploadedMesh->bounds.maxY),
+                                  static_cast<float>(m_lastUploadedMesh->bounds.maxZ));
+                ensureLicNoiseTexture(m_state.licNoiseGrain);
+                GLuint vecTex = m_vectorCache.textureForField(
+                    m_state.vectorField, m_lastUploadedMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.licBoundaryMode);
+                if (vecTex == 0) {
+                    m_lastLicError = "LIC disabled: vector field '" + m_state.vectorField + "' unavailable for placement " +
+                        std::to_string(m_state.vectorPlacement) + " (check cellCenters)";
+                } else if (!m_licNoiseTex.has()) {
+                    m_lastLicError = "LIC disabled: noise texture not ready";
+                } else {
+                    int tdx = 0, tdy = 0, tdz = 0;
+                    if (m_vectorCache.getTextureDims(m_state.vectorField, m_state.vectorPlacement,
+                                                     m_state.licBoundaryMode, m_lastUploadedMesh.get(),
+                                                     tdx, tdy, tdz) &&
+                        tdx > 0 && tdy > 0 && tdz > 0) {
+                        licRes.vectorTex = vecTex;
+                        licRes.noiseTex = m_licNoiseTex.get();
+                        licRes.boxMin = boxMinF;
+                        licRes.boxMax = boxMaxF;
+                        licRes.texDimX = tdx;
+                        licRes.texDimY = tdy;
+                        licRes.texDimZ = tdz;
+                    } else {
+                        m_lastLicError = "LIC disabled: vector texture dims unavailable (mode " + std::to_string(m_state.licBoundaryMode) + ")";
+                    }
+                }
+            }
+            if (!m_lastLicError.empty() && m_lastLicError.find("LIC disabled") == 0) {
+                qWarning() << QString::fromStdString(m_lastLicError);
             }
         }
         if (licRes.valid()) {

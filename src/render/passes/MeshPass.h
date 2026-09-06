@@ -110,6 +110,8 @@ private:
     WireframePass wireframePass;
     GlBuffer meshUbo;
     GLuint meshUboIndex = ~0u;
+    GLuint licUboIndex = ~0u;
+    GLuint licClipUboIndex = ~0u;
     const ColormapManager* m_colormapPtr = nullptr;
     GLint lutTextureLoc = -1;
     GLint clipLutTextureLoc = -1;
@@ -133,10 +135,10 @@ private:
     GLint licClipStepSizeLoc = -1;
     GLint licNoiseFreqLoc = -1;
     GLint licClipNoiseFreqLoc = -1;
-    GLint licBoundaryModeLoc = -1;
-    GLint licClipBoundaryModeLoc = -1;
     GLint licUvwScaleLoc = -1;
     GLint licClipUvwScaleLoc = -1;
     GLint licUvwOffsetLoc = -1;
     GLint licClipUvwOffsetLoc = -1;
+    GLint licEnhancedLoc = -1;
+    GLint licClipEnhancedLoc = -1;
 };

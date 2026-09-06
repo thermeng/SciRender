@@ -226,6 +226,12 @@ struct RenderMesh {
     // by extractCellEdges() / generateStructuredGridCellEdges() in VTK parsers,
     // or extractTriEdges() in STL/OBJ parsers. Empty when no cell topology is
     // available -- the renderer falls back to the triangle-edge (GL_LINE) approach.
+    // Native mesh UVs (optional) — per-vertex 2 floats (u,v) for LIC noise sampling on non-planar geometry.
+    // Populated from DatasetAttributes::pointTexCoords (VTK) or OBJ vt when present; empty = use 3D noise fallback.
+    // Keeps LIC free of axis-aligned planar stretch. See surface_lic.frag licNoiseSample for branch.
+    std::vector<float> texCoords; // size 2 * (vertices.size()/3) when present
+    bool hasTexCoords() const { return !texCoords.empty(); }
+
     std::vector<uint32_t> cellEdgeIndices;
 
     // Geometry signature for animation fast path: hash of vertices+indices.
