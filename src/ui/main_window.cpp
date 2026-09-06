@@ -343,16 +343,26 @@ MainWindow::MainWindow(QWidget* parent)
     m_settings = new RenderSettings(this);
     m_settings->restoreStateFromSettings();
 
-    // Viewport (central widget)
+    // Viewport + toolbar container (central widget)
+    auto* viewportContainer = new QWidget;
+    auto* vbox = new QVBoxLayout(viewportContainer);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    vbox->setSpacing(0);
+
     m_viewport = new ViewportWidget(m_settings->getMsaaSamples(), this);
     m_viewport->setSettings(m_settings);
-    setCentralWidget(m_viewport);
+    vbox->addWidget(m_viewport, 1);
+
+    setCentralWidget(viewportContainer);
 
     // Accept drops
     setAcceptDrops(true);
 
     setupMenus();
     setupTopToolbar();
+    if (m_topToolbar) {
+        vbox->insertWidget(0, m_topToolbar);
+    }
     setupSidebar();
     setupTimers();
     setupKeyboardShortcuts();
@@ -376,6 +386,8 @@ void MainWindow::setupMenus() {
     // File menu
     auto* fileMenu = ui->menuFile;
     fileMenu->addAction("&Open Mesh...", this, &MainWindow::openMesh);
+    fileMenu->addAction("&Reload", this, &MainWindow::reloadMesh);
+    fileMenu->addSeparator();
 
     auto* recentMenu = fileMenu->addMenu("Open &Recent");
     connect(recentMenu, &QMenu::aboutToShow, this, [recentMenu, this]() {
@@ -588,6 +600,8 @@ void MainWindow::setupSidebar() {
     m_sidebarDock->setMinimumWidth(m_navWidth);
     m_sidebarDock->setMaximumWidth(m_navWidth + kSidebarWidth);
     addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
+
+    setSidebarSection(0);
 }
 
 
@@ -2276,14 +2290,12 @@ static const char* sectionNames[] = {
 
 void MainWindow::setSidebarSection(int section) {
     if (m_activeSection == section && m_sidebarExpanded) {
-        // Collapse
         m_activeSection = -1;
         m_sidebarExpanded = false;
         m_sectionStack->setVisible(false);
         m_panelHeader->setVisible(false);
         m_navList->clearSelection();
     } else {
-        // Expand
         m_activeSection = section;
         m_sidebarExpanded = true;
         m_sectionStack->setCurrentIndex(section);
@@ -2335,11 +2347,43 @@ void MainWindow::setupTopToolbar() {
     m_topToolbar = new QToolBar(this);
     m_topToolbar->setMovable(false);
     m_topToolbar->setStyleSheet(
-        "QToolBar { border: none; padding: 4px; spacing: 4px; }"
-        "QToolButton { background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 4px 8px; }"
-        "QToolButton:hover { background: palette(midlight); }"
-        "QToolButton:checked { background: palette(highlight); border: 1px solid palette(highlight); }");
-    m_topToolbar->setIconSize(QSize(20, 20));
+    "QToolBar {"
+    "    border: none;"
+    "    padding: 2px;"
+    "    spacing: 2px;"
+    "    background: palette(window);"
+    "}"
+    "QToolButton {"
+    "    background: transparent;"
+    "    border: 1px solid transparent;" 
+    "    border-radius: 4px;"
+    "    padding: 2px 2px;" 
+    "    margin: 1px;"
+    "    color: palette(button-text);"
+    "    min-width: 28px;"
+    "}"
+    "QToolButton:hover {"
+    "    background: palette(midlight);"
+    "    border: 1px solid palette(mid);"
+    "}"
+    "QToolButton:pressed {"
+    "    background: transparent;"
+    "    border: 1px solid palette(dark);" // Gives a clean sunken/bordered click effect
+    "}"
+    "QToolButton:checked {"
+    "    background: palette(highlight);"
+    "    border: 1px solid palette(dark);"
+    "    color: palette(highlighted-text);"
+    "}"
+    "QToolButton:disabled {"
+    "    color: palette(shadow);"
+    "}"
+    "QToolButton::menu-indicator {"
+    "    image: none;"
+    "}"
+);
+
+    m_topToolbar->setIconSize(QSize(32, 32));
     m_topToolbar->setFixedHeight(40);
 
     m_tbWireframe = m_topToolbar->addAction(QIcon(":/src/resources/icons/wireframe.svg"), "Wireframe");
@@ -2380,8 +2424,6 @@ void MainWindow::setupTopToolbar() {
     // Reset camera
     auto* resetAct = m_topToolbar->addAction(QIcon(":/src/resources/icons/reset.svg"), "Reset Camera");
     connect(resetAct, &QAction::triggered, m_settings, &RenderSettings::resetCamera);
-
-    addToolBar(Qt::TopToolBarArea, m_topToolbar);
 }
 
 void MainWindow::syncTopToolbar() {
@@ -2708,15 +2750,24 @@ void MainWindow::updateStatusBar() {
 void MainWindow::openMesh() {
     QString path = QFileDialog::getOpenFileName(this, "Load Mesh", QString(),
         "Mesh files (*.stl *.vtk *.obj *.vtu *.vts *.vti *.vtp *.vtr *.pvd);;All files (*)");
-    if (!path.isEmpty()) m_settings->loadMesh(path);
+    if (!path.isEmpty()) {
+        m_currentFile = path;
+        m_settings->loadMesh(path);
+    }
 }
 
 void MainWindow::openRecent(const QString& path) {
+    m_currentFile = path;
     m_settings->openRecent(path);
 }
 
 void MainWindow::clearRecentFiles() {
     m_settings->clearRecentFiles();
+}
+
+void MainWindow::reloadMesh() {
+    if (m_currentFile.isEmpty()) return;
+    m_settings->loadMesh(m_currentFile);
 }
 
 void MainWindow::saveScreenshot() {
@@ -2829,10 +2880,11 @@ void MainWindow::applyThemeAwareStylesheets() {
     }
     if (m_topToolbar) {
         m_topToolbar->setStyleSheet(
-            "QToolBar { border: none; padding: 4px; spacing: 4px; }"
-            "QToolButton { background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 4px 8px; }"
+            "QToolBar { border: none; padding: 6px 8px; spacing: 2px; background: palette(button); }"
+            "QToolButton { background: transparent; border: none; border-radius: 4px; padding: 4px 10px; color: palette(text); min-width: 28px; }"
             "QToolButton:hover { background: palette(midlight); }"
-            "QToolButton:checked { background: palette(highlight); border: 1px solid palette(highlight); }");
+            "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text); }"
+            "QToolButton::menu-indicator { image: none; }");
     }
 
     // Section headers (object name ends with "Header") and their dividers
