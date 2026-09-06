@@ -594,6 +594,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         d.style.panelEnabled = m_state.colorbarPanelEnabled;
         d.style.panelOpacity = m_state.colorbarPanelOpacity;
         d.style.showAnnotation = m_state.colorbarShowAnnotation;
+        d.textColor = QColor::fromRgbF(m_state.textColor[0], m_state.textColor[1], m_state.textColor[2]);
         m_colorbarBars.push_back(std::move(d));
     };
 

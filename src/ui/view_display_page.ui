@@ -349,12 +349,18 @@
         <string>Surface</string>
        </property></widget>
      </item>
-     <item>
-      <widget class="QPushButton" name="bgColorBtn">
-       <property name="text">
-        <string>Background</string>
-       </property></widget>
-     </item>
+      <item>
+       <widget class="QPushButton" name="bgColorBtn">
+        <property name="text">
+         <string>Background</string>
+        </property></widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="textColorBtn">
+        <property name="text">
+         <string>Text</string>
+        </property></widget>
+      </item>
     </layout>
    </item>
   </layout>

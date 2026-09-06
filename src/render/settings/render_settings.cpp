@@ -427,6 +427,7 @@ void RenderSettings::saveStateToSettings() const {
     s.setValue("camPos", QVariantList{ m_state.camera.position.x, m_state.camera.position.y, m_state.camera.position.z });
     s.setValue("camUp", QVariantList{ m_state.camera.viewUp.x, m_state.camera.viewUp.y, m_state.camera.viewUp.z });
     s.setValue("bgColor", QVariantList{ m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2] });
+    s.setValue("textColor", QVariantList{ m_state.textColor[0], m_state.textColor[1], m_state.textColor[2] });
     // Scalar settings, table-driven.
     for (const auto& e : persistenceTable()) s.setValue(e.key, e.get(*this));
     // GUI members with bespoke storage.
@@ -457,6 +458,7 @@ void RenderSettings::restoreStateFromSettings() {
         m_state.camera.orthogonalizeViewUp();
     }
     readFColor("bgColor", m_state.bgColor);
+    readFColor("textColor", m_state.textColor);
     // Scalar settings, table-driven. Missing keys keep the constructor default,
     // which already matches the historical restore defaults for the slice
     // colormap fields.

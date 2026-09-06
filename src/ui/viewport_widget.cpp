@@ -249,6 +249,8 @@ void ViewportWidget::paintGL() {
             }
         }
         m_fpsLabel->setText(m_settings->getFpsText());
+        QColor fpsColor = m_settings ? m_settings->getTextColorQml() : palette().color(QPalette::Text);
+        m_fpsLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(fpsColor.name()));
         m_fpsLabel->show();
     } else {
         m_fpsLabel->hide();
@@ -629,22 +631,21 @@ void ViewportWidget::drawEmptyState(QPainter& painter) {
     const int cx = width() / 2;
     const int cy = height() / 2;
 
-    // Icon
     QPixmap pix = style()->standardPixmap(QStyle::SP_FileIcon);
     QPixmap scaled = pix.scaled(32, 32, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     painter.drawPixmap(cx - scaled.width() / 2, cy - 40, scaled);
 
-    // Text
+    QColor textColor = palette().color(QPalette::Text);
+    if (m_settings) textColor = m_settings->getTextColorQml();
     QFont f = painter.font();
     f.setPixelSize(16);
     painter.setFont(f);
-    painter.setPen(palette().color(QPalette::Text));
+    painter.setPen(textColor);
     QRect textRect(cx - 120, cy, 240, 24);
     painter.drawText(textRect, Qt::AlignCenter, "Drop a file here");
 
     f.setPixelSize(13);
     painter.setFont(f);
-    painter.setPen(palette().color(QPalette::Text));
     textRect.translate(0, 28);
     painter.drawText(textRect, Qt::AlignCenter, "or  File > Open Mesh");
 }
@@ -669,10 +670,12 @@ void ViewportWidget::drawSpinner(QPainter& painter) {
     painter.drawArc(cx - radius, cy - radius, radius * 2, radius * 2,
                     startAngle, 270 * 16);
 
-    painter.setPen(pal.color(QPalette::Text));
+    QColor textColor = pal.color(QPalette::Text);
+    if (m_settings) textColor = m_settings->getTextColorQml();
     QFont f = painter.font();
     f.setPixelSize(12);
     painter.setFont(f);
+    painter.setPen(textColor);
     QRect textRect(cx - 60, cy + radius + 12, 120, 20);
     painter.drawText(textRect, Qt::AlignCenter, "Parsing mesh...");
 }
