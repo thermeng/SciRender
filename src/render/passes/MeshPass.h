@@ -141,4 +141,8 @@ private:
     GLint licClipUvwOffsetLoc = -1;
     GLint licEnhancedLoc = -1;
     GLint licClipEnhancedLoc = -1;
+    GLint licOnlyLoc = -1;
+    GLint licClipOnlyLoc = -1;
+    GLint licIntegratorLoc = -1;
+    GLint licClipIntegratorLoc = -1;
 };

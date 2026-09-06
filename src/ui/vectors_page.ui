@@ -246,19 +246,15 @@
             <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
            </widget>
           </item>
-          <item>
-           <widget class="QSlider" name="licStepsSlider">
-            <property name="orientation"><enum>Qt::Horizontal</enum></property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLabel" name="licStepsValue">
-            <property name="text"><string>32</string></property>
-            <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-            <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
-           </widget>
-          </item>
+           <item>
+            <widget class="QDoubleSpinBox" name="licStepsSpin">
+             <property name="minimum"><double>4.000000000000000</double></property>
+             <property name="maximum"><double>128.000000000000000</double></property>
+             <property name="singleStep"><double>1.000000000000000</double></property>
+             <property name="value"><double>24.000000000000000</double></property>
+             <property name="decimals"><number>0</number></property>
+            </widget>
+           </item>
          </layout>
         </widget>
        </item>
@@ -279,16 +275,12 @@
             </widget>
            </item>
            <item>
-            <widget class="QSlider" name="licStepSizeSlider">
-             <property name="orientation"><enum>Qt::Horizontal</enum></property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="licStepSizeValue">
-             <property name="text"><string>0.02</string></property>
-             <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-             <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-             <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            <widget class="QDoubleSpinBox" name="licStepSizeSpin">
+             <property name="minimum"><double>0.001000000000000</double></property>
+             <property name="maximum"><double>2.000000000000000</double></property>
+             <property name="singleStep"><double>0.001000000000000</double></property>
+             <property name="value"><double>0.020000000000000</double></property>
+             <property name="decimals"><number>3</number></property>
             </widget>
            </item>
           </layout>
@@ -311,16 +303,12 @@
             </widget>
            </item>
            <item>
-            <widget class="QSlider" name="licFreqSlider">
-             <property name="orientation"><enum>Qt::Horizontal</enum></property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="licFreqValue">
-             <property name="text"><string>8.0</string></property>
-             <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
-             <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property>
-             <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            <widget class="QDoubleSpinBox" name="licFreqSpin">
+             <property name="minimum"><double>0.500000000000000</double></property>
+             <property name="maximum"><double>64.000000000000000</double></property>
+             <property name="singleStep"><double>0.100000000000000</double></property>
+             <property name="value"><double>8.000000000000000</double></property>
+             <property name="decimals"><number>1</number></property>
             </widget>
            </item>
           </layout>
@@ -346,14 +334,42 @@
              <widget class="QComboBox" name="licGrainCombo"/>
             </item>
            </layout>
-           </widget>
-          </item>
+            </widget>
+           </item>
           <item>
-           <widget class="QCheckBox" name="licEnhancedCb">
-            <property name="text"><string>Enhanced (2-pass)</string></property>
-            <property name="toolTip"><string>2-pass Enhanced LIC: second convolution sharpens streak coherence (higher cost).</string></property>
-           </widget>
-          </item>
+           <widget class="QWidget" name="licIntegratorRow">
+           <layout class="QHBoxLayout" name="licIntegratorLayout">
+            <property name="spacing"><number>6</number></property>
+            <property name="leftMargin"><number>0</number></property>
+            <property name="topMargin"><number>0</number></property>
+            <property name="rightMargin"><number>0</number></property>
+            <property name="bottomMargin"><number>0</number></property>
+            <item>
+             <widget class="QLabel" name="licIntegratorLabel">
+              <property name="text"><string>Integrator</string></property>
+              <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+              <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+              <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="licIntegratorCombo"/>
+            </item>
+           </layout>
+          </widget>
+         </item>
+           <item>
+            <widget class="QCheckBox" name="licEnhancedCb">
+             <property name="text"><string>Enhanced (2-pass)</string></property>
+             <property name="toolTip"><string>2-pass Enhanced LIC: second convolution sharpens streak coherence (higher cost).</string></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="licOnlyCb">
+             <property name="text"><string>LIC Only (no shading)</string></property>
+             <property name="toolTip"><string>Skip PBR lighting, show unshaded LIC color only (faster).</string></property>
+            </widget>
+           </item>
         </layout>
        </widget>
      </item>

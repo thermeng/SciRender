@@ -272,12 +272,14 @@ struct RenderRenderState {
 
     bool showLic = false;
     int vectorVisMode = 0;
-    int licSteps = 32;          // kernel half-length (total taps = 1+2*steps); UI [4..128], GPU tolerates [0..128]
+    int licSteps = 24;          // kernel half-length (total taps = 1+2*steps); UI [4..128], GPU tolerates [0..128]
     float licStepSize = 0.02f;  // fraction of scene diagonal; MeshPass converts to worldStep = licStepSize*diag, clamped to [1e-6, diag*2]
     float licNoiseFreq = 8.0f;  // UI [0.5..64], upload clamped to same
     int licNoiseGrain = 256;    // quantized to 64/128/256/512
     int licBoundaryMode = 1;    // deprecated: fixed to Repeat (GL_REPEAT). Persisted values coerced to 1; not used for texture key.
     bool licEnhanced = false;   // Enhanced LIC: 2-pass (second convolution sharpens coherence)
+    bool licOnly = false;       // Skip PBR lighting, output unshaded LIC color
+    int licIntegrator = 2;      // 0=Euler, 1=Midpoint, 2=RK4
 
 
     std::string streamlineVectorField;

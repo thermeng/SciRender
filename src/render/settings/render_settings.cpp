@@ -412,6 +412,8 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("licNoiseGrain",       [](const RenderSettings& r) { return QVariant(r.m_state.licNoiseGrain); },                 [](RenderSettings& r, const QVariant& v) { r.setLicNoiseGrain(v.toInt()); });
         add("licBoundaryMode",     [](const RenderSettings& r) { return QVariant(1); },                                              [](RenderSettings& r, const QVariant& ) { r.setLicBoundaryMode(1); });
         add("licEnhanced",         [](const RenderSettings& r) { return QVariant(r.m_state.licEnhanced); },                  [](RenderSettings& r, const QVariant& v) { r.setLicEnhanced(v.toBool()); });
+        add("licOnly",             [](const RenderSettings& r) { return QVariant(r.m_state.licOnly); },                          [](RenderSettings& r, const QVariant& v) { r.setLicOnly(v.toBool()); });
+        add("licIntegrator",       [](const RenderSettings& r) { return QVariant(r.m_state.licIntegrator); },                      [](RenderSettings& r, const QVariant& v) { r.setLicIntegrator(v.toInt()); });
         add("maxPeelLayers",       [](const RenderSettings& r) { return QVariant(r.m_state.maxPeelLayers); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.maxPeelLayers = v.toInt(); });
         return t;
     }();
