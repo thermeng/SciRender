@@ -35,6 +35,7 @@ struct ColorbarData {
     float fracX = 1.0f; // 0 = left, 1 = right
     float fracY = 1.0f; // 0 = top, 1 = bottom
     int bandCount = 0; // 0 = continuous gradient, >1 = discrete bands
+    QColor textColor;
     ColorbarStyle style;
 };
 

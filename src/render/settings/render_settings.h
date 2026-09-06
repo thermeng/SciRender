@@ -164,6 +164,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(QString meshFormat READ getMeshFormat NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString meshDataType READ getMeshDataType NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QColor bgColor READ getBgColorQml WRITE setBgColorQml NOTIFY viewChanged)
+    Q_PROPERTY(QColor textColor READ getTextColorQml WRITE setTextColorQml NOTIFY viewChanged)
     Q_PROPERTY(QStringList availableScalars READ getAvailableScalars NOTIFY meshDataUpdated)
     Q_PROPERTY(bool showScalarColorbar READ getShowScalarColorbar WRITE setShowScalarColorbar NOTIFY viewChanged)
     Q_PROPERTY(bool meshUseScalarColor READ getMeshUseScalarColor WRITE setMeshUseScalarColor NOTIFY viewChanged)
@@ -387,6 +388,8 @@ public:
     QString getMeshFormat() const { return QString::fromStdString(m_meshData.meshFormat); }
     QColor getBgColorQml() const { return QColor::fromRgbF(m_state.bgColor[0], m_state.bgColor[1], m_state.bgColor[2]); }
     void setBgColorQml(const QColor& c) { m_state.bgColor[0] = c.redF(); m_state.bgColor[1] = c.greenF(); m_state.bgColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    QColor getTextColorQml() const { return QColor::fromRgbF(m_state.textColor[0], m_state.textColor[1], m_state.textColor[2]); }
+    void setTextColorQml(const QColor& c) { m_state.textColor[0] = c.redF(); m_state.textColor[1] = c.greenF(); m_state.textColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
 
     int getColormapChoice() const { return m_state.colormapChoice; }
     void setColormapChoice(int choice);

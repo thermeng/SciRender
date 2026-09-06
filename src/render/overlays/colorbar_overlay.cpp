@@ -62,6 +62,30 @@ QString annotationOf(const ColorbarData& bar) {
     return bar.subtitle.isEmpty() ? QString() : QString("[%1]").arg(bar.subtitle);
 }
 
+QImage renderRotatedTextImage(const QString& text, const QFont& font, const QColor& color,
+                              double rotationDeg, int padding = 2) {
+    QFontMetrics fm(font);
+    const QRect textBounds = fm.boundingRect(QRect(0, 0, 100000, 100000), Qt::TextSingleLine, text);
+    const int w = textBounds.width() + 2 * padding;
+    const int h = textBounds.height() + 2 * padding;
+    QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+    p.setFont(font);
+    p.setPen(color);
+    p.drawText(QRect(padding, padding, textBounds.width(), textBounds.height()),
+               Qt::AlignLeft | Qt::AlignTop | Qt::TextSingleLine, text);
+    p.end();
+    if (!qFuzzyIsNull(rotationDeg)) {
+        QTransform xform;
+        xform.rotate(rotationDeg);
+        img = img.transformed(xform, Qt::SmoothTransformation);
+    }
+    return img;
+}
+
 } // namespace
 
 bool ColorbarOverlay::init() {
@@ -165,20 +189,32 @@ ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const Colorbar
         lwMax = qMax(lwMax, tickFm.horizontalAdvance(lbl));
 
     if (st.orientation == ColorbarStyle::Vertical) {
-        // Max at top (viz convention): tick i (min + frac*range) sits at
-        // barBottom - frac*barMain; labels run up the right side.
         const int barX = pad;
-        const int barY = pad + annotationH + titleH + gap;
-        const int titleW = qMax(nameW, annW);
-        const int contentW = qMax(barCross + tickLen + labelGap + lwMax, titleW);
-        const int w = pad + contentW + pad;
-        const int h = barY + barMain + pad;
-        lay.size = QSize(w, h);
+        const int barY = pad;
+        const int titleW = titleFm.horizontalAdvance(displayNameOf(bar));
+        const int contentW = barCross + tickLen + labelGap + lwMax;
+        const int titleImgW = titleH + 4;
+        const int titleImgH = titleW + 4;
+        const int annImgW = titleH + 4;
+        const int annImgH = annW + 4;
+        int textBlockH = titleImgH;
+        if (hasAnnotation) textBlockH += annImgH + gap;
+        const int textX = barX + contentW + gap;
+        const int totalW = pad + contentW + gap + titleImgW + pad;
+        const int totalH = pad + qMax(barMain, textBlockH) + pad;
+        lay.size = QSize(totalW, totalH);
         lay.panel = QRect(QPoint(0, 0), lay.size);
-        lay.annotation = hasAnnotation ? QRect(pad, pad, w - 2 * pad, titleH) : QRect();
-        lay.title = QRect(pad, pad + annotationH, w - 2 * pad, titleH);
         lay.bar = QRect(barX, barY, barCross, barMain);
-
+        const int barCenterY = barY + barMain / 2;
+        int textBlockStartY = barCenterY - textBlockH / 2;
+        textBlockStartY = qMax(barY, qMin(textBlockStartY, barY + barMain - textBlockH));
+        if (hasAnnotation) {
+            lay.annotation = QRect(textX, textBlockStartY, annImgW, annImgH);
+            lay.title = QRect(textX, textBlockStartY + annImgH + gap, titleImgW, titleImgH);
+        } else {
+            lay.title = QRect(textX, textBlockStartY, titleImgW, titleImgH);
+            lay.annotation = QRect();
+        }
         const int barTop = barY;
         const int barBottom = barY + barMain;
         const int tickX = barX + barCross;
@@ -257,19 +293,31 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
     // Annotation line above the field name line
     const QFont tFont = makeFont(st, FontKind::Title, dpr);
     p.setFont(tFont);
+    const bool vertical = st.orientation == ColorbarStyle::Vertical;
     if (!lay.annotation.isEmpty()) {
-        p.setPen(QApplication::palette().color(QPalette::Text));
         const QString ann = annotationOf(bar);
-        const QString annElided = QFontMetrics(tFont).elidedText(ann, Qt::ElideRight, lay.annotation.width());
-        p.drawText(lay.annotation, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, annElided);
+        const int annMaxWidth = vertical ? lay.annotation.height() : lay.annotation.width();
+        const QString annElided = QFontMetrics(tFont).elidedText(ann, Qt::ElideRight, annMaxWidth);
+        if (vertical) {
+            QImage annImg = renderRotatedTextImage(annElided, tFont, bar.textColor, -90.0);
+            p.drawImage(lay.annotation.center() - QPoint(annImg.width() / 2, annImg.height() / 2), annImg);
+        } else {
+            p.setPen(bar.textColor);
+            p.drawText(lay.annotation, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, annElided);
+        }
     }
 
     // Field name line with optional unit suffix
-    p.setFont(tFont);
-    p.setPen(QApplication::palette().color(QPalette::Text));
     const QString displayTitle = displayNameOf(bar);
-    const QString elided = QFontMetrics(tFont).elidedText(displayTitle, Qt::ElideRight, lay.title.width());
-    p.drawText(lay.title, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, elided);
+    const int titleMaxWidth = vertical ? lay.title.height() : lay.title.width();
+    const QString elided = QFontMetrics(tFont).elidedText(displayTitle, Qt::ElideRight, titleMaxWidth);
+    if (vertical) {
+        QImage titleImg = renderRotatedTextImage(elided, tFont, bar.textColor, -90.0);
+        p.drawImage(lay.title.center() - QPoint(titleImg.width() / 2, titleImg.height() / 2), titleImg);
+    } else {
+        p.setPen(bar.textColor);
+        p.drawText(lay.title, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, elided);
+    }
 
     // Gradient bar (vertical bars read bottom→min, top→max)
     {
@@ -339,7 +387,7 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
 
     // Tick marks + thinned labels
     p.setFont(makeFont(st, FontKind::Tick, dpr));
-    p.setPen(QApplication::palette().color(QPalette::Text));
+    p.setPen(bar.textColor);
     for (const TickItem& item : lay.ticks) {
         p.drawLine(item.markFrom, item.markTo);
         if (item.label.isEmpty()) continue;
@@ -369,6 +417,7 @@ QString ColorbarOverlay::barKey(float dpr, const ColorbarData& bar) {
                 + "," + (st.panelEnabled ? "p1" : "p0")
                 + "," + QString::number(st.panelOpacity, 'f', 3)
                 + "," + (st.showAnnotation ? "a1" : "a0")
+                + "|" + bar.textColor.name()
                 + "|";
     for (int i=0;i<bar.stops.size();++i) {
         auto s = bar.stops[i].toList();

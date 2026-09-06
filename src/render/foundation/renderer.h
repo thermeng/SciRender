@@ -159,6 +159,7 @@ struct RenderRenderState {
     float meshColor[3] = { 0.4f, 0.9f, 0.4f };
     float surfaceColor[3] = { 1.0f, 1.0f, 1.0f };
     float bgColor[3] = { 0.12f, 0.12f, 0.12f };
+    float textColor[3] = { 1.0f, 1.0f, 1.0f };
 
 
     double worldCenterX = 0, worldCenterY = 0, worldCenterZ = 0;

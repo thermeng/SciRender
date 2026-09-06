@@ -1067,6 +1067,8 @@ QWidget* MainWindow::buildViewDisplayPage() {
     delete viewUi.surfaceColorBtn;
     content->layout()->replaceWidget(viewUi.bgColorBtn, createColorButton(this, m_settings, "Background", m_settings->getBgColorQml(), &m_bgColorDialog, &RenderSettings::setBgColorQml));
     delete viewUi.bgColorBtn;
+    content->layout()->replaceWidget(viewUi.textColorBtn, createColorButton(this, m_settings, "Text", m_settings->getTextColorQml(), &m_textColorDialog, &RenderSettings::setTextColorQml));
+    delete viewUi.textColorBtn;
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 

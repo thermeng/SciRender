@@ -283,6 +283,7 @@ private:
     // Dialogs
     QFileDialog* m_openDialog = nullptr;
     QColorDialog* m_bgColorDialog = nullptr;
+    QColorDialog* m_textColorDialog = nullptr;
     QColorDialog* m_meshColorDialog = nullptr;
     QColorDialog* m_surfaceColorDialog = nullptr;
     QColorDialog* m_vectorColorDialog = nullptr;
