@@ -189,6 +189,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int licNoiseGrain READ getLicNoiseGrain WRITE setLicNoiseGrain NOTIFY viewChanged)
     Q_PROPERTY(int licBoundaryMode READ getLicBoundaryMode WRITE setLicBoundaryMode NOTIFY viewChanged)
     Q_PROPERTY(bool licEnhanced READ getLicEnhanced WRITE setLicEnhanced NOTIFY viewChanged)
+    Q_PROPERTY(bool licOnly READ getLicOnly WRITE setLicOnly NOTIFY viewChanged)
+    Q_PROPERTY(int licIntegrator READ getLicIntegrator WRITE setLicIntegrator NOTIFY viewChanged)
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
@@ -592,6 +594,15 @@ public:
     void setLicEnhanced(bool v) {
         if (m_state.licEnhanced != v) { m_state.licEnhanced = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
+    bool getLicOnly() const { return m_state.licOnly; }
+    void setLicOnly(bool v) {
+        if (m_state.licOnly != v) { m_state.licOnly = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
+    int getLicIntegrator() const { return m_state.licIntegrator; }
+    void setLicIntegrator(int v) {
+        if (m_state.licIntegrator != v) { m_state.licIntegrator = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
+    QStringList getLicIntegratorOptions() const { return {"Euler", "Midpoint", "RK4"}; }
     QColor getVectorColorQml() const { return QColor::fromRgbF(m_state.vectorColor[0], m_state.vectorColor[1], m_state.vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { m_state.vectorColor[0] = c.redF(); m_state.vectorColor[1] = c.greenF(); m_state.vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); }
     bool getShowStreamlines() const { return m_state.showStreamlines; }

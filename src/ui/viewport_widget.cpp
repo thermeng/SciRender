@@ -42,7 +42,7 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     setMouseTracking(true); // hover feedback for colorbar drag handles
 
     m_fpsLabel = new QLabel(this);
-    m_fpsLabel->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
+    m_fpsLabel->setAlignment(Qt::AlignRight | Qt::AlignTop);
     m_fpsLabel->hide();
 
     // FPS HUD samples elapsed() in paintGL(); start the clock or the first
@@ -186,7 +186,7 @@ void ViewportWidget::resizeGL(int w, int h) {
     update();
 
     if (m_fpsLabel) {
-        m_fpsLabel->move(8, height() - m_fpsLabel->height() - 8);
+        m_fpsLabel->move(width() - m_fpsLabel->width() - 8, 8);
     }
 }
 
@@ -249,6 +249,7 @@ void ViewportWidget::paintGL() {
             }
         }
         m_fpsLabel->setText(m_settings->getFpsText());
+        m_fpsLabel->adjustSize();
         QColor fpsColor = m_settings ? m_settings->getTextColorQml() : palette().color(QPalette::Text);
         m_fpsLabel->setStyleSheet(QString("QLabel { color: %1; }").arg(fpsColor.name()));
         m_fpsLabel->show();

@@ -36,6 +36,8 @@ void MeshPass::init(const ShaderSources& sources) {
             licUvwScaleLoc = glGetUniformLocation(licShaderProgram, "uUvwScale");
             licUvwOffsetLoc = glGetUniformLocation(licShaderProgram, "uUvwOffset");
             licEnhancedLoc = glGetUniformLocation(licShaderProgram, "uLicEnhanced");
+            licOnlyLoc = glGetUniformLocation(licShaderProgram, "uLicOnly");
+            licIntegratorLoc = glGetUniformLocation(licShaderProgram, "uLicIntegrator");
         }
         if (!sources.meshClipGeo.empty() && licShaderProgram.has()) {
             licClipShaderProgram.reset(compileProgramWithGS(
@@ -57,6 +59,8 @@ void MeshPass::init(const ShaderSources& sources) {
                 licClipUvwScaleLoc = glGetUniformLocation(licClipShaderProgram, "uUvwScale");
                 licClipUvwOffsetLoc = glGetUniformLocation(licClipShaderProgram, "uUvwOffset");
                 licClipEnhancedLoc = glGetUniformLocation(licClipShaderProgram, "uLicEnhanced");
+                licClipOnlyLoc = glGetUniformLocation(licClipShaderProgram, "uLicOnly");
+                licClipIntegratorLoc = glGetUniformLocation(licClipShaderProgram, "uLicIntegrator");
             }
         }
     }
@@ -225,6 +229,8 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     GLint uvwScaleLocActive = useCrinkleClip ? licClipUvwScaleLoc : licUvwScaleLoc;
     GLint uvwOffsetLocActive = useCrinkleClip ? licClipUvwOffsetLoc : licUvwOffsetLoc;
     GLint enhancedLocActive = useCrinkleClip ? licClipEnhancedLoc : licEnhancedLoc;
+    GLint onlyLocActive = useCrinkleClip ? licClipOnlyLoc : licOnlyLoc;
+    GLint integratorLocActive = useCrinkleClip ? licClipIntegratorLoc : licIntegratorLoc;
     if (numBandsLocActive != -1) glUniform1f(numBandsLocActive, static_cast<float>(state.scalarColorBands));
     if (vecTexLocActive != -1 && vectorTex != 0) {
         glBindTextureUnit(2, vectorTex);
@@ -252,6 +258,8 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     // Noise freq: UI [0.5..64]; clamp here as final guard before shader (shader multiplies UV)
     if (noiseFreqLocActive != -1) glUniform1f(noiseFreqLocActive, std::clamp(state.licNoiseFreq, LicLimits::NoiseFreqMin, LicLimits::NoiseFreqMax));
     if (enhancedLocActive != -1) glUniform1i(enhancedLocActive, state.licEnhanced ? 1 : 0);
+    if (onlyLocActive != -1) glUniform1i(onlyLocActive, state.licOnly ? 1 : 0);
+    if (integratorLocActive != -1) glUniform1i(integratorLocActive, std::clamp(state.licIntegrator, 0, 2));
     // General-purpose UVW mapping: interior dims map [0,1] to texel centers to avoid half-texel bleeding;
     // degenerate slab (dim<=1) has no extent — shader collapses that axis to 0.5 via range-relative epsilon, so no scale needed.
     glm::vec3 uvwScale(1.0f);
@@ -435,5 +443,9 @@ void MeshPass::shutdown() {
     licClipUvwOffsetLoc = -1;
     licEnhancedLoc = -1;
     licClipEnhancedLoc = -1;
+    licOnlyLoc = -1;
+    licClipOnlyLoc = -1;
+    licIntegratorLoc = -1;
+    licClipIntegratorLoc = -1;
     wireframePass.shutdown();
 }

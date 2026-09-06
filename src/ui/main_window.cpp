@@ -1309,41 +1309,24 @@ QWidget* MainWindow::buildVectorsPage() {
             });
 
     {
-        auto* slider = vectorsUi.licStepsSlider;
-        auto* valueLabel = vectorsUi.licStepsValue;
-        slider->setRange(4, 128);
-        slider->setValue(m_settings->getLicSteps());
-        valueLabel->setText(QString::number(m_settings->getLicSteps()));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            valueLabel->setText(QString::number(raw));
-            m_settings->setLicSteps(raw);
+        auto* spin = vectorsUi.licStepsSpin;
+        spin->setRange(4, 128);
+        spin->setValue(m_settings->getLicSteps());
+        connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+            m_settings->setLicSteps(static_cast<int>(std::round(v)));
         });
     }
     {
-        auto* slider = vectorsUi.licStepSizeSlider;
-        auto* valueLabel = vectorsUi.licStepSizeValue;
-        // Map 0.001..2.0 to 1..2000 (step 0.001)
-        slider->setRange(1, 2000);
-        slider->setValue(static_cast<int>(std::round(m_settings->getLicStepSize() * 1000.0)));
-        valueLabel->setText(QString::number(m_settings->getLicStepSize(), 'f', 3));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = static_cast<double>(raw) / 1000.0;
-            valueLabel->setText(QString::number(v, 'f', 3));
-            m_settings->setLicStepSize(v);
-        });
+        auto* spin = vectorsUi.licStepSizeSpin;
+        spin->setRange(0.001, 2.0);
+        spin->setValue(m_settings->getLicStepSize());
+        connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), m_settings, &RenderSettings::setLicStepSize);
     }
     {
-        auto* slider = vectorsUi.licFreqSlider;
-        auto* valueLabel = vectorsUi.licFreqValue;
-        // Map 0.5..64.0 to 5..640 (step 0.1)
-        slider->setRange(5, 640);
-        slider->setValue(static_cast<int>(std::round(m_settings->getLicNoiseFreq() * 10.0)));
-        valueLabel->setText(QString::number(m_settings->getLicNoiseFreq(), 'f', 1));
-        connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
-            double v = static_cast<double>(raw) / 10.0;
-            valueLabel->setText(QString::number(v, 'f', 1));
-            m_settings->setLicNoiseFreq(v);
-        });
+        auto* spin = vectorsUi.licFreqSpin;
+        spin->setRange(0.5, 64.0);
+        spin->setValue(m_settings->getLicNoiseFreq());
+        connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), m_settings, &RenderSettings::setLicNoiseFreq);
     }
 
     auto* licGrainCombo = vectorsUi.licGrainCombo;
@@ -1363,6 +1346,16 @@ QWidget* MainWindow::buildVectorsPage() {
     auto* licEnhancedCb = vectorsUi.licEnhancedCb;
     licEnhancedCb->setChecked(m_settings->getLicEnhanced());
     connect(licEnhancedCb, &QCheckBox::toggled, m_settings, &RenderSettings::setLicEnhanced);
+
+    auto* licOnlyCb = vectorsUi.licOnlyCb;
+    licOnlyCb->setChecked(m_settings->getLicOnly());
+    connect(licOnlyCb, &QCheckBox::toggled, m_settings, &RenderSettings::setLicOnly);
+
+    auto* licIntegratorCombo = vectorsUi.licIntegratorCombo;
+    licIntegratorCombo->addItems(m_settings->getLicIntegratorOptions());
+    licIntegratorCombo->setCurrentIndex(m_settings->getLicIntegrator());
+    connect(licIntegratorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setLicIntegrator);
 
     auto* magCombo = vectorsUi.magCombo;
     magCombo->addItems({"Linear", "Square root", "Logarithmic"});
