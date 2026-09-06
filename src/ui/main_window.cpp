@@ -1287,12 +1287,6 @@ QWidget* MainWindow::buildVectorsPage() {
         });
     }
 
-    auto* licToggle = vectorsUi.licToggle;
-    licToggle->hide();
-    licToggle->setChecked(m_settings->getShowLic());
-    licToggle->setEnabled(!m_settings->getVectorField().isEmpty());
-    m_licToggle = licToggle;
-
     auto* licGroup = vectorsUi.licGroup;
     auto* optionsGroup = vectorsUi.optionsGroup;
     auto* fieldGroup = vectorsUi.fieldGroup;
@@ -1364,11 +1358,9 @@ QWidget* MainWindow::buildVectorsPage() {
         m_settings->setLicNoiseGrain(grain);
     });
 
-    auto* licBoundaryCombo = vectorsUi.licBoundaryCombo;
-    licBoundaryCombo->addItems(m_settings->getLicBoundaryModeOptions());
-    licBoundaryCombo->setCurrentIndex(m_settings->getLicBoundaryMode());
-    connect(licBoundaryCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            m_settings, &RenderSettings::setLicBoundaryMode);
+    auto* licEnhancedCb = vectorsUi.licEnhancedCb;
+    licEnhancedCb->setChecked(m_settings->getLicEnhanced());
+    connect(licEnhancedCb, &QCheckBox::toggled, m_settings, &RenderSettings::setLicEnhanced);
 
     auto* magCombo = vectorsUi.magCombo;
     magCombo->addItems({"Linear", "Square root", "Logarithmic"});
@@ -2650,9 +2642,6 @@ void MainWindow::connectSettings() {
                 m_vectorVisModeCombo->setCurrentIndex(0);
             }
         }
-        if (m_licToggle) {
-            m_licToggle->setEnabled(!m_settings->getVectorField().isEmpty());
-        }
         if (m_streamlineCombo) {
             m_streamlineCombo->blockSignals(true);
             m_streamlineCombo->clear();
@@ -2697,7 +2686,6 @@ void MainWindow::connectSettings() {
         if (m_vectorGlyphGroup) m_vectorGlyphGroup->setEnabled(m_settings->getVectorVisMode() == 1);
         if (m_vectorLicGroup) m_vectorLicGroup->setEnabled(m_settings->getVectorVisMode() == 2);
         if (m_vecShowCb) m_vecShowCb->setChecked(m_settings->getShowVectors());
-        if (m_licToggle) m_licToggle->setChecked(m_settings->getShowLic());
     });
 
     connect(m_settings, &RenderSettings::screenshotCaptured, this, &MainWindow::onScreenshotCaptured);

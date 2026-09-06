@@ -187,6 +187,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double licNoiseFreq READ getLicNoiseFreq WRITE setLicNoiseFreq NOTIFY viewChanged)
     Q_PROPERTY(int licNoiseGrain READ getLicNoiseGrain WRITE setLicNoiseGrain NOTIFY viewChanged)
     Q_PROPERTY(int licBoundaryMode READ getLicBoundaryMode WRITE setLicBoundaryMode NOTIFY viewChanged)
+    Q_PROPERTY(bool licEnhanced READ getLicEnhanced WRITE setLicEnhanced NOTIFY viewChanged)
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
 
@@ -524,13 +525,15 @@ public:
     }
     bool getShowVectors() const { return m_state.showVectors; }
     void setShowVectors(bool v) {
-        // Keep legacy bool in sync with visMode (Off/Glyph/LIC)
         int desired = v ? 1 : 0;
-        // If currently LIC, turning Glyph on switches to Glyph, off goes to Off
         if (v && m_state.vectorVisMode == 2) desired = 1;
         if (!v && m_state.vectorVisMode == 1) desired = 0;
-        if (m_state.showVectors != v || m_state.vectorVisMode != desired) {
+        if (m_state.vectorVisMode != desired) {
             setVectorVisMode(desired);
+        } else if (m_state.showVectors != v) {
+            m_state.showVectors = v;
+            markStateDirty();
+            emit viewChanged(ChangeFlag::Display);
         }
     }
     STATE_PROP(getVectorScaleByMagnitude, setVectorScaleByMagnitude, bool, m_state.vectorScaleByMagnitude, Vectors)
@@ -547,27 +550,27 @@ public:
         int desired = v ? 2 : 0;
         if (v && m_state.vectorVisMode == 1) desired = 2;
         if (!v && m_state.vectorVisMode == 2) desired = 0;
-        if (m_state.showLic != v || m_state.vectorVisMode != desired) {
+        if (m_state.vectorVisMode != desired) {
             setVectorVisMode(desired);
+        } else if (m_state.showLic != v) {
+            m_state.showLic = v;
+            markStateDirty();
+            emit viewChanged(ChangeFlag::Display);
         }
     }
     int getLicSteps() const { return m_state.licSteps; }
     void setLicSteps(int v) {
-        int s = v < 4 ? 4 : (v > 128 ? 128 : v);
+        int s = std::clamp(v, LicLimits::StepsMin, LicLimits::StepsMax);
         if (m_state.licSteps != s) { m_state.licSteps = s; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
     double getLicStepSize() const { return m_state.licStepSize; }
     void setLicStepSize(double v) {
-        float f = static_cast<float>(v);
-        if (f < 0.001f) f = 0.001f;
-        if (f > 2.0f) f = 2.0f;
+        float f = std::clamp(static_cast<float>(v), LicLimits::StepSizeMin, LicLimits::StepSizeMax);
         if (m_state.licStepSize != f) { m_state.licStepSize = f; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
     double getLicNoiseFreq() const { return m_state.licNoiseFreq; }
     void setLicNoiseFreq(double v) {
-        float f = static_cast<float>(v);
-        if (f < 0.5f) f = 0.5f;
-        if (f > 64.0f) f = 64.0f;
+        float f = std::clamp(static_cast<float>(v), LicLimits::NoiseFreqMin, LicLimits::NoiseFreqMax);
         if (m_state.licNoiseFreq != f) { m_state.licNoiseFreq = f; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
     int getLicNoiseGrain() const { return m_state.licNoiseGrain; }
@@ -575,12 +578,17 @@ public:
         int g = (v <= 64) ? 64 : (v <= 128) ? 128 : (v <= 256) ? 256 : 512;
         if (m_state.licNoiseGrain != g) { m_state.licNoiseGrain = g; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
-    int getLicBoundaryMode() const { return 0; }
-    void setLicBoundaryMode(int v) {
-        (void)v;
-        if (m_state.licBoundaryMode != 0) { m_state.licBoundaryMode = 0; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    // Deprecated: fixed to Repeat (GL_REPEAT). Legacy setter coerces any persisted value to 1.
+    // Texture key no longer includes boundary mode; VectorTextureCache ignores the argument.
+    int getLicBoundaryMode() const { return 1; }
+    void setLicBoundaryMode(int) {
+        if (m_state.licBoundaryMode != 1) { m_state.licBoundaryMode = 1; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
-    QStringList getLicBoundaryModeOptions() const { return {"Clamp (Zero)"}; }
+    QStringList getLicBoundaryModeOptions() const { return {"Clamp (Repeat)"}; }
+    bool getLicEnhanced() const { return m_state.licEnhanced; }
+    void setLicEnhanced(bool v) {
+        if (m_state.licEnhanced != v) { m_state.licEnhanced = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    }
     QColor getVectorColorQml() const { return QColor::fromRgbF(m_state.vectorColor[0], m_state.vectorColor[1], m_state.vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { m_state.vectorColor[0] = c.redF(); m_state.vectorColor[1] = c.greenF(); m_state.vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); }
     bool getShowStreamlines() const { return m_state.showStreamlines; }
@@ -684,6 +692,12 @@ public:
      }
      bool getIsosurfaceAvailable() const { return m_isoController.isAvailable(); }
      Q_INVOKABLE void recomputeIsosurface() { m_isoController.recompute(); }
+
+     // LIC diagnostics: surfaced from Renderer::m_lastLicError after each frame.
+     QString lastLicError() const {
+         std::string s = m_renderer.getLastLicError();
+         return s.empty() ? QString() : QString::fromStdString(s);
+     }
 
 
     int getVectorColorMode() const { return m_state.vectorColorMode; }

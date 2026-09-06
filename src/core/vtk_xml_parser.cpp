@@ -861,6 +861,27 @@ private:
 
         readExtentAttributes(piece); // Piece-level Extent/Origin/Spacing override dataset level.
 
+        if (pugi::xml_node pd = piece.child("PointData")) {
+            if (activePointScalarsName.empty()) {
+                std::string s = pd.attribute("Scalars").value();
+                if (!s.empty()) activePointScalarsName = s;
+            }
+            if (activePointVectorsName.empty()) {
+                std::string v = pd.attribute("Vectors").value();
+                if (!v.empty()) activePointVectorsName = v;
+            }
+        }
+        if (pugi::xml_node cd = piece.child("CellData")) {
+            if (activeCellScalarsName.empty()) {
+                std::string s = cd.attribute("Scalars").value();
+                if (!s.empty()) activeCellScalarsName = s;
+            }
+            if (activeCellVectorsName.empty()) {
+                std::string v = cd.attribute("Vectors").value();
+                if (!v.empty()) activeCellVectorsName = v;
+            }
+        }
+
         if (pugi::xml_node pointsNode = piece.child("Points")) {
             if (pugi::xml_node da = pointsNode.child("DataArray")) {
                 DataArrayMeta meta = readDataArrayMeta(da);
@@ -1007,7 +1028,6 @@ private:
                 if (isPoint) {
                     std::vector<float>& arr = mesh.attributes->pointScalars[spec.name];
                     arr.insert(arr.end(), vals.begin(), vals.end());
-                    if (mesh.scalarName.empty()) mesh.scalarName = spec.name;
                 } else {
                     std::vector<float>& arr = mesh.attributes->cellScalars[spec.name];
                     arr.insert(arr.end(), vals.begin(), vals.end());
@@ -1017,7 +1037,6 @@ private:
                 if (isPoint) {
                     std::vector<float>& arr = mesh.attributes->pointVectors[spec.name];
                     arr.insert(arr.end(), vals.begin(), vals.end());
-                    if (mesh.vectorName.empty()) mesh.vectorName = spec.name;
                 } else {
                     cellVectorsStorage[spec.name].insert(cellVectorsStorage[spec.name].end(), vals.begin(), vals.end());
                 }
@@ -1179,6 +1198,30 @@ private:
             globalCellToVertices, cellScalarsStorage, cellVectorsStorage,
             "VTK XML Parser", datasetType};
         vtk_common::finalizeVTKMesh(mesh, ctx);
+        if (!activePointScalarsName.empty() && mesh.attributes) {
+            auto it = mesh.attributes->pointScalars.find(activePointScalarsName);
+            if (it != mesh.attributes->pointScalars.end()) mesh.scalarName = activePointScalarsName;
+            else if (mesh.attributes->cellScalars.find(activePointScalarsName) != mesh.attributes->cellScalars.end()) mesh.scalarName = activePointScalarsName;
+        }
+        if (mesh.scalarName.empty() && !activeCellScalarsName.empty() && mesh.attributes) {
+            auto it = mesh.attributes->pointScalars.find(activeCellScalarsName);
+            if (it != mesh.attributes->pointScalars.end()) mesh.scalarName = activeCellScalarsName;
+            else if (mesh.attributes->cellScalars.find(activeCellScalarsName) != mesh.attributes->cellScalars.end()) mesh.scalarName = activeCellScalarsName;
+            else if (cellScalarsStorage.find(activeCellScalarsName) != cellScalarsStorage.end()) mesh.scalarName = activeCellScalarsName;
+        }
+        if (!activePointVectorsName.empty()) {
+            bool exists = false;
+            if (mesh.attributes && mesh.attributes->pointVectors.find(activePointVectorsName) != mesh.attributes->pointVectors.end()) exists = true;
+            else if (mesh.pointVectorOffset.find(activePointVectorsName) != mesh.pointVectorOffset.end()) exists = true;
+            if (exists) mesh.vectorName = activePointVectorsName;
+        }
+        if (!activeCellVectorsName.empty()) {
+            bool exists = false;
+            if (cellVectorsStorage.find(activeCellVectorsName) != cellVectorsStorage.end()) exists = true;
+            else if (mesh.cellVectorOffset.find(activeCellVectorsName) != mesh.cellVectorOffset.end()) exists = true;
+            else if (mesh.attributes && mesh.attributes->pointVectors.find(activeCellVectorsName) != mesh.attributes->pointVectors.end()) exists = true;
+            if (exists) mesh.cellVectorName = activeCellVectorsName;
+        }
     }
 
     // ========================================================================
@@ -1223,6 +1266,12 @@ private:
     std::unordered_map<std::string, std::vector<float>> cellScalarsStorage;
     std::unordered_map<std::string, std::vector<float>> cellVectorsStorage;
     std::vector<std::vector<uint32_t>> globalCellToVertices;
+
+    // Active array names per VTK spec (Vectors/Scalars attributes)
+    std::string activePointScalarsName;
+    std::string activePointVectorsName;
+    std::string activeCellScalarsName;
+    std::string activeCellVectorsName;
 
     // Appended binary buffer
     std::vector<char> appendedData;
@@ -1342,6 +1391,9 @@ RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes) {
 
         if (m.normals.size() == m.vertices.size()) {
             merged.normals.insert(merged.normals.end(), m.normals.begin(), m.normals.end());
+        }
+        if (!m.texCoords.empty()) {
+            merged.texCoords.insert(merged.texCoords.end(), m.texCoords.begin(), m.texCoords.end());
         }
 
         if (!m.scalars.empty()) {

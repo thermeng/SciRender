@@ -97,6 +97,20 @@ struct ShaderSources {
 
 
 
+// LIC clamping constants — single source for UI sliders, CPU upload, and GPU guards.
+// Setter bounds (product) are tight; shader bounds are looser (safety net for direct state injection).
+namespace LicLimits {
+    constexpr int   StepsMin = 4;
+    constexpr int   StepsMax = 128;
+    constexpr int   StepsGpuMin = 0;   // shader tolerates 0 (single-sample fallback) even though UI min is 4
+    constexpr float StepSizeMin = 0.001f;   // fraction of scene diagonal
+    constexpr float StepSizeMax = 2.0f;
+    constexpr float NoiseFreqMin = 0.5f;
+    constexpr float NoiseFreqMax = 64.0f;
+    constexpr float WorldStepEps = 1e-6f;
+    constexpr float WorldStepMaxFactor = 2.0f; // cap worldStep at diag * factor
+}
+
 inline float applyVectorMagTransform(float m, int mode) {
     if (mode == 1) return std::sqrt(std::max(m, 0.0f));
     if (mode == 2) return std::log(1.0f + std::max(m, 0.0f));
@@ -257,11 +271,12 @@ struct RenderRenderState {
 
     bool showLic = false;
     int vectorVisMode = 0;
-    int licSteps = 32;
-    float licStepSize = 0.02f;
-    float licNoiseFreq = 8.0f;
-    int licNoiseGrain = 256;
-    int licBoundaryMode = 0;
+    int licSteps = 32;          // kernel half-length (total taps = 1+2*steps); UI [4..128], GPU tolerates [0..128]
+    float licStepSize = 0.02f;  // fraction of scene diagonal; MeshPass converts to worldStep = licStepSize*diag, clamped to [1e-6, diag*2]
+    float licNoiseFreq = 8.0f;  // UI [0.5..64], upload clamped to same
+    int licNoiseGrain = 256;    // quantized to 64/128/256/512
+    int licBoundaryMode = 1;    // deprecated: fixed to Repeat (GL_REPEAT). Persisted values coerced to 1; not used for texture key.
+    bool licEnhanced = false;   // Enhanced LIC: 2-pass (second convolution sharpens coherence)
 
 
     std::string streamlineVectorField;
@@ -594,6 +609,9 @@ private:
 
     void ensureLicNoiseTexture(int grain);
     void shutdownLic();
+  public:
+    const std::string& getLastLicError() const { return m_lastLicError; }
+  private:
 
 
     int width = 800;
@@ -679,6 +697,7 @@ private:
     VolumeSliceOverlay m_volumeSliceOverlay;
     GlTexture m_licNoiseTex;
     int m_licNoiseGrain = 0;
+    std::string m_lastLicError; // surfaced via getLastLicError() for status bar
 
 
     DepthPeelPass m_depthPeel;

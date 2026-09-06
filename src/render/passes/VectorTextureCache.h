@@ -12,11 +12,13 @@ class VectorTextureCache {
 public:
     VectorTextureCache() = default;
 
+    // licBoundaryMode is deprecated (always Repeat/GL_REPEAT); kept in signature for API compat but ignored.
     GLuint textureForField(const std::string& name, const RenderMesh* mesh,
                            const glm::vec3& boxMin, const glm::vec3& boxMax,
-                           int placement = -1, int licBoundaryMode = 0);
+                           int placement = -1, int licBoundaryMode = 1);
 
     bool getTextureDims(const std::string& name, int& dimX, int& dimY, int& dimZ) const;
+    // Deprecated licBoundaryMode variants — forward to canonical; mode ignored.
     bool getTextureDims(const std::string& name, int licBoundaryMode, int& dimX, int& dimY, int& dimZ) const;
     bool getTextureDims(const std::string& name, int placement, int licBoundaryMode, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ) const;
 
@@ -44,8 +46,9 @@ private:
     bool buildGrid(const RenderMesh& mesh, const glm::vec3* data, size_t count, bool isCell,
                    std::vector<glm::vec3>& outGrid, int& outDimX, int& outDimY, int& outDimZ) const;
 
-    static void mirrorPadGrid(const std::vector<glm::vec3>& src, int sx, int sy, int sz,
-                              std::vector<glm::vec3>& dst, int& dx, int& dy, int& dz);
+    static std::string makeKey(const std::string& name, bool isCell);
+    // Deprecated compat — ignores mode, forwards to canonical makeKey(name,isCell)
+    static std::string makeKey(const std::string& name, bool isCell, int licBoundaryMode);
 
     std::unordered_map<std::string, Entry> m_entries;
     std::list<std::string> m_lru;

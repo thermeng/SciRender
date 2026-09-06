@@ -21,9 +21,9 @@ void MeshPass::init(const ShaderSources& sources) {
         const std::string licFragFull = injectPbrCommon(sources.surfaceLicFrag.c_str(), sources.pbrFragCommon);
         licShaderProgram.reset(compileProgram(sources.meshVert.c_str(), licFragFull.c_str(), "SurfaceLIC"));
         if (licShaderProgram.has()) {
-            GLuint licIdx = glGetUniformBlockIndex(licShaderProgram, "MeshUBO");
-            if (licIdx != GL_INVALID_INDEX)
-                glUniformBlockBinding(licShaderProgram, licIdx, 0);
+            licUboIndex = glGetUniformBlockIndex(licShaderProgram, "MeshUBO");
+            if (licUboIndex != GL_INVALID_INDEX)
+                glUniformBlockBinding(licShaderProgram, licUboIndex, 0);
             licLutTextureLoc = glGetUniformLocation(licShaderProgram, "uColormapLUT");
             licNumBandsLoc = glGetUniformLocation(licShaderProgram, "uNumBands");
             licVectorTexLoc = glGetUniformLocation(licShaderProgram, "uVectorTex");
@@ -33,18 +33,18 @@ void MeshPass::init(const ShaderSources& sources) {
             licStepsLoc = glGetUniformLocation(licShaderProgram, "uLicSteps");
             licStepSizeLoc = glGetUniformLocation(licShaderProgram, "uLicStepSize");
             licNoiseFreqLoc = glGetUniformLocation(licShaderProgram, "uLicNoiseFreq");
-            licBoundaryModeLoc = glGetUniformLocation(licShaderProgram, "uLicBoundaryMode");
             licUvwScaleLoc = glGetUniformLocation(licShaderProgram, "uUvwScale");
             licUvwOffsetLoc = glGetUniformLocation(licShaderProgram, "uUvwOffset");
+            licEnhancedLoc = glGetUniformLocation(licShaderProgram, "uLicEnhanced");
         }
         if (!sources.meshClipGeo.empty() && licShaderProgram.has()) {
             licClipShaderProgram.reset(compileProgramWithGS(
                 sources.meshVert.c_str(), sources.meshClipGeo.c_str(),
                 licFragFull.c_str(), "SurfaceLICCrinkleClip"));
             if (licClipShaderProgram.has()) {
-                GLuint licClipIdx = glGetUniformBlockIndex(licClipShaderProgram, "MeshUBO");
-                if (licClipIdx != GL_INVALID_INDEX)
-                    glUniformBlockBinding(licClipShaderProgram, licClipIdx, 0);
+                licClipUboIndex = glGetUniformBlockIndex(licClipShaderProgram, "MeshUBO");
+                if (licClipUboIndex != GL_INVALID_INDEX)
+                    glUniformBlockBinding(licClipShaderProgram, licClipUboIndex, 0);
                 licClipLutTextureLoc = glGetUniformLocation(licClipShaderProgram, "uColormapLUT");
                 licClipNumBandsLoc = glGetUniformLocation(licClipShaderProgram, "uNumBands");
                 licClipVectorTexLoc = glGetUniformLocation(licClipShaderProgram, "uVectorTex");
@@ -54,9 +54,9 @@ void MeshPass::init(const ShaderSources& sources) {
                 licClipStepsLoc = glGetUniformLocation(licClipShaderProgram, "uLicSteps");
                 licClipStepSizeLoc = glGetUniformLocation(licClipShaderProgram, "uLicStepSize");
                 licClipNoiseFreqLoc = glGetUniformLocation(licClipShaderProgram, "uLicNoiseFreq");
-                licClipBoundaryModeLoc = glGetUniformLocation(licClipShaderProgram, "uLicBoundaryMode");
                 licClipUvwScaleLoc = glGetUniformLocation(licClipShaderProgram, "uUvwScale");
                 licClipUvwOffsetLoc = glGetUniformLocation(licClipShaderProgram, "uUvwOffset");
+                licClipEnhancedLoc = glGetUniformLocation(licClipShaderProgram, "uLicEnhanced");
             }
         }
     }
@@ -210,7 +210,8 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     const bool useCrinkleClip = state.crinkleClipMode && licClipShaderProgram.has();
     GlProgram& prog = useCrinkleClip ? licClipShaderProgram : licShaderProgram;
     glUseProgram(prog);
-    if (meshUboIndex != GL_INVALID_INDEX)
+    GLuint activeUboIndex = useCrinkleClip ? licClipUboIndex : licUboIndex;
+    if (activeUboIndex != GL_INVALID_INDEX)
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
     GLint numBandsLocActive = useCrinkleClip ? licClipNumBandsLoc : licNumBandsLoc;
     GLint vecTexLocActive = useCrinkleClip ? licClipVectorTexLoc : licVectorTexLoc;
@@ -220,10 +221,10 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     GLint stepsLocActive = useCrinkleClip ? licClipStepsLoc : licStepsLoc;
     GLint stepSizeLocActive = useCrinkleClip ? licClipStepSizeLoc : licStepSizeLoc;
     GLint noiseFreqLocActive = useCrinkleClip ? licClipNoiseFreqLoc : licNoiseFreqLoc;
-    GLint boundaryLocActive = useCrinkleClip ? licClipBoundaryModeLoc : licBoundaryModeLoc;
     GLint lutLocActive = useCrinkleClip ? licClipLutTextureLoc : licLutTextureLoc;
     GLint uvwScaleLocActive = useCrinkleClip ? licClipUvwScaleLoc : licUvwScaleLoc;
     GLint uvwOffsetLocActive = useCrinkleClip ? licClipUvwOffsetLoc : licUvwOffsetLoc;
+    GLint enhancedLocActive = useCrinkleClip ? licClipEnhancedLoc : licEnhancedLoc;
     if (numBandsLocActive != -1) glUniform1f(numBandsLocActive, static_cast<float>(state.scalarColorBands));
     if (vecTexLocActive != -1 && vectorTex != 0) {
         glBindTextureUnit(2, vectorTex);
@@ -235,25 +236,43 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     }
     if (boxMinLocActive != -1) glUniform3fv(boxMinLocActive, 1, &boxMin.x);
     if (boxMaxLocActive != -1) glUniform3fv(boxMaxLocActive, 1, &boxMax.x);
-    if (stepsLocActive != -1) glUniform1i(stepsLocActive, state.licSteps);
+    // LIC steps: UI clamps [4..128]; GPU tolerates [0..128] but product floor is 4.
+    // Use product limits here so legacy 0..3 persisted values auto-heal to 4.
+    if (stepsLocActive != -1) glUniform1i(stepsLocActive, std::clamp(state.licSteps, LicLimits::StepsMin, LicLimits::StepsMax));
     if (stepSizeLocActive != -1) {
         glm::vec3 extent = boxMax - boxMin;
         float diag = glm::length(extent);
-        if (!(diag > 1e-6f)) diag = 1.0f;
-        float worldStep = state.licStepSize * diag;
-        worldStep = std::clamp(worldStep, 1e-6f, diag * 2.0f);
+        if (!(diag > LicLimits::WorldStepEps)) diag = 1.0f;
+        // state.licStepSize is fraction of diagonal; clamp fraction first then scale for consistent upper bound
+        float frac = std::clamp(state.licStepSize, LicLimits::StepSizeMin, LicLimits::StepSizeMax);
+        float worldStep = frac * diag;
+        worldStep = std::clamp(worldStep, LicLimits::WorldStepEps, diag * LicLimits::WorldStepMaxFactor);
         glUniform1f(stepSizeLocActive, worldStep);
     }
-    if (noiseFreqLocActive != -1) glUniform1f(noiseFreqLocActive, state.licNoiseFreq);
-    if (boundaryLocActive != -1) glUniform1i(boundaryLocActive, 0);
+    // Noise freq: UI [0.5..64]; clamp here as final guard before shader (shader multiplies UV)
+    if (noiseFreqLocActive != -1) glUniform1f(noiseFreqLocActive, std::clamp(state.licNoiseFreq, LicLimits::NoiseFreqMin, LicLimits::NoiseFreqMax));
+    if (enhancedLocActive != -1) glUniform1i(enhancedLocActive, state.licEnhanced ? 1 : 0);
+    // General-purpose UVW mapping: interior dims map [0,1] to texel centers to avoid half-texel bleeding;
+    // degenerate slab (dim<=1) has no extent — shader collapses that axis to 0.5 via range-relative epsilon, so no scale needed.
     glm::vec3 uvwScale(1.0f);
     glm::vec3 uvwOffset(0.0f);
-    (void)texDimX; (void)texDimY; (void)texDimZ;
+    {
+        auto axisScaleOffset = [&](int n, float& s, float& o) {
+            if (n <= 1) { s = 1.0f; o = 0.0f; return; } // slab: single texel, no half-texel offset
+            float inv = 1.0f / static_cast<float>(n);
+            s = float(n - 1) * inv; o = 0.5f * inv;
+        };
+        axisScaleOffset(texDimX, uvwScale.x, uvwOffset.x);
+        axisScaleOffset(texDimY, uvwScale.y, uvwOffset.y);
+        axisScaleOffset(texDimZ, uvwScale.z, uvwOffset.z);
+    }
     if (uvwScaleLocActive != -1) glUniform3fv(uvwScaleLocActive, 1, &uvwScale.x);
     if (uvwOffsetLocActive != -1) glUniform3fv(uvwOffsetLocActive, 1, &uvwOffset.x);
     GLuint lutTex = colormap.scalarTexture() ? colormap.scalarTexture() : colormap.vectorTexture();
-    if (lutLocActive != -1 && lutTex != 0) {
-        glBindTextureUnit(1, lutTex);
+    if (lutLocActive != -1) {
+        if (lutTex != 0) {
+            glBindTextureUnit(1, lutTex);
+        }
         glUniform1i(lutLocActive, 1);
     }
 }
@@ -300,11 +319,12 @@ MeshPassResult MeshPass::drawCommon(const RenderRenderState& state,
             drawOpaque(state, drawList);
             drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
         } else if (licTransparent) {
-
-
-
+            // Single-pass translucent LIC (documented tradeoff vs depth-peel
+            // OIT): order-dependent blending, but avoids peeling cost per LIC
+            // sample. Must not write depth or later fragments self-occlude.
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_FALSE);
             for (size_t di = 0; di < drawList.size(); ++di) {
                 glBindVertexArray(drawList[di].first);
                 const bool cull = state.cullMode != 0;
@@ -316,6 +336,7 @@ MeshPassResult MeshPass::drawCommon(const RenderRenderState& state,
             }
             glBindVertexArray(0);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            glDepthMask(GL_TRUE);
             glDisable(GL_BLEND);
             drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
         } else {
@@ -384,6 +405,8 @@ void MeshPass::shutdown() {
     licClipShaderProgram.reset();
     meshUbo.reset();
     meshUboIndex = GL_INVALID_INDEX;
+    licUboIndex = GL_INVALID_INDEX;
+    licClipUboIndex = GL_INVALID_INDEX;
     lutTextureLoc = -1;
     clipLutTextureLoc = -1;
     numBandsLoc = -1;
@@ -406,11 +429,11 @@ void MeshPass::shutdown() {
     licClipStepSizeLoc = -1;
     licNoiseFreqLoc = -1;
     licClipNoiseFreqLoc = -1;
-    licBoundaryModeLoc = -1;
-    licClipBoundaryModeLoc = -1;
     licUvwScaleLoc = -1;
     licClipUvwScaleLoc = -1;
     licUvwOffsetLoc = -1;
     licClipUvwOffsetLoc = -1;
+    licEnhancedLoc = -1;
+    licClipEnhancedLoc = -1;
     wireframePass.shutdown();
 }

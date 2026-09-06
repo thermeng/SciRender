@@ -404,8 +404,14 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("streamlineCompRangeHiZ",[](const RenderSettings& r) { return QVariant(r.m_state.streamlineCompRangeHi[2]); },           [](RenderSettings& r, const QVariant& v) { r.m_state.streamlineCompRangeHi[2] = v.toFloat(); });
         add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
-        add("vectorPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.vectorPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.vectorPlacement = v.toInt(); });
-        add("vectorVisMode",       [](const RenderSettings& r) { return QVariant(r.m_state.vectorVisMode); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.vectorVisMode = v.toInt(); });
+        add("vectorPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.vectorPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.vectorPlacement = std::clamp(v.toInt(), 0, 1); });
+        add("vectorVisMode",       [](const RenderSettings& r) { return QVariant(r.m_state.vectorVisMode); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.vectorVisMode = std::clamp(v.toInt(), 0, 2); });
+        add("licSteps",            [](const RenderSettings& r) { return QVariant(r.m_state.licSteps); },                      [](RenderSettings& r, const QVariant& v) { r.setLicSteps(v.toInt()); });
+        add("licStepSize",         [](const RenderSettings& r) { return QVariant(static_cast<double>(r.m_state.licStepSize)); }, [](RenderSettings& r, const QVariant& v) { r.setLicStepSize(v.toDouble()); });
+        add("licNoiseFreq",        [](const RenderSettings& r) { return QVariant(static_cast<double>(r.m_state.licNoiseFreq)); }, [](RenderSettings& r, const QVariant& v) { r.setLicNoiseFreq(v.toDouble()); });
+        add("licNoiseGrain",       [](const RenderSettings& r) { return QVariant(r.m_state.licNoiseGrain); },                 [](RenderSettings& r, const QVariant& v) { r.setLicNoiseGrain(v.toInt()); });
+        add("licBoundaryMode",     [](const RenderSettings& r) { return QVariant(1); },                                              [](RenderSettings& r, const QVariant& ) { r.setLicBoundaryMode(1); });
+        add("licEnhanced",         [](const RenderSettings& r) { return QVariant(r.m_state.licEnhanced); },                  [](RenderSettings& r, const QVariant& v) { r.setLicEnhanced(v.toBool()); });
         add("maxPeelLayers",       [](const RenderSettings& r) { return QVariant(r.m_state.maxPeelLayers); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.maxPeelLayers = v.toInt(); });
         return t;
     }();
@@ -469,6 +475,9 @@ void RenderSettings::restoreStateFromSettings() {
             else m_state.vectorVisMode = 0;
         }
     }
+    m_state.vectorVisMode = std::clamp(m_state.vectorVisMode, 0, 2);
+    m_state.vectorPlacement = std::clamp(m_state.vectorPlacement, 0, 1);
+    m_state.licBoundaryMode = 1;
     m_state.showVectors = (m_state.vectorVisMode == 1);
     m_state.showLic = (m_state.vectorVisMode == 2);
     // GUI members with bespoke validation.
@@ -632,14 +641,14 @@ void RenderSettings::onMeshParsed() {
     m_state.clipEnabled = false;
     m_state.crinkleClipMode = false;
     m_state.clipEnabledX = m_state.clipEnabledY = m_state.clipEnabledZ = false;
-    if (!loaded->pointVectorsData.empty()) {
-        m_meshData.guiMeta.vectorName = loaded->availableVectorNames.front();
-        m_state.vectorField = loaded->availableVectorNames.front();
-        m_state.streamlineVectorField = loaded->availableVectorNames.front();
-    } else if (!loaded->cellVectorsData.empty()) {
+    if (!loaded->vectorName.empty()) {
+        m_meshData.guiMeta.vectorName = loaded->vectorName;
+        m_state.vectorField = loaded->vectorName;
+        m_state.streamlineVectorField = loaded->vectorName;
+    } else if (!loaded->cellVectorName.empty()) {
         m_meshData.guiMeta.vectorName = loaded->cellVectorName;
         m_state.vectorField = loaded->cellVectorName;
-        m_state.streamlineVectorField.clear();
+        m_state.streamlineVectorField = loaded->cellVectorName;
     } else {
         m_meshData.guiMeta.vectorName.clear();
         m_state.vectorField.clear();

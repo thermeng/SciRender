@@ -227,7 +227,6 @@ private:
     QWidget* m_scalarOptionsGroup = nullptr;
     QCheckBox* m_slShowCb = nullptr;
     QCheckBox* m_vecShowCb = nullptr;
-    QCheckBox* m_licToggle = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;
     QCheckBox* m_volumeSliceShowCb = nullptr;
     QCheckBox* m_sliceShowCb = nullptr;

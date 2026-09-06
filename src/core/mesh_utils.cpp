@@ -507,6 +507,27 @@ void extrapolateCellDataToPoints(
                     f.sum[base + 2] *= inv;
                 }
             }
+            float meanMag = 0.0f;
+            int magCount = 0;
+            for (int i = 0; i < vCount; ++i) {
+                size_t base = static_cast<size_t>(i) * 3;
+                float mag = std::sqrt(f.sum[base]*f.sum[base] + f.sum[base+1]*f.sum[base+1] + f.sum[base+2]*f.sum[base+2]);
+                if (mag > 1e-12f) { meanMag += mag; magCount++; }
+            }
+            if (magCount > 0) {
+                meanMag /= static_cast<float>(magCount);
+                float minMag = meanMag * 0.25f;
+                for (int i = 0; i < vCount; ++i) {
+                    size_t base = static_cast<size_t>(i) * 3;
+                    float mag = std::sqrt(f.sum[base]*f.sum[base] + f.sum[base+1]*f.sum[base+1] + f.sum[base+2]*f.sum[base+2]);
+                    if (mag > 1e-12f && mag < minMag) {
+                        float scale = minMag / mag;
+                        f.sum[base + 0] *= scale;
+                        f.sum[base + 1] *= scale;
+                        f.sum[base + 2] *= scale;
+                    }
+                }
+            }
             if (mesh.scalarName.empty()) mesh.scalarName = f.name;
             mesh.attributes->pointVectors[f.name] = f.sum;
         } else {

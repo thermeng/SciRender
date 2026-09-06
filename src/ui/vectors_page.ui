@@ -223,17 +223,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="licToggle">
-       <property name="text">
-        <string>Surface LIC</string>
-       </property>
-       <property name="toolTip">
-        <string>Render Line Integral Convolution on the surface. When surface opacity &lt; 1, LIC uses single-pass blending instead of depth-peel OIT.</string>
-       </property>
-      </widget>
-     </item>
-    <item>
-     <widget class="QWidget" name="licGroup" native="true">
+      <widget class="QWidget" name="licGroup" native="true">
       <layout class="QVBoxLayout" name="licLayout">
        <property name="spacing"><number>4</number></property>
        <property name="leftMargin"><number>8</number></property>
@@ -358,31 +348,12 @@
            </layout>
            </widget>
           </item>
-         <item>
-          <widget class="QWidget" name="licBoundaryRow">
-           <layout class="QHBoxLayout" name="licBoundaryLayout">
-            <property name="spacing"><number>6</number></property>
-            <property name="leftMargin"><number>0</number></property>
-            <property name="topMargin"><number>0</number></property>
-            <property name="rightMargin"><number>0</number></property>
-            <property name="bottomMargin"><number>0</number></property>
-            <item>
-             <widget class="QLabel" name="licBoundaryLabel">
-              <property name="text"><string>Boundary</string></property>
-              <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-              <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-              <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
-              <property name="toolTip"><string>Clamp (Zero): domain-clamp to zero at wall (physical no-slip, truncated kernel). Mirror: mirror-pad / reflect across wall (hides speckled border, preserves streak length).</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QComboBox" name="licBoundaryCombo">
-              <property name="toolTip"><string>Clamp (Zero): domain-clamp to zero at wall (physical no-slip, truncated kernel). Mirror: mirror-pad / reflect across wall (hides speckled border, preserves streak length).</string></property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
+          <item>
+           <widget class="QCheckBox" name="licEnhancedCb">
+            <property name="text"><string>Enhanced (2-pass)</string></property>
+            <property name="toolTip"><string>2-pass Enhanced LIC: second convolution sharpens streak coherence (higher cost).</string></property>
+           </widget>
+          </item>
         </layout>
        </widget>
      </item>
