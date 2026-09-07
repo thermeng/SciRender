@@ -172,6 +172,21 @@ void Renderer::setPendingIsosurface(std::shared_ptr<const RenderMesh> isoMesh) {
     isosurfaceDirty = true;
 }
 
+void Renderer::consumePendingMesh() {
+    std::lock_guard<std::mutex> lock(meshQueueMutex);
+    if (m_pendingMesh) {
+        uploadMesh(m_pendingMesh);
+        m_pendingMesh.reset();
+        m_qualityOverlay.markDirty();
+        m_streamlines.requestRecompute();
+    }
+    if (isosurfaceDirty.exchange(false)) {
+        m_lastIsosurfaceMesh = m_pendingIsosurface;
+        meshManager.uploadIsosurface(m_lastIsosurfaceMesh);
+        m_pendingIsosurface.reset();
+    }
+}
+
 void Renderer::markCameraMoving() {
     lodScheduler.setCameraMoving();
 }

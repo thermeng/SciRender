@@ -203,6 +203,14 @@ void ViewportWidget::paintGL() {
                              || scene->consumeLodSettle());
     if (!m_dirty && !continuous && m_pendingScreenshot.isEmpty()) return;
 
+    // Process any pending mesh upload first so that scalar updates bind to
+    // the mesh that will be rendered this frame. Without this, a derived
+    // scalar payload arriving alongside a new animation frame would be
+    // uploaded to the previous frame's VAOs, then the new frame would be
+    // built without an SBO (buildMeshGL skips the scalar buffer when
+    // renderMesh.scalars is empty).
+    scene->consumePendingMesh();
+
     // Scalar-only re-upload if needed.
     if (scene->consumeScalarDirty() && scene->hasGpuMeshes()) {
         auto scalars = scene->cachedScalars();

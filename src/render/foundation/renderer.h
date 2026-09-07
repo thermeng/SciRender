@@ -483,6 +483,7 @@ public:
 
     void setPendingIsosurface(std::shared_ptr<const RenderMesh> isoMesh);
 
+    void consumePendingMesh();
 
     void markCameraMoving();
     void markVectorGlyphDirty() { vectorGlyphDirty = true; }

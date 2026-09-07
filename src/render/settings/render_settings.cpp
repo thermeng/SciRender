@@ -815,8 +815,8 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     float effMin = mn, effMax = mx;
     m_animRange.advance(firstFrame, m_state.activeScalarName, mn, mx, effMin, effMax);
 
+    m_state.meshHasScalars = haveRange;
     if (firstFrame) {
-        m_state.meshHasScalars = haveRange;
         // Do not auto-enable scalar visualization — user must enable manually
         m_state.meshUseScalarColor = false;
         m_state.showScalarColorbar = m_state.meshHasScalars;
@@ -852,7 +852,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         && prevMesh->gridDimZ == mesh->gridDimZ) {
         topologyUnchanged = true;
     }
-    if (topologyUnchanged) {
+    if (topologyUnchanged && !(m_state.meshHasVectors || m_state.meshHasCellVectors)) {
         // Only scalars (and derived) changed — re-upload SBO (+ volume texture).
         float rmn, rmx;
         if (auto* d = FieldResolver::scalarData(*mesh, m_state.activeScalarName, rmn, rmx)) {
@@ -867,6 +867,19 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     } else {
         // Full upload for topology-changing frames (adaptive mesh, first frame)
         m_renderer.setPendingMesh(mesh);
+        // buildMeshGL only creates the SBO when renderMesh.scalars is non-empty.
+        // Derived scalars are computed on-the-fly and are not stored in the mesh,
+        // so the SBO would be left empty. Upload the active scalar explicitly
+        // so colormapping works for derived fields (and for raw fields when
+        // the active scalar differs from renderMesh.scalars).
+        float rmn, rmx;
+        if (auto* d = FieldResolver::scalarData(*mesh, m_state.activeScalarName, rmn, rmx)) {
+            auto payload = std::make_shared<const std::vector<float>>(*d);
+            m_renderer.markScalarDirty(payload);
+            if (mesh->hasVolumeData()) {
+                m_renderer.markVolumeDirty(mesh);
+            }
+        }
     }
 
     markStateDirty();

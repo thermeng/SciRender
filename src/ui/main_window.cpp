@@ -2582,10 +2582,14 @@ void MainWindow::connectSettings() {
             m_slShowCb->setEnabled(hasVectors);
             if (!hasVectors) m_slShowCb->setChecked(false);
         }
+        // if (m_vectorVisModeCombo) {
+        //     bool hasAny = hasVectors || hasCellVectors;
+        //     m_vectorVisModeCombo->setEnabled(hasAny);
+        //     if (!hasAny) m_vectorVisModeCombo->setCurrentIndex(0);
+        // }
         if (m_vectorVisModeCombo) {
             bool hasAny = hasVectors || hasCellVectors;
             m_vectorVisModeCombo->setEnabled(hasAny);
-            if (!hasAny) m_vectorVisModeCombo->setCurrentIndex(0);
         }
         if (m_vectorFieldGroup) {
             bool hasAny = hasVectors || hasCellVectors;
