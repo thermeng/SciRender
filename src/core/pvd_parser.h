@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@ struct PvdSequence {
 
     int frameCount() const { return static_cast<int>(timesteps.size()); }
     double frameTime(int i) const {
+        assert(i >= 0 && i < static_cast<int>(timesteps.size()) && "frameTime index out of range");
         return (i >= 0 && i < static_cast<int>(timesteps.size())) ? timesteps[i] : 0.0;
     }
     // Files (parts) belonging to unique-timestep index i, in `part` order.

@@ -50,7 +50,7 @@ static std::shared_ptr<const RenderMesh> loadFrameFiles(const std::vector<std::s
 
 AnimationController::AnimationController(QObject* parent)
     : QObject(parent) {
-    m_tickTimer.setInterval(33);
+    m_tickTimer.setInterval(std::max(4, int(1000.0 / m_fps)));
     connect(&m_tickTimer, &QTimer::timeout, this, &AnimationController::onTick);
     connect(&m_watcher, &QFutureWatcher<FrameLoadResult>::finished,
             this, &AnimationController::onFrameLoaded);
@@ -67,6 +67,7 @@ void AnimationController::setFps(double v) {
     v = std::clamp(v, 0.25, 120.0);
     if (m_fps == v) return;
     m_fps = v;
+    m_tickTimer.setInterval(std::max(4, int(1000.0 / v)));
     emit stateChanged();
 }
 
@@ -88,9 +89,8 @@ void AnimationController::loadPvd(const QString& filePath) {
         emit errorOccurred(msg);
         return;
     }
-    if (!diag.warning.empty()) {
-        emit errorOccurred(QString::fromStdString(diag.warning));
-    }
+    // Parse warnings (e.g. skipped malformed entries) are logged to stderr
+    // by the parser; do not surface them as user-facing errors here.
 
     // Fresh sequence: bump the generation so any in-flight parse from the
     // previous sequence is dropped on arrival (no GUI-thread wait), then

@@ -180,6 +180,7 @@ bool AnimationExporter::awaitFrame(int index) {
         m_controller, &AnimationController::frameReady, &loop,
         [this, index, &got, &loop](std::shared_ptr<const RenderMesh> mesh, int frameIndex, double) {
             if (mesh && frameIndex == index) {
+                if (m_cancelRequested.load()) return;
                 got = true;
                 // Queued: exec() clears the exit flag on entry, so a direct
                 // quit() emitted synchronously (cached-frame publish inside

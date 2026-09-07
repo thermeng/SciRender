@@ -50,7 +50,10 @@ public:
     int frameCount() const { return m_sequence.frameCount(); }
     int currentFrame() const { return m_displayFrame; }
     double frameTime(int i) const { return m_sequence.frameTime(i); }
-    double currentTime() const { return m_sequence.frameTime(m_displayFrame); }
+    double currentTime() const {
+        return (m_displayFrame >= 0 && m_displayFrame < frameCount())
+            ? m_sequence.frameTime(m_displayFrame) : 0.0;
+    }
 
     // Frames per second playback rate.
     double fps() const { return m_fps; }
