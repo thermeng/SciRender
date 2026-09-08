@@ -35,6 +35,7 @@ private:
     QDoubleSpinBox* m_fps = nullptr;
     QComboBox* m_resolution = nullptr;
     QSpinBox* m_quality = nullptr;
+    QSpinBox* m_timeout = nullptr;
     QSpinBox* m_from = nullptr;
     QSpinBox* m_to = nullptr;
 };

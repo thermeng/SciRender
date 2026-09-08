@@ -83,6 +83,15 @@ AnimationExportDialog::AnimationExportDialog(AnimationController* controller,
     m_quality->setSuffix(" %");
     form->addRow("JPEG quality", m_quality);
 
+    // --- Timeout ---
+    m_timeout = new QSpinBox(this);
+    m_timeout->setRange(0, 600000);
+    m_timeout->setSingleStep(5000);
+    m_timeout->setValue(30000);
+    m_timeout->setSuffix(" ms");
+    m_timeout->setSpecialValueText("No timeout");
+    form->addRow("Frame timeout", m_timeout);
+
     // --- Range (1-based for the user) ---
     m_from = new QSpinBox(this);
     m_from->setRange(1, qMax(1, frameCount));
@@ -148,6 +157,7 @@ AnimationExportConfig AnimationExportDialog::config() const {
     cfg.pngDir = m_pngDir->text();
     cfg.fps = m_fps->value();
     cfg.jpegQuality = m_quality->value();
+    cfg.timeoutMs = m_timeout->value();
     cfg.firstFrame = m_from->value() - 1;
     cfg.lastFrame = m_to->value() - 1;
     switch (m_resolution->currentIndex()) {

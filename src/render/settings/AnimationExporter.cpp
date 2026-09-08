@@ -69,6 +69,7 @@ void AnimationExporter::start(const AnimationExportConfig& cfg, ::Renderer* scen
     m_cancelRequested = false;
     m_exporting = true;
     m_error.clear();
+    m_timeoutMs = cfg.timeoutMs;
     m_controller->pause();
 
     // Encode chain: each task waits on the previous future, so writer access
@@ -202,7 +203,7 @@ bool AnimationExporter::awaitFrame(int index) {
         disconnect(conn);
         return true;
     }
-    timer.start(30000);
+    if (m_timeoutMs > 0) timer.start(m_timeoutMs);
     loop.exec();
     disconnect(conn);
 

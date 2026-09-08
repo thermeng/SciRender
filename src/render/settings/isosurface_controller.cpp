@@ -13,7 +13,7 @@ IsosurfaceController::IsosurfaceController(Renderer& renderer, QObject* parent)
 }
 
 bool IsosurfaceController::isAvailable() const {
-    return m_currentMesh && isosurface::canExtract(*m_currentMesh);
+    return m_currentMesh && isosurface::canExtract(*m_currentMesh, m_currentField);
 }
 
 void IsosurfaceController::setCurrentMesh(std::shared_ptr<const RenderMesh> mesh,
@@ -50,12 +50,15 @@ void IsosurfaceController::setIsovalue(float v, float lo, float hi) {
 }
 
 void IsosurfaceController::reset(float dataMin, float dataMax) {
+    const bool wasOn = m_showIsosurface;
     m_showIsosurface = false;
     m_isovalue = (dataMin + dataMax) * 0.5f;
     ++m_loadToken;
     m_watcher.waitForFinished();
     m_renderer.setPendingIsosurface(nullptr);
-    emit showIsosurfaceChanged(false);
+    if (wasOn) {
+        emit showIsosurfaceChanged(false);
+    }
     emit isovalueChanged(m_isovalue);
 }
 
@@ -66,10 +69,11 @@ void IsosurfaceController::clear() {
     m_currentMesh.reset();
     m_currentField.clear();
     m_renderer.setPendingIsosurface(nullptr);
+    emit displayDirty();
 }
 
 void IsosurfaceController::recompute() {
-    if (!m_showIsosurface || !m_currentMesh || !isosurface::canExtract(*m_currentMesh)) {
+    if (!m_showIsosurface || !m_currentMesh || !isosurface::canExtract(*m_currentMesh, m_currentField)) {
         m_renderer.setPendingIsosurface(nullptr);
         emit displayDirty();
         return;

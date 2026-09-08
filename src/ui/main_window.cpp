@@ -1733,53 +1733,50 @@ QWidget* MainWindow::buildAnimationPage() {
     m_animPlayBtn      = animUi.playBtn;
     m_animStepBackBtn  = animUi.stepBackBtn;
     m_animStepFwdBtn   = animUi.stepFwdBtn;
-    m_animSlider       = animUi.frameSlider;
-    m_animTimeLabel    = animUi.timeLabel;
-    m_animFrameLabel   = animUi.frameLabel;
+    m_animFrameCombo   = animUi.frameCombo;
+    m_animJumpTimeSpin = animUi.jumpTimeSpin;
+    m_animJumpTimeBtn  = animUi.jumpTimeBtn;
+    m_animFpsSpin      = animUi.fpsSpin;
+    m_animLoopFromSpin = animUi.loopFromSpin;
+    m_animLoopToSpin   = animUi.loopToSpin;
+    m_animLoopRangeCb  = animUi.loopRangeCb;
     m_animStatusLabel  = animUi.statusLabel;
     m_animSequenceLabel = animUi.sequenceLabel;
     m_animLoopCb       = animUi.loopCb;
-    m_animFpsSpin      = animUi.fpsSpin;
     m_animScaleCombo   = animUi.scaleCombo;
     m_animExportBtn    = animUi.exportBtn;
+    m_animBufferBar    = animUi.bufferBar;
 
     // Transport
     connect(m_animPlayBtn, &QPushButton::clicked, ctrl, &AnimationController::togglePlay);
     connect(m_animStepBackBtn, &QToolButton::clicked, ctrl, &AnimationController::stepBackward);
     connect(m_animStepFwdBtn, &QToolButton::clicked, ctrl, &AnimationController::stepForward);
     connect(m_animLoopCb, &QCheckBox::toggled, ctrl, &AnimationController::setLoop);
-    connect(m_animFpsSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            ctrl, &AnimationController::setFps);
     connect(m_animScaleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             [this](int idx) { m_settings->setAnimScaleGlobal(idx == 0); });
-
-    // Timeline scrubbing: debounce dragging to avoid queue churn (see review 5.5).
-    // sliderMoved fires only on user drag (not programmatic setValue), so we
-    // coalesce rapid drags with a 50ms single-shot timer. Clicks on the track
-    // (valueChanged without drag) seek immediately; release seeks to final.
-    m_animSeekDebounce.setSingleShot(true);
-    m_animSeekDebounce.setInterval(50);
-    connect(&m_animSeekDebounce, &QTimer::timeout, this, [this]() {
-        if (m_pendingSeekFrame >= 0) {
-            m_settings->anim()->seek(m_pendingSeekFrame);
-            m_pendingSeekFrame = -1;
-        }
+    connect(m_animFrameCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int idx) { if (idx >= 0) m_settings->anim()->seek(idx); });
+    connect(m_animFpsSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) {
+                m_settings->anim()->setSpeedMultiplier(1.0);
+                m_settings->anim()->setFps(v);
+            });
+    connect(m_animJumpTimeBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_animJumpTimeSpin) return;
+        m_settings->anim()->seekToTime(m_animJumpTimeSpin->value());
     });
-    connect(m_animSlider, &QSlider::sliderMoved, this, [this](int v) {
-        m_pendingSeekFrame = v;
-        m_animSeekDebounce.start();
-    });
-    connect(m_animSlider, &QSlider::sliderReleased, this, [this]() {
-        m_animSeekDebounce.stop();
-        m_pendingSeekFrame = -1;
-        m_settings->anim()->seek(m_animSlider->value());
-    });
-    connect(m_animSlider, &QSlider::valueChanged, this, [this](int v) {
-        if (!m_animSlider->isSliderDown()) {
-            // Track click (programmatic setValue is blocked in refreshAnimationPage)
-            m_settings->anim()->seek(v);
-        }
-    });
+    connect(m_animJumpTimeSpin, &QDoubleSpinBox::returnPressed, this,
+            [this]() { if (m_animJumpTimeBtn) m_animJumpTimeBtn->click(); });
+    connect(m_animLoopFromSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [this](int from) {
+                m_settings->anim()->setLoopRange(from, m_animLoopToSpin->value());
+            });
+    connect(m_animLoopToSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [this](int to) {
+                m_settings->anim()->setLoopRange(m_animLoopFromSpin->value(), to);
+            });
+    connect(m_animLoopRangeCb, &QCheckBox::toggled, this,
+            [this](bool v) { m_settings->anim()->setLoopRangeActive(v); });
 
     // Open a .pvd straight from the page.
     connect(animUi.openPvdBtn, &QPushButton::clicked, this, [this]() {
@@ -1807,17 +1804,22 @@ void MainWindow::refreshAnimationPage() {
     m_animStepBackBtn->setEnabled(has);
     m_animStepFwdBtn->setEnabled(has);
     m_animLoopCb->setEnabled(has);
-    m_animFpsSpin->setEnabled(has);
     m_animScaleCombo->setEnabled(has);
-    m_animSlider->setEnabled(has);
+    m_animFrameCombo->setEnabled(has);
+    m_animJumpTimeSpin->setEnabled(has);
+    m_animJumpTimeBtn->setEnabled(has);
+    m_animFpsSpin->setEnabled(has);
+    m_animLoopFromSpin->setEnabled(has);
+    m_animLoopToSpin->setEnabled(has);
+    m_animLoopRangeCb->setEnabled(has);
     m_animExportBtn->setEnabled(has);
 
     if (!has) {
         m_animSequenceLabel->setText("No sequence loaded");
         m_animStatusLabel->setText(QString());
-        m_animFrameLabel->setText("Frame —");
-        m_animTimeLabel->setText("t = —");
         m_animPlayBtn->setText("Play");
+        m_animFrameCount = -1;
+        if (m_animFrameCombo) m_animFrameCombo->clear();
         return;
     }
 
@@ -1825,32 +1827,64 @@ void MainWindow::refreshAnimationPage() {
     m_animLoopCb->blockSignals(true);
     m_animLoopCb->setChecked(ctrl->loop());
     m_animLoopCb->blockSignals(false);
-    m_animFpsSpin->blockSignals(true);
-    m_animFpsSpin->setValue(ctrl->fps());
-    m_animFpsSpin->blockSignals(false);
     m_animScaleCombo->blockSignals(true);
     m_animScaleCombo->setCurrentIndex(m_settings->getAnimScaleGlobal() ? 0 : 1);
     m_animScaleCombo->blockSignals(false);
 
     const int n = ctrl->frameCount();
-    m_animSlider->blockSignals(true);
-    m_animSlider->setRange(0, std::max(0, n - 1));
-    m_animSlider->setValue(std::clamp(ctrl->currentFrame(), 0, std::max(0, n - 1)));
-    m_animSlider->blockSignals(false);
+    if (n != m_animFrameCount) {
+        m_animFrameCount = n;
+        m_animFrameCombo->blockSignals(true);
+        m_animFrameCombo->clear();
+        for (int i = 0; i < n; ++i) {
+            const double t = ctrl->frameTime(i);
+            m_animFrameCombo->addItem(
+                QString("Frame %1 / %2  [t = %3 s]").arg(i + 1).arg(n).arg(t, 0, 'f', 4));
+        }
+        m_animFrameCombo->blockSignals(false);
+    }
+    m_animFrameCombo->blockSignals(true);
+    m_animFrameCombo->setCurrentIndex(std::clamp(ctrl->currentFrame(), 0, std::max(0, n - 1)));
+    m_animFrameCombo->blockSignals(false);
 
-    const int cur = ctrl->currentFrame();
-    m_animFrameLabel->setText((cur >= 0)
-        ? QString("Frame %1 / %2").arg(cur + 1).arg(n)
-        : QString("Frame — / %1").arg(n));
-    m_animTimeLabel->setText(QString("t = %1 s").arg(ctrl->currentTime(), 0, 'f', 3));
+    m_animJumpTimeSpin->blockSignals(true);
+    m_animJumpTimeSpin->setMaximum(n > 0 ? ctrl->frameTime(n - 1) * 1.01 : 1000.0);
+    m_animJumpTimeSpin->setValue(ctrl->currentTime());
+    m_animJumpTimeSpin->blockSignals(false);
+
+    m_animFpsSpin->blockSignals(true);
+    m_animFpsSpin->setValue(ctrl->fps());
+    m_animFpsSpin->blockSignals(false);
+
+    m_animLoopFromSpin->blockSignals(true);
+    m_animLoopToSpin->blockSignals(true);
+    m_animLoopFromSpin->setRange(0, std::max(0, n - 1));
+    m_animLoopToSpin->setRange(0, std::max(0, n - 1));
+    m_animLoopFromSpin->setValue(ctrl->loopRangeStart());
+    m_animLoopToSpin->setValue(ctrl->loopRangeEnd());
+    m_animLoopFromSpin->blockSignals(false);
+    m_animLoopToSpin->blockSignals(false);
+
+    m_animLoopRangeCb->blockSignals(true);
+    m_animLoopRangeCb->setChecked(ctrl->loopRangeActive());
+    m_animLoopRangeCb->blockSignals(false);
+
     m_animSequenceLabel->setText(ctrl->sequenceName());
 
     if (ctrl->isBuffering()) {
         m_animStatusLabel->setText("Buffering…");
         m_animStatusLabel->setStyleSheet("color: #FFAA44;");
+        if (m_animBufferBar) {
+            m_animBufferBar->setEnabled(true);
+            m_animBufferBar->setValue(static_cast<int>(ctrl->bufferingProgress() * 1000));
+        }
     } else {
         m_animStatusLabel->setText(QString());
         m_animStatusLabel->setStyleSheet(QString());
+        if (m_animBufferBar) {
+            m_animBufferBar->setEnabled(false);
+            m_animBufferBar->setValue(0);
+        }
     }
 }
 

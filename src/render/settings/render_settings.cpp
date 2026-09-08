@@ -38,6 +38,17 @@ RenderSettings::RenderSettings(QObject* parent)
             this, &RenderSettings::onAnimationFrame);
     connect(&m_animController, &AnimationController::errorOccurred,
             this, [this](const QString& msg) { setStatus(msg); });
+    // Deferred isosurface refresh: while playing we set m_pendingIsosurfaceRefresh
+    // instead of launching marching-cubes per frame. On pause/stop flush it.
+    connect(&m_animController, &AnimationController::stateChanged,
+            this, [this]() {
+                if (m_pendingIsosurfaceRefresh && !m_animController.isPlaying()
+                    && m_state.showIsosurface && m_meshData.loadedMesh) {
+                    m_pendingIsosurfaceRefresh = false;
+                    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.activeScalarName);
+                    m_isoController.recompute();
+                }
+            });
 
     // IsosurfaceController signal -> RenderSettings m_state update + signal.
     connect(&m_isoController, &IsosurfaceController::showIsosurfaceChanged,
@@ -804,9 +815,10 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     // mid-sequence field switch, expand-only afterwards. Per-frame mode
     // rescales to each frame's own extent.
     float mn = 0.0f, mx = 1.0f;
-    const bool haveRange =
-        FieldResolver::scalarData(*mesh, m_state.activeScalarName, mn, mx) != nullptr;
-    if (!haveRange) { mn = 0.0f; mx = 1.0f; }
+    const std::vector<float>* activeFieldData =
+        FieldResolver::scalarData(*mesh, m_state.activeScalarName, mn, mx);
+    const bool haveRange = activeFieldData != nullptr;
+    if (!haveRange) { mn = 0.0f; mx = 1.0f; activeFieldData = nullptr; }
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
 
     // Reseeding on a mid-sequence field switch lives inside advance(): expanding
@@ -834,8 +846,16 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     m_state.scalarMin = effMin;
     m_state.scalarMax = effMax;
 
-    // Isosurface follows the animated mesh (debounced async extraction).
+    // Isosurface follows the animated mesh — but defer while playing to avoid
+    // O(numCells) marching-cubes per frame (would queue overlapping async
+    // extractions at fps rate). The surface refreshes on the next paused frame
+    // or when playback stops (see stateChanged handler below).
     m_isoController.setCurrentMesh(mesh, m_state.activeScalarName);
+    if (m_state.showIsosurface && !m_animController.isPlaying()) {
+        m_isoController.recompute();
+    } else if (m_state.showIsosurface && m_animController.isPlaying()) {
+        m_pendingIsosurfaceRefresh = true;
+    }
 
     // Phase 1.1: scalar-only fast path for fixed-mesh animations.
     // Compare the incoming frame against the mesh the GPU last received
@@ -852,29 +872,38 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         && prevMesh->gridDimZ == mesh->gridDimZ) {
         topologyUnchanged = true;
     }
+    auto makePayload = [&](const std::vector<float>* src) -> std::shared_ptr<const std::vector<float>> {
+        if (!src) return nullptr;
+        // Avoid O(N) copy for stored point/cell scalars: alias mesh ownership.
+        // Derived scalars (_magnitude/_X/_Y/_Z) live in thread_local cache, so must copy.
+        const std::string& nm = m_state.activeScalarName;
+        bool storedInMesh = false;
+        if (mesh->attributes) {
+            if (mesh->attributes->pointScalars.find(nm) != mesh->attributes->pointScalars.end()) storedInMesh = true;
+            else if (mesh->attributes->cellScalars.find(nm) != mesh->attributes->cellScalars.end()) storedInMesh = true;
+        }
+        if (!storedInMesh && !mesh->scalars.empty() && nm == mesh->scalarName) storedInMesh = true;
+        if (storedInMesh) {
+            // aliasing shared_ptr keeps mesh alive without copy
+            return std::shared_ptr<const std::vector<float>>(mesh, src);
+        }
+        return std::make_shared<const std::vector<float>>(*src);
+    };
     if (topologyUnchanged && !(m_state.meshHasVectors || m_state.meshHasCellVectors)) {
         // Only scalars (and derived) changed — re-upload SBO (+ volume texture).
-        float rmn, rmx;
-        if (auto* d = FieldResolver::scalarData(*mesh, m_state.activeScalarName, rmn, rmx)) {
-            auto payload = std::make_shared<const std::vector<float>>(*d);
+        // Reuse activeFieldData captured above to avoid second O(N) scan.
+        if (activeFieldData) {
+            auto payload = makePayload(activeFieldData);
             m_renderer.markScalarDirty(payload);
             if (mesh->hasVolumeData()) {
                 m_renderer.markVolumeDirty(mesh);
-                // Renderer consumes volumeDirty and uploads via
-                // uploadVolumeFromScalarDirty with the new mesh's dims.
             }
         }
     } else {
         // Full upload for topology-changing frames (adaptive mesh, first frame)
         m_renderer.setPendingMesh(mesh);
-        // buildMeshGL only creates the SBO when renderMesh.scalars is non-empty.
-        // Derived scalars are computed on-the-fly and are not stored in the mesh,
-        // so the SBO would be left empty. Upload the active scalar explicitly
-        // so colormapping works for derived fields (and for raw fields when
-        // the active scalar differs from renderMesh.scalars).
-        float rmn, rmx;
-        if (auto* d = FieldResolver::scalarData(*mesh, m_state.activeScalarName, rmn, rmx)) {
-            auto payload = std::make_shared<const std::vector<float>>(*d);
+        if (activeFieldData) {
+            auto payload = makePayload(activeFieldData);
             m_renderer.markScalarDirty(payload);
             if (mesh->hasVolumeData()) {
                 m_renderer.markVolumeDirty(mesh);

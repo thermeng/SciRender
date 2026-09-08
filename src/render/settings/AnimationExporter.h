@@ -32,6 +32,7 @@ struct AnimationExportConfig {
     int height = 1080;
     int samples = 4;
     bool transparent = false;
+    int timeoutMs = 30000; // per-frame load timeout (0 = infinite)
 };
 
 class AnimationExporter : public QObject {
@@ -64,4 +65,5 @@ private:
     std::atomic_bool m_cancelRequested { false };
     bool m_exporting = false;
     QString m_error;
+    int m_timeoutMs = 30000;
 };

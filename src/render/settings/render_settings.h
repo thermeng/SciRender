@@ -1005,6 +1005,8 @@ private:
     // loadMesh()/clearMeshes() so a new sequence re-initializes scalar range
     // and isosurface bounds on its first frame.
     bool m_animSequenceActive = false;
+    // Deferred isosurface refresh while playing — avoids O(numCells) per tick.
+    bool m_pendingIsosurfaceRefresh = false;
     // Colormap range across frames: whole-sequence union (default) or
     // per-frame rescale. Rules live in FieldResolver::AnimRangeState.
     FieldResolver::AnimRangeState m_animRange;

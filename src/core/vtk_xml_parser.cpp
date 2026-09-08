@@ -1119,7 +1119,11 @@ private:
             if (dY <= 0) dY = 1;
             if (dZ <= 0) dZ = 1;
             vtk_common::generateStructuredGridSurface(mesh, dX, dY, dZ);
-            globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
+            if (!cellScalarsStorage.empty() || !cellVectorsStorage.empty()) {
+                globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
+            } else {
+                globalCellToVertices.clear();
+            }
         } else if (datasetType == "IMAGEDATA") {
             int dX = wholeExtent[1] - wholeExtent[0] + 1;
             int dY = wholeExtent[3] - wholeExtent[2] + 1;
@@ -1143,7 +1147,14 @@ private:
                 mesh.vertices = points;
             }
             vtk_common::generateStructuredGridSurface(mesh, dX, dY, dZ);
-            globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
+            // Volume cells are only needed for cell-data extrapolation / cell vectors.
+            // For point-data-only IMAGEDATA (common animation case) this is ~47k
+            // vectors of 8 ints per frame (~1.5 MB + overhead) wasted.
+            if (!cellScalarsStorage.empty() || !cellVectorsStorage.empty()) {
+                globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
+            } else {
+                globalCellToVertices.clear();
+            }
             mesh.renderAsPoints = true;
         } else if (datasetType == "RECTILINEARGRID" && !rectX.empty() && !rectY.empty() && !rectZ.empty()) {
             int dX = static_cast<int>(rectX.size());
@@ -1162,7 +1173,11 @@ private:
                 }
             }
             vtk_common::generateStructuredGridSurface(mesh, dX, dY, dZ);
-            globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
+            if (!cellScalarsStorage.empty() || !cellVectorsStorage.empty()) {
+                globalCellToVertices = vtk_common::generateStructuredGridCells(dX, dY, dZ);
+            } else {
+                globalCellToVertices.clear();
+            }
         } else if (datasetType == "POLYDATA") {
             mesh.vertices = points;
             if (!polys.empty()) {
@@ -1377,6 +1392,7 @@ RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes) {
     RenderMesh merged;
     uint32_t indexBase = 0;
     size_t maxVectorCount = 0;
+    size_t maxCellVectorCount = 0;
 
     for (const RenderMesh& m : meshes) {
         size_t vStart = merged.vertices.size();
@@ -1398,7 +1414,7 @@ RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes) {
 
         if (!m.scalars.empty()) {
             merged.scalars.insert(merged.scalars.end(), m.scalars.begin(), m.scalars.end());
-            if (m.scalarName.empty()) merged.scalarName = m.scalarName;
+            if (!m.scalarName.empty() && merged.scalarName.empty()) merged.scalarName = m.scalarName;
         }
         for (const auto& name : m.availableScalarNames) {
             merged.availableScalarNames.push_back(name);
@@ -1417,6 +1433,26 @@ RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes) {
         }
         maxVectorCount = std::max(maxVectorCount, m.pointVectorCount);
 
+        if (!m.cellVectorsData.empty()) {
+            size_t cellStart = merged.cellVectorsData.size();
+            merged.cellVectorsData.insert(merged.cellVectorsData.end(),
+                                           m.cellVectorsData.begin(), m.cellVectorsData.end());
+            for (const auto& [name, offset] : m.cellVectorOffset) {
+                merged.cellVectorOffset[name] = cellStart + offset;
+            }
+        }
+        for (const auto& name : m.availableCellVectorNames) {
+            if (std::find(merged.availableCellVectorNames.begin(), merged.availableCellVectorNames.end(), name)
+                == merged.availableCellVectorNames.end()) {
+                merged.availableCellVectorNames.push_back(name);
+            }
+        }
+        maxCellVectorCount = std::max(maxCellVectorCount, m.cellVectorCount);
+        if (!m.cellVectorName.empty() && merged.cellVectorName.empty())
+            merged.cellVectorName = m.cellVectorName;
+        if (!m.vectorName.empty() && merged.vectorName.empty())
+            merged.vectorName = m.vectorName;
+
         if (!m.datasetType.empty() && merged.datasetType.empty()) {
             merged.datasetType = m.datasetType;
         }
@@ -1429,6 +1465,7 @@ RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes) {
     }
 
     merged.pointVectorCount = maxVectorCount;
+    merged.cellVectorCount = maxCellVectorCount;
 
     // Rebase per-piece sharp-edge split maps into the merged vertex space.
     // Pieces without a map contribute identity entries so the merged map is
@@ -1498,5 +1535,6 @@ RenderMesh mergeRenderMeshes(const std::vector<RenderMesh>& meshes) {
 
     mesh_utils::computeBounds(merged);
     merged.sourcePointCount = static_cast<int>(merged.vertices.size() / 3);
+    mesh_utils::finalizeGeometrySignatures(merged);
     return merged;
 }

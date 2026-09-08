@@ -29,22 +29,14 @@ static std::string resolvePvdPath(const std::string& pvdPath, const std::string&
 }
 
 std::vector<std::string> PvdSequence::filesForFrame(int i) const {
-    std::vector<std::string> files;
-    if (i < 0 || i >= static_cast<int>(timesteps.size())) return files;
-    const double t = timesteps[i];
-    // Invariant: timesteps[] is built bit-identically from entries[].timestep
-    // (pvd_parser.cpp:127-130), so exact double equality is intentional here.
-    // Any future change that computes t differently (rounding, normalization) must
-    // preserve bit identity or switch to an epsilon/index-based lookup.
-    // Defensive assert: timesteps must be sorted unique and sourced from entries.
-    for (const PvdEntry& e : entries) {
-        if (e.timestep == t) {
-            files.push_back(e.file);
-        } else if (!files.empty()) {
-            break; // sorted: we have passed the group for time t
-        }
-    }
-    return files;
+    if (i < 0 || i >= static_cast<int>(frameFiles.size())) return {};
+    return frameFiles[static_cast<size_t>(i)];
+}
+
+const std::vector<std::string>& PvdSequence::filesForFrameRef(int i) const {
+    static const std::vector<std::string> kEmpty;
+    if (i < 0 || i >= static_cast<int>(frameFiles.size())) return kEmpty;
+    return frameFiles[static_cast<size_t>(i)];
 }
 
 PvdSequence parsePVD(const std::string& filePath, PvdParseDiagnostics* outDiag) {
@@ -159,6 +151,29 @@ PvdSequence parsePVD(const std::string& filePath, PvdParseDiagnostics* outDiag) 
     for (const PvdEntry& e : seq.entries) {
         if (seq.timesteps.empty() || seq.timesteps.back() != e.timestep)
             seq.timesteps.push_back(e.timestep);
+    }
+
+    // Build O(1) per-frame index: single pass over sorted entries, no per-call scan.
+    seq.frameFiles.resize(seq.timesteps.size());
+    if (!seq.timesteps.empty()) {
+        size_t ti = 0;
+        double curT = seq.timesteps[0];
+        for (const PvdEntry& e : seq.entries) {
+            if (e.timestep != curT) {
+                // Advance to matching timestep (entries sorted, so monotonic).
+                while (ti + 1 < seq.timesteps.size() && seq.timesteps[ti + 1] != e.timestep) ++ti;
+                if (ti + 1 < seq.timesteps.size() && seq.timesteps[ti + 1] == e.timestep) {
+                    ++ti;
+                    curT = e.timestep;
+                } else {
+                    // Fallback: linear search for exact bit-identical match (rare).
+                    for (size_t k = 0; k < seq.timesteps.size(); ++k) {
+                        if (seq.timesteps[k] == e.timestep) { ti = k; curT = e.timestep; break; }
+                    }
+                }
+            }
+            seq.frameFiles[ti].push_back(e.file);
+        }
     }
     return seq;
 }
