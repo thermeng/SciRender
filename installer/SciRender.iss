@@ -29,6 +29,8 @@ Source: "..\package\*.dll"; DestDir: "{app}"; Flags: skipifsourcedoesntexist
 Source: "..\package\platforms\*"; DestDir: "{app}\platforms"; Flags: recursesubdirs skipifsourcedoesntexist
 Source: "..\package\styles\*"; DestDir: "{app}\styles"; Flags: recursesubdirs skipifsourcedoesntexist
 Source: "..\package\translations\*"; DestDir: "{app}\translations"; Flags: recursesubdirs skipifsourcedoesntexist
+Source: "..\package\iconengines\*"; DestDir: "{app}\iconengines"; Flags: recursesubdirs skipifsourcedoesntexist
+Source: "..\package\imageformats\*"; DestDir: "{app}\imageformats"; Flags: recursesubdirs skipifsourcedoesntexist
 Source: "..\package\README.md"; DestDir: "{app}"; Flags: skipifsourcedoesntexist
 
 [Icons]
