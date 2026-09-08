@@ -8,10 +8,10 @@
 
 #include <atomic>
 #include <deque>
-#include <map>
 #include <memory>
-#include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "core/mesh_loader.h"
 #include "core/pvd_parser.h"
@@ -58,13 +58,26 @@ public:
     // Frames per second playback rate.
     double fps() const { return m_fps; }
     void setFps(double v);
+    double speedMultiplier() const { return m_speedMultiplier; }
+    void setSpeedMultiplier(double v);
     bool loop() const { return m_loop; }
     void setLoop(bool v);
+    int loopRangeStart() const { return m_loopStart; }
+    int loopRangeEnd() const { return m_loopEnd; }
+    void setLoopRange(int start, int end);
+    bool loopRangeActive() const { return m_loopRangeActive; }
+    void setLoopRangeActive(bool v);
+    double effectiveFps() const { return m_fps * m_speedMultiplier; }
+
+    // Seek to the nearest frame for a given physical time.
+    void seekToTime(double t);
 
     // True while loads are queued/in flight for frames ahead of the playhead.
     bool isBuffering() const {
-        return m_loadInFlight || !m_loadQueue.empty();
+        return !m_inFlights.empty() || !m_loadQueue.empty();
     }
+    // 0..1 progress of the prefetch queue (frames loaded / frames needed).
+    float bufferingProgress() const;
 
 public slots:
     void stepForward();
@@ -107,6 +120,10 @@ private:
     bool m_playing = false;
     bool m_loop = true;
     double m_fps = 8.0;
+    double m_speedMultiplier = 1.0;
+    int m_loopStart = 0;
+    int m_loopEnd = -1;
+    bool m_loopRangeActive = false;
 
     // Continuous playhead in frame units; m_displayFrame is the integer frame
     // actually shown (last successfully published one).
@@ -119,28 +136,34 @@ private:
 
     // Bounded frame cache keyed by unique-timestep index. Entries are never
     // null: null MeshPtr values are a bug and are dropped defensively on sight.
-    std::map<int, MeshPtr> m_cache;
+    // unordered_map gives O(1) lookup vs map's O(log N) — hot on every tick.
+    std::unordered_map<int, MeshPtr> m_cache;
     std::unordered_map<int, qint64> m_lastAccess; // LRU timestamp per frame
     std::unordered_map<int, size_t> m_cacheBytesMap; // per-frame bytes for accurate budget
     qint64 m_accessCounter = 0;
     size_t m_cacheBytes = 0;
-    static constexpr int kPrefetchAhead = 6;
+    static constexpr int kPrefetchAhead = 8;
     static constexpr int kKeepBehind = 2;
-    static constexpr int kCacheCap = 10;
+    static constexpr int kCacheCap = 14;
     static_assert(kCacheCap > kPrefetchAhead + kKeepBehind + 1,
                   "kCacheCap must exceed prefetch window (kKeepBehind + 1 + kPrefetchAhead) to avoid hard-cap eviction inside the window");
     static constexpr size_t kCacheBudgetBytes = 512 * 1024 * 1024; // 512 MB
 
-    // Serial loader: one in-flight parse + FIFO queue of pending indices.
-    // Single QFutureWatcher: pumpQueue is guarded by m_loadInFlight so only one
-    // parse runs at a time and setFuture() never overwrites a running future
-    // (except via clear()/loadPvd(), where the generation guard drops the result).
-    QFutureWatcher<FrameLoadResult> m_watcher;
+    // Concurrent loader: up to kMaxConcurrent parses in flight via QtConcurrent.
+    // Generation guard drops stale results after loadPvd/clear.
+    static constexpr int kMaxConcurrent = 3;
+    struct InFlight {
+        QFutureWatcher<FrameLoadResult>* watcher = nullptr;
+        int index = -1;
+        uint64_t gen = 0;
+    };
+    std::vector<InFlight> m_inFlights;
     std::deque<int> m_loadQueue;
-    std::set<int> m_queuedSet;     // dedup mirror of m_loadQueue
-    bool m_loadInFlight = false;
-    int m_inFlightIndex = -1;      // frame index of the in-flight parse
-    uint64_t m_inFlightGen = 0;    // generation of the in-flight parse
+    std::unordered_set<int> m_queuedSet;     // dedup mirror of m_loadQueue — O(1) vs set's O(log N)
+    // Legacy single-flight compat helpers
+    bool m_loadInFlight = false; // mirrors !m_inFlights.empty() for isBuffering
+    int m_inFlightIndex = -1;      // for debugging
+    uint64_t m_inFlightGen = 0;
 
     // Generation counter for stale-result guarding across seek()/loadPvd().
     // loadPvd()/clear() bump it and drain the queue; results whose captured

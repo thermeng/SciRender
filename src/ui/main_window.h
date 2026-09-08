@@ -31,6 +31,7 @@
 #include <QList>
 #include <QVector>
 #include <QTimeLine>
+#include <QProgressBar>
 
 #include "viewport_widget.h"
 #include "render/settings/render_settings.h"
@@ -145,15 +146,20 @@ private:
     QPushButton* m_animPlayBtn = nullptr;
     QToolButton* m_animStepBackBtn = nullptr;
     QToolButton* m_animStepFwdBtn = nullptr;
-    QSlider* m_animSlider = nullptr;
-    QLabel* m_animTimeLabel = nullptr;
-    QLabel* m_animFrameLabel = nullptr;
+    QComboBox* m_animFrameCombo = nullptr;
+    QDoubleSpinBox* m_animJumpTimeSpin = nullptr;
+    QPushButton* m_animJumpTimeBtn = nullptr;
+    QDoubleSpinBox* m_animFpsSpin = nullptr;
+    QSpinBox* m_animLoopFromSpin = nullptr;
+    QSpinBox* m_animLoopToSpin = nullptr;
+    QCheckBox* m_animLoopRangeCb = nullptr;
     QLabel* m_animStatusLabel = nullptr;
     QLabel* m_animSequenceLabel = nullptr;
     QCheckBox* m_animLoopCb = nullptr;
-    QDoubleSpinBox* m_animFpsSpin = nullptr;
     QComboBox* m_animScaleCombo = nullptr;
     QPushButton* m_animExportBtn = nullptr;
+    QProgressBar* m_animBufferBar = nullptr;
+    int m_animFrameCount = -1;
     void refreshAnimationPage();
 
     // View & Display page checkboxes (synced with toolbar / keyboard shortcuts)
@@ -278,8 +284,6 @@ private:
     QTimer m_autoRotateTimer;
     QTimer m_fpsTimer;
     QTimer m_particleTimer;
-    QTimer m_animSeekDebounce;
-    int m_pendingSeekFrame = -1;
 
     // Dialogs
     QFileDialog* m_openDialog = nullptr;

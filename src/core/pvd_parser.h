@@ -28,6 +28,9 @@ struct PvdSequence {
     std::vector<PvdEntry> entries;   // sorted by (timestep, part)
     std::vector<double> timesteps;   // unique, ascending — bit-identical to entries[].timestep
     std::string sourcePath;          // the .pvd itself
+    // Precomputed per-frame file lists for O(1) lookup (built in parsePVD).
+    // frameFiles[i] == files for timesteps[i] in part order.
+    std::vector<std::vector<std::string>> frameFiles;
 
     int frameCount() const { return static_cast<int>(timesteps.size()); }
     double frameTime(int i) const {
@@ -35,9 +38,10 @@ struct PvdSequence {
         return (i >= 0 && i < static_cast<int>(timesteps.size())) ? timesteps[i] : 0.0;
     }
     // Files (parts) belonging to unique-timestep index i, in `part` order.
-    // Uses exact double equality against timesteps[i]; safe because timesteps
-    // is built bit-identically from entries[].timestep (no rounding).
+    // O(1) via precomputed frameFiles index.
     std::vector<std::string> filesForFrame(int i) const;
+    // Zero-copy accessor — avoids copying the string vector on hot paths.
+    const std::vector<std::string>& filesForFrameRef(int i) const;
 };
 
 // Diagnostics for UI-visible error reporting (replaces invisible std::cerr).

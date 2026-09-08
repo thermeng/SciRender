@@ -37,10 +37,10 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                              const std::vector<float>& isovalues,
                              const std::string& field = "");
 
-// True when the mesh carries the structured-grid data the extractor needs.
-// Delegates to RenderMesh::hasVolumeGrid() (gridDim > 1 per axis) and
-// RenderMesh::hasScalarData() (mesh.scalars or attributes->pointScalars),
+// True when the mesh carries the structured-grid data the extractor needs,
+// and the requested field (empty = active scalars) resolves to a non-empty
+// per-node array. Delegates to RenderMesh::hasVolumeGrid / hasScalarData,
 // additionally requiring non-empty vertices for interpolation.
-bool canExtract(const RenderMesh& volumeMesh);
+bool canExtract(const RenderMesh& volumeMesh, const std::string& field = "");
 
 } // namespace isosurface
