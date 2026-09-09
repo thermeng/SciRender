@@ -125,6 +125,7 @@ private:
     // Panel header
     QWidget* m_panelHeader = nullptr;
     QLabel* m_panelTitle = nullptr;
+    QToolButton* m_closeBtn = nullptr;
 
     // Section pages
     QWidget* buildLightingPage();
