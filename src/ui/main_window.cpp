@@ -57,7 +57,7 @@
 
 // UI layout constants (mirrors MainWindow private members for use by free helpers)
 
-static constexpr int kSidebarWidth = 220;
+static constexpr int kSidebarWidth = 240;
 static constexpr int m_navWidth = 140;
 static constexpr int kLabelWidth = 72;
 static constexpr int kControlHeight = 24;
@@ -563,12 +563,16 @@ void MainWindow::setupSidebar() {
     m_panelTitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     headerLayout->addWidget(m_panelTitle, 1);
 
-    auto* closeBtn = new QToolButton;
-    closeBtn->setText("\u00D7");
-    closeBtn->setFixedSize(24, 24);
-    closeBtn->setToolTip("Close panel");
-    connect(closeBtn, &QToolButton::clicked, this, [this]() { setSidebarSection(m_activeSection); });
-    headerLayout->addWidget(closeBtn);
+    m_closeBtn = new QToolButton;
+    m_closeBtn->setText("\u00D7");
+    m_closeBtn->setFixedSize(24, 24);
+    m_closeBtn->setToolTip("Close panel");
+    connect(m_closeBtn, &QToolButton::clicked, this, [this]() {
+        if (m_sidebarExpanded) {
+            setSidebarSection(m_activeSection);
+        }
+    });
+    headerLayout->addWidget(m_closeBtn);
 
     rightLayout->addWidget(m_panelHeader);
     m_panelHeader->setVisible(false);
@@ -2329,14 +2333,17 @@ void MainWindow::setSidebarSection(int section) {
         m_sectionStack->setVisible(false);
         m_panelHeader->setVisible(false);
         m_navList->clearSelection();
-    } else {
-        m_activeSection = section;
+        m_navList->setCurrentRow(-1);
+    } else if (section >= 0) {
         m_sidebarExpanded = true;
         m_sectionStack->setCurrentIndex(section);
         m_sectionStack->setVisible(true);
         m_panelHeader->setVisible(true);
         m_panelTitle->setText(QString::fromUtf8(sectionNames[section]));
+        m_navList->blockSignals(true);
         m_navList->setCurrentRow(section, QItemSelectionModel::ClearAndSelect);
+        m_navList->blockSignals(false);
+        m_activeSection = section;
     }
     m_settings->setSidebarWidth(m_sidebarExpanded ? m_navWidth + kSidebarWidth : m_navWidth);
     m_sidebarDock->setFixedWidth(m_sidebarExpanded ? m_navWidth + kSidebarWidth : m_navWidth);
