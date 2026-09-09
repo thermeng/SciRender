@@ -27,15 +27,15 @@ Qt 6 + OpenGL 4.6 scientific rendering application supporting the VTK XML format
 (`.vtu`, `.vts`, `.vti`, `.vtp`, `.vtr`, `.vtm` multi-block), VTK legacy
 (`.vtk`), STL, and OBJ files. Maps scalar data to surface colormaps, draws
 instanced vector-field arrow glyphs, integrated streamlines, particle traces,
-volume ray-marching, and isosurface extraction via marching cubes. Plays
-ParaView `.pvd` time-series collections as streamed animations and exports
-them to MJPEG AVI videos or PNG frame sequences.
+Line Integral Convolution (LIC), volume ray-marching, and isosurface extraction
+via marching cubes. Plays ParaView `.pvd` time-series collections as streamed
+animations and exports them to MJPEG AVI videos or PNG frame sequences.
 
-Features include a 4-point PBR-calibrated lighting kit, axis triad overlay
-with pole-view handling, axis-aligned clipping/slicing planes, GPU-compute
-level-of-detail (LOD), depth-peel order-independent transparency, screenshot
-export, and a rich Qt Widgets sidebar with per-page
-control panels.
+Features include a 5-direction PBR-calibrated lighting kit, axis triad overlay
+with pole-view handling, axis-aligned clipping and slice planes, wireframe
+overlay, GPU-compute level-of-detail (LOD), depth-peel order-independent
+transparency (1–8 layers), orthographic/perspective projection, screenshot
+export, and a rich Qt Widgets sidebar with per-page control panels.
 
 ## Download (no build needed)
 
@@ -79,48 +79,94 @@ C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --compiler-runtime package/S
 ## Features
 
 - Loads VTK XML (`.vtu`/`.vts`/`.vti`/`.vtp`/`.vtr`/`.vtm` multiblock),
-  VTK legacy (`.vtk`), STL, and OBJ formats
+  VTK legacy (`.vtk`), STL, and OBJ formats with auto-detected compression
+  (ZLIB/LZ4/LZMA, `UInt32`/`UInt64` headers, `ASCII`/`BINARY`/`APPENDED`
+  encodings, byte-order swap). `.vtm` merges `<DataSet file="..."/>` entries;
+  `.pvd` time-series are streamed via the animation controller, not as a single
+  mesh
 - Scalar surface coloring with GPU colormap textures; per-dataset **surface**
-  tessellation for curvilinear grids (boundary shell, not the full volume)
-- Vector field arrow glyphs with user-controllable density, scaling, magnitude
-  transform (linear/sqrt/log), and placement (vertex or cell-center)
+  tessellation for curvilinear grids (boundary shell, not the full volume).
+  Palettes: Turbo, Viridis, Inferno, CoolWarm, MutedCoolWarm, BWR, Cividis,
+  Grayscale — each with reverse toggle and discrete bands (`0–32`)
+- Vector field arrow glyphs with user-controllable density (stride), scaling,
+  magnitude transform (linear/sqrt/log), and placement (vertex or cell-center).
+  Supports per-vertex and per-cell vector fields; glyph colormap with independent
+  magnitude and per-component (X/Y/Z) fixed-range windows and band counts
+- **Line Integral Convolution (LIC):** dense vector-field texture (`VectorTextureCache`,
+  3D `GL_RGB32F`, up to 4 entries LRU) convolved along streamlines in
+  `surface_lic.frag`. Modes: `vectorVisMode` off/glyphs/LIC, steps `4–128`,
+  step size `0.001–2.0`× diagonal, noise frequency `0.5–64`, grain
+  `64/128/256/512`, enhanced 2-pass, LIC-only (unshaded), integrators
+  Euler/Midpoint/RK4 (default RK4). `licNoiseTex` 3D, `GL_REPEAT`
 - **Streamline integration** with configurable step size, max steps, direction
-  (forward/backward/both), seeding modes (volume/surface/plane), jitter, ribbon
-  width, taper factor, and arrowheads
-- **Particle traces** with count, speed, and size controls
-- **Volume ray-marching** with step size, opacity, and colormap controls
-- **Isosurface extraction** via marching cubes with debounced async computation;
-  isosurface surfaces are shaded by the colormap LUT with PBR lighting and
-  participate in depth-peel transparency and LOD
+  (forward/backward/both), seeding modes (volume/surface/plane), plane counts
+  U/V, plane position, jitter, ribbon width, taper factor, opacity, PBR shading
+  (ambient/diffuse/specular/power), color modes (solid/magnitude/component X/Y/Z)
+  and arrowheads (spacing/size)
+- **Particle traces** with count, speed, size, and additive blending controls
+- **Volume ray-marching** with step size, opacity, and colormap controls; 3D
+  `GL_R32F` textures via `VolumeTextureCache` with PBO double-buffering and
+  Beer-Lambert opacity
+- **Volume slice overlay:** up to 3 axis-aligned textured quads (X/Y/Z) each with
+  independent position (`0–1`), opacity, scalar field, show-colorbar toggle,
+  and slice colormap (palette/reverse/bands + fixed-range window)
+- **Isosurface extraction** via marching cubes with debounced (150 ms) async
+  computation; isosurface surfaces are shaded by the colormap LUT with PBR
+  lighting and participate in depth-peel transparency and LOD (own LOD path)
 - **Colorbar legend:** GPU-composited colorbar overlay — sharp, borderless
   gradient bar (optional rounded background panel) + tick labels + title
   rendered into the viewport FBO so it is captured in screenshots.
   User-controllable tick count (`colorbarTicks`, 2–20) across the live data range.
-  Supports independent colorbars for scalar, vector-magnitude, streamline,
-  volume, and volume-slice data; palette, reverse, fixed-range window and
-  discrete bands are configured per colorbar via right-click → **Style…** dialog
-- **Lighting system:** 4-point light kit (key/fill/back/head) that tracks the
-  camera, key intensity + K-ratios (key/fill/back/head), kit-wide warm tint,
-  PBR material parameters (roughness, metallic, ambient/diffuse/specular)/.
-- **Slicing & clipping:** axis-aligned clip planes and slice planes with
-  bounds-aware sliders, per-axis invert toggles
+  Independent colorbars for scalar, vector-magnitude/component, streamline
+  magnitude/component, volume, and volume-slice data. Palette, reverse,
+  fixed-range window and discrete bands are configured per colorbar via
+  right-click → **Style…** dialog. Bar position/orientation/visibility are
+  draggable and persisted per field; font family/bold/italic, scale, tick scale,
+  length/thickness, and panel opacity are global style controls
+- **Lighting system:** 5-direction light kit (key + fill + 2×back + head) that
+  tracks the camera; key intensity, 3 K-ratios (`KF`/`KB`/`KH` relative to key),
+  per-light azimuth/elevation, kit-wide warm tint (0 cold blue → 0.5 white →
+  1 warm amber), 3 presets (Studio/CADFlat/Soft) and PBR material parameters
+  (roughness, metallic, ambient/diffuse/specular)
+- **Clipping:** axis-aligned clip planes with master `clipEnabled`, per-axis
+  `clipEnabledX/Y/Z`, height sliders, per-axis invert toggles, and
+  `crinkleClipMode` (geometry-shader clip vs fragment discard)
+- **Slicing:** 3 independent slice planes (X/Y/Z) with bounds-aware sliders
+  (see above) — distinct from clipping which discards geometry, slicing draws
+  a textured quad
+- **Scalar filter:** threshold filter (`filterMin`/`filterMax` + `filterEnabled`)
+  via fragment discard, separate from clip planes
 - **Axis triad overlay:** X/Y/Z coordinate triad in a corner viewport tracking
   camera rotation. Anti-aliased clip-space axis lines, solid-color conical tips,
   solid origin disc, and texture-atlas text labels. Handles pole views (±X/±Y/±Z)
-  with end-on disc markers and label offset to avoid overlap
+  with end-on disc markers and label offset to avoid overlap. Configurable
+  corner (4 positions) and size (96/128/160 px footprints), show/hide toggle
 - **Viewport navigation:** left-drag orbit, right-drag pan (middle-drag alias
-  retained), inverted wheel zoom, and triad click-to-snap
+  retained), inverted wheel zoom, triad click-to-snap, fly-to-face animated
+  transitions (400 ms ease-in-out), fit-all isometric framing
 - **Light-direction markers:** visual markers in the gizmo corner showing the
-  key/fill/back/head light directions, tinted by the warm setting
-- **Bounding box overlay:** axis-aligned bounding box (AABB) wireframe
+  5 kit directions, tinted by the warm setting (toggle `showLightMarkers`)
+- **Bounding box overlay:** axis-aligned bounding box (AABB) wireframe toggle
 - **Quality overlays:** degenerate triangle, open-edge, and non-manifold edge
-  visualization with exact vertex welding at 1e-8 tolerance
-- **Screenshot export** (PNG/JPEG/BMP) with optional transparency, arbitrary
-  resolution override, and AA sample presets
+  visualization with exact vertex welding at 1e-8 tolerance and counts/watertight
+  indicator
+- **Wireframe / display:** wireframe overlay (`WireframePass`), flat/smooth shading
+  toggle, cull modes (off/back/front), surface/point toggles, point size/opacity,
+  line width, surface opacity, depth-peel layer count (1–8), orthographic vs
+  perspective projection, auto-rotate
+- **Screenshot export** (PNG/JPEG/BMP) with optional transparency, 5 resolution
+  levels (Current/HD/FHD/2K/4K) and 3 AA presets (0/2/4 samples), colorbar and
+  gizmo are captured
+- **Recent files & Clear Mesh:** MRU list capped at 8 (persisted via `QSettings`);
+  `File → Clear` frees GPU meshes, isosurface, volume/vector caches, LIC noise,
+  streamline pending results, and `FieldResolver` derived-field cache, and resets
+  scalar range (`0–1`), world bounds (`-10–10`, radius `1`), filter windows,
+  and per-pass fixed-range overrides
 - **PVD animation playback:** streams `.pvd` collections through an async,
-  prefetching loader with a bounded LRU frame cache; transport controls
-  (play/pause, step), timeline scrubbing with drag debouncing, FPS rate and
-  loop toggles; fixed-topology sequences take a scalar-only fast upload path
+  prefetching loader (3 concurrent parses, prefetch 8 ahead / keep 2 behind,
+  LRU capped at 14 frames / 512 MB); transport controls (play/pause, step,
+  timeline scrubbing with drag debouncing), FPS rate, loop toggle, speed
+  multiplier; fixed-topology sequences take a scalar-only fast upload path
 - **Animation colormap scaling:** *Whole sequence* holds one grow-only range
   across frames so colors and the colorbar never flicker; *Per frame*
   rescales to each frame's own extent. Ranges always describe the active
@@ -128,25 +174,32 @@ C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --compiler-runtime package/S
   switches mid-sequence
 - **Animation export:** renders the loaded sequence offscreen to an MJPEG
   `.avi` video and/or numbered PNG frames with configurable resolution,
-  JPEG quality, fps, and frame range; encoding overlaps capture on worker
-  threads so exports stay fast regardless of viewport size (playback pauses
-  for the duration)
+  JPEG quality, fps, and frame range (first/last), 30 s timeout; encoding
+  overlaps capture on worker threads so exports stay fast regardless of viewport
+  size (playback pauses for the duration)
 - **Depth-peel transparency** for correct rendering of translucent surfaces
-  (two-layer OIT with separate depth textures)
-- **FPS Head-up Display** (HUD) with smoothed frame-rate counter
-- **Robust mesh loading:** exact vertex deduplication at 1e-8 tolerance,
-  point-cloud support (GL_POINTS rendering), per-vertex or per-cell vector
-  field support, flat/smooth shading toggle, and configurable cull modes
-  (off/back/front)
+  (1–8 layers, default 4, per-layer `GL_DEPTH32F_STENCIL8`/`GL_RGBA8` FBOs,
+  resolution-adaptive capping, UBO-driven composite)
+- **FPS Head-up Display** (HUD) with smoothed frame-rate counter and particles
+  animation time
+- **Robust mesh loading:** sort-based vertex deduplication at `1/4096` tolerance,
+  point-cloud support (`GL_POINTS` rendering via `renderAsPoints`), per-vertex
+  or per-cell vector field support with `cellCenters`, and quality analysis
+  (weld at `1e-8`)
 - **Level-of-Detail (LOD):** GPU compute-shader vertex clustering decimation
-  that activates while the camera is moving, with multi-shell safety and
-  scalar field preservation on the decimated mesh
+  (3 dispatches: `lod.comp`/`lod_output.comp`/`lod_tris.comp`) that activates
+  only while the camera is moving, debounced `0.14 s`, snaps back after
+  `160 ms` settle; scalar field preservation on the decimated mesh.
+  Eligibility: volumetric grids and surface meshes, ≥4000 vertices,
+  `< 0.5×` triangles worthwhile, `kLodMaxCellsPerAxis 128`; multi-shell safety
+  (`≤64` components, within-one-cell merge test)
 
 ### Level of Detail (LOD)
 
-LOD uses a GPU compute shader (vertex clustering) to produce a coarser mesh
-while the camera is in motion, then snaps back to full detail when motion stops.
-It is used only when all of the following hold:
+LOD uses three GPU compute shaders (`lod.comp` / `lod_output.comp` / `lod_tris.comp`,
+HL `lod.comp` vertex clustering) to produce a coarser mesh only while the camera
+is moving, debounced `0.14 s` and snaps back to full detail `160 ms` after motion
+stops. It is used only when all of the following hold:
 
 - **Dataset type:** volumetric grids (`STRUCTURED_GRID`, `RECTILINEAR_GRID`,
   `STRUCTURED_POINTS`) and surface meshes (`STL`, `POLYDATA`,
@@ -155,8 +208,9 @@ It is used only when all of the following hold:
 - **Worthwhile:** the decimated mesh has less than half the original triangles
   (`lodDecimateRatio` = 0.5).
 - **Multi-shell safe:** a single connected solid is always supported. Meshes
-  with multiple disconnected parts are only decimated when the parts are far
-  enough apart that they cannot be merged; otherwise full resolution is used.
+  with multiple disconnected parts (`≤64` components) are only decimated when the
+  parts are farther than one cluster cell (`kLodMaxCellsPerAxis 128`) apart;
+  otherwise full resolution is used. Isosurface meshes have their own LOD path.
 
 ## Layout
 
@@ -164,9 +218,9 @@ It is used only when all of the following hold:
 |------|---------|
 | `src/app/` | Application entry point (`main.cpp`, GPU preference) |
 | `src/core/` | VTK/STL/OBJ parsers, `.pvd` collection parser, mesh loading, mesh-quality analysis, field-name resolution (`FieldResolver`), camera, colormap definitions, isosurface extraction (marching cubes) |
-| `src/render/` | OpenGL renderer, lighting model, mesh/LOD upload, vector glyphs, streamlines, particles, volume pass, colormap manager, colorbar overlay, axis triad, bbox overlay, quality overlay, screenshot capture, depth-peel transparency, animation playback controller + AVI/PNG exporter |
-| `src/shaders/` | GLSL vertex/fragment/compute shaders (mesh, glyph, bbox, streamline, seed, particle, volume, volume slice, quality overlay, LOD compute, depth peel, composite) |
-| `src/ui/` | Qt Widgets main window, sidebar pages (lighting, slicing, view/display, scalar, vectors, streamlines, screenshot, mesh info, volume, animation), animation export dialog, viewport widget, colorbar style dialog with per-colorbar palette/fixed-range (sharp, borderless bar) |
+| `src/render/` | OpenGL renderer, lighting model (`LightingModel`, 5-dir kit), mesh/LOD upload (`MeshGLManager`/`LodScheduler`), vector glyphs, streamlines + `StreamlineController`, particles, volume pass + `VolumeTextureCache`/`VectorTextureCache`, LIC (`surface_lic.frag`), colormap manager, colorbar overlay, axis triad + light markers, bbox/quality overlays, wireframe pass, depth-peel transparency, screenshot capture, animation playback controller + AVI/PNG exporter |
+| `src/shaders/` | GLSL vertex/fragment/geometry/compute shaders — `mesh.{vert,frag,clip.geo}`, `glyph.{vert,frag}`, `wire.{vert,geo,frag}`, `bbox.{vert,frag}`, `streamline.{vert,frag}`, `seed.{vert,frag}`, `particle.{vert,frag}`, `volume.{vert,frag}`, `volume_slice.{vert,frag}`, `quality_overlay.{vert,frag}`, `depth_peel.{vert,frag}`/`composite.{vert,frag}`, `surface_lic.frag`, `pbr_common.glsl`, LOD `lod.comp`/`lod_output.comp`/`lod_tris.comp` |
+| `src/ui/` | Qt Widgets main window, 12 sidebar pages (lighting, clipping, slice planes, volume, scalar, vectors, streamlines, view/display, screenshot, mesh info, animation, isosurface), animation export dialog, viewport widget, colorbar style dialog with per-colorbar palette/fixed-range (sharp, borderless bar), recent-files (8) + Clear Mesh |
 | `tests/` | Standalone regression harnesses — parsers, PVD collections, marching-cubes isosurface, streamline direction, animation range rules — driven by `run_tests.{bat,sh}` |
 | `samples/` | VTK/STL fixture files used by the regression harness |
 | `assets/` | Application icon |
