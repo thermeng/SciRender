@@ -189,6 +189,11 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
 void StreamlineController::cancelAndJoin() {
     m_cancelFlag = true;
     if (m_worker.joinable()) m_worker.join();
+    {
+        std::lock_guard<std::mutex> lock(m_resultMutex);
+        m_pendingResult.reset();
+    }
+    m_streamlineRequestTime = {};
 }
 
 void StreamlineController::shutdown() {

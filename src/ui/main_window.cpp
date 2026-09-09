@@ -2691,7 +2691,7 @@ void MainWindow::connectSettings() {
         applyVolumeControlGating();
     });
     connect(m_settings, &RenderSettings::meshDataUpdated, this, &MainWindow::refreshMeshInfoPage);
-
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshMeshInfoPage);
     // Repopulate field combos when mesh data changes
     connect(m_settings, &RenderSettings::meshDataUpdated, this, [this]() {
         auto scalars = m_settings->getAvailableScalars();
@@ -2812,6 +2812,7 @@ void MainWindow::clearRecentFiles() {
 
 void MainWindow::reloadMesh() {
     if (m_currentFile.isEmpty()) return;
+    if (!m_settings->getHasMeshLoaded()) return;
     m_settings->loadMesh(m_currentFile);
 }
 
@@ -2876,7 +2877,14 @@ void MainWindow::onScreenshotCaptured(const QString& savedPath) {    QTimer::sin
 }
 
 void MainWindow::clearMeshes() {
+    if (m_viewport) {
+        m_viewport->makeCurrent();
+        if (!QOpenGLContext::currentContext()) {
+            qWarning() << "clearMeshes: failed to make GL context current";
+        }
+    }
     m_settings->clearMeshes();
+    if (m_viewport) m_viewport->doneCurrent();
     updateStatusBar();
 }
 

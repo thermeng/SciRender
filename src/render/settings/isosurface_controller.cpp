@@ -65,9 +65,13 @@ void IsosurfaceController::reset(float dataMin, float dataMax) {
 void IsosurfaceController::clear() {
     m_showIsosurface = false;
     ++m_loadToken;
+    if (m_taskToken) m_taskToken->store(m_loadToken);
     m_watcher.waitForFinished();
+    m_watcher.setFuture(QFuture<RenderMesh>());
+    m_taskToken.reset();
     m_currentMesh.reset();
     m_currentField.clear();
+    m_currentField.shrink_to_fit();
     m_renderer.setPendingIsosurface(nullptr);
     emit displayDirty();
 }
