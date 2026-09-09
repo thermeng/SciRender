@@ -930,10 +930,35 @@ void RenderSettings::setQuickBarCollapsed(bool collapsed) {
 void RenderSettings::clearMeshes() {
     m_animController.clear();
     m_animSequenceActive = false;
+    m_animRange.invalidate();
     m_renderer.clearGpuMeshes();
+
+    // Release QFutureWatcher shared state that pins the last MeshLoadResult
+    // (RenderMesh + MeshQuality vectors). Without this, Clear keeps the
+    // previous mesh alive until the next load overwrites the future.
+    if (m_meshWatcher.isRunning()) m_meshWatcher.cancel();
+    m_meshWatcher.setFuture(QFuture<MeshLoadResult>());
+    if (m_taskToken) m_taskToken->store(m_loadToken + 1);
+    m_taskToken.reset();
+    m_loadingPath.clear();
+    m_loadingPath.shrink_to_fit();
+    FieldResolver::clearCache();
+
     m_meshData.loadedMesh.reset();
     m_meshData = MeshData{};
+    // Ensure guiMeta's vectors release capacity (move-assign leaves old
+    // capacity in the temporary; explicit swap guarantees free).
+    {
+        RenderMesh empty;
+        m_meshData.guiMeta = std::move(empty);
+    }
     m_state.streamlineVectorField.clear();
+    m_state.streamlineVectorField.shrink_to_fit();
+    m_state.vectorField.clear();
+    m_state.vectorField.shrink_to_fit();
+    m_state.activeScalarName.clear();
+    m_state.activeScalarName.shrink_to_fit();
+
     m_state.hasMeshLoaded = false;
     m_state.meshHasScalars = false;
     m_state.meshHasVectors = false;
@@ -941,10 +966,55 @@ void RenderSettings::clearMeshes() {
     m_state.showVectors = false;
     m_state.showStreamlines = false;
     m_state.showVolume = false;
+    m_state.meshUseScalarColor = false;
+    m_state.showScalarColorbar = false;
     m_state.slicePlaneEnabled[0] = m_state.slicePlaneEnabled[1] = m_state.slicePlaneEnabled[2] = false;
+    m_state.slicePlaneShowColorbar[0] = m_state.slicePlaneShowColorbar[1] = m_state.slicePlaneShowColorbar[2] = false;
     m_state.sliceScalarName[0].clear();
     m_state.sliceScalarName[1].clear();
     m_state.sliceScalarName[2].clear();
+    m_state.sliceScalarName[0].shrink_to_fit();
+    m_state.sliceScalarName[1].shrink_to_fit();
+    m_state.sliceScalarName[2].shrink_to_fit();
+
+    // Reset scalar range / world bounds to defaults (same as RenderRenderState ctor)
+    m_state.worldMinX = -10.0; m_state.worldMaxX = 10.0;
+    m_state.worldMinY = -10.0; m_state.worldMaxY = 10.0;
+    m_state.worldMinZ = -10.0; m_state.worldMaxZ = 10.0;
+    m_state.worldCenterX = 0.0; m_state.worldCenterY = 0.0; m_state.worldCenterZ = 0.0;
+    m_state.worldRadius = 1.0;
+    m_state.dataScalarMin = 0.0f; m_state.dataScalarMax = 1.0f;
+    m_state.scalarMin = 0.0f; m_state.scalarMax = 1.0f;
+    m_state.filterMin = 0.0f; m_state.filterMax = 1.0f;
+    m_state.filterEnabled = false;
+    m_state.sliceScalarMin[0] = m_state.sliceScalarMin[1] = m_state.sliceScalarMin[2] = 0.0f;
+    m_state.sliceScalarMax[0] = m_state.sliceScalarMax[1] = m_state.sliceScalarMax[2] = 1.0f;
+    m_state.colorRangeOverrideEnabled = false;
+    m_state.colorRangeLo = 0.0f; m_state.colorRangeHi = 1.0f;
+    m_state.volumeColorRangeOverrideEnabled = false;
+    m_state.volumeColorRangeLo = 0.0f; m_state.volumeColorRangeHi = 1.0f;
+    m_state.sliceColorRangeOverrideEnabled = false;
+    m_state.sliceColorRangeLo = 0.0f; m_state.sliceColorRangeHi = 1.0f;
+    m_state.glyphMagRangeOverrideEnabled = false;
+    m_state.glyphMagRangeLo = 0.0f; m_state.glyphMagRangeHi = -1.0f;
+    for (int i = 0; i < 3; ++i) {
+        m_state.glyphCompRangeOverrideEnabled[i] = false;
+        m_state.glyphCompRangeLo[i] = 0.0f;
+        m_state.glyphCompRangeHi[i] = -1.0f;
+        m_state.streamlineCompRangeOverrideEnabled[i] = false;
+        m_state.streamlineCompRangeLo[i] = 0.0f;
+        m_state.streamlineCompRangeHi[i] = -1.0f;
+        m_state.vectorCompMin[i] = 0.0f;
+        m_state.vectorCompMax[i] = 0.0f;
+        m_state.streamlineCompMin[i] = 0.0f;
+        m_state.streamlineCompMax[i] = 0.0f;
+    }
+    m_state.streamlineMagRangeOverrideEnabled = false;
+    m_state.streamlineMagRangeLo = 0.0f; m_state.streamlineMagRangeHi = -1.0f;
+    m_state.vectorMagTransform = 0;
+    m_state.showIsosurface = false;
+    m_state.isovalue = 0.0f;
+
     m_isoController.clear();
     markStateDirty();
     m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();

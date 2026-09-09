@@ -5,6 +5,18 @@
 
 namespace FieldResolver {
 
+namespace {
+thread_local std::unordered_map<std::string, std::vector<float>> s_derivedCache;
+thread_local const RenderMesh* s_derivedLastMesh = nullptr;
+}
+
+void clearCache() {
+    s_derivedCache.clear();
+    // shrink to release memory held by derived magnitude/_X/_Y/_Z vectors
+    std::unordered_map<std::string, std::vector<float>>().swap(s_derivedCache);
+    s_derivedLastMesh = nullptr;
+}
+
 std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested) {
     if (!requested.empty()) {
         if (mesh.attributes) {
@@ -87,12 +99,9 @@ const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& 
         VectorField vf = resolveVector(mesh, base, 0);
         if (!vf.data || vf.count==0) vf = resolveVector(mesh, base, 1);
         if (!vf.data || vf.count==0) return nullptr;
-        // Thread-local cache keyed by mesh address + derived name
-        thread_local std::unordered_map<std::string, std::vector<float>> cache;
-        thread_local const RenderMesh* lastMesh = nullptr;
-        if (lastMesh != &mesh) { cache.clear(); lastMesh = &mesh; }
-        auto itc = cache.find(name);
-        if (itc != cache.end()) {
+        if (s_derivedLastMesh != &mesh) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; }
+        auto itc = s_derivedCache.find(name);
+        if (itc != s_derivedCache.end()) {
             // recompute min/max from cached
             float mn = std::numeric_limits<float>::max(), mx = -std::numeric_limits<float>::max();
             for (float v: itc->second) { if (!std::isfinite(v)) continue; mn = std::min(mn,v); mx = std::max(mx,v); }
@@ -113,7 +122,7 @@ const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& 
         }
         if (mn > mx) { mn = 0; mx = 1; } if (mx - mn < 1e-6f) mx = mn + 1.f;
         outMin = mn; outMax = mx;
-        auto &slot = cache[name] = std::move(derived);
+        auto &slot = s_derivedCache[name] = std::move(derived);
         return &slot;
     };
     if (auto* p = tryDerived("_magnitude", -1)) return p;

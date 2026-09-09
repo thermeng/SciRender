@@ -27,6 +27,8 @@ VectorField resolveVector(const RenderMesh& mesh, const std::string& requested, 
 std::string resolveVectorName(const RenderMesh& mesh, const std::string& requested, int placement);
 std::vector<std::string> availableVectorNames(const RenderMesh& mesh);
 
+void clearCache();
+
 // Colormap-range bookkeeping for animation playback. Whole-sequence mode holds
 // a union over seen frames so colors/colorbar don't flicker; per-frame mode
 // passes each frame's own extent through. Pure value type so the reseed/union

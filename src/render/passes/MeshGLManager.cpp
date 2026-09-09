@@ -430,7 +430,9 @@ void MeshGLManager::clear() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         meshes_.clear();
+        meshes_.shrink_to_fit();
         decimatedMeshes_.clear();
+        decimatedMeshes_.shrink_to_fit();
         hasDecimated_ = false;
         hasFullSource_ = false;
         fullSource_.reset();
@@ -438,7 +440,9 @@ void MeshGLManager::clear() {
         scalarPboIndex_ = 0;
 
         isosurfaceMeshes_.clear();
+        isosurfaceMeshes_.shrink_to_fit();
         isosurfaceDecimatedMeshes_.clear();
+        isosurfaceDecimatedMeshes_.shrink_to_fit();
         hasIsoDecimated_ = false;
     }
 }

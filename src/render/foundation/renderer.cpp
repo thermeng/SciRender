@@ -328,6 +328,7 @@ void Renderer::clearGpuMeshes() {
     m_streamlines.cancelAndJoin();
 
     meshManager.clear();
+    meshManager.cleanupLodCompute();
     vectorGlyph.shutdown();
     streamlineSet.shutdown();
     m_lastUploadedMesh.reset();
@@ -335,6 +336,23 @@ void Renderer::clearGpuMeshes() {
     m_lastIsosurfaceMesh.reset();
     m_pendingIsosurface.reset();
     isosurfaceDirty.store(false);
+
+    m_pendingVolumeMesh.reset();
+    volumeDirty.store(false);
+    m_pendingScalarSrc.reset();
+    scalarDirty.store(false);
+    m_licNoiseTex.reset();
+    m_licNoiseGrain = 0;
+    m_lastLicError.clear();
+
+    // Free 3D texture caches (VRAM + PBO) — otherwise they survive Clear and
+    // accumulate per-field entries across Load/Clear cycles.
+    m_volumeCache.invalidateAll();
+    m_vectorCache.invalidateAll();
+
+    lodScheduler.reset();
+    lodSettleDirty.store(false);
+
     m_state.hasMeshLoaded = false;
     m_qualityOverlay.markDirty();
     m_qualityOverlay.shutdown();
