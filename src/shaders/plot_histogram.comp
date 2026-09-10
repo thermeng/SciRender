@@ -1,0 +1,38 @@
+#version 460 core
+layout(local_size_x = 256) in;
+
+// Binding 0: scalar field values (float array, per render-vertex, post-split)
+// Binding 1: histogram bins (uint array, size = numBins, zeroed before dispatch)
+// Binding 2 (uniform): PlotParams (std140)
+layout(std430, binding = 0) readonly buffer InScalars {
+    float scalars[];
+};
+layout(std430, binding = 1) buffer Histogram {
+    uint bins[];
+};
+layout(std140, binding = 2) uniform PlotParams {
+    int numValues;     // scalar array length (== vertexCount post-split)
+    int numBins;       // histogram bin count [8..512]
+    float dataMin;     // axis lower bound
+    float dataMax;     // axis upper bound
+    float filterMin;   // unused in MVP (reserved)
+    float filterMax;
+    int filterEnabled;
+    int pad0;
+};
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= uint(numValues)) return;
+    float v = scalars[gid];
+    if (isnan(v) || isinf(v)) return;
+    // MVP: no filtering - reserved for later (filterEnabled branch)
+    float d = dataMax - dataMin;
+    if (abs(d) < 1e-12) return; // degenerate range - all values identical; leave bins zero (CPU will handle)
+    float t = (v - dataMin) / d;
+    // Clamp edge: values exactly at dataMax map to last bin
+    t = clamp(t, 0.0, 0.9999999);
+    int b = int(floor(t * float(numBins)));
+    b = clamp(b, 0, numBins - 1);
+    atomicAdd(bins[b], 1u);
+}

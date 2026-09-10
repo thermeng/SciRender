@@ -193,6 +193,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int licIntegrator READ getLicIntegrator WRITE setLicIntegrator NOTIFY viewChanged)
     Q_PROPERTY(QStringList recentFiles READ getRecentFiles NOTIFY meshLoadStateChanged)
     Q_PROPERTY(QString activeScalarName READ getActiveScalarNameQml NOTIFY meshDataUpdated)
+    Q_PROPERTY(int scalarPlacement READ getScalarPlacement WRITE setScalarPlacement NOTIFY viewChanged)
+    Q_PROPERTY(QStringList scalarPlacementOptions READ getScalarPlacementOptions CONSTANT)
 
     Q_PROPERTY(int colormapChoice READ getColormapChoice WRITE setColormapChoice NOTIFY viewChanged)
     Q_PROPERTY(bool colormapReversed READ getColormapReversed WRITE setColormapReversed NOTIFY viewChanged)
@@ -336,6 +338,15 @@ class RenderSettings : public QObject {
      Q_PROPERTY(bool showIsosurface READ getShowIsosurface WRITE setShowIsosurface NOTIFY viewChanged)
      Q_PROPERTY(double isovalue READ getIsovalue WRITE setIsovalue NOTIFY viewChanged)
      Q_PROPERTY(bool isosurfaceAvailable READ getIsosurfaceAvailable NOTIFY meshDataUpdated)
+     Q_PROPERTY(int isosurfacePlacement READ getIsosurfacePlacement WRITE setIsosurfacePlacement NOTIFY viewChanged)
+     Q_PROPERTY(QStringList isosurfacePlacementOptions READ getIsosurfacePlacementOptions CONSTANT)
+     Q_PROPERTY(bool showLineProbe READ getShowLineProbe WRITE setShowLineProbe NOTIFY viewChanged)
+     Q_PROPERTY(double lineP0x READ getLineP0x WRITE setLineP0x NOTIFY viewChanged)
+     Q_PROPERTY(double lineP0y READ getLineP0y WRITE setLineP0y NOTIFY viewChanged)
+     Q_PROPERTY(double lineP0z READ getLineP0z WRITE setLineP0z NOTIFY viewChanged)
+     Q_PROPERTY(double lineP1x READ getLineP1x WRITE setLineP1x NOTIFY viewChanged)
+     Q_PROPERTY(double lineP1y READ getLineP1y WRITE setLineP1y NOTIFY viewChanged)
+     Q_PROPERTY(double lineP1z READ getLineP1z WRITE setLineP1z NOTIFY viewChanged)
 
      Q_PROPERTY(QString statusMessage READ getStatusMessage NOTIFY statusMessageChanged)
 
@@ -691,21 +702,54 @@ public:
     STATE_PROP(getVolumeSliceColormapChoice, setVolumeSliceColormapChoice, int, m_state.volumeSliceColormapChoice, Colormap)
     STATE_PROP(getVolumeSliceColormapReversed, setVolumeSliceColormapReversed, bool, m_state.volumeSliceColormapReversed, Colormap)
 
-     // ---- isosurface (marching cubes) ----
-     // Contours the active scalar field at `isovalue` (absolute, in data units).
-     // The extracted surface is re-colored by the colormap LUT and lit by the
-     // PBR model via the shared surface pass -- no per-iso shading state.
-     // The lifecycle (async extract, debounce, stale-guard) lives in
-     // IsosurfaceController; these are thin QML-binding forwarders.
-     bool getShowIsosurface() const { return m_state.showIsosurface; }
-     void setShowIsosurface(bool v) { m_isoController.setShowIsosurface(v); }
-     double getIsovalue() const { return static_cast<double>(m_state.isovalue); }
-     void setIsovalue(double v) {
-         m_isoController.setIsovalue(static_cast<float>(v),
-                                      m_state.dataScalarMin, m_state.dataScalarMax);
-     }
-     bool getIsosurfaceAvailable() const { return m_isoController.isAvailable(); }
-     Q_INVOKABLE void recomputeIsosurface() { m_isoController.recompute(); }
+      // ---- isosurface (marching cubes) ----
+      // Contours the active scalar field at `isovalue` (absolute, in data units).
+      // The extracted surface is re-colored by the colormap LUT and lit by the
+      // PBR model via the shared surface pass -- no per-iso shading state.
+      // The lifecycle (async extract, debounce, stale-guard) lives in
+      // IsosurfaceController; these are thin QML-binding forwarders.
+      bool getShowIsosurface() const { return m_state.showIsosurface; }
+      void setShowIsosurface(bool v) { m_isoController.setShowIsosurface(v); }
+      double getIsovalue() const { return static_cast<double>(m_state.isovalue); }
+      void setIsovalue(double v) {
+          m_isoController.setIsovalue(static_cast<float>(v),
+                                       m_state.dataScalarMin, m_state.dataScalarMax);
+      }
+      bool getIsosurfaceAvailable() const { return m_isoController.isAvailable(); }
+      Q_INVOKABLE void recomputeIsosurface() { m_isoController.recompute(); }
+      int getIsosurfacePlacement() const { return m_state.isosurfacePlacement; }
+      void setIsosurfacePlacement(int v) {
+          int p = std::clamp(v, 0, 1);
+          if (m_state.isosurfacePlacement != p) {
+              m_state.isosurfacePlacement = p;
+              m_isoController.setPlacement(p);
+              if (m_state.showIsosurface) m_isoController.recompute();
+              markStateDirty(); emit viewChanged(ChangeFlag::Display);
+          }
+      }
+      QStringList getIsosurfacePlacementOptions() const { return {"Vertex", "Cell Center"}; }
+
+      int getScalarPlacement() const { return m_state.scalarPlacement; }
+      void setScalarPlacement(int v);
+      QStringList getScalarPlacementOptions() const { return {"Vertex", "Cell Center"}; }
+      bool hasScalarCellData() const {
+          if (!m_meshData.loadedMesh || !m_meshData.loadedMesh->attributes) return false;
+          return !m_meshData.loadedMesh->attributes->cellScalars.empty();
+      }
+      bool getShowLineProbe() const { return m_state.showLineProbe; }
+      void setShowLineProbe(bool v) { if (m_state.showLineProbe != v) { m_state.showLineProbe = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getLineP0x() const { return m_state.lineP0.x; }
+      void setLineP0x(double v) { if (m_state.lineP0.x != v) { m_state.lineP0.x = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getLineP0y() const { return m_state.lineP0.y; }
+      void setLineP0y(double v) { if (m_state.lineP0.y != v) { m_state.lineP0.y = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getLineP0z() const { return m_state.lineP0.z; }
+      void setLineP0z(double v) { if (m_state.lineP0.z != v) { m_state.lineP0.z = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getLineP1x() const { return m_state.lineP1.x; }
+      void setLineP1x(double v) { if (m_state.lineP1.x != v) { m_state.lineP1.x = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getLineP1y() const { return m_state.lineP1.y; }
+      void setLineP1y(double v) { if (m_state.lineP1.y != v) { m_state.lineP1.y = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getLineP1z() const { return m_state.lineP1.z; }
+      void setLineP1z(double v) { if (m_state.lineP1.z != v) { m_state.lineP1.z = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
 
      // LIC diagnostics: surfaced from Renderer::m_lastLicError after each frame.
      QString lastLicError() const {
@@ -760,6 +804,10 @@ public:
     bool hasMeshVectors() const { return m_state.meshHasVectors; }
     bool hasMeshCellVectors() const { return m_state.meshHasCellVectors; }
     bool hasVolumeData() const { return m_meshData.loadedMesh && m_meshData.loadedMesh->hasVolumeData(); }
+    bool hasIsosurfaceCellScalars() const {
+        if (!m_meshData.loadedMesh || !m_meshData.loadedMesh->attributes) return false;
+        return !m_meshData.loadedMesh->attributes->cellScalars.empty();
+    }
     Q_INVOKABLE QString getActiveScalarNameQml() const { return QString::fromStdString(m_state.activeScalarName); }
     Q_INVOKABLE float getDataScalarMinQml() const { return m_state.dataScalarMin; }
     Q_INVOKABLE float getDataScalarMaxQml() const { return m_state.dataScalarMax; }

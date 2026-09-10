@@ -15,6 +15,7 @@
 #include "ui_animation_page.h"
 #include "render/foundation/render_config.h"
 #include "core/Colormaps.h"
+#include "plot_window.h"
 #include <cmath>
 #include <QApplication>
 #include <QMenuBar>
@@ -343,7 +344,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_settings = new RenderSettings(this);
     m_settings->restoreStateFromSettings();
 
-    // Viewport + toolbar container (central widget)
+    // Viewport + toolbar + histogram split (histogram is now docked, not floating)
     auto* viewportContainer = new QWidget;
     auto* vbox = new QVBoxLayout(viewportContainer);
     vbox->setContentsMargins(0, 0, 0, 0);
@@ -353,7 +354,25 @@ MainWindow::MainWindow(QWidget* parent)
     m_viewport->setSettings(m_settings);
     vbox->addWidget(m_viewport, 1);
 
-    setCentralWidget(viewportContainer);
+    // Histogram: embedded vertically below viewport via QSplitter
+    m_mainSplitter = new QSplitter(Qt::Vertical, this);
+    m_mainSplitter->addWidget(viewportContainer);
+    m_mainSplitter->setStretchFactor(0, 3);
+
+    m_histContainer = new QWidget;
+    m_histContainer->setMinimumHeight(180);
+    auto* histLay = new QVBoxLayout(m_histContainer);
+    histLay->setContentsMargins(0, 0, 0, 0);
+    histLay->setSpacing(0);
+    m_plotWindow = new PlotWindow(m_settings, m_histContainer);
+    histLay->addWidget(m_plotWindow, 1);
+    m_mainSplitter->addWidget(m_histContainer);
+    m_mainSplitter->setStretchFactor(1, 1);
+    m_mainSplitter->setCollapsible(1, true);
+    m_histContainer->setVisible(false);
+    connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
+
+    setCentralWidget(m_mainSplitter);
 
     // Accept drops
     setAcceptDrops(true);
@@ -519,7 +538,7 @@ void MainWindow::setupSidebar() {
     const QString navItems[] = {
         "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar",
         "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
-        "Screenshot", "Animation"
+        "Screenshot", "Animation", "Plots"
     };
 
     // Calculate width dynamically based on longest text + padding
@@ -593,6 +612,7 @@ void MainWindow::setupSidebar() {
     m_sectionStack->addWidget(buildIsosurfacePage());   // 9
     m_sectionStack->addWidget(buildScreenshotPage());   // 10
     m_sectionStack->addWidget(buildAnimationPage());    // 11
+    m_sectionStack->addWidget(buildPlotsPage());        // 12
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -1131,6 +1151,14 @@ QWidget* MainWindow::buildScalarPage() {
     connect(m_scalarCombo, &QComboBox::activated, m_settings, [this](int idx) {
         m_settings->setActiveScalarField(m_scalarCombo->itemText(idx));
     });
+
+    auto* scalarPlacementCombo = scalarUi.placementCombo;
+    m_scalarPlacementCombo = scalarPlacementCombo;
+    scalarPlacementCombo->addItems(m_settings->getScalarPlacementOptions());
+    scalarPlacementCombo->setCurrentIndex(m_settings->getScalarPlacement());
+    scalarPlacementCombo->setEnabled(m_settings->hasScalarCellData());
+    connect(scalarPlacementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setScalarPlacement);
 
     // Palette now in Colorbar Style dialog — hide sidebar alias
     scalarUi.paletteHeader->hide();
@@ -2213,6 +2241,17 @@ QWidget* MainWindow::buildIsosurfacePage() {
         valueLabel->setText(QString::number(m_settings->getIsovalue(), 'f', 3));
     });
 
+    // -- Placement (Vertex / Cell Center) --
+    auto* placementCombo = isoUi.placementCombo;
+    m_isoPlacementCombo = placementCombo;
+    placementCombo->addItems(m_settings->getIsosurfacePlacementOptions());
+    placementCombo->setCurrentIndex(m_settings->getIsosurfacePlacement());
+    placementCombo->setEnabled(m_settings->hasIsosurfaceCellScalars());
+    connect(placementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_settings, &RenderSettings::setIsosurfacePlacement);
+    connect(placementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int){ syncVolumePage(); });
+
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);
@@ -2492,6 +2531,13 @@ void MainWindow::syncVolumePage() {
         m_isoEnableCb->setEnabled(isoAvail);
         if (!isoAvail) m_isoEnableCb->setChecked(false);
     }
+    if (m_isoPlacementCombo) {
+        m_isoPlacementCombo->blockSignals(true);
+        m_isoPlacementCombo->setCurrentIndex(m_settings->getIsosurfacePlacement());
+        bool hasCellScalars = m_settings->hasIsosurfaceCellScalars();
+        m_isoPlacementCombo->setEnabled(hasCellScalars);
+        m_isoPlacementCombo->blockSignals(false);
+    }
     refreshIsosurfaceSlider();
     applyVolumeControlGating();
 }
@@ -2717,6 +2763,12 @@ void MainWindow::connectSettings() {
             m_vectorPlacementCombo->setEnabled(m_settings->hasMeshCellVectors());
             m_vectorPlacementCombo->blockSignals(false);
         }
+        if (m_scalarPlacementCombo) {
+            m_scalarPlacementCombo->blockSignals(true);
+            m_scalarPlacementCombo->setCurrentIndex(m_settings->getScalarPlacement());
+            m_scalarPlacementCombo->setEnabled(m_settings->hasScalarCellData());
+            m_scalarPlacementCombo->blockSignals(false);
+        }
         if (m_vectorVisModeCombo) {
             bool hasField = !m_settings->getVectorField().isEmpty();
             // Keep LIC option available only when field selected; otherwise force Off
@@ -2759,6 +2811,12 @@ void MainWindow::connectSettings() {
             m_vectorVisModeCombo->blockSignals(true);
             m_vectorVisModeCombo->setCurrentIndex(m_settings->getVectorVisMode());
             m_vectorVisModeCombo->blockSignals(false);
+        }
+        if (m_scalarPlacementCombo) {
+            m_scalarPlacementCombo->blockSignals(true);
+            m_scalarPlacementCombo->setCurrentIndex(m_settings->getScalarPlacement());
+            m_scalarPlacementCombo->setEnabled(m_settings->hasScalarCellData());
+            m_scalarPlacementCombo->blockSignals(false);
         }
         // Keep field/glyph/LIC groups in sync when visMode changes from code (e.g., legacy setters)
         if (m_vectorFieldGroup) {
@@ -2995,6 +3053,94 @@ void MainWindow::showShortcuts() {
         "</table>"
     );
     info.exec();
+}
+
+// Plots page (12) — detached window launcher + inline controls
+void MainWindow::setHistogramVisible(bool visible) {
+    m_histogramVisible = visible;
+    if (m_histContainer) {
+        m_histContainer->setVisible(visible);
+        if (visible && m_plotWindow) {
+            m_plotWindow->refreshFieldList();
+            // Give viewport most of the space on first open
+            if (m_mainSplitter) m_mainSplitter->setSizes({700, 260});
+        }
+    }
+    // Update Plots page button text if present
+}
+
+QWidget* MainWindow::buildPlotsPage() {
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    auto* content = new QWidget;
+    auto* lay = new QVBoxLayout(content);
+    lay->setContentsMargins(8, 8, 8, 8);
+    lay->setSpacing(8);
+
+    auto* header = new QLabel(tr("Histogram (GPU)"));
+    header->setObjectName("plotsHeader");
+    QFont hf = header->font(); hf.setBold(true); hf.setPointSize(hf.pointSize() + 1);
+    header->setFont(hf);
+    lay->addWidget(header);
+
+    auto* desc = new QLabel(tr("GPU compute histogram over the active scalar field (per render-vertex, post-split). "
+                               "Now docked below the viewport via a vertical split. Custom QPainter view — no Qt Charts."));
+    desc->setWordWrap(true);
+    // Use theme-aware muted text (placeholderText) instead of hard-coded palette(mid) which is unreadable in dark theme
+    desc->setStyleSheet("color: palette(placeholderText);");
+    lay->addWidget(desc);
+
+    auto* openBtn = new QPushButton(tr("Show Histogram Below Viewport"));
+    openBtn->setCheckable(true);
+    openBtn->setChecked(m_histogramVisible);
+    openBtn->setMinimumHeight(32);
+    lay->addWidget(openBtn);
+
+    auto* hint = new QLabel(tr("Load a mesh with scalar data (e.g. .vtu) to enable histogram."));
+    hint->setWordWrap(true);
+    hint->setStyleSheet("color: palette(placeholderText); font-size: 11px;");
+    lay->addWidget(hint);
+
+    lay->addStretch();
+
+    scroll->setWidget(content);
+    applyPanelStyling(content);
+
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->addWidget(scroll);
+
+    connect(openBtn, &QPushButton::toggled, this, [this, openBtn, hint](bool checked) {
+        setHistogramVisible(checked);
+        openBtn->setText(checked ? tr("Hide Histogram") : tr("Show Histogram Below Viewport"));
+        if (checked) {
+            if (!m_settings->getHasMeshLoaded()) {
+                hint->setText(tr("No mesh loaded. Load a file first, then press Recompute in the histogram pane below."));
+            } else {
+                hint->setText(tr("Histogram docked below viewport. Press Recompute (GPU) to update."));
+            }
+        }
+    });
+    connect(this, &MainWindow::destroyed, this, [this](){ m_plotWindow = nullptr; });
+
+    // Keep button in sync when histogram is closed via splitter close button
+    // Poll via visible change is handled by setHistogramVisible; we also sync on mesh load
+    connect(m_settings, &RenderSettings::meshDataUpdated, this, [hint, this, openBtn]() {
+        if (m_settings->getHasMeshLoaded() && m_settings->hasMeshScalars()) {
+            hint->setText(tr("Scalar field ready: %1 — toggle histogram below.").arg(m_settings->getActiveScalarNameQml()));
+        }
+        // Keep Plots toggle in sync if histogram was hidden externally
+        if (m_histContainer) openBtn->setChecked(m_histContainer->isVisible());
+    });
+
+    // Ensure button reflects initial state
+    openBtn->setChecked(m_histogramVisible);
+
+    return wrapper;
 }
 
 

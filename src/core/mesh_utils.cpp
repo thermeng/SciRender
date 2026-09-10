@@ -404,20 +404,32 @@ void computeNormals(RenderMesh& mesh) {
     // per-point vectors: left at the original per-point count (see note above);
     // no vertex-count resize.
 
-    // Ensure scalarMin/scalarMax remain valid after vertex splitting (also per-field)
-    if (!mesh.scalars.empty()) {
+    // Ensure per-field point range stays valid after vertex splitting.
+    // Do NOT narrow scalarMin/scalarMax here: for cell-origin fields the
+    // scalarMin/Max is the UNION (cell + point) that matches ParaView's
+    // colorbar ([-0.099,0.267] for Pressure). mesh.scalars holds the
+    // narrowed extrapolated point values ([-0.059,0.192]), so we keep
+    // pointScalarRanges in sync with the actual GPU buffer but leave
+    // scalarMin/Max (and cellScalarRanges) untouched to preserve the
+    // ParaView-matched wide range.
+    if (!mesh.scalars.empty() && mesh.attributes.has_value() && !mesh.scalarName.empty()) {
         float actualMin = 1e30f, actualMax = -1e30f;
         for (float s : mesh.scalars) {
             if (s < actualMin) actualMin = s;
             if (s > actualMax) actualMax = s;
         }
         if (actualMax - actualMin < 1e-6f) actualMax = actualMin + 1.0f;
-        if (mesh.attributes.has_value()) {
+        mesh.attributes->pointScalarRanges[mesh.scalarName] = {actualMin, actualMax};
+        // scalarMin/Max stays as set by calculateScalarRanges (union).
+        // If for point-only fields scalarMin/Max still needs to track the
+        // split, propagate only when there is no wider cell range for this name.
+        auto cit = mesh.attributes->cellScalarRanges.find(mesh.scalarName);
+        if (cit == mesh.attributes->cellScalarRanges.end()) {
             mesh.attributes->scalarMin = actualMin;
             mesh.attributes->scalarMax = actualMax;
-            if (!mesh.scalarName.empty()) {
-                mesh.attributes->pointScalarRanges[mesh.scalarName] = {actualMin, actualMax};
-            }
+        } else {
+            mesh.attributes->scalarMin = std::min(actualMin, cit->second.first);
+            mesh.attributes->scalarMax = std::max(actualMax, cit->second.second);
         }
     }
 }

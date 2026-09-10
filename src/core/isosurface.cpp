@@ -1,5 +1,6 @@
 #include "core/isosurface.h"
 #include "core/mesh_loader.h"
+#include "core/FieldResolver.h"
 
 #include <algorithm>
 #include <cmath>
@@ -38,14 +39,14 @@ static int nodeIndexOf(int x, int y, int z, int dX, int dY, int /*dZ*/) {
     return x + y * dX + z * dX * dY;
 }
 
-bool canExtract(const RenderMesh& volumeMesh, const std::string& field) {
+bool canExtract(const RenderMesh& volumeMesh, const std::string& field, int placement) {
     if (!volumeMesh.hasVolumeGrid() || volumeMesh.vertices.empty()) return false;
-    if (volumeMesh.hasScalarData()) return true;
-    if (!volumeMesh.attributes) return false;
-    const auto& ps = volumeMesh.attributes->pointScalars;
-    if (field.empty()) return !ps.empty();
-    auto it = ps.find(field);
-    return it != ps.end() && !it->second.empty();
+    float mn, mx;
+    if (FieldResolver::scalarData(volumeMesh, field, mn, mx, placement)) return true;
+    int alt = (placement == 1 ? 0 : 1);
+    if (FieldResolver::scalarData(volumeMesh, field, mn, mx, alt)) return true;
+    // Also check derived via scalarData already covers it; final fallback to hasScalarData
+    return volumeMesh.hasScalarData();
 }
 
 // ---------------------------------------------------------------------------
@@ -205,30 +206,112 @@ static void triangulateFan(RenderMesh& out,
 
 RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                              const std::vector<float>& isovalues,
-                             const std::string& field) {
+                             const std::string& field,
+                             int placement) {
     RenderMesh result;
-    if (isovalues.empty() || !canExtract(volumeMesh, field)) return result;
+    if (isovalues.empty() || !canExtract(volumeMesh, field, placement)) return result;
 
-    const int dX = volumeMesh.gridDimX;
-    const int dY = volumeMesh.gridDimY;
-    const int dZ = volumeMesh.gridDimZ;
+    // For Cell Center placement on a structured grid, contour the cell-
+    // centered scalar field at cell centers (dual grid). Placement-aware
+    // via FieldResolver so derived scalars (e.g. Velocity_magnitude from
+    // cell vectors) also build a dual and update on placement toggle.
+    const RenderMesh* srcMesh = &volumeMesh;
+    RenderMesh cellCenterMesh;
+    const std::vector<float>* cellValsPtr = nullptr;
+    std::string cellFieldName;
+    float cellMin = 0, cellMax = 1;
+    if (placement == 1 && volumeMesh.hasVolumeGrid()) {
+        int dX0 = volumeMesh.gridDimX, dY0 = volumeMesh.gridDimY, dZ0 = volumeMesh.gridDimZ;
+        int cdX0 = dX0>0?dX0-1:0, cdY0=dY0>0?dY0-1:0, cdZ0=dZ0>0?dZ0-1:0;
+        size_t cellCount0 = static_cast<size_t>(cdX0) * cdY0 * cdZ0;
+        if (cellCount0 > 0) {
+            std::string effField = field.empty() ? FieldResolver::resolveActiveScalar(volumeMesh, "", 1) : field;
+            float tmpMin=0, tmpMax=1;
+            const std::vector<float>* cand = FieldResolver::scalarData(volumeMesh, effField, tmpMin, tmpMax, 1);
+            // cand is cell-sized only when true cell/derived-cell data exists; point fallback is nPoints-sized
+            if (cand && cand->size() == cellCount0) {
+                cellValsPtr = cand;
+                cellFieldName = effField;
+                cellMin = tmpMin; cellMax = tmpMax;
+            } else if (volumeMesh.attributes) {
+                // Direct cellScalars lookup as fallback (covers non-derived case where FieldResolver returned point duplicate)
+                auto it = volumeMesh.attributes->cellScalars.find(effField);
+                if (it != volumeMesh.attributes->cellScalars.end() && it->second.size() == cellCount0) {
+                    cellValsPtr = &it->second;
+                    cellFieldName = effField;
+                    auto rit = volumeMesh.attributes->cellScalarRanges.find(effField);
+                    if (rit != volumeMesh.attributes->cellScalarRanges.end()) { cellMin=rit->second.first; cellMax=rit->second.second; }
+                    else { cellMin=tmpMin; cellMax=tmpMax; }
+                }
+            }
+        }
+    }
+    // Only build the dual grid if we actually have a cell scalar and the
+    // original grid is structured volume. Unstructured cell data has no
+    // marching-cubes topology, so we fall back to point contour.
+    if (cellValsPtr && volumeMesh.hasVolumeGrid()) {
+        const int dX = volumeMesh.gridDimX;
+        const int dY = volumeMesh.gridDimY;
+        const int dZ = volumeMesh.gridDimZ;
+        const int cdX = dX - 1;
+        const int cdY = dY - 1;
+        const int cdZ = dZ - 1;
+        if (cdX > 1 && cdY > 1 && cdZ > 1 && cellValsPtr->size() >= static_cast<size_t>(cdX * cdY * cdZ)) {
+            const float* P = volumeMesh.vertices.data();
+            if (P && volumeMesh.vertices.size() >= static_cast<size_t>((dX * dY * dZ) * 3)) {
+                cellCenterMesh.gridDimX = cdX;
+                cellCenterMesh.gridDimY = cdY;
+                cellCenterMesh.gridDimZ = cdZ;
+                cellCenterMesh.vertices.reserve(static_cast<size_t>(cdX * cdY * cdZ * 3));
+                auto idx = [&](int x,int y,int z){ return x + y * dX + z * dX * dY; };
+                for (int z = 0; z < cdZ; ++z) {
+                    for (int y = 0; y < cdY; ++y) {
+                        for (int x = 0; x < cdX; ++x) {
+                            float sx = 0, sy = 0, sz = 0;
+                            for (int dz = 0; dz < 2; ++dz)
+                                for (int dy = 0; dy < 2; ++dy)
+                                    for (int dx = 0; dx < 2; ++dx) {
+                                        int n = idx(x+dx, y+dy, z+dz);
+                                        sx += P[static_cast<size_t>(n)*3 + 0];
+                                        sy += P[static_cast<size_t>(n)*3 + 1];
+                                        sz += P[static_cast<size_t>(n)*3 + 2];
+                                    }
+                            cellCenterMesh.vertices.push_back(sx * 0.125f);
+                            cellCenterMesh.vertices.push_back(sy * 0.125f);
+                            cellCenterMesh.vertices.push_back(sz * 0.125f);
+                        }
+                    }
+                }
+                cellCenterMesh.scalars = *cellValsPtr;
+                cellCenterMesh.scalarName = cellFieldName;
+                cellCenterMesh.attributes = DatasetAttributes();
+                cellCenterMesh.attributes->pointScalars[cellFieldName] = *cellValsPtr;
+                cellCenterMesh.attributes->pointScalarRanges[cellFieldName] = {cellMin, cellMax};
+                mesh_utils::computeBounds(cellCenterMesh);
+                srcMesh = &cellCenterMesh;
+            }
+        }
+    }
+
+    const int dX = srcMesh->gridDimX;
+    const int dY = srcMesh->gridDimY;
+    const int dZ = srcMesh->gridDimZ;
     const int dXdY = dX * dY;
     const int numNodes = dX * dY * dZ;
 
-    const std::vector<float>* vals = &volumeMesh.scalars;
-    if (!field.empty() && volumeMesh.attributes) {
-        auto it = volumeMesh.attributes->pointScalars.find(field);
-        if (it != volumeMesh.attributes->pointScalars.end())
-            vals = &it->second;
-    } else if (vals->empty() && volumeMesh.attributes
-               && !volumeMesh.attributes->pointScalars.empty()) {
-        if (!volumeMesh.scalarName.empty()) {
-            auto it = volumeMesh.attributes->pointScalars.find(volumeMesh.scalarName);
-            if (it != volumeMesh.attributes->pointScalars.end())
-                vals = &it->second;
-        }
-        if (vals->empty()) {
-            vals = &volumeMesh.attributes->pointScalars.begin()->second;
+    // Placement-aware scalar fetch (covers derived scalars like Velocity_magnitude)
+    const std::vector<float>* vals = nullptr;
+    float valsMin = 0, valsMax = 1;
+    int valsPlacement = (srcMesh == &cellCenterMesh ? 0 : placement);
+    vals = FieldResolver::scalarData(*srcMesh, field, valsMin, valsMax, valsPlacement);
+    if (!vals || vals->empty()) {
+        vals = &srcMesh->scalars;
+        if (vals->empty() && srcMesh->attributes && !srcMesh->attributes->pointScalars.empty()) {
+            if (!srcMesh->scalarName.empty()) {
+                auto it = srcMesh->attributes->pointScalars.find(srcMesh->scalarName);
+                if (it != srcMesh->attributes->pointScalars.end()) vals = &it->second;
+            }
+            if (vals->empty()) vals = &srcMesh->attributes->pointScalars.begin()->second;
         }
     }
     if (vals->size() < static_cast<size_t>(numNodes)) {
@@ -291,10 +374,10 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
         return static_cast<uint32_t>(base / 3);
     };
 
-    if (volumeMesh.vertices.size() / 3 < static_cast<size_t>(numNodes)) {
+    if (srcMesh->vertices.size() / 3 < static_cast<size_t>(numNodes)) {
         return result;
     }
-    const float* P = volumeMesh.vertices.data();
+    const float* P = srcMesh->vertices.data();
 
     for (float iso : isovalues) {
         if (denseOk) edgeCache.nextContour();
@@ -419,10 +502,12 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
     }
     mesh_utils::computeBounds(result);
 
-    result.scalarName = volumeMesh.scalarName;
-    result.availableScalarNames = volumeMesh.scalarName.empty()
+    const std::string& outName = srcMesh->scalarName.empty() ? volumeMesh.scalarName : srcMesh->scalarName;
+    result.scalarName = outName.empty() ? field : outName;
+    if (!field.empty()) result.scalarName = field;
+    result.availableScalarNames = result.scalarName.empty()
         ? std::vector<std::string>{}
-        : std::vector<std::string>{volumeMesh.scalarName};
+        : std::vector<std::string>{result.scalarName};
     // Trim over-reserved capacity after extraction
     result.vertices.shrink_to_fit();
     result.indices.shrink_to_fit();

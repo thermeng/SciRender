@@ -31,11 +31,17 @@ public:
     void setIsovalue(float v, float lo, float hi);
 
     bool isAvailable() const;
+    bool isAvailable(int placement) const;
+
+    int placement() const { return m_placement; }
+    void setPlacement(int p);
 
     // Stores the current mesh + active scalar field name so that a later
     // recompute (from toggle or debounce) doesn't need them passed again.
     void setCurrentMesh(std::shared_ptr<const RenderMesh> mesh, const std::string& field);
+    void setCurrentMesh(std::shared_ptr<const RenderMesh> mesh, const std::string& field, int placement);
     void setCurrentField(const std::string& field) { m_currentField = field; }
+    const std::string& currentField() const { return m_currentField; }
     void recompute();
     void reset(float dataMin, float dataMax);
     void clear();
@@ -45,6 +51,7 @@ signals:
     void needsScalarColor();
     void showIsosurfaceChanged(bool);
     void isovalueChanged(float);
+    void placementChanged(int);
 
 private slots:
     void onDebounceTimeout();
@@ -56,6 +63,7 @@ private:
     Renderer& m_renderer;
     bool m_showIsosurface = false;
     float m_isovalue = 0.0f;
+    int m_placement = 0; // 0=Vertex, 1=Cell Center (mirrors vectorPlacement)
     std::shared_ptr<const RenderMesh> m_currentMesh;
     std::string m_currentField;
 
