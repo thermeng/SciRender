@@ -347,6 +347,14 @@ class RenderSettings : public QObject {
      Q_PROPERTY(double lineP1x READ getLineP1x WRITE setLineP1x NOTIFY viewChanged)
      Q_PROPERTY(double lineP1y READ getLineP1y WRITE setLineP1y NOTIFY viewChanged)
      Q_PROPERTY(double lineP1z READ getLineP1z WRITE setLineP1z NOTIFY viewChanged)
+     Q_PROPERTY(bool showProbe READ getShowProbe WRITE setShowProbe NOTIFY viewChanged)
+     Q_PROPERTY(double probeX READ getProbeX WRITE setProbeX NOTIFY viewChanged)
+     Q_PROPERTY(double probeY READ getProbeY WRITE setProbeY NOTIFY viewChanged)
+     Q_PROPERTY(double probeZ READ getProbeZ WRITE setProbeZ NOTIFY viewChanged)
+     Q_PROPERTY(int probeFormat READ getProbeFormat WRITE setProbeFormat NOTIFY viewChanged)
+     Q_PROPERTY(QStringList probeFormatOptions READ getProbeFormatOptions CONSTANT)
+     Q_PROPERTY(int probePlacement READ getProbePlacement WRITE setProbePlacement NOTIFY viewChanged)
+     Q_PROPERTY(QStringList probePlacementOptions READ getProbePlacementOptions CONSTANT)
 
      Q_PROPERTY(QString statusMessage READ getStatusMessage NOTIFY statusMessageChanged)
 
@@ -750,6 +758,20 @@ public:
       void setLineP1y(double v) { if (m_state.lineP1.y != v) { m_state.lineP1.y = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
       double getLineP1z() const { return m_state.lineP1.z; }
       void setLineP1z(double v) { if (m_state.lineP1.z != v) { m_state.lineP1.z = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      bool getShowProbe() const { return m_state.showProbe; }
+      void setShowProbe(bool v) { if (m_state.showProbe != v) { m_state.showProbe = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getProbeX() const { return m_state.probePos.x; }
+      void setProbeX(double v) { if (m_state.probePos.x != v) { m_state.probePos.x = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getProbeY() const { return m_state.probePos.y; }
+      void setProbeY(double v) { if (m_state.probePos.y != v) { m_state.probePos.y = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      double getProbeZ() const { return m_state.probePos.z; }
+      void setProbeZ(double v) { if (m_state.probePos.z != v) { m_state.probePos.z = static_cast<float>(v); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      int getProbeFormat() const { return m_state.probeFormat; }
+      void setProbeFormat(int v) { int p=std::clamp(v,0,2); if(m_state.probeFormat!=p){ m_state.probeFormat=p; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      QStringList getProbeFormatOptions() const { return {"Integer","Float","Exponent"}; }
+      int getProbePlacement() const { return m_state.probePlacement; }
+      void setProbePlacement(int v) { int p=std::clamp(v,0,1); if(m_state.probePlacement!=p){ m_state.probePlacement=p; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+      QStringList getProbePlacementOptions() const { return {"Vertex","Cell Center"}; }
 
      // LIC diagnostics: surfaced from Renderer::m_lastLicError after each frame.
      QString lastLicError() const {

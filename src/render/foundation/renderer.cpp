@@ -63,6 +63,7 @@ Renderer::~Renderer() {
         m_bbox.shutdown();
         m_qualityOverlay.shutdown();
         m_lineProbe.shutdown();
+        m_probe.shutdown();
         m_streamlines.shutdown();
         m_depthPeel.shutdown();
     }
@@ -126,6 +127,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
     m_bbox.init(sources);
     m_qualityOverlay.init(sources);
     m_lineProbe.init(sources);
+    m_probe.init(sources);
     m_streamlines.init(sources);
     m_depthPeel.init(sources);
 }
@@ -1195,6 +1197,7 @@ void Renderer::renderFrame() {
 
     m_bbox.draw(m_state, view, proj, meshManager.hasMeshes());
     m_lineProbe.draw(m_state, view, proj);
+    m_probe.draw(m_state, view, proj);
 
     m_qualityOverlay.draw(m_state, glm::value_ptr(view), glm::value_ptr(proj));
 

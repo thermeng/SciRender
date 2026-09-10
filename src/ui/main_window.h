@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QLabel>
 #include <QToolButton>
+#include <QTableWidget>
 #include <QSplitter>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -46,6 +47,7 @@ namespace Ui {
     class ClippingPage;
     class ViewDisplayPage;
     class ScalarPage;
+    class ProbePage;
     class VectorsPage;
     class StreamlinesPage;
     class ScreenshotPage;
@@ -135,6 +137,8 @@ private:
     QWidget* buildClippingPage();
     QWidget* buildViewDisplayPage();
     QWidget* buildScalarPage();
+    QWidget* buildProbePage();
+    void refreshProbeTable();
     QWidget* buildVectorsPage();
     QWidget* buildStreamlinesPage();
     QWidget* buildScreenshotPage();
@@ -238,6 +242,12 @@ private:
     QCheckBox* m_scalarShowCb = nullptr;
     QWidget* m_scalarOptionsGroup = nullptr;
     QComboBox* m_scalarPlacementCombo = nullptr;
+    // Probe page
+    QCheckBox* m_probeShowCb = nullptr;
+    QDoubleSpinBox *m_probeXSpin = nullptr, *m_probeYSpin = nullptr, *m_probeZSpin = nullptr;
+    QComboBox* m_probeFormatCombo = nullptr;
+    QComboBox* m_probePlacementCombo = nullptr;
+    QTableWidget* m_probeTable = nullptr;
     QCheckBox* m_slShowCb = nullptr;
     QCheckBox* m_vecShowCb = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;

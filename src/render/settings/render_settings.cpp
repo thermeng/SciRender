@@ -426,6 +426,8 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("vectorPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.vectorPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.vectorPlacement = std::clamp(v.toInt(), 0, 1); });
         add("isosurfacePlacement", [](const RenderSettings& r) { return QVariant(r.m_state.isosurfacePlacement); },           [](RenderSettings& r, const QVariant& v) { r.m_state.isosurfacePlacement = std::clamp(v.toInt(), 0, 1); });
         add("scalarPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.scalarPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.scalarPlacement = std::clamp(v.toInt(), 0, 1); });
+        add("probeFormat",         [](const RenderSettings& r) { return QVariant(r.m_state.probeFormat); },                   [](RenderSettings& r, const QVariant& v) { r.m_state.probeFormat = std::clamp(v.toInt(), 0, 2); });
+        add("probePlacement",      [](const RenderSettings& r) { return QVariant(r.m_state.probePlacement); },                [](RenderSettings& r, const QVariant& v) { r.m_state.probePlacement = std::clamp(v.toInt(), 0, 1); });
         add("vectorVisMode",       [](const RenderSettings& r) { return QVariant(r.m_state.vectorVisMode); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.vectorVisMode = std::clamp(v.toInt(), 0, 2); });
         add("licSteps",            [](const RenderSettings& r) { return QVariant(r.m_state.licSteps); },                      [](RenderSettings& r, const QVariant& v) { r.setLicSteps(v.toInt()); });
         add("licStepSize",         [](const RenderSettings& r) { return QVariant(static_cast<double>(r.m_state.licStepSize)); }, [](RenderSettings& r, const QVariant& v) { r.setLicStepSize(v.toDouble()); });
@@ -504,6 +506,8 @@ void RenderSettings::restoreStateFromSettings() {
     m_state.vectorPlacement = std::clamp(m_state.vectorPlacement, 0, 1);
     m_state.isosurfacePlacement = std::clamp(m_state.isosurfacePlacement, 0, 1);
     m_state.scalarPlacement = std::clamp(m_state.scalarPlacement, 0, 1);
+    m_state.probeFormat = std::clamp(m_state.probeFormat, 0, 2);
+    m_state.probePlacement = std::clamp(m_state.probePlacement, 0, 1);
     m_isoController.setPlacement(m_state.isosurfacePlacement);
     m_state.licBoundaryMode = 1;
     m_state.showVectors = (m_state.vectorVisMode == 1);
@@ -755,6 +759,8 @@ void RenderSettings::onMeshParsed() {
     m_state.showLineProbe = false;
     m_state.lineP0 = glm::vec3(m_state.worldMinX, m_state.worldMinY, m_state.worldMinZ);
     m_state.lineP1 = glm::vec3(m_state.worldMaxX, m_state.worldMaxY, m_state.worldMaxZ);
+    m_state.showProbe = false;
+    m_state.probePos = glm::vec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
 
     // Isosurface: a fresh mesh starts with the surface off and the threshold
     // centered on the new data range. (The ISO mesh is cleared on the render
@@ -1053,6 +1059,8 @@ void RenderSettings::clearMeshes() {
     m_state.showLineProbe = false;
     m_state.lineP0 = glm::vec3(m_state.worldMinX, m_state.worldMinY, m_state.worldMinZ);
     m_state.lineP1 = glm::vec3(m_state.worldMaxX, m_state.worldMaxY, m_state.worldMaxZ);
+    m_state.showProbe = false;
+    m_state.probePos = glm::vec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
 
     m_isoController.clear();
     markStateDirty();
