@@ -118,6 +118,7 @@ add_library(RenderLib STATIC
     src/render/overlays/BBoxOverlay.cpp
     src/render/overlays/QualityOverlayRenderer.cpp
     src/render/overlays/LineProbeOverlay.cpp
+    src/render/overlays/ProbeOverlay.cpp
     src/render/streamlines/StreamlineController.cpp
     src/render/overlays/screenshot_capture.cpp
     src/render/overlays/AviMjpegWriter.cpp
@@ -151,6 +152,7 @@ add_executable(SciRender
     src/ui/main_window.h
     src/ui/main_window.ui
     src/ui/scalar_page.ui
+    src/ui/probe_page.ui
     src/ui/lighting_page.ui
     src/ui/clipping_page.ui
     src/ui/view_display_page.ui

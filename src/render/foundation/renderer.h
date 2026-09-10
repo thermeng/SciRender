@@ -45,6 +45,7 @@
 #include "render/overlays/BBoxOverlay.h"
 #include "render/overlays/QualityOverlayRenderer.h"
 #include "render/overlays/LineProbeOverlay.h"
+#include "render/overlays/ProbeOverlay.h"
 #include "render/streamlines/StreamlineController.h"
 #include "render/passes/MeshPass.h"
 #include "render/passes/GlyphPass.h"
@@ -379,6 +380,11 @@ struct RenderRenderState {
     bool showLineProbe = false;
     glm::vec3 lineP0 = glm::vec3(0.0f);
     glm::vec3 lineP1 = glm::vec3(1.0f, 0.0f, 0.0f);
+
+    bool showProbe = false;
+    glm::vec3 probePos = glm::vec3(0.0f);
+    int probeFormat = 1; // 0=Integer Rounding, 1=Float 4 sig, 2=Exponent
+    int probePlacement = 0; // 0=Vertex, 1=Cell Center
 };
 
 
@@ -710,6 +716,7 @@ private:
     BBoxOverlay m_bbox;
     QualityOverlayRenderer m_qualityOverlay;
     LineProbeOverlay m_lineProbe;
+    ProbeOverlay m_probe;
     StreamlineController m_streamlines;
     VolumePass m_volume;
     VolumeTextureCache m_volumeCache;

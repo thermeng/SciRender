@@ -5,6 +5,7 @@
 #include "ui_clipping_page.h"
 #include "ui_view_display_page.h"
 #include "ui_scalar_page.h"
+#include "ui_probe_page.h"
 #include "ui_vectors_page.h"
 #include "ui_streamlines_page.h"
 #include "ui_screenshot_page.h"
@@ -536,7 +537,7 @@ void MainWindow::setupSidebar() {
     m_navList->setFocusPolicy(Qt::NoFocus);
 
     const QString navItems[] = {
-        "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar",
+        "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar", "Probe",
         "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
         "Screenshot", "Animation", "Plots"
     };
@@ -605,14 +606,15 @@ void MainWindow::setupSidebar() {
     m_sectionStack->addWidget(buildClippingPage());      // 2
     m_sectionStack->addWidget(buildViewDisplayPage());  // 3
     m_sectionStack->addWidget(buildScalarPage());     // 4
-    m_sectionStack->addWidget(buildVectorsPage());      // 5
-    m_sectionStack->addWidget(buildStreamlinesPage());  // 6
-    m_sectionStack->addWidget(buildVolumePage());       // 7
-    m_sectionStack->addWidget(buildSlicePlanePage());   // 8
-    m_sectionStack->addWidget(buildIsosurfacePage());   // 9
-    m_sectionStack->addWidget(buildScreenshotPage());   // 10
-    m_sectionStack->addWidget(buildAnimationPage());    // 11
-    m_sectionStack->addWidget(buildPlotsPage());        // 12
+    m_sectionStack->addWidget(buildProbePage());      // 5
+    m_sectionStack->addWidget(buildVectorsPage());      // 6
+    m_sectionStack->addWidget(buildStreamlinesPage());  // 7
+    m_sectionStack->addWidget(buildVolumePage());       // 8
+    m_sectionStack->addWidget(buildSlicePlanePage());   // 9
+    m_sectionStack->addWidget(buildIsosurfacePage());   // 10
+    m_sectionStack->addWidget(buildScreenshotPage());   // 11
+    m_sectionStack->addWidget(buildAnimationPage());    // 12
+    m_sectionStack->addWidget(buildPlotsPage());        // 13
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -1264,7 +1266,269 @@ QWidget* MainWindow::buildScalarPage() {
 }
 
 
-// Section: Vectors (4)
+QWidget* MainWindow::buildProbePage() {
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto* content = new QWidget;
+    Ui::ProbePage probeUi;
+    probeUi.setupUi(content);
+    fixLayoutOverflow(content);
+
+    m_probeShowCb = probeUi.enableCb;
+    m_probeXSpin = probeUi.xSpin;
+    m_probeYSpin = probeUi.ySpin;
+    m_probeZSpin = probeUi.zSpin;
+    m_probeFormatCombo = probeUi.formatCombo;
+    m_probePlacementCombo = probeUi.placementCombo;
+    m_probeTable = probeUi.valueTable;
+
+    m_probeShowCb->setChecked(m_settings->getShowProbe());
+    connect(m_probeShowCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowProbe);
+
+    m_probeXSpin->setValue(m_settings->getProbeX());
+    m_probeYSpin->setValue(m_settings->getProbeY());
+    m_probeZSpin->setValue(m_settings->getProbeZ());
+    // Sync spinbox -> state, will trigger viewChanged -> overlay
+    connect(m_probeXSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), m_settings, [this](double v){ m_settings->setProbeX(v); refreshProbeTable(); });
+    connect(m_probeYSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), m_settings, [this](double v){ m_settings->setProbeY(v); refreshProbeTable(); });
+    connect(m_probeZSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), m_settings, [this](double v){ m_settings->setProbeZ(v); refreshProbeTable(); });
+
+    m_probeFormatCombo->clear();
+    m_probeFormatCombo->addItems(m_settings->getProbeFormatOptions());
+    m_probeFormatCombo->setCurrentIndex(m_settings->getProbeFormat());
+    connect(m_probeFormatCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), m_settings, [this](int idx){ m_settings->setProbeFormat(idx); refreshProbeTable(); });
+
+    m_probePlacementCombo->clear();
+    m_probePlacementCombo->addItems(m_settings->getProbePlacementOptions());
+    m_probePlacementCombo->setCurrentIndex(m_settings->getProbePlacement());
+    m_probePlacementCombo->setEnabled(m_settings->hasScalarCellData());
+    connect(m_probePlacementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), m_settings, [this](int idx){ m_settings->setProbePlacement(idx); refreshProbeTable(); });
+
+    m_probeTable->setColumnCount(2);
+    m_probeTable->setHorizontalHeaderLabels({tr("Scalar"), tr("Value")});
+    m_probeTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_probeTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_probeTable->horizontalHeader()->setStretchLastSection(false);
+    m_probeTable->horizontalHeader()->setCascadingSectionResizes(false);
+    m_probeTable->verticalHeader()->setVisible(false);
+    m_probeTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_probeTable->setSelectionMode(QAbstractItemView::NoSelection);
+    m_probeTable->setShowGrid(true);
+    m_probeTable->setMinimumHeight(160);
+    m_probeTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_probeTable->horizontalHeader()->setMinimumSectionSize(60);
+
+    // Sync from settings -> UI when mesh loads or placement changes
+    connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags){
+        if(m_probeShowCb){ m_probeShowCb->blockSignals(true); m_probeShowCb->setChecked(m_settings->getShowProbe()); m_probeShowCb->blockSignals(false); }
+        if(m_probePlacementCombo){ m_probePlacementCombo->blockSignals(true); m_probePlacementCombo->setCurrentIndex(m_settings->getProbePlacement()); m_probePlacementCombo->setEnabled(m_settings->hasScalarCellData()); m_probePlacementCombo->blockSignals(false); }
+        if(m_probeFormatCombo){ m_probeFormatCombo->blockSignals(true); m_probeFormatCombo->setCurrentIndex(m_settings->getProbeFormat()); m_probeFormatCombo->blockSignals(false); }
+    });
+    connect(m_settings, &RenderSettings::meshDataUpdated, this, [this](){
+        // Update probe pos to mesh center on new mesh if probe was at old center
+        if(m_probeXSpin && m_settings->getHasMeshLoaded()){
+            // Keep current probe pos but ensure spinbox range covers new bounds
+            double minX=m_settings->getWorldMinX(), maxX=m_settings->getWorldMaxX();
+            double minY=m_settings->getWorldMinY(), maxY=m_settings->getWorldMaxY();
+            double minZ=m_settings->getWorldMinZ(), maxZ=m_settings->getWorldMaxZ();
+            // Update spinbox ranges to generous world bounds
+            for(auto* sb: {m_probeXSpin, m_probeYSpin, m_probeZSpin}){
+                if(sb) sb->setRange(std::min({minX,minY,minZ})-1000, std::max({maxX,maxY,maxZ})+1000);
+            }
+        }
+        refreshProbeTable();
+        if(m_probePlacementCombo){ m_probePlacementCombo->setEnabled(m_settings->hasScalarCellData()); }
+    });
+
+    refreshProbeTable();
+
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+    scroll->setWidget(content);
+    applyPanelStyling(content);
+    auto* wrapper=new QWidget; auto* lay=new QVBoxLayout(wrapper); lay->setContentsMargins(0,0,0,0); lay->addWidget(scroll);
+    return wrapper;
+}
+void MainWindow::refreshProbeTable(){
+    if(!m_probeTable || !m_settings) return;
+    auto* rm = m_settings->backend() ? m_settings->backend()->lastUploadedMeshForPlot() : nullptr;
+    if(!rm) rm = m_settings->getHasMeshLoaded() ? m_settings->backend()->lastUploadedMeshForPlot() : nullptr;
+    if(!rm || !rm->attributes){
+        m_probeTable->clearContents(); m_probeTable->setRowCount(0);
+        return;
+    }
+    glm::vec3 pos(static_cast<float>(m_settings->getProbeX()), static_cast<float>(m_settings->getProbeY()), static_cast<float>(m_settings->getProbeZ()));
+    int placement = m_settings->getProbePlacement();
+    int fmt = m_settings->getProbeFormat();
+    QStringList scalars = m_settings->getAvailableScalars();
+    if(scalars.isEmpty()){
+        m_probeTable->clearContents(); m_probeTable->setRowCount(0);
+        return;
+    }
+    m_probeTable->setRowCount(scalars.size());
+    // Helper to sample one scalar at pos
+    auto sampleOne = [&](const std::string& field, float& outVal, bool& outInside)->bool{
+        // Use FieldResolver for range, but sampling at point needs trilinear
+        float mn,mx;
+        const std::vector<float>* src = FieldResolver::scalarData(*rm, field, mn, mx, placement);
+        // For volume-like sampling we want placement-aware data: if placement==1 and field has cell data, use cell
+        // FieldResolver::scalarData for surface returns point-sized with cell range; for probe we need actual point/cell value at pos.
+        // So we re-resolve for probe: if placement==1 and has cell, use cell data directly for nearest, else point
+        bool hasPoint = rm->attributes->pointScalars.find(field)!=rm->attributes->pointScalars.end();
+        bool hasCell = rm->attributes->cellScalars.find(field)!=rm->attributes->cellScalars.end();
+        // Derived handling: check derived cache via FieldResolver
+        if(!src){
+            // Try volumeScalarData for cell case
+            src = FieldResolver::volumeScalarData(*rm, field, mn, mx, placement);
+            if(!src) return false;
+            hasPoint = (src->size() == rm->vertices.size()/3);
+            hasCell = (src->size() != rm->vertices.size()/3);
+        }
+        // Structured grid sampling
+        bool isStructured = rm->gridDimX>1 && rm->gridDimY>1;
+        if(isStructured && rm->gridDimX>0 && rm->gridDimY>0 && rm->gridDimZ>0){
+            int dX=rm->gridDimX, dY=rm->gridDimY, dZ=rm->gridDimZ;
+            int cdX=std::max(1,dX-1), cdY=std::max(1,dY-1), cdZ=std::max(1,dZ-1);
+            const float* verts = rm->vertices.data();
+            auto idx=[&](int x,int y,int z){ return x + y*dX + z*dX*dY; };
+            // Find containing cell
+            for(int cz=0; cz<cdZ; ++cz) for(int cy=0; cy<cdY; ++cy) for(int cx=0; cx<cdX; ++cx){
+                float minx=1e30f,miny=1e30f,minz=1e30f,maxx=-1e30f,maxy=-1e30f,maxz=-1e30f;
+                int x0=cx, x1=std::min(cx+1,dX-1), y0=cy, y1=std::min(cy+1,dY-1), z0=cz, z1=std::min(cz+1,dZ-1);
+                int corners[8][3]={{x0,y0,z0},{x1,y0,z0},{x1,y1,z0},{x0,y1,z0},{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}};
+                for(int k=0;k<8;++k){
+                    int n=idx(corners[k][0],corners[k][1],corners[k][2]);
+                    if(n<0 || size_t(n*3+2)>=rm->vertices.size()) continue;
+                    float px=verts[n*3+0], py=verts[n*3+1], pz=verts[n*3+2];
+                    minx=std::min(minx,px); maxx=std::max(maxx,px);
+                    miny=std::min(miny,py); maxy=std::max(maxy,py);
+                    minz=std::min(minz,pz); maxz=std::max(maxz,pz);
+                }
+                const float eps=1e-6f;
+                if(pos.x < minx - eps || pos.x > maxx + eps) continue;
+                if(pos.y < miny - eps || pos.y > maxy + eps) continue;
+                if(dZ>1 && (pos.z < minz - eps || pos.z > maxz + eps)) continue;
+                // Inside this cell
+                outInside = true;
+                if(placement==1 && hasCell){
+                    int cIdx = cx + cy*cdX + cz*cdX*cdY;
+                    auto itc = rm->attributes->cellScalars.find(field);
+                    if(itc!=rm->attributes->cellScalars.end() && cIdx < (int)itc->second.size()){
+                        outVal = itc->second[cIdx];
+                        return true;
+                    }
+                    // Derived cell fallback
+                    float tmpMin,tmpMax;
+                    auto* dsrc = FieldResolver::volumeScalarData(*rm, field, tmpMin, tmpMax, 1);
+                    if(dsrc && cIdx < (int)dsrc->size()){ outVal = (*dsrc)[cIdx]; return true; }
+                }
+                // Vertex trilinear
+                float s[8]; bool ok=true;
+                for(int k=0;k<8;++k){
+                    int n=idx(corners[k][0],corners[k][1],corners[k][2]);
+                    if(n<0 || size_t(n) >= src->size()){ ok=false; break; }
+                    s[k]=(*src)[n];
+                    if(!std::isfinite(s[k])) ok=false;
+                }
+                if(!ok) continue;
+                float dx = (maxx-minx)>1e-12f ? (pos.x - minx)/(maxx-minx) : 0;
+                float dy = (maxy-miny)>1e-12f ? (pos.y - miny)/(maxy-miny) : 0;
+                float dz = (dZ>1 && (maxz-minz)>1e-12f) ? (pos.z - minz)/(maxz-minz) : 0;
+                dx=std::clamp(dx,0.0f,1.0f); dy=std::clamp(dy,0.0f,1.0f); dz=std::clamp(dz,0.0f,1.0f);
+                float c00=s[0]*(1-dx)+s[1]*dx, c10=s[3]*(1-dx)+s[2]*dx, c01=s[4]*(1-dx)+s[5]*dx, c11=s[7]*(1-dx)+s[6]*dx;
+                float c0=c00*(1-dy)+c10*dy, c1=c01*(1-dy)+c11*dy;
+                outVal = c0*(1-dz)+c1*dz;
+                return true;
+            }
+        }
+        // Outside or unstructured: nearest
+        outInside = false;
+        if(placement==1 && hasCell){
+            // nearest cell center
+            float bestD=1e30f; int best=-1;
+            for(size_t c=0;c<rm->cellCenters.size();++c){
+                float dx=rm->cellCenters[c].x-pos.x, dy=rm->cellCenters[c].y-pos.y, dz=rm->cellCenters[c].z-pos.z;
+                float dd=dx*dx+dy*dy+dz*dz;
+                if(dd<bestD){ bestD=dd; best=int(c); }
+            }
+            if(best>=0){
+                auto itc = rm->attributes->cellScalars.find(field);
+                if(itc!=rm->attributes->cellScalars.end() && best < (int)itc->second.size()){ outVal=itc->second[best]; return true; }
+                float tmpMin,tmpMax;
+                auto* dsrc = FieldResolver::volumeScalarData(*rm, field, tmpMin, tmpMax, 1);
+                if(dsrc && best < (int)dsrc->size()){ outVal=(*dsrc)[best]; return true; }
+            }
+        }
+        // nearest vertex
+        float bestD=1e30f; int best=-1;
+        size_t nPt=rm->vertices.size()/3;
+        const float* verts2=rm->vertices.data();
+        for(size_t n=0;n<nPt;++n){
+            float dx=verts2[n*3+0]-pos.x, dy=verts2[n*3+1]-pos.y, dz=verts2[n*3+2]-pos.z;
+            float dd=dx*dx+dy*dy+dz*dz;
+            if(dd<bestD){ bestD=dd; best=int(n); }
+        }
+        if(best>=0 && size_t(best) < src->size()){ outVal=(*src)[best]; return true; }
+        return false;
+    };
+    for(int r=0;r<scalars.size();++r){
+        std::string field = scalars[r].toStdString();
+        float v=0; bool inside=false;
+        bool ok = sampleOne(field, v, inside);
+        QTableWidgetItem* nameItem = new QTableWidgetItem(scalars[r]);
+        nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+        QTableWidgetItem* valItem;
+        if(!ok){
+            valItem = new QTableWidgetItem(tr("n/a"));
+        } else {
+            QString txt;
+            if(fmt==0) txt = QString::number(int(std::round(v)));
+            else if(fmt==1) txt = QString::number(v,'g',4);
+            else txt = QString::number(v,'e',6);
+            if(!inside) txt += " *";
+            valItem = new QTableWidgetItem(txt);
+            valItem->setToolTip(inside ? tr("Interpolated") : tr("Nearest (outside)"));
+        }
+        valItem->setFlags(valItem->flags() & ~Qt::ItemIsEditable);
+        valItem->setTextAlignment(Qt::AlignRight|Qt::AlignVCenter);
+        m_probeTable->setItem(r,0,nameItem);
+        m_probeTable->setItem(r,1,valItem);
+    }
+    // Auto-resize value column - ensure Value fills and Scalar stretches to occupy full width
+    m_probeTable->resizeColumnsToContents();
+    // Force stretch column to fill remaining viewport width (fixes Format change not occupying full space until tab switch)
+    {
+        int vpW = m_probeTable->viewport()->width();
+        if (vpW <= 0) vpW = m_probeTable->width() - m_probeTable->verticalHeader()->width() - 4;
+        if (vpW > 0) {
+            int col1W = m_probeTable->columnWidth(1);
+            int col0W = qMax(80, vpW - col1W - 4);
+            // Re-apply stretch mode then set explicit width for col0 to fill
+            m_probeTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+            m_probeTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+            // Use QTimer to handle case where table was not yet visible (width==0)
+            if (m_probeTable->isVisible() && vpW > 50) {
+                // Immediate correct for visible case
+            } else {
+                QTimer::singleShot(0, m_probeTable, [this](){
+                    if (!m_probeTable || !m_probeTable->isVisible()) return;
+                    m_probeTable->resizeColumnsToContents();
+                    int vp = m_probeTable->viewport()->width();
+                    int c1 = m_probeTable->columnWidth(1);
+                    int c0 = qMax(80, vp - c1 - 4);
+                    if (c0 > 0) m_probeTable->setColumnWidth(0, c0);
+                    m_probeTable->updateGeometry();
+                    m_probeTable->viewport()->update();
+                });
+            }
+        }
+        m_probeTable->updateGeometry();
+        m_probeTable->viewport()->update();
+    }
+}
+
+ // Section: Vectors (4)
 
 QWidget* MainWindow::buildVectorsPage() {
     auto* page = new QWidget;
@@ -2360,9 +2624,9 @@ void MainWindow::refreshScalarFilterRange() {
 // Sidebar section switching
 
 static const char* sectionNames[] = {
-    "Mesh Info", "Lighting", "Slicing", "View & Display", "Scalar",
-    "Vectors", "Streamlines", "Volume Rendering", "Slice Plane", "Isosurface",
-    "Screenshot", "Animation"
+    "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar", "Probe",
+    "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
+    "Screenshot", "Animation", "Plots"
 };
 
 void MainWindow::setSidebarSection(int section) {
@@ -3085,13 +3349,6 @@ QWidget* MainWindow::buildPlotsPage() {
     QFont hf = header->font(); hf.setBold(true); hf.setPointSize(hf.pointSize() + 1);
     header->setFont(hf);
     lay->addWidget(header);
-
-    auto* desc = new QLabel(tr("GPU compute histogram over the active scalar field (per render-vertex, post-split). "
-                               "Now docked below the viewport via a vertical split. Custom QPainter view — no Qt Charts."));
-    desc->setWordWrap(true);
-    // Use theme-aware muted text (placeholderText) instead of hard-coded palette(mid) which is unreadable in dark theme
-    desc->setStyleSheet("color: palette(placeholderText);");
-    lay->addWidget(desc);
 
     auto* openBtn = new QPushButton(tr("Show Histogram Below Viewport"));
     openBtn->setCheckable(true);
