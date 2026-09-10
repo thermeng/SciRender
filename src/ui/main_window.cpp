@@ -1344,7 +1344,15 @@ QWidget* MainWindow::buildProbePage() {
 
     refreshProbeTable();
 
-    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+    // Make probe table vertically expanding to fill available space (replaces generic addStretch)
+    probeUi.valueTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    if (auto* outerLay = qobject_cast<QVBoxLayout*>(content->layout())) {
+        outerLay->setStretchFactor(probeUi.optionsGroup, 1);
+    }
+    if (auto* optsLay = qobject_cast<QVBoxLayout*>(probeUi.optionsGroup->layout())) {
+        optsLay->setStretchFactor(probeUi.valueTable, 1);
+    }
+    // Keep hint and bottomSpacer at natural height; table will expand
     scroll->setWidget(content);
     applyPanelStyling(content);
     auto* wrapper=new QWidget; auto* lay=new QVBoxLayout(wrapper); lay->setContentsMargins(0,0,0,0); lay->addWidget(scroll);
