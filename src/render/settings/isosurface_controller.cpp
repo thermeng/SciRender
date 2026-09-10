@@ -13,13 +13,29 @@ IsosurfaceController::IsosurfaceController(Renderer& renderer, QObject* parent)
 }
 
 bool IsosurfaceController::isAvailable() const {
-    return m_currentMesh && isosurface::canExtract(*m_currentMesh, m_currentField);
+    return isAvailable(m_placement);
+}
+bool IsosurfaceController::isAvailable(int placement) const {
+    return m_currentMesh && isosurface::canExtract(*m_currentMesh, m_currentField, placement);
 }
 
 void IsosurfaceController::setCurrentMesh(std::shared_ptr<const RenderMesh> mesh,
                                           const std::string& field) {
     m_currentMesh = std::move(mesh);
     m_currentField = field;
+}
+void IsosurfaceController::setCurrentMesh(std::shared_ptr<const RenderMesh> mesh,
+                                          const std::string& field, int placement) {
+    m_currentMesh = std::move(mesh);
+    m_currentField = field;
+    m_placement = std::clamp(placement, 0, 1);
+}
+void IsosurfaceController::setPlacement(int p) {
+    int np = std::clamp(p, 0, 1);
+    if (m_placement == np) return;
+    m_placement = np;
+    emit placementChanged(np);
+    if (m_showIsosurface) recompute();
 }
 
 void IsosurfaceController::setShowIsosurface(bool v) {
@@ -77,7 +93,7 @@ void IsosurfaceController::clear() {
 }
 
 void IsosurfaceController::recompute() {
-    if (!m_showIsosurface || !m_currentMesh || !isosurface::canExtract(*m_currentMesh, m_currentField)) {
+    if (!m_showIsosurface || !m_currentMesh || !isosurface::canExtract(*m_currentMesh, m_currentField, m_placement)) {
         m_renderer.setPendingIsosurface(nullptr);
         emit displayDirty();
         return;
@@ -98,10 +114,11 @@ void IsosurfaceController::launchAsync() {
     const float iso = m_isovalue;
     const auto meshPtr = m_currentMesh;
     const auto field = m_currentField;
+    const int placement = m_placement;
     m_watcher.setFuture(QtConcurrent::run(
-        [meshPtr, iso, field, taskToken = m_taskToken, token]() -> RenderMesh {
+        [meshPtr, iso, field, placement, taskToken = m_taskToken, token]() -> RenderMesh {
             taskToken->store(token);
-            return isosurface::extractIsosurface(*meshPtr, {iso}, field);
+            return isosurface::extractIsosurface(*meshPtr, {iso}, field, placement);
         }));
 }
 

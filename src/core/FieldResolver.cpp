@@ -17,26 +17,38 @@ void clearCache() {
     s_derivedLastMesh = nullptr;
 }
 
-std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested) {
+std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested, int placement) {
     if (!requested.empty()) {
         if (mesh.attributes) {
-            auto it = mesh.attributes->pointScalars.find(requested);
-            if (it != mesh.attributes->pointScalars.end()) return requested;
-            auto cit = mesh.attributes->cellScalars.find(requested);
-            if (cit != mesh.attributes->cellScalars.end()) return requested;
+            if (placement == 1) {
+                auto cit = mesh.attributes->cellScalars.find(requested);
+                if (cit != mesh.attributes->cellScalars.end()) return requested;
+                auto it = mesh.attributes->pointScalars.find(requested);
+                if (it != mesh.attributes->pointScalars.end()) return requested;
+            } else {
+                auto it = mesh.attributes->pointScalars.find(requested);
+                if (it != mesh.attributes->pointScalars.end()) return requested;
+                auto cit = mesh.attributes->cellScalars.find(requested);
+                if (cit != mesh.attributes->cellScalars.end()) return requested;
+            }
         }
         for (auto& n : mesh.availableScalarNames) if (n == requested) return requested;
         for (auto& n : derivedScalarNames(mesh)) if (n == requested) return requested;
     }
+    // No requested or not found — pick first available respecting placement
+    if (placement == 1 && mesh.attributes && !mesh.attributes->cellScalars.empty())
+        return mesh.attributes->cellScalars.begin()->first;
     if (!mesh.availableScalarNames.empty()) return mesh.availableScalarNames.front();
     auto d = derivedScalarNames(mesh);
     if (!d.empty()) return d.front();
     if (mesh.attributes && !mesh.attributes->pointScalars.empty())
         return mesh.attributes->pointScalars.begin()->first;
+    if (mesh.attributes && !mesh.attributes->cellScalars.empty())
+        return mesh.attributes->cellScalars.begin()->first;
     return {};
 }
 
-const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax) {
+const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax, int placement) {
     auto computeRange = [](const std::vector<float>& v, float& mn, float& mx){
         if (v.empty()) { mn=0; mx=1; return; }
         mn = std::numeric_limits<float>::max();
@@ -46,26 +58,57 @@ const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& 
         if (std::abs(mx - mn) < 1e-6f) mx = mn + 1.0f;
     };
     if (mesh.attributes) {
-        auto it = mesh.attributes->pointScalars.find(name);
-        if (it != mesh.attributes->pointScalars.end()) {
-            // Prefer stored per-field range, fall back to scan (robust if stale)
-            auto rit = mesh.attributes->pointScalarRanges.find(name);
-            if (rit != mesh.attributes->pointScalarRanges.end()) {
-                outMin = rit->second.first; outMax = rit->second.second;
-            } else {
-                computeRange(it->second, outMin, outMax);
+        bool wantCell = (placement == 1);
+        if (wantCell) {
+            auto cit = mesh.attributes->cellScalars.find(name);
+            if (cit != mesh.attributes->cellScalars.end()) {
+                auto rit = mesh.attributes->cellScalarRanges.find(name);
+                if (rit != mesh.attributes->cellScalarRanges.end()) {
+                    outMin = rit->second.first; outMax = rit->second.second;
+                } else {
+                    computeRange(cit->second, outMin, outMax);
+                }
+                // For surface rendering we need per-vertex data; if an
+                // extrapolated point copy exists, return that for GPU upload but
+                // keep the cell range for colorbar/legend.
+                auto pit = mesh.attributes->pointScalars.find(name);
+                if (pit != mesh.attributes->pointScalars.end())
+                    return &pit->second;
+                return &cit->second;
             }
-            return &it->second;
-        }
-        auto cit = mesh.attributes->cellScalars.find(name);
-        if (cit != mesh.attributes->cellScalars.end()) {
-            auto rit = mesh.attributes->cellScalarRanges.find(name);
-            if (rit != mesh.attributes->cellScalarRanges.end()) {
-                outMin = rit->second.first; outMax = rit->second.second;
-            } else {
-                computeRange(cit->second, outMin, outMax);
+            // Cell requested but not found: fall back to point
+            auto it = mesh.attributes->pointScalars.find(name);
+            if (it != mesh.attributes->pointScalars.end()) {
+                auto rit = mesh.attributes->pointScalarRanges.find(name);
+                if (rit != mesh.attributes->pointScalarRanges.end()) {
+                    outMin = rit->second.first; outMax = rit->second.second;
+                } else {
+                    computeRange(it->second, outMin, outMax);
+                }
+                return &it->second;
             }
-            return &cit->second;
+        } else {
+            auto it = mesh.attributes->pointScalars.find(name);
+            if (it != mesh.attributes->pointScalars.end()) {
+                // Vertex placement: strictly point range, even if cell exists.
+                auto rit = mesh.attributes->pointScalarRanges.find(name);
+                if (rit != mesh.attributes->pointScalarRanges.end()) {
+                    outMin = rit->second.first; outMax = rit->second.second;
+                } else {
+                    computeRange(it->second, outMin, outMax);
+                }
+                return &it->second;
+            }
+            auto cit = mesh.attributes->cellScalars.find(name);
+            if (cit != mesh.attributes->cellScalars.end()) {
+                auto rit = mesh.attributes->cellScalarRanges.find(name);
+                if (rit != mesh.attributes->cellScalarRanges.end()) {
+                    outMin = rit->second.first; outMax = rit->second.second;
+                } else {
+                    computeRange(cit->second, outMin, outMax);
+                }
+                return &cit->second;
+            }
         }
         // Also check per-field ranges directly (covers extrapolated cell->point case where
         // pointScalars already contains the averaged data but range map is authoritative)
@@ -91,45 +134,161 @@ const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& 
         computeRange(mesh.scalars, outMin, outMax);
         return &mesh.scalars;
     }
-    // Lazy derived vector→scalar: <base>_magnitude / _X / _Y / _Z
+    // Lazy derived vector→scalar: <base>_magnitude / _X / _Y / _Z — surface is always point-sized
+    // but range is placement-aware so Vertex (narrow, point) vs Cell (wide, cell) colormap differs.
     auto tryDerived = [&](const std::string& suffix, int comp) -> const std::vector<float>* {
         if (name.size() <= suffix.size() || name.substr(name.size()-suffix.size()) != suffix) return nullptr;
         std::string base = name.substr(0, name.size()-suffix.size());
-        // Prefer point vectors (already extrapolated from cell via extrapolateCellDataToPoints)
-        VectorField vf = resolveVector(mesh, base, 0);
-        if (!vf.data || vf.count==0) vf = resolveVector(mesh, base, 1);
-        if (!vf.data || vf.count==0) return nullptr;
+        VectorField vfPoint = resolveVector(mesh, base, 0);
+        VectorField vfCell  = resolveVector(mesh, base, 1);
+        bool hasPoint = vfPoint.data && vfPoint.count>0;
+        bool hasCell  = vfCell.data  && vfCell.count>0;
+        if (!hasPoint && !hasCell) return nullptr;
         if (s_derivedLastMesh != &mesh) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; }
-        auto itc = s_derivedCache.find(name);
-        if (itc != s_derivedCache.end()) {
-            // recompute min/max from cached
+        // Ensure point-derived exists (for surface, data is always point-sized)
+        std::string keyPoint = name + "#vert";
+        auto itP = s_derivedCache.find(keyPoint);
+        const std::vector<float>* pointPtr = nullptr;
+        float pMin=0,pMax=1;
+        if (itP != s_derivedCache.end()) {
+            pointPtr = &itP->second;
             float mn = std::numeric_limits<float>::max(), mx = -std::numeric_limits<float>::max();
-            for (float v: itc->second) { if (!std::isfinite(v)) continue; mn = std::min(mn,v); mx = std::max(mx,v); }
-            if (mn > mx) { mn = 0; mx = 1; } if (mx - mn < 1e-6f) mx = mn + 1.f;
-            outMin = mn; outMax = mx;
-            return &itc->second;
+            for(float v: *pointPtr) if(std::isfinite(v)){ mn=std::min(mn,v); mx=std::max(mx,v); }
+            if(mn>mx){mn=0;mx=1;} if(mx-mn<1e-6f) mx=mn+1.f; pMin=mn; pMax=mx;
+        } else if (hasPoint) {
+            std::vector<float> derived; derived.reserve(vfPoint.count);
+            float mn = std::numeric_limits<float>::max(), mx = -std::numeric_limits<float>::max();
+            for(size_t i=0;i<vfPoint.count;++i){
+                float v; if(suffix=="_magnitude") v=std::sqrt(vfPoint.data[i].x*vfPoint.data[i].x+vfPoint.data[i].y*vfPoint.data[i].y+vfPoint.data[i].z*vfPoint.data[i].z);
+                else if(comp==0) v=vfPoint.data[i].x; else if(comp==1) v=vfPoint.data[i].y; else v=vfPoint.data[i].z;
+                derived.push_back(v); if(std::isfinite(v)){ mn=std::min(mn,v); mx=std::max(mx,v); }
+            }
+            if(mn>mx){mn=0;mx=1;} if(mx-mn<1e-6f) mx=mn+1.f; pMin=mn; pMax=mx;
+            auto &slot = s_derivedCache[keyPoint] = std::move(derived);
+            pointPtr = &slot;
+        } else {
+            // No point vector but cell exists — fallback to cell-derived extrapolated to points is not available;
+            // generate cell-derived and return it directly (size mismatch but better than null)
+            // For surface with only cell vectors, pointVectors were extrapolated, so hasPoint should have been true above.
+            // If we still reach here, treat as cell-derived point-sized via averaging (reuse cell path below)
+            hasPoint = false;
         }
-        std::vector<float> derived; derived.reserve(vf.count);
-        float mn = std::numeric_limits<float>::max(), mx = -std::numeric_limits<float>::max();
-        for (size_t i=0;i<vf.count;++i) {
-            float v;
-            if (suffix == "_magnitude") v = std::sqrt(vf.data[i].x*vf.data[i].x + vf.data[i].y*vf.data[i].y + vf.data[i].z*vf.data[i].z);
-            else if (comp==0) v = vf.data[i].x;
-            else if (comp==1) v = vf.data[i].y;
-            else v = vf.data[i].z;
-            derived.push_back(v);
-            if (std::isfinite(v)) { mn = std::min(mn,v); mx = std::max(mx,v); }
+        // If placement is Cell and cell vectors exist, compute cell-derived range for legend (wide)
+        if (placement==1 && hasCell) {
+            std::string keyCell = name + "#cell";
+            auto itC = s_derivedCache.find(keyCell);
+            float cMin=0,cMax=1;
+            if (itC != s_derivedCache.end()) {
+                float mn = std::numeric_limits<float>::max(), mx = -std::numeric_limits<float>::max();
+                for(float v: itC->second) if(std::isfinite(v)){ mn=std::min(mn,v); mx=std::max(mx,v); }
+                if(mn>mx){mn=0;mx=1;} if(mx-mn<1e-6f) mx=mn+1.f; cMin=mn; cMax=mx;
+            } else {
+                std::vector<float> derivedC; derivedC.reserve(vfCell.count);
+                float mn = std::numeric_limits<float>::max(), mx = -std::numeric_limits<float>::max();
+                for(size_t i=0;i<vfCell.count;++i){
+                    float v; if(suffix=="_magnitude") v=std::sqrt(vfCell.data[i].x*vfCell.data[i].x+vfCell.data[i].y*vfCell.data[i].y+vfCell.data[i].z*vfCell.data[i].z);
+                    else if(comp==0) v=vfCell.data[i].x; else if(comp==1) v=vfCell.data[i].y; else v=vfCell.data[i].z;
+                    derivedC.push_back(v); if(std::isfinite(v)){ mn=std::min(mn,v); mx=std::max(mx,v); }
+                }
+                if(mn>mx){mn=0;mx=1;} if(mx-mn<1e-6f) mx=mn+1.f; cMin=mn; cMax=mx;
+                s_derivedCache[keyCell] = std::move(derivedC);
+            }
+            outMin = cMin; outMax = cMax;
+            // For surface, data remains point-sized (pointPtr) but range is cell-wide
+            if (pointPtr) return pointPtr;
+            // Fallback if point missing
+            auto itCF = s_derivedCache.find(keyCell);
+            if (itCF != s_derivedCache.end()) {
+                // Need point-sized fallback — extrapolate cell-derived to points via averaging if possible
+                // Simple fallback: return cell-derived directly (size mismatch but better than null for volume)
+                // For surface, we already have pointPtr, so this path only when point missing
+                outMin = cMin; outMax = cMax;
+                return &itCF->second;
+            }
         }
-        if (mn > mx) { mn = 0; mx = 1; } if (mx - mn < 1e-6f) mx = mn + 1.f;
-        outMin = mn; outMax = mx;
-        auto &slot = s_derivedCache[name] = std::move(derived);
-        return &slot;
+        if (pointPtr) { outMin = pMin; outMax = pMax; return pointPtr; }
+        outMin = pMin; outMax = pMax;
+        return nullptr;
     };
     if (auto* p = tryDerived("_magnitude", -1)) return p;
     if (auto* p = tryDerived("_X", 0)) return p;
     if (auto* p = tryDerived("_Y", 1)) return p;
     if (auto* p = tryDerived("_Z", 2)) return p;
     outMin = 0; outMax = 1; return nullptr;
+}
+
+const std::vector<float>* volumeScalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax, int placement) {
+    auto computeRange = [](const std::vector<float>& v, float& mn, float& mx){
+        if (v.empty()) { mn=0; mx=1; return; }
+        mn = std::numeric_limits<float>::max(); mx = std::numeric_limits<float>::lowest();
+        for (float f: v) if(std::isfinite(f)){ mn=std::min(mn,f); mx=std::max(mx,f); }
+        if (mn > mx) { mn=0; mx=1; } if (std::abs(mx-mn)<1e-6f) mx=mn+1.f;
+    };
+    if (mesh.attributes) {
+        if (placement==1) {
+            auto cit = mesh.attributes->cellScalars.find(name);
+            if (cit != mesh.attributes->cellScalars.end()) {
+                auto rit = mesh.attributes->cellScalarRanges.find(name);
+                if (rit != mesh.attributes->cellScalarRanges.end()){ outMin=rit->second.first; outMax=rit->second.second; } else computeRange(cit->second,outMin,outMax);
+                return &cit->second;
+            }
+        } else {
+            auto it = mesh.attributes->pointScalars.find(name);
+            if (it != mesh.attributes->pointScalars.end()) {
+                auto rit = mesh.attributes->pointScalarRanges.find(name);
+                if (rit != mesh.attributes->pointScalarRanges.end()){ outMin=rit->second.first; outMax=rit->second.second; } else computeRange(it->second,outMin,outMax);
+                return &it->second;
+            }
+        }
+        // fallback to other placement if requested not found
+        if (placement==1) {
+            auto it = mesh.attributes->pointScalars.find(name);
+            if (it != mesh.attributes->pointScalars.end()) {
+                auto rit = mesh.attributes->pointScalarRanges.find(name);
+                if (rit != mesh.attributes->pointScalarRanges.end()){ outMin=rit->second.first; outMax=rit->second.second; } else computeRange(it->second,outMin,outMax);
+                return &it->second;
+            }
+        } else {
+            auto cit = mesh.attributes->cellScalars.find(name);
+            if (cit != mesh.attributes->cellScalars.end()) {
+                auto rit = mesh.attributes->cellScalarRanges.find(name);
+                if (rit != mesh.attributes->cellScalarRanges.end()){ outMin=rit->second.first; outMax=rit->second.second; } else computeRange(cit->second,outMin,outMax);
+                return &cit->second;
+            }
+        }
+    }
+    if (!mesh.scalars.empty() && (name==mesh.scalarName || name.empty())) {
+        computeRange(mesh.scalars,outMin,outMax); return &mesh.scalars;
+    }
+    // Derived for volume: per-cell when placement==1
+    auto tryDerivedVol = [&](const std::string& suffix,int comp)->const std::vector<float>*{
+        if (name.size()<=suffix.size()||name.substr(name.size()-suffix.size())!=suffix) return nullptr;
+        std::string base=name.substr(0,name.size()-suffix.size());
+        VectorField vf = resolveVector(mesh, base, placement);
+        if(!vf.data||vf.count==0){ int alt=placement==1?0:1; vf=resolveVector(mesh,base,alt); if(!vf.data||vf.count==0) return nullptr; }
+        std::string cacheKey=name+(placement==1?"#volcell":"#volvert");
+        if(s_derivedLastMesh!=&mesh) { s_derivedCache.clear(); s_derivedLastMesh=&mesh; }
+        auto itc=s_derivedCache.find(cacheKey);
+        if(itc!=s_derivedCache.end()){
+            float mn=std::numeric_limits<float>::max(), mx=-std::numeric_limits<float>::max();
+            for(float v:itc->second) if(std::isfinite(v)){ mn=std::min(mn,v); mx=std::max(mx,v); }
+            if(mn>mx){mn=0;mx=1;} if(mx-mn<1e-6f) mx=mn+1.f; outMin=mn; outMax=mx; return &itc->second;
+        }
+        std::vector<float> derived; derived.reserve(vf.count);
+        float mn=std::numeric_limits<float>::max(), mx=-std::numeric_limits<float>::max();
+        for(size_t i=0;i<vf.count;++i){
+            float v; if(suffix=="_magnitude") v=std::sqrt(vf.data[i].x*vf.data[i].x+vf.data[i].y*vf.data[i].y+vf.data[i].z*vf.data[i].z);
+            else if(comp==0) v=vf.data[i].x; else if(comp==1) v=vf.data[i].y; else v=vf.data[i].z;
+            derived.push_back(v); if(std::isfinite(v)){ mn=std::min(mn,v); mx=std::max(mx,v); }
+        }
+        if(mn>mx){mn=0;mx=1;} if(mx-mn<1e-6f) mx=mn+1.f; outMin=mn; outMax=mx;
+        auto &slot=s_derivedCache[cacheKey]=std::move(derived); return &slot;
+    };
+    if (auto* p=tryDerivedVol("_magnitude",-1)) return p;
+    if (auto* p=tryDerivedVol("_X",0)) return p;
+    if (auto* p=tryDerivedVol("_Y",1)) return p;
+    if (auto* p=tryDerivedVol("_Z",2)) return p;
+    outMin=0; outMax=1; return nullptr;
 }
 
 std::vector<std::string> derivedScalarNames(const RenderMesh& mesh) {

@@ -10,9 +10,13 @@
 // One interface, N consumers. Hides point vs cell, extrapolation, clamping.
 namespace FieldResolver {
 
-// Scalar
-std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested);
-const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax);
+// Scalar (placement: 0=Vertex/point, 1=Cell Center/cell)
+// Overload without placement keeps backward compat (defaults to Vertex).
+std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested, int placement = 0);
+const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax, int placement = 0);
+// DRY helper for volume/isosurface/histogram where Cell placement must return
+// per-cell (cellCount) data, not the point-extrapolated copy used for surface.
+const std::vector<float>* volumeScalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax, int placement = 0);
 bool hasScalar(const RenderMesh& mesh);
 std::vector<std::string> derivedScalarNames(const RenderMesh& mesh);
 std::vector<std::string> availableScalarNamesWithDerived(const RenderMesh& mesh);

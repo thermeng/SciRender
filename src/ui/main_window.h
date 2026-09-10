@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QLabel>
 #include <QToolButton>
+#include <QSplitter>
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QCheckBox>
@@ -36,6 +37,8 @@
 #include "viewport_widget.h"
 #include "render/settings/render_settings.h"
 #include "ui/range_editor.h"
+
+class PlotWindow;
 
 namespace Ui {
     class MainWindow;
@@ -140,6 +143,7 @@ private:
     QWidget* buildSlicePlanePage();
     QWidget* buildIsosurfacePage();
     QWidget* buildAnimationPage();
+    QWidget* buildPlotsPage();
     void refreshMeshInfoPage();
     QHash<QString, QLabel*> m_meshInfoLabels;
 
@@ -233,6 +237,7 @@ private:
     // "Show" checkboxes for vector/streamline/volume/scalar pages (gated on data availability)
     QCheckBox* m_scalarShowCb = nullptr;
     QWidget* m_scalarOptionsGroup = nullptr;
+    QComboBox* m_scalarPlacementCombo = nullptr;
     QCheckBox* m_slShowCb = nullptr;
     QCheckBox* m_vecShowCb = nullptr;
     QCheckBox* m_volumeShowCb = nullptr;
@@ -250,6 +255,7 @@ private:
     QCheckBox* m_isoEnableCb = nullptr;
     QSlider* m_isoValueSlider = nullptr;
     QLabel* m_isoValueLabel = nullptr;
+    QComboBox* m_isoPlacementCombo = nullptr;
 
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;
@@ -297,6 +303,13 @@ private:
     QColorDialog* m_seedColorDialog = nullptr;
 
     QString m_currentFile;
+
+    // Plots — now embedded as vertical split below viewport (not floating)
+    PlotWindow* m_plotWindow = nullptr;
+    QSplitter* m_mainSplitter = nullptr;
+    QWidget* m_histContainer = nullptr;
+    bool m_histogramVisible = false;
+    void setHistogramVisible(bool visible);
 
     // Theme
     QActionGroup* m_shadingGroup = nullptr;

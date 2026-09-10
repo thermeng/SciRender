@@ -149,23 +149,34 @@ void calculateScalarRanges(RenderMesh& mesh) {
         auto r = computeRange(vec);
         mesh.attributes->cellScalarRanges[name] = r;
     }
-    // Global active range for backward compat
+    // Use per-field ranges to set scalarMin/Max. For cell-origin fields the
+    // pointScalarRanges is the narrowed extrapolated average (≈ [-0.06,0.19]
+    // for Pressure) while cellScalarRanges is the original cell range
+    // ([-0.099,0.268]) that ParaView shows. Use the UNION so the colorbar
+    // matches ParaView — see ns_output_ratio.vti Pressure regression.
     if (!mesh.scalarName.empty()) {
-        auto it = mesh.attributes->pointScalarRanges.find(mesh.scalarName);
+        auto pit = mesh.attributes->pointScalarRanges.find(mesh.scalarName);
+        auto cit = mesh.attributes->cellScalarRanges.find(mesh.scalarName);
+        const bool hasP = pit != mesh.attributes->pointScalarRanges.end();
+        const bool hasC = cit != mesh.attributes->cellScalarRanges.end();
+        if (hasP && hasC) {
+            mesh.attributes->scalarMin = std::min(pit->second.first, cit->second.first);
+            mesh.attributes->scalarMax = std::max(pit->second.second, cit->second.second);
+        } else if (hasP) {
+            mesh.attributes->scalarMin = pit->second.first;
+            mesh.attributes->scalarMax = pit->second.second;
+        } else if (hasC) {
+            mesh.attributes->scalarMin = cit->second.first;
+            mesh.attributes->scalarMax = cit->second.second;
+        }
+    } else if (!mesh.attributes->pointScalarRanges.empty()) {
+        // No scalarName set — use first available point scalar range
+        auto it = mesh.attributes->pointScalarRanges.begin();
         if (it != mesh.attributes->pointScalarRanges.end()) {
             mesh.attributes->scalarMin = it->second.first;
             mesh.attributes->scalarMax = it->second.second;
-            return;
         }
-        auto cit = mesh.attributes->cellScalarRanges.find(mesh.scalarName);
-        if (cit != mesh.attributes->cellScalarRanges.end()) {
-            mesh.attributes->scalarMin = cit->second.first;
-            mesh.attributes->scalarMax = cit->second.second;
-            return;
-        }
-    }
-    // Fallback: active scalars vector (e.g. isosurface surface mesh)
-    if (!mesh.scalars.empty()) {
+    } else if (!mesh.scalars.empty()) {
         auto r = computeRange(mesh.scalars);
         mesh.attributes->scalarMin = r.first;
         mesh.attributes->scalarMax = r.second;

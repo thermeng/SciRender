@@ -104,7 +104,9 @@ bool surfaceDecimationSafe(const RenderMesh& in) {
 
     // Flood-fill connected triangles (sharing a vertex) into components, and
     // accumulate a per-component bounding box over the triangle vertices.
-    const int kMaxComponents = 64;
+    // Allow up to 512 components (O(n^2) overlap test) — large assemblies with
+    // many disconnected parts still get LOD if components are well-separated.
+    const int kMaxComponents = 512;
     struct Comp {
         float minX, minY, minZ, maxX, maxY, maxZ;
     };
@@ -155,7 +157,7 @@ bool surfaceDecimationSafe(const RenderMesh& in) {
     const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     if (diag < 1e-9) return false;
     int cellsPerAxis = static_cast<int>(std::round(std::pow((double)nv, 1.0 / 3.0) * RenderConfig::defaults().lodDecimateRatio));
-    cellsPerAxis = std::max(2, std::min(cellsPerAxis, 512));
+    cellsPerAxis = std::max(2, std::min(cellsPerAxis, kLodMaxCellsPerAxis));
     const double cell = diag / cellsPerAxis;
 
     // Any pair of components whose boxes come within `cell` on all three axes
@@ -727,6 +729,8 @@ void MeshGLManager::setComputeShaderSources(const std::string& accumSrc, const s
     lodAccumSrc_ = accumSrc;
     lodOutputSrc_ = outputSrc;
     lodTrisSrc_ = trisSrc;
+    // Force re-initialization on next dispatch if sources changed
+    cleanupLodCompute();
 }
 
 bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimated) {
@@ -762,7 +766,11 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
 
     // Same grid formula as the CPU decimator (see lodCellsPerAxisFor) so both
     // builders agree on cluster resolution.
-    const int cellsPerAxis = lodCellsPerAxisFor(nv);
+    int cellsPerAxis = lodCellsPerAxisFor(nv);
+    // Guard against excessively large cell grids that would allocate massive SSBOs.
+    if (cellsPerAxis > kLodMaxCellsPerAxis) {
+        cellsPerAxis = kLodMaxCellsPerAxis;
+    }
     const int totalCells = cellsPerAxis * cellsPerAxis * cellsPerAxis;
     lodCellsPerAxis = cellsPerAxis;
 
@@ -925,6 +933,7 @@ bool MeshGLManager::dispatchLodCompute(const RenderMesh& mesh, Mesh& outDecimate
 
     glVertexArrayElementBuffer(outDecimated.vao, outDecimated.ebo);
 
+    lastLodError_.clear();
     return true;
 }
 

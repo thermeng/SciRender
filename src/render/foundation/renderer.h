@@ -44,6 +44,7 @@
 #include "render/passes/MeshGLManager.h"
 #include "render/overlays/BBoxOverlay.h"
 #include "render/overlays/QualityOverlayRenderer.h"
+#include "render/overlays/LineProbeOverlay.h"
 #include "render/streamlines/StreamlineController.h"
 #include "render/passes/MeshPass.h"
 #include "render/passes/GlyphPass.h"
@@ -56,6 +57,8 @@
 #include "render/passes/DepthPeelPass.h"
 
 #include <QOpenGLFramebufferObject>
+
+class PlotKernel;
 
 
 
@@ -92,6 +95,7 @@ struct ShaderSources {
     std::string surfaceLicFrag;
 
     std::string pbrFragCommon;
+    std::string plotHistogramComp;
 };
 
 
@@ -243,6 +247,7 @@ struct RenderRenderState {
     float colorbarPanelOpacity = 0.55f;
     bool colorbarShowAnnotation = true;
     std::string activeScalarName;
+    int scalarPlacement = 0; // 0=Vertex (point data), 1=Cell Center (cell data)
 
 
     bool clipEnabled = false;
@@ -369,6 +374,11 @@ struct RenderRenderState {
 
     bool showIsosurface = false;
     float isovalue = 0.0f;
+    int isosurfacePlacement = 0; // 0=Vertex (point data), 1=Cell Center (cell data)
+
+    bool showLineProbe = false;
+    glm::vec3 lineP0 = glm::vec3(0.0f);
+    glm::vec3 lineP1 = glm::vec3(1.0f, 0.0f, 0.0f);
 };
 
 
@@ -527,6 +537,11 @@ public:
         scalarDirty = true;
     }
     void updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars);
+
+    // Plot kernel (GPU histogram MVP) — owns compute program + SSBOs
+    PlotKernel& plotKernel();
+    const PlotKernel& plotKernel() const;
+    const RenderMesh* lastUploadedMeshForPlot() const { return m_lastUploadedMesh.get(); }
 
 
 
@@ -694,6 +709,7 @@ private:
     LodScheduler lodScheduler;
     BBoxOverlay m_bbox;
     QualityOverlayRenderer m_qualityOverlay;
+    LineProbeOverlay m_lineProbe;
     StreamlineController m_streamlines;
     VolumePass m_volume;
     VolumeTextureCache m_volumeCache;
@@ -708,4 +724,7 @@ private:
     void renderTransparent(const glm::mat4& view, const glm::mat4& proj,
                              GLuint meshUbo,
                              const std::vector<std::pair<GLuint, int>>& transparentMeshes);
+
+    // GPU histogram kernel (MVP: bins computed on GPU, rendered by custom QPainter widget)
+    std::unique_ptr<PlotKernel> m_plotKernel;
 };

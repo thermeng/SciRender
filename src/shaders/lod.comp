@@ -51,7 +51,7 @@ layout(std430, binding = 11) buffer Remap {
 };
 
 float atomicAddFloat(uint idx, float value) {
-    uint old = atomicAdd(cells[idx], 0u);
+    uint old = cells[idx];
     uint newVal;
     do {
         float cur = uintBitsToFloat(old);
@@ -70,6 +70,10 @@ void main() {
 
     vec3 p = vec3(inPos[vid * 3u], inPos[vid * 3u + 1u], inPos[vid * 3u + 2u]);
     ivec3 cpa = ivec3(cellsPerAxis.xyz);
+    
+    // Guard against zero or negative cellsPerAxis components (degenerate case)
+    if (cpa.x <= 0 || cpa.y <= 0 || cpa.z <= 0) return;
+    
     // Guard flat axes (extent 0) so the division cannot produce NaN.
     vec3 range = max(boundsMax.xyz - boundsMin.xyz, vec3(1e-12));
     vec3 cellCoord = (p - boundsMin.xyz) / range * vec3(cpa);

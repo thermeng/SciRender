@@ -45,7 +45,7 @@ RenderSettings::RenderSettings(QObject* parent)
                 if (m_pendingIsosurfaceRefresh && !m_animController.isPlaying()
                     && m_state.showIsosurface && m_meshData.loadedMesh) {
                     m_pendingIsosurfaceRefresh = false;
-                    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.activeScalarName);
+                    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.activeScalarName, m_state.isosurfacePlacement);
                     m_isoController.recompute();
                 }
             });
@@ -74,6 +74,14 @@ RenderSettings::RenderSettings(QObject* parent)
             this, [this]() {
                 markStateDirty();
                 emit viewChanged(ChangeFlag::Display);
+            });
+    connect(&m_isoController, &IsosurfaceController::placementChanged,
+            this, [this](int p) {
+                if (m_state.isosurfacePlacement != p) {
+                    m_state.isosurfacePlacement = p;
+                    markStateDirty();
+                    emit viewChanged(ChangeFlag::Display);
+                }
             });
 }
 
@@ -416,6 +424,8 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("volumeColormapChoice",[](const RenderSettings& r) { return QVariant(r.m_state.volumeColormapChoice); },          [](RenderSettings& r, const QVariant& v) { r.m_state.volumeColormapChoice = v.toInt(); });
         add("volumeSliceColormapChoice", [](const RenderSettings& r) { return QVariant(r.m_state.volumeSliceColormapChoice); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeSliceColormapChoice = v.toInt(); });
         add("vectorPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.vectorPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.vectorPlacement = std::clamp(v.toInt(), 0, 1); });
+        add("isosurfacePlacement", [](const RenderSettings& r) { return QVariant(r.m_state.isosurfacePlacement); },           [](RenderSettings& r, const QVariant& v) { r.m_state.isosurfacePlacement = std::clamp(v.toInt(), 0, 1); });
+        add("scalarPlacement",     [](const RenderSettings& r) { return QVariant(r.m_state.scalarPlacement); },               [](RenderSettings& r, const QVariant& v) { r.m_state.scalarPlacement = std::clamp(v.toInt(), 0, 1); });
         add("vectorVisMode",       [](const RenderSettings& r) { return QVariant(r.m_state.vectorVisMode); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.vectorVisMode = std::clamp(v.toInt(), 0, 2); });
         add("licSteps",            [](const RenderSettings& r) { return QVariant(r.m_state.licSteps); },                      [](RenderSettings& r, const QVariant& v) { r.setLicSteps(v.toInt()); });
         add("licStepSize",         [](const RenderSettings& r) { return QVariant(static_cast<double>(r.m_state.licStepSize)); }, [](RenderSettings& r, const QVariant& v) { r.setLicStepSize(v.toDouble()); });
@@ -492,6 +502,9 @@ void RenderSettings::restoreStateFromSettings() {
     }
     m_state.vectorVisMode = std::clamp(m_state.vectorVisMode, 0, 2);
     m_state.vectorPlacement = std::clamp(m_state.vectorPlacement, 0, 1);
+    m_state.isosurfacePlacement = std::clamp(m_state.isosurfacePlacement, 0, 1);
+    m_state.scalarPlacement = std::clamp(m_state.scalarPlacement, 0, 1);
+    m_isoController.setPlacement(m_state.isosurfacePlacement);
     m_state.licBoundaryMode = 1;
     m_state.showVectors = (m_state.vectorVisMode == 1);
     m_state.showLic = (m_state.vectorVisMode == 2);
@@ -638,6 +651,13 @@ void RenderSettings::onMeshParsed() {
         m_state.showStreamlines = false;
     }
 
+    // Auto-adjust isosurface placement: Cell Center requires cell scalars.
+    bool hasCellScalars = loaded->attributes && !loaded->attributes->cellScalars.empty();
+    if (!hasCellScalars && m_state.isosurfacePlacement == 1) {
+        m_state.isosurfacePlacement = 0;
+        m_isoController.setPlacement(0);
+    }
+
     // Reset per-mesh vector state.
     m_state.showVectors = false;
     m_state.showLic = false;
@@ -676,6 +696,15 @@ void RenderSettings::onMeshParsed() {
         m_state.meshUseScalarColor = false;          // ponytail: don't color on load
         m_state.showScalarColorbar = true;
         m_state.activeScalarName = loaded->scalarName;
+        // Auto-select placement: Cell Center if active field has cell data (so initial
+        // colorbar matches ParaView wide range for cell fields like Pressure).
+        {
+            bool hasCell = loaded->attributes && loaded->attributes->cellScalars.find(m_state.activeScalarName) != loaded->attributes->cellScalars.end();
+            bool hasPoint = loaded->attributes && loaded->attributes->pointScalars.find(m_state.activeScalarName) != loaded->attributes->pointScalars.end();
+            if (hasCell && hasPoint) m_state.scalarPlacement = 1;
+            else if (hasCell) m_state.scalarPlacement = 1;
+            else m_state.scalarPlacement = 0;
+        }
         recomputeScalarRange();
         m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
@@ -722,11 +751,17 @@ void RenderSettings::onMeshParsed() {
         resetStreamlineMagRangeOverride();
     }
 
+    // Line probe is per-mesh — hide and reset to mesh diagonal on new mesh load
+    m_state.showLineProbe = false;
+    m_state.lineP0 = glm::vec3(m_state.worldMinX, m_state.worldMinY, m_state.worldMinZ);
+    m_state.lineP1 = glm::vec3(m_state.worldMaxX, m_state.worldMaxY, m_state.worldMaxZ);
+
     // Isosurface: a fresh mesh starts with the surface off and the threshold
     // centered on the new data range. (The ISO mesh is cleared on the render
     // thread by the null handoff in reset().)
     m_isoController.reset(m_state.dataScalarMin, m_state.dataScalarMax);
-    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.activeScalarName);
+    m_isoController.setPlacement(m_state.isosurfacePlacement);
+    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.activeScalarName, m_state.isosurfacePlacement);
 
     resetCameraInstant();
 
@@ -816,7 +851,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     // rescales to each frame's own extent.
     float mn = 0.0f, mx = 1.0f;
     const std::vector<float>* activeFieldData =
-        FieldResolver::scalarData(*mesh, m_state.activeScalarName, mn, mx);
+        FieldResolver::scalarData(*mesh, m_state.activeScalarName, mn, mx, m_state.scalarPlacement);
     const bool haveRange = activeFieldData != nullptr;
     if (!haveRange) { mn = 0.0f; mx = 1.0f; activeFieldData = nullptr; }
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
@@ -850,7 +885,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     // O(numCells) marching-cubes per frame (would queue overlapping async
     // extractions at fps rate). The surface refreshes on the next paused frame
     // or when playback stops (see stateChanged handler below).
-    m_isoController.setCurrentMesh(mesh, m_state.activeScalarName);
+    m_isoController.setCurrentMesh(mesh, m_state.activeScalarName, m_state.isosurfacePlacement);
     if (m_state.showIsosurface && !m_animController.isPlaying()) {
         m_isoController.recompute();
     } else if (m_state.showIsosurface && m_animController.isPlaying()) {
@@ -1014,6 +1049,10 @@ void RenderSettings::clearMeshes() {
     m_state.vectorMagTransform = 0;
     m_state.showIsosurface = false;
     m_state.isovalue = 0.0f;
+    // Line probe overlay must be hidden on clear / fresh launch (not persisted)
+    m_state.showLineProbe = false;
+    m_state.lineP0 = glm::vec3(m_state.worldMinX, m_state.worldMinY, m_state.worldMinZ);
+    m_state.lineP1 = glm::vec3(m_state.worldMaxX, m_state.worldMaxY, m_state.worldMaxZ);
 
     m_isoController.clear();
     markStateDirty();
@@ -1029,7 +1068,30 @@ void RenderSettings::requestScreenshot(const QString& path) {
 void RenderSettings::recomputeScalarRange() {
     float mn = 0.f, mx = 1.f;
     bool have = false;
-    if (!m_meshData.guiMeta.scalars.empty()) {
+    if (m_meshData.loadedMesh) {
+        float rmn, rmx;
+        if (auto* d = FieldResolver::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, rmn, rmx, m_state.scalarPlacement)) {
+            mn = rmn; mx = rmx; have = true;
+        } else if (m_meshData.loadedMesh->attributes) {
+            // Placement-aware fallback (no FieldResolver hit)
+            if (m_state.scalarPlacement == 1) {
+                auto cit = m_meshData.loadedMesh->attributes->cellScalarRanges.find(m_state.activeScalarName);
+                if (cit != m_meshData.loadedMesh->attributes->cellScalarRanges.end()) { mn = cit->second.first; mx = cit->second.second; have = true; }
+                else {
+                    auto it = m_meshData.loadedMesh->attributes->pointScalarRanges.find(m_state.activeScalarName);
+                    if (it != m_meshData.loadedMesh->attributes->pointScalarRanges.end()) { mn = it->second.first; mx = it->second.second; have = true; }
+                }
+            } else {
+                auto it = m_meshData.loadedMesh->attributes->pointScalarRanges.find(m_state.activeScalarName);
+                if (it != m_meshData.loadedMesh->attributes->pointScalarRanges.end()) { mn = it->second.first; mx = it->second.second; have = true; }
+                else {
+                    auto cit = m_meshData.loadedMesh->attributes->cellScalarRanges.find(m_state.activeScalarName);
+                    if (cit != m_meshData.loadedMesh->attributes->cellScalarRanges.end()) { mn = cit->second.first; mx = cit->second.second; have = true; }
+                }
+            }
+        }
+    }
+    if (!have && !m_meshData.guiMeta.scalars.empty()) {
         mn = std::numeric_limits<float>::max();
         mx = std::numeric_limits<float>::lowest();
         for (float v : m_meshData.guiMeta.scalars) {
@@ -1037,25 +1099,6 @@ void RenderSettings::recomputeScalarRange() {
             mn = std::min(mn, v);
             mx = std::max(mx, v);
             have = true;
-        }
-    }
-    // Structured-grid surface extract clears guiMeta.scalars but the field
-    // lives in loadedMesh->attributes->pointScalars (node-space). Fall back
-    // to the authoritative per-field range via FieldResolver.
-    if (!have && m_meshData.loadedMesh) {
-        float rmn, rmx;
-        if (auto* d = FieldResolver::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, rmn, rmx)) {
-            mn = rmn; mx = rmx; have = true;
-        } else if (m_meshData.loadedMesh->attributes) {
-            auto it = m_meshData.loadedMesh->attributes->pointScalarRanges.find(m_state.activeScalarName);
-            if (it != m_meshData.loadedMesh->attributes->pointScalarRanges.end()) {
-                mn = it->second.first; mx = it->second.second; have = true;
-            } else {
-                auto cit = m_meshData.loadedMesh->attributes->cellScalarRanges.find(m_state.activeScalarName);
-                if (cit != m_meshData.loadedMesh->attributes->cellScalarRanges.end()) {
-                    mn = cit->second.first; mx = cit->second.second; have = true;
-                }
-            }
         }
     }
     if (!have) {
@@ -1073,8 +1116,14 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     if (fieldName.toStdString() == m_state.activeScalarName) return;
     if (!m_meshData.loadedMesh) return;
     float mn, mx;
-    const auto* data = FieldResolver::scalarData(*m_meshData.loadedMesh, fieldName.toStdString(), mn, mx);
-    if (!data) return;
+    const auto* data = FieldResolver::scalarData(*m_meshData.loadedMesh, fieldName.toStdString(), mn, mx, m_state.scalarPlacement);
+    if (!data) {
+        // Placement fallback: try opposite placement
+        int alt = m_state.scalarPlacement == 0 ? 1 : 0;
+        data = FieldResolver::scalarData(*m_meshData.loadedMesh, fieldName.toStdString(), mn, mx, alt);
+        if (!data) return;
+        m_state.scalarPlacement = alt;
+    }
     m_state.activeScalarName = fieldName.toStdString();
     m_meshData.guiMeta.scalarName = m_state.activeScalarName;
 
@@ -1109,9 +1158,69 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     // alone does not reach syncVolumePage.
     emit viewChanged(ChangeFlag::Display);
     if (m_state.showIsosurface && m_state.meshHasScalars) {
+        // Auto-adjust placement if new field has no cell data.
+        if (m_state.isosurfacePlacement == 1) {
+            bool hasCell = m_meshData.loadedMesh && m_meshData.loadedMesh->attributes
+                && m_meshData.loadedMesh->attributes->cellScalars.find(m_state.activeScalarName) != m_meshData.loadedMesh->attributes->cellScalars.end();
+            if (!hasCell) {
+                m_state.isosurfacePlacement = 0;
+                m_isoController.setPlacement(0);
+            }
+        }
         m_isoController.setCurrentField(m_state.activeScalarName);
         m_isoController.recompute();
     }
+}
+
+void RenderSettings::setScalarPlacement(int v) {
+    int p = std::clamp(v, 0, 1);
+    if (m_state.scalarPlacement == p) return;
+    // Cell Center requires cell scalars for active field; fallback if absent
+    if (p == 1 && m_meshData.loadedMesh && m_meshData.loadedMesh->attributes) {
+        const auto& cs = m_meshData.loadedMesh->attributes->cellScalars;
+        if (cs.find(m_state.activeScalarName) == cs.end()) {
+            // No cell data for active field — keep Vertex
+            // Still store placement for future fields that do have cell data
+        }
+    }
+    m_state.scalarPlacement = p;
+    if (m_meshData.loadedMesh) {
+        float mn, mx;
+        const std::vector<float>* data = FieldResolver::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, mn, mx, m_state.scalarPlacement);
+        if (data) {
+            m_state.dataScalarMin = mn;
+            m_state.dataScalarMax = mx;
+            m_state.scalarMin = mn;
+            m_state.scalarMax = mx;
+            m_state.filterMin = mn;
+            m_state.filterMax = mx;
+            resetColorRangeOverride();
+            resetVolumeColorRangeOverride();
+            resetSliceColorRangeOverride();
+            auto payload = std::make_shared<const std::vector<float>>(*data);
+            m_meshData.guiMeta.scalars = *payload;
+            m_renderer.markScalarDirty(payload);
+            if (m_meshData.loadedMesh) m_renderer.markVolumeDirty(m_meshData.loadedMesh);
+        }
+    }
+    // Scalar-colormapped isosurface (contour) must follow scalar placement for derived scalars
+    // so its geometry (marching cubes) and colormap update when Vertex↔Cell is toggled.
+    if (m_state.showIsosurface && m_meshData.loadedMesh) {
+        bool isDerived = false;
+        auto dNames = FieldResolver::derivedScalarNames(*m_meshData.loadedMesh);
+        if (std::find(dNames.begin(), dNames.end(), m_state.activeScalarName) != dNames.end()) isDerived = true;
+        // If isosurface shows the same field (or a derived of it), keep placements in sync
+        if (isDerived || m_isoController.currentField() == m_state.activeScalarName) {
+            if (m_state.isosurfacePlacement != p) {
+                m_state.isosurfacePlacement = p;
+                m_isoController.setPlacement(p);
+            }
+            m_isoController.setCurrentField(m_state.activeScalarName);
+            m_isoController.recompute();
+        }
+    }
+    markStateDirty();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::setSlicePlaneField(int axis, const QString& fieldName) {

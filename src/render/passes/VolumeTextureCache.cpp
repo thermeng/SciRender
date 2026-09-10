@@ -5,30 +5,33 @@
 #include <algorithm>
 #include <limits>
 
-const std::vector<float>* VolumeTextureCache::resolveField(const RenderMesh& mesh, const std::string& name) const {
+const std::vector<float>* VolumeTextureCache::resolveField(const RenderMesh& mesh, const std::string& name, int placement) const {
     float mn, mx;
-    return FieldResolver::scalarData(mesh, name, mn, mx);
+    return FieldResolver::scalarData(mesh, name, mn, mx, placement);
 }
 
 GLuint VolumeTextureCache::textureForField(const std::string& name, const RenderMesh* mesh,
-                                            const glm::vec3& boxMin, const glm::vec3& boxMax) {
+                                             const glm::vec3& boxMin, const glm::vec3& boxMax, int placement) {
     if (!mesh || name.empty()) return 0;
 
     int dimX = mesh->gridDimX, dimY = mesh->gridDimY, dimZ = mesh->gridDimZ;
     if (dimX <= 0 || dimY <= 0 || dimZ <= 0) return 0;
 
-    auto it = m_entries.find(name);
+    // Cache key includes placement so Vertex vs Cell textures are distinct.
+    std::string key = name + (placement == 1 ? "#cell" : "#vert");
+    auto it = m_entries.find(key);
     if (it != m_entries.end() && it->second.tex.has()
-        && it->second.dimX == dimX && it->second.dimY == dimY && it->second.dimZ == dimZ) {
+        && it->second.dimX == dimX && it->second.dimY == dimY && it->second.dimZ == dimZ
+        && it->second.placement == placement) {
         return it->second.tex.get();
     }
 
-    return buildTexture(name, mesh, boxMin, boxMax);
+    return buildTexture(name, mesh, boxMin, boxMax, placement);
 }
 
 GLuint VolumeTextureCache::buildTexture(const std::string& name, const RenderMesh* mesh,
-                                        const glm::vec3& boxMin, const glm::vec3& boxMax) {
-    const std::vector<float>* data = resolveField(*mesh, name);
+                                         const glm::vec3& boxMin, const glm::vec3& boxMax, int placement) {
+    const std::vector<float>* data = resolveField(*mesh, name, placement);
     if (!data || data->empty()) return 0;
 
     int dimX = mesh->gridDimX, dimY = mesh->gridDimY, dimZ = mesh->gridDimZ;
@@ -67,9 +70,10 @@ GLuint VolumeTextureCache::buildTexture(const std::string& name, const RenderMes
         glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, data->data());
     }
 
-    Entry& e = m_entries[name];
+    std::string key = name + (placement == 1 ? "#cell" : "#vert");
+    Entry& e = m_entries[key];
     e.tex.reset(raw);
-    e.dimX = dimX; e.dimY = dimY; e.dimZ = dimZ;
+    e.dimX = dimX; e.dimY = dimY; e.dimZ = dimZ; e.placement = placement;
     return raw;
 }
 

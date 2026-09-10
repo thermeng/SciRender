@@ -110,12 +110,14 @@ add_library(RenderLib STATIC
     src/render/passes/WireframePass.cpp
     src/render/passes/DepthPeelPass.cpp
     src/render/passes/LodScheduler.cpp
+    src/render/passes/PlotKernel.cpp
     src/render/foundation/gl_raii.cpp
     src/render/overlays/gizmo.cpp
     src/render/overlays/light_markers.cpp
     src/render/overlays/colorbar_overlay.cpp
     src/render/overlays/BBoxOverlay.cpp
     src/render/overlays/QualityOverlayRenderer.cpp
+    src/render/overlays/LineProbeOverlay.cpp
     src/render/streamlines/StreamlineController.cpp
     src/render/overlays/screenshot_capture.cpp
     src/render/overlays/AviMjpegWriter.cpp
@@ -137,6 +139,12 @@ add_executable(SciRender
     src/ui/colormap_combo.h
     src/ui/range_editor.cpp
     src/ui/range_editor.h
+    src/ui/plot_widget.cpp
+    src/ui/plot_widget.h
+    src/ui/line_plot_widget.cpp
+    src/ui/line_plot_widget.h
+    src/ui/plot_window.cpp
+    src/ui/plot_window.h
     src/ui/animation_export_dialog.cpp
     src/ui/animation_export_dialog.h
     src/ui/main_window.cpp
@@ -191,6 +199,7 @@ set(SHADER_FILES
     src/shaders/volume.frag
     src/shaders/volume_slice.vert
     src/shaders/volume_slice.frag
+    src/shaders/plot_histogram.comp
     src/shaders/lod.comp
     src/shaders/lod_output.comp
     src/shaders/lod_tris.comp

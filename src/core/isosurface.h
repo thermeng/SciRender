@@ -35,12 +35,14 @@ namespace isosurface {
 
 RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                              const std::vector<float>& isovalues,
-                             const std::string& field = "");
+                             const std::string& field = "",
+                             int placement = 0);
 
 // True when the mesh carries the structured-grid data the extractor needs,
 // and the requested field (empty = active scalars) resolves to a non-empty
-// per-node array. Delegates to RenderMesh::hasVolumeGrid / hasScalarData,
-// additionally requiring non-empty vertices for interpolation.
-bool canExtract(const RenderMesh& volumeMesh, const std::string& field = "");
+// per-node (placement 0) or per-cell (placement 1) array. Delegates to
+// RenderMesh::hasVolumeGrid / hasScalarData, additionally requiring non-empty
+// vertices for interpolation.
+bool canExtract(const RenderMesh& volumeMesh, const std::string& field = "", int placement = 0);
 
 } // namespace isosurface

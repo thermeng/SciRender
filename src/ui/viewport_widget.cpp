@@ -170,6 +170,7 @@ void ViewportWidget::loadShaders() {
     sources.depthPeelFrag = loadShader(":/src/shaders/depth_peel.frag");
     sources.compositeVert = loadShader(":/src/shaders/composite.vert");
     sources.compositeFrag = loadShader(":/src/shaders/composite.frag");
+    sources.plotHistogramComp = loadShader(":/src/shaders/plot_histogram.comp");
     sources.pbrFragCommon = loadShader(":/src/shaders/pbr_common.glsl");
 
     scene->initShaders(sources);

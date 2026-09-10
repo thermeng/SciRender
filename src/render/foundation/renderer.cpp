@@ -1,4 +1,5 @@
 #include "render/foundation/renderer.h"
+#include "render/passes/PlotKernel.h"
 #include "core/FieldResolver.h"
 #include "render/foundation/shader_utils.h"
 #include "render/foundation/NumberFormat.h"
@@ -25,7 +26,7 @@
 #include <QOpenGLContext>
 
 Renderer::Renderer()
-    : m_state() {
+    : m_state(), m_plotKernel(std::make_unique<PlotKernel>()) {
 
 
     m_state.meshColor[0] = 0.4f; m_state.meshColor[1] = 0.9f; m_state.meshColor[2] = 0.4f;
@@ -35,6 +36,9 @@ Renderer::Renderer()
     m_state.worldRadius = 1.0;
     m_lastOrthoRadius = m_state.worldRadius;
 }
+
+PlotKernel& Renderer::plotKernel() { return *m_plotKernel; }
+const PlotKernel& Renderer::plotKernel() const { return *m_plotKernel; }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wattributes"
@@ -58,6 +62,7 @@ Renderer::~Renderer() {
         colorbarOverlay.shutdown();
         m_bbox.shutdown();
         m_qualityOverlay.shutdown();
+        m_lineProbe.shutdown();
         m_streamlines.shutdown();
         m_depthPeel.shutdown();
     }
@@ -111,9 +116,16 @@ void Renderer::initShaders(const ShaderSources& sources) {
     m_volumeSliceOverlay.init(sources);
 
     meshManager.setComputeShaderSources(sources.lodComp, sources.lodOutputComp, sources.lodTrisComp);
+    if (!sources.plotHistogramComp.empty()) {
+        m_plotKernel->setHistogramSource(sources.plotHistogramComp);
+        // Lazy init will happen on first dispatch with current context;
+        // eagerly init here if we have a context.
+        if (QOpenGLContext::currentContext()) m_plotKernel->init(sources.plotHistogramComp);
+    }
 
     m_bbox.init(sources);
     m_qualityOverlay.init(sources);
+    m_lineProbe.init(sources);
     m_streamlines.init(sources);
     m_depthPeel.init(sources);
 }
@@ -329,6 +341,7 @@ void Renderer::clearGpuMeshes() {
 
     meshManager.clear();
     meshManager.cleanupLodCompute();
+    m_plotKernel->shutdown();
     vectorGlyph.shutdown();
     streamlineSet.shutdown();
     m_lastUploadedMesh.reset();
@@ -392,6 +405,7 @@ void Renderer::reinitForNewContext() {
 
         meshManager.clear();
         meshManager.cleanupLodCompute();
+        m_plotKernel->shutdown();
     }
 
 
@@ -841,7 +855,7 @@ void Renderer::updateSliceScalarRange() {
         const std::string& field = m_state.sliceScalarName[axis].empty()
             ? m_state.activeScalarName : m_state.sliceScalarName[axis];
         float rngMin, rngMax;
-        const std::vector<float>* s = FieldResolver::scalarData(*mesh, field, rngMin, rngMax);
+        const std::vector<float>* s = FieldResolver::scalarData(*mesh, field, rngMin, rngMax, m_state.scalarPlacement);
         if (!s || s->empty()) {
             m_state.sliceScalarMin[axis] = 0.0f;
             m_state.sliceScalarMax[axis] = 1.0f;
@@ -949,7 +963,8 @@ void Renderer::renderFrame() {
         if (m_pendingMesh) {
             uploadMesh(m_pendingMesh);
             m_pendingMesh.reset();
-            m_qualityOverlay.markDirty();
+    m_qualityOverlay.markDirty();
+    m_lineProbe.shutdown();
             m_streamlines.requestRecompute();
 
 
@@ -979,6 +994,11 @@ void Renderer::renderFrame() {
     m_streamlines.dispatchCompute(m_state, m_lastUploadedMesh, streamlineSet);
     m_streamlines.consumeResult(m_state, streamlineSet);
     m_streamlines.publishComponentRanges(m_state, streamlineSet);
+
+    // GPU histogram kernel — dispatch pending plot work (needs GL context, runs before GL state setup)
+    if (QOpenGLContext::currentContext()) {
+        m_plotKernel->tryDispatch();
+    }
 
     if (m_streamlines.particleCountDirty.exchange(false)) {
         streamlineSet.initParticles(m_state.particleCount);
@@ -1174,6 +1194,7 @@ void Renderer::renderFrame() {
     }
 
     m_bbox.draw(m_state, view, proj, meshManager.hasMeshes());
+    m_lineProbe.draw(m_state, view, proj);
 
     m_qualityOverlay.draw(m_state, glm::value_ptr(view), glm::value_ptr(proj));
 
@@ -1196,7 +1217,7 @@ void Renderer::renderFrame() {
         boxMax = glm::vec3(m_lastUploadedMesh->bounds.maxX, m_lastUploadedMesh->bounds.maxY, m_lastUploadedMesh->bounds.maxZ);
     }
 
-    GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_lastUploadedMesh.get(), boxMin, boxMax);
+    GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_lastUploadedMesh.get(), boxMin, boxMax, m_state.scalarPlacement);
     m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale, volTex, boxMin, boxMax);
 
 
@@ -1208,7 +1229,7 @@ void Renderer::renderFrame() {
         if (!m_state.slicePlaneEnabled[axis]) continue;
         const std::string& field = m_state.sliceScalarName[axis].empty()
             ? m_state.activeScalarName : m_state.sliceScalarName[axis];
-        sliceTex[axis] = m_volumeCache.textureForField(field, m_lastUploadedMesh.get(), boxMin, boxMax);
+        sliceTex[axis] = m_volumeCache.textureForField(field, m_lastUploadedMesh.get(), boxMin, boxMax, m_state.scalarPlacement);
     }
     m_volumeSliceOverlay.draw(m_state, view, proj, colormap, sliceTex, boxMin, boxMax, m_lastUploadedMesh.get());
 
