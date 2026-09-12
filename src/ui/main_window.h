@@ -263,8 +263,8 @@ private:
 
     // Isosurface controls (on the Volume page, gated on structured volume data)
     QCheckBox* m_isoEnableCb = nullptr;
-    QSlider* m_isoValueSlider = nullptr;
-    QLabel* m_isoValueLabel = nullptr;
+    QComboBox* m_isoFieldCombo = nullptr;
+    QDoubleSpinBox* m_isoValueSpin = nullptr;
     QComboBox* m_isoPlacementCombo = nullptr;
 
     // Filter sliders (Colormap page)
@@ -295,7 +295,7 @@ private:
 
     void refreshClippingPageBounds();
     void refreshScalarFilterRange();
-    void refreshIsosurfaceSlider();
+    void refreshIsosurfaceValue();
 
     // Timers
     QTimer m_autoRotateTimer;
@@ -311,6 +311,7 @@ private:
     QColorDialog* m_vectorColorDialog = nullptr;
     QColorDialog* m_streamlineColorDialog = nullptr;
     QColorDialog* m_seedColorDialog = nullptr;
+    QColorDialog* m_isoColorDialog = nullptr;
 
     QString m_currentFile;
 

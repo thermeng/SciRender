@@ -250,17 +250,6 @@ static void applyPanelStyling(QWidget* root) {
         }
     }
 
-    // // ── Phase 4: Apply Subtle Header Typography ───────────────────────────────
-    // for (const auto& e : headers) {
-    //     QFont f = e.label->font();
-    //     f.setBold(false);
-    //     f.setPixelSize(10);
-    //     f.setLetterSpacing(QFont::AbsoluteSpacing, 0.3);
-
-    //     e.label->setFont(f);
-    //     e.label->setStyleSheet("background: transparent; padding-top: 6px;");
-    // }
-
     // ── Phase 4: Apply Subtle Header Typography ───────────────────────────────
     for (const auto& e : headers) {
         QFont f = e.label->font();
@@ -283,9 +272,6 @@ static QPushButton* createSwatchButton(const QString& text, const QColor& color,
     pix.fill(color);
     btn->setIcon(pix);
     btn->setIconSize(QSize(14, 14));
-    // Only connect when a handler was provided. Callers (e.g. createColorButton)
-    // attach their own clicked() slot separately and pass nullptr here; connecting
-    // an empty std::function throws std::bad_function_call when the button is clicked.
     if (onClicked)
         QObject::connect(btn, &QPushButton::clicked, onClicked);
     return btn;
@@ -2491,21 +2477,23 @@ QWidget* MainWindow::buildIsosurfacePage() {
     connect(enableCb, &QCheckBox::toggled, isoUi.optionsGroup, &QWidget::setEnabled);
     isoUi.optionsGroup->setEnabled(enableCb->isChecked() && enableCb->isEnabled());
 
-    // -- Isovalue slider --
-    auto* slider = isoUi.valueSlider;
-    auto* valueLabel = isoUi.valueLabel;
-    m_isoValueSlider = slider;
-    m_isoValueLabel = valueLabel;
-    slider->setRange(0, 1000);
-    refreshIsosurfaceSlider();
-    connect(slider, &QSlider::valueChanged, this, [this, valueLabel](int raw) {
-        double lo = m_settings->getDataScalarMinQml();
-        double hi = m_settings->getDataScalarMaxQml();
-        if (hi <= lo) hi = lo + 1.0;
-        double v = lo + (raw / 1000.0) * (hi - lo);
-        m_settings->setIsovalue(v);
-        valueLabel->setText(QString::number(m_settings->getIsovalue(), 'f', 3));
+    // -- Contour field (independent of the surface active scalar) --
+    auto* fieldCombo = isoUi.fieldCombo;
+    m_isoFieldCombo = fieldCombo;
+    fieldCombo->addItems(m_settings->getAvailableScalars());
+    fieldCombo->setCurrentText(m_settings->getIsosurfaceFieldQml());
+    fieldCombo->setEnabled(m_settings->hasMeshScalars());
+    fieldCombo->setMinimumWidth(kSidebarWidth - m_navWidth - 20);
+    connect(fieldCombo, &QComboBox::activated, m_settings, [this](int idx) {
+        if (m_isoFieldCombo) m_settings->setIsosurfaceField(m_isoFieldCombo->itemText(idx));
     });
+
+    // -- Isovalue spin (exact entry, bounded by the contour field's range) --
+    auto* spin = isoUi.valueSpin;
+    m_isoValueSpin = spin;
+    refreshIsosurfaceValue();
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            m_settings, &RenderSettings::setIsovalue);
 
     // -- Placement (Vertex / Cell Center) --
     auto* placementCombo = isoUi.placementCombo;
@@ -2517,6 +2505,9 @@ QWidget* MainWindow::buildIsosurfacePage() {
             m_settings, &RenderSettings::setIsosurfacePlacement);
     connect(placementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int){ syncVolumePage(); });
+
+    isoUi.optionsGroup->layout()->replaceWidget(isoUi.isoColorBtn, createColorButton(this, m_settings, "Isosurface", m_settings->getIsosurfaceColorQml(), &m_isoColorDialog, &RenderSettings::setIsosurfaceColorQml));
+    delete isoUi.isoColorBtn;
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
@@ -2804,22 +2795,43 @@ void MainWindow::syncVolumePage() {
         m_isoPlacementCombo->setEnabled(hasCellScalars);
         m_isoPlacementCombo->blockSignals(false);
     }
-    refreshIsosurfaceSlider();
+    if (m_isoFieldCombo) {
+        m_isoFieldCombo->blockSignals(true);
+        m_isoFieldCombo->clear();
+        m_isoFieldCombo->addItems(m_settings->getAvailableScalars());
+        m_isoFieldCombo->setCurrentText(m_settings->getIsosurfaceFieldQml());
+        m_isoFieldCombo->setEnabled(m_settings->hasMeshScalars());
+        m_isoFieldCombo->blockSignals(false);
+    }
+    refreshIsosurfaceValue();
     applyVolumeControlGating();
 }
 
-void MainWindow::refreshIsosurfaceSlider() {
-    if (!m_isoValueSlider || !m_isoValueLabel) return;
-    const double lo = m_settings->getDataScalarMinQml();
-    const double hi = m_settings->getDataScalarMaxQml();
-    double span = hi - lo;
-    if (span <= 0.0) span = 1.0;
-    double frac = (m_settings->getIsovalue() - lo) / span;
-    frac = std::clamp(frac, 0.0, 1.0);
-    m_isoValueSlider->blockSignals(true);
-    m_isoValueSlider->setValue(static_cast<int>(frac * 1000));
-    m_isoValueSlider->blockSignals(false);
-    m_isoValueLabel->setText(QString::number(m_settings->getIsovalue(), 'f', 3));
+void MainWindow::refreshIsosurfaceValue() {
+    if (!m_isoValueSpin) return;
+    auto [flo, fhi] = m_settings->isosurfaceFieldRange();
+    double lo = flo, hi = fhi;
+    if (!(hi > lo)) hi = lo + 1.0;
+    const double span = hi - lo;
+    // Step ~= span/200 with matching display decimals (2..6) for precision entry.
+    double step = span / 200.0;
+    int decimals = 4;
+    if (step > 0.0 && std::isfinite(step)) {
+        const double mag = std::floor(std::log10(step));
+        step = std::pow(10.0, mag);
+        decimals = std::clamp<int>(static_cast<int>(-mag), 2, 6);
+    } else {
+        step = 0.001;
+    }
+    // Self-heal stale state: clamp a drifted isovalue back into range once.
+    if (m_settings->getIsovalue() < lo || m_settings->getIsovalue() > hi)
+        m_settings->setIsovalue(std::clamp(m_settings->getIsovalue(), lo, hi));
+    m_isoValueSpin->blockSignals(true);
+    m_isoValueSpin->setDecimals(decimals);
+    m_isoValueSpin->setRange(lo, hi);
+    m_isoValueSpin->setSingleStep(step);
+    m_isoValueSpin->setValue(m_settings->getIsovalue());
+    m_isoValueSpin->blockSignals(false);
 }
 
 // The Volume page places both full-volume-rendering controls (Step Size, Opacity,
@@ -3062,6 +3074,15 @@ void MainWindow::connectSettings() {
             m_volumeFieldCombo->setEnabled(m_settings->hasMeshScalars());
             m_volumeFieldCombo->blockSignals(false);
         }
+        if (m_isoFieldCombo) {
+            m_isoFieldCombo->blockSignals(true);
+            m_isoFieldCombo->clear();
+            m_isoFieldCombo->addItems(scalars);
+            m_isoFieldCombo->setCurrentText(m_settings->getIsosurfaceFieldQml());
+            m_isoFieldCombo->setEnabled(m_settings->hasMeshScalars());
+            m_isoFieldCombo->blockSignals(false);
+        }
+        refreshIsosurfaceValue();
     });
 
     // Mirror toolbar and View & Display toggles whenever the corresponding

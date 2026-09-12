@@ -46,7 +46,7 @@ RenderSettings::RenderSettings(QObject* parent)
                 if (m_pendingIsosurfaceRefresh && !m_animController.isPlaying()
                     && m_state.showIsosurface && m_meshData.loadedMesh) {
                     m_pendingIsosurfaceRefresh = false;
-                    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.activeScalarName, m_state.isosurfacePlacement);
+                    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.isosurfaceField, m_state.isosurfacePlacement);
                     m_isoController.recompute();
                 }
             });
@@ -57,14 +57,6 @@ RenderSettings::RenderSettings(QObject* parent)
                 m_state.showIsosurface = v;
                 markStateDirty();
                 emit viewChanged(ChangeFlag::Display);
-            });
-    connect(&m_isoController, &IsosurfaceController::needsScalarColor,
-            this, [this]() {
-                if (!m_state.meshUseScalarColor && m_state.meshHasScalars) {
-                    m_state.meshUseScalarColor = true;
-                    markStateDirty();
-                    emit viewChanged(ChangeFlag::Display);
-                }
             });
     connect(&m_isoController, &IsosurfaceController::isovalueChanged,
             this, [this](float v) {
@@ -762,12 +754,17 @@ void RenderSettings::onMeshParsed() {
     m_state.showProbe = false;
     m_state.probePos = glm::vec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
 
-    // Isosurface: a fresh mesh starts with the surface off and the threshold
-    // centered on the new data range. (The ISO mesh is cleared on the render
-    // thread by the null handoff in reset().)
-    m_isoController.reset(m_state.dataScalarMin, m_state.dataScalarMax);
+    // Isosurface: a fresh mesh starts with the surface off, the contour field
+    // defaulted to the surface active scalar, and the threshold centered on
+    // THAT field's range. (The ISO mesh is cleared on the render thread by
+    // the null handoff in reset().)
+    m_state.isosurfaceField = m_state.activeScalarName;
+    {
+        auto [isoLo, isoHi] = isosurfaceFieldRange();
+        m_isoController.reset(isoLo, isoHi);
+    }
     m_isoController.setPlacement(m_state.isosurfacePlacement);
-    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.activeScalarName, m_state.isosurfacePlacement);
+    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.isosurfaceField, m_state.isosurfacePlacement);
 
     resetCameraInstant();
 
@@ -829,6 +826,9 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     // carries it; otherwise fall back to the frame's first available.
     const std::string resolvedScalar = FieldResolver::resolveActiveScalar(*mesh, m_state.activeScalarName);
     if (!resolvedScalar.empty()) m_state.activeScalarName = resolvedScalar;
+    // Iso contour field has its own continuity (independent of surface field).
+    const std::string resolvedIso = FieldResolver::resolveActiveScalar(*mesh, m_state.isosurfaceField, m_state.isosurfacePlacement);
+    if (!resolvedIso.empty()) m_state.isosurfaceField = resolvedIso;
     m_meshData.guiMeta.scalarName = m_state.activeScalarName;
     m_meshData.guiMeta.availableScalarNames = mesh->availableScalarNames;
     m_meshData.guiMeta.availableVectorNames = mesh->availableVectorNames;
@@ -875,7 +875,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         m_state.showScalarColorbar = m_state.meshHasScalars;
         m_state.filterEnabled = false;
         setFilterMin(effMin); setFilterMax(effMax);
-        m_isoController.reset(effMin, effMax);
+        { auto [isoLo, isoHi] = isosurfaceFieldRange(); m_isoController.reset(isoLo, isoHi); }
         resetColorRangeOverride(effMin, effMax);
         resetVolumeColorRangeOverride();
         resetSliceColorRangeOverride();
@@ -887,15 +887,17 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     m_state.scalarMin = effMin;
     m_state.scalarMax = effMax;
 
-    // Isosurface follows the animated mesh — but defer while playing to avoid
-    // O(numCells) marching-cubes per frame (would queue overlapping async
-    // extractions at fps rate). The surface refreshes on the next paused frame
-    // or when playback stops (see stateChanged handler below).
-    m_isoController.setCurrentMesh(mesh, m_state.activeScalarName, m_state.isosurfacePlacement);
+    // Isosurface follows the animated mesh. While playing, the throttled live
+    // path relaunches only when no extraction is in flight (chained from
+    // onComputed), so the surface animates without queuing overlapping
+    // O(numCells) tasks. The pending flag still guarantees an exact final
+    // refresh on pause/stop (see stateChanged handler below).
+    m_isoController.setCurrentMesh(mesh, m_state.isosurfaceField, m_state.isosurfacePlacement);
     if (m_state.showIsosurface && !m_animController.isPlaying()) {
         m_isoController.recompute();
     } else if (m_state.showIsosurface && m_animController.isPlaying()) {
         m_pendingIsosurfaceRefresh = true;
+        m_isoController.requestLiveRecompute();
     }
 
     // Phase 1.1: scalar-only fast path for fixed-mesh animations.
@@ -1055,6 +1057,8 @@ void RenderSettings::clearMeshes() {
     m_state.vectorMagTransform = 0;
     m_state.showIsosurface = false;
     m_state.isovalue = 0.0f;
+    m_state.isosurfaceField.clear();
+    m_state.isosurfaceField.shrink_to_fit();
     // Line probe overlay must be hidden on clear / fresh launch (not persisted)
     m_state.showLineProbe = false;
     m_state.lineP0 = glm::vec3(m_state.worldMinX, m_state.worldMinY, m_state.worldMinZ);
@@ -1141,18 +1145,68 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     // alone does not reach syncVolumePage.
     emit viewChanged(ChangeFlag::Display);
     if (m_state.showIsosurface && m_state.meshHasScalars) {
-        // Auto-adjust placement if new field has no cell data.
+        // Iso field is independent of the surface field — only the placement
+        // auto-adjust applies, against the ISO field's own cell data.
         if (m_state.isosurfacePlacement == 1) {
             bool hasCell = m_meshData.loadedMesh && m_meshData.loadedMesh->attributes
-                && m_meshData.loadedMesh->attributes->cellScalars.find(m_state.activeScalarName) != m_meshData.loadedMesh->attributes->cellScalars.end();
+                && m_meshData.loadedMesh->attributes->cellScalars.find(m_state.isosurfaceField) != m_meshData.loadedMesh->attributes->cellScalars.end();
             if (!hasCell) {
                 m_state.isosurfacePlacement = 0;
                 m_isoController.setPlacement(0);
             }
         }
-        m_isoController.setCurrentField(m_state.activeScalarName);
+        m_isoController.setCurrentField(m_state.isosurfaceField);
         m_isoController.recompute();
     }
+}
+
+std::pair<float,float> RenderSettings::isosurfaceFieldRange() const {
+    if (m_meshData.loadedMesh && !m_state.isosurfaceField.empty()) {
+        float mn, mx;
+        auto placement = m_state.isosurfacePlacement == 1
+            ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+        if (FieldStore::scalarData(*m_meshData.loadedMesh, m_state.isosurfaceField, mn, mx, placement))
+            return {mn, mx};
+        auto alt = placement == FieldStore::Placement::CellCenter
+            ? FieldStore::Placement::Vertex : FieldStore::Placement::CellCenter;
+        if (FieldStore::scalarData(*m_meshData.loadedMesh, m_state.isosurfaceField, mn, mx, alt))
+            return {mn, mx};
+    }
+    return {0.0f, 1.0f};
+}
+
+void RenderSettings::setIsovalue(double v) {
+    auto [lo, hi] = isosurfaceFieldRange();
+    m_isoController.setIsovalue(static_cast<float>(v), lo, hi);
+}
+
+void RenderSettings::setIsosurfaceField(const QString& fieldName) {
+    std::string name = fieldName.toStdString();
+    if (name.empty() || name == m_state.isosurfaceField || !m_meshData.loadedMesh) return;
+    // Validate against the loaded mesh (stored + derived fields, either placement).
+    float mn = 0.0f, mx = 1.0f;
+    {
+        float a, b;
+        bool ok = FieldStore::scalarData(*m_meshData.loadedMesh, name, a, b,
+            m_state.isosurfacePlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex) != nullptr;
+        if (!ok) {
+            float c, d;
+            ok = FieldStore::scalarData(*m_meshData.loadedMesh, name, c, d,
+                m_state.isosurfacePlacement == 1 ? FieldStore::Placement::Vertex : FieldStore::Placement::CellCenter) != nullptr;
+            if (ok) { a = c; b = d; }
+        }
+        if (!ok) { setStatus(QString("Unknown isosurface field: %1").arg(fieldName)); return; }
+        mn = a; mx = b;
+    }
+    m_state.isosurfaceField = name;
+    // Keep the threshold when it lies inside the new range, else recenter.
+    float target = (m_state.isovalue < mn || m_state.isovalue > mx) ? (mn + mx) * 0.5f : m_state.isovalue;
+    m_isoController.setCurrentField(name);
+    m_isoController.setIsovalue(target, mn, mx);
+    if (m_state.showIsosurface) m_isoController.recompute();
+    markStateDirty();
+    emit meshDataUpdated();
+    emit viewChanged(ChangeFlag::Display);
 }
 
 void RenderSettings::setScalarPlacement(int v) {
@@ -1186,19 +1240,19 @@ void RenderSettings::setScalarPlacement(int v) {
             if (m_meshData.loadedMesh) m_renderer.markVolumeDirty(m_meshData.loadedMesh);
         }
     }
-    // Scalar-colormapped isosurface (contour) must follow scalar placement for derived scalars
-    // so its geometry (marching cubes) and colormap update when Vertex↔Cell is toggled.
+    // Isosurface contours its own field: follow the surface placement toggle
+    // only while the iso field still tracks the surface field (or is itself
+    // derived), so marching-cubes geometry updates on Vertex↔Cell toggles.
     if (m_state.showIsosurface && m_meshData.loadedMesh) {
         bool isDerived = false;
         auto dNames = FieldResolver::derivedScalarNames(*m_meshData.loadedMesh);
-        if (std::find(dNames.begin(), dNames.end(), m_state.activeScalarName) != dNames.end()) isDerived = true;
-        // If isosurface shows the same field (or a derived of it), keep placements in sync
-        if (isDerived || m_isoController.currentField() == m_state.activeScalarName) {
+        if (std::find(dNames.begin(), dNames.end(), m_state.isosurfaceField) != dNames.end()) isDerived = true;
+        if (isDerived || m_state.isosurfaceField == m_state.activeScalarName) {
             if (m_state.isosurfacePlacement != p) {
                 m_state.isosurfacePlacement = p;
                 m_isoController.setPlacement(p);
             }
-            m_isoController.setCurrentField(m_state.activeScalarName);
+            m_isoController.setCurrentField(m_state.isosurfaceField);
             m_isoController.recompute();
         }
     }
