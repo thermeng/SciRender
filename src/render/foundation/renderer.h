@@ -376,6 +376,9 @@ struct RenderRenderState {
     bool showIsosurface = false;
     float isovalue = 0.0f;
     int isosurfacePlacement = 0; // 0=Vertex (point data), 1=Cell Center (cell data)
+    std::string isosurfaceField; // independent contour field (may differ from activeScalarName)
+    // Flat iso color (light blue default). The isosurface is NEVER colormapped.
+    float isosurfaceColor[3] = { 0.68f, 0.85f, 0.90f };
 
     bool showLineProbe = false;
     glm::vec3 lineP0 = glm::vec3(0.0f);

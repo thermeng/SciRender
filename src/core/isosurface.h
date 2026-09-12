@@ -28,8 +28,9 @@ namespace isosurface {
 // Result: a RenderMesh carrying vertices, triangle indices, smooth normals
 // (via mesh_utils::computeNormals), and a per-vertex `scalars` array equal to
 // the isovalue each vertex belongs to. This drops straight into the existing
-// MeshGLManager -> MeshPass pipeline: it is shaded by the colormap LUT when
-// meshUseScalarColor is on, lit by the PBR lighting model, and participates in
+// MeshGLManager -> MeshPass pipeline: it is drawn flat in the user's
+// isosurfaceColor (never colormapped — the renderer forces scalar coloring
+// off for the iso pass), lit by the PBR lighting model, and participates in
 // depth-peel transparency, wireframes, LOD, and screenshots -- with NO new GL
 // code. Pass an empty isovalues vector to get an empty (no-op) mesh.
 

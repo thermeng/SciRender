@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -21,9 +22,16 @@ namespace isosurface {
 //      interpolate a surface vertex on that edge. Vertices are shared across
 //      cells via an edge -> vertex map (keyed by the grid edge, so adjacent
 //      cells reuse the same vertex -> a watertight, duplicate-free manifold).
-//   3. The crossed-edge vertices of a cell form a polygon; they are
-//      angle-sorted around their centroid (projected onto the polygon's
-//      best-fit plane) and fan-triangulated.
+//   3. The crossed-edge vertices of a cell are partitioned into closed
+//      loops by walking face adjacency (2 crossings on a face pair
+//      directly; 4 = ambiguous saddle paired by the face-center decider,
+//      which agrees from both sides of a shared face). Each loop is
+//      angle-sorted around its centroid (projected onto the loop's
+//      best-fit plane) and fan-triangulated — disjoint loops are never
+//      bridged, so no open-edge holes.
+//   3b. Bitwise-identical vertices are welded (node-on-level degeneracy:
+//      a node with value == iso emits one vertex per incident edge at the
+//      exact node position); collapsed triangles are dropped.
 //   4. Per-vertex normals come from mesh_utils::computeNormals (shared vertex
 //      positions => correctly averaged; sharp-edge split preserved).
 //
@@ -363,10 +371,21 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
             t = (iso - va) / denom;
             t = std::clamp(t, 0.0f, 1.0f);
         }
+        // Snap endpoints bit-exactly: t==1 via pa+t*(pb-pa) can round to
+        // 1ulp off pb, so coincident node-on-level vertices from different
+        // edges would miss the bitwise weld below. Copying the endpoint
+        // keeps them identical (t<=0 also fixes t==-0.0 sign flow).
+        const float* p = (t <= 0.0f) ? pa : ((t >= 1.0f) ? pb : nullptr);
         const size_t base = result.vertices.size();
-        result.vertices.push_back(pa[0] + t * (pb[0] - pa[0]));
-        result.vertices.push_back(pa[1] + t * (pb[1] - pa[1]));
-        result.vertices.push_back(pa[2] + t * (pb[2] - pa[2]));
+        if (p) {
+            result.vertices.push_back(p[0]);
+            result.vertices.push_back(p[1]);
+            result.vertices.push_back(p[2]);
+        } else {
+            result.vertices.push_back(pa[0] + t * (pb[0] - pa[0]));
+            result.vertices.push_back(pa[1] + t * (pb[1] - pa[1]));
+            result.vertices.push_back(pa[2] + t * (pb[2] - pa[2]));
+        }
         result.scalars.push_back(iso);
         result.normals.push_back(0.0f);
         result.normals.push_back(0.0f);
@@ -397,6 +416,7 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                     if (flags == 0 || flags == 0xFF) continue;
 
                     uint32_t cellVerts[12];
+                    int cellEdges[12]; // cell-edge id per crossing (for loop partition)
                     int nVerts = 0;
                     float gradN[3] = {0, 0, 0};
                     for (int e = 0; e < 12; ++e) {
@@ -431,47 +451,198 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                                 edgeHash[k] = vi;
                             }
                         }
-                        cellVerts[nVerts++] = vi;
+                        cellVerts[nVerts] = vi;
+                        cellEdges[nVerts] = e;
+                        ++nVerts;
                     }
                     if (nVerts == 0) continue;
 
-                    {
-                        int w = 0;
-                        for (int i = 0; i < nVerts; ++i) {
-                            bool dup = false;
-                            for (int j = 0; j < w; ++j)
-                                if (cellVerts[i] == cellVerts[j]) { dup = true; break; }
-                            if (!dup) cellVerts[w++] = cellVerts[i];
+                    // Partition the crossings into closed loops by walking
+                    // face adjacency. A cell edge belongs to 2 faces; on each
+                    // face a crossing pairs with exactly one other crossing
+                    // (2 crossings pair directly; 4 crossings = ambiguous
+                    // saddle, paired by the face-center decider). Every
+                    // crossing thus has degree 2 and the components are the
+                    // disjoint intersection loops. Fanning ALL crossings as
+                    // one polygon bridges disjoint loops and disagrees with
+                    // neighbours across shared faces — the open-edge holes.
+                    //
+                    // Face tables: 4 corner ids (into CORNER[]) + 4 cell-edge
+                    // ids in cyclic order; edge[i] spans corner[i]->corner[i+1].
+                    // The decider (face-center vs iso) is identical from both
+                    // sides of a shared face, so adjacent cells pair the same
+                    // way and the surface stays watertight.
+                    auto emitLoop = [&](const uint32_t* loop, int n) {
+                        if (n == 3) {
+                            const float* v0 = &result.vertices[loop[0] * 3];
+                            const float* v1 = &result.vertices[loop[1] * 3];
+                            const float* v2 = &result.vertices[loop[2] * 3];
+                            float nx = (v1[1]-v0[1])*(v2[2]-v0[2]) - (v1[2]-v0[2])*(v2[1]-v0[1]);
+                            float ny = (v1[2]-v0[2])*(v2[0]-v0[0]) - (v1[0]-v0[0])*(v2[2]-v0[2]);
+                            float nz = (v1[0]-v0[0])*(v2[1]-v0[1]) - (v1[1]-v0[1])*(v2[0]-v0[0]);
+                            float dotN = nx*gradN[0]+ny*gradN[1]+nz*gradN[2];
+                            if (dotN < 0) {
+                                result.indices.push_back(loop[0]);
+                                result.indices.push_back(loop[2]);
+                                result.indices.push_back(loop[1]);
+                            } else {
+                                result.indices.push_back(loop[0]);
+                                result.indices.push_back(loop[1]);
+                                result.indices.push_back(loop[2]);
+                            }
+                        } else if (n > 3) {
+                            triangulateFan(result, loop, n, gradN);
                         }
-                        nVerts = w;
-                    }
-                    if (nVerts < 3) continue;
+                    };
 
                     if (nVerts == 3) {
-                        const float* v0 = &result.vertices[cellVerts[0] * 3];
-                        const float* v1 = &result.vertices[cellVerts[1] * 3];
-                        const float* v2 = &result.vertices[cellVerts[2] * 3];
-                        float nx = (v1[1]-v0[1])*(v2[2]-v0[2]) - (v1[2]-v0[2])*(v2[1]-v0[1]);
-                        float ny = (v1[2]-v0[2])*(v2[0]-v0[0]) - (v1[0]-v0[0])*(v2[2]-v0[2]);
-                        float nz = (v1[0]-v0[0])*(v2[1]-v0[1]) - (v1[1]-v0[1])*(v2[0]-v0[0]);
-                        float dotN = nx*gradN[0]+ny*gradN[1]+nz*gradN[2];
-                        bool wouldFlip = (dotN < 0);
-                        if (wouldFlip) {
-                            result.indices.push_back(cellVerts[0]);
-                            result.indices.push_back(cellVerts[2]);
-                            result.indices.push_back(cellVerts[1]);
-                        } else {
-                            result.indices.push_back(cellVerts[0]);
-                            result.indices.push_back(cellVerts[1]);
-                            result.indices.push_back(cellVerts[2]);
+                        uint32_t loop[3] = {cellVerts[0], cellVerts[1], cellVerts[2]};
+                        emitLoop(loop, 3);
+                        continue;
+                    }
+
+                    // edge id per crossing (parallel to cellVerts)
+                    // cellEdges[] is filled alongside cellVerts[] above.
+                    int adj[12][2];
+                    int adjN[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
+                    auto link = [&](int a, int b) {
+                        if (a < 0 || b < 0 || a == b) return;
+                        if (adjN[a] < 2) adj[a][adjN[a]++] = b;
+                        if (adjN[b] < 2) adj[b][adjN[b]++] = a;
+                    };
+                    auto posOfEdge = [&](int e) {
+                        for (int i = 0; i < nVerts; ++i)
+                            if (cellEdges[i] == e) return i;
+                        return -1;
+                    };
+                    static const int FC[6][4] = {
+                        {0,1,2,3}, {4,5,6,7}, {0,1,5,4},
+                        {3,2,6,7}, {0,3,7,4}, {1,2,6,5},
+                    };
+                    static const int FE[6][4] = {
+                        {0,1,2,3}, {4,5,6,7}, {0,9,4,8},
+                        {2,10,6,11}, {3,11,7,8}, {1,10,5,9},
+                    };
+                    for (int f = 0; f < 6; ++f) {
+                        int p[4];
+                        int cnt = 0;
+                        for (int k = 0; k < 4; ++k) {
+                            p[k] = posOfEdge(FE[f][k]);
+                            if (p[k] >= 0) ++cnt;
                         }
-                    } else {
-                        triangulateFan(result, cellVerts, nVerts, gradN);
+                        if (cnt == 2) {
+                            int a = -1, b = -1;
+                            for (int k = 0; k < 4; ++k)
+                                if (p[k] >= 0) { if (a < 0) a = p[k]; else b = p[k]; }
+                            link(a, b);
+                        } else if (cnt == 4) {
+                            // Ambiguous saddle: pair around the corners that
+                            // agree with the face center (same from both sides).
+                            float fc = 0.0f;
+                            float cv[4];
+                            for (int k = 0; k < 4; ++k) {
+                                cv[k] = (*vals)[static_cast<size_t>(base + CORNER[FC[f][k]])];
+                                fc += cv[k];
+                            }
+                            fc *= 0.25f;
+                            const bool winHigh = (fc >= iso);
+                            for (int k = 0; k < 4; ++k) {
+                                const bool cornerWins = (((*vals)[static_cast<size_t>(base + CORNER[FC[f][k]])] >= iso) == winHigh);
+                                if (cornerWins) link(p[(k+3) & 3], p[k]);
+                            }
+                        }
+                    }
+                    // Walk disjoint cycles; each is one loop to fan.
+                    bool seen[12] = {false,false,false,false,false,false,
+                                     false,false,false,false,false,false};
+                    for (int s = 0; s < nVerts; ++s) {
+                        if (seen[s]) continue;
+                        uint32_t loop[12];
+                        int ln = 0;
+                        int cur = s, prev = -1;
+                        while (!seen[cur] && ln < 12) {
+                            seen[cur] = true;
+                            loop[ln++] = cellVerts[cur];
+                            int nxt = -1;
+                            for (int k = 0; k < adjN[cur]; ++k)
+                                if (adj[cur][k] != prev) { nxt = adj[cur][k]; break; }
+                            prev = cur;
+                            cur = nxt;
+                            if (cur < 0) break;
+                        }
+                        emitLoop(loop, ln);
+                        continue;
                     }
                 }
     }
 
     if (result.vertices.empty()) return result;
+
+    // Weld bitwise-identical vertices. Node-on-level degeneracy (a grid
+    // node whose value == iso) makes every incident crossed edge emit a
+    // vertex at the exact node position under distinct indices — identical
+    // coordinates that read as open edges. Exact matching is zero-risk
+    // (never merges legitimately distinct vertices); near-misses stay
+    // closed slivers topologically. Drops degenerate tris + compacts.
+    {
+        const size_t nv0 = result.vertices.size() / 3;
+        std::vector<uint32_t> remap(nv0);
+        {
+            struct Key { uint32_t x, y, z; uint32_t i; };
+            std::vector<Key> keys;
+            keys.reserve(nv0);
+            // Canonicalize -0.0 to +0.0: arithmetically identical positions
+            // must hash identically or the weld silently misses.
+            auto canon = [](uint32_t b) { return b == 0x80000000u ? 0u : b; };
+            for (uint32_t i = 0; i < nv0; ++i) {
+                uint32_t b[3];
+                std::memcpy(b, &result.vertices[i * 3], 12);
+                keys.push_back({canon(b[0]), canon(b[1]), canon(b[2]), i});
+            }
+            std::sort(keys.begin(), keys.end(), [](const Key& a, const Key& b) {
+                if (a.x != b.x) return a.x < b.x;
+                if (a.y != b.y) return a.y < b.y;
+                if (a.z != b.z) return a.z < b.z;
+                return a.i < b.i;
+            });
+            uint32_t rep = 0;
+            for (size_t k = 0; k < keys.size(); ++k) {
+                if (k > 0 && (keys[k].x != keys[k-1].x || keys[k].y != keys[k-1].y || keys[k].z != keys[k-1].z))
+                    ++rep;
+                remap[keys[k].i] = rep;
+            }
+            const uint32_t nUnique = keys.empty() ? 0 : rep + 1;
+            if (nUnique < nv0) {
+                std::vector<float> nv_(nUnique * 3), ns_(nUnique), nn_(nUnique * 3, 0.0f);
+                std::vector<char> seen(nUnique, 0);
+                for (uint32_t i = 0; i < nv0; ++i) {
+                    const uint32_t r = remap[i];
+                    if (!seen[r]) {
+                        seen[r] = 1;
+                        nv_[r*3] = result.vertices[i*3];
+                        nv_[r*3+1] = result.vertices[i*3+1];
+                        nv_[r*3+2] = result.vertices[i*3+2];
+                        ns_[r] = result.scalars[i];
+                    }
+                }
+                result.vertices.swap(nv_);
+                result.scalars.swap(ns_);
+                result.normals.assign(nUnique * 3, 0.0f);
+                std::vector<uint32_t> ni;
+                ni.reserve(result.indices.size());
+                for (size_t t = 0; t + 2 < result.indices.size(); t += 3) {
+                    const uint32_t a = remap[result.indices[t]];
+                    const uint32_t b = remap[result.indices[t+1]];
+                    const uint32_t c = remap[result.indices[t+2]];
+                    if (a == b || b == c || a == c) continue; // collapsed
+                    ni.push_back(a); ni.push_back(b); ni.push_back(c);
+                }
+                result.indices.swap(ni);
+            }
+        }
+    }
+
+    if (result.indices.empty()) { result.vertices.clear(); result.scalars.clear(); result.normals.clear(); return result; }
 
     {
         const size_t nv = result.vertices.size() / 3;
@@ -502,9 +673,10 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
     }
     mesh_utils::computeBounds(result);
 
+    // Explicit field wins; otherwise inherit the source mesh's name (which
+    // the dual-grid path already set to the contoured cell field).
     const std::string& outName = srcMesh->scalarName.empty() ? volumeMesh.scalarName : srcMesh->scalarName;
-    result.scalarName = outName.empty() ? field : outName;
-    if (!field.empty()) result.scalarName = field;
+    result.scalarName = field.empty() ? outName : field;
     result.availableScalarNames = result.scalarName.empty()
         ? std::vector<std::string>{}
         : std::vector<std::string>{result.scalarName};

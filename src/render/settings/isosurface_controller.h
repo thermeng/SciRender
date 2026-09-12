@@ -43,12 +43,16 @@ public:
     void setCurrentField(const std::string& field) { m_currentField = field; }
     const std::string& currentField() const { return m_currentField; }
     void recompute();
+    // Live path for animation playback: relaunches only when no extraction
+    // is in flight (else arms m_livePending, chained from onComputed), so
+    // per-frame calls during play animate the surface without piling up
+    // queued tasks. recompute() stays immediate for step/seek/toggle paths.
+    void requestLiveRecompute();
     void reset(float dataMin, float dataMax);
     void clear();
 
 signals:
     void displayDirty();
-    void needsScalarColor();
     void showIsosurfaceChanged(bool);
     void isovalueChanged(float);
     void placementChanged(int);
@@ -72,6 +76,9 @@ private:
 
     uint64_t m_loadToken = 0;
     std::shared_ptr<std::atomic<uint64_t>> m_taskToken;
+    // Armed when a live frame arrived mid-extraction; onComputed chains one
+    // relaunch so playback tracks the latest frame at compute speed.
+    bool m_livePending = false;
 };
 
 

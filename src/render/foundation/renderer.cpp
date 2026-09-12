@@ -1184,6 +1184,12 @@ void Renderer::renderFrame() {
     if (!isoDrawList.empty() && meshPass.hasProgram()) {
         RenderRenderState isoState = m_state;
         isoState.showSurface = true;
+        // Flat user color, never the colormap LUT — even when the base
+        // surface has scalar coloring enabled.
+        isoState.meshUseScalarColor = false;
+        isoState.surfaceColor[0] = m_state.isosurfaceColor[0];
+        isoState.surfaceColor[1] = m_state.isosurfaceColor[1];
+        isoState.surfaceColor[2] = m_state.isosurfaceColor[2];
         auto isoResult = meshPass.draw(isoState, view, proj, model,
                                        isoDrawList, isoDrawVerts,
                                        emptyEdges,

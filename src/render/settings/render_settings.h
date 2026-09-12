@@ -330,6 +330,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool autoRotate READ getAutoRotate WRITE setAutoRotate NOTIFY viewChanged)
     Q_PROPERTY(QColor meshColor READ getMeshColorQml WRITE setMeshColorQml NOTIFY viewChanged)
     Q_PROPERTY(QColor surfaceColor READ getSurfaceColorQml WRITE setSurfaceColorQml NOTIFY viewChanged)
+    Q_PROPERTY(QColor isosurfaceColor READ getIsosurfaceColorQml WRITE setIsosurfaceColorQml NOTIFY viewChanged)
     Q_PROPERTY(bool screenshotTransparent READ getScreenshotTransparent WRITE setScreenshotTransparent NOTIFY viewChanged)
     Q_PROPERTY(int screenshotResolution READ getScreenshotResolution WRITE setScreenshotResolution NOTIFY viewChanged)
     Q_PROPERTY(int screenshotAASamples READ getScreenshotAASamples WRITE setScreenshotAASamples NOTIFY viewChanged)
@@ -337,6 +338,7 @@ class RenderSettings : public QObject {
 
      Q_PROPERTY(bool showIsosurface READ getShowIsosurface WRITE setShowIsosurface NOTIFY viewChanged)
      Q_PROPERTY(double isovalue READ getIsovalue WRITE setIsovalue NOTIFY viewChanged)
+     Q_PROPERTY(QString isosurfaceField READ getIsosurfaceFieldQml WRITE setIsosurfaceField NOTIFY meshDataUpdated)
      Q_PROPERTY(bool isosurfaceAvailable READ getIsosurfaceAvailable NOTIFY meshDataUpdated)
      Q_PROPERTY(int isosurfacePlacement READ getIsosurfacePlacement WRITE setIsosurfacePlacement NOTIFY viewChanged)
      Q_PROPERTY(QStringList isosurfacePlacementOptions READ getIsosurfacePlacementOptions CONSTANT)
@@ -533,6 +535,8 @@ public:
     void setMeshColorQml(const QColor& c) { m_state.meshColor[0] = c.redF(); m_state.meshColor[1] = c.greenF(); m_state.meshColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     QColor getSurfaceColorQml() const { return QColor::fromRgbF(m_state.surfaceColor[0], m_state.surfaceColor[1], m_state.surfaceColor[2]); }
     void setSurfaceColorQml(const QColor& c) { m_state.surfaceColor[0] = c.redF(); m_state.surfaceColor[1] = c.greenF(); m_state.surfaceColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+    QColor getIsosurfaceColorQml() const { return QColor::fromRgbF(m_state.isosurfaceColor[0], m_state.isosurfaceColor[1], m_state.isosurfaceColor[2]); }
+    void setIsosurfaceColorQml(const QColor& c) { m_state.isosurfaceColor[0] = c.redF(); m_state.isosurfaceColor[1] = c.greenF(); m_state.isosurfaceColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
 
     int getVectorVisMode() const { return m_state.vectorVisMode; }
     void setVectorVisMode(int v) {
@@ -711,7 +715,8 @@ public:
     STATE_PROP(getVolumeSliceColormapReversed, setVolumeSliceColormapReversed, bool, m_state.volumeSliceColormapReversed, Colormap)
 
       // ---- isosurface (marching cubes) ----
-      // Contours the active scalar field at `isovalue` (absolute, in data units).
+      // Contours the independently-selected `isosurfaceField` at `isovalue`
+      // (absolute, in that field's data units — NOT the surface active field).
       // The extracted surface is re-colored by the colormap LUT and lit by the
       // PBR model via the shared surface pass -- no per-iso shading state.
       // The lifecycle (async extract, debounce, stale-guard) lives in
@@ -719,10 +724,11 @@ public:
       bool getShowIsosurface() const { return m_state.showIsosurface; }
       void setShowIsosurface(bool v) { m_isoController.setShowIsosurface(v); }
       double getIsovalue() const { return static_cast<double>(m_state.isovalue); }
-      void setIsovalue(double v) {
-          m_isoController.setIsovalue(static_cast<float>(v),
-                                       m_state.dataScalarMin, m_state.dataScalarMax);
-      }
+      void setIsovalue(double v);
+      QString getIsosurfaceFieldQml() const { return QString::fromStdString(m_state.isosurfaceField); }
+      void setIsosurfaceField(const QString& fieldName);
+      // Range of the contour field under the iso placement (drives the spin bounds).
+      std::pair<float,float> isosurfaceFieldRange() const;
       bool getIsosurfaceAvailable() const { return m_isoController.isAvailable(); }
       Q_INVOKABLE void recomputeIsosurface() { m_isoController.recompute(); }
       int getIsosurfacePlacement() const { return m_state.isosurfacePlacement; }

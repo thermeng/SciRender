@@ -43,10 +43,7 @@ void IsosurfaceController::setShowIsosurface(bool v) {
     m_showIsosurface = v;
     emit showIsosurfaceChanged(v);
     if (v) {
-        // The isosurface is colored by the colormap LUT, which only emits
-        // color when scalar coloring is enabled — turn it on so the surface
-        // is visible immediately in the active colormap band.
-        emit needsScalarColor();
+        // Flat user color (isosurfaceColor) — no colormap dependency.
         recompute();
     } else {
         // Disable immediately. The null handoff clears the GPU isosurface.
@@ -68,6 +65,7 @@ void IsosurfaceController::setIsovalue(float v, float lo, float hi) {
 void IsosurfaceController::reset(float dataMin, float dataMax) {
     const bool wasOn = m_showIsosurface;
     m_showIsosurface = false;
+    m_livePending = false;
     m_isovalue = (dataMin + dataMax) * 0.5f;
     ++m_loadToken;
     m_watcher.waitForFinished();
@@ -80,6 +78,7 @@ void IsosurfaceController::reset(float dataMin, float dataMax) {
 
 void IsosurfaceController::clear() {
     m_showIsosurface = false;
+    m_livePending = false;
     ++m_loadToken;
     if (m_taskToken) m_taskToken->store(m_loadToken);
     m_watcher.waitForFinished();
@@ -98,6 +97,19 @@ void IsosurfaceController::recompute() {
         emit displayDirty();
         return;
     }
+    m_livePending = false;
+    launchAsync();
+}
+
+void IsosurfaceController::requestLiveRecompute() {
+    if (!m_showIsosurface || !m_currentMesh) return;
+    if (!isosurface::canExtract(*m_currentMesh, m_currentField, m_placement)) {
+        m_renderer.setPendingIsosurface(nullptr);
+        emit displayDirty();
+        return;
+    }
+    if (m_watcher.isRunning()) { m_livePending = true; return; }
+    m_livePending = false;
     launchAsync();
 }
 
@@ -125,7 +137,7 @@ void IsosurfaceController::launchAsync() {
 void IsosurfaceController::onComputed() {
     // Dropped if the user toggled the isosurface off while this compute ran,
     // or if a newer recompute superseded this result.
-    if (!m_showIsosurface) return;
+    if (!m_showIsosurface) { m_livePending = false; return; }
     if (!m_taskToken || m_taskToken->load() != m_loadToken) return;
 
     RenderMesh iso = m_watcher.result();
@@ -137,6 +149,12 @@ void IsosurfaceController::onComputed() {
         m_renderer.setPendingIsosurface(nullptr);
     }
     emit displayDirty();
+    // Playback chained relaunch: a frame arrived mid-extraction, so run once
+    // more against the latest mesh instead of freezing until pause.
+    if (m_livePending) {
+        m_livePending = false;
+        requestLiveRecompute();
+    }
 }
 
 

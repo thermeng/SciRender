@@ -52,9 +52,26 @@
        <number>0</number>
       </property>
         <item>
+         <widget class="QLabel" name="fieldHeader">
+          <property name="text">
+           <string>Field</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="fieldCombo"/>
+        </item>
+        <item>
          <widget class="QLabel" name="valueHeader">
           <property name="text">
            <string>Isovalue</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="isoColorBtn">
+          <property name="text">
+           <string>Color</string>
           </property>
          </widget>
         </item>
@@ -108,35 +125,19 @@
           </widget>
          </item>
          <item>
-          <widget class="QSlider" name="valueSlider">
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
+          <widget class="QDoubleSpinBox" name="valueSpin">
+           <property name="decimals">
+            <number>4</number>
+           </property>
+           <property name="minimum">
+            <double>0.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>1.000000000000000</double>
            </property>
           </widget>
          </item>
-         <item>
-          <widget class="QLabel" name="valueLabel">
-           <property name="minimumSize">
-            <size>
-             <width>36</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>36</width>
-             <height>16777215</height>
-            </size>
-           </property>
-          <property name="text">
-           <string>0.500</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignVCenter</set>
-          </property>
-         </widget>
-        </item>
-       </layout>
+        </layout>
       </item>
      </layout>
     </widget>
