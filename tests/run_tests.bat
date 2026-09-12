@@ -38,6 +38,7 @@ if errorlevel 1 set FAIL=1
 echo [run_tests] building isosurface_test...
 %GPP% -std=c++20 -O2 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
   ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
+  ..\src\core\FieldStore.cpp ..\src\core\FieldResolver.cpp ^
   ..\src\core\isosurface.cpp ..\vendor\pugixml\pugixml.cpp ^
   ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
   isosurface_test.cpp ^

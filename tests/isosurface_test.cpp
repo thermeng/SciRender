@@ -200,6 +200,38 @@ static void testClosedSurface() {
     CHECK(empty.vertices.empty(), "sphere iso above max -> empty");
 }
 
+static void testWatertightSweep() {
+    printf("[TEST] watertight sweep (offset spheres, ambiguous/two-loop cells)\n");
+    // Off-center spheres break symmetry so the sweep hits ambiguous saddles
+    // and two-loop cells. All levels keep the surface strictly interior, so
+    // every result must be a closed manifold (0 open edges). Catches the old
+    // fan-all-crossings bridging bug + node-on-level duplicate vertices.
+    struct Case { int n; float cx, cy, cz; float iso; };
+    const Case cases[] = {
+        {9, 4.3f, 3.7f, 4.1f, 1.00f}, {9, 4.3f, 3.7f, 4.1f, 2.37f},
+        {9, 4.3f, 3.7f, 4.1f, 3.74f}, {9, 4.3f, 3.7f, 4.1f, 5.11f},
+        {9, 4.3f, 3.7f, 4.1f, 6.48f}, {9, 4.3f, 3.7f, 4.1f, 7.85f},
+        {9, 4.3f, 3.7f, 4.1f, 9.22f}, {9, 4.3f, 3.7f, 4.1f, 10.59f},
+        {9, 4.3f, 3.7f, 4.1f, 11.96f}, {9, 4.3f, 3.7f, 4.1f, 13.33f},
+        {11, 5.5f, 5.5f, 5.5f, 1.00f}, {11, 5.5f, 5.5f, 5.5f, 2.37f},
+        {11, 5.5f, 5.5f, 5.5f, 3.74f}, {11, 5.5f, 5.5f, 5.5f, 5.11f},
+        // Node-on-level degeneracy: node (5,5,7) has dist^2 == 10.59 exactly.
+        {9, 4.3f, 3.7f, 4.1f, 10.59f},
+    };
+    for (const auto& c : cases) {
+        RenderMesh g = makeSphereGrid(c.n, c.cx, c.cy, c.cz);
+        auto r = isosurface::extractIsosurface(g, {c.iso});
+        char msg[128];
+        std::snprintf(msg, sizeof(msg), "sweep n=%d iso=%.2f non-empty", c.n, c.iso);
+        CHECK(!r.vertices.empty(), msg);
+        if (r.vertices.empty()) continue;
+        Closure cl = closureOf(r);
+        std::snprintf(msg, sizeof(msg), "sweep n=%d iso=%.2f watertight (open=%d)",
+                      c.n, c.iso, cl.openEdges);
+        CHECK(cl.watertight, msg);
+    }
+}
+
 static void testParsedSample() {
     printf("[TEST] parsed IMAGEDATA sample\n");
     const std::string path = "../samples/IMAGE_DATA_xml_ascii.vti";
@@ -228,6 +260,7 @@ int main(){
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     testSingleCellExact();
     testClosedSurface();
+    testWatertightSweep();
     testParsedSample();
 
     printf("\n");
