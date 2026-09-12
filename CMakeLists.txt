@@ -73,6 +73,7 @@ add_library(CoreLib STATIC
     src/core/camera_math.cpp
     src/core/mesh_loader.cpp
     src/core/mesh_quality.cpp
+    src/core/FieldStore.cpp
     src/core/FieldResolver.cpp
     src/core/isosurface.cpp
     src/core/mesh_utils.cpp

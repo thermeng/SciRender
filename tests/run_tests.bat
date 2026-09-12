@@ -23,7 +23,7 @@ type last_parse.log
 if errorlevel 1 set FAIL=1
 echo.
 echo [run_tests] building streamline_direction_test...
-%GPP% -std=c++20 -O2 -g ..\vendor\glad\src\gl.c ..\src\core\FieldResolver.cpp ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
+%GPP% -std=c++20 -O2 -g ..\vendor\glad\src\gl.c ..\src\core\FieldStore.cpp ..\src\core\FieldResolver.cpp ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
   ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
   ..\src\render\foundation\gl_raii.cpp ^
   ..\src\render\streamlines\StreamlineSet.cpp streamline_direction_test.cpp ^
@@ -68,7 +68,7 @@ anim_range_test.exe
 if errorlevel 1 set FAIL=1
 :: --- vector-field name dedup rules ---
 echo [run_tests] building field_names_test...
-%GPP% -std=c++20 -O2 -g field_names_test.cpp ..\src\core\FieldResolver.cpp ^
+%GPP% -std=c++20 -O2 -g field_names_test.cpp ..\src\core\FieldStore.cpp ..\src\core\FieldResolver.cpp ^
   -o field_names_test.exe %INC%
 if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
 echo [run_tests] running field_names_test...

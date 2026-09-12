@@ -3,6 +3,7 @@
 #include "render/settings/AnimationExporter.h"
 #include "core/Colormaps.h"
 #include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
 #include "core/isosurface.h"
@@ -721,29 +722,28 @@ void RenderSettings::onMeshParsed() {
         m_state.meshHasScalars = false;
         m_state.meshUseScalarColor = false;
         m_state.showScalarColorbar = false;
-        // For structured grids, surface extraction clears mesh.scalars (vertex
-        // count mismatch), but the original per-node scalars survive in
-        // attributes->pointScalars. Use them to set the isosurface slider range.
-        m_state.dataScalarMin = 0.0f;
-        m_state.dataScalarMax = 1.0f;
-        if (loaded->attributes && !loaded->attributes->pointScalars.empty()) {
-            const auto& ps = loaded->attributes->pointScalars;
-            auto it = ps.find(loaded->scalarName);
-            if (it == ps.end()) it = ps.begin();
-            if (it != ps.end() && !it->second.empty()) {
-                float mn = std::numeric_limits<float>::max();
-                float mx = -std::numeric_limits<float>::max();
-                for (float v : it->second) {
-                    if (!std::isfinite(v)) continue;
-                    if (v < mn) mn = v;
-                    if (v > mx) mx = v;
+        // For structured grids, surface extraction clears mesh.scalars but point scalars survive in attributes.
+        // Use FieldStore deep seam so range logic stays single-source.
+        {
+            float mn = 0.0f, mx = 1.0f;
+            bool have = false;
+            if (loaded->attributes && !loaded->attributes->pointScalars.empty()) {
+                const auto& ps = loaded->attributes->pointScalars;
+                auto it = ps.find(loaded->scalarName);
+                if (it == ps.end()) it = ps.begin();
+                if (it != ps.end() && !it->second.empty()) {
+                    auto r = FieldStore::computeRange(it->second);
+                    mn = r.min; mx = r.max; have = true;
                 }
-                if (mn > mx) { mn = 0.0f; mx = 1.0f; }
+            }
+            if (have) {
                 m_state.dataScalarMin = mn;
                 m_state.dataScalarMax = mx;
                 m_state.scalarMin = mn;
                 m_state.scalarMax = mx;
-                if (mx - mn < 1e-6f) mx = mn + 1.0f;
+            } else {
+                m_state.dataScalarMin = 0.0f;
+                m_state.dataScalarMax = 1.0f;
             }
         }
         m_state.filterEnabled = false;
@@ -1078,44 +1078,19 @@ void RenderSettings::recomputeScalarRange() {
     bool have = false;
     if (m_meshData.loadedMesh) {
         float rmn, rmx;
-        if (auto* d = FieldResolver::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, rmn, rmx, m_state.scalarPlacement)) {
+        auto placement = m_state.scalarPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+        if (auto* d = FieldStore::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, rmn, rmx, placement)) {
             mn = rmn; mx = rmx; have = true;
-        } else if (m_meshData.loadedMesh->attributes) {
-            // Placement-aware fallback (no FieldResolver hit)
-            if (m_state.scalarPlacement == 1) {
-                auto cit = m_meshData.loadedMesh->attributes->cellScalarRanges.find(m_state.activeScalarName);
-                if (cit != m_meshData.loadedMesh->attributes->cellScalarRanges.end()) { mn = cit->second.first; mx = cit->second.second; have = true; }
-                else {
-                    auto it = m_meshData.loadedMesh->attributes->pointScalarRanges.find(m_state.activeScalarName);
-                    if (it != m_meshData.loadedMesh->attributes->pointScalarRanges.end()) { mn = it->second.first; mx = it->second.second; have = true; }
-                }
-            } else {
-                auto it = m_meshData.loadedMesh->attributes->pointScalarRanges.find(m_state.activeScalarName);
-                if (it != m_meshData.loadedMesh->attributes->pointScalarRanges.end()) { mn = it->second.first; mx = it->second.second; have = true; }
-                else {
-                    auto cit = m_meshData.loadedMesh->attributes->cellScalarRanges.find(m_state.activeScalarName);
-                    if (cit != m_meshData.loadedMesh->attributes->cellScalarRanges.end()) { mn = cit->second.first; mx = cit->second.second; have = true; }
-                }
-            }
         }
     }
     if (!have && !m_meshData.guiMeta.scalars.empty()) {
-        mn = std::numeric_limits<float>::max();
-        mx = std::numeric_limits<float>::lowest();
-        for (float v : m_meshData.guiMeta.scalars) {
-            if (!std::isfinite(v)) continue;
-            mn = std::min(mn, v);
-            mx = std::max(mx, v);
-            have = true;
-        }
+        auto r = FieldStore::computeRange(m_meshData.guiMeta.scalars);
+        mn = r.min; mx = r.max; have = true;
     }
     if (!have) {
-        // Keep previous range if we still have no data (should not happen)
         if (m_state.dataScalarMin != m_state.dataScalarMax) return;
         mn = 0.f; mx = 1.f;
     }
-    if (mn > mx) { mn = 0.f; mx = 1.f; }
-    if (std::abs(mx - mn) < 1e-6f) mx = mn + 1.0f;
     m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
     m_state.scalarMin = mn; m_state.scalarMax = mx;
 }

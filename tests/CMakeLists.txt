@@ -83,9 +83,10 @@ target_include_directories(pvd_test PRIVATE
 target_link_libraries(pvd_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
 
 # Vector-field name listing rules (FieldResolver): point + cell lists must
-# merge deduplicated. Header-inline accessors — links FieldResolver.cpp only.
+# merge deduplicated. Now delegated to FieldStore deep module.
 add_executable(field_names_test
     field_names_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
 )
 target_include_directories(field_names_test PRIVATE
@@ -106,6 +107,7 @@ target_include_directories(anim_range_test PRIVATE
 # Streamline direction / integration check — needs glad+GL stubs + StreamlineSet
 add_executable(streamline_direction_test
     streamline_direction_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp

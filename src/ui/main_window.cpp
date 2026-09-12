@@ -1162,18 +1162,8 @@ QWidget* MainWindow::buildScalarPage() {
     connect(scalarPlacementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             m_settings, &RenderSettings::setScalarPlacement);
 
-    // Palette now in Colorbar Style dialog — hide sidebar alias
-    scalarUi.paletteHeader->hide();
-    scalarUi.paletteCombo->hide();
-    scalarUi.reversePalette->hide();
-
-    auto* showBarCb = scalarUi.showColorbar;
-    showBarCb->setChecked(m_settings->getShowScalarColorbar());
-    connect(showBarCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowScalarColorbar);
-
-    auto* ticksSpin = scalarUi.ticksSpin;
-    ticksSpin->setValue(m_settings->getColorbarTicks());
-    connect(ticksSpin, &QSpinBox::valueChanged, m_settings, &RenderSettings::setColorbarTicks);
+    // All colorbar properties (palette, bands, ticks, fixed range, visibility)
+    // live in the Colorbar Style dialog — nothing colorbar-related stays here.
 
     {
         auto* filterEnabledCb = scalarUi.filterEnabledCb;
@@ -1249,9 +1239,6 @@ QWidget* MainWindow::buildScalarPage() {
         refreshScalarFilterRange();
     });
 
-    // Fixed Range now in Colorbar Style dialog — hide sidebar alias
-    scalarUi.colorRangeCb->hide();
-
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);
@@ -1285,7 +1272,7 @@ QWidget* MainWindow::buildProbePage() {
     m_probeTable = probeUi.valueTable;
 
     m_probeShowCb->setChecked(m_settings->getShowProbe());
-    connect(m_probeShowCb, &QCheckBox::toggled, m_settings, &RenderSettings::setShowProbe);
+    connect(m_probeShowCb, &QCheckBox::toggled, m_settings, [this](bool v){ m_settings->setShowProbe(v); refreshProbeTable(); });
 
     m_probeXSpin->setValue(m_settings->getProbeX());
     m_probeYSpin->setValue(m_settings->getProbeY());
@@ -1326,7 +1313,19 @@ QWidget* MainWindow::buildProbePage() {
         if(m_probePlacementCombo){ m_probePlacementCombo->blockSignals(true); m_probePlacementCombo->setCurrentIndex(m_settings->getProbePlacement()); m_probePlacementCombo->setEnabled(m_settings->hasScalarCellData()); m_probePlacementCombo->blockSignals(false); }
         if(m_probeFormatCombo){ m_probeFormatCombo->blockSignals(true); m_probeFormatCombo->setCurrentIndex(m_settings->getProbeFormat()); m_probeFormatCombo->blockSignals(false); }
     });
-    connect(m_settings, &RenderSettings::meshDataUpdated, this, [this](){
+    // Wheel/arrow step = 1/10th of the axis bbox length so nudging the
+    // probe with the mouse wheel feels proportional to the dataset size.
+    auto applyProbeSteps = [this](){
+        if(!m_probeXSpin || !m_probeYSpin || !m_probeZSpin) return;
+        double lenX = m_settings->getWorldMaxX() - m_settings->getWorldMinX();
+        double lenY = m_settings->getWorldMaxY() - m_settings->getWorldMinY();
+        double lenZ = m_settings->getWorldMaxZ() - m_settings->getWorldMinZ();
+        m_probeXSpin->setSingleStep(lenX > 1e-12 ? lenX / 10.0 : 0.1);
+        m_probeYSpin->setSingleStep(lenY > 1e-12 ? lenY / 10.0 : 0.1);
+        m_probeZSpin->setSingleStep(lenZ > 1e-12 ? lenZ / 10.0 : 0.1);
+    };
+    applyProbeSteps();
+    connect(m_settings, &RenderSettings::meshDataUpdated, this, [this, applyProbeSteps](){
         // Update probe pos to mesh center on new mesh if probe was at old center
         if(m_probeXSpin && m_settings->getHasMeshLoaded()){
             // Keep current probe pos but ensure spinbox range covers new bounds
@@ -1337,6 +1336,7 @@ QWidget* MainWindow::buildProbePage() {
             for(auto* sb: {m_probeXSpin, m_probeYSpin, m_probeZSpin}){
                 if(sb) sb->setRange(std::min({minX,minY,minZ})-1000, std::max({maxX,maxY,maxZ})+1000);
             }
+            applyProbeSteps();
         }
         refreshProbeTable();
         if(m_probePlacementCombo){ m_probePlacementCombo->setEnabled(m_settings->hasScalarCellData()); }
@@ -1692,9 +1692,7 @@ QWidget* MainWindow::buildVectorsPage() {
     vectorsUi.optionsGroup->layout()->replaceWidget(vectorsUi.vectorColorModeCombo, colorModeCombo);
     delete vectorsUi.vectorColorModeCombo;
 
-    // Palette now in Colorbar Style dialog — hide sidebar alias
-    vectorsUi.vCmapCombo->hide();
-    vectorsUi.revCb->hide();
+    // All colorbar properties live in the Colorbar Style dialog.
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
@@ -2302,23 +2300,22 @@ QWidget* MainWindow::buildVolumePage() {
         m_settings->setActiveScalarField(m_volumeFieldCombo->itemText(idx));
     });
 
-    // Palette now in Colorbar Style dialog — hide sidebar alias
-    volumeUi.volumePaletteHeader->hide();
-    volumeUi.volumePaletteCombo->hide();
-    volumeUi.volumeReverseCb->hide();
-    volumeUi.rangeContainer->hide();
-
+    // Palette, bands, ticks, fixed range live in the Colorbar Style dialog.
+    // "Use Colormap" stays here: it switches volume ray-march output between
+    // palette-mapped color and raw grayscale, not colorbar styling.
     auto* useCmapCb = volumeUi.volumeUseCmapCb;
     useCmapCb->setChecked(m_settings->getVolumeUseColormap());
     connect(useCmapCb, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeUseColormap);
 
-    // Volume Fixed Range now in Colorbar Style dialog — removed from sidebar
-
     {
         auto* slider = volumeUi.stepSlider;
         auto* valueLabel = volumeUi.stepValue;
-        slider->setRange(1, 1000);
+        // Log mapping: raw in [1000,4000] <-> step in [1e-3,1e0].
+        // (Previous range 1..1000 only covered 1e-4..1e-3, pinning the
+        // default 0.01 to the slider max and making the slider dead.)
+        slider->setRange(1000, 4000);
         slider->setValue(static_cast<int>(std::log10(m_settings->getVolumeStepSize()) * 1000.0 + 4000.0));
+        valueLabel->setText(QString::number(m_settings->getVolumeStepSize(), 'f', 4));
         connect(slider, &QSlider::valueChanged, this, [valueLabel, this](int raw) {
             double v = std::pow(10.0, (raw - 4000.0) / 1000.0);
             valueLabel->setText(QString::number(v, 'f', 4));
@@ -2457,10 +2454,7 @@ QWidget* MainWindow::buildSlicePlanePage() {
     insertFieldCombo(sliceUi.xGroup, m_sliceFieldCombo[0]);
     insertFieldCombo(sliceUi.yGroup, m_sliceFieldCombo[1]);
     insertFieldCombo(sliceUi.zGroup, m_sliceFieldCombo[2]);
-    sliceUi.rangeCb->hide();
-    sliceUi.rangeContainer->hide();
-
-        // Slice Fixed Range now in Colorbar Style dialog — removed from sidebar
+    // Slice palette + fixed range live in the Colorbar Style dialog.
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);

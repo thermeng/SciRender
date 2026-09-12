@@ -466,6 +466,18 @@ void PlotWindow::onLineExportPng(){
 }
 void PlotWindow::syncLineProbeUIFromSettings(){
     if(!m_settings) return;
+    // Wheel/arrow step = 1/10th of the axis bbox length, matching Probe page.
+    {
+        double lenX = m_settings->getWorldMaxX() - m_settings->getWorldMinX();
+        double lenY = m_settings->getWorldMaxY() - m_settings->getWorldMinY();
+        double lenZ = m_settings->getWorldMaxZ() - m_settings->getWorldMinZ();
+        double sx = lenX > 1e-12 ? lenX / 10.0 : 0.1;
+        double sy = lenY > 1e-12 ? lenY / 10.0 : 0.1;
+        double sz = lenZ > 1e-12 ? lenZ / 10.0 : 0.1;
+        if(m_p0x) m_p0x->setSingleStep(sx); if(m_p1x) m_p1x->setSingleStep(sx);
+        if(m_p0y) m_p0y->setSingleStep(sy); if(m_p1y) m_p1y->setSingleStep(sy);
+        if(m_p0z) m_p0z->setSingleStep(sz); if(m_p1z) m_p1z->setSingleStep(sz);
+    }
     if(m_showProbeCb){
         m_showProbeCb->blockSignals(true);
         m_showProbeCb->setChecked(m_settings->getShowLineProbe());

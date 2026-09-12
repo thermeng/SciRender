@@ -375,38 +375,6 @@
         </layout>
        </widget>
       </item>
-      <!-- ===== Fixed Range ===== -->
-      <item>
-       <widget class="QCheckBox" name="rangeCb">
-        <property name="text">
-         <string>Fixed Range</string>
-        </property>
-        <property name="toolTip">
-         <string>Map a fixed value range to the slice palette; values outside clamp to the end colors</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QWidget" name="rangeContainer" native="true">
-        <layout class="QHBoxLayout" name="rangeContainerLayout">
-         <property name="spacing">
-          <number>0</number>
-         </property>
-         <property name="leftMargin">
-          <number>0</number>
-         </property>
-         <property name="topMargin">
-          <number>0</number>
-         </property>
-         <property name="rightMargin">
-          <number>0</number>
-         </property>
-         <property name="bottomMargin">
-          <number>0</number>
-         </property>
-        </layout>
-       </widget>
-      </item>
      </layout>
     </widget>
    </item>
