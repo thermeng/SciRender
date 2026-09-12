@@ -62,23 +62,6 @@
        <widget class="QComboBox" name="volumeFieldCombo"/>
       </item>
       <item>
-       <widget class="QLabel" name="volumePaletteHeader">
-        <property name="text">
-         <string>Colormap</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QComboBox" name="volumePaletteCombo"/>
-      </item>
-      <item>
-       <widget class="QCheckBox" name="volumeReverseCb">
-        <property name="text">
-         <string>Reverse Palette</string>
-        </property>
-       </widget>
-      </item>
-      <item>
        <widget class="QCheckBox" name="volumeUseCmapCb">
         <property name="text">
          <string>Use Colormap</string>
@@ -200,27 +183,6 @@
          </widget>
         </item>
        </layout>
-      </item>
-      <item>
-       <widget class="QWidget" name="rangeContainer" native="true">
-        <layout class="QHBoxLayout" name="rangeContainerLayout">
-         <property name="spacing">
-          <number>0</number>
-         </property>
-         <property name="leftMargin">
-          <number>0</number>
-         </property>
-         <property name="topMargin">
-          <number>0</number>
-         </property>
-         <property name="rightMargin">
-          <number>0</number>
-         </property>
-         <property name="bottomMargin">
-          <number>0</number>
-         </property>
-        </layout>
-       </widget>
       </item>
      </layout>
     </widget>

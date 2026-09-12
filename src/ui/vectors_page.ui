@@ -216,9 +216,6 @@
         <item>
          <widget class="QComboBox" name="vectorColorModeCombo"/>
         </item>
-        <item>
-         <widget class="QComboBox" name="vCmapCombo"/>
-        </item>
        </layout>
       </widget>
      </item>
@@ -373,13 +370,6 @@
         </layout>
        </widget>
      </item>
-    <item>
-     <widget class="QCheckBox" name="revCb">
-        <property name="text">
-         <string>Reverse Palette</string>
-        </property>
-       </widget>
-      </item>
       </layout>
      </widget>
     </ui>

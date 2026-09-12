@@ -1,6 +1,7 @@
 #include "render/foundation/renderer.h"
 #include "render/passes/PlotKernel.h"
 #include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 #include "render/foundation/shader_utils.h"
 #include "render/foundation/NumberFormat.h"
 #include "render/foundation/render_config.h"
@@ -857,7 +858,8 @@ void Renderer::updateSliceScalarRange() {
         const std::string& field = m_state.sliceScalarName[axis].empty()
             ? m_state.activeScalarName : m_state.sliceScalarName[axis];
         float rngMin, rngMax;
-        const std::vector<float>* s = FieldResolver::scalarData(*mesh, field, rngMin, rngMax, m_state.scalarPlacement);
+        auto placement = m_state.scalarPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+        const std::vector<float>* s = FieldStore::scalarData(*mesh, field, rngMin, rngMax, placement);
         if (!s || s->empty()) {
             m_state.sliceScalarMin[axis] = 0.0f;
             m_state.sliceScalarMax[axis] = 1.0f;

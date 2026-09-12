@@ -103,7 +103,11 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
 
     if (locNumBands_ != -1) glUniform1f(locNumBands_, static_cast<float>(state.volumeColorBands));
 
-    if (state.volumeUseColormap && colormap.volumeTexture() != 0) {
+    // Always bind a valid 1D LUT when available so the uColormapLUT sampler is
+    // never left dangling on unit 0 (the 3D volume texture). The
+    // uVolumeUseColormap flag alone selects colormapped vs grayscale output,
+    // so toggling it can never make the volume vanish.
+    if (colormap.volumeTexture() != 0) {
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_1D, colormap.volumeTexture());
         glUniform1i(locLut_, 1);

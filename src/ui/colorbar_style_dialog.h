@@ -40,6 +40,7 @@ private:
     QSlider* m_panelOpacity = nullptr;
     QCheckBox* m_showAnnotation = nullptr;
     QSpinBox* m_bandCount = nullptr;
+    QSpinBox* m_ticksSpin = nullptr;
     QComboBox* m_paletteCombo = nullptr;
     QCheckBox* m_paletteReverse = nullptr;
     QCheckBox* m_rangeEnable = nullptr;
@@ -47,6 +48,7 @@ private:
     QLabel* m_rangeModeLabel = nullptr;
     int m_rangeBoundComp = -1; // -1 mag, 0..2 comp for Vector/Streamline
     int m_initialBandCount = 0;
+    int m_initialTicks = 6;
     int m_initialPaletteChoice = 0;
     bool m_initialPaletteReversed = false;
     // Fixed range snapshots per pass (shared slot for Scalar/Volume/Slice)

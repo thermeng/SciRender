@@ -21,8 +21,13 @@
 ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString& barSubtitle,
                                            int initialBandCount, QWidget* parent)
     : QDialog(parent), m_settings(settings), m_barSubtitle(barSubtitle) {
-    setWindowTitle(m_barSubtitle.isEmpty() ? QString("Colorbar Style")
-                                           : QString("Colorbar Style — %1").arg(m_barSubtitle));
+    // Slice bars arrive per-axis ("Slice X"/"Slice Y"/"Slice Z") but share one
+    // slice style backend — normalize for all logic below. Title keeps the
+    // original so the user still sees which plane they right-clicked.
+    const QString displaySubtitle = m_barSubtitle;
+    if (m_barSubtitle.startsWith("Slice")) m_barSubtitle = "Slice";
+    setWindowTitle(displaySubtitle.isEmpty() ? QString("Colorbar Style")
+                                             : QString("Colorbar Style — %1").arg(displaySubtitle));
     setModal(true);
 
     m_initialFontFamily = m_settings->getColorbarFontFamily();
@@ -261,6 +266,16 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
     }
     form->addRow("Color bands", m_bandCount);
 
+    // Ticks are global (single RenderRenderState::colorbarTicks for all bars).
+    m_initialTicks = m_settings->getColorbarTicks();
+    m_ticksSpin = new QSpinBox(this);
+    m_ticksSpin->setRange(2, 20);
+    m_ticksSpin->setValue(m_initialTicks);
+    m_ticksSpin->setToolTip("Number of tick labels on the colorbar");
+    connect(m_ticksSpin, &QSpinBox::valueChanged,
+            m_settings, &RenderSettings::setColorbarTicks);
+    form->addRow("Ticks", m_ticksSpin);
+
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults, this);
     auto* defaultsBtn = buttons->button(QDialogButtonBox::RestoreDefaults);
@@ -312,6 +327,7 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
         if (m_paletteCombo) m_paletteCombo->setCurrentIndex(defChoice);
         if (m_paletteReverse) m_paletteReverse->setChecked(false);
         if (m_bandCount && m_bandCount->isVisible()) m_bandCount->setValue(0);
+        if (m_ticksSpin) m_ticksSpin->setValue(6);
         // Reset Fixed Range to full data bounds (disabled)
         if (m_rangeEnable) m_rangeEnable->setChecked(false);
         // RangeEditor Reset button will snap window to bounds, but also force sync
@@ -332,6 +348,7 @@ void ColorbarStyleDialog::reject() {
     m_settings->setColorbarPanelEnabled(m_initialPanelEnabled);
     m_settings->setColorbarPanelOpacity(m_initialPanelOpacity);
     m_settings->setColorbarShowAnnotation(m_initialShowAnnotation);
+    m_settings->setColorbarTicks(m_initialTicks);
     // Restore palette (atomic with style)
     if (m_barSubtitle == "Scalar") { m_settings->setColormapChoice(m_initialPaletteChoice); m_settings->setColormapReversed(m_initialPaletteReversed); }
     else if (m_barSubtitle == "Vector") { m_settings->setVectorColormapChoice(m_initialPaletteChoice); m_settings->setVectorColormapReversed(m_initialPaletteReversed); }
