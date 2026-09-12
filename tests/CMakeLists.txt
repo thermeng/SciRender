@@ -47,6 +47,8 @@ target_link_libraries(parse_regression PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
 add_executable(isosurface_test
     isosurface_test.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/isosurface.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
