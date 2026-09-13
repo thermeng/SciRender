@@ -56,6 +56,7 @@ namespace Ui {
     class SlicePlanePage;
     class IsosurfacePage;
     class AnimationPage;
+    class PostprocPage;
 }
 
 class MainWindow : public QMainWindow {
@@ -148,6 +149,7 @@ private:
     QWidget* buildIsosurfacePage();
     QWidget* buildAnimationPage();
     QWidget* buildPlotsPage();
+    QWidget* buildPostProcPage();
     void refreshMeshInfoPage();
     QHash<QString, QLabel*> m_meshInfoLabels;
 
@@ -266,6 +268,18 @@ private:
     QComboBox* m_isoFieldCombo = nullptr;
     QDoubleSpinBox* m_isoValueSpin = nullptr;
     QComboBox* m_isoPlacementCombo = nullptr;
+
+    // Post Processing Fields page
+    QComboBox* m_postVelCombo = nullptr;
+    QComboBox* m_postPresCombo = nullptr;
+    QCheckBox* m_postVortCb = nullptr;
+    QCheckBox* m_postHelCb = nullptr;
+    QCheckBox* m_postQCb = nullptr;
+    QCheckBox* m_postGradPCb = nullptr;
+    QCheckBox* m_postAutoCb = nullptr;
+    QPushButton* m_postExtractBtn = nullptr;
+    QLabel* m_postStatusLbl = nullptr;
+    void refreshPostProcPage();
 
     // Filter sliders (Colormap page)
     QSlider* m_filterMinSlider = nullptr;

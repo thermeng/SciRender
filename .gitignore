@@ -96,6 +96,7 @@ tests/last_isosurface.log
 tests/last_pvd.log
 samples/pvd_test_sandbox/
 samples/pvd_animation/
+/tests/build/
 
 # Ignore vendors — source is tracked; build artifacts (*.a, *.o) already ignored above
 

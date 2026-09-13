@@ -56,6 +56,7 @@
 #include "render/overlays/VolumeSliceOverlay.h"
 #include "render/passes/LodScheduler.h"
 #include "render/passes/DepthPeelPass.h"
+#include "core/post_fields.h"
 
 #include <QOpenGLFramebufferObject>
 
@@ -379,6 +380,10 @@ struct RenderRenderState {
     std::string isosurfaceField; // independent contour field (may differ from activeScalarName)
     // Flat iso color (light blue default). The isosurface is NEVER colormapped.
     float isosurfaceColor[3] = { 0.68f, 0.85f, 0.90f };
+
+    // Post-processed fields snapshot (vorticity/helicity/Q/grad-p). Immutable
+    // shared payloads — safe to read from the render thread. Null = none.
+    std::shared_ptr<const postfields::ComputedSnapshot> computed;
 
     bool showLineProbe = false;
     glm::vec3 lineP0 = glm::vec3(0.0f);

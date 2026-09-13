@@ -5,10 +5,11 @@
 #include <unordered_map>
 
 namespace FieldStore {
-
 namespace {
+
 thread_local std::unordered_map<std::string, std::vector<float>> s_derivedCache;
 thread_local const RenderMesh* s_derivedLastMesh = nullptr;
+thread_local uint64_t s_derivedLastHash = 0;
 
 inline int placementToInt(Placement p) { return static_cast<int>(p); }
 
@@ -18,12 +19,29 @@ Range makeRangeFromScan(float mn, float mx, bool have) {
     return {mn, mx};
 }
 
+// Shared derived synthesis — single implementation for both surface and volume paths.
+std::vector<float> synthesizeDerivedArray(const glm::vec3* data, size_t count,
+                                           const std::string& suffix, int comp) {
+    std::vector<float> out; out.reserve(count);
+    bool isMag = (suffix == " [Magnitude]" || suffix == "_magnitude");
+    for (size_t i = 0; i < count; ++i) {
+        float v;
+        if (isMag) v = std::sqrt(data[i].x*data[i].x + data[i].y*data[i].y + data[i].z*data[i].z);
+        else if (comp == 0) v = data[i].x;
+        else if (comp == 1) v = data[i].y;
+        else v = data[i].z;
+        out.push_back(v);
+    }
+    return out;
+}
+
 } // anonymous
 
 void clearCache() {
     s_derivedCache.clear();
     std::unordered_map<std::string, std::vector<float>>().swap(s_derivedCache);
     s_derivedLastMesh = nullptr;
+    s_derivedLastHash = 0;
 }
 
 Range computeRange(const std::vector<float>& v) {
@@ -59,8 +77,13 @@ Range computeRange(const float* data, size_t count) {
 
 // ── Scalar ────────────────────────────────────────────────────────────────
 
-std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested, Placement placement) {
+std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested, Placement placement,
+                                const postfields::ComputedSnapshot* snap) {
     if (!requested.empty()) {
+        if (snap) {
+            if (snap->scalars.find(requested) != snap->scalars.end()) return requested;
+            if (snap->vectors.find(requested) != snap->vectors.end()) return requested;
+        }
         if (mesh.attributes) {
             if (placement == Placement::CellCenter) {
                 auto cit = mesh.attributes->cellScalars.find(requested);
@@ -90,25 +113,39 @@ std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& reque
 }
 
 const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name,
-                                     float& outMin, float& outMax, Placement placement) {
-    ScalarField f = resolveScalar(mesh, {name, placement});
+                                     float& outMin, float& outMax, Placement placement,
+                                     const postfields::ComputedSnapshot* snap) {
+    ScalarField f = resolveScalar(mesh, {name, placement}, snap);
     if (!f.data) { outMin = 0; outMax = 1; return nullptr; }
     outMin = f.range.min; outMax = f.range.max;
     return f.data;
 }
 
 const std::vector<float>* volumeScalarData(const RenderMesh& mesh, const std::string& name,
-                                           float& outMin, float& outMax, Placement placement) {
-    ScalarField f = resolveScalarForVolume(mesh, {name, placement});
+                                           float& outMin, float& outMax, Placement placement,
+                                           const postfields::ComputedSnapshot* snap) {
+    ScalarField f = resolveScalarForVolume(mesh, {name, placement}, snap);
     if (!f.data) { outMin = 0; outMax = 1; return nullptr; }
     outMin = f.range.min; outMax = f.range.max;
     return f.data;
 }
 
-ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key) {
+ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key,
+                          const postfields::ComputedSnapshot* snap) {
     const std::string& name = key.name;
     const Placement placement = key.placement;
     const bool wantCell = (placement == Placement::CellCenter);
+
+    // Computed snapshot shadows mesh fields by name (immutable shared payload).
+    if (snap) {
+        auto it = snap->scalars.find(name);
+        if (it != snap->scalars.end() && it->second && !it->second->empty()) {
+            auto rit = snap->scalarRanges.find(name);
+            Range r = (rit != snap->scalarRanges.end())
+                ? Range{rit->second.first, rit->second.second} : computeRange(*it->second);
+            return {it->second.get(), r, false};
+        }
+    }
 
     // Attribute-backed fields — authoritative ranges live in pointScalarRanges / cellScalarRanges
     if (mesh.attributes) {
@@ -169,17 +206,18 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key) {
         return {&mesh.scalars, r, false};
     }
 
-    // Derived vector -> scalar
+    // Derived vector -> scalar (snapshot-aware for post vorticity etc) — uses shared synthesizer.
     auto tryDerived = [&](const std::string& suffix, int comp) -> ScalarField {
         if (name.size() <= suffix.size() || name.substr(name.size() - suffix.size()) != suffix)
             return {nullptr, {0,1}, false};
         std::string base = name.substr(0, name.size() - suffix.size());
-        VectorField vfPoint = resolveVector(mesh, base, Placement::Vertex);
-        VectorField vfCell  = resolveVector(mesh, base, Placement::CellCenter);
+        VectorField vfPoint = resolveVector(mesh, base, Placement::Vertex, snap);
+        VectorField vfCell  = resolveVector(mesh, base, Placement::CellCenter, snap);
         bool hasPoint = vfPoint.data && vfPoint.count > 0;
         bool hasCell  = vfCell.data && vfCell.count > 0;
         if (!hasPoint && !hasCell) return {nullptr, {0,1}, false};
-        if (s_derivedLastMesh != &mesh) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; }
+        const uint64_t curHash = mesh.geometryHash ? mesh.geometryHash : reinterpret_cast<uint64_t>(&mesh);
+        if (s_derivedLastMesh != &mesh || s_derivedLastHash != curHash) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; s_derivedLastHash = curHash; }
 
         std::string keyPoint = name + "#vert";
         const std::vector<float>* pointPtr = nullptr;
@@ -189,15 +227,7 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key) {
             pointPtr = &itP->second;
             pRange = computeRange(*pointPtr);
         } else if (hasPoint) {
-            std::vector<float> derived; derived.reserve(vfPoint.count);
-            for (size_t i = 0; i < vfPoint.count; ++i) {
-                float v;
-                if (suffix == "_magnitude") v = std::sqrt(vfPoint.data[i].x*vfPoint.data[i].x + vfPoint.data[i].y*vfPoint.data[i].y + vfPoint.data[i].z*vfPoint.data[i].z);
-                else if (comp == 0) v = vfPoint.data[i].x;
-                else if (comp == 1) v = vfPoint.data[i].y;
-                else v = vfPoint.data[i].z;
-                derived.push_back(v);
-            }
+            auto derived = synthesizeDerivedArray(vfPoint.data, vfPoint.count, suffix, comp);
             pRange = computeRange(derived);
             auto &slot = s_derivedCache[keyPoint] = std::move(derived);
             pointPtr = &slot;
@@ -210,15 +240,7 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key) {
             if (itC != s_derivedCache.end()) {
                 cRange = computeRange(itC->second);
             } else {
-                std::vector<float> derivedC; derivedC.reserve(vfCell.count);
-                for (size_t i = 0; i < vfCell.count; ++i) {
-                    float v;
-                    if (suffix == "_magnitude") v = std::sqrt(vfCell.data[i].x*vfCell.data[i].x + vfCell.data[i].y*vfCell.data[i].y + vfCell.data[i].z*vfCell.data[i].z);
-                    else if (comp == 0) v = vfCell.data[i].x;
-                    else if (comp == 1) v = vfCell.data[i].y;
-                    else v = vfCell.data[i].z;
-                    derivedC.push_back(v);
-                }
+                auto derivedC = synthesizeDerivedArray(vfCell.data, vfCell.count, suffix, comp);
                 cRange = computeRange(derivedC);
                 s_derivedCache[keyCell] = std::move(derivedC);
             }
@@ -232,6 +254,11 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key) {
     };
 
     ScalarField r;
+    r = tryDerived(" [Magnitude]", -1); if (r.data) return r;
+    r = tryDerived(" [X]", 0); if (r.data) return r;
+    r = tryDerived(" [Y]", 1); if (r.data) return r;
+    r = tryDerived(" [Z]", 2); if (r.data) return r;
+    // Legacy fallback — support old "_magnitude"/"_X" naming for backward compat
     r = tryDerived("_magnitude", -1); if (r.data) return r;
     r = tryDerived("_X", 0); if (r.data) return r;
     r = tryDerived("_Y", 1); if (r.data) return r;
@@ -239,9 +266,20 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key) {
     return {nullptr, {0,1}, false};
 }
 
-ScalarField resolveScalarForVolume(const RenderMesh& mesh, const FieldKey& key) {
+ScalarField resolveScalarForVolume(const RenderMesh& mesh, const FieldKey& key,
+                                   const postfields::ComputedSnapshot* snap) {
     const std::string& name = key.name;
     const Placement placement = key.placement;
+
+    if (snap) {
+        auto it = snap->scalars.find(name);
+        if (it != snap->scalars.end() && it->second && !it->second->empty()) {
+            auto rit = snap->scalarRanges.find(name);
+            Range r = (rit != snap->scalarRanges.end())
+                ? Range{rit->second.first, rit->second.second} : computeRange(*it->second);
+            return {it->second.get(), r, false};
+        }
+    }
 
     if (mesh.attributes) {
         if (placement == Placement::CellCenter) {
@@ -287,32 +325,30 @@ ScalarField resolveScalarForVolume(const RenderMesh& mesh, const FieldKey& key) 
         if (name.size() <= suffix.size() || name.substr(name.size() - suffix.size()) != suffix)
             return {nullptr, {0,1}, false};
         std::string base = name.substr(0, name.size() - suffix.size());
-        VectorField vf = resolveVector(mesh, base, placement);
+        VectorField vf = resolveVector(mesh, base, placement, snap);
         if (!vf.data || vf.count == 0) {
             Placement alt = (placement == Placement::CellCenter) ? Placement::Vertex : Placement::CellCenter;
-            vf = resolveVector(mesh, base, alt);
+            vf = resolveVector(mesh, base, alt, snap);
             if (!vf.data || vf.count == 0) return {nullptr, {0,1}, false};
         }
         std::string cacheKey = name + (placement == Placement::CellCenter ? "#volcell" : "#volvert");
-        if (s_derivedLastMesh != &mesh) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; }
+        const uint64_t curHash2 = mesh.geometryHash ? mesh.geometryHash : reinterpret_cast<uint64_t>(&mesh);
+        if (s_derivedLastMesh != &mesh || s_derivedLastHash != curHash2) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; s_derivedLastHash = curHash2; }
         auto itc = s_derivedCache.find(cacheKey);
         if (itc != s_derivedCache.end()) {
             return {&itc->second, computeRange(itc->second), vf.isCell};
         }
-        std::vector<float> derived; derived.reserve(vf.count);
-        for (size_t i = 0; i < vf.count; ++i) {
-            float v;
-            if (suffix == "_magnitude") v = std::sqrt(vf.data[i].x*vf.data[i].x + vf.data[i].y*vf.data[i].y + vf.data[i].z*vf.data[i].z);
-            else if (comp == 0) v = vf.data[i].x;
-            else if (comp == 1) v = vf.data[i].y;
-            else v = vf.data[i].z;
-            derived.push_back(v);
-        }
+        auto derived = synthesizeDerivedArray(vf.data, vf.count, suffix, comp);
         Range r = computeRange(derived);
         auto &slot = s_derivedCache[cacheKey] = std::move(derived);
         return {&slot, r, vf.isCell};
     };
     ScalarField r;
+    r = tryDerivedVol(" [Magnitude]", -1); if (r.data) return r;
+    r = tryDerivedVol(" [X]", 0); if (r.data) return r;
+    r = tryDerivedVol(" [Y]", 1); if (r.data) return r;
+    r = tryDerivedVol(" [Z]", 2); if (r.data) return r;
+    // Legacy fallback
     r = tryDerivedVol("_magnitude", -1); if (r.data) return r;
     r = tryDerivedVol("_X", 0); if (r.data) return r;
     r = tryDerivedVol("_Y", 1); if (r.data) return r;
@@ -322,8 +358,18 @@ ScalarField resolveScalarForVolume(const RenderMesh& mesh, const FieldKey& key) 
 
 // ── Vector ───────────────────────────────────────────────────────────────
 
-VectorField resolveVector(const RenderMesh& mesh, const std::string& requested, Placement placement) {
+VectorField resolveVector(const RenderMesh& mesh, const std::string& requested, Placement placement,
+                          const postfields::ComputedSnapshot* snap) {
     VectorField out;
+    if (snap && !requested.empty()) {
+        auto it = snap->vectors.find(requested);
+        if (it != snap->vectors.end() && it->second && !it->second->empty()) {
+            out.data = it->second->data();
+            out.count = it->second->size();
+            out.isCell = false;
+            return out;
+        }
+    }
     if (placement == Placement::CellCenter && mesh.meshHasCellVectors()) {
         std::string name = requested;
         if (name.empty() && !mesh.availableCellVectorNames.empty()) name = mesh.availableCellVectorNames.front();
@@ -340,8 +386,10 @@ VectorField resolveVector(const RenderMesh& mesh, const std::string& requested, 
     return out;
 }
 
-std::string resolveVectorName(const RenderMesh& mesh, const std::string& requested, Placement placement) {
+std::string resolveVectorName(const RenderMesh& mesh, const std::string& requested, Placement placement,
+                              const postfields::ComputedSnapshot* snap) {
     if (!requested.empty()) {
+        if (snap && snap->vectors.find(requested) != snap->vectors.end()) return requested;
         auto f = resolveVector(mesh, requested, placement);
         if (f.data) return requested;
     }
@@ -359,10 +407,10 @@ std::string resolveVectorName(const RenderMesh& mesh, const std::string& request
 std::vector<std::string> derivedScalarNames(const RenderMesh& mesh) {
     std::vector<std::string> out;
     for (auto &n : availableVectorNames(mesh)) {
-        out.push_back(n + "_magnitude");
-        out.push_back(n + "_X");
-        out.push_back(n + "_Y");
-        out.push_back(n + "_Z");
+        out.push_back(n + " [Magnitude]");
+        out.push_back(n + " [X]");
+        out.push_back(n + " [Y]");
+        out.push_back(n + " [Z]");
     }
     return out;
 }
@@ -387,5 +435,57 @@ std::vector<std::string> availableVectorNames(const RenderMesh& mesh) {
 }
 
 bool hasScalar(const RenderMesh& mesh) { return mesh.hasScalarData(); }
+
+std::vector<std::string> availableScalars(const RenderMesh& mesh, const postfields::ComputedSnapshot* snap) {
+    std::vector<std::string> out = mesh.availableScalarNames;
+    // cell scalars that lack point counterpart (hasScalarData fix) — expose directly
+    if (mesh.attributes) {
+        for (auto &kv : mesh.attributes->cellScalars) out.push_back(kv.first);
+        for (auto &kv : mesh.attributes->pointScalars) out.push_back(kv.first);
+    }
+    auto d = derivedScalarNames(mesh);
+    out.insert(out.end(), d.begin(), d.end());
+    if (snap) {
+        for (auto &kv : snap->scalars) out.push_back(kv.first);
+        // Snapshot vectors (vorticity, gradP) also expose derived scalars ( [Magnitude]/ [X]/ [Y]/ [Z])
+        // so customer can visualize e.g. p_grad [Magnitude] via scalar coloring
+        for (auto &kv : snap->vectors) {
+            out.push_back(kv.first + " [Magnitude]");
+            out.push_back(kv.first + " [X]");
+            out.push_back(kv.first + " [Y]");
+            out.push_back(kv.first + " [Z]");
+        }
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+std::vector<std::string> availableVectors(const RenderMesh& mesh, const postfields::ComputedSnapshot* snap) {
+    std::vector<std::string> out = availableVectorNames(mesh);
+    if (snap) {
+        for (auto &kv : snap->vectors) out.push_back(kv.first);
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+    }
+    return out;
+}
+
+bool hasAnyScalar(const RenderMesh& mesh, const postfields::ComputedSnapshot* snap) {
+    if (mesh.hasScalarData()) return true;
+    if (snap && !snap->scalars.empty()) return true;
+    // derived scalars count as scalars when vectors exist
+    if (!derivedScalarNames(mesh).empty()) return true;
+    return false;
+}
+
+bool hasScalarField(const RenderMesh& mesh, const std::string& name, const postfields::ComputedSnapshot* snap) {
+    float mn, mx;
+    if (snap && snap->scalars.find(name) != snap->scalars.end()) return true;
+    // probe via FieldStore resolution (covers derived as well)
+    if (scalarData(mesh, name, mn, mx, Placement::Vertex, snap)) return true;
+    if (scalarData(mesh, name, mn, mx, Placement::CellCenter, snap)) return true;
+    return false;
+}
 
 } // namespace FieldStore

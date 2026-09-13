@@ -1,5 +1,5 @@
 #include "render/passes/VectorTextureCache.h"
-#include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 #include <glad/gl.h>
 #include <cstring>
 #include <algorithm>
@@ -7,17 +7,19 @@
 #include <limits>
 
 bool VectorTextureCache::resolveField(const RenderMesh& mesh, const std::string& name, int placement,
-                                       const glm::vec3*& outData, size_t& outCount, bool& outIsCell) const {
+                                       const glm::vec3*& outData, size_t& outCount, bool& outIsCell,
+                                       const postfields::ComputedSnapshot* snap) const {
     int effPlacement = placement;
     if (effPlacement < 0) {
         effPlacement = (mesh.meshHasCellVectors() && !mesh.meshHasVectors()) ? 1 : 0;
     }
-    FieldResolver::VectorField vf = FieldResolver::resolveVector(mesh, name, effPlacement);
+    auto p = effPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+    FieldStore::VectorField vf = FieldStore::resolveVector(mesh, name, p, snap);
     // Strict placement: when the UI explicitly asks for Cell placement (1),
     // do NOT silently fall back to point vectors. That would hide a missing
     // cellCenters / cell data error behind a dim/mode mismatch.
     if ((!vf.data || vf.count == 0) && effPlacement != 1) {
-        vf = FieldResolver::resolveVector(mesh, name, 0);
+        vf = FieldStore::resolveVector(mesh, name, FieldStore::Placement::Vertex, snap);
     }
     if (!vf.data || vf.count == 0) return false;
     outData = vf.data;
@@ -203,13 +205,14 @@ void VectorTextureCache::evictIfNeeded() {
 
 GLuint VectorTextureCache::textureForField(const std::string& name, const RenderMesh* mesh,
                                              const glm::vec3& boxMin, const glm::vec3& boxMax,
-                                             int placement, int licBoundaryMode) {
+                                             int placement, int licBoundaryMode,
+                                             const postfields::ComputedSnapshot* snap) {
     if (!mesh || name.empty()) return 0;
 
     const glm::vec3* data = nullptr;
     size_t count = 0;
     bool isCell = false;
-    if (!resolveField(*mesh, name, placement, data, count, isCell)) return 0;
+    if (!resolveField(*mesh, name, placement, data, count, isCell, snap)) return 0;
 
     int dimX = mesh->gridDimX, dimY = mesh->gridDimY, dimZ = mesh->gridDimZ;
     const size_t numVerts = mesh->vertices.size() / 3;
@@ -249,17 +252,18 @@ GLuint VectorTextureCache::textureForField(const std::string& name, const Render
         return it->second.tex.get();
     }
 
-    return buildTexture(name, mesh, boxMin, boxMax, placement, licBoundaryMode);
+    return buildTexture(name, mesh, boxMin, boxMax, placement, licBoundaryMode, snap);
 }
 
 GLuint VectorTextureCache::buildTexture(const std::string& name, const RenderMesh* mesh,
                                          const glm::vec3& boxMin, const glm::vec3& boxMax,
-                                         int placement, int licBoundaryMode) {
+                                         int placement, int licBoundaryMode,
+                                         const postfields::ComputedSnapshot* snap) {
     (void)boxMin; (void)boxMax; (void)placement;
     const glm::vec3* data = nullptr;
     size_t count = 0;
     bool isCell = false;
-    if (!resolveField(*mesh, name, placement, data, count, isCell)) return 0;
+    if (!resolveField(*mesh, name, placement, data, count, isCell, snap)) return 0;
 
     std::vector<glm::vec3> grid;
     int dimX = 0, dimY = 0, dimZ = 0;
@@ -367,7 +371,7 @@ bool VectorTextureCache::getTextureDims(const std::string& name, int placement, 
         const glm::vec3* d = nullptr;
         size_t cnt = 0;
         bool isCell = false;
-        if (resolveField(*mesh, name, placement, d, cnt, isCell)) {
+        if (resolveField(*mesh, name, placement, d, cnt, isCell, nullptr)) {
             const std::string key = makeKey(name, isCell);
             auto it = m_entries.find(key);
             if (it != m_entries.end()) {

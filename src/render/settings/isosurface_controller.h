@@ -40,8 +40,11 @@ public:
     // recompute (from toggle or debounce) doesn't need them passed again.
     void setCurrentMesh(std::shared_ptr<const RenderMesh> mesh, const std::string& field);
     void setCurrentMesh(std::shared_ptr<const RenderMesh> mesh, const std::string& field, int placement);
+    void setCurrentMesh(std::shared_ptr<const RenderMesh> mesh, const std::string& field, int placement,
+                        std::shared_ptr<const postfields::ComputedSnapshot> snap);
     void setCurrentField(const std::string& field) { m_currentField = field; }
     const std::string& currentField() const { return m_currentField; }
+    void setSnapshot(std::shared_ptr<const postfields::ComputedSnapshot> snap) { m_snapshot = std::move(snap); }
     void recompute();
     // Live path for animation playback: relaunches only when no extraction
     // is in flight (else arms m_livePending, chained from onComputed), so
@@ -79,6 +82,7 @@ private:
     // Armed when a live frame arrived mid-extraction; onComputed chains one
     // relaunch so playback tracks the latest frame at compute speed.
     bool m_livePending = false;
+    std::shared_ptr<const postfields::ComputedSnapshot> m_snapshot;
 };
 
 

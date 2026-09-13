@@ -1,6 +1,6 @@
 #include "render/streamlines/StreamlineSet.h"
 #include "core/mesh_loader.h"
-#include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -709,10 +709,15 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
                                  const std::string& fieldName, const std::string& mode, const std::string& direction,
                                  double planePos, double jitter, int planeCountU, int planeCountV,
                                  bool showArrows, float arrowSpacingFrac, float arrowSize,
-                                 float ribbonWidth, float taperFactor) {
+                                 float ribbonWidth, float taperFactor,
+                                 const postfields::ComputedSnapshot* snap) {
     StreamlineResult result;
 
-    auto field = FieldResolver::resolveVector(mesh, fieldName, 0);
+    // Respect streamline vector placement would require state; for now try Vertex then CellCenter
+    // so cell-vector datasets still produce streamlines. Future: pass Placement via Context.
+    auto field = FieldStore::resolveVector(mesh, fieldName, FieldStore::Placement::Vertex, snap);
+    if (!field.data || field.count == 0)
+        field = FieldStore::resolveVector(mesh, fieldName, FieldStore::Placement::CellCenter, snap);
     if (!field.data || field.count == 0) return result;
     const glm::vec3* data = field.data;
     size_t count = field.count;
@@ -1101,9 +1106,10 @@ void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float st
                                  const std::string& fieldName, const std::string& mode, const std::string& direction,
                                  double planePos, double jitter, int planeCountU, int planeCountV,
                                  bool showArrows, float arrowSpacingFrac, float arrowSize,
-                                 float ribbonWidth, float taperFactor) {
+                                 float ribbonWidth, float taperFactor,
+                                 const postfields::ComputedSnapshot* snap) {
     auto result = compute(mesh, seedCountParam, stepSize, maxSteps, fieldName, mode, direction,
                           planePos, jitter, planeCountU, planeCountV,
-                          showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor);
+                          showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor, snap);
     uploadGL(std::move(result), showArrows, arrowSize);
 }

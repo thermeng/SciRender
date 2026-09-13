@@ -13,9 +13,12 @@
 #include "ui_volume_page.h"
 #include "ui_slice_plane_page.h"
 #include "ui_isosurface_page.h"
+#include "ui_postproc_page.h"
 #include "ui_animation_page.h"
 #include "render/foundation/render_config.h"
 #include "core/Colormaps.h"
+#include "core/FieldStore.h"
+#include "core/field_sampler.h"
 #include "plot_window.h"
 #include <cmath>
 #include <QApplication>
@@ -525,7 +528,7 @@ void MainWindow::setupSidebar() {
     const QString navItems[] = {
         "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar", "Probe",
         "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
-        "Screenshot", "Animation", "Plots"
+        "Post Processing", "Screenshot", "Animation", "Plots"
     };
 
     // Calculate width dynamically based on longest text + padding
@@ -598,9 +601,10 @@ void MainWindow::setupSidebar() {
     m_sectionStack->addWidget(buildVolumePage());       // 8
     m_sectionStack->addWidget(buildSlicePlanePage());   // 9
     m_sectionStack->addWidget(buildIsosurfacePage());   // 10
-    m_sectionStack->addWidget(buildScreenshotPage());   // 11
-    m_sectionStack->addWidget(buildAnimationPage());    // 12
-    m_sectionStack->addWidget(buildPlotsPage());        // 13
+    m_sectionStack->addWidget(buildPostProcPage());     // 11
+    m_sectionStack->addWidget(buildScreenshotPage());   // 12
+    m_sectionStack->addWidget(buildAnimationPage());    // 13
+    m_sectionStack->addWidget(buildPlotsPage());        // 14
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -1361,110 +1365,27 @@ void MainWindow::refreshProbeTable(){
         return;
     }
     m_probeTable->setRowCount(scalars.size());
-    // Helper to sample one scalar at pos
+    // Unified sampler: probe uses same FieldStore::Context + FieldSampler as line plot.
+    const postfields::ComputedSnapshot* snap0 = m_settings ? m_settings->snapshot().computed.get() : nullptr;
+    FieldStore::Context ctx(*rm, snap0);
+    auto place = FieldStore::toPlacement(placement);
     auto sampleOne = [&](const std::string& field, float& outVal, bool& outInside)->bool{
-        // Use FieldResolver for range, but sampling at point needs trilinear
-        float mn,mx;
-        const std::vector<float>* src = FieldResolver::scalarData(*rm, field, mn, mx, placement);
-        // For volume-like sampling we want placement-aware data: if placement==1 and field has cell data, use cell
-        // FieldResolver::scalarData for surface returns point-sized with cell range; for probe we need actual point/cell value at pos.
-        // So we re-resolve for probe: if placement==1 and has cell, use cell data directly for nearest, else point
-        bool hasPoint = rm->attributes->pointScalars.find(field)!=rm->attributes->pointScalars.end();
-        bool hasCell = rm->attributes->cellScalars.find(field)!=rm->attributes->cellScalars.end();
-        // Derived handling: check derived cache via FieldResolver
-        if(!src){
-            // Try volumeScalarData for cell case
-            src = FieldResolver::volumeScalarData(*rm, field, mn, mx, placement);
-            if(!src) return false;
-            hasPoint = (src->size() == rm->vertices.size()/3);
-            hasCell = (src->size() != rm->vertices.size()/3);
+        auto opt = FieldSampler::sample(ctx, field, place, pos);
+        if (!opt) return false;
+        outVal = *opt;
+        // Heuristic inside test: sample uses structured contains check; if nearest fallback used, still finite.
+        // Mark inside when pos within bounds expanded by eps; reuse same bbox test via Context sampling path.
+        // For simplicity treat sampled value as inside when structured cell found, else mark outside via bounds.
+        outInside = (rm->gridDimX>1 && rm->gridDimY>1)
+            ? (pos.x >= rm->bounds.minX-1e-6 && pos.x <= rm->bounds.maxX+1e-6
+            && pos.y >= rm->bounds.minY-1e-6 && pos.y <= rm->bounds.maxY+1e-6
+            && (rm->gridDimZ<=1 || (pos.z >= rm->bounds.minZ-1e-6 && pos.z <= rm->bounds.maxZ+1e-6)))
+            : true;
+        // For unstructured outside, FieldSampler falls back to nearest; we keep inside=false when outside bbox
+        if (!outInside) {
+            // keep value but flag outside
         }
-        // Structured grid sampling
-        bool isStructured = rm->gridDimX>1 && rm->gridDimY>1;
-        if(isStructured && rm->gridDimX>0 && rm->gridDimY>0 && rm->gridDimZ>0){
-            int dX=rm->gridDimX, dY=rm->gridDimY, dZ=rm->gridDimZ;
-            int cdX=std::max(1,dX-1), cdY=std::max(1,dY-1), cdZ=std::max(1,dZ-1);
-            const float* verts = rm->vertices.data();
-            auto idx=[&](int x,int y,int z){ return x + y*dX + z*dX*dY; };
-            // Find containing cell
-            for(int cz=0; cz<cdZ; ++cz) for(int cy=0; cy<cdY; ++cy) for(int cx=0; cx<cdX; ++cx){
-                float minx=1e30f,miny=1e30f,minz=1e30f,maxx=-1e30f,maxy=-1e30f,maxz=-1e30f;
-                int x0=cx, x1=std::min(cx+1,dX-1), y0=cy, y1=std::min(cy+1,dY-1), z0=cz, z1=std::min(cz+1,dZ-1);
-                int corners[8][3]={{x0,y0,z0},{x1,y0,z0},{x1,y1,z0},{x0,y1,z0},{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}};
-                for(int k=0;k<8;++k){
-                    int n=idx(corners[k][0],corners[k][1],corners[k][2]);
-                    if(n<0 || size_t(n*3+2)>=rm->vertices.size()) continue;
-                    float px=verts[n*3+0], py=verts[n*3+1], pz=verts[n*3+2];
-                    minx=std::min(minx,px); maxx=std::max(maxx,px);
-                    miny=std::min(miny,py); maxy=std::max(maxy,py);
-                    minz=std::min(minz,pz); maxz=std::max(maxz,pz);
-                }
-                const float eps=1e-6f;
-                if(pos.x < minx - eps || pos.x > maxx + eps) continue;
-                if(pos.y < miny - eps || pos.y > maxy + eps) continue;
-                if(dZ>1 && (pos.z < minz - eps || pos.z > maxz + eps)) continue;
-                // Inside this cell
-                outInside = true;
-                if(placement==1 && hasCell){
-                    int cIdx = cx + cy*cdX + cz*cdX*cdY;
-                    auto itc = rm->attributes->cellScalars.find(field);
-                    if(itc!=rm->attributes->cellScalars.end() && cIdx < (int)itc->second.size()){
-                        outVal = itc->second[cIdx];
-                        return true;
-                    }
-                    // Derived cell fallback
-                    float tmpMin,tmpMax;
-                    auto* dsrc = FieldResolver::volumeScalarData(*rm, field, tmpMin, tmpMax, 1);
-                    if(dsrc && cIdx < (int)dsrc->size()){ outVal = (*dsrc)[cIdx]; return true; }
-                }
-                // Vertex trilinear
-                float s[8]; bool ok=true;
-                for(int k=0;k<8;++k){
-                    int n=idx(corners[k][0],corners[k][1],corners[k][2]);
-                    if(n<0 || size_t(n) >= src->size()){ ok=false; break; }
-                    s[k]=(*src)[n];
-                    if(!std::isfinite(s[k])) ok=false;
-                }
-                if(!ok) continue;
-                float dx = (maxx-minx)>1e-12f ? (pos.x - minx)/(maxx-minx) : 0;
-                float dy = (maxy-miny)>1e-12f ? (pos.y - miny)/(maxy-miny) : 0;
-                float dz = (dZ>1 && (maxz-minz)>1e-12f) ? (pos.z - minz)/(maxz-minz) : 0;
-                dx=std::clamp(dx,0.0f,1.0f); dy=std::clamp(dy,0.0f,1.0f); dz=std::clamp(dz,0.0f,1.0f);
-                float c00=s[0]*(1-dx)+s[1]*dx, c10=s[3]*(1-dx)+s[2]*dx, c01=s[4]*(1-dx)+s[5]*dx, c11=s[7]*(1-dx)+s[6]*dx;
-                float c0=c00*(1-dy)+c10*dy, c1=c01*(1-dy)+c11*dy;
-                outVal = c0*(1-dz)+c1*dz;
-                return true;
-            }
-        }
-        // Outside or unstructured: nearest
-        outInside = false;
-        if(placement==1 && hasCell){
-            // nearest cell center
-            float bestD=1e30f; int best=-1;
-            for(size_t c=0;c<rm->cellCenters.size();++c){
-                float dx=rm->cellCenters[c].x-pos.x, dy=rm->cellCenters[c].y-pos.y, dz=rm->cellCenters[c].z-pos.z;
-                float dd=dx*dx+dy*dy+dz*dz;
-                if(dd<bestD){ bestD=dd; best=int(c); }
-            }
-            if(best>=0){
-                auto itc = rm->attributes->cellScalars.find(field);
-                if(itc!=rm->attributes->cellScalars.end() && best < (int)itc->second.size()){ outVal=itc->second[best]; return true; }
-                float tmpMin,tmpMax;
-                auto* dsrc = FieldResolver::volumeScalarData(*rm, field, tmpMin, tmpMax, 1);
-                if(dsrc && best < (int)dsrc->size()){ outVal=(*dsrc)[best]; return true; }
-            }
-        }
-        // nearest vertex
-        float bestD=1e30f; int best=-1;
-        size_t nPt=rm->vertices.size()/3;
-        const float* verts2=rm->vertices.data();
-        for(size_t n=0;n<nPt;++n){
-            float dx=verts2[n*3+0]-pos.x, dy=verts2[n*3+1]-pos.y, dz=verts2[n*3+2]-pos.z;
-            float dd=dx*dx+dy*dy+dz*dz;
-            if(dd<bestD){ bestD=dd; best=int(n); }
-        }
-        if(best>=0 && size_t(best) < src->size()){ outVal=(*src)[best]; return true; }
-        return false;
+        return std::isfinite(outVal);
     };
     for(int r=0;r<scalars.size();++r){
         std::string field = scalars[r].toStdString();
@@ -2619,7 +2540,7 @@ void MainWindow::refreshScalarFilterRange() {
 static const char* sectionNames[] = {
     "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar", "Probe",
     "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
-    "Screenshot", "Animation", "Plots"
+    "Post Processing", "Screenshot", "Animation", "Plots"
 };
 
 void MainWindow::setSidebarSection(int section) {
@@ -3083,6 +3004,7 @@ void MainWindow::connectSettings() {
             m_isoFieldCombo->blockSignals(false);
         }
         refreshIsosurfaceValue();
+        refreshPostProcPage();
     });
 
     // Mirror toolbar and View & Display toggles whenever the corresponding
@@ -3421,6 +3343,96 @@ QWidget* MainWindow::buildPlotsPage() {
     openBtn->setChecked(m_histogramVisible);
 
     return wrapper;
+}
+
+QWidget* MainWindow::buildPostProcPage() {
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto* content = new QWidget;
+    Ui::PostprocPage ppUi;
+    ppUi.setupUi(content);
+    fixLayoutOverflow(content);
+    m_postVelCombo = ppUi.velocityCombo;
+    m_postPresCombo = ppUi.pressureCombo;
+    m_postVortCb = ppUi.vorticityCb;
+    m_postHelCb = ppUi.helicityCb;
+    m_postQCb = ppUi.qCb;
+    m_postGradPCb = ppUi.gradPCb;
+    m_postAutoCb = ppUi.autoCb;
+    m_postExtractBtn = ppUi.extractBtn;
+    m_postStatusLbl = ppUi.statusLabel;
+    if (m_postStatusLbl) {
+        m_postStatusLbl->setWordWrap(true);
+        m_postStatusLbl->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+        m_postStatusLbl->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        m_postStatusLbl->setMinimumHeight(88);
+        m_postStatusLbl->setStyleSheet("QLabel { padding: 8px; background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; font-family: monospace; font-size: 9pt; color: #24292e; }");
+    }
+    m_postVelCombo->addItems(m_settings->getAvailableVectors());
+    m_postVelCombo->setCurrentText(m_settings->getPostVelocitySource());
+    m_postPresCombo->addItems(m_settings->getAvailableScalars());
+    m_postPresCombo->setCurrentText(m_settings->getPostPressureSource());
+    m_postVortCb->setChecked(m_settings->getPostWantVorticity());
+    m_postHelCb->setChecked(m_settings->getPostWantHelicity());
+    m_postQCb->setChecked(m_settings->getPostWantQ());
+    m_postGradPCb->setChecked(m_settings->getPostWantGradP());
+    m_postAutoCb->setChecked(m_settings->getPostAutoReextract());
+    connect(m_postVelCombo, &QComboBox::currentTextChanged, m_settings, [this](const QString &t){ if (!t.isEmpty()) m_settings->setPostVelocitySource(t); });
+    connect(m_postPresCombo, &QComboBox::currentTextChanged, m_settings, [this](const QString &t){ if (!t.isEmpty()) m_settings->setPostPressureSource(t); });
+    // Also handle re-select of same index (activated fires even when currentTextChanged doesn't)
+    connect(m_postVelCombo, QOverload<int>::of(&QComboBox::activated), m_settings, [this](int idx){ if(idx>=0) m_settings->setPostVelocitySource(m_postVelCombo->itemText(idx)); });
+    connect(m_postPresCombo, QOverload<int>::of(&QComboBox::activated), m_settings, [this](int idx){ if(idx>=0) m_settings->setPostPressureSource(m_postPresCombo->itemText(idx)); });
+    connect(m_postVortCb, &QCheckBox::toggled, m_settings, &RenderSettings::setPostWantVorticity);
+    connect(m_postHelCb, &QCheckBox::toggled, m_settings, &RenderSettings::setPostWantHelicity);
+    connect(m_postQCb, &QCheckBox::toggled, m_settings, &RenderSettings::setPostWantQ);
+    connect(m_postGradPCb, &QCheckBox::toggled, m_settings, &RenderSettings::setPostWantGradP);
+    connect(m_postAutoCb, &QCheckBox::toggled, m_settings, &RenderSettings::setPostAutoReextract);
+    connect(m_postExtractBtn, &QPushButton::clicked, m_settings, &RenderSettings::extractPostFields);
+    refreshPostProcPage();
+    qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+    scroll->setWidget(content);
+    applyPanelStyling(content);
+    auto* wrapper = new QWidget; auto* lay = new QVBoxLayout(wrapper); lay->setContentsMargins(0,0,0,0); lay->addWidget(scroll);
+    return wrapper;
+}
+
+void MainWindow::refreshPostProcPage() {
+    if (!m_postVelCombo) return;
+    const bool hasMesh = m_settings->getHasMeshLoaded();
+    const bool cart = m_settings->isPostCartesian();
+    const bool canExtract = m_settings->canExtractPostFields();
+    // Sync stale velocity/pressure sources (e.g., previous mesh had "velocity" but new mesh has "U")
+    // This fixes bug where extraction required manual reselect.
+    {
+        auto vecs = m_settings->getAvailableVectors();
+        QString curVel = m_settings->getPostVelocitySource();
+        if (hasMesh && !vecs.isEmpty() && !vecs.contains(curVel)) {
+            curVel = vecs.first();
+            m_settings->setPostVelocitySource(curVel);
+        }
+        auto scals = m_settings->getAvailableScalars();
+        QString curPres = m_settings->getPostPressureSource();
+        if (hasMesh && !scals.isEmpty() && !scals.contains(curPres)) {
+            // Prefer first scalar that is not a derived vector magnitude if possible, but any will do
+            curPres = scals.first();
+            m_settings->setPostPressureSource(curPres);
+        }
+    }
+    m_postVelCombo->blockSignals(true); m_postVelCombo->clear(); m_postVelCombo->addItems(m_settings->getAvailableVectors()); m_postVelCombo->setCurrentText(m_settings->getPostVelocitySource()); m_postVelCombo->setEnabled(hasMesh); m_postVelCombo->blockSignals(false);
+    m_postPresCombo->blockSignals(true); m_postPresCombo->clear(); m_postPresCombo->addItems(m_settings->getAvailableScalars()); m_postPresCombo->setCurrentText(m_settings->getPostPressureSource()); m_postPresCombo->setEnabled(hasMesh); m_postPresCombo->blockSignals(false);
+    if (m_postStatusLbl) {
+        if (!hasMesh) m_postStatusLbl->setText("No mesh loaded");
+        else if (!canExtract) m_postStatusLbl->setText(cart?"Cartesian structured grid required":"Point vectors/scalars required");
+        else if (m_settings->isPostBusy()) m_postStatusLbl->setText("Extracting...");
+        else {
+            QString s = m_settings->getPostStatus();
+            if (s.isEmpty()) s = cart?"Cartesian grid ready":"Unstructured grid ready (LSQ)";
+            m_postStatusLbl->setText(s);
+        }
+    }
+    if (m_postExtractBtn) m_postExtractBtn->setEnabled(hasMesh && canExtract && !m_settings->isPostBusy());
 }
 
 

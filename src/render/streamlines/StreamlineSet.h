@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/foundation/gl_raii.h"
+#include "core/post_fields.h"
 
 #include <glm/glm.hpp>
 
@@ -67,7 +68,8 @@ public:
                              const std::string& fieldName, const std::string& mode, const std::string& direction,
                              double planePos, double jitter, int planeCountU, int planeCountV,
                              bool showArrows, float arrowSpacingFrac, float arrowSize,
-                             float ribbonWidth, float taperFactor);
+                             float ribbonWidth, float taperFactor,
+                             const postfields::ComputedSnapshot* snap = nullptr);
 
     void uploadGL(StreamlineResult&& result, bool showArrows, float arrowSize);
 
@@ -75,7 +77,8 @@ public:
                  const std::string& fieldName, const std::string& mode, const std::string& direction,
                  double planePos, double jitter, int planeCountU, int planeCountV,
                  bool showArrows, float arrowSpacingFrac, float arrowSize,
-                 float ribbonWidth, float taperFactor);
+                 float ribbonWidth, float taperFactor,
+                 const postfields::ComputedSnapshot* snap = nullptr);
 
     void shutdown();
 

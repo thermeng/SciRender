@@ -7,6 +7,7 @@
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
 #include "core/isosurface.h"
+#include "core/post_fields.h"
 
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -14,6 +15,7 @@
 #include <iterator>
 #include <cmath>
 #include <limits>
+#include <iostream>
 #include <QFileInfo>
 #include <QSettings>
 
@@ -46,7 +48,7 @@ RenderSettings::RenderSettings(QObject* parent)
                 if (m_pendingIsosurfaceRefresh && !m_animController.isPlaying()
                     && m_state.showIsosurface && m_meshData.loadedMesh) {
                     m_pendingIsosurfaceRefresh = false;
-                    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.isosurfaceField, m_state.isosurfacePlacement);
+    m_isoController.setCurrentMesh(m_meshData.loadedMesh, m_state.isosurfaceField, m_state.isosurfacePlacement, m_state.computed);
                     m_isoController.recompute();
                 }
             });
@@ -76,6 +78,9 @@ RenderSettings::RenderSettings(QObject* parent)
                     emit viewChanged(ChangeFlag::Display);
                 }
             });
+
+    connect(&m_postWatcher, &QFutureWatcher<PostFieldsAsyncResult>::finished,
+            this, &RenderSettings::onPostFieldsReady);
 }
 
 RenderSettings::~RenderSettings() = default;
@@ -431,6 +436,13 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("licOnly",             [](const RenderSettings& r) { return QVariant(r.m_state.licOnly); },                          [](RenderSettings& r, const QVariant& v) { r.setLicOnly(v.toBool()); });
         add("licIntegrator",       [](const RenderSettings& r) { return QVariant(r.m_state.licIntegrator); },                      [](RenderSettings& r, const QVariant& v) { r.setLicIntegrator(v.toInt()); });
         add("maxPeelLayers",       [](const RenderSettings& r) { return QVariant(r.m_state.maxPeelLayers); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.maxPeelLayers = v.toInt(); });
+        add("postVelocitySource",  [](const RenderSettings& r) { return QVariant(QString::fromStdString(r.m_postVelocitySource)); }, [](RenderSettings& r, const QVariant& v) { r.m_postVelocitySource = v.toString().toStdString(); });
+        add("postPressureSource",  [](const RenderSettings& r) { return QVariant(QString::fromStdString(r.m_postPressureSource)); }, [](RenderSettings& r, const QVariant& v) { r.m_postPressureSource = v.toString().toStdString(); });
+        add("postWantVorticity",   [](const RenderSettings& r) { return QVariant(r.m_postWantVorticity); },            [](RenderSettings& r, const QVariant& v) { r.m_postWantVorticity = v.toBool(); });
+        add("postWantHelicity",    [](const RenderSettings& r) { return QVariant(r.m_postWantHelicity); },             [](RenderSettings& r, const QVariant& v) { r.m_postWantHelicity = v.toBool(); });
+        add("postWantQ",           [](const RenderSettings& r) { return QVariant(r.m_postWantQ); },                    [](RenderSettings& r, const QVariant& v) { r.m_postWantQ = v.toBool(); });
+        add("postWantGradP",       [](const RenderSettings& r) { return QVariant(r.m_postWantGradP); },                [](RenderSettings& r, const QVariant& v) { r.m_postWantGradP = v.toBool(); });
+        add("postAutoReextract",   [](const RenderSettings& r) { return QVariant(r.m_postAutoReextract); },            [](RenderSettings& r, const QVariant& v) { r.m_postAutoReextract = v.toBool(); });
         return t;
     }();
     return table;
@@ -586,6 +598,9 @@ void RenderSettings::onMeshParsed() {
         return;
     }
 
+    // New mesh invalidates any previous post-proc snapshot (different grid).
+    clearPostFields();
+
     // The single heavy CPU payload now lives in m_meshData.loadedMesh (shared, immutable).
     m_meshData.loadedMesh = loaded;
 
@@ -686,6 +701,11 @@ void RenderSettings::onMeshParsed() {
         m_state.vectorField.clear();
         m_state.streamlineVectorField.clear();
     }
+    // Default post-proc sources for the new mesh (user can change).
+    if (m_postVelocitySource.empty() && !loaded->availableVectorNames.empty())
+        m_postVelocitySource = loaded->availableVectorNames.front();
+    if (m_postPressureSource.empty() && !loaded->availableScalarNames.empty())
+        m_postPressureSource = loaded->availableScalarNames.front();
     markStateDirty(); emit meshDataUpdated();
 
     if (!loaded->scalars.empty()) {
@@ -711,40 +731,70 @@ void RenderSettings::onMeshParsed() {
         resetGlyphMagRangeOverride();
         resetStreamlineMagRangeOverride();
      } else {
-        m_state.meshHasScalars = false;
-        m_state.meshUseScalarColor = false;
-        m_state.showScalarColorbar = false;
-        // For structured grids, surface extraction clears mesh.scalars but point scalars survive in attributes.
-        // Use FieldStore deep seam so range logic stays single-source.
-        {
-            float mn = 0.0f, mx = 1.0f;
-            bool have = false;
-            if (loaded->attributes && !loaded->attributes->pointScalars.empty()) {
-                const auto& ps = loaded->attributes->pointScalars;
-                auto it = ps.find(loaded->scalarName);
-                if (it == ps.end()) it = ps.begin();
-                if (it != ps.end() && !it->second.empty()) {
-                    auto r = FieldStore::computeRange(it->second);
-                    mn = r.min; mx = r.max; have = true;
+         // No direct scalars — check derived scalars from vectors (velocity [Magnitude] etc.)
+        // and post-processed snapshot. This fixes bug where vector-only meshes greyed out Scalar/Slice/Volume.
+        bool hasDerived = FieldStore::hasAnyScalar(*loaded, m_state.computed.get());
+        if (hasDerived) {
+            m_state.meshHasScalars = true;
+            m_state.meshUseScalarColor = false;
+            m_state.showScalarColorbar = true;
+            auto avail = FieldStore::availableScalars(*loaded, m_state.computed.get());
+            if (!avail.empty()) {
+                if (m_state.activeScalarName.empty() || std::find(avail.begin(), avail.end(), m_state.activeScalarName) == avail.end()) {
+                    m_state.activeScalarName = avail.front();
+                }
+                auto f = FieldStore::resolveScalar(*loaded, {m_state.activeScalarName, FieldStore::Placement::Vertex}, m_state.computed.get());
+                if (!f.data) f = FieldStore::resolveScalar(*loaded, {m_state.activeScalarName, FieldStore::Placement::CellCenter}, m_state.computed.get());
+                if (f.data) {
+                    m_state.dataScalarMin = f.range.min; m_state.dataScalarMax = f.range.max;
+                    m_state.scalarMin = f.range.min; m_state.scalarMax = f.range.max;
+                    m_state.scalarPlacement = f.isCell ? 1 : 0;
                 }
             }
-            if (have) {
-                m_state.dataScalarMin = mn;
-                m_state.dataScalarMax = mx;
-                m_state.scalarMin = mn;
-                m_state.scalarMax = mx;
-            } else {
-                m_state.dataScalarMin = 0.0f;
-                m_state.dataScalarMax = 1.0f;
+            m_state.filterEnabled = false;
+            // Ensure filter range matches derived range
+            setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+            resetColorRangeOverride();
+            resetVolumeColorRangeOverride();
+            resetSliceColorRangeOverride();
+            resetGlyphMagRangeOverride();
+            resetStreamlineMagRangeOverride();
+        } else {
+            m_state.meshHasScalars = false;
+            m_state.meshUseScalarColor = false;
+            m_state.showScalarColorbar = false;
+            // For structured grids, surface extraction clears mesh.scalars but point scalars survive in attributes.
+            // Use FieldStore deep seam so range logic stays single-source.
+            {
+                float mn = 0.0f, mx = 1.0f;
+                bool have = false;
+                if (loaded->attributes && !loaded->attributes->pointScalars.empty()) {
+                    const auto& ps = loaded->attributes->pointScalars;
+                    auto it = ps.find(loaded->scalarName);
+                    if (it == ps.end()) it = ps.begin();
+                    if (it != ps.end() && !it->second.empty()) {
+                        auto r = FieldStore::computeRange(it->second);
+                        mn = r.min; mx = r.max; have = true;
+                    }
+                }
+                if (have) {
+                    m_state.dataScalarMin = mn;
+                    m_state.dataScalarMax = mx;
+                    m_state.scalarMin = mn;
+                    m_state.scalarMax = mx;
+                } else {
+                    m_state.dataScalarMin = 0.0f;
+                    m_state.dataScalarMax = 1.0f;
+                }
             }
+            m_state.filterEnabled = false;
+            setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+            resetColorRangeOverride();
+            resetVolumeColorRangeOverride();
+            resetSliceColorRangeOverride();
+            resetGlyphMagRangeOverride();
+            resetStreamlineMagRangeOverride();
         }
-        m_state.filterEnabled = false;
-        setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
-        resetColorRangeOverride();
-        resetVolumeColorRangeOverride();
-        resetSliceColorRangeOverride();
-        resetGlyphMagRangeOverride();
-        resetStreamlineMagRangeOverride();
     }
 
     // Line probe is per-mesh — hide and reset to mesh diagonal on new mesh load
@@ -856,10 +906,35 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     // mid-sequence field switch, expand-only afterwards. Per-frame mode
     // rescales to each frame's own extent.
     float mn = 0.0f, mx = 1.0f;
+    // Snapshot-aware: helicity/Q live in computed snapshot, not mesh attributes
+    const auto* snapPtr = m_state.computed.get();
     const std::vector<float>* activeFieldData =
-        FieldResolver::scalarData(*mesh, m_state.activeScalarName, mn, mx, m_state.scalarPlacement);
-    const bool haveRange = activeFieldData != nullptr;
-    if (!haveRange) { mn = 0.0f; mx = 1.0f; activeFieldData = nullptr; }
+        FieldStore::scalarData(*mesh, m_state.activeScalarName, mn, mx,
+                               m_state.scalarPlacement==1?FieldStore::Placement::CellCenter:FieldStore::Placement::Vertex,
+                               snapPtr);
+    if (!activeFieldData) {
+        // fallback to legacy resolver (covers cell->point extrapolated)
+        activeFieldData = FieldResolver::scalarData(*mesh, m_state.activeScalarName, mn, mx, m_state.scalarPlacement);
+    }
+    const bool haveRange = activeFieldData != nullptr || (snapPtr && snapPtr->scalars.find(m_state.activeScalarName)!=snapPtr->scalars.end());
+    const bool hasAny = FieldStore::hasAnyScalar(*mesh, snapPtr);
+    if (!haveRange) {
+        mn = 0.0f; mx = 1.0f; activeFieldData = nullptr;
+        // If vector-only mesh with derived scalars, still report hasScalars true
+        // and pick a derived field as active if none is set
+        if (hasAny && m_state.activeScalarName.empty()) {
+            auto avail = FieldStore::availableScalars(*mesh, snapPtr);
+            if (!avail.empty()) {
+                m_state.activeScalarName = avail.front();
+                // re-resolve for range
+                activeFieldData = FieldStore::scalarData(*mesh, m_state.activeScalarName, mn, mx,
+                    m_state.scalarPlacement==1?FieldStore::Placement::CellCenter:FieldStore::Placement::Vertex, snapPtr);
+                if (activeFieldData) {
+                    // haveRange now true via derived
+                }
+            }
+        }
+    }
     if (mx - mn < 1e-6f) mx = mn + 1.0f;
 
     // Reseeding on a mid-sequence field switch lives inside advance(): expanding
@@ -868,7 +943,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     float effMin = mn, effMax = mx;
     m_animRange.advance(firstFrame, m_state.activeScalarName, mn, mx, effMin, effMax);
 
-    m_state.meshHasScalars = haveRange;
+    m_state.meshHasScalars = haveRange || hasAny;
     if (firstFrame) {
         // Do not auto-enable scalar visualization — user must enable manually
         m_state.meshUseScalarColor = false;
@@ -892,7 +967,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     // onComputed), so the surface animates without queuing overlapping
     // O(numCells) tasks. The pending flag still guarantees an exact final
     // refresh on pause/stop (see stateChanged handler below).
-    m_isoController.setCurrentMesh(mesh, m_state.isosurfaceField, m_state.isosurfacePlacement);
+    m_isoController.setCurrentMesh(mesh, m_state.isosurfaceField, m_state.isosurfacePlacement, m_state.computed);
     if (m_state.showIsosurface && !m_animController.isPlaying()) {
         m_isoController.recompute();
     } else if (m_state.showIsosurface && m_animController.isPlaying()) {
@@ -900,6 +975,73 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         m_isoController.requestLiveRecompute();
     }
 
+    // Post-processed fields per-frame recompute (when auto enabled) — blank+error overlay on failure per grilling.
+    if (m_postAutoReextract && m_postSnapshot && !m_postSnapshot->empty()) {
+        const bool needVel = m_postWantVorticity || m_postWantHelicity || m_postWantQ;
+        const bool needP = m_postWantGradP;
+        postfields::CartesianGrid grid;
+        bool isCartesian = postfields::extractCartesianGrid(*mesh, grid);
+        postfields::PointVectorField vf{}; postfields::PointScalarField pf{};
+        bool haveVf=false, havePf=false;
+        if (isCartesian){
+            if (needVel) haveVf = postfields::extractPointVectors(*mesh, grid, m_postVelocitySource, vf);
+            if (needP) havePf = postfields::extractPointScalars(*mesh, grid, m_postPressureSource, pf);
+            if (needVel && !haveVf) haveVf = postfields::extractPointVectorsUnstructured(*mesh, m_postVelocitySource, vf);
+            if (needP && !havePf) havePf = postfields::extractPointScalarsUnstructured(*mesh, m_postPressureSource, pf);
+        } else {
+            if (needVel) haveVf = postfields::extractPointVectorsUnstructured(*mesh, m_postVelocitySource, vf);
+            if (needP) havePf = postfields::extractPointScalarsUnstructured(*mesh, m_postPressureSource, pf);
+        }
+        bool ok = (!needVel || haveVf) && (!needP || havePf);
+        if (!ok) {
+            m_postStatus = std::string("Auto re-extract failed: field not found on frame");
+            setStatus(QString::fromStdString(m_postStatus));
+            m_postSnapshot.reset();
+            m_state.computed.reset();
+            m_isoController.setSnapshot(nullptr);
+            markStateDirty();
+        } else {
+            postfields::PostFieldsRequest req;
+            if (haveVf) req.velocity = vf.data;
+            if (havePf) req.pressure = pf.data;
+            req.wantVorticity = m_postWantVorticity; req.wantHelicity = m_postWantHelicity;
+            req.wantQ = m_postWantQ; req.wantGradP = m_postWantGradP;
+            auto res = isCartesian ? postfields::computePostFields(grid, req) : postfields::computePostFields(*mesh, req);
+            if (!res.ok && isCartesian) res = postfields::computePostFields(*mesh, req);
+            if (!res.ok) {
+                m_postStatus = res.error + " (frame)";
+                setStatus(QString::fromStdString(m_postStatus));
+                std::cerr << "PostFields per-frame FAILED: " << m_postStatus << std::endl;
+                m_postSnapshot.reset();
+                m_state.computed.reset();
+                m_isoController.setSnapshot(nullptr);
+                markStateDirty();
+            } else {
+                auto hasGarbage = [](const std::vector<float>& v){ for(float f: v) if(!std::isfinite(f)) return true; return false; };
+                auto hasGarbageVec = [](const std::vector<glm::vec3>& v){ for(auto &t: v) if(!std::isfinite(t.x)||!std::isfinite(t.y)||!std::isfinite(t.z)) return true; return false; };
+                bool garbage = (res.hasHelicity && hasGarbage(res.helicity)) || (res.hasQ && hasGarbage(res.qCriterion)) || (res.hasVorticity && hasGarbageVec(res.vorticity)) || (res.hasGradP && hasGarbageVec(res.gradP));
+                if (garbage) {
+                    m_postStatus = "Garbage (NaN/Inf) on frame — blanking";
+                    setStatus(QString::fromStdString(m_postStatus));
+                    std::cerr << "PostFields per-frame garbage" << std::endl;
+                    m_postSnapshot.reset();
+                    m_state.computed.reset();
+                    m_isoController.setSnapshot(nullptr);
+                    markStateDirty();
+                } else {
+                    auto snap = std::make_shared<postfields::ComputedSnapshot>();
+                    if (res.hasVorticity) { auto v = std::make_shared<const std::vector<glm::vec3>>(std::move(res.vorticity)); snap->vectors[postfields::vorticityName(m_postVelocitySource)] = v; }
+                    if (res.hasHelicity) { auto v = std::make_shared<const std::vector<float>>(std::move(res.helicity)); auto r = FieldStore::computeRange(*v); snap->scalars[postfields::helicityName(m_postVelocitySource)] = v; snap->scalarRanges[postfields::helicityName(m_postVelocitySource)] = {r.min, r.max}; }
+                    if (res.hasQ) { auto v = std::make_shared<const std::vector<float>>(std::move(res.qCriterion)); auto r = FieldStore::computeRange(*v); snap->scalars[postfields::qCriterionName(m_postVelocitySource)] = v; snap->scalarRanges[postfields::qCriterionName(m_postVelocitySource)] = {r.min, r.max}; }
+                    if (res.hasGradP) { auto v = std::make_shared<const std::vector<glm::vec3>>(std::move(res.gradP)); snap->vectors[postfields::gradPName(m_postPressureSource)] = v; }
+                    m_postSnapshot = snap;
+                    m_state.computed = snap;
+                    m_isoController.setSnapshot(snap);
+                    markStateDirty();
+                }
+            }
+        }
+    }
     // Phase 1.1: scalar-only fast path for fixed-mesh animations.
     // Compare the incoming frame against the mesh the GPU last received
     // (prevMesh), NOT against m_meshData.loadedMesh (already == mesh above —
@@ -917,8 +1059,27 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     }
     auto makePayload = [&](const std::vector<float>* src) -> std::shared_ptr<const std::vector<float>> {
         if (!src) return nullptr;
+        // Snapshot scalars are per-node (125) but SBO needs per-vertex (177) when mesh is split.
+        // Unstructured post fields also use sourcePointCount (125) vs vertices 177. Check both.
+        const size_t gridNodes = (mesh->gridDimX > 0 && mesh->gridDimY > 0 && mesh->gridDimZ > 0)
+                               ? (size_t)mesh->gridDimX * (size_t)mesh->gridDimY * (size_t)mesh->gridDimZ : 0;
+        const bool needExpand = !mesh->vertexSourceIndex.empty()
+                             && mesh->vertexSourceIndex.size() == mesh->vertices.size() / 3
+                             && src->size() != mesh->vertices.size() / 3
+                             && (src->size() == gridNodes
+                                 || (mesh->sourcePointCount > 0 && src->size() == (size_t)mesh->sourcePointCount));
+        if (needExpand) {
+            auto expanded = std::make_shared<std::vector<float>>();
+            expanded->resize(mesh->vertices.size() / 3);
+            const auto& lut = mesh->vertexSourceIndex;
+            for (size_t i = 0; i < lut.size(); ++i) {
+                uint32_t s = lut[i];
+                if (s < src->size()) (*expanded)[i] = (*src)[s];
+            }
+            return expanded;
+        }
         // Avoid O(N) copy for stored point/cell scalars: alias mesh ownership.
-        // Derived scalars (_magnitude/_X/_Y/_Z) live in thread_local cache, so must copy.
+        // Derived scalars ( [Magnitude]/ [X]/ [Y]/ [Z]) live in thread_local cache, so must copy.
         const std::string& nm = m_state.activeScalarName;
         bool storedInMesh = false;
         if (mesh->attributes) {
@@ -926,11 +1087,22 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
             else if (mesh->attributes->cellScalars.find(nm) != mesh->attributes->cellScalars.end()) storedInMesh = true;
         }
         if (!storedInMesh && !mesh->scalars.empty() && nm == mesh->scalarName) storedInMesh = true;
-        if (storedInMesh) {
+        // Snapshot scalars are not storedInMesh, but we already handled expansion above.
+        if (storedInMesh && !needExpand) {
             // aliasing shared_ptr keeps mesh alive without copy
             return std::shared_ptr<const std::vector<float>>(mesh, src);
         }
         return std::make_shared<const std::vector<float>>(*src);
+    };
+    auto hasVolume = [&]() -> bool {
+        if (mesh->hasVolumeGrid()) {
+            if (mesh->hasScalarData()) return true;
+            if (m_state.computed && !m_state.computed->scalars.empty()) return true;
+            // Also check via FieldStore for derived snapshot scalars
+            float mn,mx;
+            if (FieldStore::scalarData(*mesh, m_state.activeScalarName, mn, mx, FieldStore::Placement::Vertex, m_state.computed.get())) return true;
+        }
+        return false;
     };
     if (topologyUnchanged && !(m_state.meshHasVectors || m_state.meshHasCellVectors)) {
         // Only scalars (and derived) changed — re-upload SBO (+ volume texture).
@@ -938,7 +1110,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         if (activeFieldData) {
             auto payload = makePayload(activeFieldData);
             m_renderer.markScalarDirty(payload);
-            if (mesh->hasVolumeData()) {
+            if (hasVolume()) {
                 m_renderer.markVolumeDirty(mesh);
             }
         }
@@ -948,7 +1120,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         if (activeFieldData) {
             auto payload = makePayload(activeFieldData);
             m_renderer.markScalarDirty(payload);
-            if (mesh->hasVolumeData()) {
+            if (hasVolume()) {
                 m_renderer.markVolumeDirty(mesh);
             }
         }
@@ -971,6 +1143,7 @@ void RenderSettings::setQuickBarCollapsed(bool collapsed) {
 }
 
 void RenderSettings::clearMeshes() {
+    clearPostFields();
     m_animController.clear();
     m_animSequenceActive = false;
     m_animRange.invalidate();
@@ -1059,6 +1232,8 @@ void RenderSettings::clearMeshes() {
     m_state.isovalue = 0.0f;
     m_state.isosurfaceField.clear();
     m_state.isosurfaceField.shrink_to_fit();
+    // Post-processed fields belong to the mesh — clear on fresh load/clear.
+    clearPostFields();
     // Line probe overlay must be hidden on clear / fresh launch (not persisted)
     m_state.showLineProbe = false;
     m_state.lineP0 = glm::vec3(m_state.worldMinX, m_state.worldMinY, m_state.worldMinZ);
@@ -1083,7 +1258,7 @@ void RenderSettings::recomputeScalarRange() {
     if (m_meshData.loadedMesh) {
         float rmn, rmx;
         auto placement = m_state.scalarPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
-        if (auto* d = FieldStore::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, rmn, rmx, placement)) {
+        if (auto* d = FieldStore::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, rmn, rmx, placement, m_state.computed.get())) {
             mn = rmn; mx = rmx; have = true;
         }
     }
@@ -1103,18 +1278,40 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     if (fieldName.toStdString() == m_state.activeScalarName) return;
     if (!m_meshData.loadedMesh) return;
     float mn, mx;
-    const auto* data = FieldResolver::scalarData(*m_meshData.loadedMesh, fieldName.toStdString(), mn, mx, m_state.scalarPlacement);
+    auto snap = m_state.computed.get();
+    auto place = m_state.scalarPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+    const auto* data = FieldStore::scalarData(*m_meshData.loadedMesh, fieldName.toStdString(), mn, mx, place, snap);
     if (!data) {
-        // Placement fallback: try opposite placement
-        int alt = m_state.scalarPlacement == 0 ? 1 : 0;
-        data = FieldResolver::scalarData(*m_meshData.loadedMesh, fieldName.toStdString(), mn, mx, alt);
+        auto altPlace = place == FieldStore::Placement::CellCenter ? FieldStore::Placement::Vertex : FieldStore::Placement::CellCenter;
+        data = FieldStore::scalarData(*m_meshData.loadedMesh, fieldName.toStdString(), mn, mx, altPlace, snap);
         if (!data) return;
-        m_state.scalarPlacement = alt;
+        m_state.scalarPlacement = (altPlace == FieldStore::Placement::CellCenter ? 1 : 0);
     }
     m_state.activeScalarName = fieldName.toStdString();
     m_meshData.guiMeta.scalarName = m_state.activeScalarName;
 
-    auto payload = std::make_shared<const std::vector<float>>(*data);
+    // Post-split meshes store scalars per-vertex (177) but computed post
+    // fields are per-node (125). Expand via vertexSourceIndex so the SBO
+    // upload matches the GPU vertex count.
+    std::shared_ptr<const std::vector<float>> payload;
+    if (data->size() == m_meshData.loadedMesh->vertices.size() / 3
+        || m_meshData.loadedMesh->vertexSourceIndex.empty()
+        || m_meshData.loadedMesh->vertexSourceIndex.size() != m_meshData.loadedMesh->vertices.size() / 3) {
+        payload = std::make_shared<const std::vector<float>>(*data);
+    } else if (data->size() == (size_t)m_meshData.loadedMesh->sourcePointCount
+               || data->size() == (size_t)(m_meshData.loadedMesh->gridDimX * m_meshData.loadedMesh->gridDimY * m_meshData.loadedMesh->gridDimZ)) {
+        auto expanded = std::make_shared<std::vector<float>>();
+        expanded->resize(m_meshData.loadedMesh->vertices.size() / 3);
+        const auto& lut = m_meshData.loadedMesh->vertexSourceIndex;
+        for (size_t i = 0; i < lut.size(); ++i) {
+            uint32_t src = lut[i];
+            if (src < data->size()) (*expanded)[i] = (*data)[src];
+            else (*expanded)[i] = (*data)[0];
+        }
+        payload = expanded;
+    } else {
+        payload = std::make_shared<const std::vector<float>>(*data);
+    }
     m_meshData.guiMeta.scalars = *payload;
     m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
     m_state.scalarMin = mn;     m_state.scalarMax = mx;
@@ -1163,13 +1360,14 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
 std::pair<float,float> RenderSettings::isosurfaceFieldRange() const {
     if (m_meshData.loadedMesh && !m_state.isosurfaceField.empty()) {
         float mn, mx;
+        auto snap = m_state.computed.get();
         auto placement = m_state.isosurfacePlacement == 1
             ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
-        if (FieldStore::scalarData(*m_meshData.loadedMesh, m_state.isosurfaceField, mn, mx, placement))
+        if (FieldStore::scalarData(*m_meshData.loadedMesh, m_state.isosurfaceField, mn, mx, placement, snap))
             return {mn, mx};
         auto alt = placement == FieldStore::Placement::CellCenter
             ? FieldStore::Placement::Vertex : FieldStore::Placement::CellCenter;
-        if (FieldStore::scalarData(*m_meshData.loadedMesh, m_state.isosurfaceField, mn, mx, alt))
+        if (FieldStore::scalarData(*m_meshData.loadedMesh, m_state.isosurfaceField, mn, mx, alt, snap))
             return {mn, mx};
     }
     return {0.0f, 1.0f};
@@ -1183,16 +1381,17 @@ void RenderSettings::setIsovalue(double v) {
 void RenderSettings::setIsosurfaceField(const QString& fieldName) {
     std::string name = fieldName.toStdString();
     if (name.empty() || name == m_state.isosurfaceField || !m_meshData.loadedMesh) return;
-    // Validate against the loaded mesh (stored + derived fields, either placement).
+    // Validate against the loaded mesh + snapshot (stored + derived + computed).
     float mn = 0.0f, mx = 1.0f;
     {
+        auto snap = m_state.computed.get();
         float a, b;
         bool ok = FieldStore::scalarData(*m_meshData.loadedMesh, name, a, b,
-            m_state.isosurfacePlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex) != nullptr;
+            m_state.isosurfacePlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex, snap) != nullptr;
         if (!ok) {
             float c, d;
             ok = FieldStore::scalarData(*m_meshData.loadedMesh, name, c, d,
-                m_state.isosurfacePlacement == 1 ? FieldStore::Placement::Vertex : FieldStore::Placement::CellCenter) != nullptr;
+                m_state.isosurfacePlacement == 1 ? FieldStore::Placement::Vertex : FieldStore::Placement::CellCenter, snap) != nullptr;
             if (ok) { a = c; b = d; }
         }
         if (!ok) { setStatus(QString("Unknown isosurface field: %1").arg(fieldName)); return; }
@@ -1223,7 +1422,9 @@ void RenderSettings::setScalarPlacement(int v) {
     m_state.scalarPlacement = p;
     if (m_meshData.loadedMesh) {
         float mn, mx;
-        const std::vector<float>* data = FieldResolver::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, mn, mx, m_state.scalarPlacement);
+        auto snap = m_state.computed.get();
+        auto place = m_state.scalarPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+        const std::vector<float>* data = FieldStore::scalarData(*m_meshData.loadedMesh, m_state.activeScalarName, mn, mx, place, snap);
         if (data) {
             m_state.dataScalarMin = mn;
             m_state.dataScalarMax = mx;
@@ -1234,7 +1435,25 @@ void RenderSettings::setScalarPlacement(int v) {
             resetColorRangeOverride();
             resetVolumeColorRangeOverride();
             resetSliceColorRangeOverride();
-            auto payload = std::make_shared<const std::vector<float>>(*data);
+            std::shared_ptr<const std::vector<float>> payload;
+            if (data->size() == m_meshData.loadedMesh->vertices.size() / 3
+                || m_meshData.loadedMesh->vertexSourceIndex.empty()
+                || m_meshData.loadedMesh->vertexSourceIndex.size() != m_meshData.loadedMesh->vertices.size() / 3) {
+                payload = std::make_shared<const std::vector<float>>(*data);
+            } else if (data->size() == (size_t)m_meshData.loadedMesh->sourcePointCount
+                       || data->size() == (size_t)(m_meshData.loadedMesh->gridDimX * m_meshData.loadedMesh->gridDimY * m_meshData.loadedMesh->gridDimZ)) {
+                auto expanded = std::make_shared<std::vector<float>>();
+                expanded->resize(m_meshData.loadedMesh->vertices.size() / 3);
+                const auto& lut = m_meshData.loadedMesh->vertexSourceIndex;
+                for (size_t i = 0; i < lut.size(); ++i) {
+                    uint32_t src = lut[i];
+                    if (src < data->size()) (*expanded)[i] = (*data)[src];
+                    else (*expanded)[i] = (*data)[0];
+                }
+                payload = expanded;
+            } else {
+                payload = std::make_shared<const std::vector<float>>(*data);
+            }
             m_meshData.guiMeta.scalars = *payload;
             m_renderer.markScalarDirty(payload);
             if (m_meshData.loadedMesh) m_renderer.markVolumeDirty(m_meshData.loadedMesh);
@@ -1273,11 +1492,9 @@ void RenderSettings::setSlicePlaneField(int axis, const QString& fieldName) {
 void RenderSettings::setActiveVectorField(const QString& fieldName) {
     if (fieldName.isEmpty()) return;
     std::string name = fieldName.toStdString();
-    const auto& pointNames = m_meshData.guiMeta.availableVectorNames;
-    const auto& cellNames = m_meshData.guiMeta.availableCellVectorNames;
-    bool found =
-        (!pointNames.empty() && std::find(pointNames.begin(), pointNames.end(), name) != pointNames.end()) ||
-        (!cellNames.empty() && std::find(cellNames.begin(), cellNames.end(), name) != cellNames.end());
+    const auto av = getAvailableVectors();
+    bool found = false;
+    for (auto &s : av) if (s.toStdString() == name) { found = true; break; }
     if (!found) {
         setStatus(QString("Unknown vector field: %1").arg(fieldName));
         return;
@@ -1291,10 +1508,10 @@ void RenderSettings::setActiveVectorField(const QString& fieldName) {
 
 void RenderSettings::setStreamlineVectorField(const QString& fieldName) {
     if (fieldName.isEmpty()) return;
-    if (m_meshData.guiMeta.availableVectorNames.empty() ||
-        std::find(m_meshData.guiMeta.availableVectorNames.begin(),
-                  m_meshData.guiMeta.availableVectorNames.end(),
-                  fieldName.toStdString()) == m_meshData.guiMeta.availableVectorNames.end()) {
+    const auto av = getAvailableVectors();
+    bool found = false;
+    for (auto &s : av) if (s == fieldName) { found = true; break; }
+    if (!found) {
         setStatus(QString("Unknown vector field: %1").arg(fieldName));
         return;
     }
@@ -1648,16 +1865,244 @@ void RenderSettings::resetLighting() {
 }
 
 QStringList RenderSettings::getAvailableScalars() const {
+    QStringList base;
     if (m_meshData.loadedMesh) {
-        auto names = FieldResolver::availableScalarNamesWithDerived(*m_meshData.loadedMesh);
-        QStringList list; for (auto& n: names) list.append(QString::fromStdString(n));
-        return list;
+        auto names = FieldStore::availableScalars(*m_meshData.loadedMesh, m_state.computed.get());
+        for (auto& n: names) base.append(QString::fromStdString(n));
+    } else if (m_state.computed) {
+        for (const auto& [k, v] : m_state.computed->scalars) base.append(QString::fromStdString(k));
+    } else {
+        for (const auto& name : m_meshData.guiMeta.availableScalarNames)
+            base.append(QString::fromStdString(name));
     }
-    QStringList list;
-    for (const auto& name : m_meshData.guiMeta.availableScalarNames)
-        list.append(QString::fromStdString(name));
-    return list;
+    // De-dup snapshot scalars already covered by FieldStore::availableScalars; keep sort stable
+    base.removeDuplicates();
+    base.sort();
+    return base;
 }
 
+bool RenderSettings::isPostCartesian() const {
+    if (!m_meshData.loadedMesh) return false;
+    postfields::CartesianGrid g;
+    return postfields::extractCartesianGrid(*m_meshData.loadedMesh, g);
+}
 
+bool RenderSettings::canExtractPostFields() const {
+    if (!m_meshData.loadedMesh) return false;
+    if (m_meshData.loadedMesh->pointVectorsData.size()>0) return true;
+    if (m_meshData.loadedMesh->cellVectorsData.size()>0) return true;
+    if (m_meshData.loadedMesh->attributes){
+        if (!m_meshData.loadedMesh->attributes->pointScalars.empty()) return true;
+        if (!m_meshData.loadedMesh->attributes->cellScalars.empty()) return true;
+        if (!m_meshData.loadedMesh->attributes->pointVectors.empty()) return true;
+        // cellVectors stored as mesh.cellVectorsData, attributes has none; check mesh vectors
+    }
+    if (!m_meshData.loadedMesh->availableVectorNames.empty()) return true;
+    if (!m_meshData.loadedMesh->availableCellVectorNames.empty()) return true;
+    if (!m_meshData.loadedMesh->availableScalarNames.empty()) return true;
+    postfields::CartesianGrid g;
+    if (postfields::extractCartesianGrid(*m_meshData.loadedMesh, g)) return true;
+    return false;
+}
+
+void RenderSettings::clearPostFields() {
+    if (m_postWatcher.isRunning()) m_postWatcher.cancel();
+    m_postWatcher.setFuture(QFuture<PostFieldsAsyncResult>());
+    if (m_postTaskToken) m_postTaskToken->store(m_postGen + 1);
+    m_postTaskToken.reset();
+    m_postSnapshot.reset();
+    m_state.computed.reset();
+    m_postStatus.clear();
+    markStateDirty(); emit meshDataUpdated();
+    emit statusMessageChanged();
+}
+
+void RenderSettings::extractPostFields() {
+    if (!m_meshData.loadedMesh) { m_postStatus="No mesh loaded"; setStatus(QString::fromStdString(m_postStatus)); emit statusMessageChanged(); return; }
+    if (m_postWatcher.isRunning()) { m_postStatus="Post-processing already running (cancellable)"; setStatus(QString::fromStdString(m_postStatus)); emit statusMessageChanged(); return; }
+    const std::string vel = m_postVelocitySource;
+    const std::string pres = m_postPressureSource;
+    const bool needVel = m_postWantVorticity || m_postWantHelicity || m_postWantQ;
+    const bool needP = m_postWantGradP;
+    if (needVel && vel.empty()) { m_postStatus="Select a velocity vector field"; setStatus(QString::fromStdString(m_postStatus)); emit statusMessageChanged(); return; }
+    if (needP && pres.empty()) { m_postStatus="Select a pressure scalar field"; setStatus(QString::fromStdString(m_postStatus)); emit statusMessageChanged(); return; }
+    if (!needVel && !needP) { m_postStatus="Nothing selected to extract (check Vorticity/Helicity/Q/GradP)"; setStatus(QString::fromStdString(m_postStatus)); emit statusMessageChanged(); return; }
+    auto meshPtr = m_meshData.loadedMesh;
+    {
+        postfields::CartesianGrid grid;
+        bool isCartesian = postfields::extractCartesianGrid(*meshPtr, grid);
+        bool haveVf=false, havePf=false;
+        if (isCartesian){
+            postfields::PointVectorField vf{}; postfields::PointScalarField pf{};
+            if (needVel) haveVf = postfields::extractPointVectors(*meshPtr, grid, vel, vf) || postfields::extractPointVectorsUnstructured(*meshPtr, vel, vf);
+            if (needP) havePf = postfields::extractPointScalars(*meshPtr, grid, pres, pf) || postfields::extractPointScalarsUnstructured(*meshPtr, pres, pf);
+        } else {
+            postfields::PointVectorField vf{}; postfields::PointScalarField pf{};
+            if (needVel) haveVf = postfields::extractPointVectorsUnstructured(*meshPtr, vel, vf);
+            if (needP) havePf = postfields::extractPointScalarsUnstructured(*meshPtr, pres, pf);
+        }
+        if (needVel && !haveVf) {
+            m_postStatus=QString("Velocity field '%1' not found").arg(QString::fromStdString(vel)).toStdString();
+            setStatus(QString::fromStdString(m_postStatus)); emit statusMessageChanged(); return;
+        }
+        if (needP && !havePf) {
+            m_postStatus=QString("Pressure field '%1' not found").arg(QString::fromStdString(pres)).toStdString();
+            setStatus(QString::fromStdString(m_postStatus)); emit statusMessageChanged(); return;
+        }
+    }
+    const uint64_t gen = ++m_postGen;
+    auto token = std::make_shared<std::atomic<uint64_t>>(gen);
+    m_postTaskToken = token;
+    m_postStatus = "Extracting... (async, cancellable, 2nd-order wall)";
+    setStatus(QString::fromStdString(m_postStatus));
+    emit statusMessageChanged();
+    auto fut = QtConcurrent::run([meshPtr, vel, pres, needVel, needP, token, gen,
+                                  wantVort=this->m_postWantVorticity, wantHel=this->m_postWantHelicity,
+                                  wantQ=this->m_postWantQ, wantGrad=this->m_postWantGradP]() -> PostFieldsAsyncResult {
+        PostFieldsAsyncResult out;
+        if (token->load() != gen) { out.error = "Cancelled"; return out; }
+        postfields::CartesianGrid grid;
+        bool isCartesian = postfields::extractCartesianGrid(*meshPtr, grid);
+        postfields::PointVectorField vf{}; postfields::PointScalarField pf{};
+        bool haveVf=false, havePf=false;
+        if (isCartesian){
+            if (needVel) haveVf = postfields::extractPointVectors(*meshPtr, grid, vel, vf);
+            if (needP) havePf = postfields::extractPointScalars(*meshPtr, grid, pres, pf);
+            if (needVel && !haveVf) haveVf = postfields::extractPointVectorsUnstructured(*meshPtr, vel, vf);
+            if (needP && !havePf) havePf = postfields::extractPointScalarsUnstructured(*meshPtr, pres, pf);
+        } else {
+            if (needVel) haveVf = postfields::extractPointVectorsUnstructured(*meshPtr, vel, vf);
+            if (needP) havePf = postfields::extractPointScalarsUnstructured(*meshPtr, pres, pf);
+        }
+        if (needVel && !haveVf) { out.error = "Velocity field '" + vel + "' not found"; return out; }
+        if (needP && !havePf) { out.error = "Pressure field '" + pres + "' not found"; return out; }
+        postfields::PostFieldsRequest req;
+        if (haveVf) req.velocity = vf.data;
+        if (havePf) req.pressure = pf.data;
+        req.wantVorticity = wantVort; req.wantHelicity = wantHel; req.wantQ = wantQ; req.wantGradP = wantGrad;
+        QString meshInfo = QString("%1 %2x%3x%4 (%5 points) vecs:%6 scalars:%7")
+            .arg(QString::fromStdString(meshPtr->datasetType))
+            .arg(meshPtr->gridDimX).arg(meshPtr->gridDimY).arg(meshPtr->gridDimZ)
+            .arg(meshPtr->vertices.size()/3)
+            .arg(meshPtr->availableVectorNames.size() + meshPtr->availableCellVectorNames.size())
+            .arg(meshPtr->availableScalarNames.size());
+        postfields::PostFieldsResult res;
+        QString method;
+        if (isCartesian && haveVf==needVel && havePf==needP) {
+            res = postfields::computePostFields(grid, req);
+            method = "Cartesian finite-differences (2nd-order wall)";
+            if (!res.ok){
+                res = postfields::computePostFields(*meshPtr, req);
+                method = "LSQ fallback";
+            }
+        } else {
+            res = postfields::computePostFields(*meshPtr, req);
+            method = isCartesian ? "LSQ (Cartesian haveVf/Pf mismatch)" : "LSQ unstructured/structured";
+        }
+        if (token->load() != gen) { out.error = "Cancelled"; return out; }
+        if (!res.ok) {
+            out.error = res.error + " | " + meshInfo.toStdString() + " method=" + method.toStdString();
+            return out;
+        }
+        auto hasGarbage = [](const std::vector<float>& v){ for(float f: v) if(!std::isfinite(f)) return true; return false; };
+        auto hasGarbageVec = [](const std::vector<glm::vec3>& v){ for(auto &t: v) if(!std::isfinite(t.x)||!std::isfinite(t.y)||!std::isfinite(t.z)) return true; return false; };
+        if ((res.hasHelicity && hasGarbage(res.helicity)) || (res.hasQ && hasGarbage(res.qCriterion)) || (res.hasVorticity && hasGarbageVec(res.vorticity)) || (res.hasGradP && hasGarbageVec(res.gradP))){
+            out.error = "Garbage (NaN/Inf) in result — check field scaling / mesh spacing | " + meshInfo.toStdString();
+            return out;
+        }
+        auto snap = std::make_shared<postfields::ComputedSnapshot>();
+        if (res.hasVorticity) {
+            const std::string n = postfields::vorticityName(vel);
+            auto v = std::make_shared<const std::vector<glm::vec3>>(std::move(res.vorticity));
+            snap->vectors[n] = v;
+        }
+        if (res.hasHelicity) {
+            const std::string n = postfields::helicityName(vel);
+            auto v = std::make_shared<const std::vector<float>>(std::move(res.helicity));
+            auto r = FieldStore::computeRange(*v);
+            snap->scalars[n] = v;
+            snap->scalarRanges[n] = {r.min, r.max};
+        }
+        if (res.hasQ) {
+            const std::string n = postfields::qCriterionName(vel);
+            auto v = std::make_shared<const std::vector<float>>(std::move(res.qCriterion));
+            auto r = FieldStore::computeRange(*v);
+            snap->scalars[n] = v;
+            snap->scalarRanges[n] = {r.min, r.max};
+        }
+        if (res.hasGradP) {
+            const std::string n = postfields::gradPName(pres);
+            auto v = std::make_shared<const std::vector<glm::vec3>>(std::move(res.gradP));
+            snap->vectors[n] = v;
+        }
+        // — Pretty, ready-to-read output (console + UI label with wordWrap) —
+        auto fmtRange = [](float a, float b){
+            return QString::asprintf("[% .3f , % .3f]  span % .3f", a, b, b-a);
+        };
+        QStringList lines;
+        lines << QString("✓ Post-processing complete");
+        lines << QString("Method: %1").arg(method);
+        lines << QString("Mesh: %1").arg(meshInfo);
+        lines << QString("Velocity= %2").arg(QString::fromStdString(vel));
+        lines << QString("Pressure= %3").arg(QString::fromStdString(pres));
+        if (!snap->vectors.empty()){
+            QStringList vNames;
+            for(auto &kv: snap->vectors) vNames << QString("%1 [%2 vec3]").arg(QString::fromStdString(kv.first)).arg(kv.second->size());
+            lines << QString("  Vectors (%1): %2").arg(snap->vectors.size()).arg(vNames.join(", "));
+        } else {
+            lines << QString("  Vectors: —");
+        }
+        if (!snap->scalars.empty()){
+            lines << QString("  Scalars (%1):").arg(snap->scalars.size());
+            for(auto &kv: snap->scalars){
+                auto it = snap->scalarRanges.find(kv.first);
+                float mn = it!=snap->scalarRanges.end()? it->second.first : 0, mx = it!=snap->scalarRanges.end()? it->second.second : 1;
+                lines << QString("    • %1  %2").arg(QString::fromStdString(kv.first), fmtRange(mn,mx));
+            }
+        } else {
+            lines << QString("  Scalars: —");
+        }
+        out.snap = snap;
+        out.ok = true;
+        out.status = lines.join("\n").toStdString();
+        std::cerr << out.status << std::endl;
+        return out;
+    });
+    m_postWatcher.setFuture(fut);
+}
+
+void RenderSettings::onPostFieldsReady() {
+    if (!m_postTaskToken || m_postTaskToken->load() != m_postGen) return;
+    auto res = m_postWatcher.result();
+    if (!res.ok || !res.snap || res.snap->empty()) {
+        // Blank + error overlay policy per grilling: do not keep stale snapshot
+        m_postSnapshot.reset();
+        m_state.computed.reset();
+        m_isoController.setSnapshot(nullptr);
+        // Pretty error
+        QString err = QString::fromStdString(res.error.empty() ? "Extraction failed" : res.error);
+        // Make multiline readable: split on " | " if old format
+        err.replace(" | ", "\n  ");
+        err.replace(" method=", "\n  Method: ");
+        m_postStatus = QString("✗ Post-processing failed\n  %1").arg(err).toStdString();
+        setStatus(QString::fromStdString(m_postStatus));
+        std::cerr << m_postStatus << std::endl;
+        markStateDirty();
+        emit meshDataUpdated();
+        emit statusMessageChanged();
+        return;
+    }
+    auto snap = res.snap;
+    m_postSnapshot = snap;
+    m_state.computed = snap;
+    m_isoController.setSnapshot(snap);
+    if (!snap->scalars.empty()) m_state.meshHasScalars = true;
+    if (!snap->vectors.empty()) m_state.meshHasVectors = true;
+    m_postStatus = res.status;
+    setStatus(QString::fromStdString(m_postStatus));
+    std::cerr << m_postStatus << std::endl;
+    markStateDirty();
+    emit meshDataUpdated();
+    emit statusMessageChanged();
+}
 

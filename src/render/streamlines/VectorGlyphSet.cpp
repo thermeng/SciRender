@@ -1,6 +1,6 @@
 #include "render/streamlines/VectorGlyphSet.h"
 #include "core/mesh_loader.h"
-#include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -53,11 +53,13 @@ void VectorGlyphSet::shutdown() {
     teardownGL();
 }
 
-void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName, int magTransform, int placement) {
+void VectorGlyphSet::rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName, int magTransform, int placement,
+                              const postfields::ComputedSnapshot* snap) {
     teardownGL();
     (void)magTransform;
 
-    auto field = FieldResolver::resolveVector(mesh, fieldName, placement);
+    auto p = placement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+    auto field = FieldStore::resolveVector(mesh, fieldName, p, snap);
     if (!field.data || field.count == 0) return;
     bool cellCenter = field.isCell;
     const glm::vec3* data = field.data;

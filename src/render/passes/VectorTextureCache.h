@@ -2,6 +2,7 @@
 
 #include "render/foundation/gl_raii.h"
 #include "core/mesh_loader.h"
+#include "core/post_fields.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -13,9 +14,11 @@ public:
     VectorTextureCache() = default;
 
     // licBoundaryMode is deprecated (always Repeat/GL_REPEAT); kept in signature for API compat but ignored.
+    // snap: computed post-proc snapshot (null = mesh fields only).
     GLuint textureForField(const std::string& name, const RenderMesh* mesh,
                            const glm::vec3& boxMin, const glm::vec3& boxMax,
-                           int placement = -1, int licBoundaryMode = 1);
+                           int placement = -1, int licBoundaryMode = 1,
+                           const postfields::ComputedSnapshot* snap = nullptr);
 
     bool getTextureDims(const std::string& name, int& dimX, int& dimY, int& dimZ) const;
     // Deprecated licBoundaryMode variants — forward to canonical; mode ignored.
@@ -40,9 +43,11 @@ private:
 
     GLuint buildTexture(const std::string& name, const RenderMesh* mesh,
                         const glm::vec3& boxMin, const glm::vec3& boxMax,
-                        int placement, int licBoundaryMode);
+                        int placement, int licBoundaryMode,
+                        const postfields::ComputedSnapshot* snap);
     bool resolveField(const RenderMesh& mesh, const std::string& name, int placement,
-                      const glm::vec3*& outData, size_t& outCount, bool& outIsCell) const;
+                      const glm::vec3*& outData, size_t& outCount, bool& outIsCell,
+                      const postfields::ComputedSnapshot* snap) const;
     bool buildGrid(const RenderMesh& mesh, const glm::vec3* data, size_t count, bool isCell,
                    std::vector<glm::vec3>& outGrid, int& outDimX, int& outDimY, int& outDimZ) const;
 

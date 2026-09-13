@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PostprocPage</class>
+ <widget class="QWidget" name="PostprocPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>240</width>
+    <height>420</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing"><number>4</number></property>
+   <property name="leftMargin"><number>10</number></property>
+   <property name="topMargin"><number>8</number></property>
+   <property name="rightMargin"><number>10</number></property>
+   <property name="bottomMargin"><number>8</number></property>
+   <item>
+     <widget class="QLabel" name="titleHeader">
+      <property name="text"><string>Post Processing Fields</string></property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QWidget" name="optionsGroup" native="true">
+      <layout class="QVBoxLayout" name="optionsLayout">
+       <property name="spacing"><number>4</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QLabel" name="velocityHeader"><property name="text"><string>Velocity Field</string></property></widget>
+       </item>
+       <item><widget class="QComboBox" name="velocityCombo"/></item>
+       <item>
+        <widget class="QLabel" name="pressureHeader"><property name="text"><string>Pressure Field</string></property></widget>
+       </item>
+       <item><widget class="QComboBox" name="pressureCombo"/></item>
+       <item>
+        <widget class="QLabel" name="outputsHeader"><property name="text"><string>Outputs</string></property></widget>
+       </item>
+       <item><widget class="QCheckBox" name="vorticityCb"><property name="text"><string>Vorticity</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="helicityCb"><property name="text"><string>Helicity</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="qCb"><property name="text"><string>Q-Criterion</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="gradPCb"><property name="text"><string>Pressure Gradient(vector)</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="autoCb"><property name="text"><string>Auto re-extract per frame (PVD)</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QPushButton" name="extractBtn"><property name="text"><string>Extract</string></property></widget></item>
+       <item><widget class="QLabel" name="statusLabel"><property name="text"><string>Cartesian structured grid required</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: palette(placeholderText); font-size: 11px;</string></property></widget></item>
+      </layout>
+     </widget>
+    </item>
+   <item>
+    <spacer name="bottomSpacer">
+     <property name="orientation"><enum>Qt::Orientation::Vertical</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

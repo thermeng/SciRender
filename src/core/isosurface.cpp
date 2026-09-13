@@ -1,6 +1,6 @@
 #include "core/isosurface.h"
 #include "core/mesh_loader.h"
-#include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,13 +47,16 @@ static int nodeIndexOf(int x, int y, int z, int dX, int dY, int /*dZ*/) {
     return x + y * dX + z * dX * dY;
 }
 
-bool canExtract(const RenderMesh& volumeMesh, const std::string& field, int placement) {
+bool canExtract(const RenderMesh& volumeMesh, const std::string& field, int placement,
+                const postfields::ComputedSnapshot* snap) {
     if (!volumeMesh.hasVolumeGrid() || volumeMesh.vertices.empty()) return false;
     float mn, mx;
-    if (FieldResolver::scalarData(volumeMesh, field, mn, mx, placement)) return true;
-    int alt = (placement == 1 ? 0 : 1);
-    if (FieldResolver::scalarData(volumeMesh, field, mn, mx, alt)) return true;
+    auto p = placement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+    auto altP = placement == 1 ? FieldStore::Placement::Vertex : FieldStore::Placement::CellCenter;
+    if (FieldStore::scalarData(volumeMesh, field, mn, mx, p, snap)) return true;
+    if (FieldStore::scalarData(volumeMesh, field, mn, mx, altP, snap)) return true;
     // Also check derived via scalarData already covers it; final fallback to hasScalarData
+    if (snap && snap->scalars.find(field) != snap->scalars.end()) return true;
     return volumeMesh.hasScalarData();
 }
 
@@ -215,9 +218,10 @@ static void triangulateFan(RenderMesh& out,
 RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                              const std::vector<float>& isovalues,
                              const std::string& field,
-                             int placement) {
+                             int placement,
+                             const postfields::ComputedSnapshot* snap) {
     RenderMesh result;
-    if (isovalues.empty() || !canExtract(volumeMesh, field, placement)) return result;
+    if (isovalues.empty() || !canExtract(volumeMesh, field, placement, snap)) return result;
 
     // For Cell Center placement on a structured grid, contour the cell-
     // centered scalar field at cell centers (dual grid). Placement-aware
@@ -233,9 +237,10 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
         int cdX0 = dX0>0?dX0-1:0, cdY0=dY0>0?dY0-1:0, cdZ0=dZ0>0?dZ0-1:0;
         size_t cellCount0 = static_cast<size_t>(cdX0) * cdY0 * cdZ0;
         if (cellCount0 > 0) {
-            std::string effField = field.empty() ? FieldResolver::resolveActiveScalar(volumeMesh, "", 1) : field;
+            auto pp = FieldStore::Placement::CellCenter;
+            std::string effField = field.empty() ? FieldStore::resolveActiveScalar(volumeMesh, "", pp, snap) : field;
             float tmpMin=0, tmpMax=1;
-            const std::vector<float>* cand = FieldResolver::scalarData(volumeMesh, effField, tmpMin, tmpMax, 1);
+            const std::vector<float>* cand = FieldStore::scalarData(volumeMesh, effField, tmpMin, tmpMax, pp, snap);
             // cand is cell-sized only when true cell/derived-cell data exists; point fallback is nPoints-sized
             if (cand && cand->size() == cellCount0) {
                 cellValsPtr = cand;
@@ -307,11 +312,12 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
     const int dXdY = dX * dY;
     const int numNodes = dX * dY * dZ;
 
-    // Placement-aware scalar fetch (covers derived scalars like Velocity_magnitude)
+    // Placement-aware scalar fetch (covers derived + computed snapshot scalars).
     const std::vector<float>* vals = nullptr;
     float valsMin = 0, valsMax = 1;
-    int valsPlacement = (srcMesh == &cellCenterMesh ? 0 : placement);
-    vals = FieldResolver::scalarData(*srcMesh, field, valsMin, valsMax, valsPlacement);
+    auto fetchP = (srcMesh == &cellCenterMesh ? FieldStore::Placement::Vertex
+                    : (placement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex));
+    vals = FieldStore::scalarData(*srcMesh, field, valsMin, valsMax, fetchP, snap);
     if (!vals || vals->empty()) {
         vals = &srcMesh->scalars;
         if (vals->empty() && srcMesh->attributes && !srcMesh->attributes->pointScalars.empty()) {

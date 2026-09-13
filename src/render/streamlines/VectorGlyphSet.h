@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/foundation/gl_raii.h"
+#include "core/post_fields.h"
 
 #include <string>
 #include <vector>
@@ -29,7 +30,8 @@ public:
 
     bool empty() const { return instanceCount == 0; }
 
-    void rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName = "", int magTransform = 0, int placement = 0);
+    void rebuild(const RenderMesh& mesh, int stride, const std::string& fieldName = "", int magTransform = 0, int placement = 0,
+                 const postfields::ComputedSnapshot* snap = nullptr);
     void shutdown();
 
 private:

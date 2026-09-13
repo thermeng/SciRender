@@ -4,6 +4,7 @@
 #include <string>
 
 #include "core/mesh_loader.h"
+#include "core/post_fields.h"
 
 namespace isosurface {
 
@@ -37,13 +38,16 @@ namespace isosurface {
 RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                              const std::vector<float>& isovalues,
                              const std::string& field = "",
-                             int placement = 0);
+                             int placement = 0,
+                             const postfields::ComputedSnapshot* snap = nullptr);
 
 // True when the mesh carries the structured-grid data the extractor needs,
 // and the requested field (empty = active scalars) resolves to a non-empty
-// per-node (placement 0) or per-cell (placement 1) array. Delegates to
+// per-node (placement 0) or per-cell (placement 1) array, including
+// computed post-proc scalars when `snap` is provided. Delegates to
 // RenderMesh::hasVolumeGrid / hasScalarData, additionally requiring non-empty
 // vertices for interpolation.
-bool canExtract(const RenderMesh& volumeMesh, const std::string& field = "", int placement = 0);
+bool canExtract(const RenderMesh& volumeMesh, const std::string& field = "", int placement = 0,
+                const postfields::ComputedSnapshot* snap = nullptr);
 
 } // namespace isosurface

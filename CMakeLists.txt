@@ -75,6 +75,8 @@ add_library(CoreLib STATIC
     src/core/mesh_quality.cpp
     src/core/FieldStore.cpp
     src/core/FieldResolver.cpp
+    src/core/post_fields.cpp
+    src/core/gradient_estimator.cpp
     src/core/isosurface.cpp
     src/core/mesh_utils.cpp
     src/core/vtk_parser.cpp
@@ -163,6 +165,7 @@ add_executable(SciRender
     src/ui/screenshot_page.ui
     src/ui/mesh_info_page.ui
     src/ui/animation_page.ui
+    src/ui/postproc_page.ui
     assets/app_icon.rc
 )
 
