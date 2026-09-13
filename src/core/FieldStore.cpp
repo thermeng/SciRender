@@ -3,6 +3,7 @@
 #include <limits>
 #include <algorithm>
 #include <unordered_map>
+#include <span>
 
 namespace FieldStore {
 namespace {
@@ -23,7 +24,7 @@ Range makeRangeFromScan(float mn, float mx, bool have) {
 std::vector<float> synthesizeDerivedArray(const glm::vec3* data, size_t count,
                                            const std::string& suffix, int comp) {
     std::vector<float> out; out.reserve(count);
-    bool isMag = (suffix == " [Magnitude]" || suffix == "_magnitude");
+    bool isMag = (suffix == " [Magnitude]");
     for (size_t i = 0; i < count; ++i) {
         float v;
         if (isMag) v = std::sqrt(data[i].x*data[i].x + data[i].y*data[i].y + data[i].z*data[i].z);
@@ -44,12 +45,13 @@ void clearCache() {
     s_derivedLastHash = 0;
 }
 
-Range computeRange(const std::vector<float>& v) {
-    if (v.empty()) return {0.0f, 1.0f};
+namespace {
+Range rangeFromSpan(std::span<const float> s) {
+    if (s.empty()) return {0.0f, 1.0f};
     float mn = std::numeric_limits<float>::max();
     float mx = std::numeric_limits<float>::lowest();
     bool have = false;
-    for (float f : v) {
+    for (float f : s) {
         if (!std::isfinite(f)) continue;
         mn = std::min(mn, f);
         mx = std::max(mx, f);
@@ -58,21 +60,15 @@ Range computeRange(const std::vector<float>& v) {
     if (!have) return {0.0f, 1.0f};
     return makeRangeFromScan(mn, mx, true);
 }
+} // anon
+
+Range computeRange(const std::vector<float>& v) {
+    return rangeFromSpan(std::span<const float>(v.data(), v.size()));
+}
 
 Range computeRange(const float* data, size_t count) {
     if (!data || count == 0) return {0.0f, 1.0f};
-    float mn = std::numeric_limits<float>::max();
-    float mx = std::numeric_limits<float>::lowest();
-    bool have = false;
-    for (size_t i = 0; i < count; ++i) {
-        float f = data[i];
-        if (!std::isfinite(f)) continue;
-        mn = std::min(mn, f);
-        mx = std::max(mx, f);
-        have = true;
-    }
-    if (!have) return {0.0f, 1.0f};
-    return makeRangeFromScan(mn, mx, true);
+    return rangeFromSpan(std::span<const float>(data, count));
 }
 
 // ── Scalar ────────────────────────────────────────────────────────────────
@@ -258,11 +254,6 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key,
     r = tryDerived(" [X]", 0); if (r.data) return r;
     r = tryDerived(" [Y]", 1); if (r.data) return r;
     r = tryDerived(" [Z]", 2); if (r.data) return r;
-    // Legacy fallback — support old "_magnitude"/"_X" naming for backward compat
-    r = tryDerived("_magnitude", -1); if (r.data) return r;
-    r = tryDerived("_X", 0); if (r.data) return r;
-    r = tryDerived("_Y", 1); if (r.data) return r;
-    r = tryDerived("_Z", 2); if (r.data) return r;
     return {nullptr, {0,1}, false};
 }
 
@@ -348,11 +339,6 @@ ScalarField resolveScalarForVolume(const RenderMesh& mesh, const FieldKey& key,
     r = tryDerivedVol(" [X]", 0); if (r.data) return r;
     r = tryDerivedVol(" [Y]", 1); if (r.data) return r;
     r = tryDerivedVol(" [Z]", 2); if (r.data) return r;
-    // Legacy fallback
-    r = tryDerivedVol("_magnitude", -1); if (r.data) return r;
-    r = tryDerivedVol("_X", 0); if (r.data) return r;
-    r = tryDerivedVol("_Y", 1); if (r.data) return r;
-    r = tryDerivedVol("_Z", 2); if (r.data) return r;
     return {nullptr, {0,1}, false};
 }
 

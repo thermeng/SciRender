@@ -1,4 +1,5 @@
 #include "core/mesh_loader.h"
+#include "core/FieldStore.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -413,13 +414,9 @@ void computeNormals(RenderMesh& mesh) {
     // scalarMin/Max (and cellScalarRanges) untouched to preserve the
     // ParaView-matched wide range.
     if (!mesh.scalars.empty() && mesh.attributes.has_value() && !mesh.scalarName.empty()) {
-        float actualMin = 1e30f, actualMax = -1e30f;
-        for (float s : mesh.scalars) {
-            if (s < actualMin) actualMin = s;
-            if (s > actualMax) actualMax = s;
-        }
-        if (actualMax - actualMin < 1e-6f) actualMax = actualMin + 1.0f;
-        mesh.attributes->pointScalarRanges[mesh.scalarName] = {actualMin, actualMax};
+        auto r = FieldStore::computeRange(mesh.scalars);
+        mesh.attributes->pointScalarRanges[mesh.scalarName] = {r.min, r.max};
+        float actualMin = r.min, actualMax = r.max;
         // scalarMin/Max stays as set by calculateScalarRanges (union).
         // If for point-only fields scalarMin/Max still needs to track the
         // split, propagate only when there is no wider cell range for this name.
@@ -447,7 +444,7 @@ void extrapolateCellDataToPoints(
 
     int vCount = static_cast<int>(mesh.vertices.size() / 3);
     if (vCount == 0) return;
-    if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+    mesh_utils::ensureAttributes(mesh);
 
     // Pre-collect all fields into a flat array. This avoids per-cell hash lookups
     // (scalarAccIdx[name] / vectorAccIdx[name]) that the old code performed inside

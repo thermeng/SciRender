@@ -73,6 +73,27 @@ static bool isBinarySTL(const std::string& filePath) {
     return (fileSize >= static_cast<std::streamoff>(84 + static_cast<std::streamoff>(triCount) * 50));
 }
 
+static void finalizeSTLCommon(RenderMesh& mesh, std::vector<float>& flatVerts,
+                                double minX, double minY, double minZ,
+                                double maxX, double maxY, double maxZ,
+                                const char* logLabel) {
+    mesh_utils::indexFlatTriangles(flatVerts, mesh.vertices, mesh.indices);
+    mesh.flatVerts = std::move(flatVerts);
+    mesh.cellEdgeIndices = mesh_utils::extractTriEdges(mesh.indices);
+    mesh.bounds.minX = minX; mesh.bounds.maxX = maxX;
+    mesh.bounds.minY = minY; mesh.bounds.maxY = maxY;
+    mesh.bounds.minZ = minZ; mesh.bounds.maxZ = maxZ;
+    mesh.bounds.centerX = (minX + maxX) * 0.5;
+    mesh.bounds.centerY = (minY + maxY) * 0.5;
+    mesh.bounds.centerZ = (minZ + maxZ) * 0.5;
+    double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+    mesh.bounds.extent = std::max({ dx, dy, dz });
+    if (mesh.bounds.extent < 0.001) mesh.bounds.extent = 1.0;
+    mesh.bounds.worldRadius = mesh.bounds.extent * 0.5;
+    mesh.hasBounds = true;
+    mesh_utils::finalizeSurfaceMesh(mesh, "STL", "STL", logLabel);
+}
+
 static RenderMesh parseSTLAscii(const std::string& filePath) {
     RenderMesh mesh;
     mesh.bounds = BoundingVolume{};
@@ -185,38 +206,7 @@ static RenderMesh parseSTLAscii(const std::string& filePath) {
         return mesh;
     }
 
-    // Convert flat to indexed: deduplicate shared vertices via a position hash
-    // so the GPU receives an indexed mesh instead of 3x-expanded flat data.
-    // Sort-based dedup: O(N log N) sort beats per-vertex hash lookups on
-    // large meshes (better cache behavior, no hash collision overhead).
-    mesh_utils::indexFlatTriangles(flatVerts, mesh.vertices, mesh.indices);
-
-    // Hand the raw per-corner positions (9 floats/tri) to the mesh-quality
-    // analyzer; it welds these at trimesh's 1e-8 tolerance. The rendered indexed
-    // mesh keeps the looser 1/4096 dedup, so the two stay separate on purpose.
-    mesh.flatVerts = std::move(flatVerts);
-
-    // Cell-edge wireframe fallback: STL has no cell topology, so extract
-    // deduplicated triangle edges from the indexed mesh (before computeNormals
-    // splits vertices — indices stay valid after the split).
-    mesh.cellEdgeIndices = mesh_utils::extractTriEdges(mesh.indices);
-
-    // Finalize pre-computed bounds (finalizeSurfaceMesh will skip computeBounds
-    // via the hasBounds flag). Raw corner bounds equal post-dedup bounds within
-    // 1/4096 units — numerically equivalent for axis-aligned bounding box.
-    mesh.bounds.minX = minX; mesh.bounds.maxX = maxX;
-    mesh.bounds.minY = minY; mesh.bounds.maxY = maxY;
-    mesh.bounds.minZ = minZ; mesh.bounds.maxZ = maxZ;
-    mesh.bounds.centerX = (minX + maxX) * 0.5;
-    mesh.bounds.centerY = (minY + maxY) * 0.5;
-    mesh.bounds.centerZ = (minZ + maxZ) * 0.5;
-    double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-    mesh.bounds.extent = std::max({ dx, dy, dz });
-    if (mesh.bounds.extent < 0.001) mesh.bounds.extent = 1.0;
-    mesh.bounds.worldRadius = mesh.bounds.extent * 0.5;
-    mesh.hasBounds = true;
-
-    mesh_utils::finalizeSurfaceMesh(mesh, "STL", "STL", "STL Parser (ASCII): Loaded ");
+    finalizeSTLCommon(mesh, flatVerts, minX, minY, minZ, maxX, maxY, maxZ, "STL Parser (ASCII): Loaded ");
     return mesh;
 }
 
@@ -294,35 +284,7 @@ static RenderMesh parseSTLBinary(const std::string& filePath) {
         }
     }
 
-    // Sort-based dedup (same algorithm as ASCII path)
-    mesh_utils::indexFlatTriangles(flatVerts, mesh.vertices, mesh.indices);
-
-    // Hand the raw per-corner positions (9 floats/tri) to the mesh-quality
-    // analyzer; it welds these at trimesh's 1e-8 tolerance. The rendered indexed
-    // mesh keeps the looser 1/4096 dedup, so the two stay separate on purpose.
-    mesh.flatVerts = std::move(flatVerts);
-
-    // Cell-edge wireframe fallback: STL has no cell topology, so extract
-    // deduplicated triangle edges from the indexed mesh (before computeNormals
-    // splits vertices — indices stay valid after the split).
-    mesh.cellEdgeIndices = mesh_utils::extractTriEdges(mesh.indices);
-
-    // Finalize pre-computed bounds (finalizeSurfaceMesh will skip computeBounds
-    // via the hasBounds flag). Raw corner bounds equal post-dedup bounds within
-    // 1/4096 units — numerically equivalent for axis-aligned bounding box.
-    mesh.bounds.minX = minX; mesh.bounds.maxX = maxX;
-    mesh.bounds.minY = minY; mesh.bounds.maxY = maxY;
-    mesh.bounds.minZ = minZ; mesh.bounds.maxZ = maxZ;
-    mesh.bounds.centerX = (minX + maxX) * 0.5;
-    mesh.bounds.centerY = (minY + maxY) * 0.5;
-    mesh.bounds.centerZ = (minZ + maxZ) * 0.5;
-    double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-    mesh.bounds.extent = std::max({ dx, dy, dz });
-    if (mesh.bounds.extent < 0.001) mesh.bounds.extent = 1.0;
-    mesh.bounds.worldRadius = mesh.bounds.extent * 0.5;
-    mesh.hasBounds = true;
-
-    mesh_utils::finalizeSurfaceMesh(mesh, "STL", "STL", "STL Parser (Binary): Loaded ");
+    finalizeSTLCommon(mesh, flatVerts, minX, minY, minZ, maxX, maxY, maxZ, "STL Parser (Binary): Loaded ");
     return mesh;
 }
 

@@ -49,72 +49,61 @@ static Compression detectCompression(const std::string& compressorStr) {
 // [block_count: header_type][per_block: uncompressed_size: header_type, compressed_size: header_type, compressed_data]
 // Each block is independently decompressible.
 
+static inline bool readBlockHeader(const char* src, size_t srcLen, size_t& offset,
+                                   bool swapHeader, bool header64Flag,
+                                   size_t& uncompOut, size_t& compOut) {
+    if (header64Flag) {
+        if (offset + 2 * sizeof(uint64_t) > srcLen) return false;
+        uint64_t uncomp = 0, comp = 0;
+        std::memcpy(&uncomp, src + offset, sizeof(uint64_t));
+        std::memcpy(&comp, src + offset + sizeof(uint64_t), sizeof(uint64_t));
+        if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
+        offset += 2 * sizeof(uint64_t);
+        uncompOut = static_cast<size_t>(uncomp);
+        compOut = static_cast<size_t>(comp);
+    } else {
+        if (offset + 2 * sizeof(uint32_t) > srcLen) return false;
+        uint32_t uncomp = 0, comp = 0;
+        std::memcpy(&uncomp, src + offset, sizeof(uint32_t));
+        std::memcpy(&comp, src + offset + sizeof(uint32_t), sizeof(uint32_t));
+        if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
+        offset += 2 * sizeof(uint32_t);
+        uncompOut = static_cast<size_t>(uncomp);
+        compOut = static_cast<size_t>(comp);
+    }
+    return true;
+}
+
 static bool decompressZlib(const char* src, size_t srcLen, size_t& offset,
                            uint32_t numBlocks, bool swapHeader, bool header64Flag,
                            std::vector<char>& out) {
     out.clear();
-
     uint32_t block = 0;
     for (; block < numBlocks; ++block) {
-        if (header64Flag) {
-            if (offset + 2 * sizeof(uint64_t) > srcLen) break;
-            uint64_t uncomp = 0, comp = 0;
-            std::memcpy(&uncomp, src + offset, sizeof(uint64_t));
-            std::memcpy(&comp, src + offset + sizeof(uint64_t), sizeof(uint64_t));
-            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
-            offset += 2 * sizeof(uint64_t);
-            if (comp == 0 || offset + comp > srcLen) break;
-
-            z_stream strm;
-            std::memset(&strm, 0, sizeof(strm));
-            if (inflateInit(&strm) != Z_OK) break;
-            strm.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(src + offset));
-            strm.avail_in = static_cast<uInt>(comp);
-            char scratch[65536];
-            int ret = Z_OK;
-            while (ret != Z_STREAM_END) {
-                strm.next_out = reinterpret_cast<Bytef*>(scratch);
-                strm.avail_out = sizeof(scratch);
-                ret = inflate(&strm, Z_NO_FLUSH);
-                if (ret != Z_OK && ret != Z_STREAM_END) break;
-                size_t produced = sizeof(scratch) - strm.avail_out;
-                out.insert(out.end(), scratch, scratch + produced);
-                if (ret == Z_STREAM_END) break;
-                if (strm.avail_out != 0) { ret = Z_BUF_ERROR; break; }
-            }
-            inflateEnd(&strm);
-            offset += comp;
-            if (ret != Z_STREAM_END) break;
-        } else {
-            if (offset + 2 * sizeof(uint32_t) > srcLen) break;
-            uint32_t uncomp = 0, comp = 0;
-            std::memcpy(&uncomp, src + offset, sizeof(uint32_t));
-            std::memcpy(&comp, src + offset + sizeof(uint32_t), sizeof(uint32_t));
-            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
-            offset += 2 * sizeof(uint32_t);
-            if (comp == 0 || offset + comp > srcLen) break;
-
-            z_stream strm;
-            std::memset(&strm, 0, sizeof(strm));
-            if (inflateInit(&strm) != Z_OK) break;
-            strm.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(src + offset));
-            strm.avail_in = comp;
-            char scratch[65536];
-            int ret = Z_OK;
-            while (ret != Z_STREAM_END) {
-                strm.next_out = reinterpret_cast<Bytef*>(scratch);
-                strm.avail_out = sizeof(scratch);
-                ret = inflate(&strm, Z_NO_FLUSH);
-                if (ret != Z_OK && ret != Z_STREAM_END) break;
-                size_t produced = sizeof(scratch) - strm.avail_out;
-                out.insert(out.end(), scratch, scratch + produced);
-                if (ret == Z_STREAM_END) break;
-                if (strm.avail_out != 0) { ret = Z_BUF_ERROR; break; }
-            }
-            inflateEnd(&strm);
-            offset += comp;
-            if (ret != Z_STREAM_END) break;
+        size_t uncomp = 0, comp = 0;
+        if (!readBlockHeader(src, srcLen, offset, swapHeader, header64Flag, uncomp, comp)) break;
+        (void)uncomp;
+        if (comp == 0 || offset + comp > srcLen) break;
+        z_stream strm;
+        std::memset(&strm, 0, sizeof(strm));
+        if (inflateInit(&strm) != Z_OK) break;
+        strm.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(src + offset));
+        strm.avail_in = static_cast<uInt>(comp);
+        char scratch[65536];
+        int ret = Z_OK;
+        while (ret != Z_STREAM_END) {
+            strm.next_out = reinterpret_cast<Bytef*>(scratch);
+            strm.avail_out = sizeof(scratch);
+            ret = inflate(&strm, Z_NO_FLUSH);
+            if (ret != Z_OK && ret != Z_STREAM_END) break;
+            size_t produced = sizeof(scratch) - strm.avail_out;
+            out.insert(out.end(), scratch, scratch + produced);
+            if (ret == Z_STREAM_END) break;
+            if (strm.avail_out != 0) { ret = Z_BUF_ERROR; break; }
         }
+        inflateEnd(&strm);
+        offset += comp;
+        if (ret != Z_STREAM_END) break;
     }
     return block == numBlocks;
 }
@@ -124,54 +113,24 @@ static bool decompressLz4(const char* src, size_t srcLen, size_t& offset,
                            std::vector<char>& out) {
     out.clear();
     size_t lz4Block = 128 * 1024;  // VTK uses 128KB blocks
-
     uint32_t block = 0;
     for (; block < numBlocks; ++block) {
-        if (header64Flag) {
-            if (offset + 2 * sizeof(uint64_t) > srcLen) break;
-            uint64_t uncomp = 0, comp = 0;
-            std::memcpy(&uncomp, src + offset, sizeof(uint64_t));
-            std::memcpy(&comp, src + offset + sizeof(uint64_t), sizeof(uint64_t));
-            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
-            offset += 2 * sizeof(uint64_t);
-            if (comp == 0 || offset + comp > srcLen) break;
-
-            size_t remaining = static_cast<size_t>(uncomp);
-            size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
-            size_t base = out.size();
-            out.resize(base + blockSize);
-            char* dstPtr = out.data() + base;
-            int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
-            if (decoded < 0) {
-                out.resize(out.size() - blockSize);
-                VTK_XML_WARN("LZ4 decompression failed at block " << block);
-                break;
-            }
-            out.resize(out.size() - blockSize + decoded);
-            offset += comp;
-        } else {
-            if (offset + 2 * sizeof(uint32_t) > srcLen) break;
-            uint32_t uncomp = 0, comp = 0;
-            std::memcpy(&uncomp, src + offset, sizeof(uint32_t));
-            std::memcpy(&comp, src + offset + sizeof(uint32_t), sizeof(uint32_t));
-            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
-            offset += 2 * sizeof(uint32_t);
-            if (comp == 0 || offset + comp > srcLen) break;
-
-            size_t remaining = static_cast<size_t>(uncomp);
-            size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
-            size_t base = out.size();
-            out.resize(base + blockSize);
-            char* dstPtr = out.data() + base;
-            int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
-            if (decoded < 0) {
-                out.resize(out.size() - blockSize);
-                VTK_XML_WARN("LZ4 decompression failed at block " << block);
-                break;
-            }
-            out.resize(out.size() - blockSize + decoded);
-            offset += comp;
+        size_t uncomp = 0, comp = 0;
+        if (!readBlockHeader(src, srcLen, offset, swapHeader, header64Flag, uncomp, comp)) break;
+        if (comp == 0 || offset + comp > srcLen) break;
+        size_t remaining = uncomp;
+        size_t blockSize = (remaining > lz4Block) ? lz4Block : remaining;
+        size_t base = out.size();
+        out.resize(base + blockSize);
+        char* dstPtr = out.data() + base;
+        int decoded = LZ4_decompress_safe(src + offset, dstPtr, static_cast<int>(comp), static_cast<int>(blockSize));
+        if (decoded < 0) {
+            out.resize(out.size() - blockSize);
+            VTK_XML_WARN("LZ4 decompression failed at block " << block);
+            break;
         }
+        out.resize(out.size() - blockSize + decoded);
+        offset += comp;
     }
     return block == numBlocks;
 }
@@ -180,59 +139,20 @@ static bool decompressLzma(const char* src, size_t srcLen, size_t& offset,
                             uint32_t numBlocks, bool swapHeader, bool header64Flag,
                             std::vector<char>& out) {
     out.clear();
-
     uint32_t block = 0;
     for (; block < numBlocks; ++block) {
-        if (header64Flag) {
-            if (offset + 2 * sizeof(uint64_t) > srcLen) break;
-            uint64_t uncomp = 0, comp = 0;
-            std::memcpy(&uncomp, src + offset, sizeof(uint64_t));
-            std::memcpy(&comp, src + offset + sizeof(uint64_t), sizeof(uint64_t));
-            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
-            offset += 2 * sizeof(uint64_t);
-            if (comp == 0 || offset + comp > srcLen) break;
-            if (comp < LZMA_PROPS_SIZE) {
-                VTK_XML_WARN("LZMA block too small for props at block " << block);
-                break;
-            }
-
+        size_t uncomp = 0, comp = 0;
+        if (!readBlockHeader(src, srcLen, offset, swapHeader, header64Flag, uncomp, comp)) break;
+        if (comp == 0 || offset + comp > srcLen) break;
+        if (comp < LZMA_PROPS_SIZE) {
+            VTK_XML_WARN("LZMA block too small for props at block " << block);
+            break;
+        }
+        {
             const Byte* props = reinterpret_cast<const Byte*>(src + offset);
             const Byte* lzmaSrc = reinterpret_cast<const Byte*>(src + offset + LZMA_PROPS_SIZE);
-            size_t lzmaSrcLen = static_cast<size_t>(comp) - LZMA_PROPS_SIZE;
-            size_t destLen = static_cast<size_t>(uncomp);
-
-            std::vector<char> blockOut(destLen);
-            ELzmaStatus status;
-            size_t srcLen2 = lzmaSrcLen;
-            size_t destLen2 = destLen;
-            static ISzAlloc g_Alloc = { SzAlloc, SzFree };
-            SRes res = LzmaDecode(reinterpret_cast<Byte*>(blockOut.data()), &destLen2,
-                                  lzmaSrc, &srcLen2, props, LZMA_PROPS_SIZE,
-                                  LZMA_FINISH_ANY, &status, &g_Alloc);
-            if (res != SZ_OK) {
-                VTK_XML_WARN("LZMA decompression failed: res=" << res << " status=" << status);
-                break;
-            }
-            out.insert(out.end(), blockOut.data(), blockOut.data() + destLen2);
-            offset += comp;
-        } else {
-            if (offset + 2 * sizeof(uint32_t) > srcLen) break;
-            uint32_t uncomp = 0, comp = 0;
-            std::memcpy(&uncomp, src + offset, sizeof(uint32_t));
-            std::memcpy(&comp, src + offset + sizeof(uint32_t), sizeof(uint32_t));
-            if (swapHeader) { mesh_utils::byteSwap(&uncomp); mesh_utils::byteSwap(&comp); }
-            offset += 2 * sizeof(uint32_t);
-            if (comp == 0 || offset + comp > srcLen) break;
-            if (comp < LZMA_PROPS_SIZE) {
-                VTK_XML_WARN("LZMA block too small for props at block " << block);
-                break;
-            }
-
-            const Byte* props = reinterpret_cast<const Byte*>(src + offset);
-            const Byte* lzmaSrc = reinterpret_cast<const Byte*>(src + offset + LZMA_PROPS_SIZE);
-            size_t lzmaSrcLen = static_cast<size_t>(comp) - LZMA_PROPS_SIZE;
-            size_t destLen = static_cast<size_t>(uncomp);
-
+            size_t lzmaSrcLen = comp - LZMA_PROPS_SIZE;
+            size_t destLen = uncomp;
             std::vector<char> blockOut(destLen);
             ELzmaStatus status;
             size_t srcLen2 = lzmaSrcLen;
@@ -355,99 +275,47 @@ static int vtkTypeSize(VtkType t) {
     }
 }
 
-// Convert a raw, correctly-typed byte buffer into floats for the renderer.
-template<typename T>
-static void appendTypedAsFloat(const char* p, size_t count, bool swap, std::vector<float>& out) {
+// Unified typed conversion — single source for float/int32/int64 paths.
+template<typename Src, typename Dst>
+static void appendTyped(const char* p, size_t count, bool swap, std::vector<Dst>& out) {
     out.reserve(out.size() + count);
     for (size_t i = 0; i < count; ++i) {
-        T v;
-        std::memcpy(&v, p + i * sizeof(T), sizeof(T));
-        if constexpr (sizeof(T) > 1) {
+        Src v;
+        std::memcpy(&v, p + i * sizeof(Src), sizeof(Src));
+        if constexpr (sizeof(Src) > 1) {
             if (swap) mesh_utils::byteSwap(&v);
         }
-        out.push_back(static_cast<float>(v));
+        out.push_back(static_cast<Dst>(v));
+    }
+}
+
+template<typename Dst>
+static void convertBytes(const std::vector<char>& bytes, VtkType t, bool swap, std::vector<Dst>& out) {
+    const char* p = bytes.data();
+    size_t count = t != VTK_TYPE_UNDEFINED ? bytes.size() / static_cast<size_t>(vtkTypeSize(t)) : 0;
+    switch (t) {
+    case VTK_TYPE_INT8:    appendTyped<int8_t, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_UINT8:   appendTyped<uint8_t, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_INT16:   appendTyped<int16_t, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_UINT16:  appendTyped<uint16_t, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_INT32:   appendTyped<int32_t, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_UINT32:  appendTyped<uint32_t, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_INT64:   appendTyped<int64_t, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_UINT64:  appendTyped<uint64_t, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_FLOAT32: appendTyped<float, Dst>(p, count, swap, out); break;
+    case VTK_TYPE_FLOAT64: appendTyped<double, Dst>(p, count, swap, out); break;
+    default: break;
     }
 }
 
 static void convertBytesToFloat(const std::vector<char>& bytes, VtkType t, bool swap, std::vector<float>& out) {
-    const char* p = bytes.data();
-    size_t count = t != VTK_TYPE_UNDEFINED ? bytes.size() / static_cast<size_t>(vtkTypeSize(t)) : 0;
-    switch (t) {
-    case VTK_TYPE_INT8:   appendTypedAsFloat<int8_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT8:  appendTypedAsFloat<uint8_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT16:  appendTypedAsFloat<int16_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT16: appendTypedAsFloat<uint16_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT32:  appendTypedAsFloat<int32_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT32: appendTypedAsFloat<uint32_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT64:  appendTypedAsFloat<int64_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT64: appendTypedAsFloat<uint64_t>(p, count, swap, out); break;
-    case VTK_TYPE_FLOAT32: appendTypedAsFloat<float>(p, count, swap, out); break;
-    case VTK_TYPE_FLOAT64: appendTypedAsFloat<double>(p, count, swap, out); break;
-    default: break;
-    }
+    convertBytes<float>(bytes, t, swap, out);
 }
-
-// Convert a raw, correctly-typed byte buffer into int32 for topology arrays.
-template<typename T>
-static void appendTypedAsInt32(const char* p, size_t count, bool swap, std::vector<int32_t>& out) {
-    out.reserve(out.size() + count);
-    for (size_t i = 0; i < count; ++i) {
-        T v;
-        std::memcpy(&v, p + i * sizeof(T), sizeof(T));
-        if constexpr (sizeof(T) > 1) {
-            if (swap) mesh_utils::byteSwap(&v);
-        }
-        out.push_back(static_cast<int32_t>(v));
-    }
-}
-
 static void convertBytesToInt32(const std::vector<char>& bytes, VtkType t, bool swap, std::vector<int32_t>& out) {
-    const char* p = bytes.data();
-    size_t count = t != VTK_TYPE_UNDEFINED ? bytes.size() / static_cast<size_t>(vtkTypeSize(t)) : 0;
-    switch (t) {
-    case VTK_TYPE_INT8:   appendTypedAsInt32<int8_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT8:  appendTypedAsInt32<uint8_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT16:  appendTypedAsInt32<int16_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT16: appendTypedAsInt32<uint16_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT32:  appendTypedAsInt32<int32_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT32: appendTypedAsInt32<uint32_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT64:  appendTypedAsInt32<int64_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT64: appendTypedAsInt32<uint64_t>(p, count, swap, out); break;
-    case VTK_TYPE_FLOAT32: appendTypedAsInt32<float>(p, count, swap, out); break;
-    case VTK_TYPE_FLOAT64: appendTypedAsInt32<double>(p, count, swap, out); break;
-    default: break;
-    }
+    convertBytes<int32_t>(bytes, t, swap, out);
 }
-
-template<typename T>
-static void appendTypedAsInt64(const char* p, size_t count, bool swap, std::vector<int64_t>& out) {
-    out.reserve(out.size() + count);
-    for (size_t i = 0; i < count; ++i) {
-        T v;
-        std::memcpy(&v, p + i * sizeof(T), sizeof(T));
-        if constexpr (sizeof(T) > 1) {
-            if (swap) mesh_utils::byteSwap(&v);
-        }
-        out.push_back(static_cast<int64_t>(v));
-    }
-}
-
 static void convertBytesToInt64(const std::vector<char>& bytes, VtkType t, bool swap, std::vector<int64_t>& out) {
-    const char* p = bytes.data();
-    size_t count = t != VTK_TYPE_UNDEFINED ? bytes.size() / static_cast<size_t>(vtkTypeSize(t)) : 0;
-    switch (t) {
-    case VTK_TYPE_INT8:   appendTypedAsInt64<int8_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT8:  appendTypedAsInt64<uint8_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT16:  appendTypedAsInt64<int16_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT16: appendTypedAsInt64<uint16_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT32:  appendTypedAsInt64<int32_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT32: appendTypedAsInt64<uint32_t>(p, count, swap, out); break;
-    case VTK_TYPE_INT64:  appendTypedAsInt64<int64_t>(p, count, swap, out); break;
-    case VTK_TYPE_UINT64: appendTypedAsInt64<uint64_t>(p, count, swap, out); break;
-    case VTK_TYPE_FLOAT32: appendTypedAsInt64<float>(p, count, swap, out); break;
-    case VTK_TYPE_FLOAT64: appendTypedAsInt64<double>(p, count, swap, out); break;
-    default: break;
-    }
+    convertBytes<int64_t>(bytes, t, swap, out);
 }
 
 // ============================================================================
@@ -531,7 +399,7 @@ public:
 
         // Root-level FieldData (metadata arrays like Time, etc.)
         if (pugi::xml_node rootFieldData = root.child("FieldData")) {
-            if (!mesh.attributes) mesh.attributes = DatasetAttributes();
+            mesh_utils::ensureAttributes(mesh);
             for (pugi::xml_node da : rootFieldData.children("DataArray")) {
                 DataArrayMeta meta = readDataArrayMeta(da);
                 std::vector<float> vals;
@@ -984,7 +852,7 @@ private:
     void parseDataBlocks(const pugi::xml_node& piece) {
         int piecePoints = piece.attribute("NumberOfPoints").as_int(0);
         int pieceCells = piece.attribute("NumberOfCells").as_int(0);
-        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+        mesh_utils::ensureAttributes(mesh);
 
         // PointData
         parseOneDataBlock(piece.child("PointData"), pointFields, piecePoints, true);
@@ -1223,6 +1091,23 @@ private:
             if (it != mesh.attributes->pointScalars.end()) mesh.scalarName = activeCellScalarsName;
             else if (mesh.attributes->cellScalars.find(activeCellScalarsName) != mesh.attributes->cellScalars.end()) mesh.scalarName = activeCellScalarsName;
             else if (cellScalarsStorage.find(activeCellScalarsName) != cellScalarsStorage.end()) mesh.scalarName = activeCellScalarsName;
+        }
+        // Ensure scalarMin/Max matches the final active scalar (calculateScalarRanges ran with empty scalarName for XML)
+        if (!mesh.scalarName.empty() && mesh.attributes) {
+            auto pit = mesh.attributes->pointScalarRanges.find(mesh.scalarName);
+            auto cit = mesh.attributes->cellScalarRanges.find(mesh.scalarName);
+            bool hasP = pit != mesh.attributes->pointScalarRanges.end();
+            bool hasC = cit != mesh.attributes->cellScalarRanges.end();
+            if (hasP && hasC) {
+                mesh.attributes->scalarMin = std::min(pit->second.first, cit->second.first);
+                mesh.attributes->scalarMax = std::max(pit->second.second, cit->second.second);
+            } else if (hasP) {
+                mesh.attributes->scalarMin = pit->second.first;
+                mesh.attributes->scalarMax = pit->second.second;
+            } else if (hasC) {
+                mesh.attributes->scalarMin = cit->second.first;
+                mesh.attributes->scalarMax = cit->second.second;
+            }
         }
         if (!activePointVectorsName.empty()) {
             bool exists = false;

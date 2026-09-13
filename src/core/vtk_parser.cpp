@@ -141,6 +141,25 @@ private:
         return true;
     }
 
+    template<typename T>
+    bool readBlock(std::ifstream& f, size_t count, std::vector<T>& out, const char* label, bool checkAscii = true) {
+        if (isBinary) {
+            if (!readBinaryArray(f, count, out)) {
+                std::cerr << "VTK Parser Warning: short read on binary " << label << "." << std::endl;
+                out.clear();
+                return false;
+            }
+        } else {
+            size_t n = mesh_utils::readAsciiValues(f, count, out);
+            if (checkAscii && n != count) {
+                std::cerr << "VTK Parser Warning: short read on ASCII " << label << "." << std::endl;
+                out.clear();
+                return false;
+            }
+        }
+        return true;
+    }
+
     void processToken(std::string_view token, const char* lineRest, const char* lineEnd, std::ifstream& file) {
         // First-char dispatch + iequal for remaining — avoids string copies entirely.
         if (token == "BINARY") { isBinary = true; isLittleEndianFile = false; }
@@ -336,35 +355,14 @@ private:
         auto [p0, e0] = std::from_chars(p, lineEnd, numCells); p = p0;
         p = mesh_utils::skipWhitespace(p, lineEnd);
         std::from_chars(p, lineEnd, cellSize);
-        rawCellData.resize(cellSize);
-        if (isBinary) {
-            if (!readBinaryArray(file, cellSize, rawCellData)) {
-                std::cerr << "VTK Parser Warning: short read on binary CELLS." << std::endl;
-                rawCellData.clear();
-                return;
-            }
-        }
-        else {
-            mesh_utils::readAsciiValues(file, cellSize, rawCellData);
-        }
+        if (!readBlock(file, cellSize, rawCellData, "CELLS", false)) return;
     }
 
     void parseCellTypesBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
         const char* p = lineRest;
         p = mesh_utils::skipWhitespace(p, lineEnd);
-        std::from_chars(p, lineEnd, numCells); cellTypes.resize(numCells);
-        if (isBinary) {
-            std::vector<int32_t> rawTypes(numCells);
-            if (!readBinaryArray(file, numCells, rawTypes)) {
-                std::cerr << "VTK Parser Warning: short read on binary CELL_TYPES." << std::endl;
-                cellTypes.clear();
-                return;
-            }
-            for (int i = 0; i < numCells; ++i) cellTypes[i] = rawTypes[i];
-        }
-        else {
-            mesh_utils::readAsciiValues(file, numCells, cellTypes);
-        }
+        std::from_chars(p, lineEnd, numCells);
+        if (!readBlock(file, numCells, cellTypes, "CELL_TYPES", false)) { cellTypes.clear(); return; }
     }
 
     void parsePolygonsBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
@@ -374,20 +372,13 @@ private:
         auto [p0, e0] = std::from_chars(p, lineEnd, numPolys); p = p0;
         p = mesh_utils::skipWhitespace(p, lineEnd);
         std::from_chars(p, lineEnd, sizeOfPolysBlock);
-        std::vector<int32_t> polyData(sizeOfPolysBlock);
-        if (isBinary) {
-            if (!readBinaryArray(file, sizeOfPolysBlock, polyData)) {
-                std::cerr << "VTK Parser Warning: short read on binary POLYGONS." << std::endl;
-                polyData.clear();
-                return;
-            }
-        }
+        std::vector<int32_t> polyData;
+        if (!readBlock(file, sizeOfPolysBlock, polyData, "POLYGONS", false)) polyData.clear();
         else {
-            mesh_utils::readAsciiValues(file, sizeOfPolysBlock, polyData);
+            auto cells = vtk_common::triangulatePolygons(mesh, polyData, numPolys);
+            globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
+            numCells += numPolys;
         }
-        auto cells = vtk_common::triangulatePolygons(mesh, polyData, numPolys);
-        globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
-        numCells += numPolys;
     }
 
     void parseVerticesBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
@@ -397,17 +388,8 @@ private:
         auto [p0, e0] = std::from_chars(p, lineEnd, numVerts); p = p0;
         p = mesh_utils::skipWhitespace(p, lineEnd);
         std::from_chars(p, lineEnd, sizeOfVertsBlock);
-        std::vector<int32_t> vertData(sizeOfVertsBlock);
-        if (isBinary) {
-            if (!readBinaryArray(file, sizeOfVertsBlock, vertData)) {
-                std::cerr << "VTK Parser Warning: short read on binary VERTICES." << std::endl;
-                vertData.clear();
-                return;
-            }
-        }
-        else {
-            mesh_utils::readAsciiValues(file, sizeOfVertsBlock, vertData);
-        }
+        std::vector<int32_t> vertData;
+        if (!readBlock(file, sizeOfVertsBlock, vertData, "VERTICES", false)) vertData.clear();
         auto cells = vtk_common::triangulatePolygons(mesh, vertData, numVerts);
         globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
         numCells += numVerts;
@@ -421,17 +403,8 @@ private:
         auto [p0, e0] = std::from_chars(p, lineEnd, numLines); p = p0;
         p = mesh_utils::skipWhitespace(p, lineEnd);
         std::from_chars(p, lineEnd, sizeOfLinesBlock);
-        std::vector<int32_t> lineData(sizeOfLinesBlock);
-        if (isBinary) {
-            if (!readBinaryArray(file, sizeOfLinesBlock, lineData)) {
-                std::cerr << "VTK Parser Warning: short read on binary LINES." << std::endl;
-                lineData.clear();
-                return;
-            }
-        }
-        else {
-            mesh_utils::readAsciiValues(file, sizeOfLinesBlock, lineData);
-        }
+        std::vector<int32_t> lineData;
+        if (!readBlock(file, sizeOfLinesBlock, lineData, "LINES", false)) lineData.clear();
         // LINES is its own topology source (see parsePolygonsBlock).
         auto cells = vtk_common::triangulateLines(mesh, lineData, numLines);
         globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
@@ -445,17 +418,8 @@ private:
         auto [p0, e0] = std::from_chars(p, lineEnd, numStrips); p = p0;
         p = mesh_utils::skipWhitespace(p, lineEnd);
         std::from_chars(p, lineEnd, sizeOfStripsBlock);
-        std::vector<int32_t> stripData(sizeOfStripsBlock);
-        if (isBinary) {
-            if (!readBinaryArray(file, sizeOfStripsBlock, stripData)) {
-                std::cerr << "VTK Parser Warning: short read on binary TRIANGLE_STRIPS." << std::endl;
-                stripData.clear();
-                return;
-            }
-        }
-        else {
-            mesh_utils::readAsciiValues(file, sizeOfStripsBlock, stripData);
-        }
+        std::vector<int32_t> stripData;
+        if (!readBlock(file, sizeOfStripsBlock, stripData, "TRIANGLE_STRIPS", false)) stripData.clear();
         auto cells = vtk_common::triangulateTriangleStrips(mesh, stripData, numStrips);
         globalCellToVertices.insert(globalCellToVertices.end(), cells.begin(), cells.end());
         // ponytail: cells are now per-triangle (see triangulateTriangleStrips),
@@ -581,7 +545,7 @@ private:
             }
 
             if (!multiCompData.empty()) {
-                if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+                mesh_utils::ensureAttributes(mesh);
                 if (readingFieldData) {
                     mesh.attributes->fieldData[scalarName] = std::move(multiCompData);
                     if (numComponents > 1) mesh.attributes->pointFieldComponents[scalarName] = numComponents;
@@ -651,7 +615,7 @@ private:
             if (!binaryReadOk) {
                 std::cerr << "VTK Parser Warning: short read on binary SCALARS '" << scalarName
                           << "'; skipping field to avoid stream desync." << std::endl;
-                if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+                mesh_utils::ensureAttributes(mesh);
                 if (readingFieldData) mesh.attributes->fieldData[scalarName];
                 else if (readingPointData) mesh.attributes->pointScalars[scalarName];
                 else { mesh.attributes->cellScalars[scalarName]; cellScalarsStorage[scalarName]; }
@@ -822,7 +786,7 @@ private:
         }
 
         if (readTens.empty()) return;
-        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+        mesh_utils::ensureAttributes(mesh);
         if (readingFieldData) {
             mesh.attributes->fieldData[tensorName] = std::move(readTens);
             mesh.attributes->pointTensorComponents[tensorName] = 9;
@@ -879,7 +843,7 @@ private:
         }
 
         if (readTC.empty()) return;
-        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+        mesh_utils::ensureAttributes(mesh);
         if (readingFieldData) {
             mesh.attributes->fieldData[tcName] = std::move(readTC);
             mesh.attributes->pointTexCoordComponents[tcName] = numCoords;
@@ -918,7 +882,7 @@ private:
         }
         if (ncomponents < 1) ncomponents = 1;
 
-        if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+        mesh_utils::ensureAttributes(mesh);
 
         const size_t total = static_cast<size_t>(ntuples) * static_cast<size_t>(ncomponents);
         std::vector<float> fieldDataFlat;
@@ -983,7 +947,7 @@ private:
 
         if (readNorms.empty()) return;
         if (readingFieldData) {
-            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            mesh_utils::ensureAttributes(mesh);
             mesh.attributes->fieldData[normName] = std::move(readNorms);
         } else {
             mesh.normals = std::move(readNorms);
@@ -1048,23 +1012,23 @@ private:
         }
 
         if (readVecs.empty()) {
-            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            mesh_utils::ensureAttributes(mesh);
             if (readingFieldData) mesh.attributes->fieldData[vecName];
             else if (readingPointData) mesh.attributes->pointVectors[vecName];
             else cellVectorsStorage[vecName];
             return;
         }
         if (readingFieldData) {
-            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            mesh_utils::ensureAttributes(mesh);
             mesh.attributes->fieldData[vecName] = std::move(readVecs);
             std::cerr << "VTK: parsed FIELD VECTORS '" << vecName << "' (" << activeElementCount << " vectors)" << std::endl;
         }
         else if (readingPointData) {
-            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            mesh_utils::ensureAttributes(mesh);
             mesh.attributes->pointVectors[vecName] = std::move(readVecs);
             std::cerr << "VTK: parsed POINT VECTORS '" << vecName << "' (" << activeElementCount << " vectors)" << std::endl;
         } else {
-            if (!mesh.attributes.has_value()) mesh.attributes = DatasetAttributes();
+            mesh_utils::ensureAttributes(mesh);
             cellVectorsStorage[vecName] = std::move(readVecs);
             std::cerr << "VTK: parsed CELL VECTORS '" << vecName << "' (" << activeElementCount << " vectors, extrapolated to points)" << std::endl;
         }

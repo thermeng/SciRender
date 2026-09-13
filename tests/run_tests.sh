@@ -33,6 +33,13 @@ g++ -std=c++20 -O2 -g ../src/core/vtk_parser.cpp ../src/core/vtk_xml_parser.cpp 
 echo "[run_tests] running isosurface_test..."
 ./isosurface_test.exe | tee last_isosurface.log
 echo ""
+echo "[run_tests] building post_fields_test..."
+g++ -std=c++20 -O2 -g ../src/core/post_fields.cpp \
+  post_fields_test.cpp \
+  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o post_fields_test.exe
+echo "[run_tests] running post_fields_test..."
+./post_fields_test.exe | tee last_post_fields.log
+echo ""
 echo "[run_tests] building pvd_test..."
 g++ -std=c++20 -O2 -g ../src/core/pvd_parser.cpp ../src/core/vtk_parser.cpp ../src/core/vtk_xml_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
   ../src/core/stl_parser.cpp ../src/core/obj_parser.cpp ../src/core/mesh_loader.cpp \

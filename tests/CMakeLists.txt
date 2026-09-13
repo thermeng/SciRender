@@ -34,6 +34,9 @@ add_executable(parse_regression
     ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_quality.cpp
 )
 target_include_directories(parse_regression PRIVATE
     ${CMAKE_SOURCE_DIR}/../src
@@ -76,6 +79,9 @@ add_executable(pvd_test
     ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_quality.cpp
 )
 target_include_directories(pvd_test PRIVATE
     ${CMAKE_SOURCE_DIR}/../src
@@ -138,6 +144,31 @@ add_test(NAME pvd_test COMMAND pvd_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE
 add_test(NAME field_names_test COMMAND field_names_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME anim_range_test COMMAND anim_range_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME streamline_direction_test COMMAND streamline_direction_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Post-processed fields (core math, no Qt/GL)
+add_executable(post_fields_test
+    post_fields_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/post_fields.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/gradient_estimator.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
+)
+target_include_directories(post_fields_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+)
+add_test(NAME post_fields_test COMMAND post_fields_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(post_fields_visualization_test
+    post_fields_visualization_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/post_fields.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/gradient_estimator.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
+)
+target_include_directories(post_fields_visualization_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+)
+add_test(NAME post_fields_visualization_test COMMAND post_fields_visualization_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Fly-to-face camera interpolation (camera_math) + triad footprint rules.
 # Uses the real Camera class; pure GLM, no Qt/GL.
