@@ -2,6 +2,7 @@
 
 #include "render/foundation/gl_raii.h"
 #include "core/mesh_loader.h"
+#include "core/post_fields.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -14,8 +15,10 @@ public:
     // Returns a 3D texture handle for the named scalar field.
     // Builds and caches on first access. Returns 0 if unavailable.
     // placement: 0=Vertex (point), 1=Cell Center (cell) — mirrors scalarPlacement.
+    // snap: computed post-proc snapshot (null = mesh fields only).
     GLuint textureForField(const std::string& name, const RenderMesh* mesh,
-                           const glm::vec3& boxMin, const glm::vec3& boxMax, int placement = 0);
+                           const glm::vec3& boxMin, const glm::vec3& boxMax, int placement = 0,
+                           const postfields::ComputedSnapshot* snap = nullptr);
 
     void invalidate(const std::string& name);
     void invalidateAll();
@@ -29,8 +32,10 @@ private:
     };
 
     GLuint buildTexture(const std::string& name, const RenderMesh* mesh,
-                        const glm::vec3& boxMin, const glm::vec3& boxMax, int placement = 0);
-    const std::vector<float>* resolveField(const RenderMesh& mesh, const std::string& name, int placement = 0) const;
+                        const glm::vec3& boxMin, const glm::vec3& boxMax, int placement,
+                        const postfields::ComputedSnapshot* snap);
+    const std::vector<float>* resolveField(const RenderMesh& mesh, const std::string& name, int placement,
+                                           const postfields::ComputedSnapshot* snap) const;
 
     std::unordered_map<std::string, Entry> m_entries;
     GlBuffer m_pbo[2];

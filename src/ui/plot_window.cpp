@@ -1,6 +1,8 @@
 #include "plot_window.h"
 #include "render/settings/render_settings.h"
-#include "core/FieldResolver.h"
+#include "core/FieldStore.h"
+#include "core/field_sampler.h"
+#include "core/post_fields.h"
 #include "render/foundation/renderer.h"
 #include "render/passes/PlotKernel.h"
 #include <QVBoxLayout>
@@ -250,25 +252,17 @@ void PlotWindow::updatePlacementOptions() {
     Renderer* renderer = m_settings->backend();
     if (!renderer) return;
     auto* rm = renderer->lastUploadedMeshForPlot();
-    if (!rm || !rm->attributes) {
-        m_placementCombo->setEnabled(false);
-        return;
-    }
+    if (!rm) { m_placementCombo->setEnabled(false); return; }
     QString field = m_fieldCombo->currentText();
     if (field.isEmpty()) { m_placementCombo->setEnabled(false); return; }
     std::string fname = field.toStdString();
-    bool hasPoint = false, hasCell = false;
-    auto& attr = *rm->attributes;
-    if (attr.pointScalars.find(fname) != attr.pointScalars.end()) hasPoint = true;
-    if (attr.cellScalars.find(fname) != attr.cellScalars.end()) hasCell = true;
-    // Derived scalars (e.g. velocity_magnitude) are point-derived when backend materializes them
-    // but they have no cell storage; check via FieldResolver derived list is not needed here.
-    // If neither map contains the field, it may be derived or from scalars vector - treat as Vertex only.
-    if (!hasPoint && !hasCell) {
-        // Check if field resolves at all - if so, show Vertex only
-        float mn, mx;
-        if (FieldResolver::scalarData(*rm, fname, mn, mx)) hasPoint = true;
-    }
+    const postfields::ComputedSnapshot* snap = m_settings ? m_settings->snapshot().computed.get() : nullptr;
+    FieldStore::Context ctx(*rm, snap);
+    bool hasPoint = ctx.scalar(fname, FieldStore::Placement::Vertex).data != nullptr;
+    bool hasCell  = ctx.scalarForVolume({fname, FieldStore::Placement::CellCenter}).data != nullptr
+                 || ctx.scalar(fname, FieldStore::Placement::CellCenter).data != nullptr;
+    // snapshot scalars are point-only v1
+    if (!hasPoint && snap && snap->scalars.find(fname) != snap->scalars.end()) hasPoint = true;
     m_placementCombo->blockSignals(true);
     // Preserve user selection if still valid — do not force to global here.
     // Global scalarPlacement is the default for scalar surface/volume, plot keeps its own local choice.
@@ -287,7 +281,12 @@ void PlotWindow::updatePlacementOptions() {
         // Fallback to previous hack if model is not QStandardItemModel
         m_placementCombo->setItemData(1, hasCell ? QVariant(true) : QVariant(false), Qt::UserRole - 1);
     }
-    m_placementCombo->setToolTip(hasCell ? tr("Cell available (%1 cells)").arg(attr.cellScalars.count(fname) ? (int)attr.cellScalars.at(fname).size() : 0)
+    int cellCount = 0;
+    if (hasCell && rm->attributes) {
+        auto it = rm->attributes->cellScalars.find(fname);
+        if (it != rm->attributes->cellScalars.end()) cellCount = (int)it->second.size();
+    }
+    m_placementCombo->setToolTip(hasCell ? tr("Cell available (%1 cells)").arg(cellCount)
                                          : tr("No raw cell data for this field — Vertex only"));
     m_placementCombo->blockSignals(false);
 }
@@ -334,10 +333,25 @@ void PlotWindow::recomputeHistogram() {
         }
     }
     if (!useCell) {
-        // Placement-aware resolve: 0=Vertex (point). Use global scalarPlacement where possible
-        // but the plot window has its own local placement combo, so we force Vertex here.
-        int placement = 0;
-        src = FieldResolver::scalarData(*rm, fname, dataMin, dataMax, placement);
+        const postfields::ComputedSnapshot* snap = m_settings ? m_settings->snapshot().computed.get() : nullptr;
+        // Snapshot shadows mesh fields.
+        if (snap) {
+            auto it = snap->scalars.find(fname);
+            if (it != snap->scalars.end() && it->second && !it->second->empty()) {
+                src = it->second.get();
+                auto rit = snap->scalarRanges.find(fname);
+                if (rit != snap->scalarRanges.end()) { dataMin = rit->second.first; dataMax = rit->second.second; }
+                else {
+                    auto r = FieldStore::computeRange(*src);
+                    dataMin = r.min; dataMax = r.max;
+                }
+            }
+        }
+        if (!src) {
+            int placement = 0;
+            auto p = FieldStore::Placement::Vertex;
+            src = FieldStore::scalarData(*rm, fname, dataMin, dataMax, p, snap);
+        }
         if (!src || src->empty()) {
             m_statusLabel->setText(tr("Field not found"));
             return;
@@ -505,151 +519,37 @@ void PlotWindow::recomputeLine(){
     auto* rm=r->lastUploadedMeshForPlot(); if(!rm){ m_lineStatus->setText(tr("No mesh")); return; }
     std::string fname=field.toStdString();
     bool useCell=m_linePlacementCombo && m_linePlacementCombo->currentIndex()==1;
-    // Validate cell availability
-    if(useCell && rm->attributes){
-        auto it=rm->attributes->cellScalars.find(fname);
-        if(it==rm->attributes->cellScalars.end() || it->second.empty()) useCell=false;
-    }
     float p0x=m_p0x->value(),p0y=m_p0y->value(),p0z=m_p0z->value();
     float p1x=m_p1x->value(),p1y=m_p1y->value(),p1z=m_p1z->value();
     int N=m_samplesSpin?m_samplesSpin->value():256; N=std::clamp(N,32,2048);
     glm::vec3 p0(p0x,p0y,p0z), p1(p1x,p1y,p1z);
     float len=glm::length(p1-p0); if(len<1e-9f){ m_lineStatus->setText(tr("P0==P1")); return; }
-    // Resolve scalar array and range for stats (placement-aware)
+    const postfields::ComputedSnapshot* snap = m_settings ? m_settings->snapshot().computed.get() : nullptr;
+    FieldStore::Context ctx(*rm, snap);
+    // Validate cell availability via unified store
+    if (useCell && !ctx.scalarForVolume({fname, FieldStore::Placement::CellCenter}).data
+                && !ctx.scalar(fname, FieldStore::Placement::CellCenter).data)
+        useCell = false;
     float rMin=0,rMax=1;
-    const std::vector<float>* src=nullptr;
-    if(useCell){
-        if(rm->attributes){
-            auto it=rm->attributes->cellScalars.find(fname);
-            if(it!=rm->attributes->cellScalars.end()){ src=&it->second; auto rit=rm->attributes->cellScalarRanges.find(fname); if(rit!=rm->attributes->cellScalarRanges.end()){ rMin=rit->second.first; rMax=rit->second.second; } }
-        }
-        if(!src) src=FieldResolver::scalarData(*rm,fname,rMin,rMax,1);
-    } else {
-        src=FieldResolver::scalarData(*rm,fname,rMin,rMax,0);
+    {
+        auto sf = useCell ? ctx.scalarForVolume({fname, FieldStore::Placement::CellCenter})
+                          : ctx.scalar(fname, FieldStore::Placement::Vertex);
+        if (!sf.data) sf = ctx.scalar(fname, useCell ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex);
+        if (sf.data) { rMin = sf.range.min; rMax = sf.range.max; }
+        else { m_lineStatus->setText(tr("Field not found")); return; }
     }
-    if(!src||src->empty()){ m_lineStatus->setText(tr("Field not found")); return; }
-    // Prepare sampling
     std::vector<float> dists; dists.reserve(N);
     std::vector<float> vals; vals.reserve(N);
-    // Structured grid fast path
-    bool isStructured = rm->gridDimX>1 && rm->gridDimY>1;
-    // Use brute-force cell search for trilinear/nearest
-    int dX=rm->gridDimX, dY=rm->gridDimY, dZ=rm->gridDimZ;
-    const float* verts = rm->vertices.data();
-    auto idx=[&](int x,int y,int z){ return x + y*dX + z*dX*dY; };
+    auto placement = useCell ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
     for(int i=0;i<N;++i){
         float t=float(i)/float(N-1);
         glm::vec3 pos = p0 + t*(p1-p0);
         float dist = t*len;
-        float v = std::numeric_limits<float>::quiet_NaN();
-        if(isStructured && dX>0 && dY>0 && dZ>0 && verts){
-            // Find containing cell
-            bool found=false;
-            int cdX=std::max(1,dX-1), cdY=std::max(1,dY-1), cdZ=std::max(1,dZ-1);
-            // For ImageData 2D cdZ=1? handle 2D: if dZ==1, cdZ=1 but cells are quads
-            // Brute: iterate cells
-            for(int cz=0; cz<cdZ && !found; ++cz) for(int cy=0; cy<cdY && !found; ++cy) for(int cx=0; cx<cdX && !found; ++cx){
-                // quick bbox filter using 8 corners min/max
-                float minx=1e30f,miny=1e30f,minz=1e30f,maxx=-1e30f,maxy=-1e30f,maxz=-1e30f;
-                // For 2D dZ==1 only 4 corners
-                int z0= cz, z1= std::min(cz+1,dZ-1);
-                int y0= cy, y1= std::min(cy+1,dY-1);
-                int x0= cx, x1= std::min(cx+1,dX-1);
-                // gather corners
-                int corners[8][3]={{x0,y0,z0},{x1,y0,z0},{x1,y1,z0},{x0,y1,z0},{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}};
-                for(int k=0;k<8;++k){
-                    int n=idx(corners[k][0],corners[k][1],corners[k][2]);
-                    if(n<0|| size_t(n*3+2)>=rm->vertices.size()) continue;
-                    float px=verts[n*3+0], py=verts[n*3+1], pz=verts[n*3+2];
-                    minx=std::min(minx,px); maxx=std::max(maxx,px);
-                    miny=std::min(miny,py); maxy=std::max(maxy,py);
-                    minz=std::min(minz,pz); maxz=std::max(maxz,pz);
-                }
-                const float eps=1e-6f;
-                if(pos.x < minx - eps || pos.x > maxx + eps) continue;
-                if(pos.y < miny - eps || pos.y > maxy + eps) continue;
-                if(dZ>1 && (pos.z < minz - eps || pos.z > maxz + eps)) continue;
-                // Inside this cell
-                if(useCell){
-                    // cell index
-                    int cIdx = cx + cy*cdX + cz*cdX*cdY;
-                    if(rm->attributes){
-                        auto it=rm->attributes->cellScalars.find(fname);
-                        if(it!=rm->attributes->cellScalars.end() && cIdx < (int)it->second.size()) v=it->second[cIdx];
-                    }
-                    if(!std::isfinite(v)){
-                        // fallback to vertex trilinear of this cell
-                        useCell=false; // fall through
-                    } else found=true;
-                }
-                if(!useCell){
-                    // trilinear from 8 corner point values
-                    // gather 8 scalar values
-                    float s[8];
-                    bool ok=true;
-                    for(int k=0;k<8;++k){
-                        int n=idx(corners[k][0],corners[k][1],corners[k][2]);
-                        if(n<0 || size_t(n) >= src->size()){ ok=false; break; }
-                        // For point placement src is pointScalars (size = nPoints). For cell fallback we already handled.
-                        // If src is pointScalars but we are sampling cell interior, use point values
-                        s[k]=(*src)[n];
-                        if(!std::isfinite(s[k])) ok=false;
-                    }
-                    if(!ok) continue;
-                    float dx = (maxx-minx) > 1e-12f ? (pos.x - minx)/(maxx-minx) : 0;
-                    float dy = (maxy-miny) > 1e-12f ? (pos.y - miny)/(maxy-miny) : 0;
-                    float dz = (dZ>1 && (maxz-minz)>1e-12f) ? (pos.z - minz)/(maxz-minz) : 0;
-                    dx=std::clamp(dx,0.0f,1.0f); dy=std::clamp(dy,0.0f,1.0f); dz=std::clamp(dz,0.0f,1.0f);
-                    // trilinear: c00 = s0*(1-dx)+s1*dx etc.
-                    float c00 = s[0]*(1-dx)+s[1]*dx;
-                    float c10 = s[3]*(1-dx)+s[2]*dx;
-                    float c01 = s[4]*(1-dx)+s[5]*dx;
-                    float c11 = s[7]*(1-dx)+s[6]*dx;
-                    float c0 = c00*(1-dy)+c10*dy;
-                    float c1 = c01*(1-dy)+c11*dy;
-                    v = c0*(1-dz)+c1*dz;
-                    found=true;
-                }
-            }
-            if(!found){
-                // Outside mesh: nearest vertex fallback
-                float bestD=1e30f; int best=-1;
-                size_t nPt = rm->vertices.size()/3;
-                for(size_t n=0;n<nPt;++n){
-                    float dx=verts[n*3+0]-pos.x, dy=verts[n*3+1]-pos.y, dz=verts[n*3+2]-pos.z;
-                    float dd=dx*dx+dy*dy+dz*dz;
-                    if(dd<bestD){ bestD=dd; best=int(n); }
-                }
-                if(best>=0 && size_t(best)<src->size()) v=(*src)[best];
-            }
-        } else {
-            // Unstructured fallback: nearest vertex
-            float bestD=1e30f; int best=-1;
-            size_t nPt = rm->vertices.size()/3;
-            const float* verts2 = rm->vertices.data();
-            for(size_t n=0;n<nPt;++n){
-                float dx=verts2[n*3+0]-pos.x, dy=verts2[n*3+1]-pos.y, dz=verts2[n*3+2]-pos.z;
-                float dd=dx*dx+dy*dy+dz*dz;
-                if(dd<bestD){ bestD=dd; best=int(n); }
-            }
-            if(best>=0 && size_t(best)<src->size()) v=(*src)[best];
-            else {
-                // cell fallback nearest cell center
-                if(useCell && !rm->cellCenters.empty()){
-                    float bestC=1e30f; int bestCidx=-1;
-                    for(size_t c=0;c<rm->cellCenters.size();++c){
-                        float dx=rm->cellCenters[c].x-pos.x, dy=rm->cellCenters[c].y-pos.y, dz=rm->cellCenters[c].z-pos.z;
-                        float dd=dx*dx+dy*dy+dz*dz;
-                        if(dd<bestC){ bestC=dd; bestCidx=int(c); }
-                    }
-                    if(bestCidx>=0 && size_t(bestCidx)<src->size()) v=(*src)[bestCidx];
-                }
-            }
-        }
+        auto opt = FieldSampler::sample(ctx, fname, placement, pos);
+        float v = opt ? *opt : std::numeric_limits<float>::quiet_NaN();
         if(!std::isfinite(v)) v=rMin;
         dists.push_back(dist);
         vals.push_back(v);
-        // update range for display (keep original rMin/rMax for axis, but values are as sampled)
     }
     m_lineDists=dists; m_lineVals=vals; m_lineMin=rMin; m_lineMax=rMax; m_lineField=field; m_linePlacement = useCell?1:0;
     m_linePlot->setData(dists, vals, rMin, rMax, field, m_linePlacement);

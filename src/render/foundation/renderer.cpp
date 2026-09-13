@@ -1,6 +1,6 @@
 #include "render/foundation/renderer.h"
 #include "render/passes/PlotKernel.h"
-#include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 #include "core/FieldStore.h"
 #include "render/foundation/shader_utils.h"
 #include "render/foundation/NumberFormat.h"
@@ -160,7 +160,7 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     meshManager.upload(renderMesh);
     m_lastUploadedMesh = renderMesh;
     if (vectorChanged) {
-        vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement);
+        vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement, m_state.computed.get());
     }
 
 
@@ -286,6 +286,14 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.colorbarShowAnnotation != state.colorbarShowAnnotation;
     if (colormapChanged || scalarRangeChanged || colorbarStyleChanged) {
         colorbarOverlay.markDirty();
+    }
+    // A new computed-fields snapshot invalidates everything derived from
+    // field arrays: 3D textures, glyph instances, streamline paths.
+    if (m_state.computed != state.computed) {
+        m_volumeCache.invalidateAll();
+        m_vectorCache.invalidateAll();
+        vectorGlyphDirty = true;
+        m_streamlines.streamlineDirty = true;
     }
     m_state = state;
 
@@ -433,8 +441,8 @@ void Renderer::reinitMeshData() {
         meshManager.upload(m_lastUploadedMesh);
         vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride,
                             m_state.vectorField, m_state.vectorMagTransform,
-                            m_state.vectorPlacement);
-        streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor);
+                            m_state.vectorPlacement, m_state.computed.get());
+        streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.computed.get());
         for (int i = 0; i < 3; ++i) {
             m_state.streamlineCompMin[i] = streamlineSet.compMin[i];
             m_state.streamlineCompMax[i] = streamlineSet.compMax[i];
@@ -509,11 +517,12 @@ void Renderer::drawGizmo(int deviceW, int deviceH) {
 
 std::string Renderer::vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh) {
     if (!mesh) return state.vectorField;
+    auto p = state.vectorPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
     if (!state.vectorField.empty()) {
-        auto f = FieldResolver::resolveVector(*mesh, state.vectorField, state.vectorPlacement);
+        auto f = FieldStore::resolveVector(*mesh, state.vectorField, p, state.computed.get());
         if (f.data) return state.vectorField;
     }
-    return FieldResolver::resolveVectorName(*mesh, state.vectorField, state.vectorPlacement);
+    return FieldStore::resolveVectorName(*mesh, state.vectorField, p, state.computed.get());
 }
 
 namespace {
@@ -859,7 +868,7 @@ void Renderer::updateSliceScalarRange() {
             ? m_state.activeScalarName : m_state.sliceScalarName[axis];
         float rngMin, rngMax;
         auto placement = m_state.scalarPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
-        const std::vector<float>* s = FieldStore::scalarData(*mesh, field, rngMin, rngMax, placement);
+        const std::vector<float>* s = FieldStore::scalarData(*mesh, field, rngMin, rngMax, placement, m_state.computed.get());
         if (!s || s->empty()) {
             m_state.sliceScalarMin[axis] = 0.0f;
             m_state.sliceScalarMax[axis] = 1.0f;
@@ -983,7 +992,7 @@ void Renderer::renderFrame() {
     }
 
     if (vectorGlyphDirty.exchange(false)) {
-        if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement);
+        if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement, m_state.computed.get());
         for (int i = 0; i < 3; ++i) {
             m_state.vectorCompMin[i] = vectorGlyph.compMin[i];
             m_state.vectorCompMax[i] = vectorGlyph.compMax[i];
@@ -1135,7 +1144,7 @@ void Renderer::renderFrame() {
                                   static_cast<float>(m_lastUploadedMesh->bounds.maxZ));
                 ensureLicNoiseTexture(m_state.licNoiseGrain);
                 GLuint vecTex = m_vectorCache.textureForField(
-                    m_state.vectorField, m_lastUploadedMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.licBoundaryMode);
+                    m_state.vectorField, m_lastUploadedMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.licBoundaryMode, m_state.computed.get());
                 if (vecTex == 0) {
                     m_lastLicError = "LIC disabled: vector field '" + m_state.vectorField + "' unavailable for placement " +
                         std::to_string(m_state.vectorPlacement) + " (check cellCenters)";
@@ -1228,7 +1237,7 @@ void Renderer::renderFrame() {
         boxMax = glm::vec3(m_lastUploadedMesh->bounds.maxX, m_lastUploadedMesh->bounds.maxY, m_lastUploadedMesh->bounds.maxZ);
     }
 
-    GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_lastUploadedMesh.get(), boxMin, boxMax, m_state.scalarPlacement);
+    GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_lastUploadedMesh.get(), boxMin, boxMax, m_state.scalarPlacement, m_state.computed.get());
     m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale, volTex, boxMin, boxMax);
 
 
@@ -1240,7 +1249,7 @@ void Renderer::renderFrame() {
         if (!m_state.slicePlaneEnabled[axis]) continue;
         const std::string& field = m_state.sliceScalarName[axis].empty()
             ? m_state.activeScalarName : m_state.sliceScalarName[axis];
-        sliceTex[axis] = m_volumeCache.textureForField(field, m_lastUploadedMesh.get(), boxMin, boxMax, m_state.scalarPlacement);
+        sliceTex[axis] = m_volumeCache.textureForField(field, m_lastUploadedMesh.get(), boxMin, boxMax, m_state.scalarPlacement, m_state.computed.get());
     }
     m_volumeSliceOverlay.draw(m_state, view, proj, colormap, sliceTex, boxMin, boxMax, m_lastUploadedMesh.get());
 

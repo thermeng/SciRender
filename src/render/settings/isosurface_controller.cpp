@@ -16,7 +16,7 @@ bool IsosurfaceController::isAvailable() const {
     return isAvailable(m_placement);
 }
 bool IsosurfaceController::isAvailable(int placement) const {
-    return m_currentMesh && isosurface::canExtract(*m_currentMesh, m_currentField, placement);
+    return m_currentMesh && isosurface::canExtract(*m_currentMesh, m_currentField, placement, m_snapshot.get());
 }
 
 void IsosurfaceController::setCurrentMesh(std::shared_ptr<const RenderMesh> mesh,
@@ -29,6 +29,14 @@ void IsosurfaceController::setCurrentMesh(std::shared_ptr<const RenderMesh> mesh
     m_currentMesh = std::move(mesh);
     m_currentField = field;
     m_placement = std::clamp(placement, 0, 1);
+}
+void IsosurfaceController::setCurrentMesh(std::shared_ptr<const RenderMesh> mesh,
+                                          const std::string& field, int placement,
+                                          std::shared_ptr<const postfields::ComputedSnapshot> snap) {
+    m_currentMesh = std::move(mesh);
+    m_currentField = field;
+    m_placement = std::clamp(placement, 0, 1);
+    m_snapshot = std::move(snap);
 }
 void IsosurfaceController::setPlacement(int p) {
     int np = std::clamp(p, 0, 1);
@@ -92,7 +100,7 @@ void IsosurfaceController::clear() {
 }
 
 void IsosurfaceController::recompute() {
-    if (!m_showIsosurface || !m_currentMesh || !isosurface::canExtract(*m_currentMesh, m_currentField, m_placement)) {
+    if (!m_showIsosurface || !m_currentMesh || !isosurface::canExtract(*m_currentMesh, m_currentField, m_placement, m_snapshot.get())) {
         m_renderer.setPendingIsosurface(nullptr);
         emit displayDirty();
         return;
@@ -103,7 +111,7 @@ void IsosurfaceController::recompute() {
 
 void IsosurfaceController::requestLiveRecompute() {
     if (!m_showIsosurface || !m_currentMesh) return;
-    if (!isosurface::canExtract(*m_currentMesh, m_currentField, m_placement)) {
+    if (!isosurface::canExtract(*m_currentMesh, m_currentField, m_placement, m_snapshot.get())) {
         m_renderer.setPendingIsosurface(nullptr);
         emit displayDirty();
         return;
@@ -127,10 +135,11 @@ void IsosurfaceController::launchAsync() {
     const auto meshPtr = m_currentMesh;
     const auto field = m_currentField;
     const int placement = m_placement;
+    auto snapPtr = m_snapshot;
     m_watcher.setFuture(QtConcurrent::run(
-        [meshPtr, iso, field, placement, taskToken = m_taskToken, token]() -> RenderMesh {
+        [meshPtr, iso, field, placement, snapPtr, taskToken = m_taskToken, token]() -> RenderMesh {
             taskToken->store(token);
-            return isosurface::extractIsosurface(*meshPtr, {iso}, field, placement);
+            return isosurface::extractIsosurface(*meshPtr, {iso}, field, placement, snapPtr.get());
         }));
 }
 

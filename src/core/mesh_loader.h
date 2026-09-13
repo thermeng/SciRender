@@ -132,13 +132,11 @@ struct RenderMesh {
     bool meshHasCellVectors() const { return !cellVectorsData.empty(); }
 
     // Scalar-data availability: true when the mesh carries at least one scalar
-    // field accessible at grid nodes. For structured-grid datasets the surface
-    // mesh may have been boundary-extracted (fewer vertices than nodes), which
-    // clears `scalars` but preserves the original per-node field in
-    // `attributes->pointScalars` — so both are checked.
+    // field accessible at grid nodes OR cell centers. Covers boundary-extracted
+    // structured grids where `scalars` cleared but pointScalars/cellScalars remain.
     bool hasScalarData() const {
         return !scalars.empty()
-            || (attributes && !attributes->pointScalars.empty());
+            || (attributes && (!attributes->pointScalars.empty() || !attributes->cellScalars.empty()));
     }
 
     // Volume-grid eligibility: true when gridDim describes at least one 3D cell
@@ -244,6 +242,16 @@ struct RenderMesh {
     uint64_t vectorHash = 0;
     // Estimated memory footprint for cache budgeting (bytes)
     size_t estimatedBytes = 0;
+
+    // ── Unstructured topology for post-field LSQ gradients ─────────────
+    // Retained from legacy/XML VTK parsers (cell connectivity) so unstructured
+    // vorticity / grad-p can be derived via least-squares. Empty for
+    // ImageData / RectilinearGrid (structured path) and for STL/OBJ (nearest-neighbor fallback).
+    // Offsets: VTK-style, types: 5=tri, 6=strip, 9=quad, 10=tet, 12=hex, etc.
+    std::vector<uint32_t> cellConnectivity; // flat
+    std::vector<uint32_t> cellOffsets;
+    std::vector<uint8_t>  cellTypes;
+    bool hasUnstructuredTopology() const { return !cellOffsets.empty() && !cellConnectivity.empty(); }
 
     // Default constructor
     RenderMesh() = default;

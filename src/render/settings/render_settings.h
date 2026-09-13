@@ -26,6 +26,7 @@
 #include "render/settings/animation_controller.h"
 #include "render/settings/StateStore.h"
 #include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 
 #include <QElapsedTimer>
 
@@ -341,6 +342,16 @@ class RenderSettings : public QObject {
      Q_PROPERTY(QString isosurfaceField READ getIsosurfaceFieldQml WRITE setIsosurfaceField NOTIFY meshDataUpdated)
      Q_PROPERTY(bool isosurfaceAvailable READ getIsosurfaceAvailable NOTIFY meshDataUpdated)
      Q_PROPERTY(int isosurfacePlacement READ getIsosurfacePlacement WRITE setIsosurfacePlacement NOTIFY viewChanged)
+     Q_PROPERTY(QString postVelocitySource READ getPostVelocitySource WRITE setPostVelocitySource NOTIFY meshDataUpdated)
+     Q_PROPERTY(QString postPressureSource READ getPostPressureSource WRITE setPostPressureSource NOTIFY meshDataUpdated)
+     Q_PROPERTY(bool postWantVorticity READ getPostWantVorticity WRITE setPostWantVorticity NOTIFY meshDataUpdated)
+     Q_PROPERTY(bool postWantHelicity READ getPostWantHelicity WRITE setPostWantHelicity NOTIFY meshDataUpdated)
+     Q_PROPERTY(bool postWantQ READ getPostWantQ WRITE setPostWantQ NOTIFY meshDataUpdated)
+     Q_PROPERTY(bool postWantGradP READ getPostWantGradP WRITE setPostWantGradP NOTIFY meshDataUpdated)
+     Q_PROPERTY(bool postAutoReextract READ getPostAutoReextract WRITE setPostAutoReextract NOTIFY viewChanged)
+     Q_PROPERTY(QString postStatus READ getPostStatus NOTIFY statusMessageChanged)
+     Q_PROPERTY(bool postBusy READ isPostBusy NOTIFY statusMessageChanged)
+     Q_PROPERTY(bool postCartesian READ isPostCartesian NOTIFY meshDataUpdated)
      Q_PROPERTY(QStringList isosurfacePlacementOptions READ getIsosurfacePlacementOptions CONSTANT)
      Q_PROPERTY(bool showLineProbe READ getShowLineProbe WRITE setShowLineProbe NOTIFY viewChanged)
      Q_PROPERTY(double lineP0x READ getLineP0x WRITE setLineP0x NOTIFY viewChanged)
@@ -462,6 +473,7 @@ public slots:
     void loadMesh(const QString& filePath);
     void onMeshParsed(); // GUI-thread continuation after async parse
     void onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, int frameIndex, double time); // PVD frame publish
+    void onPostFieldsReady();
     void openRecent(const QString& filePath);
     void clearMeshes();
     void resetCamera();
@@ -731,6 +743,28 @@ public:
       std::pair<float,float> isosurfaceFieldRange() const;
       bool getIsosurfaceAvailable() const { return m_isoController.isAvailable(); }
       Q_INVOKABLE void recomputeIsosurface() { m_isoController.recompute(); }
+      // ---- post-processed fields ----
+      QString getPostVelocitySource() const { return QString::fromStdString(m_postVelocitySource); }
+      void setPostVelocitySource(const QString& s) { m_postVelocitySource = s.toStdString(); emit meshDataUpdated(); }
+      QString getPostPressureSource() const { return QString::fromStdString(m_postPressureSource); }
+      void setPostPressureSource(const QString& s) { m_postPressureSource = s.toStdString(); emit meshDataUpdated(); }
+      bool getPostWantVorticity() const { return m_postWantVorticity; }
+      void setPostWantVorticity(bool v) { m_postWantVorticity = v; emit meshDataUpdated(); }
+      bool getPostWantHelicity() const { return m_postWantHelicity; }
+      void setPostWantHelicity(bool v) { m_postWantHelicity = v; emit meshDataUpdated(); }
+      bool getPostWantQ() const { return m_postWantQ; }
+      void setPostWantQ(bool v) { m_postWantQ = v; emit meshDataUpdated(); }
+      bool getPostWantGradP() const { return m_postWantGradP; }
+      void setPostWantGradP(bool v) { m_postWantGradP = v; emit meshDataUpdated(); }
+      bool getPostAutoReextract() const { return m_postAutoReextract; }
+      void setPostAutoReextract(bool v) { m_postAutoReextract = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+      QString getPostStatus() const { return QString::fromStdString(m_postStatus); }
+      bool isPostBusy() const { return m_postWatcher.isRunning(); }
+      bool isPostCartesian() const;
+      bool canExtractPostFields() const;
+      Q_INVOKABLE void extractPostFields();
+      Q_INVOKABLE void clearPostFields();
+
       int getIsosurfacePlacement() const { return m_state.isosurfacePlacement; }
       void setIsosurfacePlacement(int v) {
           int p = std::clamp(v, 0, 1);
@@ -790,16 +824,22 @@ public:
     void setVectorColorMode(int v) { int t = (v < 0) ? 0 : (v > 4 ? 4 : v); if (m_state.vectorColorMode != t) { m_state.vectorColorMode = t; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
     STATE_PROP(getVectorColormapChoice, setVectorColormapChoice, int, m_state.vectorColormapChoice, Vectors)
     QStringList getAvailableVectors() const {
+        QStringList base;
         if (m_meshData.loadedMesh) {
-            QStringList l;
-            for (auto& n : FieldResolver::availableVectorNames(*m_meshData.loadedMesh))
-                l.append(QString::fromStdString(n));
-            if (!l.isEmpty()) return l;
+            for (auto& n : FieldStore::availableVectors(*m_meshData.loadedMesh, m_state.computed.get()))
+                base.append(QString::fromStdString(n));
+            base.sort();
+            return base;
         }
-        QStringList l;
-        for (auto& n : m_meshData.guiMeta.availableVectorNames) l.append(QString::fromStdString(n));
-        if (l.isEmpty()) for (auto& n : m_meshData.guiMeta.availableCellVectorNames) l.append(QString::fromStdString(n));
-        return l;
+        for (auto& n : m_meshData.guiMeta.availableVectorNames) base.append(QString::fromStdString(n));
+        if (base.isEmpty()) for (auto& n : m_meshData.guiMeta.availableCellVectorNames) base.append(QString::fromStdString(n));
+        if (m_state.computed) {
+            for (const auto& [k, v] : m_state.computed->vectors)
+                if (!base.contains(QString::fromStdString(k)))
+                    base.append(QString::fromStdString(k));
+        }
+        base.sort();
+        return base;
     }
     QString getVectorField() const { return QString::fromStdString(m_meshData.guiMeta.vectorName); }
     Q_INVOKABLE void setActiveVectorField(const QString& fieldName);
@@ -831,7 +871,11 @@ public:
     bool hasMeshScalars() const { return m_state.meshHasScalars; }
     bool hasMeshVectors() const { return m_state.meshHasVectors; }
     bool hasMeshCellVectors() const { return m_state.meshHasCellVectors; }
-    bool hasVolumeData() const { return m_meshData.loadedMesh && m_meshData.loadedMesh->hasVolumeData(); }
+    bool hasVolumeData() const {
+        if (!m_meshData.loadedMesh) return false;
+        if (!m_meshData.loadedMesh->hasVolumeGrid()) return false;
+        return FieldStore::hasAnyScalar(*m_meshData.loadedMesh, m_state.computed.get());
+    }
     bool hasIsosurfaceCellScalars() const {
         if (!m_meshData.loadedMesh || !m_meshData.loadedMesh->attributes) return false;
         return !m_meshData.loadedMesh->attributes->cellScalars.empty();
@@ -1067,6 +1111,26 @@ private:
     // on completion; onMeshParsed() compares it to m_loadToken to drop stale
     // (cancelled/superseded) results.
     std::shared_ptr<std::atomic<uint64_t>> m_taskToken;
+
+    // ---- post-processed fields ----
+    struct PostFieldsAsyncResult {
+        std::shared_ptr<const postfields::ComputedSnapshot> snap;
+        std::string error;
+        std::string status;
+        bool ok = false;
+    };
+    std::string m_postVelocitySource;
+    std::string m_postPressureSource;
+    bool m_postWantVorticity = true;
+    bool m_postWantHelicity = true;
+    bool m_postWantQ = true;
+    bool m_postWantGradP = true;
+    bool m_postAutoReextract = true;
+    std::string m_postStatus;
+    std::shared_ptr<const postfields::ComputedSnapshot> m_postSnapshot;
+    QFutureWatcher<PostFieldsAsyncResult> m_postWatcher;
+    uint64_t m_postGen = 0;
+    std::shared_ptr<std::atomic<uint64_t>> m_postTaskToken;
 
     // ---- isosurface lifecycle ----
     // Owns the debounced async extraction, stale-task guard, and the

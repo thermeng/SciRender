@@ -62,14 +62,18 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
         float taperFactor   = state.streamlineTaperFactor;
 
         m_computeRunning = true;
+        // Snapshot shared_ptr captured by value: keeps computed post-proc
+        // payloads alive for the worker even if the GUI thread re-extracts.
+        auto snapCopy = state.computed;
         m_worker = std::thread(
             [this, &streamlineSet, meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
              planePos, jitter, planeCountU, planeCountV, showArrows, arrowSpacingFrac,
-             arrowSize, ribbonWidth, taperFactor]() {
+             arrowSize, ribbonWidth, taperFactor, snapCopy]() {
                 auto result = streamlineSet.compute(
                     *meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
                     planePos, jitter, planeCountU, planeCountV,
-                    showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor);
+                    showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor,
+                    snapCopy.get());
 
                 if (m_cancelFlag.load()) {
                     m_computeRunning = false;

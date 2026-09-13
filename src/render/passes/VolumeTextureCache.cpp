@@ -1,17 +1,24 @@
 #include "render/passes/VolumeTextureCache.h"
-#include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 #include <glad/gl.h>
 #include <cstring>
 #include <algorithm>
 #include <limits>
 
-const std::vector<float>* VolumeTextureCache::resolveField(const RenderMesh& mesh, const std::string& name, int placement) const {
+const std::vector<float>* VolumeTextureCache::resolveField(const RenderMesh& mesh, const std::string& name, int placement,
+                                                           const postfields::ComputedSnapshot* snap) const {
     float mn, mx;
-    return FieldResolver::scalarData(mesh, name, mn, mx, placement);
+    auto p = FieldStore::toPlacement(placement);
+    // Volume path must not return extrapolated point copy for CellCenter; use volume-aware resolver.
+    // Snapshot fields are point-sized (nodeCount == dimX*dimY*dimZ) so either path returns correct size.
+    if (p == FieldStore::Placement::CellCenter)
+        return FieldStore::volumeScalarData(mesh, name, mn, mx, p, snap);
+    return FieldStore::scalarData(mesh, name, mn, mx, p, snap);
 }
 
 GLuint VolumeTextureCache::textureForField(const std::string& name, const RenderMesh* mesh,
-                                             const glm::vec3& boxMin, const glm::vec3& boxMax, int placement) {
+                                             const glm::vec3& boxMin, const glm::vec3& boxMax, int placement,
+                                             const postfields::ComputedSnapshot* snap) {
     if (!mesh || name.empty()) return 0;
 
     int dimX = mesh->gridDimX, dimY = mesh->gridDimY, dimZ = mesh->gridDimZ;
@@ -26,12 +33,13 @@ GLuint VolumeTextureCache::textureForField(const std::string& name, const Render
         return it->second.tex.get();
     }
 
-    return buildTexture(name, mesh, boxMin, boxMax, placement);
+    return buildTexture(name, mesh, boxMin, boxMax, placement, snap);
 }
 
 GLuint VolumeTextureCache::buildTexture(const std::string& name, const RenderMesh* mesh,
-                                         const glm::vec3& boxMin, const glm::vec3& boxMax, int placement) {
-    const std::vector<float>* data = resolveField(*mesh, name, placement);
+                                         const glm::vec3& boxMin, const glm::vec3& boxMax, int placement,
+                                         const postfields::ComputedSnapshot* snap) {
+    const std::vector<float>* data = resolveField(*mesh, name, placement, snap);
     if (!data || data->empty()) return 0;
 
     int dimX = mesh->gridDimX, dimY = mesh->gridDimY, dimZ = mesh->gridDimZ;
@@ -79,6 +87,8 @@ GLuint VolumeTextureCache::buildTexture(const std::string& name, const RenderMes
 
 void VolumeTextureCache::invalidate(const std::string& name) {
     m_entries.erase(name);
+    m_entries.erase(name + "#cell");
+    m_entries.erase(name + "#vert");
 }
 
 void VolumeTextureCache::invalidateAll() {
