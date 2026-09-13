@@ -12,6 +12,7 @@
 #include <tuple>
 #include <cmath>
 #include <algorithm>
+#include <span>
 
 #include <glm/glm.hpp>
 
@@ -358,6 +359,18 @@ namespace mesh_utils {
     void byteSwap(uint8_t* val);
     void byteSwap(int64_t* val);
     void byteSwap(uint64_t* val);
+
+    // Zero-cost helpers consolidated from 15 call sites
+    inline DatasetAttributes& ensureAttributes(RenderMesh& m) {
+        if (!m.attributes) m.attributes.emplace();
+        return *m.attributes;
+    }
+    inline bool hasNonFinite(std::span<const float> v) {
+        return std::any_of(v.begin(), v.end(), [](float f){ return !std::isfinite(f); });
+    }
+    inline bool hasNonFinite(const std::vector<float>& v) {
+        return hasNonFinite(std::span<const float>(v.data(), v.size()));
+    }
 
     // Geometry & bounding math computations
     // Computes center, extent, and worldRadius from a flat vertex array

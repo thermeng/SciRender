@@ -1,4 +1,5 @@
 #include "core/vtk_common.h"
+#include "core/FieldStore.h"
 
 #include <algorithm>
 #include <cmath>
@@ -124,30 +125,15 @@ std::vector<std::vector<uint32_t>> generateStructuredGridCells(int dX, int dY, i
 // ── Finalize ─────────────────────────────────────────────────────────────────
 
 void calculateScalarRanges(RenderMesh& mesh) {
-    if (!mesh.attributes.has_value()) {
-        mesh.attributes = DatasetAttributes();
-    }
-    auto computeRange = [](const std::vector<float>& v) -> std::pair<float,float> {
-        if (v.empty()) return {0.f, 1.f};
-        float mn = std::numeric_limits<float>::max();
-        float mx = std::numeric_limits<float>::lowest();
-        for (float f : v) {
-            if (!std::isfinite(f)) continue;
-            mn = std::min(mn, f);
-            mx = std::max(mx, f);
-        }
-        if (mn > mx) return {0.f, 1.f};
-        if (std::abs(mx - mn) < 1e-6f) mx = mn + 1.0f;
-        return {mn, mx};
-    };
+    mesh_utils::ensureAttributes(mesh);
     // Per-field ranges for every scalar field (robust, survives switches)
     for (auto& [name, vec] : mesh.attributes->pointScalars) {
-        auto r = computeRange(vec);
-        mesh.attributes->pointScalarRanges[name] = r;
+        auto r = FieldStore::computeRange(vec);
+        mesh.attributes->pointScalarRanges[name] = {r.min, r.max};
     }
     for (auto& [name, vec] : mesh.attributes->cellScalars) {
-        auto r = computeRange(vec);
-        mesh.attributes->cellScalarRanges[name] = r;
+        auto r = FieldStore::computeRange(vec);
+        mesh.attributes->cellScalarRanges[name] = {r.min, r.max};
     }
     // Use per-field ranges to set scalarMin/Max. For cell-origin fields the
     // pointScalarRanges is the narrowed extrapolated average (≈ [-0.06,0.19]
@@ -177,9 +163,9 @@ void calculateScalarRanges(RenderMesh& mesh) {
             mesh.attributes->scalarMax = it->second.second;
         }
     } else if (!mesh.scalars.empty()) {
-        auto r = computeRange(mesh.scalars);
-        mesh.attributes->scalarMin = r.first;
-        mesh.attributes->scalarMax = r.second;
+        auto r = FieldStore::computeRange(mesh.scalars);
+        mesh.attributes->scalarMin = r.min;
+        mesh.attributes->scalarMax = r.max;
     }
 }
 
