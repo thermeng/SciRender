@@ -1011,7 +1011,6 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
             if (!res.ok) {
                 m_postStatus = res.error + " (frame)";
                 setStatus(QString::fromStdString(m_postStatus));
-                std::cerr << "PostFields per-frame FAILED: " << m_postStatus << std::endl;
                 m_postSnapshot.reset();
                 m_state.computed.reset();
                 m_isoController.setSnapshot(nullptr);
@@ -1023,7 +1022,6 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
                 if (garbage) {
                     m_postStatus = "Garbage (NaN/Inf) on frame — blanking";
                     setStatus(QString::fromStdString(m_postStatus));
-                    std::cerr << "PostFields per-frame garbage" << std::endl;
                     m_postSnapshot.reset();
                     m_state.computed.reset();
                     m_isoController.setSnapshot(nullptr);
@@ -2065,7 +2063,6 @@ void RenderSettings::extractPostFields() {
         out.snap = snap;
         out.ok = true;
         out.status = lines.join("\n").toStdString();
-        std::cerr << out.status << std::endl;
         return out;
     });
     m_postWatcher.setFuture(fut);
@@ -2086,7 +2083,6 @@ void RenderSettings::onPostFieldsReady() {
         err.replace(" method=", "\n  Method: ");
         m_postStatus = QString("✗ Post-processing failed\n  %1").arg(err).toStdString();
         setStatus(QString::fromStdString(m_postStatus));
-        std::cerr << m_postStatus << std::endl;
         markStateDirty();
         emit meshDataUpdated();
         emit statusMessageChanged();
@@ -2100,7 +2096,6 @@ void RenderSettings::onPostFieldsReady() {
     if (!snap->vectors.empty()) m_state.meshHasVectors = true;
     m_postStatus = res.status;
     setStatus(QString::fromStdString(m_postStatus));
-    std::cerr << m_postStatus << std::endl;
     markStateDirty();
     emit meshDataUpdated();
     emit statusMessageChanged();

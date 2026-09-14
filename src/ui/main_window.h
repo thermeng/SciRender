@@ -155,8 +155,8 @@ private:
 
     // Animation page widgets (synced from AnimationController::stateChanged)
     QPushButton* m_animPlayBtn = nullptr;
-    QToolButton* m_animStepBackBtn = nullptr;
-    QToolButton* m_animStepFwdBtn = nullptr;
+    QPushButton* m_animStepBackBtn = nullptr;
+    QPushButton* m_animStepFwdBtn = nullptr;
     QComboBox* m_animFrameCombo = nullptr;
     QDoubleSpinBox* m_animJumpTimeSpin = nullptr;
     QPushButton* m_animJumpTimeBtn = nullptr;
@@ -329,9 +329,11 @@ private:
 
     QString m_currentFile;
 
-    // Plots — now embedded as vertical split below viewport (not floating)
+    // Plots — dockable viewport constrained to original viewport location (draggable inside central host only)
     PlotWindow* m_plotWindow = nullptr;
-    QSplitter* m_mainSplitter = nullptr;
+    QDockWidget* m_plotDock = nullptr;
+    QMainWindow* m_centralHost = nullptr; // inner host that owns viewport + plot dock, keeps plot from docking before sidebar
+    QSplitter* m_mainSplitter = nullptr; // legacy: kept for compat, no longer used as central widget
     QWidget* m_histContainer = nullptr;
     bool m_histogramVisible = false;
     void setHistogramVisible(bool visible);
