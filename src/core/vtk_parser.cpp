@@ -797,8 +797,6 @@ private:
             mesh.attributes->cellTensors[tensorName] = std::move(readTens);
             mesh.attributes->cellTensorComponents[tensorName] = 9;
         }
-        std::cerr << "VTK: parsed " << (readingPointData ? "POINT" : (readingFieldData ? "FIELD" : "CELL"))
-                  << " TENSORS '" << tensorName << "' (" << activeElementCount << " tensors)" << std::endl;
     }
 
     void parseTexCoordBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
@@ -854,8 +852,6 @@ private:
             mesh.attributes->cellTexCoords[tcName] = std::move(readTC);
             mesh.attributes->cellTexCoordComponents[tcName] = numCoords;
         }
-        std::cerr << "VTK: parsed " << (readingPointData ? "POINT" : (readingFieldData ? "FIELD" : "CELL"))
-                  << " TEXTURE_COORDINATES '" << tcName << "' (" << activeElementCount << " coords, " << numCoords << " comps)" << std::endl;
     }
 
     void parseFieldBlock(const char* lineRest, const char* lineEnd, std::ifstream& file) {
@@ -1021,16 +1017,13 @@ private:
         if (readingFieldData) {
             mesh_utils::ensureAttributes(mesh);
             mesh.attributes->fieldData[vecName] = std::move(readVecs);
-            std::cerr << "VTK: parsed FIELD VECTORS '" << vecName << "' (" << activeElementCount << " vectors)" << std::endl;
         }
         else if (readingPointData) {
             mesh_utils::ensureAttributes(mesh);
             mesh.attributes->pointVectors[vecName] = std::move(readVecs);
-            std::cerr << "VTK: parsed POINT VECTORS '" << vecName << "' (" << activeElementCount << " vectors)" << std::endl;
         } else {
             mesh_utils::ensureAttributes(mesh);
             cellVectorsStorage[vecName] = std::move(readVecs);
-            std::cerr << "VTK: parsed CELL VECTORS '" << vecName << "' (" << activeElementCount << " vectors, extrapolated to points)" << std::endl;
         }
     }
 

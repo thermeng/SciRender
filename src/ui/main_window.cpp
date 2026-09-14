@@ -344,25 +344,38 @@ MainWindow::MainWindow(QWidget* parent)
     m_viewport->setSettings(m_settings);
     vbox->addWidget(m_viewport, 1);
 
-    // Histogram: embedded vertically below viewport via QSplitter
-    m_mainSplitter = new QSplitter(Qt::Vertical, this);
-    m_mainSplitter->addWidget(viewportContainer);
-    m_mainSplitter->setStretchFactor(0, 3);
+    // Plot: dockable viewport constrained to original viewport location.
+    // Inner QMainWindow hosts viewport + plot so plot can only dock around the
+    // viewport (Left/Right/Top/Bottom of central area) — never before the sidebar.
+    m_centralHost = new QMainWindow(this);
+    m_centralHost->setObjectName("CentralHost");
+    m_centralHost->setWindowFlags(Qt::Widget);
+    m_centralHost->setDockNestingEnabled(true);
+    m_centralHost->setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks);
+    m_centralHost->setCentralWidget(viewportContainer);
 
     m_histContainer = new QWidget;
-    m_histContainer->setMinimumHeight(180);
+    m_histContainer->setMinimumSize(320, 180);
     auto* histLay = new QVBoxLayout(m_histContainer);
     histLay->setContentsMargins(0, 0, 0, 0);
     histLay->setSpacing(0);
     m_plotWindow = new PlotWindow(m_settings, m_histContainer);
     histLay->addWidget(m_plotWindow, 1);
-    m_mainSplitter->addWidget(m_histContainer);
-    m_mainSplitter->setStretchFactor(1, 1);
-    m_mainSplitter->setCollapsible(1, true);
-    m_histContainer->setVisible(false);
-    connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
 
-    setCentralWidget(m_mainSplitter);
+    m_plotDock = new QDockWidget(tr("Plots"), m_centralHost);
+    m_plotDock->setObjectName("PlotDock");
+    m_plotDock->setWidget(m_histContainer);
+    m_plotDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    // No Floatable — plot must stay docked inside central host (original viewport location)
+    m_plotDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+    m_centralHost->addDockWidget(Qt::RightDockWidgetArea, m_plotDock); // default: horizontally beside scene
+    m_plotDock->hide();
+    connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
+    connect(m_plotDock, &QDockWidget::visibilityChanged, this, [this](bool v){ m_histogramVisible = v; });
+
+    setCentralWidget(m_centralHost);
+    setDockNestingEnabled(true);
+    setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks);
 
     // Accept drops
     setAcceptDrops(true);
@@ -3264,18 +3277,18 @@ void MainWindow::showShortcuts() {
     info.exec();
 }
 
-// Plots page (12) — detached window launcher + inline controls
+// Plots page (12) — dockable viewport launcher (constrained to central host)
 void MainWindow::setHistogramVisible(bool visible) {
     m_histogramVisible = visible;
-    if (m_histContainer) {
-        m_histContainer->setVisible(visible);
-        if (visible && m_plotWindow) {
-            m_plotWindow->refreshFieldList();
-            // Give viewport most of the space on first open
-            if (m_mainSplitter) m_mainSplitter->setSizes({700, 260});
+    if (m_plotDock) {
+        m_plotDock->setVisible(visible);
+        if (visible && m_centralHost) {
+            // Ensure default area is Right (horizontal beside scene) on first show
+            if (m_centralHost->dockWidgetArea(m_plotDock) == Qt::NoDockWidgetArea)
+                m_centralHost->addDockWidget(Qt::RightDockWidgetArea, m_plotDock);
         }
     }
-    // Update Plots page button text if present
+    if (visible && m_plotWindow) m_plotWindow->refreshFieldList();
 }
 
 QWidget* MainWindow::buildPlotsPage() {
@@ -3289,13 +3302,7 @@ QWidget* MainWindow::buildPlotsPage() {
     lay->setContentsMargins(8, 8, 8, 8);
     lay->setSpacing(8);
 
-    auto* header = new QLabel(tr("Histogram (GPU)"));
-    header->setObjectName("plotsHeader");
-    QFont hf = header->font(); hf.setBold(true); hf.setPointSize(hf.pointSize() + 1);
-    header->setFont(hf);
-    lay->addWidget(header);
-
-    auto* openBtn = new QPushButton(tr("Show Histogram Below Viewport"));
+    auto* openBtn = new QPushButton(tr("Open Plots Viewport"));
     openBtn->setCheckable(true);
     openBtn->setChecked(m_histogramVisible);
     openBtn->setMinimumHeight(32);
@@ -3318,26 +3325,19 @@ QWidget* MainWindow::buildPlotsPage() {
 
     connect(openBtn, &QPushButton::toggled, this, [this, openBtn, hint](bool checked) {
         setHistogramVisible(checked);
-        openBtn->setText(checked ? tr("Hide Histogram") : tr("Show Histogram Below Viewport"));
-        if (checked) {
-            if (!m_settings->getHasMeshLoaded()) {
-                hint->setText(tr("No mesh loaded. Load a file first, then press Recompute in the histogram pane below."));
-            } else {
-                hint->setText(tr("Histogram docked below viewport. Press Recompute (GPU) to update."));
-            }
-        }
+        openBtn->setText(checked ? tr("Hide Plot Viewport") : tr("Open Plots Viewport"));
     });
     connect(this, &MainWindow::destroyed, this, [this](){ m_plotWindow = nullptr; });
 
-    // Keep button in sync when histogram is closed via splitter close button
-    // Poll via visible change is handled by setHistogramVisible; we also sync on mesh load
+    // Keep button in sync when dock is closed via dock close button / drag
     connect(m_settings, &RenderSettings::meshDataUpdated, this, [hint, this, openBtn]() {
         if (m_settings->getHasMeshLoaded() && m_settings->hasMeshScalars()) {
-            hint->setText(tr("Scalar field ready: %1 — toggle histogram below.").arg(m_settings->getActiveScalarNameQml()));
+            hint->setText(tr("Scalar field ready: %1 — toggle Plots dock.").arg(m_settings->getActiveScalarNameQml()));
         }
-        // Keep Plots toggle in sync if histogram was hidden externally
-        if (m_histContainer) openBtn->setChecked(m_histContainer->isVisible());
+        if (m_plotDock) openBtn->setChecked(m_plotDock->isVisible());
     });
+    if (m_plotDock)
+        connect(m_plotDock, &QDockWidget::visibilityChanged, openBtn, [openBtn](bool v){ openBtn->blockSignals(true); openBtn->setChecked(v); openBtn->blockSignals(false); });
 
     // Ensure button reflects initial state
     openBtn->setChecked(m_histogramVisible);
