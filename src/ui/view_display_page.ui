@@ -255,10 +255,10 @@
         </widget>
        </item>
        <item>
-        <widget class="QSpinBox" name="peelLayersSpin">
-         <property name="minimum"><number>1</number></property>
-         <property name="maximum"><number>8</number></property>
-        </widget>
+         <widget class="QSpinBox" name="peelLayersSpin">
+          <property name="minimum"><number>1</number></property>
+          <property name="maximum"><number>64</number></property>
+         </widget>
        </item>
       </layout>
      </widget>

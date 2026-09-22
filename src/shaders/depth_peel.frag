@@ -27,9 +27,11 @@ layout(std140) uniform MeshUBO {
     vec4  uShadingMode;     // x = 0.0 smooth, 1.0 flat; y = 0.0 normal clip, 1.0 crinkle clip
 };
 
-in vec3 vNormal;
-in vec3 vWorldPos;
-in float vScalar;
+in MeshVarying {
+    vec3 vWorldPos;
+    vec3 vNormal;
+    float vScalar;
+} mv;
 
 uniform sampler2D uPrevDepth;
 uniform sampler1D uColormapLUT;
@@ -57,14 +59,15 @@ void main() {
     // sub-ULP excursions when filter bounds snap exactly to data min/max.
     float filterEps = 1e-5 * abs(uScalars.y - uScalars.x) + 1e-9;
     bool clipped = (uFilter.z > 0.5) && hasScalars &&
-                   (vScalar < uFilter.x - filterEps || vScalar > uFilter.y + filterEps);
+                   (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
     bool crinkleMode = uShadingMode.y > 0.5;
-    // Peel is surfaces-only, but keep the crinkle gate so slice clipping is
-    // consistent between opaque and transparent layers.
+    // Per-fragment slice clip only for non-crinkle. Crinkle uses the GS path
+    // (DepthPeelCrinkle) which culls whole triangles; fragment path must skip
+    // to match opaque MeshCrinkleClip behaviour.
     if (!clipped && uPointClip.w > 0.5 && !crinkleMode) {
-        bool clipX = bool(uClipEn.x) && ((uInvert.x > 0.5) ? (vWorldPos.x < uClipY.x) : (vWorldPos.x > uClipY.x));
-        bool clipY = bool(uClipEn.y) && ((uInvert.y > 0.5) ? (vWorldPos.y < uClipY.y) : (vWorldPos.y > uClipY.y));
-        bool clipZ = bool(uClipEn.z) && ((uInvert.z > 0.5) ? (vWorldPos.z < uClipY.z) : (vWorldPos.z > uClipY.z));
+        bool clipX = bool(uClipEn.x) && ((uInvert.x > 0.5) ? (mv.vWorldPos.x < uClipY.x) : (mv.vWorldPos.x > uClipY.x));
+        bool clipY = bool(uClipEn.y) && ((uInvert.y > 0.5) ? (mv.vWorldPos.y < uClipY.y) : (mv.vWorldPos.y > uClipY.y));
+        bool clipZ = bool(uClipEn.z) && ((uInvert.z > 0.5) ? (mv.vWorldPos.z < uClipY.z) : (mv.vWorldPos.z > uClipY.z));
         clipped = clipX || clipY || clipZ;
     }
     if (clipped) discard;
@@ -87,16 +90,16 @@ void main() {
     // winding; attribute normals are not, so only they need the back-face flip.
     vec3 norm;
     if (uShadingMode.x > 0.5) {
-        norm = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+        norm = normalize(cross(dFdx(mv.vWorldPos), dFdy(mv.vWorldPos)));
     } else {
-        norm = normalize(vNormal);
+        norm = normalize(mv.vNormal);
         if (!gl_FrontFacing) norm = -norm;
     }
-    vec3 viewDir = normalize(uViewPos_PS.xyz - vWorldPos);
+    vec3 viewDir = normalize(uViewPos_PS.xyz - mv.vWorldPos);
 
     vec3 baseColor = uSurfaceColor_Op.xyz;
     if (hasScalars && (uScalars.x != uScalars.y)) {
-        float t = clamp((vScalar - uScalars.x) / (uScalars.y - uScalars.x), 0.0, 1.0);
+        float t = clamp((mv.vScalar - uScalars.x) / (uScalars.y - uScalars.x), 0.0, 1.0);
         if (uNumBands > 1.0) {
             t = floor(t * uNumBands) / (uNumBands - 1.0);
         }
