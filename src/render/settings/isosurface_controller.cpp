@@ -63,10 +63,31 @@ void IsosurfaceController::setShowIsosurface(bool v) {
 void IsosurfaceController::setIsovalue(float v, float lo, float hi) {
     if (hi < lo) std::swap(lo, hi);
     float clamped = (hi > lo) ? std::clamp(v, lo, hi) : lo;
-    if (m_isovalue == clamped) return;
+    if (m_isovalue == clamped && m_isovalues.size()==1 && !m_isovalues.empty() && m_isovalues[0]==clamped) return;
     m_isovalue = clamped;
+    m_isovalues = {clamped};
     emit isovalueChanged(clamped);
+    emit isovaluesChanged(m_isovalues);
     // Debounced: a slider scrub spawns no more than one task after the pause.
+    m_debounceTimer.start(150);
+}
+
+void IsosurfaceController::setIsovalues(const std::vector<float>& vals, float lo, float hi) {
+    if (hi < lo) std::swap(lo, hi);
+    std::vector<float> clamped;
+    clamped.reserve(vals.size());
+    for (float v: vals) {
+        float c = (hi > lo) ? std::clamp(v, lo, hi) : lo;
+        clamped.push_back(c);
+    }
+    std::sort(clamped.begin(), clamped.end());
+    clamped.erase(std::unique(clamped.begin(), clamped.end(), [](float a,float b){ return std::abs(a-b)<1e-7f; }), clamped.end());
+    if (clamped.empty()) { m_isovalue = (lo+hi)*0.5f; m_isovalues.clear(); emit isovaluesChanged(m_isovalues); return; }
+    if (clamped == m_isovalues) return;
+    m_isovalues = clamped;
+    m_isovalue = m_isovalues.front();
+    emit isovaluesChanged(m_isovalues);
+    emit isovalueChanged(m_isovalue);
     m_debounceTimer.start(150);
 }
 
@@ -75,6 +96,7 @@ void IsosurfaceController::reset(float dataMin, float dataMax) {
     m_showIsosurface = false;
     m_livePending = false;
     m_isovalue = (dataMin + dataMax) * 0.5f;
+    m_isovalues = {m_isovalue};
     ++m_loadToken;
     m_watcher.waitForFinished();
     m_renderer.setPendingIsosurface(nullptr);
@@ -82,6 +104,7 @@ void IsosurfaceController::reset(float dataMin, float dataMax) {
         emit showIsosurfaceChanged(false);
     }
     emit isovalueChanged(m_isovalue);
+    emit isovaluesChanged(m_isovalues);
 }
 
 void IsosurfaceController::clear() {
@@ -131,15 +154,15 @@ void IsosurfaceController::launchAsync() {
     // m_showIsosurface + the token to drop results that finish after a toggle-off.
     const uint64_t token = ++m_loadToken;
     m_taskToken = std::make_shared<std::atomic<uint64_t>>(token);
-    const float iso = m_isovalue;
+    const auto isos = m_isovalues.empty() ? std::vector<float>{m_isovalue} : m_isovalues;
     const auto meshPtr = m_currentMesh;
     const auto field = m_currentField;
     const int placement = m_placement;
     auto snapPtr = m_snapshot;
     m_watcher.setFuture(QtConcurrent::run(
-        [meshPtr, iso, field, placement, snapPtr, taskToken = m_taskToken, token]() -> RenderMesh {
+        [meshPtr, isos, field, placement, snapPtr, taskToken = m_taskToken, token]() -> RenderMesh {
             taskToken->store(token);
-            return isosurface::extractIsosurface(*meshPtr, {iso}, field, placement, snapPtr.get());
+            return isosurface::extractIsosurface(*meshPtr, isos, field, placement, snapPtr.get());
         }));
 }
 

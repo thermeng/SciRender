@@ -63,6 +63,14 @@ RenderSettings::RenderSettings(QObject* parent)
     connect(&m_isoController, &IsosurfaceController::isovalueChanged,
             this, [this](float v) {
                 m_state.isovalue = v;
+                if (m_state.isovalues.empty()) m_state.isovalues = {v};
+                else if (m_state.isovalues.size()==1) m_state.isovalues[0]=v;
+                emit viewChanged(ChangeFlag::Display);
+            });
+    connect(&m_isoController, &IsosurfaceController::isovaluesChanged,
+            this, [this](const std::vector<float>& vals){
+                m_state.isovalues = vals;
+                if (!vals.empty()) m_state.isovalue = vals.front();
                 emit viewChanged(ChangeFlag::Display);
             });
     connect(&m_isoController, &IsosurfaceController::displayDirty,
@@ -443,6 +451,9 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("postWantQ",           [](const RenderSettings& r) { return QVariant(r.m_postWantQ); },                    [](RenderSettings& r, const QVariant& v) { r.m_postWantQ = v.toBool(); });
         add("postWantGradP",       [](const RenderSettings& r) { return QVariant(r.m_postWantGradP); },                [](RenderSettings& r, const QVariant& v) { r.m_postWantGradP = v.toBool(); });
         add("postAutoReextract",   [](const RenderSettings& r) { return QVariant(r.m_postAutoReextract); },            [](RenderSettings& r, const QVariant& v) { r.m_postAutoReextract = v.toBool(); });
+        add("volumeTFEnabled",     [](const RenderSettings& r) { return QVariant(r.m_state.volumeTFEnabled); },              [](RenderSettings& r, const QVariant& v) { r.m_state.volumeTFEnabled = v.toBool(); });
+        add("volumeTFCurve",       [](const RenderSettings& r) { return QVariant(QString::fromStdString(tf::serialize(r.m_state.volumeTransferCurve))); }, [](RenderSettings& r, const QVariant& v) { r.m_state.volumeTransferCurve = tf::deserialize(v.toString().toStdString()); });
+        add("isovalues",           [](const RenderSettings& r) { QVariantList o; for(float f: r.m_state.isovalues) o<<QVariant((double)f); if(o.isEmpty()) o<<QVariant((double)r.m_state.isovalue); return QVariant(o); }, [](RenderSettings& r, const QVariant& v) { auto l=v.toList(); std::vector<float> out; for(auto &q:l) out.push_back(q.toFloat()); if(!out.empty()){ r.m_state.isovalues=out; r.m_state.isovalue=out.front(); } });
         return t;
     }();
     return table;
@@ -514,6 +525,12 @@ void RenderSettings::restoreStateFromSettings() {
     m_state.probeFormat = std::clamp(m_state.probeFormat, 0, 2);
     m_state.probePlacement = std::clamp(m_state.probePlacement, 0, 1);
     m_isoController.setPlacement(m_state.isosurfacePlacement);
+    if (!m_state.isovalues.empty()) {
+        auto [lo,hi] = isosurfaceFieldRange();
+        // if no mesh yet, clamp will be 0-1; still set
+        m_isoController.setIsovalues(m_state.isovalues, lo, hi);
+    }
+    tf::normalize(m_state.volumeTransferCurve);
     m_state.licBoundaryMode = 1;
     m_state.showVectors = (m_state.vectorVisMode == 1);
     m_state.showLic = (m_state.vectorVisMode == 2);
@@ -1228,6 +1245,8 @@ void RenderSettings::clearMeshes() {
     m_state.vectorMagTransform = 0;
     m_state.showIsosurface = false;
     m_state.isovalue = 0.0f;
+    m_state.isovalues.clear();
+    m_state.isovalues.shrink_to_fit();
     m_state.isosurfaceField.clear();
     m_state.isosurfaceField.shrink_to_fit();
     // Post-processed fields belong to the mesh — clear on fresh load/clear.
@@ -1376,6 +1395,80 @@ void RenderSettings::setIsovalue(double v) {
     m_isoController.setIsovalue(static_cast<float>(v), lo, hi);
 }
 
+QVariantList RenderSettings::getIsovalues() const {
+    QVariantList out;
+    const auto& src = m_isoController.isovalues().empty() ? std::vector<float>{m_state.isovalue} : m_isoController.isovalues();
+    // Prefer controller's list if RenderSettings not yet synced, else m_state
+    const auto& use = m_state.isovalues.empty() ? src : m_state.isovalues;
+    for (float f: use) out << QVariant(static_cast<double>(f));
+    if (out.isEmpty()) out << QVariant(static_cast<double>(m_state.isovalue));
+    return out;
+}
+void RenderSettings::setIsovalues(const QVariantList& vals) {
+    auto [lo, hi] = isosurfaceFieldRange();
+    std::vector<float> v; v.reserve(vals.size());
+    for (auto& q: vals) v.push_back(static_cast<float>(q.toDouble()));
+    if (v.empty()) return;
+    m_state.isovalues = v;
+    m_state.isovalue = v.front();
+    m_isoController.setIsovalues(v, lo, hi);
+    if (m_state.showIsosurface) m_isoController.recompute();
+}
+void RenderSettings::addIsovalue(double v) {
+    auto vals = getIsovalues(); QVariantList nl = vals; nl << QVariant(v);
+    setIsovalues(nl);
+}
+void RenderSettings::removeIsovalue(int idx) {
+    auto v = m_state.isovalues;
+    if (v.empty()) v = {m_state.isovalue};
+    if (idx<0 || idx >= (int)v.size()) return;
+    if (v.size()<=1) return; // keep at least one
+    v.erase(v.begin()+idx);
+    setIsovalues(QVariantList([&]{ QVariantList o; for(float f:v) o<<QVariant((double)f); return o;}()));
+}
+void RenderSettings::setIsovalueAt(int idx, double v) {
+    auto vals = m_state.isovalues;
+    if (vals.empty()) vals = {m_state.isovalue};
+    if (idx<0 || idx >= (int)vals.size()) return;
+    vals[idx]=static_cast<float>(v);
+    setIsovalues(QVariantList([&]{ QVariantList o; for(float f:vals) o<<QVariant((double)f); return o;}()));
+}
+
+// Transfer-function helpers
+QVariantList RenderSettings::getVolumeTransferPoints() const {
+    QVariantList out;
+    for (auto& p: m_state.volumeTransferCurve) {
+        QVariantMap m; m["pos"]=p.pos; m["alpha"]=p.alpha; out<<m;
+    }
+    return out;
+}
+void RenderSettings::setVolumeTransferCurve(const QVariantList& pts) {
+    tf::Curve c;
+    for (auto& q: pts) {
+        auto m = q.toMap();
+        float pos = m.value("pos").toFloat();
+        float a = m.value("alpha").toFloat();
+        c.push_back({pos,a});
+    }
+    if (c.empty()) return;
+    tf::normalize(c);
+    if (c==m_state.volumeTransferCurve) return;
+    m_state.volumeTransferCurve=c;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+void RenderSettings::resetVolumeTransferFunction() {
+    tf::Curve c = tf::defaultCurve();
+    if (c==m_state.volumeTransferCurve && !m_state.volumeTFEnabled) return;
+    m_state.volumeTransferCurve=c;
+    m_state.volumeTFEnabled=false;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+void RenderSettings::setVolumeTransferPreset(int preset) {
+    tf::Curve c;
+    switch(preset){ case 1: c=tf::stepCurve(); break; case 2: c=tf::linearLowCurve(); break; default: c=tf::defaultCurve(); break; }
+    if (c!=m_state.volumeTransferCurve){ m_state.volumeTransferCurve=c; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
+}
+
 void RenderSettings::setIsosurfaceField(const QString& fieldName) {
     std::string name = fieldName.toStdString();
     if (name.empty() || name == m_state.isosurfaceField || !m_meshData.loadedMesh) return;
@@ -1396,10 +1489,20 @@ void RenderSettings::setIsosurfaceField(const QString& fieldName) {
         mn = a; mx = b;
     }
     m_state.isosurfaceField = name;
-    // Keep the threshold when it lies inside the new range, else recenter.
-    float target = (m_state.isovalue < mn || m_state.isovalue > mx) ? (mn + mx) * 0.5f : m_state.isovalue;
     m_isoController.setCurrentField(name);
-    m_isoController.setIsovalue(target, mn, mx);
+    if (!m_state.isovalues.empty()) {
+        std::vector<float> clamped; clamped.reserve(m_state.isovalues.size());
+        for (float v: m_state.isovalues) clamped.push_back(std::clamp(v, mn, mx));
+        std::sort(clamped.begin(), clamped.end());
+        clamped.erase(std::unique(clamped.begin(), clamped.end(), [](float a,float b){ return std::abs(a-b)<1e-7f;}), clamped.end());
+        if (clamped.empty()) clamped.push_back((mn+mx)*0.5f);
+        m_state.isovalues = clamped;
+        m_state.isovalue = clamped.front();
+        m_isoController.setIsovalues(clamped, mn, mx);
+    } else {
+        float target = (m_state.isovalue < mn || m_state.isovalue > mx) ? (mn + mx) * 0.5f : m_state.isovalue;
+        m_isoController.setIsovalue(target, mn, mx);
+    }
     if (m_state.showIsosurface) m_isoController.recompute();
     markStateDirty();
     emit meshDataUpdated();

@@ -38,6 +38,8 @@ void VolumePass::init(const ShaderSources& sources) {
         locInvert_          = glGetUniformLocation(program_, "uInvert");
         locVolumeUseColormap_ = glGetUniformLocation(program_, "uVolumeUseColormap");
         locNumBands_ = glGetUniformLocation(program_, "uNumBands");
+        locTransferTex_ = glGetUniformLocation(program_, "uTransferFunc");
+        locTFEnabled_ = glGetUniformLocation(program_, "uTFEnabled");
     }
     if (!vaoInitialized_) {
         setupVertexBuffer(quadVao_, quadVbo_, QUAD_VERTS, sizeof(QUAD_VERTS), 2 * sizeof(float),
@@ -101,7 +103,16 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
 
     glUniform1i(locVolumeUseColormap_, state.volumeUseColormap ? 1 : 0);
 
-    if (locNumBands_ != -1) glUniform1f(locNumBands_, static_cast<float>(state.volumeColorBands));
+     if (locNumBands_ != -1) glUniform1f(locNumBands_, static_cast<float>(state.volumeColorBands));
+    ensureTransferTex(state);
+    if (locTFEnabled_ != -1) glUniform1i(locTFEnabled_, state.volumeTFEnabled ? 1 : 0);
+    if (transferTex_.has()) {
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_1D, transferTex_.get());
+        if (locTransferTex_ != -1) glUniform1i(locTransferTex_, 2);
+    } else {
+        if (locTransferTex_ != -1) glUniform1i(locTransferTex_, 2);
+    }
 
     // Always bind a valid 1D LUT when available so the uColormapLUT sampler is
     // never left dangling on unit 0 (the 3D volume texture). The
@@ -133,10 +144,26 @@ void VolumePass::clearVolume() {
     boxMin_ = boxMax_ = glm::vec3(0.0f);
 }
 
+void VolumePass::ensureTransferTex(const RenderRenderState& state) {
+    auto baked = tf::bake256(state.volumeTransferCurve);
+    if (baked == lastBaked_ && transferTex_.has()) return;
+    lastBaked_ = baked;
+    if (!transferTex_.has()) {
+        glCreateTextures(GL_TEXTURE_1D, 1, transferTex_.ptr());
+        glTextureStorage1D(transferTex_.get(), 1, GL_R8, 256);
+        glTextureParameteri(transferTex_.get(), GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(transferTex_.get(), GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(transferTex_.get(), GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
+    glTextureSubImage1D(transferTex_.get(), 0, 0, 256, GL_RED, GL_UNSIGNED_BYTE, baked.data());
+}
+
 void VolumePass::shutdown() {
     program_.reset();
     quadVao_.reset();
     quadVbo_.reset();
+    transferTex_.reset();
+    lastBaked_.clear();
     vaoInitialized_ = false;
     locInvView_ = locInvProj_ = locCamPos_ = locOrtho_ = locVolumeTex_ = -1;
     locBoxMin_ = locBoxMax_ = locLut_ = locOpacity_ = -1;
@@ -144,4 +171,6 @@ void VolumePass::shutdown() {
     locSliceHeightY_ = locSliceHeightZ_ = locSliceEn_ = locInvert_ = locVolumeUseColormap_ = -1;
     locSafeExtent_ = locBaseStepSize_ = locPixelFootprintScale_ = -1;
     locNumBands_ = -1;
+    locTransferTex_ = -1;
+    locTFEnabled_ = -1;
 }

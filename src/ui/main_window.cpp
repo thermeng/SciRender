@@ -18,6 +18,7 @@
 #include "render/foundation/render_config.h"
 #include "core/Colormaps.h"
 #include "core/FieldStore.h"
+#include "transfer_function_widget.h"
 #include "core/field_sampler.h"
 #include "plot_window.h"
 #include <cmath>
@@ -2260,6 +2261,56 @@ QWidget* MainWindow::buildVolumePage() {
                         << volumeUi.opacityLabel << volumeUi.opacitySlider << volumeUi.opacityValue;
     applyVolumeControlGating();
 
+    // --- Transfer Function Editor ---
+    auto* tfHeader = new QLabel("Transfer Function (Opacity)");
+    tfHeader->setObjectName("tfHeader");
+    content->layout()->addWidget(tfHeader);
+    auto* tfEnable = new QCheckBox("Enable TF");
+    m_tfEnableCb = tfEnable;
+    tfEnable->setChecked(m_settings->getVolumeTFEnabled());
+    connect(tfEnable, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeTFEnabled);
+    content->layout()->addWidget(tfEnable);
+    auto* tfWidget = new TransferFunctionWidget;
+    m_tfWidget = tfWidget;
+    // init curve
+    {
+        auto s = m_settings->getVolumeTFCurve();
+        tfWidget->setCurve(tf::deserialize(s.toStdString()));
+        auto [lo,hi] = std::pair<float,float>{m_settings->getDataScalarMinQml(), m_settings->getDataScalarMaxQml()};
+        tfWidget->setFieldRange(lo,hi);
+    }
+    connect(tfWidget, &TransferFunctionWidget::curveChanged, this, [this](const tf::Curve& c){
+        QVariantList pts;
+        for(auto& p: c){ QVariantMap m; m["pos"]=p.pos; m["alpha"]=p.alpha; pts<<m; }
+        m_settings->setVolumeTransferCurve(pts);
+    });
+    content->layout()->addWidget(tfWidget);
+    m_volumeRenderCtrls << tfHeader << tfEnable << tfWidget;
+    auto* tfPresetRow = new QWidget;
+    auto* tfPresetLay = new QHBoxLayout(tfPresetRow);
+    tfPresetLay->setContentsMargins(0,0,0,0);
+    auto* tfPresetCombo = new QComboBox;
+    m_tfPresetCombo = tfPresetCombo;
+    tfPresetCombo->addItems({"Linear","Step","Low"});
+    tfPresetLay->addWidget(tfPresetCombo);
+    auto* tfPresetBtn = new QPushButton("Apply");
+    connect(tfPresetBtn, &QPushButton::clicked, this, [this](){
+        int idx = m_tfPresetCombo ? m_tfPresetCombo->currentIndex() : 0;
+        m_settings->setVolumeTransferPreset(idx);
+        if(m_tfWidget) m_tfWidget->setCurve(tf::deserialize(m_settings->getVolumeTFCurve().toStdString()));
+    });
+    tfPresetLay->addWidget(tfPresetBtn);
+    auto* tfResetBtn = new QPushButton("Reset");
+    connect(tfResetBtn, &QPushButton::clicked, this, [this](){
+        m_settings->resetVolumeTransferFunction();
+        if(m_tfWidget) m_tfWidget->setCurve(tf::deserialize(m_settings->getVolumeTFCurve().toStdString()));
+        if(m_tfEnableCb) m_tfEnableCb->setChecked(m_settings->getVolumeTFEnabled());
+    });
+    tfPresetLay->addWidget(tfResetBtn);
+    content->layout()->addWidget(tfPresetRow);
+    m_volumeRenderCtrls << tfPresetRow;
+    applyVolumeControlGating();
+
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);
@@ -2426,8 +2477,53 @@ QWidget* MainWindow::buildIsosurfacePage() {
     auto* spin = isoUi.valueSpin;
     m_isoValueSpin = spin;
     refreshIsosurfaceValue();
-    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            m_settings, &RenderSettings::setIsovalue);
+    // legacy single-value path kept: editing spin updates selected contour if multi, else lone isovalue
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double v){
+        if(m_isoList && m_isoList->currentRow()>=0) m_settings->setIsovalueAt(m_isoList->currentRow(), v);
+        else m_settings->setIsovalue(v);
+    });
+
+    // --- Multi-contour list ---
+    auto* isoListLabel = new QLabel("Contours");
+    isoListLabel->setObjectName("isoListHeader");
+    isoUi.optionsGroup->layout()->addWidget(isoListLabel);
+    auto* isoList = new QListWidget;
+    m_isoList = isoList;
+    isoList->setMinimumHeight(90);
+    isoList->setSelectionMode(QAbstractItemView::SingleSelection);
+    isoUi.optionsGroup->layout()->addWidget(isoList);
+    refreshIsosurfaceList();
+    connect(isoList, &QListWidget::currentRowChanged, this, [this](int row){
+        if(row<0) return;
+        auto vals = m_settings->getIsovalues();
+        if(row < vals.size()){ double v = vals[row].toDouble(); m_isoValueSpin->blockSignals(true); m_isoValueSpin->setValue(v); m_isoValueSpin->blockSignals(false); }
+    });
+    connect(isoList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*){
+        if(m_isoList) m_isoValueSpin->setFocus();
+    });
+    auto* isoBtnRow = new QWidget;
+    auto* isoBtnLay = new QHBoxLayout(isoBtnRow);
+    isoBtnLay->setContentsMargins(0,0,0,0);
+    auto* addBtn = new QPushButton("Add");
+    m_isoAddBtn = addBtn;
+    auto* remBtn = new QPushButton("Remove");
+    m_isoRemoveBtn = remBtn;
+    isoBtnLay->addWidget(addBtn);
+    isoBtnLay->addWidget(remBtn);
+    isoUi.optionsGroup->layout()->addWidget(isoBtnRow);
+    connect(addBtn, &QPushButton::clicked, this, [this](){
+        double v = m_isoValueSpin ? m_isoValueSpin->value() : 0;
+        auto [lo,hi] = m_settings->isosurfaceFieldRange();
+        // propose slightly offset to avoid duplicate
+        v = std::clamp(v + (hi-lo)*0.05, (double)lo, (double)hi);
+        m_settings->addIsovalue(v);
+        refreshIsosurfaceList();
+        if(m_isoList) m_isoList->setCurrentRow(m_isoList->count()-1);
+    });
+    connect(remBtn, &QPushButton::clicked, this, [this](){
+        int r = m_isoList ? m_isoList->currentRow() : -1;
+        if(r>=0){ m_settings->removeIsovalue(r); refreshIsosurfaceList(); }
+    });
 
     // -- Placement (Vertex / Cell Center) --
     auto* placementCombo = isoUi.placementCombo;
@@ -2729,7 +2825,9 @@ void MainWindow::syncVolumePage() {
         m_isoPlacementCombo->setEnabled(hasCellScalars);
         m_isoPlacementCombo->blockSignals(false);
     }
-    if (m_isoFieldCombo) {
+        if (m_isoList) refreshIsosurfaceList();
+        if (m_tfWidget) refreshVolumeTF();
+        if (m_isoFieldCombo) {
         m_isoFieldCombo->blockSignals(true);
         m_isoFieldCombo->clear();
         m_isoFieldCombo->addItems(m_settings->getAvailableScalars());
@@ -2764,8 +2862,34 @@ void MainWindow::refreshIsosurfaceValue() {
     m_isoValueSpin->setDecimals(decimals);
     m_isoValueSpin->setRange(lo, hi);
     m_isoValueSpin->setSingleStep(step);
-    m_isoValueSpin->setValue(m_settings->getIsovalue());
+    double cur = m_settings->getIsovalue();
+    if (m_isoList && m_isoList->currentRow()>=0) {
+        auto vals = m_settings->getIsovalues();
+        if (m_isoList->currentRow() < vals.size()) cur = vals[m_isoList->currentRow()].toDouble();
+    }
+    m_isoValueSpin->setValue(cur);
     m_isoValueSpin->blockSignals(false);
+}
+
+void MainWindow::refreshIsosurfaceList() {
+    if (!m_isoList) return;
+    m_isoList->blockSignals(true);
+    m_isoList->clear();
+    auto vals = m_settings->getIsovalues();
+    for (auto &v: vals) m_isoList->addItem(QString::number(v.toDouble(),'g',6));
+    if (m_isoList->count()>0 && m_isoList->currentRow()<0) m_isoList->setCurrentRow(0);
+    if (m_isoRemoveBtn) m_isoRemoveBtn->setEnabled(m_isoList->count()>1);
+    m_isoList->blockSignals(false);
+}
+
+void MainWindow::refreshVolumeTF() {
+    if (m_tfWidget) {
+        auto s = m_settings->getVolumeTFCurve();
+        m_tfWidget->setCurve(tf::deserialize(s.toStdString()));
+        auto [lo,hi] = std::pair<float,float>{m_settings->getDataScalarMinQml(), m_settings->getDataScalarMaxQml()};
+        m_tfWidget->setFieldRange(lo,hi);
+    }
+    if (m_tfEnableCb) { m_tfEnableCb->blockSignals(true); m_tfEnableCb->setChecked(m_settings->getVolumeTFEnabled()); m_tfEnableCb->blockSignals(false); }
 }
 
 // The Volume page places both full-volume-rendering controls (Step Size, Opacity,
@@ -3017,6 +3141,8 @@ void MainWindow::connectSettings() {
             m_isoFieldCombo->blockSignals(false);
         }
         refreshIsosurfaceValue();
+        refreshIsosurfaceList();
+        refreshVolumeTF();
         refreshPostProcPage();
     });
 

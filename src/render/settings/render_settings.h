@@ -337,11 +337,14 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int screenshotAASamples READ getScreenshotAASamples WRITE setScreenshotAASamples NOTIFY viewChanged)
      Q_PROPERTY(bool flatShading READ getFlatShading WRITE setFlatShading NOTIFY viewChanged)
 
-     Q_PROPERTY(bool showIsosurface READ getShowIsosurface WRITE setShowIsosurface NOTIFY viewChanged)
-     Q_PROPERTY(double isovalue READ getIsovalue WRITE setIsovalue NOTIFY viewChanged)
-     Q_PROPERTY(QString isosurfaceField READ getIsosurfaceFieldQml WRITE setIsosurfaceField NOTIFY meshDataUpdated)
-     Q_PROPERTY(bool isosurfaceAvailable READ getIsosurfaceAvailable NOTIFY meshDataUpdated)
-     Q_PROPERTY(int isosurfacePlacement READ getIsosurfacePlacement WRITE setIsosurfacePlacement NOTIFY viewChanged)
+      Q_PROPERTY(bool showIsosurface READ getShowIsosurface WRITE setShowIsosurface NOTIFY viewChanged)
+      Q_PROPERTY(double isovalue READ getIsovalue WRITE setIsovalue NOTIFY viewChanged)
+      Q_PROPERTY(QVariantList isovalues READ getIsovalues WRITE setIsovalues NOTIFY viewChanged)
+      Q_PROPERTY(QString isosurfaceField READ getIsosurfaceFieldQml WRITE setIsosurfaceField NOTIFY meshDataUpdated)
+      Q_PROPERTY(bool isosurfaceAvailable READ getIsosurfaceAvailable NOTIFY meshDataUpdated)
+      Q_PROPERTY(int isosurfacePlacement READ getIsosurfacePlacement WRITE setIsosurfacePlacement NOTIFY viewChanged)
+      Q_PROPERTY(bool volumeTFEnabled READ getVolumeTFEnabled WRITE setVolumeTFEnabled NOTIFY viewChanged)
+      Q_PROPERTY(QString volumeTFCurve READ getVolumeTFCurve WRITE setVolumeTFCurve NOTIFY viewChanged)
      Q_PROPERTY(QString postVelocitySource READ getPostVelocitySource WRITE setPostVelocitySource NOTIFY meshDataUpdated)
      Q_PROPERTY(QString postPressureSource READ getPostPressureSource WRITE setPostPressureSource NOTIFY meshDataUpdated)
      Q_PROPERTY(bool postWantVorticity READ getPostWantVorticity WRITE setPostWantVorticity NOTIFY meshDataUpdated)
@@ -734,9 +737,22 @@ public:
       // The lifecycle (async extract, debounce, stale-guard) lives in
       // IsosurfaceController; these are thin QML-binding forwarders.
       bool getShowIsosurface() const { return m_state.showIsosurface; }
-      void setShowIsosurface(bool v) { m_isoController.setShowIsosurface(v); }
-      double getIsovalue() const { return static_cast<double>(m_state.isovalue); }
-      void setIsovalue(double v);
+       void setShowIsosurface(bool v) { m_isoController.setShowIsosurface(v); }
+       double getIsovalue() const { return static_cast<double>(m_state.isovalue); }
+       void setIsovalue(double v);
+       QVariantList getIsovalues() const;
+       void setIsovalues(const QVariantList& vals);
+       Q_INVOKABLE void addIsovalue(double v);
+       Q_INVOKABLE void removeIsovalue(int idx);
+       Q_INVOKABLE void setIsovalueAt(int idx, double v);
+       bool getVolumeTFEnabled() const { return m_state.volumeTFEnabled; }
+       void setVolumeTFEnabled(bool v) { if (m_state.volumeTFEnabled!=v){ m_state.volumeTFEnabled=v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+       QString getVolumeTFCurve() const { return QString::fromStdString(tf::serialize(m_state.volumeTransferCurve)); }
+       void setVolumeTFCurve(const QString& s) { auto c=tf::deserialize(s.toStdString()); if(c!=m_state.volumeTransferCurve){ m_state.volumeTransferCurve=c; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+       Q_INVOKABLE void setVolumeTransferCurve(const QVariantList& pts);
+       QVariantList getVolumeTransferPoints() const;
+       Q_INVOKABLE void resetVolumeTransferFunction();
+       Q_INVOKABLE void setVolumeTransferPreset(int preset);
       QString getIsosurfaceFieldQml() const { return QString::fromStdString(m_state.isosurfaceField); }
       void setIsosurfaceField(const QString& fieldName);
       // Range of the contour field under the iso placement (drives the spin bounds).
