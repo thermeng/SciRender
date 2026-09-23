@@ -45,9 +45,14 @@ private:
     GLint locBaseStepSize_ = -1;
     GLint locPixelFootprintScale_ = -1;
     GLint locNumBands_ = -1;
+    GLint locTransferTex_ = -1;
+    GLint locTFEnabled_ = -1;
     glm::vec3 boxMin_;
     glm::vec3 boxMax_;
     bool vaoInitialized_ = false;
+    GlTexture transferTex_;
+    std::vector<uint8_t> lastBaked_;
+    void ensureTransferTex(const RenderRenderState& state);
 };
 
 

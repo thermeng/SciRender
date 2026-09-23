@@ -57,6 +57,7 @@
 #include "render/passes/LodScheduler.h"
 #include "render/passes/DepthPeelPass.h"
 #include "core/post_fields.h"
+#include "core/transfer_function.h"
 
 #include <QOpenGLFramebufferObject>
 
@@ -339,6 +340,8 @@ struct RenderRenderState {
     bool volumeColormapReversed = false;
     float volumeStepSize = 0.01f;
     float volumeOpacity = 1.0f;
+    tf::Curve volumeTransferCurve = tf::defaultCurve();
+    bool volumeTFEnabled = false;
     float fovY = glm::radians(45.0f);
 
 
@@ -375,7 +378,8 @@ struct RenderRenderState {
 
 
     bool showIsosurface = false;
-    float isovalue = 0.0f;
+    float isovalue = 0.0f; // legacy single value; kept for compat — isovalues is authoritative
+    std::vector<float> isovalues; // multi-contour list; when non-empty isovalue==isovalues[0]
     int isosurfacePlacement = 0; // 0=Vertex (point data), 1=Cell Center (cell data)
     std::string isosurfaceField; // independent contour field (may differ from activeScalarName)
     // Flat iso color (light blue default). The isosurface is NEVER colormapped.

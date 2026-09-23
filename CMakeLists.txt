@@ -151,6 +151,8 @@ add_executable(SciRender
     src/ui/plot_window.h
     src/ui/animation_export_dialog.cpp
     src/ui/animation_export_dialog.h
+    src/ui/transfer_function_widget.cpp
+    src/ui/transfer_function_widget.h
     src/ui/main_window.cpp
     src/ui/main_window.h
     src/ui/main_window.ui

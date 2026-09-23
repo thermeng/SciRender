@@ -4,6 +4,8 @@ in vec2 vNdc;
 
 uniform sampler3D uVolumeTex;
 uniform sampler1D uColormapLUT;
+uniform sampler1D uTransferFunc;
+uniform int uTFEnabled = 0;
 uniform float uNumBands = 0.0; // 0 = continuous, >1 = discrete bands
 uniform vec3 uBoxMin;
 uniform vec3 uBoxMax;
@@ -148,7 +150,8 @@ void main() {
             color = vec3(tVal);
         }
 
-        float density = tVal * uOpacity * sliceAlpha;
+        float tfAlpha = (uTFEnabled == 1) ? texture(uTransferFunc, tVal).r : tVal;
+        float density = tfAlpha * uOpacity * sliceAlpha;
         float alpha = clamp(1.0 - exp(-density * stepSize), 0.0, 1.0);
 
         accum += alpha * color * (1.0 - accumA);

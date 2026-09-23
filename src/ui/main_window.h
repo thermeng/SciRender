@@ -38,6 +38,7 @@
 #include "viewport_widget.h"
 #include "render/settings/render_settings.h"
 #include "ui/range_editor.h"
+#include "core/transfer_function.h"
 
 class PlotWindow;
 
@@ -268,6 +269,14 @@ private:
     QComboBox* m_isoFieldCombo = nullptr;
     QDoubleSpinBox* m_isoValueSpin = nullptr;
     QComboBox* m_isoPlacementCombo = nullptr;
+    QListWidget* m_isoList = nullptr;
+    QPushButton* m_isoAddBtn = nullptr;
+    QPushButton* m_isoRemoveBtn = nullptr;
+
+    // Volume TF
+    class TransferFunctionWidget* m_tfWidget = nullptr;
+    QCheckBox* m_tfEnableCb = nullptr;
+    QComboBox* m_tfPresetCombo = nullptr;
 
     // Post Processing Fields page
     QComboBox* m_postVelCombo = nullptr;
@@ -310,6 +319,8 @@ private:
     void refreshClippingPageBounds();
     void refreshScalarFilterRange();
     void refreshIsosurfaceValue();
+    void refreshIsosurfaceList();
+    void refreshVolumeTF();
 
     // Timers
     QTimer m_autoRotateTimer;

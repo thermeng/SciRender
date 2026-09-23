@@ -29,6 +29,8 @@ public:
 
     float isovalue() const { return m_isovalue; }
     void setIsovalue(float v, float lo, float hi);
+    const std::vector<float>& isovalues() const { return m_isovalues; }
+    void setIsovalues(const std::vector<float>& vals, float lo, float hi);
 
     bool isAvailable() const;
     bool isAvailable(int placement) const;
@@ -58,6 +60,7 @@ signals:
     void displayDirty();
     void showIsosurfaceChanged(bool);
     void isovalueChanged(float);
+    void isovaluesChanged(const std::vector<float>&);
     void placementChanged(int);
 
 private slots:
@@ -70,6 +73,7 @@ private:
     Renderer& m_renderer;
     bool m_showIsosurface = false;
     float m_isovalue = 0.0f;
+    std::vector<float> m_isovalues;
     int m_placement = 0; // 0=Vertex, 1=Cell Center (mirrors vectorPlacement)
     std::shared_ptr<const RenderMesh> m_currentMesh;
     std::string m_currentField;
