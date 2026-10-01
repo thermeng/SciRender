@@ -5,7 +5,9 @@
 #include <vector>
 
 // ── PVD (ParaView Data) Collection ──────────────────────────────────────────
-// A .pvd file is an XML index over a time series of dataset files:
+// "ParaView Data" is the official name of the .pvd format; the <VTKFile>
+// element below is the literal XML tag name required on disk. A .pvd file is
+// an XML index over a time series of dataset files:
 //
 //   <VTKFile type="Collection" version="0.1">
 //     <Collection>

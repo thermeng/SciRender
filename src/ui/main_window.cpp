@@ -3381,7 +3381,7 @@ void MainWindow::recreateViewport() {
 void MainWindow::showAbout() {
     QMessageBox::about(this, "About SciRender",
         "<h2>SciRender</h2>"
-        "<p>A Qt 6 + OpenGL scientific mesh renderer for VTK/STL/OBJ datasets.</p>"
+        "<p>A Qt 6 + OpenGL scientific mesh renderer for VTK XML, STL and OBJ datasets.</p>"
         "<p>GPU shaders, instanced vector glyphs, lighting, slicing, colormaps & more.</p>"
         "<p>Build: MinGW 64-bit &middot; Qt 6.11</p>");
 }

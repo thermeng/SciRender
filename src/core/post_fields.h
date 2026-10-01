@@ -4,7 +4,7 @@
 //
 // Supports Cartesian structured (ImageData/RectilinearGrid, 2D & 3D) via weighted
 // finite differences AND unstructured/polydata/curvilinear STRUCTURED_GRID
-// via least-squares reconstruction (high-performance CFD: all VTK meshes).
+// via least-squares reconstruction (high-performance CFD meshes).
 // Pure CPU, no Qt/GL — headlessly unit-testable. Storage for the computed
 // arrays (ComputedSnapshot, snapshot-shared with the render thread) lives
 // here too; resolution against it is Phase-2 FieldStore integration.

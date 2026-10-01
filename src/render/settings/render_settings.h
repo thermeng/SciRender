@@ -484,7 +484,7 @@ public slots:
     void snapToOrthoView(int axis);
     Q_INVOKABLE void requestScreenshot(const QString& path);
     void snapToAxisView(int axis, bool flip);
-    void snapGizmoAxis(int axis);   // ParaView-style: align to axis; second click flips to the opposite face
+    void snapGizmoAxis(int axis);   // align to axis; second click flips to the opposite face
     void toggleSurface(bool visible);
 
     QStringList getAvailableScalars() const;
@@ -509,7 +509,7 @@ public slots:
     void statusMessageChanged();
 
 public:
-    // VTK Camera forwarders (QML-invokable). Mutate the GUI-side Camera; the
+    // Camera forwarders (QML-invokable). Mutate the GUI-side Camera; the
     // next synchronize() copies it into the render-thread snapshot. Manual
     // input always cancels an in-flight fly-to-face transition first.
     Q_INVOKABLE void azimuth(double angle) { cancelCameraTransition(); m_state.camera.azimuth(angle); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }

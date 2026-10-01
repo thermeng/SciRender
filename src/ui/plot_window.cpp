@@ -357,7 +357,7 @@ void PlotWindow::recomputeHistogram() {
             return;
         }
         // Dedup scalars for vertex placement using vertexSourceIndex.
-        // Per-source-point counting (ParaView parity): vertex duplicates at sharp edges are deduped
+        // Per-source-point counting: vertex duplicates at sharp edges are deduped
         // so histogram n == sourcePointCount. Without dedup, n == post-split vertex count.
         if (rm && !rm->vertexSourceIndex.empty() && rm->vertexSourceIndex.size() == src->size()) {
             const auto& lut = rm->vertexSourceIndex;

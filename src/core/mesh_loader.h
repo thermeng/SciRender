@@ -212,14 +212,14 @@ struct RenderMesh {
 
     // True/topological point count of the source geometry — the number of
     // distinct vertices (after position dedup for STL). This is what tools like
-    // ParaView report. It must be captured BEFORE computeNormals() splits sharp
+    // report. It must be captured BEFORE computeNormals() splits sharp
     // edges, since that pass duplicates vertices purely for shading (one flat
     // normal per sharp-edge side) and would otherwise inflate the displayed
     // "Points" count. Defaults to the post-split vertex count if unset.
     int sourcePointCount = -1;
 
-    // Cell-edge index list for cell-boundary wireframe (ParaView "Wireframe"
-    // mode). Pairs of vertex indices into the same `vertices` array, emitted
+    // Cell-edge index list for cell-boundary wireframe. Pairs of vertex
+    // indices into the same `vertices` array, emitted
     // in the pre-normal-split vertex space (indices remain valid after
     // computeNormals() because it only appends duplicate vertices). Populated
     // by extractCellEdges() / generateStructuredGridCellEdges() in VTK parsers,
@@ -467,8 +467,8 @@ namespace mesh_utils {
         const std::unordered_map<std::string, std::vector<float>>& cellVectorsStorage
     );
 
-    // ── Cell-edge extraction (ParaView-style wireframe) ───────────────────────
-    // ParaView "Surface Edges": only boundary face edges, interior volume faces
+    // ── Cell-edge extraction (wireframe) ───────────────────────
+    // Surface edges only: boundary face edges are kept, interior volume faces
     // are hidden. We build a face → count map (sorted vertex tuple) and keep
     // only faces with count==1. Edges of those faces are then deduplicated.
     // For 2D cells (tri/quad/polygon) the face is the cell itself → always kept.
@@ -567,7 +567,7 @@ namespace mesh_utils {
     // or the cellTypes vector is empty, type is inferred from the vertex count
     // (2->line, 3->triangle, 4->quad, 8->hex). Returns a flat uint32_t vector of
     // edge pairs (a,b), each pair sorted as (min,max) and globally deduplicated.
-    // ParaView-style: only edges of boundary faces (face count==1) are kept, so
+    // Only edges of boundary faces (face count==1) are kept, so
     // interior volume edges are hidden.
     template<typename IntType>
     std::vector<uint32_t> extractCellEdges(

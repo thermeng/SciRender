@@ -164,8 +164,8 @@ void RenderSettings::snapToAxisView(int axis, bool flip) {
 
 void RenderSettings::snapGizmoAxis(int axis) {
     if (axis < 0 || axis > 2) return;
-    // ParaView triad semantics: clicking an arrowhead aligns the camera to view
-    // FROM that world axis; clicking it again flips to the opposite face.
+// Triad semantics: clicking an arrowhead aligns the camera to view
+        // FROM that world axis; clicking it again flips to the opposite face.
     static const glm::dvec3 axes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
     const glm::dvec3 d = glm::normalize(m_state.camera.position - m_state.camera.focalPoint);
     const bool alreadyOnThisFace = glm::dot(d, axes[axis]) > 0.995;
@@ -576,7 +576,7 @@ void RenderSettings::loadMesh(const QString& filePath) {
     m_animController.clear();
     m_animSequenceActive = false;
 
-    // Parse OFF the GUI thread so heavy VTK/STL files never block the UI.
+    // Parse OFF the GUI thread so heavy mesh files never block the UI.
     // The parse produces a RenderMesh that we wrap in an immutable shared_ptr;
     // no per-vertex array is copied on the GUI thread. The QFutureWatcher's
     // finished() runs on the GUI thread and does the bookkeeping below.
@@ -731,7 +731,7 @@ void RenderSettings::onMeshParsed() {
         m_state.showScalarColorbar = true;
         m_state.activeScalarName = loaded->scalarName;
         // Auto-select placement: Cell Center if active field has cell data (so initial
-        // colorbar matches ParaView wide range for cell fields like Pressure).
+        // colorbar matches the wide range for cell fields like Pressure).
         {
             bool hasCell = loaded->attributes && loaded->attributes->cellScalars.find(m_state.activeScalarName) != loaded->attributes->cellScalars.end();
             bool hasPoint = loaded->attributes && loaded->attributes->pointScalars.find(m_state.activeScalarName) != loaded->attributes->pointScalars.end();
