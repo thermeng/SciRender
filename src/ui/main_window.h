@@ -129,6 +129,14 @@ private:
     QListWidget* m_navList = nullptr;
     int m_navWidth = 140; // Dynamic width calculated from text content
 
+    // Availability badges: a nav section whose backing data is missing gets a
+    // warning glyph appended to its nav label. `m_sectionBanners` holds the
+    // inline reason banner injected at the top of each visualizer page.
+    void refreshSidebarCapabilityBadges();
+    QString sectionUnavailableReason(int section) const;
+    void addSectionPage(int section, QWidget* page);
+    QVector<QLabel*> m_sectionBanners;                  // indexed by section
+
     // Panel header
     QWidget* m_panelHeader = nullptr;
     QLabel* m_panelTitle = nullptr;
