@@ -216,7 +216,7 @@ set(SHADER_FILES
     src/shaders/depth_peel.vert
     src/shaders/depth_peel.frag
     src/shaders/composite.vert
-    src/shaders/composite.frag
+    src/shaders/peel_blit.frag
     src/shaders/surface_lic.frag
 )
 qt_add_resources(SciRender "shaders"

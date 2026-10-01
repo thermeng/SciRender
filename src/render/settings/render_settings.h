@@ -323,7 +323,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool pointUseScalar READ getPointUseScalar WRITE setPointUseScalar NOTIFY viewChanged)
     Q_PROPERTY(float pointOpacity READ getPointOpacity WRITE setPointOpacity NOTIFY viewChanged)
     Q_PROPERTY(float surfaceOpacity READ getSurfaceOpacity WRITE setSurfaceOpacity NOTIFY viewChanged)
-    Q_PROPERTY(int maxPeelLayers READ getMaxPeelLayers WRITE setMaxPeelLayers NOTIFY viewChanged) // depth peeling layer count (1-64)
+    Q_PROPERTY(int maxPeelLayers READ getMaxPeelLayers WRITE setMaxPeelLayers NOTIFY viewChanged) // depth peel iterations (1-64), ~2 layers each
     Q_PROPERTY(int cullMode READ getCullMode WRITE setCullMode NOTIFY viewChanged) // 0=off 1=back 2=front
     Q_PROPERTY(bool showBounds READ getShowBounds WRITE setShowBounds NOTIFY viewChanged)
     Q_PROPERTY(bool showQualityOverlay READ getShowQualityOverlay WRITE setShowQualityOverlay NOTIFY viewChanged)

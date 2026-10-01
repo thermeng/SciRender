@@ -47,6 +47,12 @@ public:
     bool hasLicProgram() const { return licShaderProgram.has(); }
     GLuint uboHandle() const { return meshUbo; }
 
+    // Tells drawCommon whether DepthPeelPass can consume deferred sub-opaque
+    // meshes. When false, sub-opaque surfaces are drawn inline with order-
+    // dependent alpha blending instead of being deferred, so a peel shader
+    // compile failure degrades quality rather than making the mesh vanish.
+    void setOitAvailable(bool available) { m_oitAvailable = available; }
+
     struct LicResources {
         GLuint vectorTex = 0;
         GLuint noiseTex = 0;
@@ -113,6 +119,7 @@ private:
     GLuint licUboIndex = ~0u;
     GLuint licClipUboIndex = ~0u;
     const ColormapManager* m_colormapPtr = nullptr;
+    bool m_oitAvailable = true;
     GLint lutTextureLoc = -1;
     GLint clipLutTextureLoc = -1;
     GLint numBandsLoc = -1;

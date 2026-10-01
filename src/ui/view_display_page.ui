@@ -249,7 +249,8 @@
        <property name="bottomMargin"><number>0</number></property>
        <item>
         <widget class="QLabel" name="peelLayersLabel">
-         <property name="text"><string>Peel Layers</string></property>
+         <property name="text"><string>Peel Passes</string></property>
+          <property name="toolTip"><string>Quality ceiling only -- this is NOT a transparency control. The result is identical at 1 or 64 passes, because anything the peel loop leaves unresolved is blended by a final alpha pass. Raising it only bounds worst-case CPU cost.</string></property>
          <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
          <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
         </widget>

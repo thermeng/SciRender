@@ -135,9 +135,13 @@ MeshUBOData MeshPass::makeUbo(const RenderRenderState& state,
 
 
 
-    float rawA = std::clamp(state.surfaceOpacity, 0.0f, 1.0f);
-    float remappedA = (rawA <= 0.0f) ? 0.0f : std::pow(rawA, 1.8f);
-    ubo.surfaceColor_sop = glm::vec4(state.surfaceColor[0], state.surfaceColor[1], state.surfaceColor[2], remappedA);
+    // Linear alpha, straight through. Blending already happens in linear light, so
+// a perceptual remap double-corrects: it makes the slider lie about what you
+// see, and it compounds with layer count, so the meaning of a given slider
+// value would silently change with maxPeelLayers. Layer accumulation 1-(1-a)^N
+// is inherent to depth peeling, not something to paper over.
+const float alpha = std::clamp(state.surfaceOpacity, 0.0f, 1.0f);
+ubo.surfaceColor_sop = glm::vec4(state.surfaceColor[0], state.surfaceColor[1], state.surfaceColor[2], alpha);
     ubo.point_clip = glm::vec4(0.0f, state.pointUseScalar ? 1.0f : 0.0f, state.pointOpacity, state.clipEnabled ? 1.0f : 0.0f);
 
     glm::vec3 kDir, fDir, b1Dir, b2Dir, hDir;
@@ -323,13 +327,22 @@ MeshPassResult MeshPass::drawCommon(const RenderRenderState& state,
 
     if (state.showSurface) {
         const bool opaque = state.surfaceOpacity >= 1.0f;
-        if (opaque) {
+        // Nothing to show when the surface is fully transparent - skip the
+        // whole draw rather than rasterizing every peel layer of an invisible
+        // mesh. The remap below never maps a positive opacity to 0, so this
+        // test is exact.
+        const bool fullyTransparent = state.surfaceOpacity <= 0.0f;
+        if (fullyTransparent) {
+            drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
+        } else if (opaque) {
             drawOpaque(state, drawList);
             drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
-        } else if (licTransparent) {
-            // Single-pass translucent LIC (documented tradeoff vs depth-peel
-            // OIT): order-dependent blending, but avoids peeling cost per LIC
-            // sample. Must not write depth or later fragments self-occlude.
+        } else if (licTransparent || !m_oitAvailable) {
+            // Single-pass translucent fallback (LIC, or any surface when the
+            // depth-peel programs failed to compile). Documented tradeoff vs
+            // depth peel OIT: order-dependent blending, but no peel cost per
+            // LIC sample, and nothing gets deferred so the mesh is guaranteed
+            // to be drawn. Must not write depth or later fragments self-occlude.
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             glDepthMask(GL_FALSE);
@@ -348,8 +361,6 @@ MeshPassResult MeshPass::drawCommon(const RenderRenderState& state,
             glDisable(GL_BLEND);
             drawOverlays(state, ubo, drawList, drawVerts, edgeDrawList, meshManager);
         } else {
-
-
             result.transparentMeshes = drawList;
         }
     } else {

@@ -4,143 +4,209 @@
 #include "render/passes/ColormapManager.h"
 #include <QDebug>
 #include <algorithm>
-#include <cmath>
+
+// ---------------------------------------------------------------------------
+// Dual depth peeling.
+//
+// Per frame, the whole sequence is:
+//
+//   1. Seed both depth-range ping-pong buffers from the opaque scene depth.
+//      Pixels with no opaque geometry are discarded, leaving the (-1,-1)
+//      sentinel that means "nothing translucent resolved yet".
+//
+//   2. INITIALIZE pass: draw translucent geometry once with blending off.
+//      Each pixel keeps the nearest translucent depth (and the opaque depth as
+//      the far bound if the surface is occluded). Establishes the first
+//      outstanding range.
+//
+//   3. PEELING loop, N iterations:
+//        a. clear backTemp to zero, clear the front destination to zero, and
+//           reset the depth-range destination to the (-1,-1) sentinel
+//        b. draw translucent geometry with GL_BLEND + GL_MAX into
+//           {backTemp, frontDest, depthDest}. Because every destination was
+//           just cleared to zero (or -1) and all written values are
+//           non-negative, MAX(x, 0) == x -- so this is effectively a plain
+//           write, while the negated near depth turns "nearest wins" into MAX.
+//        c. blend backTemp into back with GL_ONE / GL_ONE_MINUS_SRC_ALPHA.
+//           Over-blend on premultiplied colour, so this is back-to-front
+//           accumulation done by fixed function.
+//        d. swap the front and depth ping-pongs
+//
+//   4. ALPHA mop-up: fragments still inside the outstanding range get one
+//      plain alpha-blended pass into `back`. Deferring this to the end is
+//      cheaper than running it on the first pass that writes nothing, and is
+//      equivalent because those fragments are blended in the same order
+//      regardless of when the pass runs.
+//
+//   5. Resolve: blit `back` onto the caller's FBO with the same blend state.
+//
+// The user-facing alpha is LINEAR per layer. Layer accumulation is inherently
+// 1-(1-a)^N; that is the algorithm, not a bug.
+// ---------------------------------------------------------------------------
+
+void DepthPeelPass::queryUniforms(bool isClip) {
+    GlProgram& prog = isClip ? m_peelClipProgram : m_peelProgram;
+    GLint& opaque   = isClip ? m_peelClipOpaqueDepthLoc : m_peelOpaqueDepthLoc;
+    GLint& depthSrc = isClip ? m_peelClipDepthSourceLoc : m_peelDepthSourceLoc;
+    GLint& frontSrc = isClip ? m_peelClipFrontSourceLoc : m_peelFrontSourceLoc;
+    GLint& lut      = isClip ? m_peelClipLutLoc         : m_peelLutLoc;
+    GLint& bands    = isClip ? m_peelClipNumBandsLoc    : m_peelNumBandsLoc;
+    GLint& stage    = isClip ? m_peelClipStageLoc       : m_peelStageLoc;
+
+    if (!prog.has()) {
+        opaque = depthSrc = frontSrc = lut = bands = stage = -1;
+        return;
+    }
+    opaque   = glGetUniformLocation(prog, "uOpaqueDepth");
+    depthSrc = glGetUniformLocation(prog, "uDepthSource");
+    frontSrc = glGetUniformLocation(prog, "uFrontSource");
+    lut      = glGetUniformLocation(prog, "uLUT");
+    if (lut < 0) lut = glGetUniformLocation(prog, "uColormapLUT");
+    bands    = glGetUniformLocation(prog, "uNumBands");
+    stage    = glGetUniformLocation(prog, "uStage");
+}
 
 void DepthPeelPass::init(const ShaderSources& sources) {
-    // Query texture unit limit once; fallback iterative composite if needed for 64 layers
-    GLint maxUnits = 0;
-    glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxUnits);
-    m_maxTextureUnits = maxUnits > 0 ? maxUnits : 32;
+    // The peel fragment shader is injected with the shared PBR library.
+    const std::string fragFull = injectPbrCommon(sources.depthPeelFrag.c_str(), sources.pbrFragCommon);
 
     if (!sources.depthPeelVert.empty() && !sources.depthPeelFrag.empty()) {
-        const std::string fragFull = injectPbrCommon(sources.depthPeelFrag.c_str(), sources.pbrFragCommon);
         m_peelProgram.reset(compileProgram(sources.depthPeelVert.c_str(), fragFull.c_str(), "DepthPeel"));
-        if (m_peelProgram.has()) {
-            GLuint idx = glGetUniformBlockIndex(m_peelProgram, "MeshUBO");
-            if (idx != GL_INVALID_INDEX) glUniformBlockBinding(m_peelProgram, idx, 0);
-            m_peelUboIndex = static_cast<GLint>(idx);
-            m_peelPrevDepthLoc = glGetUniformLocation(m_peelProgram, "uPrevDepth");
-            m_peelLayerLoc     = glGetUniformLocation(m_peelProgram, "uLayerIndex");
-            m_peelLutLoc       = glGetUniformLocation(m_peelProgram, "uLUT");
-            if (m_peelLutLoc < 0) m_peelLutLoc = glGetUniformLocation(m_peelProgram, "uColormapLUT");
-            m_peelNumBandsLoc  = glGetUniformLocation(m_peelProgram, "uNumBands");
-        }
-        // Crinkle-clip variant: same vert/frag but with mesh_clip.geo to cull whole triangles
+        queryUniforms(false);
+
+        // Crinkle-clip variant: same vert/frag, plus mesh_clip.geo to cull
+        // whole triangles instead of per-fragment.
         if (!sources.meshClipGeo.empty()) {
             m_peelClipProgram.reset(compileProgramWithGS(
                 sources.depthPeelVert.c_str(), sources.meshClipGeo.c_str(), fragFull.c_str(), "DepthPeelCrinkle"));
-            if (m_peelClipProgram.has()) {
-                GLuint idx = glGetUniformBlockIndex(m_peelClipProgram, "MeshUBO");
-                if (idx != GL_INVALID_INDEX) glUniformBlockBinding(m_peelClipProgram, idx, 0);
-                m_peelClipUboIndex = static_cast<GLint>(idx);
-                m_peelClipPrevDepthLoc = glGetUniformLocation(m_peelClipProgram, "uPrevDepth");
-                m_peelClipLayerLoc     = glGetUniformLocation(m_peelClipProgram, "uLayerIndex");
-                m_peelClipLutLoc       = glGetUniformLocation(m_peelClipProgram, "uLUT");
-                if (m_peelClipLutLoc < 0) m_peelClipLutLoc = glGetUniformLocation(m_peelClipProgram, "uColormapLUT");
-                m_peelClipNumBandsLoc  = glGetUniformLocation(m_peelClipProgram, "uNumBands");
-            }
+            queryUniforms(true);
         }
     }
-    if (!sources.compositeVert.empty() && !sources.compositeFrag.empty()) {
-        m_compositeProgram.reset(compileProgram(sources.compositeVert.c_str(), sources.compositeFrag.c_str(), "Composite"));
-        if (m_compositeProgram.has()) {
-            m_peelNumLayersLoc = glGetUniformLocation(m_compositeProgram, "uNumLayers");
-            if (m_peelNumLayersLoc < 0) m_peelNumLayersLoc = glGetUniformLocation(m_compositeProgram, "numLayers");
-            m_compositeLayersLoc = glGetUniformLocation(m_compositeProgram, "uLayers[0]");
-            if (m_compositeLayersLoc < 0) m_compositeLayersLoc = glGetUniformLocation(m_compositeProgram, "uLayers");
-        }
-    }
-    // Iterative blit program for >maxUnits layers (avoids sampler array limit)
-    {
-        const char* vertSrc = sources.compositeVert.empty() ? nullptr : sources.compositeVert.c_str();
-        // Fallback vert if compositeVert not yet loaded (should not happen in normal init)
-        const char* fallbackVert = "#version 460 core\n out vec2 vUV; void main(){ float x=float(gl_VertexID &1)*4.0-1.0; float y=float((gl_VertexID>>1)&1)*4.0-1.0; vUV=vec2(x,y)*0.5+0.5; gl_Position=vec4(x,y,1.0,1.0); }";
-        if (!vertSrc) vertSrc = fallbackVert;
-        const char* blitFrag = "#version 460 core\n uniform sampler2D uLayer; in vec2 vUV; out vec4 FragColor; void main(){ vec4 c=texture(uLayer,vUV); FragColor=vec4(c.rgb*c.a,c.a); }";
-        m_blitProgram.reset(compileProgram(vertSrc, blitFrag, "CompositeBlit"));
+
+    // Fullscreen helper: seeds depth ranges and resolves the back buffer.
+    if (!sources.compositeVert.empty() && !sources.peelBlitFrag.empty()) {
+        m_blitProgram.reset(compileProgram(
+            sources.compositeVert.c_str(), sources.peelBlitFrag.c_str(), "PeelBlit"));
         if (m_blitProgram.has()) {
-            m_blitLayerLoc = glGetUniformLocation(m_blitProgram, "uLayer");
+            m_blitSrcLoc = glGetUniformLocation(m_blitProgram, "uSrc");
+            m_blitBackLoc = glGetUniformLocation(m_blitProgram, "uBack");
+            m_blitModeLoc = glGetUniformLocation(m_blitProgram, "uMode");
+            m_blitClearValueLoc = glGetUniformLocation(m_blitProgram, "uClearValue");
         }
+    }
+
+    if (!m_peelProgram.has() && !m_peelClipProgram.has()) {
+        qWarning() << "[DepthPeel] no peel program compiled; renderer will fall back";
     }
 }
 
 void DepthPeelPass::shutdown() {
-    destroyPeelFbos();
-    m_peelDummyVao.reset();
+    destroyTargets();
+    m_dummyVao.reset();
     m_peelProgram.reset();
     m_peelClipProgram.reset();
-    m_compositeProgram.reset();
     m_blitProgram.reset();
-    m_peelPrevDepthLoc = m_peelClipPrevDepthLoc = m_peelLayerLoc = m_peelClipLayerLoc = -1;
-    m_peelLutLoc = m_peelClipLutLoc = m_peelNumBandsLoc = m_peelClipNumBandsLoc = -1;
-    m_peelUboIndex = m_peelClipUboIndex = -1;
-    m_peelNumLayersLoc = m_compositeLayersLoc = m_blitLayerLoc = -1;
-    m_maxTextureUnits = 0;
 }
 
 void DepthPeelPass::reinitForNewContext() {
-    m_peelProgram.reset(); m_peelClipProgram.reset(); m_compositeProgram.reset(); m_blitProgram.reset();
-    m_peelPrevDepthLoc = m_peelClipPrevDepthLoc = m_peelLayerLoc = m_peelClipLayerLoc = -1;
-    m_peelLutLoc = m_peelClipLutLoc = m_peelNumBandsLoc = m_peelClipNumBandsLoc = -1;
-    m_peelUboIndex = m_peelClipUboIndex = -1;
-    m_peelNumLayersLoc = m_compositeLayersLoc = m_blitLayerLoc = -1;
-    m_maxTextureUnits = 0;
-    for (auto& f : m_peelFbo) f.reset();
-    for (auto& t : m_peelColorTex) t.reset();
-    for (auto& t : m_peelDepthTex) t.reset();
-    m_peelMainDepth.reset(); m_peelDummyVao.reset();
-    m_peelFboW = m_peelFboH = m_peelSamples = 0; m_peelAllocated = 0;
+    destroyTargets();
+    m_peelProgram.reset(); m_peelClipProgram.reset(); m_blitProgram.reset();
+    // GL objects are context-owned; the query is recreated lazily in
+    // ensureTargets, so just drop the handle here.
+    m_queryId = 0;
 }
 
-void DepthPeelPass::ensurePeelFbos(int w, int h, int samples, int needLayers) {
-    needLayers = std::clamp(needLayers, 1, kMaxPeelLayers);
-    if (m_peelFboW == w && m_peelFboH == h && m_peelSamples == samples && m_peelAllocated >= needLayers && m_peelFbo[0].has() && m_peelDummyVao.has()) return;
-    // Need realloc: destroy all and recreate up to needLayers (lazy allocation)
-    for (int i = 0; i < kMaxPeelLayers; ++i) {
-        m_peelFbo[i].reset(); m_peelDepthTex[i].reset(); m_peelColorTex[i].reset();
+void DepthPeelPass::ensureTargets(int w, int h) {
+    if (m_width == w && m_height == h && m_back.has()) return;
+    destroyTargets();
+
+    glCreateFramebuffers(1, m_fbo.ptr());
+    for (int i = 0; i < 2; ++i) {
+        glCreateTextures(GL_TEXTURE_2D, 1, m_depthRange[i].ptr());
+        glTextureStorage2D(m_depthRange[i], 1, GL_RG32F, w, h);
+        glTextureParameteri(m_depthRange[i], GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(m_depthRange[i], GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(m_depthRange[i], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(m_depthRange[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glCreateTextures(GL_TEXTURE_2D, 1, m_front[i].ptr());
+        glTextureStorage2D(m_front[i], 1, GL_RGBA8, w, h);
+        glTextureParameteri(m_front[i], GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(m_front[i], GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(m_front[i], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(m_front[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
-    m_peelMainDepth.reset();
-    m_peelFboW = w; m_peelFboH = h; m_peelSamples = samples; m_peelAllocated = needLayers;
-    // VRAM estimate: color RGBA8 (4B) + depth32F (4+1B) ~8B per pixel per layer
-    {
-        double mb = double(w) * double(h) * double(needLayers) * 8.0 / (1024.0*1024.0);
-        if (mb > 512.0) {
-            qWarning() << "[DepthPeel] large allocation:" << needLayers << "layers at" << w << "x" << h << "~" << int(mb) << "MB";
-        }
-    }
-    auto createStorage = [&](GLuint tex, GLenum internalFormat, GLsizei ww, GLsizei hh) {
-        glTextureStorage2D(tex, 1, internalFormat, ww, hh);
-        glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    };
+    glCreateTextures(GL_TEXTURE_2D, 1, m_back.ptr());
+    glTextureStorage2D(m_back, 1, GL_RGBA8, w, h);
+    glTextureParameteri(m_back, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTextureParameteri(m_back, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTextureParameteri(m_back, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(m_back, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glCreateTextures(GL_TEXTURE_2D, 1, m_backTemp.ptr());
+    glTextureStorage2D(m_backTemp, 1, GL_RGBA8, w, h);
+    glTextureParameteri(m_backTemp, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTextureParameteri(m_backTemp, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTextureParameteri(m_backTemp, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(m_backTemp, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    // Opaque depth: single-sample. The display FBO may be multisampled; a
+    // NEAREST depth blit is the only resolve GL offers.
     GLenum depthFormat = GLAD_GL_ARB_depth_buffer_float ? GL_DEPTH32F_STENCIL8 : GL_DEPTH24_STENCIL8;
-    for (int i = 0; i < needLayers; ++i) {
-        glCreateFramebuffers(1, m_peelFbo[i].ptr());
-        glCreateTextures(GL_TEXTURE_2D, 1, m_peelColorTex[i].ptr());
-        createStorage(m_peelColorTex[i], GL_RGBA8, w, h);
-        glCreateTextures(GL_TEXTURE_2D, 1, m_peelDepthTex[i].ptr());
-        createStorage(m_peelDepthTex[i], depthFormat, w, h);
-        glNamedFramebufferTexture(m_peelFbo[i], GL_COLOR_ATTACHMENT0, m_peelColorTex[i], 0);
-        glNamedFramebufferTexture(m_peelFbo[i], GL_DEPTH_STENCIL_ATTACHMENT, m_peelDepthTex[i], 0);
-        if (glCheckNamedFramebufferStatus(m_peelFbo[i], GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            qWarning() << "Peel FBO" << i << "incomplete: 0x" << Qt::hex << glCheckNamedFramebufferStatus(m_peelFbo[i], GL_FRAMEBUFFER);
-        }
-    }
-    glCreateTextures(GL_TEXTURE_2D, 1, m_peelMainDepth.ptr());
-    createStorage(m_peelMainDepth, depthFormat, w, h);
-    if (!m_peelDummyVao.has()) glCreateVertexArrays(1, m_peelDummyVao.ptr());
+    glCreateTextures(GL_TEXTURE_2D, 1, m_opaqueDepth.ptr());
+    glTextureStorage2D(m_opaqueDepth, 1, depthFormat, w, h);
+    glTextureParameteri(m_opaqueDepth, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTextureParameteri(m_opaqueDepth, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTextureParameteri(m_opaqueDepth, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(m_opaqueDepth, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // Must stay GL_NONE: this is sampled as a normal depth texture.
+    glTextureParameteri(m_opaqueDepth, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+
+    glCreateVertexArrays(1, m_dummyVao.ptr());
+    if (!m_queryId) glGenQueries(1, &m_queryId);
+    m_width = w; m_height = h;
 }
 
-void DepthPeelPass::destroyPeelFbos() {
-    for (int i = 0; i < kMaxPeelLayers; ++i) {
-        m_peelFbo[i].reset(); m_peelDepthTex[i].reset(); m_peelColorTex[i].reset();
+void DepthPeelPass::destroyTargets() {
+    m_fbo.reset();
+    m_back.reset(); m_backTemp.reset(); m_opaqueDepth.reset();
+    for (int i = 0; i < 2; ++i) { m_depthRange[i].reset(); m_front[i].reset(); }
+    m_width = m_height = 0;
+}
+
+void DepthPeelPass::attachTargets(const GLuint* textures, int count) {
+    for (int i = 0; i < 4; ++i) {
+        if (i < count) glNamedFramebufferTexture(m_fbo, GL_COLOR_ATTACHMENT0 + i, textures[i], 0);
+        else glNamedFramebufferTexture(m_fbo, GL_COLOR_ATTACHMENT0 + i, 0, 0);
     }
-    m_peelMainDepth.reset();
-    // Do not destroy m_peelDummyVao here - it is cheap and needed across resizes;
-    // only shutdown()/reinitForNewContext() destroys it.
-    m_peelFboW = m_peelFboH = 0; m_peelAllocated = 0;
+    const GLenum bufs[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
+                             GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
+    glNamedFramebufferDrawBuffers(m_fbo, 4, bufs);
+}
+
+void DepthPeelPass::clearTargets(const GLuint* textures, int count) {
+    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    attachTargets(textures, count);
+    glDisable(GL_BLEND);
+    for (int i = 0; i < count; ++i) {
+        // Depth-range sentinel: near = -1 (nothing resolved), far = -1.
+        if (textures[i] == m_depthRange[0] || textures[i] == m_depthRange[1]) {
+            const GLfloat sentinel[4] = { -1.0f, -1.0f, 0.0f, 0.0f };
+            glClearBufferfv(GL_COLOR, i, sentinel);
+        } else {
+            glClearBufferfv(GL_COLOR, i, (const GLfloat[4]){ 0, 0, 0, 0 });
+        }
+    }
+}
+
+void DepthPeelPass::drawFullscreen() {
+    glBindVertexArray(m_dummyVao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+void DepthPeelPass::drawTranslucent(GLuint vao, int indexCount) {
+    glBindVertexArray(vao);
+    glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
 }
 
 void DepthPeelPass::renderTransparent(int vpW, int vpH,
@@ -148,135 +214,266 @@ void DepthPeelPass::renderTransparent(int vpW, int vpH,
                                       GLuint meshUbo,
                                       const ColormapManager& colormap,
                                       const std::vector<std::pair<GLuint,int>>& transparentMeshes) {
-    if ((!m_peelProgram.has() && !m_peelClipProgram.has()) || (!m_compositeProgram.has() && !m_blitProgram.has()) || transparentMeshes.empty()) return;
-    // Guard entire peel+composite to restore cull/blend/depth/sRGB/viewport even on early return
-    GLStateGuard guard;
-    GLint samples = 0; glGetIntegerv(GL_SAMPLES, &samples);
-    // Compute required layers early to allow lazy FBO allocation
-    int numLayers = std::clamp(state.maxPeelLayers, 1, kMaxPeelLayers);
-    if (state.maxPeelLayers > 1) {
-        float resolutionFactor = std::sqrt(static_cast<float>(vpW * vpH)) / 2000.0f;
-        int maxByRes = std::max(1, static_cast<int>(kMaxPeelLayers / resolutionFactor));
-        int dynamicCap = std::min(state.maxPeelLayers, maxByRes);
-        int capped = std::max(1, std::min(numLayers, dynamicCap));
-        if (capped != numLayers) {
-            qDebug() << "[DepthPeel] layers capped" << numLayers << "->" << capped
-                     << "at" << vpW << "x" << vpH << "(MSAA samples" << samples << ")";
-        }
-        numLayers = capped;
+    if (transparentMeshes.empty()) return;
+    const bool havePeel = m_peelProgram.has() || m_peelClipProgram.has();
+    if (!havePeel || !m_blitProgram.has()) {
+        qWarning() << "[DepthPeel] programs unavailable; renderer falls back to "
+                      "inline alpha blending so the surface is never dropped";
+        return;
     }
-    ensurePeelFbos(vpW, vpH, samples, numLayers);
-    GLint prevFbo; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
-    // Capture opaque depth into m_peelMainDepth (single-sample). If default is MS, blit resolves.
+
+    GLStateGuard guard;
+
+    // Peel count is in ITERATIONS; each resolves up to 2 surfaces.
+    int maxIters = std::clamp(state.maxPeelLayers, 1, kMaxPeelIterations);
+    ensureTargets(vpW, vpH);
+    if (!m_back.has()) return;   // allocation failed; bail rather than draw garbage
+
+    GLint prevFbo;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
+
+    const bool useCrinkle = state.crinkleClipMode && state.clipEnabled && m_peelClipProgram.has();
+    GlProgram& prog = useCrinkle ? m_peelClipProgram : m_peelProgram;
+    const GLint opaqueLoc   = useCrinkle ? m_peelClipOpaqueDepthLoc   : m_peelOpaqueDepthLoc;
+    const GLint depthSrcLoc = useCrinkle ? m_peelClipDepthSourceLoc   : m_peelDepthSourceLoc;
+    const GLint frontSrcLoc = useCrinkle ? m_peelClipFrontSourceLoc   : m_peelFrontSourceLoc;
+    const GLint lutLoc      = useCrinkle ? m_peelClipLutLoc           : m_peelLutLoc;
+    const GLint bandsLoc    = useCrinkle ? m_peelClipNumBandsLoc      : m_peelNumBandsLoc;
+    const GLint stageLoc    = useCrinkle ? m_peelClipStageLoc         : m_peelStageLoc;
+
+    // ---- 1. Capture the opaque scene depth -------------------------------
     {
-        GlFramebuffer tempFbo; glCreateFramebuffers(1, tempFbo.ptr());
-        glNamedFramebufferTexture(tempFbo, GL_DEPTH_STENCIL_ATTACHMENT, m_peelMainDepth, 0);
+        GlFramebuffer tempFbo;
+        glCreateFramebuffers(1, tempFbo.ptr());
+        glNamedFramebufferTexture(tempFbo, GL_DEPTH_STENCIL_ATTACHMENT, m_opaqueDepth, 0);
         glNamedFramebufferDrawBuffer(tempFbo, GL_NONE);
         glNamedFramebufferReadBuffer(tempFbo, GL_NONE);
         if (glCheckNamedFramebufferStatus(tempFbo, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            qWarning() << "Peel tempFBO incomplete:" << Qt::hex << glCheckNamedFramebufferStatus(tempFbo, GL_FRAMEBUFFER);
+            qWarning() << "Peel tempFBO incomplete";
         } else {
             glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, tempFbo);
-            glBlitFramebuffer(0,0,vpW,vpH,0,0,vpW,vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            while (glGetError() != GL_NO_ERROR) {}   // drain prior-pass errors
+            glBlitFramebuffer(0, 0, vpW, vpH, 0, 0, vpW, vpH, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            const GLenum err = glGetError();
+            if (err != GL_NO_ERROR) {
+                qWarning() << "Peel opaque-depth blit failed (0x" << Qt::hex << err << Qt::dec
+                           << ") - transparency will ignore opaque occlusion";
+            }
         }
         glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
     }
-    // Peel draws are single-sample: disable multisample to avoid per-sample waste and ensure
-    // deterministic depth for the 1e-5 epsilon test. Restored by GLStateGuard not covering
-    // ENABLE_BIT for MULTISAMPLE, so save/restore manually.
-    GLboolean wasMultisample = glIsEnabled(GL_MULTISAMPLE);
-    if (wasMultisample) glDisable(GL_MULTISAMPLE);
 
-    // Respect cull mode from state (MeshPass::drawOpaque does the same)
-    if (state.cullMode != 0) {
-        glEnable(GL_CULL_FACE);
-        glCullFace(state.cullMode == 2 ? GL_FRONT : GL_BACK);
-    } else {
-        glDisable(GL_CULL_FACE);
-    }
-    glDisable(GL_BLEND);
-    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glDepthMask(GL_TRUE);
-    glDisable(GL_FRAMEBUFFER_SRGB);
-
-    const bool useCrinkle = state.crinkleClipMode && state.clipEnabled && m_peelClipProgram.has();
-    GlProgram& peelProg = useCrinkle ? m_peelClipProgram : m_peelProgram;
-    GLint prevDepthLoc = useCrinkle ? m_peelClipPrevDepthLoc : m_peelPrevDepthLoc;
-    GLint layerLoc     = useCrinkle ? m_peelClipLayerLoc     : m_peelLayerLoc;
-    GLint lutLoc       = useCrinkle ? m_peelClipLutLoc       : m_peelLutLoc;
-    GLint numBandsLoc  = useCrinkle ? m_peelClipNumBandsLoc  : m_peelNumBandsLoc;
-
-    glUseProgram(peelProg);
-    // UBO binding already set via glUniformBlockBinding but need buffer base
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
-    if (prevDepthLoc != -1) glUniform1i(prevDepthLoc, 0);
-    if (numBandsLoc != -1) glUniform1f(numBandsLoc, static_cast<float>(state.scalarColorBands));
-    if (state.meshHasScalars && state.meshUseScalarColor && colormap.scalarTexture() != 0) {
-        glBindTextureUnit(2, colormap.scalarTexture());
-        if (lutLoc != -1) glUniform1i(lutLoc, 2);
-    }
-    for (int layer = 0; layer < numLayers; ++layer) {
-        if (layerLoc != -1) glUniform1i(layerLoc, layer);
-        glBindFramebuffer(GL_FRAMEBUFFER, m_peelFbo[layer]);
-        glViewport(0,0,vpW,vpH);
-        glClearColor(0,0,0,0); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (layer == 0) glBindTextureUnit(0, m_peelMainDepth);
-        else glBindTextureUnit(0, m_peelDepthTex[layer-1]);
-        for (auto &mesh : transparentMeshes) { glBindVertexArray(mesh.first); glDrawElements(GL_TRIANGLES, mesh.second, GL_UNSIGNED_INT, 0); }
-    }
-    glBindVertexArray(0); glUseProgram(0);
-
-    // Composite back to display FBO (prevFbo). StateGuard saved viewport/program/blend etc,
-    // but we need to re-establish composite state explicitly.
-    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-    glViewport(0,0,vpW,vpH);
-    glEnable(GL_FRAMEBUFFER_SRGB);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND); glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    if (wasMultisample) glEnable(GL_MULTISAMPLE);
-
-    if (!m_peelDummyVao.has()) glCreateVertexArrays(1, m_peelDummyVao.ptr());
+    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    glViewport(0, 0, vpW, vpH);
+    glDisable(GL_DEPTH_TEST);       // depth lives in RG32F colour, not a depth buffer
     glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);         // both sides are valid peel candidates
 
-    // Use single-pass composite when within sampler limit (composite shader declares 32).
-    // Beyond 32, use iterative blit to avoid exceeding GL_MAX_TEXTURE_IMAGE_UNITS (typically 32).
-    const int kCompositeCapacity = 32;
-    const bool useSinglePass = (numLayers <= kCompositeCapacity) && (numLayers <= m_maxTextureUnits) && m_compositeProgram.has();
-    if (useSinglePass) {
-        glUseProgram(m_compositeProgram);
-        GLint texUnits[kMaxPeelLayers];
-        for (int i=0;i<numLayers;++i){ glBindTextureUnit(i, m_peelColorTex[i]); texUnits[i]=i; }
-        if (m_compositeLayersLoc != -1) glUniform1iv(m_compositeLayersLoc, numLayers, texUnits);
-        else {
-            GLint loc = glGetUniformLocation(m_compositeProgram, "uLayers[0]");
-            if (loc != -1) glUniform1iv(loc, numLayers, texUnits);
-        }
-        if (m_peelNumLayersLoc != -1) glUniform1i(m_peelNumLayersLoc, numLayers);
-        glBindVertexArray(m_peelDummyVao); glDrawArrays(GL_TRIANGLES,0,3); glBindVertexArray(0);
-        glUseProgram(0);
+    glUseProgram(prog);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
+    if (bandsLoc != -1) glUniform1f(bandsLoc, static_cast<float>(state.scalarColorBands));
+
+    GLuint lutTex = (state.meshHasScalars && state.meshUseScalarColor) ? colormap.scalarTexture() : 0;
+    if (lutTex) {
+        glBindTextureUnit(3, lutTex);
+        if (lutLoc != -1) glUniform1i(lutLoc, 3);
     } else {
-        // Iterative back-to-front blend: each layer premultiplied, blended with ONE / ONE_MINUS_SRC_ALPHA.
-        // No sampler array limit; works for any N up to 64.
-        if (m_blitProgram.has()) {
-            glUseProgram(m_blitProgram);
-            if (m_blitLayerLoc != -1) glUniform1i(m_blitLayerLoc, 0);
-            for (int i = numLayers - 1; i >= 0; --i) {
-                glBindTextureUnit(0, m_peelColorTex[i]);
-                glBindVertexArray(m_peelDummyVao); glDrawArrays(GL_TRIANGLES,0,3);
-            }
-            glBindVertexArray(0);
-            glUseProgram(0);
-        } else if (m_compositeProgram.has()) {
-            // Fallback to single-pass even if over limit (may fail on low-end drivers)
-            glUseProgram(m_compositeProgram);
-            GLint texUnits[kMaxPeelLayers];
-            for (int i=0;i<numLayers;++i){ glBindTextureUnit(i, m_peelColorTex[i]); texUnits[i]=i; }
-            if (m_compositeLayersLoc != -1) glUniform1iv(m_compositeLayersLoc, numLayers, texUnits);
-            if (m_peelNumLayersLoc != -1) glUniform1i(m_peelNumLayersLoc, numLayers);
-            glBindVertexArray(m_peelDummyVao); glDrawArrays(GL_TRIANGLES,0,3); glBindVertexArray(0);
-            glUseProgram(0);
-        }
+        if (lutLoc != -1) glUniform1i(lutLoc, 3);
     }
-    glDepthMask(GL_TRUE);
-    // GLStateGuard destructor restores cull/blend/depth/sRGB/viewport/program on exit
+    if (opaqueLoc != -1) glUniform1i(opaqueLoc, 0);
+    if (depthSrcLoc != -1) glUniform1i(depthSrcLoc, 1);
+    if (frontSrcLoc != -1) glUniform1i(frontSrcLoc, 2);
+
+    // ---- Seed both depth-range buffers from the opaque depth -------------
+    // The seed blit DISCARDS pixels with no opaque geometry, so those pixels
+    // would keep stale range data from the previous frame. Reset both to the
+    // sentinel first: near = -1 ("nothing translucent resolved"), far = -1.
+    {
+        const GLuint targets[2] = { m_depthRange[kA], m_depthRange[kB] };
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+        attachTargets(targets, 2);
+        glDisable(GL_BLEND);
+        const GLfloat sentinel[4] = { -1.0f, -1.0f, 0.0f, 0.0f };
+        glClearBufferfv(GL_COLOR, 0, sentinel);
+        glClearBufferfv(GL_COLOR, 1, sentinel);
+
+        glUseProgram(m_blitProgram);
+        if (m_blitSrcLoc != -1) glUniform1i(m_blitSrcLoc, 0);
+        if (m_blitModeLoc != -1) glUniform1i(m_blitModeLoc, 0);   // SEED_DEPTH
+        if (m_blitClearValueLoc != -1) glUniform1f(m_blitClearValueLoc, 1.0f);
+        glBindTextureUnit(0, m_opaqueDepth);
+        drawFullscreen();
+    }
+
+    int srcSlot = kA, dstSlot = kB;
+
+    // ---- 2. INITIALIZE ---------------------------------------------------
+    {
+        // All three attachments are bound even though only outDepth is
+        // written: the shader's outputs have fixed locations, so binding fewer
+        // would send location 2 nowhere.
+        const GLuint targets[3] = { m_backTemp, m_front[dstSlot], m_depthRange[dstSlot] };
+        attachTargets(targets, 3);
+
+        // GL_MAX is REQUIRED here, not just in the peel loop. Every fragment
+        // covering this pixel writes (-depth, depth), so MAX over the negated
+        // near component selects the NEAREST and over the far component the
+        // FARTHEST -- giving the full initial range in a single pass. With
+        // blending disabled the result is whichever fragment happened to be
+        // drawn last, which collapses a 20-plane stack to a single layer and
+        // makes transparency look completely dead.
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_MAX);
+
+        glUseProgram(prog);
+        if (stageLoc != -1) glUniform1i(stageLoc, kInitialize);
+        if (opaqueLoc != -1) glUniform1i(opaqueLoc, 0);
+        if (depthSrcLoc != -1) glUniform1i(depthSrcLoc, 1);
+        if (frontSrcLoc != -1) glUniform1i(frontSrcLoc, 2);
+        glBindTextureUnit(0, m_opaqueDepth);
+        glBindTextureUnit(1, m_depthRange[srcSlot]);
+        glBindTextureUnit(2, m_front[srcSlot]);
+        for (const auto& m : transparentMeshes) drawTranslucent(m.first, m.second);
+        std::swap(srcSlot, dstSlot);
+    }
+
+    // Clear the accumulators for the peel loop.
+    {
+        const GLuint clears[3] = { m_back, m_front[kA], m_front[kB] };
+        clearTargets(clears, 3);
+    }
+
+    // ---- 3. PEELING loop -------------------------------------------------
+    // Each iteration resolves up to two surfaces (nearest front + farthest
+    // back), so maxIters iterations cover roughly 2*maxIters layers.
+    //
+    // The loop also terminates ITSELF via occlusion query (3d), so maxIters
+    // is only a safety ceiling -- the user never has to tune it.
+    //
+    // peelOcclusionRatio is the fraction of the viewport a pass must still
+    // cover to justify another pass. 0 means "never stop early" (exact,
+    // slowest). A small value stops once remaining layers are sub-pixel.
+    const float kOcclusionRatio = std::clamp(state.peelOcclusionRatio, 0.0f, 0.5f);
+    const GLuint occlusionThreshold =
+        static_cast<GLuint>(static_cast<double>(vpW) * static_cast<double>(vpH) * kOcclusionRatio);
+    bool peelingDone = false;
+
+    for (int pass = 0; pass < maxIters; ++pass) {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+        glViewport(0, 0, vpW, vpH);
+
+        // 3a. clear the per-iteration targets.
+        {
+            const GLuint clears[3] = { m_backTemp, m_front[dstSlot], m_depthRange[dstSlot] };
+            attachTargets(clears, 3);
+            glDisable(GL_BLEND);
+            const GLfloat sentinel[4] = { -1.0f, -1.0f, 0.0f, 0.0f };
+            glClearBufferfv(GL_COLOR, 0, (const GLfloat[4]){ 0, 0, 0, 0 });
+            glClearBufferfv(GL_COLOR, 1, (const GLfloat[4]){ 0, 0, 0, 0 });
+            glClearBufferfv(GL_COLOR, 2, sentinel);
+        }
+
+        // 3b. peel with GL_MAX blending on negated near depth.
+        //     Wrapped in a SAMPLES_PASSED occlusion query: this counts the
+        //     fragments that actually survived, which is how we know when
+        //     further passes can no longer change the image (see 3d).
+        {
+            const GLuint targets[3] = { m_backTemp, m_front[dstSlot], m_depthRange[dstSlot] };
+            attachTargets(targets, 3);
+            glEnable(GL_BLEND);
+            glBlendEquation(GL_MAX);
+            glUseProgram(prog);
+            if (stageLoc != -1) glUniform1i(stageLoc, kPeeling);
+            if (opaqueLoc != -1) glUniform1i(opaqueLoc, 0);
+            if (depthSrcLoc != -1) glUniform1i(depthSrcLoc, 1);
+            if (frontSrcLoc != -1) glUniform1i(frontSrcLoc, 2);
+            glBindTextureUnit(0, m_opaqueDepth);
+            glBindTextureUnit(1, m_depthRange[srcSlot]);
+            glBindTextureUnit(2, m_front[srcSlot]);
+            glBeginQuery(GL_SAMPLES_PASSED, m_queryId);
+            for (const auto& m : transparentMeshes) drawTranslucent(m.first, m.second);
+            glEndQuery(GL_SAMPLES_PASSED);
+        }
+
+        // 3c. blend the back peel into the back accumulator.
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        {
+            const GLuint target[1] = { m_back };
+            attachTargets(target, 1);
+            glUseProgram(m_blitProgram);
+            if (m_blitSrcLoc != -1) glUniform1i(m_blitSrcLoc, 0);
+            if (m_blitModeLoc != -1) glUniform1i(m_blitModeLoc, 1);   // ACCUM_BACK
+            glBindTextureUnit(0, m_backTemp);
+            drawFullscreen();
+        }
+
+        std::swap(srcSlot, dstSlot);
+
+        // 3d. automatic termination.
+        //     Read the PREVIOUS pass's result: by now a whole pass has been
+        //     queued behind it, so this normally does not stall the pipeline.
+        //     Once a pass contributes fewer than ratio*viewport pixels, the
+        //     remaining layers are sub-pixel -- resolving them further cannot
+        //     change a visible pixel, so stop and let the ALPHA mop-up blend
+        //     the tail. This is why the user never has to pick a pass count.
+        if (m_queryId && pass > 0) {
+            GLuint written = 0;
+            glGetQueryObjectuiv(m_queryId, GL_QUERY_RESULT, &written);
+            if (written <= occlusionThreshold) {
+                peelingDone = true;
+            }
+        }
+        if (peelingDone) break;
+    }
+
+    // ---- 4. ALPHA mop-up ------------------------------------------------
+    // Anything still inside the outstanding depth range was never resolved by
+    // the peel loop (we ran out of passes). Give it one plain alpha-blended
+    // pass into `back` rather than dropping it -- without this, surfaces
+    // deeper than maxPeelIterations simply vanish, which is exactly the
+    // "transparency isn't working" failure mode.
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+        glViewport(0, 0, vpW, vpH);
+        const GLuint target[1] = { m_back };
+        attachTargets(target, 1);
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_ADD);
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        glUseProgram(prog);
+        if (stageLoc != -1) glUniform1i(stageLoc, kAlpha);
+        if (depthSrcLoc != -1) glUniform1i(depthSrcLoc, 1);
+        if (frontSrcLoc != -1) glUniform1i(frontSrcLoc, 2);
+        glBindTextureUnit(0, m_opaqueDepth);
+        glBindTextureUnit(1, m_depthRange[srcSlot]);
+        glBindTextureUnit(2, m_front[srcSlot]);
+        for (const auto& m : transparentMeshes) drawTranslucent(m.first, m.second);
+    }
+
+    glBindVertexArray(0);
+    glUseProgram(0);
+
+    // ---- 5. Resolve onto the caller's FBO --------------------------------
+    // Under-blend `back` beneath the front accumulator to form the translucent
+    // layer, then blend that OVER the opaque scene. Both halves are required:
+    // the front accumulator holds the nearest resolved peels and the back
+    // buffer the farthest ones, so resolving only the back buffer would drop
+    // the front half and read far too opaque.
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
+    glViewport(0, 0, vpW, vpH);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(m_blitProgram);
+    if (m_blitSrcLoc != -1) glUniform1i(m_blitSrcLoc, 0);
+    if (m_blitBackLoc != -1) glUniform1i(m_blitBackLoc, 1);
+    if (m_blitModeLoc != -1) glUniform1i(m_blitModeLoc, 2);   // FINAL
+    glBindTextureUnit(0, m_front[srcSlot]);   // front accumulator
+    glBindTextureUnit(1, m_back);             // back accumulator
+    drawFullscreen();
+    glBindVertexArray(0);
+    glUseProgram(0);
+    // GLStateGuard restores blend/depth/cull/sRGB/clear colour on exit.
 }

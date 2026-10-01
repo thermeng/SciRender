@@ -131,6 +131,10 @@ void Renderer::initShaders(const ShaderSources& sources) {
     m_probe.init(sources);
     m_streamlines.init(sources);
     m_depthPeel.init(sources);
+    // MeshPass defers sub-opaque surfaces to the peel pass; tell it whether
+    // that pass is actually usable so a compile failure degrades to inline
+    // alpha blending instead of silently dropping the mesh.
+    meshPass.setOitAvailable(m_depthPeel.hasProgram());
 }
 
 void Renderer::initGizmo() {
@@ -422,6 +426,9 @@ void Renderer::reinitForNewContext() {
 
 
     m_depthPeel.reinitForNewContext();
+    // Programs are lazily rebuilt after a context loss; assume peel is
+    // unavailable until the next init() confirms otherwise.
+    meshPass.setOitAvailable(false);
 
 
 
