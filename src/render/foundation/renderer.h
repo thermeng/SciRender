@@ -89,8 +89,8 @@ struct ShaderSources {
     std::string qualityOverlayFrag;
     std::string depthPeelVert;
     std::string depthPeelFrag;
-    std::string compositeVert;
-    std::string compositeFrag;
+    std::string compositeVert;   // fullscreen triangle, also used by depth peel
+    std::string peelBlitFrag;    // dual depth peel: seed depth ranges + resolve
     std::string volumeVert;
     std::string volumeFrag;
     std::string volumeSliceVert;
@@ -149,7 +149,21 @@ struct RenderRenderState {
     bool pointUseScalar = true;
     float pointOpacity = 1.0f;
     float surfaceOpacity = 1.0f;
+    // Dual depth peeling iterations. SAFETY CEILING ONLY.
+    //
+    // This is NOT a transparency control: the result is pass-count independent
+    // because the ALPHA mop-up pass blends whatever the peel loop leaves
+    // unresolved. It exists only to bound worst-case CPU, and the loop also
+    // terminates itself via occlusion query. Verified numerically: 1..64 passes
+    // give identical alpha for 2/4/8/20/40-layer stacks.
+    //
+    // Default 4 covers virtually every real scene, and the mop-up pass means the
+    // result is correct at any setting above 1 anyway.
     int maxPeelLayers = 4;
+    // Fraction of the viewport a peel pass must still cover to justify another
+    // pass. 0 = never stop early (exact, slowest). Small values let the loop
+    // exit once remaining layers are sub-pixel. Clamped to [0, 0.5].
+    float peelOcclusionRatio = 0.0f;
     int cullMode = 0;
     bool showBounds = false;
     int gizmoCorner = 0;

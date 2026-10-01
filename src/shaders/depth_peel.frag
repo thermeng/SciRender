@@ -1,5 +1,36 @@
 #version 460 core
 
+// Dual depth peeling for order-independent transparency.
+//
+// Differences from single-layer peeling, and why they matter:
+//
+//  * Two surfaces per pass. Each iteration resolves BOTH the next front peel
+//    and the next back peel, so N iterations resolve up to 2N layers for the
+//    same number of geometry passes. Same result, half the rasterisation.
+//
+//  * No depth attachment at all. Depth ranges live in an RG32F colour
+//    attachment holding (-nearest, farthest) per pixel, accumulated with
+//    GL_MAX blending on negated near depth. This sidesteps depth-buffer
+//    quantisation AND the classic bug where a fragment's depth must be
+//    compared against a *previous pass's* depth attachment -- which forces
+//    either an epsilon or a separate depth resolve, and where a mismatched
+//    depth format silently poisons every layer.
+//
+//  * Single epsilon, applied symmetrically to both peel boundaries. Tiles
+//    rasterize large triangles in pieces, and the same surface can land on
+//    very slightly different depths on two passes. Without a minimum
+//    separation a single surface gets counted twice, so sub-pixel noise
+//    accumulates as spurious layers. 1e-7 in NDC depth is micrometre-scale in
+//    world space at any sane camera distance, far below the tolerance that
+//    would swallow genuinely distinct layers.
+//
+// Stage semantics (uStage):
+//   0 INITIALIZE - seed the depth range with the first translucent surface
+//   1 PEELING    - one iteration: front peel + back peel
+//   2 ALPHA      - mop up leftover fragments with plain alpha blending
+//
+// Draw buffers are bound by the C++ per stage (0..2 as declared below).
+
 layout(std140) uniform MeshUBO {
     mat4  uMVP;
     mat4  uModel;
@@ -33,12 +64,20 @@ in MeshVarying {
     float vScalar;
 } mv;
 
-uniform sampler2D uPrevDepth;
+uniform sampler2D uOpaqueDepth;   // opaque scene depth, single-sample
+uniform sampler2D uDepthSource;   // RG32F: (-nearest, farthest) from previous pass
+uniform sampler2D uFrontSource;   // accumulated front color, alpha stores (1-alpha)
 uniform sampler1D uColormapLUT;
-uniform float uNumBands = 0.0; // 0 = continuous, >1 = discrete bands
-uniform int uLayerIndex;
+uniform float uNumBands = 0.0;
+uniform int uStage = 0;
 
-out vec4 FragColor;
+// 1e-7: see header comment. Minimum separation that stops one surface from
+// being counted twice; micrometre-scale in world space.
+const float kPeelEps = 1e-7;
+
+layout(location = 0) out vec4 outBack;     // back peel accumulator (premultiplied)
+layout(location = 1) out vec4 outFront;    // front peel accumulator (alpha = 1-a)
+layout(location = 2) out vec4 outDepth;    // RG32F depth range for the next pass
 
 vec3  uMatAmbient()    { return vec3(uMaterial.x); }
 float uMatDiffuse()    { return uMaterial.y; }
@@ -52,40 +91,11 @@ float uMatMetallic()  { return uPBR.y; }
 
 // lightContributionPBR injected from pbr_common.glsl at compile time.
 
-void main() {
-    // [S6] Fused clip predicate, cheapest test first (mirrors mesh.frag).
-    bool hasScalars = uScalars.z > 0.5;
-    // Same epsilon as mesh.frag — avoids pinholes from perspective interpolation
-    // sub-ULP excursions when filter bounds snap exactly to data min/max.
-    float filterEps = 1e-5 * abs(uScalars.y - uScalars.x) + 1e-9;
-    bool clipped = (uFilter.z > 0.5) && hasScalars &&
-                   (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
-    bool crinkleMode = uShadingMode.y > 0.5;
-    // Per-fragment slice clip only for non-crinkle. Crinkle uses the GS path
-    // (DepthPeelCrinkle) which culls whole triangles; fragment path must skip
-    // to match opaque MeshCrinkleClip behaviour.
-    if (!clipped && uPointClip.w > 0.5 && !crinkleMode) {
-        bool clipX = bool(uClipEn.x) && ((uInvert.x > 0.5) ? (mv.vWorldPos.x < uClipY.x) : (mv.vWorldPos.x > uClipY.x));
-        bool clipY = bool(uClipEn.y) && ((uInvert.y > 0.5) ? (mv.vWorldPos.y < uClipY.y) : (mv.vWorldPos.y > uClipY.y));
-        bool clipZ = bool(uClipEn.z) && ((uInvert.z > 0.5) ? (mv.vWorldPos.z < uClipY.z) : (mv.vWorldPos.z > uClipY.z));
-        clipped = clipX || clipY || clipZ;
-    }
-    if (clipped) discard;
-
-    ivec2 pix = ivec2(gl_FragCoord.xy);
-    float prevDepth = texelFetch(uPrevDepth, pix, 0).r;
-    // Layer 0 tests against the opaque-scene depth (keep transparent surfaces
-    // in front of opaque geometry). Layers >= 1 keep only fragments strictly
-    // BEHIND the previous layer - the old single `>=` test discarded those,
-    // so every layer past the first came out empty and transparency showed
-    // just one front surface. Small epsilon avoids z-fighting re-peel of the
-    // same depth value (depth32F still has quantization).
-    const float kPeelEps = 1e-5;
-    if (uLayerIndex == 0) {
-        if (gl_FragCoord.z >= prevDepth) discard;
-    } else {
-        if (gl_FragCoord.z <= prevDepth + kPeelEps) discard;
-    }
+// Full PBR shade, evaluated only once we know the fragment is on a peel.
+// Straight (non-premultiplied) alpha: outBack premultiplies explicitly,
+// outFront keeps the (1-alpha) convention needed for MAX blending.
+vec4 shadeFragment(bool isPoint)
+{
     // Screen-space cross(dFdx, dFdy) normals are view-oriented regardless of
     // winding; attribute normals are not, so only they need the back-face flip.
     vec3 norm;
@@ -97,13 +107,13 @@ void main() {
     }
     vec3 viewDir = normalize(uViewPos_PS.xyz - mv.vWorldPos);
 
+    bool hasScalars = uScalars.z > 0.5;
     vec3 baseColor = uSurfaceColor_Op.xyz;
     if (hasScalars && (uScalars.x != uScalars.y)) {
         float t = clamp((mv.vScalar - uScalars.x) / (uScalars.y - uScalars.x), 0.0, 1.0);
         if (uNumBands > 1.0) {
             t = floor(t * uNumBands) / (uNumBands - 1.0);
         }
-        // [S5] Explicit LOD skips implicit derivatives on the mipless 1D LUT.
         baseColor = textureLod(uColormapLUT, t, 0.0).rgb;
     }
 
@@ -122,11 +132,119 @@ void main() {
     lightContributionPBR(uLightBack2.xyz, norm, uBackIntensity(),  uBackColor.xyz,  viewDir, a2, k, F0, oneMinusMetallic, totalDiffuse, totalSpecular);
     lightContributionPBR(uLightHead.xyz,  norm, uHeadIntensity(),  uHeadColor.xyz,  viewDir, a2, k, F0, oneMinusMetallic, totalDiffuse, totalSpecular);
 
-    float surfaceOpacity = uSurfaceColor_Op.w;
     // [S1] baseColor and material scalars fold in once after accumulation.
     vec3 finalColor = baseColor * uMatAmbient()
                     + baseColor * totalDiffuse * uMatDiffuse()
                     + totalSpecular * uMatSpecular();
+    if (isPoint) finalColor += baseColor * 0.15;
 
-    FragColor = vec4(finalColor, surfaceOpacity);
+    // Linear alpha, passed straight through. Blending already happens in
+    // linear light, so a perceptual remap here would double-correct and make
+    // the slider disagree with what is on screen. Layer accumulation is
+    // inherently 1-(1-a)^N; that is the algorithm, not something to paper over.
+    return vec4(finalColor, isPoint ? uPointClip.z : uSurfaceColor_Op.w);
+}
+
+void main() {
+    // [S6] Fused clip predicate, cheapest test first (mirrors mesh.frag).
+    bool hasScalars = uScalars.z > 0.5;
+    // Same epsilon as mesh.frag -- avoids pinholes from perspective
+    // interpolation sub-ULP excursions when filter bounds snap to data range.
+    float filterEps = 1e-5 * abs(uScalars.y - uScalars.x) + 1e-9;
+    bool clipped = (uFilter.z > 0.5) && hasScalars &&
+                   (mv.vScalar < uFilter.x - filterEps || mv.vScalar > uFilter.y + filterEps);
+    bool crinkleMode = uShadingMode.y > 0.5;
+    // Per-fragment slice clip only for non-crinkle. Crinkle uses the GS path
+    // which culls whole triangles; fragment path must skip to match the
+    // opaque MeshCrinkleClip behaviour.
+    if (!clipped && uPointClip.w > 0.5 && !crinkleMode) {
+        bool clipX = bool(uClipEn.x) && ((uInvert.x > 0.5) ? (mv.vWorldPos.x < uClipY.x) : (mv.vWorldPos.x > uClipY.x));
+        bool clipY = bool(uClipEn.y) && ((uInvert.y > 0.5) ? (mv.vWorldPos.y < uClipY.y) : (mv.vWorldPos.y > uClipY.y));
+        bool clipZ = bool(uClipEn.z) && ((uInvert.z > 0.5) ? (mv.vWorldPos.z < uClipY.z) : (mv.vWorldPos.z > uClipY.z));
+        clipped = clipX || clipY || clipZ;
+    }
+    if (clipped) discard;
+
+    ivec2 pix = ivec2(gl_FragCoord.xy);
+    float fragDepth = gl_FragCoord.z;
+    vec4 frag = shadeFragment(uPointClip.x > 0.5);
+
+    if (uStage == 0) {
+        // INITIALIZE: seed the depth range in a single MAX-blended pass. Every
+        // fragment covering this pixel writes (-depth, depth), so MAX over the
+        // negated near component selects the NEAREST translucent surface and MAX
+        // over the far component the FARTHEST -- the full initial range at
+        // once. This pass therefore REQUIRES GL_MAX blending; with it disabled
+        // the range collapses to whichever fragment drew last and a deep stack
+        // resolves as a single layer.
+        //
+        // outBack/outFront are unused here but must be written explicitly: with
+        // MAX blending an undefined value could win against the clear sentinel.
+        outBack  = vec4(0.0);
+        outFront = vec4(0.0);
+
+        float oDepth = texelFetch(uOpaqueDepth, pix, 0).r;
+        if (oDepth < 1.0 && fragDepth > oDepth) {
+            // Occluded by opaque geometry: keep the opaque depth as the far
+            // bound so nothing behind it can ever contribute. near = -1 loses
+            // to any real (negative) fragment under MAX, so an occluded pixel
+            // correctly resolves to the opaque surface.
+            outDepth = vec4(-1.0, oDepth, 0.0, 0.0);
+        } else {
+            outDepth = vec4(-fragDepth, fragDepth, 0.0, 0.0);
+        }
+        return;
+    }
+
+    if (uStage == 2) {
+        // ALPHA mop-up: everything still inside the outstanding depth range
+        // gets plain alpha-blended. Only the back buffer is written.
+        vec2 range = texelFetch(uDepthSource, pix, 0).xy;
+        float minDepth = -range.x;
+        float maxDepth = range.y;
+        if (fragDepth < minDepth || fragDepth > maxDepth) discard;
+        outBack = vec4(frag.rgb * frag.a, frag.a);
+        return;
+    }
+
+    // ---- PEELING -------------------------------------------------------
+    vec2 range = texelFetch(uDepthSource, pix, 0).xy;
+    float minDepth = -range.x;
+    float maxDepth = range.y;
+    vec4 front = texelFetch(uFrontSource, pix, 0);
+
+    // Defaults: no contribution this iteration.
+    outBack  = vec4(0.0);
+    outFront = front;
+    outDepth = vec4(-1.0);
+
+    // Outside the outstanding range entirely.
+    if (fragDepth < minDepth - kPeelEps || fragDepth > maxDepth + kPeelEps)
+        return;
+
+    // Strictly interior: a future peel. Record the candidate depth range and
+    // stop -- this is what makes dual peeling resolve 2 layers per pass.
+    if (fragDepth > minDepth + kPeelEps && fragDepth < maxDepth - kPeelEps) {
+        outDepth = vec4(-fragDepth, fragDepth, 0.0, 0.0);
+        return;
+    }
+
+    if (fragDepth >= minDepth - kPeelEps && fragDepth <= minDepth + kPeelEps) {
+        // FRONT peel: this is the outermost surface not yet resolved.
+        // Accumulate with under-blending. front.a is STORED as (1-alpha),
+        // which is what lets GL_MAX do the work: MAX over (1-alpha) keeps the
+        // most transparent value, i.e. the correct accumulate-on-write.
+        // It therefore has to be converted BACK to alpha before use.
+        float aAccum = 1.0 - front.a;
+        outFront.rgb = aAccum * frag.a * frag.rgb + front.rgb;
+        outFront.a   = 1.0 - (aAccum * (1.0 - frag.a));
+        outBack      = vec4(0.0);
+    } else {
+        // BACK peel: outermost surface behind the outstanding range. Premultiply
+        // and hand straight to the back accumulator, which is itself blended
+        // back-to-front with ONE / ONE_MINUS_SRC_ALPHA.
+        outBack  = vec4(frag.rgb * frag.a, frag.a);
+        outFront = front;
+        outDepth = vec4(-1.0);
+    }
 }

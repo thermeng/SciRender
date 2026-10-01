@@ -29,7 +29,7 @@ ViewportWidget::ViewportWidget(int msaaSamples, QWidget* parent)
     fmt.setSamples(msaaSamples);
     // Request sRGB-capable color buffer so GL_FRAMEBUFFER_SRGB does
     // linear -> sRGB conversion and blending stays in linear space
-    // ( ParaView-like correct translucency ).
+    // (translucency is only correct if blending happens in linear light).
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     fmt.setColorSpace(QColorSpace(QColorSpace::SRgb));
 #else
@@ -169,7 +169,7 @@ void ViewportWidget::loadShaders() {
     sources.depthPeelVert = loadShader(":/src/shaders/depth_peel.vert");
     sources.depthPeelFrag = loadShader(":/src/shaders/depth_peel.frag");
     sources.compositeVert = loadShader(":/src/shaders/composite.vert");
-    sources.compositeFrag = loadShader(":/src/shaders/composite.frag");
+    sources.peelBlitFrag = loadShader(":/src/shaders/peel_blit.frag");
     sources.plotHistogramComp = loadShader(":/src/shaders/plot_histogram.comp");
     sources.pbrFragCommon = loadShader(":/src/shaders/pbr_common.glsl");
 

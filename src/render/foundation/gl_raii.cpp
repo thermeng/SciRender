@@ -22,7 +22,10 @@ void GlRenderbuffer::reset(GLuint id) { if (m_id) glDeleteRenderbuffers(1, &m_id
 GLStateGuard::GLStateGuard() {
     glGetIntegerv(GL_VIEWPORT, m_viewport);
     glGetIntegerv(GL_DEPTH_FUNC, &m_depthFunc);
-    glGetIntegerv(GL_DEPTH_WRITEMASK, reinterpret_cast<GLint*>(&m_depthMask));
+    // glGetIntegerv writes a full GLint - never let it land on the bool member.
+    GLint depthMask = 0;
+    glGetIntegerv(GL_DEPTH_WRITEMASK, &depthMask);
+    m_depthMask = depthMask != 0;
     glGetIntegerv(GL_ACTIVE_TEXTURE, &m_activeTexture);
     glGetIntegerv(GL_POLYGON_MODE, m_polyMode);
     glGetIntegerv(GL_CLIP_ORIGIN, &m_clipOrigin);
@@ -35,12 +38,14 @@ GLStateGuard::GLStateGuard() {
     glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &m_blendEquationAlpha);
     glGetIntegerv(GL_CURRENT_PROGRAM, &m_currentProgram);
     glGetFloatv(GL_LINE_WIDTH, &m_lineWidth);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, m_clearColor);
     m_depthTest  = glIsEnabled(GL_DEPTH_TEST) != 0;
     m_depthClamp = glIsEnabled(GL_DEPTH_CLAMP) != 0;
     m_blend      = glIsEnabled(GL_BLEND) != 0;
     m_cullFace   = glIsEnabled(GL_CULL_FACE) != 0;
     m_scissorTest = glIsEnabled(GL_SCISSOR_TEST) != 0;
     m_programPointSize = glIsEnabled(GL_PROGRAM_POINT_SIZE) != 0;
+    m_framebufferSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB) != 0;
 }
 
 GLStateGuard::~GLStateGuard() {
@@ -51,6 +56,7 @@ GLStateGuard::~GLStateGuard() {
     if (m_cullFace) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
     if (m_scissorTest) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
     if (m_programPointSize) glEnable(GL_PROGRAM_POINT_SIZE); else glDisable(GL_PROGRAM_POINT_SIZE);
+    if (m_framebufferSrgb) glEnable(GL_FRAMEBUFFER_SRGB); else glDisable(GL_FRAMEBUFFER_SRGB);
     glDepthFunc(static_cast<GLenum>(m_depthFunc));
     glDepthMask(m_depthMask ? GL_TRUE : GL_FALSE);
     glBlendFuncSeparate(static_cast<GLenum>(m_blendSrcRgb), static_cast<GLenum>(m_blendDstRgb),
@@ -61,6 +67,7 @@ GLStateGuard::~GLStateGuard() {
     glClipControl(static_cast<GLenum>(m_clipOrigin), static_cast<GLenum>(m_clipDepthMode));
     glActiveTexture(static_cast<GLenum>(m_activeTexture));
     glLineWidth(m_lineWidth);
+    glClearColor(m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]);
     glUseProgram(static_cast<GLuint>(m_currentProgram));
 }
 

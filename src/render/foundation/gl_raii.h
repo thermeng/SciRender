@@ -121,11 +121,11 @@ public:
 };
 
 // RAII guard that saves the render state a pass/overlay mutates (viewport,
-// depth/blend/cull/scissor/program-point-size enables, depth func/mask/clamp,
-// blend func/equation, polygon mode, clip control, active texture, line width)
-// and restores it in the destructor. Guarantees state handover even on early
-// returns/exceptions — eliminates the classic "leaked GL state" bug class where
-// a draw path forgets to restore depth/blend/etc.
+// depth/blend/cull/scissor/program-point-size/sRGB enables, depth func/mask/clamp,
+// blend func/equation, polygon mode, clip control, active texture, line width,
+// clear colour) and restores it in the destructor. Guarantees state handover
+// even on early returns/exceptions — eliminates the classic "leaked GL state"
+// bug class where a draw path forgets to restore depth/blend/etc.
 class GLStateGuard {
 public:
     GLStateGuard();
@@ -141,6 +141,7 @@ private:
     bool m_cullFace = false;
     bool m_scissorTest = false;
     bool m_programPointSize = false;
+    bool m_framebufferSrgb = false;
     int m_depthFunc = 0;
     bool m_depthMask = true;
     int m_blendSrcRgb = 0, m_blendDstRgb = 0;
@@ -150,6 +151,7 @@ private:
     int m_clipOrigin = 0, m_clipDepthMode = 0;
     int m_activeTexture = 0;
     float m_lineWidth = 1.0f;
+    float m_clearColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     GLint m_currentProgram = 0;
 };
 
