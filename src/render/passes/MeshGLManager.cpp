@@ -12,8 +12,8 @@
 
 namespace {
 // Format gate for LOD (decimation). We now allow the regular volumetric grid
-// dataset types AND surface datasets. Surface meshes (STL) and triangulated VTK
-// surface datasets (UNSTRUCTURED_GRID, POLYDATA) are eligible for LOD, but they
+// // dataset types AND surface datasets. Surface meshes (STL) and triangulated
+    // surface datasets (UNSTRUCTURED_GRID, POLYDATA) are eligible for LOD, but they
 // are additionally screened by surfaceDecimationSafe() before a decimated mesh
 // is actually built, so disconnected/overlapping shells are never clustered.
 bool datasetSupportsDecimation(const RenderMesh& in) {
@@ -228,7 +228,7 @@ void MeshGLManager::buildMeshGL(const RenderMesh& renderMesh, std::vector<Mesh>&
 
     // Cell-edge VAO: shares the same VBO/NBO/SBO vertex bindings as the main
     // VAO but uses a separate EBO with deduplicated cell-boundary edges for
-    // GL_LINES rendering (ParaView-style wireframe). Indices remain valid
+    // GL_LINES rendering (wireframe). Indices remain valid
     // after computeNormals() because it only appends duplicate vertices.
     if (!renderMesh.cellEdgeIndices.empty()) {
         mesh.edgeCount = static_cast<int>(renderMesh.cellEdgeIndices.size());
@@ -367,7 +367,7 @@ void MeshGLManager::upload(std::shared_ptr<const RenderMesh> renderMesh) {
     buildMeshGL(*fullSource_, newFull);
 
     // LOD: a coarsely decimated mesh, used only while the camera is moving.
-    // Eligible surface/STL/VTK meshes are additionally screened by
+    // Eligible surface/STL meshes are additionally screened by
     // surfaceDecimationSafe() so disconnected/overlapping shells are never
     // clustered into spurious surfaces during camera motion.
     if (datasetSupportsDecimation(*fullSource_) && surfaceDecimationSafe(*fullSource_)) {
@@ -643,8 +643,9 @@ void MeshGLManager::snapshotDrawList(std::vector<std::pair<GLuint, int>>& out,
     for (const auto& m : src) {
         out.push_back({m.vao.get(), m.indexCount});
         outVerts.push_back(m.vertexCount);
-        // Edges are only on full-resolution meshes (decimated LOD meshes skip
-        // edge rendering, matching ParaView's LOD wireframe behavior). When
+// Edges are only on full-resolution meshes (decimated LOD meshes skip
+           // edge rendering, since a coarse proxy's cell boundaries do not
+           // correspond to the real ones). When
         // using LOD, outEdges stays empty so the renderer falls back to
         // triangle-edge wireframe for the LOD mesh.
         if (outEdges && m.edgeCount > 0) {

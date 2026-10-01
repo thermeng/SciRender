@@ -28,8 +28,9 @@ void Camera::elevation(double angle) {
         right = glm::normalize(right);
     }
 
-    // VTK rotates about +right (= cross(viewUp, directionOfProjection)); the
-    // negation here previously inverted the elevation sign relative to VTK.
+// Rotate about +right (= cross(viewUp, directionOfProjection)). The
+       // negation here previously inverted the elevation sign, so dragging up
+       // moved the model down.
     glm::dmat4 transform = glm::translate(glm::dmat4(1.0), focalPoint)
         * glm::rotate(glm::dmat4(1.0), glm::radians(angle), right)
         * glm::translate(glm::dmat4(1.0), -focalPoint);
@@ -80,10 +81,10 @@ glm::dvec3 Camera::directionOfProjection() const {
 }
 
 void Camera::snapToOrthoView(int axis) {
-    // VTK axial presets: the SAME world axis stays "up" for each opposite pair,
-    // so +X/-X, +Y/-Y, +Z/-Z only differ by azimuth (a horizontal mirror), never a
-    // vertical flip. This keeps the reference axis always pointing up, matching the
-    // VTK/Qt 3D convention used here.
+    // Axial presets: the SAME world axis stays "up" for each opposite pair, so
+    // +X/-X, +Y/-Y, +Z/-Z only differ by azimuth (a horizontal mirror), never a
+    // vertical flip. This keeps the reference axis always pointing up, which is
+    // the expected behaviour for a 3D viewer's axis buttons.
     //   X / Y faces -> world +Z is up;  Z face -> world +Y is up.
     glm::dvec3 target = focalPoint;
     glm::dvec3 up(0.0, 1.0, 0.0);

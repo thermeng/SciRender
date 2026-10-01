@@ -290,13 +290,13 @@ void AnimationController::onTick() {
 
     if (m_playing && dtSec > 0.0) {
         const int n = frameCount();
-        // ParaView Sequence (blocking) mode: never skip an uncached frame.
-        // Candidate advance is computed first; if the next integer frame(s)
-        // are not yet cached the playhead stalls (wall-clock stretches) so
-        // every timestep is eventually displayed in order. This matches
-        // ParaView's default Sequence playback and fixes the large-dataset
-        // stutter where the old code advanced unconditionally and held the
-        // previous frame while the playhead raced ahead.
+// Sequence (blocking) mode: never skip an uncached frame.
+           // Candidate advance is computed first; if the next integer frame(s)
+           // are not yet cached the playhead stalls (wall-clock stretches) so
+           // every timestep is eventually displayed in order. This is the
+           // default blocking playback mode, and fixes the large-dataset
+           // stutter where the old code advanced unconditionally and held the
+           // previous frame while the playhead raced ahead.
         double candPlayhead = m_playhead + dtSec * effectiveFps();
         // Apply loop wrapping to candidate for correct target check
         double wrappedCand = candPlayhead;

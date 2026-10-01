@@ -24,7 +24,7 @@ std::string toUpper(const std::string& s) {
     return result;
 }
 
-// ── Byte-swap helpers (VTK binary is big-endian) ────────────────────────────
+// ── Byte-swap helpers (the binary mesh formats here are big-endian) ──────────
 
 template<typename T>
 static inline void swapBytes(T* val) {
@@ -113,9 +113,9 @@ void finalizeSurfaceMesh(RenderMesh& mesh,
     }
 
     // Record the topological point count (deduped, pre-normal-split) so the UI
-    // can report the true vertex count ParaView shows. computeNormals() below
-    // will duplicate vertices at sharp edges for shading, which would otherwise
-    // inflate the displayed "Points" value.
+    // reports the point count the file actually declares. computeNormals()
+    // below will duplicate vertices at sharp edges for shading, which would
+    // otherwise inflate the displayed "Points" value.
     mesh.sourcePointCount = static_cast<int>(mesh.vertices.size() / 3);
     mesh.datasetType = datasetType;
     mesh.fileFormat = fileFormat;
@@ -407,12 +407,12 @@ void computeNormals(RenderMesh& mesh) {
 
     // Ensure per-field point range stays valid after vertex splitting.
     // Do NOT narrow scalarMin/scalarMax here: for cell-origin fields the
-    // scalarMin/Max is the UNION (cell + point) that matches ParaView's
-    // colorbar ([-0.099,0.267] for Pressure). mesh.scalars holds the
+    // scalarMin/Max is the UNION (cell + point), which is what the colorbar
+    // should display ([-0.099,0.267] for Pressure). mesh.scalars holds the
     // narrowed extrapolated point values ([-0.059,0.192]), so we keep
     // pointScalarRanges in sync with the actual GPU buffer but leave
-    // scalarMin/Max (and cellScalarRanges) untouched to preserve the
-    // ParaView-matched wide range.
+    // scalarMin/Max (and cellScalarRanges) untouched to preserve the wide
+    // colour range.
     if (!mesh.scalars.empty() && mesh.attributes.has_value() && !mesh.scalarName.empty()) {
         auto r = FieldStore::computeRange(mesh.scalars);
         mesh.attributes->pointScalarRanges[mesh.scalarName] = {r.min, r.max};
@@ -549,7 +549,7 @@ void extrapolateCellDataToPoints(
     }
 }
 
-// ── Cell-edge extraction (ParaView-style wireframe) ─────────────────────────
+// ── Cell-edge extraction (wireframe) ────────────────────────────────────────
 std::vector<uint32_t> extractTriEdges(
     const std::vector<uint32_t>& indices) {
     if (indices.size() % 3 != 0) return {};

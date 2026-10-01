@@ -9,7 +9,8 @@ public:
     Camera();
     ~Camera() = default;
 
-    // Camera state vectors (Using double precision matching VTK spec)
+    // Camera state vectors. Double precision throughout, so repeated matrix
+    // composition during orbiting does not accumulate visible jitter.
     glm::dvec3 position;
     glm::dvec3 focalPoint;
     glm::dvec3 viewUp;

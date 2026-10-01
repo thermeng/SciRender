@@ -138,8 +138,8 @@ void calculateScalarRanges(RenderMesh& mesh) {
     // Use per-field ranges to set scalarMin/Max. For cell-origin fields the
     // pointScalarRanges is the narrowed extrapolated average (≈ [-0.06,0.19]
     // for Pressure) while cellScalarRanges is the original cell range
-    // ([-0.099,0.268]) that ParaView shows. Use the UNION so the colorbar
-    // matches ParaView — see ns_output_ratio.vti Pressure regression.
+    // ([-0.099,0.268]) reported for the cell field. Use the UNION so the colorbar
+    // spans the full data range — see ns_output_ratio.vti Pressure regression.
     if (!mesh.scalarName.empty()) {
         auto pit = mesh.attributes->pointScalarRanges.find(mesh.scalarName);
         auto cit = mesh.attributes->cellScalarRanges.find(mesh.scalarName);

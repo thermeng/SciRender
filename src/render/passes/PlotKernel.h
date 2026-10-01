@@ -13,8 +13,8 @@
 // uploaded to a dedicated SSBO mirror (not the VAO VBO) so the histogram
 // compute is decoupled from the mesh draw path. Histogram bins are computed
 // via atomicAdd on GPU and read back as a tiny (bins*4 bytes) result.
-// Counting is per-source-point (unique topological points) for ParaView
-// parity: vertex duplicates at sharp edges (vertexSourceIndex) are deduped
+// Counting is per-source-point (unique topological points):
+    // vertex duplicates at sharp edges (vertexSourceIndex) are deduped
 // on the CPU before dispatch so histogram n == sourcePointCount.
 // Cell placement bins raw per-cell values. Filter window is optionally
 // applied via PlotParams filterEnabled.

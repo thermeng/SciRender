@@ -16,7 +16,7 @@ namespace isosurface {
 // `mesh.attributes->pointScalars`) laid out in IJK order
 //   idx(x,y,z) = x + y*dX + z*dX*dY
 // with node positions in `mesh.vertices` in the same order and a bounding box
-// in `mesh.bounds`. This is exactly what the VTK XML/legacy structured-grid and
+// in `mesh.bounds`. This is exactly what the structured-grid and
 // image-data parsers produce (see vtk_xml_parser.cpp BUILD_TOPOLOGY section).
 //
 // Parameters:

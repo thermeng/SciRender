@@ -213,7 +213,7 @@ std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
         }
         idx += numPointsInCell;
     }
-    // ParaView surface-only: face → count map
+    // Surface-only: face → count map
     auto sortedKey = [](const std::vector<uint32_t>& f){ std::vector<uint32_t> k=f; std::sort(k.begin(),k.end()); return k; };
     struct VecHash { size_t operator()(const std::vector<uint32_t>& v) const noexcept {
         size_t h=v.size()*1315423911u; for(uint32_t x: v) h ^= std::hash<uint32_t>{}(x)+0x9e3779b9+(h<<6)+(h>>2); return h; } };
