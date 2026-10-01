@@ -74,6 +74,10 @@ static constexpr int kSidebarWidth = 240;
 static constexpr int m_navWidth = 140;
 static constexpr int kLabelWidth = 72;
 static constexpr int kControlHeight = 24;
+// Horizontal space a QComboBox needs beyond its widest item: the drop-down arrow
+// plus the frame/margin padding on each side. Used to reserve a width that keeps
+// the current text clear of the arrow.
+static constexpr int kComboChromeWidth = 28;
 
 // Helper: Does a widget want typing/navigation keys (so viewport shortcuts
 // must stay out of the way)?
@@ -2234,6 +2238,35 @@ QWidget* MainWindow::buildAnimationPage() {
     m_animExportBtn    = animUi.exportBtn;
     m_animBufferBar    = animUi.bufferBar;
 
+    // Combo sizing. fixLayoutOverflow deliberately skips QComboBox, so the fixed
+    // sizes in animation_page.ui reach the running UI untouched.
+    //
+    // frameCombo is pinned to minimumSize/maximumSize 180x22 / 200x22: the 22px
+    // height capped it below every other control on the page (the house height is
+    // kControlHeight = 24), and the 200px maximum hard-clamped the width so long
+    // frame labels clipped. Drop both clamps and size from the contents instead.
+    m_animFrameCombo->setMinimumWidth(0);
+    m_animFrameCombo->setMaximumWidth(QWIDGETSIZE_MAX);
+    m_animFrameCombo->setMinimumHeight(0);
+    m_animFrameCombo->setMaximumHeight(QWIDGETSIZE_MAX);
+    // Frame items read like "12.5 s (#30)"; 12 chars keeps the combo wide enough
+    // for the usual label without letting one long item dictate the layout.
+    m_animFrameCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_animFrameCombo->setMinimumContentsLength(12);
+
+    // scaleCombo shares its row with the "Colormap scale" label, so the layout
+    // hands it only the leftover width and "Whole sequence" ran under the arrow.
+    // Reserve the widest item plus the arrow explicitly instead of letting the
+    // row squeeze it.
+    {
+        QFontMetrics fm(m_animScaleCombo->font());
+        int widest = 0;
+        for (int i = 0; i < m_animScaleCombo->count(); ++i)
+            widest = qMax(widest, fm.horizontalAdvance(m_animScaleCombo->itemText(i)));
+        m_animScaleCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+        m_animScaleCombo->setMinimumWidth(widest + kComboChromeWidth);
+    }
+
     // Transport
     connect(m_animPlayBtn, &QPushButton::clicked, ctrl, &AnimationController::togglePlay);
     connect(m_animStepBackBtn, &QToolButton::clicked, ctrl, &AnimationController::stepBackward);
@@ -2563,36 +2596,52 @@ QWidget* MainWindow::buildVolumePage() {
         QVariantList pts;
         for(auto& p: c){ QVariantMap m; m["pos"]=p.pos; m["alpha"]=p.alpha; pts<<m; }
         m_settings->setVolumeTransferCurve(pts);
+        // Editing the curve is an explicit intent to use it. With TF off the
+        // shader never samples it (volume.frag: uTFEnabled==0 falls back to raw
+        // tVal), so the edit would silently do nothing on screen. Turn it on and
+        // let the checkbox visibly tick rather than leave the user hunting.
+        if (m_tfEnableCb && !m_tfEnableCb->isChecked()) m_tfEnableCb->setChecked(true);
     });
     tfLayout->addWidget(tfWidget);
-    // Preset combo gets its own row: it shares nothing, so the house
-    // kSidebarWidth-m_navWidth-20 combo floor (which assumes a full-width row)
-    // cannot apply here — with two buttons beside it that floor alone pushed the
-    // row past the panel width and clipped Apply/Reset.
+    // Preset row. The combo applies on selection, so it needs no commit button —
+    // the curve it edits has been applying live on every drag frame all along,
+    // and a button labelled "Apply" under it described an action that was
+    // already continuous rather than the one it actually performed (loading the
+    // preset). A label is what makes the combo read as an action.
+    auto* tfPresetLabel = new QLabel("Preset");
+    tfPresetLabel->setObjectName("tfPresetLabel"); // applyPanelStyling: 10px muted
     auto* tfPresetCombo = new QComboBox;
-    m_tfPresetCombo = tfPresetCombo;
     tfPresetCombo->addItems({"Linear","Step","Low"});
-    tfLayout->addWidget(tfPresetCombo);
-    auto* tfPresetBtn = new QPushButton("Apply");
-    connect(tfPresetBtn, &QPushButton::clicked, this, [this](){
-        int idx = m_tfPresetCombo ? m_tfPresetCombo->currentIndex() : 0;
+    auto* tfPresetRow = new QWidget;
+    auto* tfPresetRowLay = new QHBoxLayout(tfPresetRow);
+    tfPresetRowLay->setContentsMargins(0, 0, 0, 0);
+    tfPresetRowLay->setSpacing(6);
+    tfPresetRowLay->addWidget(tfPresetLabel);
+    tfPresetRowLay->addWidget(tfPresetCombo, 1);
+    tfLayout->addWidget(tfPresetRow);
+    // Connected after addItems so populating the combo does not fire a preset
+    // change during construction. No explicit setCurve here (or on Reset): both
+    // setVolumeTransferPreset and resetVolumeTransferFunction emit
+    // viewChanged, which already reaches syncVolumePage -> refreshVolumeTF and
+    // repaints the editor. That round-trip is what made a manual repaint here
+    // look necessary in the first place.
+    connect(tfPresetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx){
         m_settings->setVolumeTransferPreset(idx);
-        if(m_tfWidget) m_tfWidget->setCurve(tf::deserialize(m_settings->getVolumeTFCurve().toStdString()));
+        // A preset is the same explicit intent as a hand edit; see curveChanged.
+        if (m_tfEnableCb && !m_tfEnableCb->isChecked()) m_tfEnableCb->setChecked(true);
     });
     auto* tfResetBtn = new QPushButton("Reset");
-    connect(tfResetBtn, &QPushButton::clicked, this, [this](){
+    connect(tfResetBtn, &QPushButton::clicked, this, [this, tfPresetCombo](){
+        // Curve only. It used to also clear volumeTFEnabled, so "Reset" silently
+        // switched the transfer function off as a side effect.
         m_settings->resetVolumeTransferFunction();
-        if(m_tfWidget) m_tfWidget->setCurve(tf::deserialize(m_settings->getVolumeTFCurve().toStdString()));
-        if(m_tfEnableCb) m_tfEnableCb->setChecked(m_settings->getVolumeTFEnabled());
+        // Reset lands on the linear default, so put the combo back to Linear
+        // rather than leave it claiming a preset the curve no longer matches.
+        tfPresetCombo->blockSignals(true);
+        tfPresetCombo->setCurrentIndex(0);
+        tfPresetCombo->blockSignals(false);
     });
-    // Apply/Reset share a row with no minimums, matching the Isosurface page's
-    // Add/Remove row, so the two split the panel width evenly.
-    auto* tfBtnRow = new QWidget;
-    auto* tfBtnLay = new QHBoxLayout(tfBtnRow);
-    tfBtnLay->setContentsMargins(0, 0, 0, 0);
-    tfBtnLay->addWidget(tfPresetBtn);
-    tfBtnLay->addWidget(tfResetBtn);
-    tfLayout->addWidget(tfBtnRow);
+    tfLayout->addWidget(tfResetBtn);
 
     content->layout()->addWidget(tfGroup);
     // One entry gates the header, its divider, the checkbox, the curve editor
@@ -3170,7 +3219,13 @@ void MainWindow::refreshIsosurfaceList() {
 void MainWindow::refreshVolumeTF() {
     if (m_tfWidget) {
         auto s = m_settings->getVolumeTFCurve();
-        m_tfWidget->setCurve(tf::deserialize(s.toStdString()));
+        tf::Curve c = tf::deserialize(s.toStdString());
+        // This runs on every viewChanged, including the one setVolumeTransferCurve
+        // emits on each drag frame — so without this guard the editor is rebuilt
+        // from a serialize/deserialize round-trip while m_dragging is still true.
+        // The drag survived that only because mouseMoveEvent re-finds the dragged
+        // index with a 1e-5 tolerance; comparing here removes the dependency.
+        if (!(m_tfWidget->curve() == c)) m_tfWidget->setCurve(c);
         auto [lo,hi] = std::pair<float,float>{m_settings->getDataScalarMinQml(), m_settings->getDataScalarMaxQml()};
         m_tfWidget->setFieldRange(lo,hi);
     }
