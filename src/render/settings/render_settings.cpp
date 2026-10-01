@@ -1458,9 +1458,12 @@ void RenderSettings::setVolumeTransferCurve(const QVariantList& pts) {
 }
 void RenderSettings::resetVolumeTransferFunction() {
     tf::Curve c = tf::defaultCurve();
-    if (c==m_state.volumeTransferCurve && !m_state.volumeTFEnabled) return;
+    // Curve only. This used to also clear volumeTFEnabled, so the panel's
+    // "Reset" button silently switched the transfer function off — an unrelated
+    // side effect hidden behind a button labelled "Reset". Enabling and the
+    // curve shape are now independent; nothing else calls this.
+    if (c==m_state.volumeTransferCurve) return;
     m_state.volumeTransferCurve=c;
-    m_state.volumeTFEnabled=false;
     markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 void RenderSettings::setVolumeTransferPreset(int preset) {

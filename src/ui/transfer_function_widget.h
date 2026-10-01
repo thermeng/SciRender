@@ -19,6 +19,8 @@ protected:
     void mouseReleaseEvent(QMouseEvent* e) override;
     void mouseDoubleClickEvent(QMouseEvent* e) override;
 private:
+    // Strip above the plot reserved for the dragged point's value readout.
+    static constexpr int kReadoutRowHeight = 15;
     tf::Curve m_curve = tf::defaultCurve();
     int m_dragIdx = -1;
     bool m_dragging=false;

@@ -284,7 +284,6 @@ private:
     // Volume TF
     class TransferFunctionWidget* m_tfWidget = nullptr;
     QCheckBox* m_tfEnableCb = nullptr;
-    QComboBox* m_tfPresetCombo = nullptr;
 
     // Post Processing Fields page
     QComboBox* m_postVelCombo = nullptr;

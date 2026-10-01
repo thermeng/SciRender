@@ -9,10 +9,22 @@ TransferFunctionWidget::TransferFunctionWidget(QWidget* parent): QWidget(parent)
     setMinimumHeight(120);
     setMinimumWidth(200);
     setMouseTracking(true);
+    // Three distinct gestures drive this widget and none of them were
+    // discoverable: add is Ctrl+click OR double-click, remove is right-click,
+    // and the two endpoints are pinned to the ends of the range in x. Without
+    // this the only way to find out was to guess.
+    setToolTip(tr("Drag a point to move it.\n"
+                  "Double-click, or Ctrl+click, to add a point.\n"
+                  "Right-click a point to remove it.\n"
+                  "The first and last points stay pinned to the ends of the range."));
 }
 
+// Top margin is sized for the readout row (see paintEvent) and the bottom
+    // margin for the two range labels, so neither can ever overlap the other or
+    // the plot. Both are constants, so selecting a point does not resize the
+    // graph and make the curve jump.
 QRect TransferFunctionWidget::graphRect() const {
-    return rect().adjusted(10,10, -10, -20);
+    return rect().adjusted(10, kReadoutRowHeight, -10, -20);
 }
 
 QPointF TransferFunctionWidget::toWidget(const tf::Point& pt) const {
@@ -43,13 +55,20 @@ void TransferFunctionWidget::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     QRect r = graphRect();
+    // Palette-derived throughout: this used to hardcode dark greys, which left a
+    // near-black rectangle inside the light-theme panel. Only the curve/line blue
+    // and the amber drag highlight stay fixed — they are the curve's identity
+    // colour and read correctly against both Base variants.
+    const QColor base    = palette().color(QPalette::Base);
+    const QColor mid     = palette().color(QPalette::Mid);
+    const QColor textCol = palette().color(QPalette::Text);
     // background
-    p.fillRect(rect(), palette().color(QPalette::Base));
-    p.fillRect(r, QColor(30,30,30));
-    p.setPen(QColor(80,80,80));
+    p.fillRect(rect(), base);
+    p.fillRect(r, base.darker(112)); // slightly recessed in both themes
+    p.setPen(mid);
     p.drawRect(r);
     // grid
-    p.setPen(QColor(60,60,60));
+    p.setPen(mid);
     for(int i=1;i<4;++i){ int x=r.left()+r.width()*i/4; p.drawLine(x,r.top(),x,r.bottom()); }
     for(int i=1;i<4;++i){ int y=r.top()+r.height()*i/4; p.drawLine(r.left(),y,r.right(),y); }
     // curve polygon fill
@@ -73,15 +92,40 @@ void TransferFunctionWidget::paintEvent(QPaintEvent*) {
     for(size_t i=0;i<m_curve.size();++i){
         QPointF w = toWidget(m_curve[i]);
         bool sel = (int)i==m_dragIdx;
-        p.setBrush(sel? QColor(255,220,100): QColor(200,200,200));
-        p.setPen(QColor(20,20,20));
+        p.setBrush(sel? QColor(255,220,100) : textCol);
+        p.setPen(palette().color(QPalette::Dark));
         p.drawEllipse(w, 5,5);
     }
-    // labels
-    p.setPen(palette().color(QPalette::Text));
+    // Readout for the point being moved, in its own reserved row above the plot
+    // rather than sharing the axis-label row below it — centred text of any
+    // width collided with both range labels. Built by concatenation rather than
+    // QString::arg: the arg(float, char, int) overload binds 3 to fieldWidth,
+    // not precision, and the resulting string did not render usefully. Plain
+    // "opacity" instead of an alpha glyph, which is absent from the small
+    // fallback font on some systems and would drop out of the string.
+    if (m_dragIdx>=0 && m_dragIdx<(int)m_curve.size()) {
+        const tf::Point& pt = m_curve[m_dragIdx];
+        // x is mapped through the field range, so it shows the scalar value the
+        // curve is keyed on rather than the normalized position.
+        const float dataVal = m_lo + pt.pos*(m_hi-m_lo);
+        const QString readout = "x " + QString::number(dataVal, 'f', 3)
+                              + "   opacity " + QString::number(qRound(pt.alpha*100)) + "%";
+        p.setPen(textCol);
+        p.drawText(QRect(r.left(), rect().top(), r.width(), kReadoutRowHeight),
+                   Qt::AlignHCenter | Qt::AlignVCenter, readout);
+    }
+    // Axis range labels, one per end of the plot. Aligned to the graph's actual
+    // edges rather than offset by a fixed number of pixels: a hardcoded offset
+    // only lined up for one label width, so a single-digit max floated short of
+    // the right edge and a wide value overflowed past it.
+    p.setPen(textCol);
     QFont f = p.font(); f.setPixelSize(9); p.setFont(f);
-    p.drawText(r.left(), r.bottom()+12, QString::number(m_lo,'g',3));
-    p.drawText(r.right()-40, r.bottom()+12, QString::number(m_hi,'g',3));
+    constexpr int kLabelRowHeight = 18;
+    const int kLabelBox = 70; // generous: holds a negative multi-digit range
+    p.drawText(QRect(r.left(), r.bottom()+1, kLabelBox, kLabelRowHeight),
+               Qt::AlignLeft | Qt::AlignVCenter, QString::number(m_lo,'g',3));
+    p.drawText(QRect(r.right()-kLabelBox, r.bottom()+1, kLabelBox, kLabelRowHeight),
+               Qt::AlignRight | Qt::AlignVCenter, QString::number(m_hi,'g',3));
 }
 
 void TransferFunctionWidget::mousePressEvent(QMouseEvent* e){
@@ -97,6 +141,11 @@ void TransferFunctionWidget::mousePressEvent(QMouseEvent* e){
             for(int i=0;i<(int)m_curve.size();++i) if(std::abs(m_curve[i].pos-pt.pos)<1e-4f){ m_dragIdx=i; break; }
             m_dragging=true;
             emit curveChanged(m_curve);
+            update();
+        } else {
+            // Clicked empty space: drop the selection so the readout does not
+            // keep showing a point the user is no longer touching.
+            m_dragIdx=-1;
             update();
         }
     } else if(e->button()==Qt::RightButton){
@@ -122,11 +171,18 @@ void TransferFunctionWidget::mouseMoveEvent(QMouseEvent* e){
         for(int i=0;i<(int)m_curve.size();++i) if(std::abs(m_curve[i].pos-pt.pos)<1e-5f && std::abs(m_curve[i].alpha-pt.alpha)<1e-5f){ m_dragIdx=i; break; }
         emit curveChanged(m_curve);
         update();
+        return;
     }
+    // Hover affordance: show a move cursor only over an actual point. Guarded so
+    // the cursor is not re-set on every mouse move across the whole widget.
+    const Qt::CursorShape want = hitTest(e->pos())>=0 ? Qt::SizeAllCursor : Qt::ArrowCursor;
+    if(want!=cursor().shape()) setCursor(want);
 }
 void TransferFunctionWidget::mouseReleaseEvent(QMouseEvent* e){
     Q_UNUSED(e)
     m_dragging=false;
+    // Keep m_dragIdx so the readout stays up while the point stays selected;
+    // the next press over empty space clears it.
 }
 void TransferFunctionWidget::mouseDoubleClickEvent(QMouseEvent* e){
     if(e->button()==Qt::LeftButton){
@@ -136,6 +192,11 @@ void TransferFunctionWidget::mouseDoubleClickEvent(QMouseEvent* e){
             m_curve.push_back(pt);
             tf::normalize(m_curve);
             emit curveChanged(m_curve);
+            update();
+        } else {
+            // Double-clicking an existing point selects it so its values can be
+            // read, instead of doing nothing.
+            m_dragIdx=idx;
             update();
         }
     }
