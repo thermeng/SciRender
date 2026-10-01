@@ -41,6 +41,13 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QFrame>
+#include <QAbstractItemView>
+#include <QAbstractSlider>
+#include <QAbstractButton>
+#include <QTabWidget>
+#include <QGroupBox>
+#include <QFile>
+#include <QTextStream>
 #include <QDesktopServices>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -146,6 +153,35 @@ static void fixLayoutOverflow(QWidget* root) {
         dsb->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         dsb->setMaximumWidth(QWIDGETSIZE_MAX);
         dsb->setMinimumWidth(40);
+    }
+
+    // Custom-painted panels (e.g. TransferFunctionWidget) hard-code a wide
+    // minimum so their drawing area stays usable. Inside a ~220px panel that
+    // floor overflows, and because every page disables the horizontal
+    // scrollbar the widget clips instead of shrinking. Relax those minimums to
+    // something a narrow panel can still honour.
+    //
+    // Deliberately conservative: only leaf widgets whose intrinsic width is not
+    // load-bearing are touched. Views, tabs, sliders, scroll areas and any
+    // layout-owning container are skipped — squeezing a table or tab strip
+    // would be a worse bug than the one being fixed.
+    constexpr int kMinCustomWidth = 120;
+    const auto children = root->findChildren<QWidget*>();
+    for (QWidget* w : children) {
+        if (qobject_cast<QAbstractItemView*>(w) || qobject_cast<QTabWidget*>(w) ||
+            qobject_cast<QAbstractSlider*>(w) || qobject_cast<QGroupBox*>(w) ||
+            qobject_cast<QFrame*>(w) || qobject_cast<QLineEdit*>(w) ||
+            qobject_cast<QSpinBox*>(w) || qobject_cast<QDoubleSpinBox*>(w) ||
+            qobject_cast<QComboBox*>(w) || qobject_cast<QAbstractButton*>(w) ||
+            qobject_cast<QLabel*>(w) || qobject_cast<QScrollArea*>(w) ||
+            w->layout())
+            continue;
+        // Skip anything that parents other widgets: that is a container whose
+        // width is driven by its contents, not a custom-painted leaf.
+        if (w->children().size() > 0) continue;
+        w->setMaximumWidth(QWIDGETSIZE_MAX);
+        if (w->minimumWidth() > kMinCustomWidth)
+            w->setMinimumWidth(kMinCustomWidth);
     }
 }
 
@@ -508,6 +544,78 @@ void MainWindow::setupMenus() {
 
 // Sidebar
 
+// One table drives the nav labels, the panel-header title, and the section
+// stack order. The labels used to live in two parallel arrays (navItems in
+// setupSidebar, sectionNames in setSidebarSection) that had to be kept in sync
+// by hand; a single table makes drift impossible and gives each section a
+// place to declare what data it needs.
+//
+// Capability::Always sections are usable with whatever is loaded. Every other
+// section is a visualizer that needs specific dataset contents: when those are
+// absent the nav label gains a warning glyph and the page shows a reason banner.
+//
+// The capability drives the predicate; `unavailableReason` is deliberately
+// per-section rather than per-capability. Two sections can need the same data
+// and still describe it in their own terms — Volume and Slice Plane both need a
+// 3D grid with a scalar field, but only one of them is volume rendering, and
+// showing the wrong feature name on a page reads as a bug.
+enum class NavCapability {
+    Always,
+    ScalarData,      // surface coloring by a scalar field
+    VectorData,      // arrow glyphs / surface LIC
+    StreamlineData,  // point vectors only (integration walks the grid)
+    VolumeData,      // 3D grid + scalar field
+    IsosurfaceData,  // 3D grid + scalar field, marching cubes
+    PlotData,        // a mesh with scalar data to histogram
+    SequenceData,    // a loaded .pvd time-series
+};
+
+struct NavSection {
+    const char* name;
+    NavCapability capability;
+    const char* unavailableReason; // null when always available
+};
+
+static const NavSection navSections[] = {
+    { "Mesh Info",       NavCapability::Always,        nullptr },
+    { "Lighting",        NavCapability::Always,        nullptr },
+    { "Clipping",        NavCapability::Always,        nullptr },
+    { "View & Display",  NavCapability::Always,        nullptr },
+    { "Scalar",          NavCapability::ScalarData,
+      QT_TRANSLATE_NOOP("MainWindow", "Coloring by scalar needs a scalar field. "
+                                      "Load a mesh with point or cell scalars.") },
+    { "Probe",           NavCapability::Always,        nullptr },
+    { "Vectors",         NavCapability::VectorData,
+      QT_TRANSLATE_NOOP("MainWindow", "Arrow glyphs and Surface LIC need a vector field. "
+                                      "Load a mesh with point or cell vectors.") },
+    { "Streamlines",     NavCapability::StreamlineData,
+      QT_TRANSLATE_NOOP("MainWindow", "Streamlines integrate through point vectors. "
+                                      "Load a mesh with node-based vectors, "
+                                      "for example a .vtu with a velocity field.") },
+    { "Volume",          NavCapability::VolumeData,
+      QT_TRANSLATE_NOOP("MainWindow", "Volume rendering needs a 3D grid with a scalar field. "
+                                      "Load a .vtu, .vts or .vti volume dataset.") },
+    { "Slice Plane",     NavCapability::VolumeData,
+      QT_TRANSLATE_NOOP("MainWindow", "Slice planes need a 3D grid with a scalar field to "
+                                      "texture. Load a .vtu, .vts or .vti volume dataset.") },
+    { "Isosurface",      NavCapability::IsosurfaceData,
+      QT_TRANSLATE_NOOP("MainWindow", "Isosurface extraction needs a 3D grid with a scalar "
+                                      "field to contour. Load a .vtu, .vts or .vti "
+                                      "volume dataset.") },
+    { "Post Processing", NavCapability::Always,        nullptr },
+    { "Screenshot",      NavCapability::Always,        nullptr },
+    { "Animation",       NavCapability::SequenceData,
+      QT_TRANSLATE_NOOP("MainWindow", "No time-series sequence loaded. "
+                                      "Open a .pvd collection to animate frames.") },
+    { "Plots",           NavCapability::PlotData,
+      QT_TRANSLATE_NOOP("MainWindow", "Histograms need a mesh with scalar data. "
+                                      "Load a mesh with scalars, for example a .vtu.") },
+};
+static constexpr int kNavSectionCount = int(sizeof(navSections) / sizeof(navSections[0]));
+
+// U+26A0 WARNING SIGN, appended to a nav label whose data is missing.
+static const char* const kUnavailableSuffix = " \u26A0";
+
 void MainWindow::setupSidebar() {
     m_sidebarDock = ui->sidebarDock;
     m_sidebarDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
@@ -539,22 +647,21 @@ void MainWindow::setupSidebar() {
     m_navList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_navList->setFocusPolicy(Qt::NoFocus);
 
-    const QString navItems[] = {
-        "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar", "Probe",
-        "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
-        "Post Processing", "Screenshot", "Animation", "Plots"
-    };
-
-    // Calculate width dynamically based on longest text + padding
+    // Calculate width dynamically based on longest text + padding. The warning
+    // suffix is always reserved, so a badge appearing later never re-measures
+    // (which would reflow the dock and jump the user's sidebar under the cursor).
     QFontMetrics fm(m_navList->font());
     int maxTextWidth = 0;
-    for (const auto& name : navItems) {
-        maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(name));
+    for (const auto& section : navSections) {
+        maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(QString::fromUtf8(section.name)));
     }
-    m_navWidth = maxTextWidth + 48; // 24px padding each side
+    const int badgeWidth = fm.horizontalAdvance(QString::fromUtf8(kUnavailableSuffix));
+    m_navWidth = maxTextWidth + badgeWidth + 48; // 24px padding each side
 
-    for (const auto& name : navItems) {
+    for (const auto& section : navSections) {
+        const QString name = QString::fromUtf8(section.name);
         auto* item = new QListWidgetItem(name, m_navList);
+        item->setData(Qt::UserRole, name); // pristine label, for badge toggling
         item->setSizeHint(QSize(m_navWidth, 36));
     }
     m_navList->setFixedWidth(m_navWidth);
@@ -600,28 +707,64 @@ void MainWindow::setupSidebar() {
     rightLayout->addWidget(m_panelHeader);
     m_panelHeader->setVisible(false);
 
-    // Stacked widget (section pages)
+    // Stacked widget (section pages). Every page goes through addSectionPage so
+    // each one gets the availability banner prepended in a single place, rather
+    // than each build*Page() repeating the wrapper it already builds internally.
     m_sectionStack = new QStackedWidget;
+    m_sectionBanners.resize(kNavSectionCount);
 
-    m_sectionStack->addWidget(buildMeshInfoPage());       // 0
+    addSectionPage(0, buildMeshInfoPage());     // Mesh Info
     m_meshInfoPage = m_sectionStack->widget(0);
-    m_sectionStack->addWidget(buildLightingPage());     // 1
-    m_sectionStack->addWidget(buildClippingPage());      // 2
-    m_sectionStack->addWidget(buildViewDisplayPage());  // 3
-    m_sectionStack->addWidget(buildScalarPage());     // 4
-    m_sectionStack->addWidget(buildProbePage());      // 5
-    m_sectionStack->addWidget(buildVectorsPage());      // 6
-    m_sectionStack->addWidget(buildStreamlinesPage());  // 7
-    m_sectionStack->addWidget(buildVolumePage());       // 8
-    m_sectionStack->addWidget(buildSlicePlanePage());   // 9
-    m_sectionStack->addWidget(buildIsosurfacePage());   // 10
-    m_sectionStack->addWidget(buildPostProcPage());     // 11
-    m_sectionStack->addWidget(buildScreenshotPage());   // 12
-    m_sectionStack->addWidget(buildAnimationPage());    // 13
-    m_sectionStack->addWidget(buildPlotsPage());        // 14
+    addSectionPage(1, buildLightingPage());     // Lighting
+    addSectionPage(2, buildClippingPage());     // Clipping
+    addSectionPage(3, buildViewDisplayPage());  // View & Display
+    addSectionPage(4, buildScalarPage());       // Scalar
+    addSectionPage(5, buildProbePage());        // Probe
+    addSectionPage(6, buildVectorsPage());      // Vectors
+    addSectionPage(7, buildStreamlinesPage());  // Streamlines
+    addSectionPage(8, buildVolumePage());       // Volume
+    addSectionPage(9, buildSlicePlanePage());   // Slice Plane
+    addSectionPage(10, buildIsosurfacePage());  // Isosurface
+    addSectionPage(11, buildPostProcPage());    // Post Processing
+    addSectionPage(12, buildScreenshotPage());  // Screenshot
+    addSectionPage(13, buildAnimationPage());   // Animation
+    addSectionPage(14, buildPlotsPage());       // Plots
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
+
+    if (qEnvironmentVariableIsSet("SCIRENDER_UI_DUMP")) {
+        QTimer::singleShot(2500, this, [this] {
+            QFile dump(qEnvironmentVariable("SCIRENDER_UI_DUMP"));
+            if (!dump.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+            QTextStream ts(&dump);
+            ts << "navWidth=" << m_navWidth << " sidebarWidth=" << kSidebarWidth
+               << " usableContent=" << (kSidebarWidth - 20) << "\n";
+            const char* names[] = {"MeshInfo","Lighting","Clipping","ViewDisplay","Scalar",
+                                   "Probe","Vectors","Streamlines","Volume","SlicePlane",
+                                   "Isosurface","PostProc","Screenshot","Animation","Plots"};
+            for (int i = 0; i < m_sectionStack->count(); ++i) {
+                QWidget* page = m_sectionStack->widget(i);
+                QScrollArea* sa = page->findChild<QScrollArea*>();
+                if (!sa) { ts << names[i] << ": no scrollarea\n"; continue; }
+                QWidget* c = sa->widget();
+                int need = c->minimumSizeHint().width();
+                ts << QString("%1 %2 need=%3 over=%4\n")
+                      .arg(names[i], -13).arg(need > (kSidebarWidth - 20) ? "OVERFLOW" : "ok     ")
+                      .arg(need, 4).arg(qMax(0, need - (kSidebarWidth - 20)), 4);
+                if (need > (kSidebarWidth - 40)) {
+                    ts << "   -- breakdown --\n";
+                    for (QWidget* ch : c->findChildren<QWidget*>()) {
+                        if (!ch->objectName().isEmpty() || ch->layout())
+                            ts << QString("      %1 %2 min=%3 minHint=%4\n")
+                                  .arg(ch->objectName().isEmpty() ? QString("<anon>") : ch->objectName(), -28)
+                                  .arg(ch->metaObject()->className(), -20)
+                                  .arg(ch->minimumWidth()).arg(ch->minimumSizeHint().width());
+                    }
+                }
+            }
+        });
+    }
 
     mainLayout->addWidget(m_navList);
     mainLayout->addWidget(m_rightPanel, 1);
@@ -632,6 +775,127 @@ void MainWindow::setupSidebar() {
     addDockWidget(Qt::LeftDockWidgetArea, m_sidebarDock);
 
     setSidebarSection(0);
+    refreshSidebarCapabilityBadges();
+}
+
+
+// Prepend the "why is this unavailable" banner to a section page and register
+// it. Done here rather than inside each build*Page() so the pages stay unaware
+// of the badge feature and every section gets one wrapper by construction.
+
+void MainWindow::addSectionPage(int section, QWidget* page) {
+    auto* wrapper = new QWidget;
+    auto* wrapperLayout = new QVBoxLayout(wrapper);
+    wrapperLayout->setContentsMargins(0, 0, 0, 0);
+    wrapperLayout->setSpacing(0);
+
+    auto* banner = new QLabel;
+    banner->setObjectName("sectionUnavailableBanner");
+    banner->setWordWrap(true);
+    // Match the page header scale from applyPanelStyling (11px, Medium weight)
+    // so the banner reads as part of the panel rather than a foreign overlay.
+    QFont bannerFont = banner->font();
+    bannerFont.setPixelSize(11);
+    bannerFont.setWeight(QFont::Medium);
+    banner->setFont(bannerFont);
+    // Full-bleed strip: it spans the panel and carries the accent bar, while
+    // padding is tuned so the text lands on the pages' content column. Every
+    // badged page uses leftMargin/rightMargin 10, so border-left (3) +
+    // padding-left (7) puts the first glyph at exactly 10px, level with the
+    // first control below. An inset plate would instead need
+    // margin 10 + border 3 + padding 8 = 21px and hang out to the right.
+    //
+    // Set here rather than in applyThemeAwareStylesheets(): that only runs on a
+    // QEvent::PaletteChange, which never fires at startup, so anything styled
+    // only there is invisible until the user switches the OS theme. The
+    // palette(mid) reference is resolved by Qt at paint time, so a one-shot
+    // stylesheet still follows light/dark correctly.
+    banner->setStyleSheet(
+        "QLabel { background: palette(mid); color: #b26a00;"
+        "border-left: 3px solid #d08700;"
+        "padding: 6px 10px 6px 7px; margin: 8px 0 0 0; }");
+    // Hidden by default; refreshSidebarCapabilityBadges() decides per dataset.
+    banner->setVisible(false);
+    wrapperLayout->addWidget(banner);
+
+    wrapperLayout->addWidget(page, 1);
+
+    m_sectionBanners[section] = banner;
+    m_sectionStack->addWidget(wrapper);
+}
+
+
+// Is this section's backing data present? Empty reason means supported.
+
+QString MainWindow::sectionUnavailableReason(int section) const {
+    const NavSection& s = navSections[section];
+
+    // The predicate and the wording are separate concerns: the capability says
+    // what data is needed, the table says how this page describes it.
+    bool available = false;
+    switch (s.capability) {
+        case NavCapability::Always:
+            return {};
+        case NavCapability::ScalarData:
+            available = m_settings->hasMeshScalars();
+            break;
+        case NavCapability::VectorData:
+            available = m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors();
+            break;
+        case NavCapability::StreamlineData:
+            // Streamlines integrate through node vectors; cell-only vectors
+            // cannot seed an integration, matching the auto-disable in
+            // RenderSettings::loadMesh.
+            available = m_settings->hasMeshVectors();
+            break;
+        case NavCapability::VolumeData:
+            available = m_settings->hasVolumeData();
+            break;
+        case NavCapability::IsosurfaceData:
+            available = m_settings->getIsosurfaceAvailable();
+            break;
+        case NavCapability::PlotData:
+            available = m_settings->getHasMeshLoaded() && m_settings->hasMeshScalars();
+            break;
+        case NavCapability::SequenceData:
+            available = m_settings->anim()->hasSequence();
+            break;
+    }
+
+    if (available || !s.unavailableReason) return {};
+    return tr(s.unavailableReason);
+}
+
+
+// Re-evaluate every section against the current dataset: append or strip the
+// warning glyph on the nav label, set the generic tooltip, and refresh the
+// banner text on all pages (including hidden ones, so switching sections never
+// shows a stale reason).
+
+void MainWindow::refreshSidebarCapabilityBadges() {
+    if (!m_navList) return;
+
+    const QString suffix = QString::fromUtf8(kUnavailableSuffix);
+    for (int section = 0; section < kNavSectionCount; ++section) {
+        QListWidgetItem* item = m_navList->item(section);
+        if (!item) continue;
+
+        const QString base = item->data(Qt::UserRole).toString();
+        const QString reason = sectionUnavailableReason(section);
+        const bool available = reason.isEmpty();
+
+        item->setText(available ? base : base + suffix);
+        item->setToolTip(available ? QString()
+                                   : tr("Not available for the current dataset"));
+
+        if (section < m_sectionBanners.size()) {
+            QLabel* banner = m_sectionBanners[section];
+            if (banner) {
+                banner->setText(reason);
+                banner->setVisible(!available);
+            }
+        }
+    }
 }
 
 
@@ -2015,6 +2279,10 @@ QWidget* MainWindow::buildAnimationPage() {
     // Controller → UI sync (stateChanged covers play/pause/seek/load).
     connect(ctrl, &AnimationController::stateChanged,
             this, &MainWindow::refreshAnimationPage);
+    // A .pvd load is the only thing that makes the Animation section usable, so
+    // the nav badge has to ride the same signal.
+    connect(ctrl, &AnimationController::stateChanged,
+            this, &MainWindow::refreshSidebarCapabilityBadges);
     QTimer::singleShot(0, this, &MainWindow::refreshAnimationPage);
     return page;
 }
@@ -2198,7 +2466,8 @@ QWidget* MainWindow::buildVolumePage() {
     auto* content = new QWidget;
     Ui::VolumePage volumeUi;
     volumeUi.setupUi(content);
-    fixLayoutOverflow(content);
+    // fixLayoutOverflow is deferred to just before applyPanelStyling: the
+    // TransferFunctionWidget is constructed further down and needs relaxing too.
 
     auto* showCb = volumeUi.showVolumeCb;
     m_volumeShowCb = showCb;
@@ -2262,14 +2531,25 @@ QWidget* MainWindow::buildVolumePage() {
     applyVolumeControlGating();
 
     // --- Transfer Function Editor ---
+    // Lives in its own zero-margin group rather than directly on the page root,
+    // matching how the Isosurface page nests code-built widgets. This keeps the
+    // TF section a single gating unit: applyPanelStyling inserts the header
+    // divider as a sibling of tfHeader inside tfGroup, so greying tfGroup greys
+    // the divider too. On the root layout the divider sat outside the disabled
+    // set and stayed bright above a greyed header.
+    auto* tfGroup = new QWidget;
+    auto* tfLayout = new QVBoxLayout(tfGroup);
+    tfLayout->setSpacing(4);
+    tfLayout->setContentsMargins(0, 0, 0, 0);
+
     auto* tfHeader = new QLabel("Transfer Function (Opacity)");
     tfHeader->setObjectName("tfHeader");
-    content->layout()->addWidget(tfHeader);
+    tfLayout->addWidget(tfHeader);
     auto* tfEnable = new QCheckBox("Enable TF");
     m_tfEnableCb = tfEnable;
     tfEnable->setChecked(m_settings->getVolumeTFEnabled());
     connect(tfEnable, &QCheckBox::toggled, m_settings, &RenderSettings::setVolumeTFEnabled);
-    content->layout()->addWidget(tfEnable);
+    tfLayout->addWidget(tfEnable);
     auto* tfWidget = new TransferFunctionWidget;
     m_tfWidget = tfWidget;
     // init curve
@@ -2284,37 +2564,47 @@ QWidget* MainWindow::buildVolumePage() {
         for(auto& p: c){ QVariantMap m; m["pos"]=p.pos; m["alpha"]=p.alpha; pts<<m; }
         m_settings->setVolumeTransferCurve(pts);
     });
-    content->layout()->addWidget(tfWidget);
-    m_volumeRenderCtrls << tfHeader << tfEnable << tfWidget;
-    auto* tfPresetRow = new QWidget;
-    auto* tfPresetLay = new QHBoxLayout(tfPresetRow);
-    tfPresetLay->setContentsMargins(0,0,0,0);
+    tfLayout->addWidget(tfWidget);
+    // Preset combo gets its own row: it shares nothing, so the house
+    // kSidebarWidth-m_navWidth-20 combo floor (which assumes a full-width row)
+    // cannot apply here — with two buttons beside it that floor alone pushed the
+    // row past the panel width and clipped Apply/Reset.
     auto* tfPresetCombo = new QComboBox;
     m_tfPresetCombo = tfPresetCombo;
     tfPresetCombo->addItems({"Linear","Step","Low"});
-    tfPresetLay->addWidget(tfPresetCombo);
+    tfLayout->addWidget(tfPresetCombo);
     auto* tfPresetBtn = new QPushButton("Apply");
     connect(tfPresetBtn, &QPushButton::clicked, this, [this](){
         int idx = m_tfPresetCombo ? m_tfPresetCombo->currentIndex() : 0;
         m_settings->setVolumeTransferPreset(idx);
         if(m_tfWidget) m_tfWidget->setCurve(tf::deserialize(m_settings->getVolumeTFCurve().toStdString()));
     });
-    tfPresetLay->addWidget(tfPresetBtn);
     auto* tfResetBtn = new QPushButton("Reset");
     connect(tfResetBtn, &QPushButton::clicked, this, [this](){
         m_settings->resetVolumeTransferFunction();
         if(m_tfWidget) m_tfWidget->setCurve(tf::deserialize(m_settings->getVolumeTFCurve().toStdString()));
         if(m_tfEnableCb) m_tfEnableCb->setChecked(m_settings->getVolumeTFEnabled());
     });
-    tfPresetLay->addWidget(tfResetBtn);
-    content->layout()->addWidget(tfPresetRow);
-    m_volumeRenderCtrls << tfPresetRow;
+    // Apply/Reset share a row with no minimums, matching the Isosurface page's
+    // Add/Remove row, so the two split the panel width evenly.
+    auto* tfBtnRow = new QWidget;
+    auto* tfBtnLay = new QHBoxLayout(tfBtnRow);
+    tfBtnLay->setContentsMargins(0, 0, 0, 0);
+    tfBtnLay->addWidget(tfPresetBtn);
+    tfBtnLay->addWidget(tfResetBtn);
+    tfLayout->addWidget(tfBtnRow);
+
+    content->layout()->addWidget(tfGroup);
+    // One entry gates the header, its divider, the checkbox, the curve editor
+    // and the preset controls together.
+    m_volumeRenderCtrls << tfGroup;
     applyVolumeControlGating();
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
 
     scroll->setWidget(content);
 
+    fixLayoutOverflow(content);
     applyPanelStyling(content);
 
     auto* wrapper = new QWidget;
@@ -2646,13 +2936,8 @@ void MainWindow::refreshScalarFilterRange() {
 
 // Sidebar section switching
 
-static const char* sectionNames[] = {
-    "Mesh Info", "Lighting", "Clipping", "View & Display", "Scalar", "Probe",
-    "Vectors", "Streamlines", "Volume", "Slice Plane", "Isosurface",
-    "Post Processing", "Screenshot", "Animation", "Plots"
-};
-
 void MainWindow::setSidebarSection(int section) {
+    if (section < 0 || section >= kNavSectionCount) return;
     if (m_activeSection == section && m_sidebarExpanded) {
         m_activeSection = -1;
         m_sidebarExpanded = false;
@@ -2665,7 +2950,7 @@ void MainWindow::setSidebarSection(int section) {
         m_sectionStack->setCurrentIndex(section);
         m_sectionStack->setVisible(true);
         m_panelHeader->setVisible(true);
-        m_panelTitle->setText(QString::fromUtf8(sectionNames[section]));
+        m_panelTitle->setText(QString::fromUtf8(navSections[section].name));
         m_navList->blockSignals(true);
         m_navList->setCurrentRow(section, QItemSelectionModel::ClearAndSelect);
         m_navList->blockSignals(false);
@@ -3071,6 +3356,7 @@ void MainWindow::connectSettings() {
             m_sliceFieldCombo[axis]->blockSignals(false);
         }
         applyVolumeControlGating();
+        refreshSidebarCapabilityBadges();
     });
     connect(m_settings, &RenderSettings::meshDataUpdated, this, &MainWindow::refreshMeshInfoPage);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::refreshMeshInfoPage);
@@ -3144,6 +3430,7 @@ void MainWindow::connectSettings() {
         refreshIsosurfaceList();
         refreshVolumeTF();
         refreshPostProcPage();
+        refreshSidebarCapabilityBadges();
     });
 
     // Mirror toolbar and View & Display toggles whenever the corresponding
@@ -3359,6 +3646,10 @@ void MainWindow::applyThemeAwareStylesheets() {
             frame->setStyleSheet("background-color: palette(mid); max-height: 1px;");
         }
     }
+
+    // Availability banners are styled in addSectionPage() at construction, not
+    // here: this function only runs on QEvent::PaletteChange, which never fires
+    // at startup.
 }
 
 void MainWindow::recreateViewport() {
