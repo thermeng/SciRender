@@ -8,56 +8,33 @@
 #include <QTimer>
 #include <QLabel>
 #include <QToolButton>
-#include <QTableWidget>
-#include <QSplitter>
-#include <QScrollArea>
-#include <QVBoxLayout>
-#include <QCheckBox>
-#include <QRadioButton>
-#include <QButtonGroup>
-#include <QSlider>
-#include <QSpinBox>
-#include <QDoubleSpinBox>
-#include <QComboBox>
-#include <QPushButton>
-#include <QLineEdit>
-#include <QDoubleValidator>
 #include <QShortcut>
-#include <QFileDialog>
-#include <QColorDialog>
-#include <QMessageBox>
-#include <QMenuBar>
-#include <QStatusBar>
-#include <QApplication>
 #include <QActionGroup>
 #include <QList>
 #include <QVector>
-#include <QTimeLine>
-#include <QProgressBar>
 
 #include "viewport_widget.h"
 #include "render/settings/render_settings.h"
-#include "ui/range_editor.h"
-#include "core/transfer_function.h"
+#include "ui/pages/lighting_page.h"
+#include "ui/pages/clipping_page.h"
+#include "ui/pages/view_display_page.h"
+#include "ui/pages/scalar_page.h"
+#include "ui/pages/vectors_page.h"
+#include "ui/pages/streamlines_page.h"
+#include "ui/pages/slice_plane_page.h"
+#include "ui/pages/postproc_page.h"
+#include "ui/pages/volume_page.h"
+#include "ui/pages/isosurface_page.h"
+#include "ui/pages/probe_page.h"
+#include "ui/pages/mesh_info_page.h"
+#include "ui/pages/screenshot_page.h"
+#include "ui/pages/animation_page.h"
+#include "ui/pages/plots_page.h"
 
 class PlotWindow;
 
 namespace Ui {
     class MainWindow;
-    class LightingPage;
-    class ClippingPage;
-    class ViewDisplayPage;
-    class ScalarPage;
-    class ProbePage;
-    class VectorsPage;
-    class StreamlinesPage;
-    class ScreenshotPage;
-    class MeshInfoPage;
-    class VolumePage;
-    class SlicePlanePage;
-    class IsosurfacePage;
-    class AnimationPage;
-    class PostprocPage;
 }
 
 class MainWindow : public QMainWindow {
@@ -95,10 +72,6 @@ private:
     void connectSettings();
     void updateStatusBar();
     void syncTopToolbar();
-    void syncViewDisplayPage();
-    void syncLightingPage();
-    void syncVolumePage();
-    void applyVolumeControlGating();
     void recreateViewport();
     void applyThemeAwareStylesheets();
 
@@ -122,8 +95,6 @@ private:
     bool m_sidebarExpanded = false;
     static constexpr int kSidebarWidth = 240;
     static constexpr int kNavWidth = 140;
-    static constexpr int kLabelWidth = 72;
-    static constexpr int kControlHeight = 24;
 
     // Navigation list (replaces icon strip)
     QListWidget* m_navList = nullptr;
@@ -142,208 +113,14 @@ private:
     QLabel* m_panelTitle = nullptr;
     QToolButton* m_closeBtn = nullptr;
 
-    // Section pages
-    QWidget* buildLightingPage();
-    QWidget* buildClippingPage();
-    QWidget* buildViewDisplayPage();
-    QWidget* buildScalarPage();
-    QWidget* buildProbePage();
-    void refreshProbeTable();
-    QWidget* buildVectorsPage();
-    QWidget* buildStreamlinesPage();
-    QWidget* buildScreenshotPage();
-    QWidget* buildMeshInfoPage();
-    QWidget* buildVolumePage();
-    QWidget* buildSlicePlanePage();
-    QWidget* buildIsosurfacePage();
-    QWidget* buildAnimationPage();
-    QWidget* buildPlotsPage();
-    QWidget* buildPostProcPage();
-    void refreshMeshInfoPage();
-    QHash<QString, QLabel*> m_meshInfoLabels;
-
-    // Animation page widgets (synced from AnimationController::stateChanged)
-    QPushButton* m_animPlayBtn = nullptr;
-    QPushButton* m_animStepBackBtn = nullptr;
-    QPushButton* m_animStepFwdBtn = nullptr;
-    QComboBox* m_animFrameCombo = nullptr;
-    QDoubleSpinBox* m_animJumpTimeSpin = nullptr;
-    QPushButton* m_animJumpTimeBtn = nullptr;
-    QDoubleSpinBox* m_animFpsSpin = nullptr;
-    QSpinBox* m_animLoopFromSpin = nullptr;
-    QSpinBox* m_animLoopToSpin = nullptr;
-    QCheckBox* m_animLoopRangeCb = nullptr;
-    QLabel* m_animStatusLabel = nullptr;
-    QLabel* m_animSequenceLabel = nullptr;
-    QCheckBox* m_animLoopCb = nullptr;
-    QComboBox* m_animScaleCombo = nullptr;
-    QPushButton* m_animExportBtn = nullptr;
-    QProgressBar* m_animBufferBar = nullptr;
-    int m_animFrameCount = -1;
-    void refreshAnimationPage();
-
-    // View & Display page checkboxes (synced with toolbar / keyboard shortcuts)
-    QCheckBox* m_vdWireframeCb = nullptr;
-    QCheckBox* m_vdSurfaceCb = nullptr;
-    QCheckBox* m_vdPointsCb = nullptr;
-    QCheckBox* m_vdBboxCb = nullptr;
-    QCheckBox* m_vdDefectsCb = nullptr;
-    QCheckBox* m_vdScalarCb = nullptr;
-    QCheckBox* m_vdGizmoCb = nullptr;
-    QComboBox* m_vdGizmoSizeCombo = nullptr;
-    QComboBox* m_vdGizmoCornerCombo = nullptr;
-    QCheckBox* m_vdFpsCb = nullptr;
-    QCheckBox* m_vdParallelCb = nullptr;
-
-    // Lighting page widgets (for backend→UI sync)
-    struct LightDirTabData {
-        QSlider* azimuthSlider = nullptr;
-        QLabel* azimuthValue = nullptr;
-        QSlider* elevationSlider = nullptr;
-        QLabel* elevationValue = nullptr;
-    };
-    QCheckBox* m_lightingMarkersCb = nullptr;
-    QCheckBox* m_lightingKitCb = nullptr;
-    QSlider* m_lightingKeySlider = nullptr;
-    QLabel* m_lightingKeyValue = nullptr;
-    QSlider* m_lightingWarmthSlider = nullptr;
-    QLabel* m_lightingWarmthValue = nullptr;
-    QSlider* m_lightingFillKfSlider = nullptr;
-    QLabel* m_lightingFillKfValue = nullptr;
-    QSlider* m_lightingBackKbSlider = nullptr;
-    QLabel* m_lightingBackKbValue = nullptr;
-    QSlider* m_lightingHeadKhSlider = nullptr;
-    QLabel* m_lightingHeadKhValue = nullptr;
-    QTabWidget* m_lightingDirectionTabs = nullptr;
-    QVector<LightDirTabData> m_lightDirTabs;
-    QSlider* m_lightingAmbientSlider = nullptr;
-    QLabel* m_lightingAmbientValue = nullptr;
-    QSlider* m_lightingDiffuseSlider = nullptr;
-    QLabel* m_lightingDiffuseValue = nullptr;
-    QSlider* m_lightingSpecularSlider = nullptr;
-    QLabel* m_lightingSpecularValue = nullptr;
-    QSlider* m_lightingRoughnessSlider = nullptr;
-    QLabel* m_lightingRoughnessValue = nullptr;
-    QSlider* m_lightingMetallicSlider = nullptr;
-    QLabel* m_lightingMetallicValue = nullptr;
-
-    // Screenshot page controls
-    QComboBox* m_ssResCombo = nullptr;
-    QComboBox* m_ssAaCombo = nullptr;
-
     // Navigation shortcuts (lives on MainWindow so it survives viewport rebuilds);
     // disabled while an editor widget has focus (see setupKeyboardShortcuts).
     QList<QShortcut*> m_navShortcuts;
-
-    // Field selection combos (populated on mesh load)
-    QComboBox* m_scalarCombo = nullptr;
-    QComboBox* m_vectorCombo = nullptr;
-    QComboBox* m_vectorPlacementCombo = nullptr;
-    QComboBox* m_streamlineCombo = nullptr;
-    QComboBox* m_streamlineDirectionCombo = nullptr;
-    QComboBox* m_volumeFieldCombo = nullptr;
-
-    // Vector vis mode (single active field Glyph ↔ LIC)
-    QComboBox* m_vectorVisModeCombo = nullptr;
-    QWidget* m_vectorFieldGroup = nullptr;
-    QWidget* m_vectorGlyphGroup = nullptr;
-    QWidget* m_vectorLicGroup = nullptr;
-
-    // "Show" checkboxes for vector/streamline/volume/scalar pages (gated on data availability)
-    QCheckBox* m_scalarShowCb = nullptr;
-    QWidget* m_scalarOptionsGroup = nullptr;
-    QComboBox* m_scalarPlacementCombo = nullptr;
-    // Probe page
-    QCheckBox* m_probeShowCb = nullptr;
-    QDoubleSpinBox *m_probeXSpin = nullptr, *m_probeYSpin = nullptr, *m_probeZSpin = nullptr;
-    QComboBox* m_probeFormatCombo = nullptr;
-    QComboBox* m_probePlacementCombo = nullptr;
-    QTableWidget* m_probeTable = nullptr;
-    QCheckBox* m_slShowCb = nullptr;
-    QCheckBox* m_vecShowCb = nullptr;
-    QCheckBox* m_volumeShowCb = nullptr;
-    QCheckBox* m_volumeSliceShowCb = nullptr;
-    QCheckBox* m_sliceShowCb = nullptr;
-    QCheckBox* m_sliceEnableX = nullptr;
-    QCheckBox* m_sliceEnableY = nullptr;
-    QCheckBox* m_sliceEnableZ = nullptr;
-    QWidget* m_sliceOptionsGroup = nullptr;
-    QComboBox* m_sliceFieldCombo[3] = {nullptr, nullptr, nullptr};
-    QWidget* m_volumeOptionsGroup = nullptr;          // gated on data availability only
-    QList<QWidget*> m_volumeRenderCtrls;              // volume-rendering-only controls (gated on showVolume)
-
-    // Isosurface controls (on the Volume page, gated on structured volume data)
-    QCheckBox* m_isoEnableCb = nullptr;
-    QComboBox* m_isoFieldCombo = nullptr;
-    QDoubleSpinBox* m_isoValueSpin = nullptr;
-    QComboBox* m_isoPlacementCombo = nullptr;
-    QListWidget* m_isoList = nullptr;
-    QPushButton* m_isoAddBtn = nullptr;
-    QPushButton* m_isoRemoveBtn = nullptr;
-
-    // Volume TF
-    class TransferFunctionWidget* m_tfWidget = nullptr;
-    QCheckBox* m_tfEnableCb = nullptr;
-
-    // Post Processing Fields page
-    QComboBox* m_postVelCombo = nullptr;
-    QComboBox* m_postPresCombo = nullptr;
-    QCheckBox* m_postVortCb = nullptr;
-    QCheckBox* m_postHelCb = nullptr;
-    QCheckBox* m_postQCb = nullptr;
-    QCheckBox* m_postGradPCb = nullptr;
-    QCheckBox* m_postAutoCb = nullptr;
-    QPushButton* m_postExtractBtn = nullptr;
-    QLabel* m_postStatusLbl = nullptr;
-    void refreshPostProcPage();
-
-    // Filter sliders (Colormap page)
-    QSlider* m_filterMinSlider = nullptr;
-    QLineEdit* m_filterMinField = nullptr;
-    QSlider* m_filterMaxSlider = nullptr;
-    QLineEdit* m_filterMaxField = nullptr;
-    QCheckBox* m_filterEnabledCb = nullptr;
-
-    // Fixed colormap range now in Colorbar Style dialog — removed from sidebar
-    // (RenderSettings still owns the state; dialog performs live-apply.)
-
-    // Mesh info page (rebuilt on mesh load)
-    QWidget* m_meshInfoPage = nullptr;
-
-    // Clipping page widgets (for bounds refresh on mesh load)
-    QSlider* m_clipXSlider = nullptr;
-    QLabel* m_clipXValue = nullptr;
-    QSlider* m_clipYSlider = nullptr;
-    QLabel* m_clipYValue = nullptr;
-    QSlider* m_clipZSlider = nullptr;
-    QLabel* m_clipZValue = nullptr;
-    QCheckBox* m_clipEnableCb = nullptr;
-    QCheckBox* m_clipCrinkleCb = nullptr;
-    QCheckBox* m_clipAxisXCb = nullptr;
-    QCheckBox* m_clipAxisYCb = nullptr;
-    QCheckBox* m_clipAxisZCb = nullptr;
-
-    void refreshClippingPageBounds();
-    void refreshScalarFilterRange();
-    void refreshIsosurfaceValue();
-    void refreshIsosurfaceList();
-    void refreshVolumeTF();
 
     // Timers
     QTimer m_autoRotateTimer;
     QTimer m_fpsTimer;
     QTimer m_particleTimer;
-
-    // Dialogs
-    QFileDialog* m_openDialog = nullptr;
-    QColorDialog* m_bgColorDialog = nullptr;
-    QColorDialog* m_textColorDialog = nullptr;
-    QColorDialog* m_meshColorDialog = nullptr;
-    QColorDialog* m_surfaceColorDialog = nullptr;
-    QColorDialog* m_vectorColorDialog = nullptr;
-    QColorDialog* m_streamlineColorDialog = nullptr;
-    QColorDialog* m_seedColorDialog = nullptr;
-    QColorDialog* m_isoColorDialog = nullptr;
 
     QString m_currentFile;
 
@@ -351,32 +128,9 @@ private:
     PlotWindow* m_plotWindow = nullptr;
     QDockWidget* m_plotDock = nullptr;
     QMainWindow* m_centralHost = nullptr; // inner host that owns viewport + plot dock, keeps plot from docking before sidebar
-    QSplitter* m_mainSplitter = nullptr; // legacy: kept for compat, no longer used as central widget
     QWidget* m_histContainer = nullptr;
     bool m_histogramVisible = false;
     void setHistogramVisible(bool visible);
-
-    // Plots page widgets (sidebar-owned; state lives in RenderSettings)
-    QToolButton* m_plotModeHistBtn = nullptr;
-    QToolButton* m_plotModeLineBtn = nullptr;
-    QStackedWidget* m_plotsParamStack = nullptr;
-    QComboBox* m_plotHistFieldCombo = nullptr;
-    QComboBox* m_plotHistPlacementCombo = nullptr;
-    QSpinBox* m_plotHistBinsSpin = nullptr;
-    QComboBox* m_plotLineFieldCombo = nullptr;
-    QComboBox* m_plotLinePlacementCombo = nullptr;
-    QSpinBox* m_plotSamplesSpin = nullptr;
-    QDoubleSpinBox* m_plotP0x = nullptr;
-    QDoubleSpinBox* m_plotP0y = nullptr;
-    QDoubleSpinBox* m_plotP0z = nullptr;
-    QDoubleSpinBox* m_plotP1x = nullptr;
-    QDoubleSpinBox* m_plotP1y = nullptr;
-    QDoubleSpinBox* m_plotP1z = nullptr;
-    QCheckBox* m_plotShowLineCb = nullptr;
-    void refreshPlotFieldCombos();
-    void syncPlotPageFromSettings();
-    void updatePlotPlacementCombo(QComboBox* combo, bool lineMode);
-    void initLineProbeFromMeshBounds();
 
     // Theme
     QActionGroup* m_shadingGroup = nullptr;
