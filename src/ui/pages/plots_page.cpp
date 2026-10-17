@@ -156,6 +156,11 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
         sRow->addWidget(sLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
         sRow->addWidget(m_samplesSpin, 1);
         ll->addLayout(sRow);
+        m_compareCb = new QCheckBox(tr("Compare vertex vs cell"));
+        m_compareCb->setToolTip(tr("Draw the same field sampled at the other placement as a dashed curve: "
+                                   "Cell = nearest cell (piecewise constant), Vertex = trilinear. Their split "
+                                   "reveals interpolation/extrapolation error along the line."));
+        ll->addWidget(m_compareCb);
         // Line endpoints P0 (start) → P1 (end), one spinbox per axis.
         auto* lpHeader = new QLabel(tr("Line Points (P0 → P1)"));
         lpHeader->setObjectName("plotLinePointsHeader");
@@ -186,9 +191,9 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
             row->addWidget(*zs, 1);
             ll->addLayout(row);
         };
-        makeEndpointRow(tr("P0"), tr("Line start point (pink marker in the 3D viewport)"),
+        makeEndpointRow(tr("P0"), tr("Line start point (cyan marker in the 3D viewport)"),
                         &m_p0x, &m_p0y, &m_p0z);
-        makeEndpointRow(tr("P1"), tr("Line end point (cyan marker in the 3D viewport)"),
+        makeEndpointRow(tr("P1"), tr("Line end point (pink marker in the 3D viewport)"),
                         &m_p1x, &m_p1y, &m_p1z);
         m_showLineCb = new QCheckBox(tr("Show line"));
         m_showLineCb->setToolTip(tr("Draw the P0→P1 sampling line and its endpoints in the 3D viewport"));
@@ -248,6 +253,7 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
     connect(m_linePlacementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) { if (idx >= 0) S()->setLinePlacement(idx); });
     connect(m_histBinsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) { S()->setHistBins(v); });
     connect(m_samplesSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) { S()->setLineSamples(v); });
+    connect(m_compareCb, &QCheckBox::toggled, this, [this](bool v) { S()->setComparePlacements(v); });
 
     auto connectProbeSpin = [this](QDoubleSpinBox* sb, std::function<void(double)> setter) {
         connect(sb, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this, setter](double v) {
@@ -413,6 +419,11 @@ void PlotsPage::syncFromSettings() {
         m_showLineCb->blockSignals(true);
         m_showLineCb->setChecked(s->getShowLineProbe());
         m_showLineCb->blockSignals(false);
+    }
+    if (m_compareCb) {
+        m_compareCb->blockSignals(true);
+        m_compareCb->setChecked(s->getComparePlacements());
+        m_compareCb->blockSignals(false);
     }
 }
 
