@@ -18,7 +18,7 @@
 
 #include "render/settings/render_settings.h"
 #include "ui/panel_helpers.h"
-#include "ui/plot_window.h"
+#include "ui/widgets/plot_window.h"
 
 namespace sidebar {
 

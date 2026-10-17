@@ -1,4 +1,4 @@
-#include "ui/colormap_combo.h"
+#include "ui/widgets/colormap_combo.h"
 #include "core/Colormaps.h"
 
 #include <QApplication>

@@ -10,7 +10,7 @@
 #include <cmath>
 
 #include "ui_volume_page.h"
-#include "ui/transfer_function_widget.h"
+#include "ui/widgets/transfer_function_widget.h"
 #include "render/settings/render_settings.h"
 #include "ui/panel_helpers.h"
 

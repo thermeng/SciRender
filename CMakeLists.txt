@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui")
+set(CMAKE_AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/forms")
 
 # MinGW workaround for Qt exception handling
 if(MINGW)
@@ -140,35 +140,37 @@ add_executable(SciRender
     src/ui/viewport_widget.h
     src/ui/colorbar_style_dialog.cpp
     src/ui/colorbar_style_dialog.h
-    src/ui/colormap_combo.cpp
-    src/ui/colormap_combo.h
-    src/ui/range_editor.cpp
-    src/ui/range_editor.h
-    src/ui/plot_widget.cpp
-    src/ui/plot_widget.h
-    src/ui/line_plot_widget.cpp
-    src/ui/line_plot_widget.h
-    src/ui/plot_window.cpp
-    src/ui/plot_window.h
+    src/ui/widgets/colormap_combo.cpp
+    src/ui/widgets/colormap_combo.h
+    src/ui/widgets/range_editor.cpp
+    src/ui/widgets/range_editor.h
+    src/ui/widgets/plot_widget.cpp
+    src/ui/widgets/plot_widget.h
+    src/ui/widgets/line_plot_widget.cpp
+    src/ui/widgets/line_plot_widget.h
+    src/ui/widgets/plot_window.cpp
+    src/ui/widgets/plot_window.h
     src/ui/animation_export_dialog.cpp
     src/ui/animation_export_dialog.h
-    src/ui/transfer_function_widget.cpp
-    src/ui/transfer_function_widget.h
+    src/ui/widgets/transfer_function_widget.cpp
+    src/ui/widgets/transfer_function_widget.h
     src/ui/main_window.cpp
     src/ui/main_window.h
-    src/ui/main_window.ui
-    src/ui/scalar_page.ui
-    src/ui/probe_page.ui
-    src/ui/lighting_page.ui
-    src/ui/clipping_page.ui
-    src/ui/view_display_page.ui
-    src/ui/vectors_page.ui
-    src/ui/volume_page.ui
-    src/ui/streamlines_page.ui
-    src/ui/screenshot_page.ui
-    src/ui/mesh_info_page.ui
-    src/ui/animation_page.ui
-    src/ui/postproc_page.ui
+    src/ui/forms/main_window.ui
+    src/ui/forms/scalar_page.ui
+    src/ui/forms/isosurface_page.ui
+    src/ui/forms/slice_plane_page.ui
+    src/ui/forms/probe_page.ui
+    src/ui/forms/lighting_page.ui
+    src/ui/forms/clipping_page.ui
+    src/ui/forms/view_display_page.ui
+    src/ui/forms/vectors_page.ui
+    src/ui/forms/volume_page.ui
+    src/ui/forms/streamlines_page.ui
+    src/ui/forms/screenshot_page.ui
+    src/ui/forms/mesh_info_page.ui
+    src/ui/forms/animation_page.ui
+    src/ui/forms/postproc_page.ui
     src/ui/panel_helpers.h
     src/ui/panel_helpers.cpp
     src/ui/pages/sidebar_page.h

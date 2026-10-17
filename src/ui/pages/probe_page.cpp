@@ -12,7 +12,7 @@
 #include <cmath>
 
 #include "ui_probe_page.h"
-#include "ui/plot_tick_format.h"
+#include "ui/widgets/plot_tick_format.h"
 #include "core/FieldStore.h"
 #include "core/field_sampler.h"
 #include "render/settings/render_settings.h"
