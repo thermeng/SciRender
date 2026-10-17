@@ -1,7 +1,7 @@
 ﻿#include "main_window.h"
 #include "ui_main_window.h"
 #include "animation_export_dialog.h"
-#include "plot_window.h"
+#include "ui/widgets/plot_window.h"
 #include "ui/panel_helpers.h"
 #include <cmath>
 #include <QApplication>

@@ -1,4 +1,4 @@
-#include "ui/range_editor.h"
+#include "ui/widgets/range_editor.h"
 
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
