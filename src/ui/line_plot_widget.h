@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include <vector>
+#include "plot_tick_format.h"
 
 class LinePlotWidget : public QWidget {
     Q_OBJECT
@@ -8,6 +9,7 @@ public:
     explicit LinePlotWidget(QWidget* parent=nullptr);
     void setData(const std::vector<float>& dists, const std::vector<float>& values,
                  float vMin, float vMax, const QString& field, int placement);
+    void setTickFormat(int fmt) { m_tickFormat = (fmt >= 0 && fmt <= 2) ? fmt : 1; }
     void clear();
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -18,7 +20,8 @@ private:
     float m_vMin=0,m_vMax=1;
     QString m_field;
     int m_placement=0;
+    int m_tickFormat=1;
     int m_hover=-1;
     QRect m_rect;
-    int m_left=56,m_right=16,m_top=20,m_bottom=30;
+    int m_left=84,m_right=16,m_top=22,m_bottom=44;
 };

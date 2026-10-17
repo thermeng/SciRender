@@ -502,6 +502,10 @@ public slots:
     void viewChanged(ChangeFlags flags = ChangeFlag::All);
     void meshLoadStateChanged();
     void meshDataUpdated();
+    // Plots parameters (mode/field/placement/bins/samples) live OUTSIDE the
+    // render state — they only affect the plot canvases, not the viewport —
+    // so they get a dedicated consolidated signal instead of viewChanged.
+    void plotSettingsChanged();
     void quickBarCollapsedChanged();
     void screenshotCaptured(const QString& targetSavedPath);
     void screenshotRequested(const QString& targetPath);
@@ -829,6 +833,24 @@ public:
       void setProbePlacement(int v) { int p=std::clamp(v,0,1); if(m_state.probePlacement!=p){ m_state.probePlacement=p; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
       QStringList getProbePlacementOptions() const { return {"Vertex","Cell Center"}; }
 
+      // ---- Plots parameters (sidebar-owned; PlotWindow consumes) ----
+      // Not render state: no markStateDirty(), they never reach the Renderer.
+      int getPlotMode() const { return m_plotMode; }
+      void setPlotMode(int v) { int m = (v == 1) ? 1 : 0; if (m_plotMode != m) { m_plotMode = m; emit plotSettingsChanged(); } }
+      QString getHistField() const { return m_histField; }
+      void setHistField(const QString& v) { if (m_histField != v) { m_histField = v; emit plotSettingsChanged(); } }
+      int getHistPlacement() const { return m_histPlacement; }
+      void setHistPlacement(int v) { int p = (v == 1) ? 1 : 0; if (m_histPlacement != p) { m_histPlacement = p; emit plotSettingsChanged(); } }
+      int getHistBins() const { return m_histBins; }
+      void setHistBins(int v) { int b = std::clamp(v, 8, 512); if (m_histBins != b) { m_histBins = b; emit plotSettingsChanged(); } }
+      QString getLineField() const { return m_lineField; }
+      void setLineField(const QString& v) { if (m_lineField != v) { m_lineField = v; emit plotSettingsChanged(); } }
+      int getLinePlacement() const { return m_linePlacement; }
+      void setLinePlacement(int v) { int p = (v == 1) ? 1 : 0; if (m_linePlacement != p) { m_linePlacement = p; emit plotSettingsChanged(); } }
+      int getLineSamples() const { return m_lineSamples; }
+      void setLineSamples(int v) { int n = std::clamp(v, 32, 2048); if (m_lineSamples != n) { m_lineSamples = n; emit plotSettingsChanged(); } }
+
+
      // LIC diagnostics: surfaced from Renderer::m_lastLicError after each frame.
      QString lastLicError() const {
          std::string s = m_renderer.getLastLicError();
@@ -1108,6 +1130,16 @@ private:
 
     bool quickBarCollapsed = false;
     QStringList recentFiles;
+
+    // ---- Plots parameters (see plotSettingsChanged) ----
+    int m_plotMode = 0;           // 0 = Histogram, 1 = Line Plot
+    QString m_histField;          // empty → refresh defaults to active scalar
+    int m_histPlacement = 0;      // 0 = Vertex, 1 = Cell
+    int m_histBins = 64;
+    QString m_lineField;
+    int m_linePlacement = 0;
+    int m_lineSamples = 256;
+
 
     // Mesh-derived data (separate from display settings so the
     // QML facade stays focused on user preferences).

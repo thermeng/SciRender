@@ -21,6 +21,7 @@
 #include "transfer_function_widget.h"
 #include "core/field_sampler.h"
 #include "plot_window.h"
+#include "plot_tick_format.h"
 #include <cmath>
 #include <QApplication>
 #include <QMenuBar>
@@ -63,6 +64,7 @@
 #include <QStyle>
 #include <algorithm>
 #include <QStyledItemDelegate>
+#include <QStandardItemModel>
 #include <QTimer>
 #include <QPainter>
 #include <QFontMetrics>
@@ -412,6 +414,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_centralHost->addDockWidget(Qt::RightDockWidgetArea, m_plotDock); // default: horizontally beside scene
     m_plotDock->hide();
     connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
+    connect(m_plotWindow, &PlotWindow::requestOpenControls, this, [this](){ setSidebarSection(14); }); // 14 = Plots nav section
     connect(m_plotDock, &QDockWidget::visibilityChanged, this, [this](bool v){ m_histogramVisible = v; });
 
     setCentralWidget(m_centralHost);
@@ -1679,10 +1682,7 @@ void MainWindow::refreshProbeTable(){
         if(!ok){
             valItem = new QTableWidgetItem(tr("n/a"));
         } else {
-            QString txt;
-            if(fmt==0) txt = QString::number(int(std::round(v)));
-            else if(fmt==1) txt = QString::number(v,'g',4);
-            else txt = QString::number(v,'e',6);
+            QString txt = formatProbeValue(v, fmt);
             if(!inside) txt += " *";
             valItem = new QTableWidgetItem(txt);
             valItem->setToolTip(inside ? tr("Interpolated") : tr("Nearest (outside)"));
@@ -3760,7 +3760,7 @@ void MainWindow::setHistogramVisible(bool visible) {
                 m_centralHost->addDockWidget(Qt::RightDockWidgetArea, m_plotDock);
         }
     }
-    if (visible && m_plotWindow) m_plotWindow->refreshFieldList();
+    if (visible && m_plotWindow) m_plotWindow->refreshData();
 }
 
 QWidget* MainWindow::buildPlotsPage() {
@@ -3771,22 +3771,196 @@ QWidget* MainWindow::buildPlotsPage() {
 
     auto* content = new QWidget;
     auto* lay = new QVBoxLayout(content);
-    lay->setContentsMargins(8, 8, 8, 8);
-    lay->setSpacing(8);
+    lay->setContentsMargins(10, 8, 10, 8);
+    lay->setSpacing(4);
 
+    // --- viewport toggle (unchanged) ---
     auto* openBtn = new QPushButton(tr("Open Plots Viewport"));
     openBtn->setCheckable(true);
     openBtn->setChecked(m_histogramVisible);
     openBtn->setMinimumHeight(32);
     lay->addWidget(openBtn);
 
-    auto* hint = new QLabel(tr("Load a mesh with scalar data (e.g. .vtu) to enable histogram."));
-    hint->setWordWrap(true);
-    hint->setStyleSheet("color: palette(placeholderText); font-size: 11px;");
-    lay->addWidget(hint);
+    // --- mode switch (was the dock's tab bar) ---
+    auto* modeHeader = new QLabel(tr("Mode"));
+    modeHeader->setObjectName("modeHeader");
+    lay->addWidget(modeHeader);
+
+    auto* modeRow = new QHBoxLayout;
+    modeRow->setSpacing(4);
+    m_plotModeHistBtn = new QToolButton(content);
+    m_plotModeHistBtn->setText(tr("Histogram"));
+    m_plotModeHistBtn->setCheckable(true);
+    m_plotModeHistBtn->setAutoExclusive(true);
+    m_plotModeHistBtn->setFixedHeight(kControlHeight + 2);
+    m_plotModeHistBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_plotModeLineBtn = new QToolButton(content);
+    m_plotModeLineBtn->setText(tr("Line Plot"));
+    m_plotModeLineBtn->setCheckable(true);
+    m_plotModeLineBtn->setAutoExclusive(true);
+    m_plotModeLineBtn->setFixedHeight(kControlHeight + 2);
+    m_plotModeLineBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    modeRow->addWidget(m_plotModeHistBtn, 1);
+    modeRow->addWidget(m_plotModeLineBtn, 1);
+    lay->addLayout(modeRow);
+
+    // --- parameter stack: one pane per mode (per-mode field selectors kept) ---
+    // Row pattern mirrors probe_page.ui: one fixed 56px label column so every
+    // value widget line up at the same x, spacing 4/6; the pane pins its rows
+    // to the top and the stacked widget is capped at its size hint so the
+    // panel's spare height stays at the bottom.
+    auto* histPane = new QWidget;
+    {
+        auto* hl = new QVBoxLayout(histPane);
+        hl->setContentsMargins(0, 0, 0, 0);
+        hl->setSpacing(4);
+        auto* fRow = new QHBoxLayout;
+        fRow->setSpacing(6);
+        auto* fLabel = new QLabel(tr("Field"));
+        fLabel->setObjectName("plotFieldLabel");
+        fLabel->setFixedWidth(56);
+        m_plotHistFieldCombo = new QComboBox;
+        m_plotHistFieldCombo->setMinimumWidth(56);
+        m_plotHistFieldCombo->setFixedHeight(kControlHeight);
+        fRow->addWidget(fLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
+        fRow->addWidget(m_plotHistFieldCombo, 1);
+        hl->addLayout(fRow);
+        auto* pRow = new QHBoxLayout;
+        pRow->setSpacing(6);
+        auto* pLabel = new QLabel(tr("Node/Cell"));
+        pLabel->setObjectName("plotPlacementLabel");
+        pLabel->setFixedWidth(56);
+        m_plotHistPlacementCombo = new QComboBox;
+        m_plotHistPlacementCombo->addItems({tr("Vertex"), tr("Cell")});
+        m_plotHistPlacementCombo->setMinimumWidth(56);
+        m_plotHistPlacementCombo->setFixedHeight(kControlHeight);
+        m_plotHistPlacementCombo->setToolTip(tr("Vertex = per-vertex (point) values, post-split, extrapolated if needed. Cell = raw per-cell values."));
+        pRow->addWidget(pLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
+        pRow->addWidget(m_plotHistPlacementCombo, 1);
+        hl->addLayout(pRow);
+        auto* bRow = new QHBoxLayout;
+        bRow->setSpacing(6);
+        auto* bLabel = new QLabel(tr("Bins"));
+        bLabel->setObjectName("plotBinsLabel");
+        bLabel->setFixedWidth(56);
+        m_plotHistBinsSpin = new QSpinBox;
+        m_plotHistBinsSpin->setRange(8, 512);
+        m_plotHistBinsSpin->setValue(64);
+        m_plotHistBinsSpin->setSingleStep(8);
+        m_plotHistBinsSpin->setMinimumWidth(56);
+        bRow->addWidget(bLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
+        bRow->addWidget(m_plotHistBinsSpin, 1);
+        hl->addLayout(bRow);
+        hl->addStretch(1);
+    }
+
+    auto* linePane = new QWidget;
+    {
+        auto* ll = new QVBoxLayout(linePane);
+        ll->setContentsMargins(0, 0, 0, 0);
+        ll->setSpacing(4);
+        auto* fRow = new QHBoxLayout;
+        fRow->setSpacing(6);
+        auto* fLabel = new QLabel(tr("Field"));
+        fLabel->setObjectName("plotLineFieldLabel");
+        fLabel->setFixedWidth(56);
+        m_plotLineFieldCombo = new QComboBox;
+        m_plotLineFieldCombo->setMinimumWidth(56);
+        m_plotLineFieldCombo->setFixedHeight(kControlHeight);
+        fRow->addWidget(fLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
+        fRow->addWidget(m_plotLineFieldCombo, 1);
+        ll->addLayout(fRow);
+        auto* pRow = new QHBoxLayout;
+        pRow->setSpacing(6);
+        auto* pLabel = new QLabel(tr("Node/Cell"));
+        pLabel->setObjectName("plotLinePlacementLabel");
+        pLabel->setFixedWidth(56);
+        m_plotLinePlacementCombo = new QComboBox;
+        m_plotLinePlacementCombo->addItems({tr("Vertex"), tr("Cell")});
+        m_plotLinePlacementCombo->setMinimumWidth(56);
+        m_plotLinePlacementCombo->setFixedHeight(kControlHeight);
+        m_plotLinePlacementCombo->setToolTip(tr("Vertex = trilinear point, Cell = nearest cell"));
+        pRow->addWidget(pLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
+        pRow->addWidget(m_plotLinePlacementCombo, 1);
+        ll->addLayout(pRow);
+        auto* sRow = new QHBoxLayout;
+        sRow->setSpacing(6);
+        auto* sLabel = new QLabel(tr("Samples"));
+        sLabel->setObjectName("plotSamplesLabel");
+        sLabel->setFixedWidth(56);
+        m_plotSamplesSpin = new QSpinBox;
+        m_plotSamplesSpin->setRange(32, 2048);
+        m_plotSamplesSpin->setValue(256);
+        m_plotSamplesSpin->setSingleStep(32);
+        m_plotSamplesSpin->setMinimumWidth(56);
+        sRow->addWidget(sLabel, 0, Qt::AlignLeft | Qt::AlignVCenter);
+        sRow->addWidget(m_plotSamplesSpin, 1);
+        ll->addLayout(sRow);
+        // Line endpoints P0 (start) → P1 (end), one spinbox per axis.
+        auto* lpHeader = new QLabel(tr("Line Points (P0 → P1)"));
+        lpHeader->setObjectName("plotLinePointsHeader");
+        ll->addWidget(lpHeader);
+        auto makeEndpointRow = [this, ll](const QString& title, const QString& tip,
+                                          QDoubleSpinBox** xs, QDoubleSpinBox** ys, QDoubleSpinBox** zs) {
+            auto* row = new QHBoxLayout;
+            row->setSpacing(2);
+            auto* lbl = new QLabel(title);
+            lbl->setObjectName("plotPointLabel");
+            lbl->setFixedWidth(56);
+            lbl->setToolTip(tip);
+            lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+            row->addWidget(lbl, 0, Qt::AlignLeft | Qt::AlignVCenter);
+            *xs = new QDoubleSpinBox;
+            *ys = new QDoubleSpinBox;
+            *zs = new QDoubleSpinBox;
+            for (QDoubleSpinBox* sb : {*xs, *ys, *zs}) {
+                sb->setRange(-1e6, 1e6);
+                sb->setDecimals(3);
+                sb->setToolTip(tip);
+                sb->setMinimumWidth(40);
+                sb->setFixedHeight(kControlHeight);
+                sb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            }
+            row->addWidget(*xs, 1);
+            row->addWidget(*ys, 1);
+            row->addWidget(*zs, 1);
+            ll->addLayout(row);
+        };
+        makeEndpointRow(tr("P0"), tr("Line start point (pink marker in the 3D viewport)"),
+                        &m_plotP0x, &m_plotP0y, &m_plotP0z);
+        makeEndpointRow(tr("P1"), tr("Line end point (cyan marker in the 3D viewport)"),
+                        &m_plotP1x, &m_plotP1y, &m_plotP1z);
+        m_plotShowLineCb = new QCheckBox(tr("Show line"));
+        m_plotShowLineCb->setToolTip(tr("Draw the P0→P1 sampling line and its endpoints in the 3D viewport"));
+        ll->addWidget(m_plotShowLineCb);
+        ll->addStretch(1);
+    }
+
+    m_plotsParamStack = new QStackedWidget(content);
+    m_plotsParamStack->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    m_plotsParamStack->addWidget(histPane);
+    m_plotsParamStack->addWidget(linePane);
+    lay->addWidget(m_plotsParamStack, 0);
+
+    // --- export group ---
+    auto* exportHeader = new QLabel(tr("Export"));
+    exportHeader->setObjectName("exportHeader");
+    lay->addWidget(exportHeader);
+    auto* exportRow = new QHBoxLayout;
+    exportRow->setSpacing(4);
+    auto* csvBtn = new QPushButton(tr("CSV…"));
+    auto* pngBtn = new QPushButton(tr("PNG…"));
+    csvBtn->setToolTip(tr("Export the active plot as CSV"));
+    pngBtn->setToolTip(tr("Export the active plot canvas as PNG"));
+    csvBtn->setFixedHeight(kControlHeight + 2);
+    pngBtn->setFixedHeight(kControlHeight + 2);
+    csvBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    pngBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    exportRow->addWidget(csvBtn, 1);
+    exportRow->addWidget(pngBtn, 1);
+    lay->addLayout(exportRow);
 
     lay->addStretch();
-
     scroll->setWidget(content);
     applyPanelStyling(content);
 
@@ -3795,26 +3969,183 @@ QWidget* MainWindow::buildPlotsPage() {
     wrapperLayout->setContentsMargins(0, 0, 0, 0);
     wrapperLayout->addWidget(scroll);
 
-    connect(openBtn, &QPushButton::toggled, this, [this, openBtn, hint](bool checked) {
+    // Keep plot canvas mode in lockstep with the settings (single source of truth).
+    connect(m_settings, &RenderSettings::plotSettingsChanged, this, [this]() {
+        int mode = m_settings->getPlotMode();
+        if (m_plotsParamStack) m_plotsParamStack->setCurrentIndex(mode);
+        if (m_plotWindow) m_plotWindow->setMode(mode);
+        if (m_plotModeHistBtn) { m_plotModeHistBtn->blockSignals(true); m_plotModeHistBtn->setChecked(mode == 0); m_plotModeHistBtn->blockSignals(false); }
+        if (m_plotModeLineBtn) { m_plotModeLineBtn->blockSignals(true); m_plotModeLineBtn->setChecked(mode == 1); m_plotModeLineBtn->blockSignals(false); }
+    });
+
+    connect(m_plotModeHistBtn, &QToolButton::toggled, this, [this](bool on) { if (on && m_settings->getPlotMode() != 0) m_settings->setPlotMode(0); });
+    connect(m_plotModeLineBtn, &QToolButton::toggled, this, [this](bool on) { if (on && m_settings->getPlotMode() != 1) m_settings->setPlotMode(1); });
+
+    connect(m_plotHistFieldCombo, &QComboBox::currentTextChanged, this, [this](const QString& t) {
+        if (t == tr("(no scalar fields)")) return;
+        m_settings->setHistField(t);
+        updatePlotPlacementCombo(m_plotHistPlacementCombo, false);
+    });
+    connect(m_plotLineFieldCombo, &QComboBox::currentTextChanged, this, [this](const QString& t) {
+        if (t == tr("(no scalar fields)")) return;
+        m_settings->setLineField(t);
+        updatePlotPlacementCombo(m_plotLinePlacementCombo, true);
+    });
+    connect(m_plotHistPlacementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) { if (idx >= 0) m_settings->setHistPlacement(idx); });
+    connect(m_plotLinePlacementCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) { if (idx >= 0) m_settings->setLinePlacement(idx); });
+    connect(m_plotHistBinsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) { m_settings->setHistBins(v); });
+    connect(m_plotSamplesSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) { m_settings->setLineSamples(v); });
+
+    auto connectProbeSpin = [this](QDoubleSpinBox* sb, std::function<void(double)> setter) {
+        connect(sb, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this, setter](double v) {
+            setter(v);
+            if (m_plotWindow) m_plotWindow->scheduleRecompute();
+        });
+    };
+    connectProbeSpin(m_plotP0x, [this](double v){ m_settings->setLineP0x(v); });
+    connectProbeSpin(m_plotP0y, [this](double v){ m_settings->setLineP0y(v); });
+    connectProbeSpin(m_plotP0z, [this](double v){ m_settings->setLineP0z(v); });
+    connectProbeSpin(m_plotP1x, [this](double v){ m_settings->setLineP1x(v); });
+    connectProbeSpin(m_plotP1y, [this](double v){ m_settings->setLineP1y(v); });
+    connectProbeSpin(m_plotP1z, [this](double v){ m_settings->setLineP1z(v); });
+
+    connect(m_plotShowLineCb, &QCheckBox::toggled, this, [this](bool v) { if (m_settings->getShowLineProbe() != v) m_settings->setShowLineProbe(v); });
+
+    connect(csvBtn, &QPushButton::clicked, this, [this]() { if (m_plotWindow) m_plotWindow->exportCsv(); });
+    connect(pngBtn, &QPushButton::clicked, this, [this]() { if (m_plotWindow) m_plotWindow->exportPng(); });
+
+    // Viewport toggle (existing behaviour, kept verbatim)
+    connect(openBtn, &QPushButton::toggled, this, [this, openBtn](bool checked) {
         setHistogramVisible(checked);
         openBtn->setText(checked ? tr("Hide Plot Viewport") : tr("Open Plots Viewport"));
     });
     connect(this, &MainWindow::destroyed, this, [this](){ m_plotWindow = nullptr; });
 
-    // Keep button in sync when dock is closed via dock close button / drag
-    connect(m_settings, &RenderSettings::meshDataUpdated, this, [hint, this, openBtn]() {
-        if (m_settings->getHasMeshLoaded() && m_settings->hasMeshScalars()) {
-            hint->setText(tr("Scalar field ready: %1 — toggle Plots dock.").arg(m_settings->getActiveScalarNameQml()));
-        }
+    connect(m_settings, &RenderSettings::meshDataUpdated, this, [this, openBtn]() {
+        refreshPlotFieldCombos();
+        initLineProbeFromMeshBounds();
         if (m_plotDock) openBtn->setChecked(m_plotDock->isVisible());
     });
+    connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this](){ refreshPlotFieldCombos(); });
+    connect(m_settings, &RenderSettings::viewChanged, this, [this](ChangeFlags) { syncPlotPageFromSettings(); });
+
     if (m_plotDock)
         connect(m_plotDock, &QDockWidget::visibilityChanged, openBtn, [openBtn](bool v){ openBtn->blockSignals(true); openBtn->setChecked(v); openBtn->blockSignals(false); });
 
     // Ensure button reflects initial state
     openBtn->setChecked(m_histogramVisible);
 
+    // Initial population (grid may already hold data when page is first built)
+    refreshPlotFieldCombos();
+    initLineProbeFromMeshBounds();
+    syncPlotPageFromSettings();
+
     return wrapper;
+}
+
+// Populate the per-mode field combos from RenderSettings, preserving the
+// user's previous selection and falling back to the active scalar.
+void MainWindow::refreshPlotFieldCombos() {
+    if (!m_settings) return;
+    const QStringList fields = m_settings->getAvailableScalars();
+    auto fill = [this, &fields](QComboBox* combo, const QString& current, bool lineMode) {
+        if (!combo) return;
+        combo->blockSignals(true);
+        combo->clear();
+        if (fields.isEmpty()) {
+            combo->addItem(tr("(no scalar fields)"));
+            combo->setEnabled(false);
+        } else {
+            combo->addItems(fields);
+            combo->setEnabled(true);
+            int idx = combo->findText(current);
+            if (idx < 0) idx = combo->findText(m_settings->getActiveScalarNameQml());
+            if (idx >= 0) combo->setCurrentIndex(idx);
+        }
+        combo->blockSignals(false);
+        const QString selected = fields.isEmpty() ? QString() : combo->currentText();
+        if (lineMode) m_settings->setLineField(selected);
+        else m_settings->setHistField(selected);
+    };
+    fill(m_plotHistFieldCombo, m_settings->getHistField(), false);
+    fill(m_plotLineFieldCombo, m_settings->getLineField(), true);
+    updatePlotPlacementCombo(m_plotHistPlacementCombo, false);
+    updatePlotPlacementCombo(m_plotLinePlacementCombo, true);
+    bool hasData = !fields.isEmpty();
+    if (m_plotHistBinsSpin) m_plotHistBinsSpin->setEnabled(hasData);
+    if (m_plotSamplesSpin) m_plotSamplesSpin->setEnabled(hasData);
+}
+
+// Enable/disable the Cell item of a placement combo depending on what the
+// selected field actually provides (mirrors the old PlotWindow logic).
+void MainWindow::updatePlotPlacementCombo(QComboBox* combo, bool lineMode) {
+    if (!combo || !m_settings) return;
+    const QString field = lineMode ? m_settings->getLineField() : m_settings->getHistField();
+    auto avail = plotPlacementAvailability(m_settings, field);
+    int cur = lineMode ? m_settings->getLinePlacement() : m_settings->getHistPlacement();
+    if (cur == 1 && !avail.hasCell) cur = 0;
+    if (cur == 0 && !avail.hasPoint && avail.hasCell) cur = 1;
+    if (lineMode) m_settings->setLinePlacement(cur);
+    else m_settings->setHistPlacement(cur);
+    combo->blockSignals(true);
+    combo->setCurrentIndex(cur);
+    if (auto* model = qobject_cast<QStandardItemModel*>(combo->model())) {
+        if (auto* item = model->item(1)) item->setEnabled(avail.hasCell);
+    } else {
+        combo->setItemData(1, QVariant(avail.hasCell ? true : false), Qt::UserRole - 1);
+    }
+    combo->setToolTip(avail.hasCell ? tr("Raw cell data available") : tr("No raw cell data for this field — Vertex only"));
+    combo->setEnabled(avail.hasPoint || avail.hasCell);
+    combo->blockSignals(false);
+}
+
+// First-load default: stretch the probe line along the mesh bbox diagonal.
+void MainWindow::initLineProbeFromMeshBounds() {
+    if (!m_settings || !m_settings->getHasMeshLoaded()) return;
+    Renderer* r = m_settings->backend();
+    if (!r) return;
+    auto* rm = r->lastUploadedMeshForPlot();
+    if (!rm) return;
+    bool same = m_settings->getLineP0x() == m_settings->getLineP1x()
+             && m_settings->getLineP0y() == m_settings->getLineP1y()
+             && m_settings->getLineP0z() == m_settings->getLineP1z();
+    if (!same) return;
+    m_settings->setLineP0x(rm->bounds.minX); m_settings->setLineP0y(rm->bounds.minY); m_settings->setLineP0z(rm->bounds.minZ);
+    m_settings->setLineP1x(rm->bounds.maxX); m_settings->setLineP1y(rm->bounds.maxY); m_settings->setLineP1z(rm->bounds.maxZ);
+    if (m_plotWindow) m_plotWindow->scheduleRecompute();
+}
+
+// Mirror RenderSettings back into the page (P0/P1 can be edited elsewhere,
+// e.g. viewport overlays; wheel/arrow step = 1/10th of the bbox length).
+void MainWindow::syncPlotPageFromSettings() {
+    if (!m_settings) return;
+    {
+        double lenX = m_settings->getWorldMaxX() - m_settings->getWorldMinX();
+        double lenY = m_settings->getWorldMaxY() - m_settings->getWorldMinY();
+        double lenZ = m_settings->getWorldMaxZ() - m_settings->getWorldMinZ();
+        double sx = lenX > 1e-12 ? lenX / 10.0 : 0.1;
+        double sy = lenY > 1e-12 ? lenY / 10.0 : 0.1;
+        double sz = lenZ > 1e-12 ? lenZ / 10.0 : 0.1;
+        if (m_plotP0x) m_plotP0x->setSingleStep(sx); if (m_plotP1x) m_plotP1x->setSingleStep(sx);
+        if (m_plotP0y) m_plotP0y->setSingleStep(sy); if (m_plotP1y) m_plotP1y->setSingleStep(sy);
+        if (m_plotP0z) m_plotP0z->setSingleStep(sz); if (m_plotP1z) m_plotP1z->setSingleStep(sz);
+    }
+    auto syncSpin = [this](QDoubleSpinBox* sb, double v) {
+        if (!sb) return;
+        if (std::abs(sb->value() - v) < 1e-9) return;
+        sb->blockSignals(true); sb->setValue(v); sb->blockSignals(false);
+    };
+    syncSpin(m_plotP0x, m_settings->getLineP0x());
+    syncSpin(m_plotP0y, m_settings->getLineP0y());
+    syncSpin(m_plotP0z, m_settings->getLineP0z());
+    syncSpin(m_plotP1x, m_settings->getLineP1x());
+    syncSpin(m_plotP1y, m_settings->getLineP1y());
+    syncSpin(m_plotP1z, m_settings->getLineP1z());
+    if (m_plotShowLineCb) {
+        m_plotShowLineCb->blockSignals(true);
+        m_plotShowLineCb->setChecked(m_settings->getShowLineProbe());
+        m_plotShowLineCb->blockSignals(false);
+    }
 }
 
 QWidget* MainWindow::buildPostProcPage() {
