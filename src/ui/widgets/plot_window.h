@@ -62,8 +62,11 @@ private:
     QLabel* m_lineStatus = nullptr;
     QTimer* m_recomputeTimer = nullptr;
     int m_mode = 0;
-    // cached line data for export
+    // cached line data for export (primary = user-selected placement;
+    // secondary = the other placement when compare mode is on)
     std::vector<float> m_lineDists, m_lineVals;
+    std::vector<float> m_lineVals2;
+    QString m_lineLabel2;
     float m_lineMin=0,m_lineMax=1;
     QString m_lineField;
     int m_linePlacement=0;

@@ -9,6 +9,9 @@ public:
     explicit LinePlotWidget(QWidget* parent=nullptr);
     void setData(const std::vector<float>& dists, const std::vector<float>& values,
                  float vMin, float vMax, const QString& field, int placement);
+    // Optional second curve sampled at the other placement at the SAME dists
+    // points (guaranteed by the caller). Empty vals clears the compare curve.
+    void setCompareSeries(const std::vector<float>& vals, const QString& label);
     void setTickFormat(int fmt) { m_tickFormat = (fmt >= 0 && fmt <= 2) ? fmt : 1; }
     void clear();
 protected:
@@ -17,6 +20,7 @@ protected:
     void leaveEvent(QEvent* e) override;
 private:
     std::vector<float> m_dists, m_vals;
+    std::vector<float> m_cVals; QString m_cLabel;
     float m_vMin=0,m_vMax=1;
     QString m_field;
     int m_placement=0;

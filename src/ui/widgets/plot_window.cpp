@@ -339,8 +339,16 @@ void PlotWindow::exportLineCsv() {
     QString path=QFileDialog::getSaveFileName(this,tr("Export Line CSV"),QString(),tr("CSV (*.csv)"));
     if(path.isEmpty()) return;
     QFile f(path); if(!f.open(QIODevice::WriteOnly|QIODevice::Text)){ QMessageBox::warning(this,tr("Export CSV"),tr("Cannot open file.")); return; }
-    QTextStream s(&f); s<<"distance,value\n";
-    for(size_t i=0;i<m_lineDists.size() && i<m_lineVals.size(); ++i) s<<m_lineDists[i]<<","<<m_lineVals[i]<<"\n";
+    QTextStream s(&f);
+    if (!m_lineVals2.empty())
+        s << "distance," << (m_linePlacement ? "cell" : "vertex") << "," << m_lineLabel2 << "\n";
+    else
+        s << "distance,value\n";
+    for(size_t i=0;i<m_lineDists.size() && i<m_lineVals.size(); ++i){
+        s<<m_lineDists[i]<<","<<m_lineVals[i];
+        if(!m_lineVals2.empty() && i<m_lineVals2.size()) s<<","<<m_lineVals2[i];
+        s<<"\n";
+    }
     m_lineStatus->setText(tr("CSV saved: %1").arg(path));
 }
 
@@ -389,17 +397,47 @@ void PlotWindow::recomputeLine(){
         dists.push_back(dist);
         vals.push_back(v);
     }
-    // Y axis follows the sampled data, not the whole-field range
+    // Compare mode: sample the same field along the SAME param points at the
+    // other placement. Cell sampling stays flat per cell (piecewise constant);
+    // vertex sampling is trilinear — their split is exactly the interpolation
+    // error the user is probing for, hence the dual curve.
+    std::vector<float> vals2;
+    QString label2;
+    if (m_settings->getComparePlacements()) {
+        int other = useCell ? 0 : 1;
+        auto otherPlacement = other ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+        // Probe once with the other placement to confirm the store resolves it
+        // (falls back internally, but a missing field would sample all-NaN — skip).
+        auto probe = FieldSampler::sample(ctx, fname, otherPlacement, p0 + 0.5f*(p1-p0));
+        if (probe) {
+            vals2.reserve(N);
+            for(int i=0;i<N;++i){
+                float t=float(i)/float(N-1);
+                glm::vec3 pos = p0 + t*(p1-p0);
+                auto opt2 = FieldSampler::sample(ctx, fname, otherPlacement, pos);
+                vals2.push_back(opt2 ? *opt2 : std::numeric_limits<float>::quiet_NaN());
+            }
+            label2 = other ? tr("Cell") : tr("Vertex");
+        }
+    }
+    // Y axis follows the sampled data, not the whole-field range. With compare
+    // mode the range widens so both curves stay inside the frame.
     float sMin = std::numeric_limits<float>::max(), sMax = std::numeric_limits<float>::lowest();
     for (float v : vals) { if (!std::isfinite(v)) continue; sMin = std::min(sMin, v); sMax = std::max(sMax, v); }
+    if (!vals2.empty())
+        for (float v : vals2) { if (!std::isfinite(v)) continue; sMin = std::min(sMin, v); sMax = std::max(sMax, v); }
     if (sMin > sMax) { sMin = 0; sMax = 1; }
     float pad = (std::abs(sMax - sMin) < 1e-9f) ? std::max(1e-3f, std::abs(sMax) * 0.01f)
                                                 : (sMax - sMin) * 0.05f;
     sMin -= pad; sMax += pad;
     m_lineDists=dists; m_lineVals=vals; m_lineMin=sMin; m_lineMax=sMax; m_lineField=field; m_linePlacement = useCell?1:0;
+    m_lineVals2 = std::move(vals2); m_lineLabel2 = label2;
     m_linePlot->setData(dists, vals, sMin, sMax, field, m_linePlacement);
+    m_linePlot->setCompareSeries(m_lineVals2, label2);
     m_lineStats->setText(tr("Field %1 [%2]  %3 samples  range [%4 .. %5]").arg(field).arg(useCell?"Cell":"Vertex").arg(N).arg(sMin,0,'g',4).arg(sMax,0,'g',4));
-    m_lineStatus->setText(tr("Sampled %1 points along line").arg(N));
+    m_lineStatus->setText(m_lineVals2.empty()
+        ? tr("Sampled %1 points along line").arg(N)
+        : tr("Sampled %1 points along line (dual: %2 vs %3)").arg(N).arg(useCell?"Cell":"Vertex").arg(m_lineLabel2.isEmpty()?"":m_lineLabel2));
     // Ensure overlay is visible after sampling
     if (m_settings && !m_settings->getShowLineProbe()) {
         m_settings->setShowLineProbe(true);
