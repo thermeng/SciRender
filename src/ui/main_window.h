@@ -356,6 +356,28 @@ private:
     bool m_histogramVisible = false;
     void setHistogramVisible(bool visible);
 
+    // Plots page widgets (sidebar-owned; state lives in RenderSettings)
+    QToolButton* m_plotModeHistBtn = nullptr;
+    QToolButton* m_plotModeLineBtn = nullptr;
+    QStackedWidget* m_plotsParamStack = nullptr;
+    QComboBox* m_plotHistFieldCombo = nullptr;
+    QComboBox* m_plotHistPlacementCombo = nullptr;
+    QSpinBox* m_plotHistBinsSpin = nullptr;
+    QComboBox* m_plotLineFieldCombo = nullptr;
+    QComboBox* m_plotLinePlacementCombo = nullptr;
+    QSpinBox* m_plotSamplesSpin = nullptr;
+    QDoubleSpinBox* m_plotP0x = nullptr;
+    QDoubleSpinBox* m_plotP0y = nullptr;
+    QDoubleSpinBox* m_plotP0z = nullptr;
+    QDoubleSpinBox* m_plotP1x = nullptr;
+    QDoubleSpinBox* m_plotP1y = nullptr;
+    QDoubleSpinBox* m_plotP1z = nullptr;
+    QCheckBox* m_plotShowLineCb = nullptr;
+    void refreshPlotFieldCombos();
+    void syncPlotPageFromSettings();
+    void updatePlotPlacementCombo(QComboBox* combo, bool lineMode);
+    void initLineProbeFromMeshBounds();
+
     // Theme
     QActionGroup* m_shadingGroup = nullptr;
 };

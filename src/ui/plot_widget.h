@@ -11,6 +11,7 @@ public:
 
     void setHistogram(const std::vector<uint32_t>& bins, float dataMin, float dataMax,
                       const QString& fieldName, size_t numValues);
+    void setTickFormat(int fmt) { m_tickFormat = (fmt >= 0 && fmt <= 2) ? fmt : 1; }
     void clear();
 
 protected:
@@ -26,6 +27,7 @@ private:
     size_t m_numValues = 0;
     uint32_t m_maxBin = 0;
     int m_hoverBin = -1;
+    int m_tickFormat = 1;
 
     QRect m_plotRect; // computed in paintEvent
     int m_leftPad = 56, m_rightPad = 12, m_topPad = 16, m_bottomPad = 28;

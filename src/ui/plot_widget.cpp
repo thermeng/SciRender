@@ -1,4 +1,5 @@
 #include "plot_widget.h"
+#include "plot_tick_format.h"
 #include <QPainter>
 #include <QMouseEvent>
 #include <QToolTip>
@@ -92,7 +93,7 @@ void PlotWidget::paintEvent(QPaintEvent*) {
     for (int i = 0; i <= 4; ++i) {
         float v = m_dataMin + (m_dataMax - m_dataMin) * (i / 4.0f);
         int x = m_plotRect.left() + i * m_plotRect.width() / 4;
-        QString txt = QString::number(v, 'g', 4);
+        QString txt = formatProbeValue(v, m_tickFormat);
         // Elide if too wide for the 60px slot
         txt = fm.elidedText(txt, Qt::ElideRight, 58);
         QRect r;

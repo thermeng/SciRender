@@ -17,8 +17,19 @@ void LinePlotWidget::clear(){ m_dists.clear(); m_vals.clear(); m_hover=-1; updat
 void LinePlotWidget::paintEvent(QPaintEvent*){
     QPainter p(this); p.setRenderHint(QPainter::Antialiasing,true);
     p.fillRect(rect(), palette().color(QPalette::Window));
-    if(m_dists.empty()||m_vals.empty()){ p.setPen(palette().color(QPalette::WindowText)); QFont f=p.font(); f.setItalic(true); p.setFont(f); p.drawText(rect(),Qt::AlignCenter,tr("No line data — press Sample")); return; }
-    m_rect=QRect(m_left,m_top,width()-m_left-m_right,height()-m_top-m_bottom);
+    if(m_dists.empty()||m_vals.empty()){ p.setPen(palette().color(QPalette::WindowText)); QFont f=p.font(); f.setItalic(true); p.setFont(f); p.drawText(rect(),Qt::AlignCenter,tr("No line data — pick a field & endpoints in the sidebar")); return; }
+    // Left gutter fits the widest Y tick label (formatted below), so labels
+    // hug the axis frame instead of floating in a fixed margin.
+    QFont small=p.font(); small.setPointSize(small.pointSize()-1); p.setFont(small);
+    QFontMetrics fm(small);
+    float vRange=m_vMax-m_vMin; if(std::abs(vRange)<1e-12f) vRange=1;
+    int yMaxW=0;
+    for(int i=0;i<=4;++i){
+        float v=m_vMin + vRange*(1.0f - i/4.0f);
+        yMaxW=std::max(yMaxW, fm.horizontalAdvance(formatProbeValue(v, m_tickFormat)));
+    }
+    const int left = std::max(48, yMaxW + 34);   // 34px reserved for the rotated axis title column
+    m_rect=QRect(left,m_top,width()-left-m_right,height()-m_top-m_bottom);
     if(m_rect.width()<=0||m_rect.height()<=0) return;
     // grid
     QColor grid=palette().color(QPalette::WindowText); grid.setAlpha(72);
@@ -28,7 +39,6 @@ void LinePlotWidget::paintEvent(QPaintEvent*){
     p.setPen(QPen(palette().color(QPalette::WindowText),1)); p.drawRect(m_rect);
     // line
     float dMin=m_dists.front(), dMax=m_dists.back(); if(std::abs(dMax-dMin)<1e-12f) dMax=dMin+1;
-    float vRange=m_vMax-m_vMin; if(std::abs(vRange)<1e-12f) vRange=1;
     QPainterPath path; bool first=true;
     for(size_t i=0;i<m_vals.size();++i){
         float t=(m_dists[i]-dMin)/(dMax-dMin);
@@ -49,20 +59,24 @@ void LinePlotWidget::paintEvent(QPaintEvent*){
     }
     // axes
     p.setPen(palette().color(QPalette::WindowText));
-    QFont small=p.font(); small.setPointSize(small.pointSize()-1); p.setFont(small); QFontMetrics fm(small);
+    p.setFont(small);
     for(int i=0;i<=4;++i){
-        float v=m_vMin + (m_vMax-m_vMin)*(1.0f - i/4.0f);
+        float v=m_vMin + vRange*(1.0f - i/4.0f);
         int y=m_rect.top()+i*m_rect.height()/4;
-        QString txt=QString::number(v,'g',4); txt=fm.elidedText(txt,Qt::ElideRight, m_left-6);
-        p.drawText(QRect(0,y-8,m_left-4,16), Qt::AlignRight|Qt::AlignVCenter, txt);
+        QString txt=formatProbeValue(v, m_tickFormat);
+        int tickW = fm.horizontalAdvance(txt);
+        int maxW = yMaxW;
+        if (tickW > maxW) { txt = fm.elidedText(txt, Qt::ElideRight, maxW); tickW = maxW; }
+        // right-aligned, 6px off the frame so nothing floats in dead margin
+        p.drawText(QRect(m_rect.left()-6-tickW, y-8, tickW, 16), Qt::AlignRight|Qt::AlignVCenter, txt);
     }
     for(int i=0;i<=4;++i){
         float d=dMin + (dMax-dMin)*(i/4.0f);
         int x=m_rect.left()+i*m_rect.width()/4;
-        QString txt=QString::number(d,'g',4); txt=fm.elidedText(txt,Qt::ElideRight,58);
+        QString txt=formatProbeValue(d, m_tickFormat); txt=fm.elidedText(txt,Qt::ElideRight,58);
         QRect r; int fl=Qt::AlignTop;
         if(i==0){ r=QRect(x, m_rect.bottom()+2, 60, m_bottom-4); fl|=Qt::AlignLeft; if(r.right()>width()-2) r.moveRight(width()-2); }
-        else if(i==4){ r=QRect(x-60,m_rect.bottom()+2,60,m_bottom-4); fl|=Qt::AlignRight; if(r.left()<m_left) r.moveLeft(m_left); if(r.right()>width()-2) r.moveRight(width()-2); }
+        else if(i==4){ r=QRect(x-60,m_rect.bottom()+2,60,m_bottom-4); fl|=Qt::AlignRight; if(r.left()<m_rect.left()) r.moveLeft(m_rect.left()); if(r.right()>width()-2) r.moveRight(width()-2); }
         else { r=QRect(x-30,m_rect.bottom()+2,60,m_bottom-4); fl|=Qt::AlignHCenter; }
         p.drawText(r, fl, txt);
     }
@@ -71,6 +85,18 @@ void LinePlotWidget::paintEvent(QPaintEvent*){
       QString pl=m_placement==1?"Cell":"Vertex";
       QString title=QString("%1 [%2]  Line %3→%4").arg(m_field).arg(pl).arg(dMin,0,'g',4).arg(dMax,0,'g',4);
       p.drawText(QRect(m_rect.left(),0,m_rect.width(),m_top), Qt::AlignCenter, title);
+    }
+    // axis titles: Y = field[placement], X = distance along the probe line
+    { QFont tf=p.font(); tf.setItalic(false); p.setFont(tf);
+      QString pl=m_placement==1?"Cell":"Vertex";
+      p.save();
+      p.translate(10, m_rect.top() + m_rect.height()/2.0);
+      p.rotate(-90);
+      p.drawText(QRect(-m_rect.height()/2, -7, m_rect.height(), 14), Qt::AlignCenter,
+                 QString("%1 [%2]").arg(m_field).arg(pl));
+      p.restore();
+      p.drawText(QRect(m_rect.left(), m_rect.bottom()+2, m_rect.width(), m_bottom-2),
+                 Qt::AlignHCenter|Qt::AlignBottom, tr("Distance along line"));
     }
 }
 void LinePlotWidget::mouseMoveEvent(QMouseEvent* e){
