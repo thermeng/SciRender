@@ -5,6 +5,7 @@
 #include <QDoubleSpinBox>
 #include <QLabel>
 #include <QLayout>
+#include <QListWidget>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
@@ -161,6 +162,75 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
                                    "Cell = nearest cell (piecewise constant), Vertex = trilinear. Their split "
                                    "reveals interpolation/extrapolation error along the line."));
         ll->addWidget(m_compareCb);
+        auto* pinRow = new QHBoxLayout;
+        pinRow->setSpacing(4);
+        auto* pinBtn = new QPushButton(tr("Pin line"));
+        auto* clearPinBtn = new QPushButton(tr("Clear"));
+        pinBtn->setToolTip(tr("Snapshot the current curve onto the plot, then move P0/P1 or change samples "
+                              "to lay down more lines. Pinned lines re-sample when the mesh changes."));
+        pinBtn->setFixedHeight(sb::kControlHeight + 2);
+        clearPinBtn->setToolTip(tr("Remove all pinned lines"));
+        clearPinBtn->setFixedHeight(sb::kControlHeight + 2);
+        pinBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        clearPinBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        if (m_plotWindow) {
+            connect(pinBtn, &QPushButton::clicked, m_plotWindow, &PlotWindow::pinCurrentLine);
+            connect(clearPinBtn, &QPushButton::clicked, m_plotWindow, &PlotWindow::clearPinnedLines);
+        }
+        pinRow->addWidget(pinBtn, 1);
+        pinRow->addWidget(clearPinBtn, 1);
+        ll->addLayout(pinRow);
+        // Pinned-lines manager (isosurface-contours idiom): checkable rows so
+        // removal/hiding is discoverable in the panel, not buried in the legend.
+        // The block is hidden entirely until the first pin exists.
+        m_pinGroup = new QWidget(linePane);
+        auto* pg = new QVBoxLayout(m_pinGroup);
+        pg->setContentsMargins(0, 0, 0, 0);
+        pg->setSpacing(4);
+        auto* pinListHeader = new QLabel(tr("Pinned Lines"));
+        pinListHeader->setObjectName("plotPinListHeader");
+        pg->addWidget(pinListHeader);
+        m_pinList = new QListWidget(m_pinGroup);
+        m_pinList->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_pinList->setMinimumHeight(56);
+        m_pinList->setMaximumHeight(150);   // 8 pins * ~18px + frame
+        m_pinList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        m_pinList->setToolTip(tr("Check = visible on the plot. Double-click (or Edit) loads the line's P0/P1, "
+                                 "field, placement and samples back into this panel — \"Pin line\" then "
+                                 "overwrites that entry. Remove deletes it."));
+        pg->addWidget(m_pinList);
+        auto* pinManageRow = new QHBoxLayout;
+        pinManageRow->setSpacing(4);
+        auto* editPinBtn = new QPushButton(tr("Edit"));
+        auto* removePinBtn = new QPushButton(tr("Remove"));
+        editPinBtn->setToolTip(m_pinList->toolTip());
+        removePinBtn->setToolTip(tr("Remove the selected pinned line"));
+        for (auto* b : {editPinBtn, removePinBtn}) {
+            b->setFixedHeight(sb::kControlHeight);
+            b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        }
+        pinManageRow->addWidget(editPinBtn, 1);
+        pinManageRow->addWidget(removePinBtn, 1);
+        pg->addLayout(pinManageRow);
+        m_pinGroup->setVisible(false);
+        ll->addWidget(m_pinGroup);
+        if (m_plotWindow) {
+            connect(m_plotWindow, &PlotWindow::pinnedListChanged, this, [this]() { rebuildPinList(); });
+            connect(m_pinList, &QListWidget::itemChanged, this, [this](QListWidgetItem* it) {
+                if (!m_plotWindow || !it) return;
+                m_plotWindow->setPinnedHiddenAt(m_pinList->row(it), it->checkState() != Qt::Checked);
+            });
+            auto editSlot = [this]() {
+                int r = m_pinList ? m_pinList->currentRow() : -1;
+                if (r >= 0 && m_plotWindow) m_plotWindow->editPinnedLine(r);
+            };
+            connect(m_pinList, &QListWidget::itemDoubleClicked, this, [editSlot](QListWidgetItem*) { editSlot(); });
+            connect(editPinBtn, &QPushButton::clicked, this, editSlot);
+            connect(removePinBtn, &QPushButton::clicked, this, [this]() {
+                int r = m_pinList ? m_pinList->currentRow() : -1;
+                if (r >= 0 && m_plotWindow) m_plotWindow->removePinnedLine(r);
+            });
+        }
         // Line endpoints P0 (start) → P1 (end), one spinbox per axis.
         auto* lpHeader = new QLabel(tr("Line Points (P0 → P1)"));
         lpHeader->setObjectName("plotLinePointsHeader");
@@ -257,6 +327,7 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
 
     auto connectProbeSpin = [this](QDoubleSpinBox* sb, std::function<void(double)> setter) {
         connect(sb, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this, setter](double v) {
+            m_lineAutoSeeded = false; // user moved the line; mesh loads keep their endpoints
             setter(v);
             if (m_plotWindow) m_plotWindow->scheduleRecompute();
         });
@@ -291,6 +362,7 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
     refreshFieldCombos();
     initLineProbeFromMeshBounds();
     syncFromSettings();
+    rebuildPinList();
     {
         int mode = s->getPlotMode();
         if (m_paramStack) m_paramStack->setCurrentIndex(mode);
@@ -371,21 +443,44 @@ void PlotsPage::updatePlacementCombo(QComboBox* combo, bool lineMode) {
     combo->blockSignals(false);
 }
 
-// First-load default: stretch the probe line along the mesh bbox diagonal.
+// Seed the probe line along the current mesh bbox diagonal (mesh min/max,
+// not the 0..1 defaults). Runs on every mesh load until the user edits the
+// endpoints by hand; a manually-placed line is never stomped.
 void PlotsPage::initLineProbeFromMeshBounds() {
     auto* s = S();
     if (!s || !s->getHasMeshLoaded()) return;
+    if (!m_lineAutoSeeded) return;
     auto* r = s->backend();
     if (!r) return;
     auto* rm = r->lastUploadedMeshForPlot();
     if (!rm) return;
-    bool same = s->getLineP0x() == s->getLineP1x()
-             && s->getLineP0y() == s->getLineP1y()
-             && s->getLineP0z() == s->getLineP1z();
-    if (!same) return;
     s->setLineP0x(rm->bounds.minX); s->setLineP0y(rm->bounds.minY); s->setLineP0z(rm->bounds.minZ);
     s->setLineP1x(rm->bounds.maxX); s->setLineP1y(rm->bounds.maxY); s->setLineP1z(rm->bounds.maxZ);
     if (m_plotWindow) m_plotWindow->scheduleRecompute();
+}
+
+// Rebuild the pinned-lines list from PlotWindow's authoritative definitions.
+// blockSignals during rebuild so the synthetic itemChanged ticks don't bounce
+// hide flags back at PlotWindow.
+void PlotsPage::rebuildPinList() {
+    if (!m_pinList || !m_pinGroup) return;
+    m_pinList->blockSignals(true);
+    m_pinList->clear();
+    int editing = m_plotWindow ? m_plotWindow->editingPin() : -1;
+    if (m_plotWindow) {
+        const auto infos = m_plotWindow->pinnedLineInfos();
+        for (size_t i = 0; i < infos.size(); ++i) {
+            // mark the entry loaded into the panel for in-place editing
+            QString text = (int(i) == editing) ? tr("* ") + infos[i].label : infos[i].label;
+            auto item = new QListWidgetItem(text, m_pinList);
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+            item->setCheckState(infos[i].hidden ? Qt::Unchecked : Qt::Checked);
+            item->setToolTip(infos[i].tip);
+            item->setData(Qt::UserRole, int(i));
+        }
+    }
+    m_pinList->blockSignals(false);
+    m_pinGroup->setVisible(m_pinList->count() > 0);
 }
 
 // Mirror RenderSettings back into the page (P0/P1 can be edited elsewhere,

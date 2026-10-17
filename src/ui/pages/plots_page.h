@@ -5,6 +5,8 @@
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QListWidget;
+class QListWidgetItem;
 class QPushButton;
 class QSpinBox;
 class QStackedWidget;
@@ -34,6 +36,7 @@ private:
     void refreshFieldCombos();
     void updatePlacementCombo(QComboBox* combo, bool lineMode);
     void initLineProbeFromMeshBounds();
+    void rebuildPinList();
     void syncFromSettings();
     void applyViewportState();
 
@@ -56,6 +59,9 @@ private:
     QDoubleSpinBox* m_p1z = nullptr;
     QCheckBox* m_showLineCb = nullptr;
     QCheckBox* m_compareCb = nullptr;
+    QWidget* m_pinGroup = nullptr;      // "Pinned Lines" block, hidden while empty
+    QListWidget* m_pinList = nullptr;   // checkable rows: check=visible, edit/remove buttons below
+    bool m_lineAutoSeeded = true;       // mesh-load re-seeds P0/P1 to bbox until the user moves them
 };
 
 } // namespace sidebar

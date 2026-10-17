@@ -112,6 +112,9 @@ PlotWindow::PlotWindow(RenderSettings* settings, QWidget* parent)
     m_recomputeTimer->setInterval(160);
     connect(m_recomputeTimer, &QTimer::timeout, this, &PlotWindow::refreshData);
 
+    connect(m_linePlot, &LinePlotWidget::pinnedVisibilityToggled, this, &PlotWindow::togglePinnedLine);
+    connect(m_linePlot, &LinePlotWidget::pinnedRemoveRequested, this, &PlotWindow::removePinnedLine);
+
     if (m_settings) {
         connect(m_settings, &RenderSettings::plotSettingsChanged, this, &PlotWindow::onPlotParamsChanged);
         connect(m_settings, &RenderSettings::meshDataUpdated, this, &PlotWindow::onSettingsMeshDataUpdated);
@@ -340,15 +343,24 @@ void PlotWindow::exportLineCsv() {
     if(path.isEmpty()) return;
     QFile f(path); if(!f.open(QIODevice::WriteOnly|QIODevice::Text)){ QMessageBox::warning(this,tr("Export CSV"),tr("Cannot open file.")); return; }
     QTextStream s(&f);
-    if (!m_lineVals2.empty())
-        s << "distance," << (m_linePlacement ? "cell" : "vertex") << "," << m_lineLabel2 << "\n";
-    else
-        s << "distance,value\n";
-    for(size_t i=0;i<m_lineDists.size() && i<m_lineVals.size(); ++i){
-        s<<m_lineDists[i]<<","<<m_lineVals[i];
-        if(!m_lineVals2.empty() && i<m_lineVals2.size()) s<<","<<m_lineVals2[i];
-        s<<"\n";
+    // Long format: one row per (line, sample). Line id column distinguishes the
+    // active curve, its compare placement, and any pinned lines.
+    s << "line,distance,value\n";
+    auto writeRow = [&](const QString& id, float d, float v) {
+        s << QString(id).replace(',', ';') << "," << d << "," << v << "\n";
+    };
+    QString activeLabel = tr("active[%1]").arg(m_linePlacement ? "cell" : "vertex");
+    for (size_t i = 0; i < m_lineDists.size() && i < m_lineVals.size(); ++i) {
+        writeRow(activeLabel, m_lineDists[i], m_lineVals[i]);
+        if (!m_lineVals2.empty() && i < m_lineVals2.size())
+            writeRow(tr("active~%1").arg(m_lineLabel2.isEmpty()?"cmp":m_lineLabel2), m_lineDists[i], m_lineVals2[i]);
     }
+    for (const auto& ps : m_lastPinned) {
+        if (ps.hidden) continue; // CSV mirrors the canvas
+        for (size_t i = 0; i < ps.dists.size() && i < ps.vals.size(); ++i)
+            writeRow(ps.tipLabel.isEmpty() ? ps.label : ps.tipLabel, ps.dists[i], ps.vals[i]);
+    }
+    m_lineStatus->setText(tr("CSV saved: %1 lines").arg(m_lastPinned.size()+1));
     m_lineStatus->setText(tr("CSV saved: %1").arg(path));
 }
 
@@ -358,6 +370,146 @@ void PlotWindow::exportLinePng() {
     if(path.isEmpty()) return;
     if(!pm.save(path,"PNG")) QMessageBox::warning(this,tr("Export PNG"),tr("Failed to save PNG."));
     else m_lineStatus->setText(tr("PNG saved: %1").arg(path));
+}
+
+bool PlotWindow::sampleLine(const glm::vec3& p0, const glm::vec3& p1, const QString& fieldQ,
+                            int placement, int N, const FieldStore::Context& ctx,
+                            std::vector<float>& dists, std::vector<float>& vals, QString* err){
+    std::string fname=fieldQ.toStdString();
+    N=std::clamp(N,32,2048);
+    float len=glm::length(p1-p0);
+    if (len<1e-9f){ if(err) *err=tr("P0==P1"); return false; }
+    auto pl = placement ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+    // Probe once so a missing field fails fast instead of sampling all-NaN.
+    auto probe = FieldSampler::sample(ctx, fname, pl, p0 + 0.5f*(p1-p0));
+    if (!probe) { if(err) *err=tr("Field not found"); return false; }
+    dists.clear(); vals.clear();
+    dists.reserve(N); vals.reserve(N);
+    for(int i=0;i<N;++i){
+        float t=float(i)/float(N-1);
+        glm::vec3 pos = p0 + t*(p1-p0);
+        float dist = t*len;
+        auto opt = FieldSampler::sample(ctx, fname, pl, pos);
+        float v = opt ? *opt : std::numeric_limits<float>::quiet_NaN();
+        dists.push_back(dist);
+        vals.push_back(v);
+    }
+    return true;
+}
+
+namespace {
+// Compact endpoint text for pin identities, e.g. "(0.3, 0, 0)".
+QString fmtLinePoint(const glm::vec3& p) {
+    return QString("(%1)").arg(QStringList{QString::number(p.x,'g',3),
+                                           QString::number(p.y,'g',3),
+                                           QString::number(p.z,'g',3)}.join(", "));
+}
+}
+
+void PlotWindow::pinCurrentLine(){
+    if(!m_settings){ return; }
+    QString field=m_settings->getLineField();
+    if(field.isEmpty() || !m_settings->backend() || !m_settings->backend()->lastUploadedMeshForPlot()){
+        m_lineStatus->setText(tr("Nothing to pin"));
+        return;
+    }
+    int replaceIdx = (m_editingPin >= 0 && m_editingPin < int(m_pinned.size())) ? m_editingPin : -1;
+    if (m_pinned.size() >= 8 && replaceIdx < 0) {
+        m_lineStatus->setText(tr("Pin limit reached (%1) — clear first").arg(m_pinned.size()));
+        return;
+    }
+    PinnedLineDef def;    def.p0 = glm::vec3(float(m_settings->getLineP0x()), float(m_settings->getLineP0y()), float(m_settings->getLineP0z()));
+    def.p1 = glm::vec3(float(m_settings->getLineP1x()), float(m_settings->getLineP1y()), float(m_settings->getLineP1z()));
+    def.field = field;
+    def.placement = m_settings->getLinePlacement();
+    def.samples = m_settings->getLineSamples();
+    // Refuse exact duplicates against OTHER pins — they draw the same curve
+    // twice and the copy hides invisibly under the original. The line being
+    // replaced (if any) is skipped: editing it in place without moving is legal.
+    for (size_t i = 0; i < m_pinned.size(); ++i) {
+        if (int(i) == replaceIdx) continue;
+        const auto& ex = m_pinned[i];
+        if (ex.field == def.field && ex.placement == def.placement && ex.samples == def.samples &&
+            glm::all(glm::lessThan(glm::abs(ex.p0 - def.p0), glm::vec3(1e-6f))) &&
+            glm::all(glm::lessThan(glm::abs(ex.p1 - def.p1), glm::vec3(1e-6f)))) {
+            m_lineStatus->setText(tr("Identical to %1 — move P0/P1 to pin a new line").arg(ex.label));
+            return;
+        }
+    }
+    QString label = (replaceIdx >= 0) ? m_pinned[replaceIdx].label : tr("L%1").arg(m_pinned.size()+1);
+    def.label = label;
+    def.tipLabel = tr("%1 %2 [%3] (%4) → (%5)").arg(def.label).arg(field)
+                       .arg(def.placement?tr("Cell"):tr("Vertex"))
+                       .arg(fmtLinePoint(def.p0)).arg(fmtLinePoint(def.p1));
+    if (replaceIdx >= 0) m_pinned[replaceIdx] = std::move(def);
+    else                 m_pinned.push_back(std::move(def));
+    m_editingPin = -1;
+    emit pinnedListChanged();
+    scheduleRecompute();
+}
+
+void PlotWindow::clearPinnedLines(){
+    if (m_pinned.empty()) return;
+    m_pinned.clear();
+    m_lastPinned.clear();
+    m_editingPin = -1;
+    emit pinnedListChanged();
+    scheduleRecompute();
+}
+
+void PlotWindow::togglePinnedLine(int index){
+    if (index < 0 || index >= int(m_pinned.size())) return;
+    m_pinned[index].hidden = !m_pinned[index].hidden;
+    emit pinnedListChanged();
+    scheduleRecompute();
+}
+
+void PlotWindow::setPinnedHiddenAt(int index, bool hidden){
+    if (index < 0 || index >= int(m_pinned.size())) return;
+    if (m_pinned[index].hidden == hidden) return;
+    m_pinned[index].hidden = hidden;
+    emit pinnedListChanged();
+    scheduleRecompute();
+}
+
+void PlotWindow::removePinnedLine(int index){
+    if (index < 0 || index >= int(m_pinned.size())) return;
+    m_pinned.erase(m_pinned.begin() + index);
+    // Keep labels contiguous: L1..Ln re-assigned after any removal.
+    for (size_t i = 0; i < m_pinned.size(); ++i) {
+        m_pinned[i].label = tr("L%1").arg(i+1);
+        m_pinned[i].tipLabel = tr("%1 %2 [%3] (%4) → (%5)").arg(m_pinned[i].label).arg(m_pinned[i].field)
+                                   .arg(m_pinned[i].placement?tr("Cell"):tr("Vertex"))
+                                   .arg(fmtLinePoint(m_pinned[i].p0)).arg(fmtLinePoint(m_pinned[i].p1));
+    }
+    if (m_editingPin == index) m_editingPin = -1;
+    else if (m_editingPin > index) --m_editingPin;
+    if (m_editingPin >= int(m_pinned.size())) m_editingPin = -1;
+    emit pinnedListChanged();
+    scheduleRecompute();
+}
+
+void PlotWindow::editPinnedLine(int index){
+    if (index < 0 || index >= int(m_pinned.size()) || !m_settings) return;
+    const PinnedLineDef& d = m_pinned[index];
+    m_settings->setLineP0x(d.p0.x); m_settings->setLineP0y(d.p0.y); m_settings->setLineP0z(d.p0.z);
+    m_settings->setLineP1x(d.p1.x); m_settings->setLineP1y(d.p1.y); m_settings->setLineP1z(d.p1.z);
+    m_settings->setLineField(d.field);
+    m_settings->setLinePlacement(d.placement);
+    m_settings->setLineSamples(d.samples);
+    m_editingPin = index;
+    emit pinnedListChanged(); // sidebar marks this row with the edit marker
+    scheduleRecompute();
+}
+
+std::vector<PlotWindow::PinInfo> PlotWindow::pinnedLineInfos() const {
+    std::vector<PinInfo> out;
+    out.reserve(m_pinned.size());
+    for (const auto& d : m_pinned) {
+        out.push_back({ tr("%1  %2→%3").arg(d.label).arg(fmtLinePoint(d.p0)).arg(fmtLinePoint(d.p1)),
+                        d.tipLabel.isEmpty() ? d.label : d.tipLabel, d.hidden });
+    }
+    return out;
 }
 
 void PlotWindow::recomputeLine(){
@@ -372,7 +524,6 @@ void PlotWindow::recomputeLine(){
     float p1x=m_settings->getLineP1x(),p1y=m_settings->getLineP1y(),p1z=m_settings->getLineP1z();
     int N=m_settings->getLineSamples(); N=std::clamp(N,32,2048);
     glm::vec3 p0(p0x,p0y,p0z), p1(p1x,p1y,p1z);
-    float len=glm::length(p1-p0); if(len<1e-9f){ m_lineStatus->setText(tr("P0==P1")); return; }
     const postfields::ComputedSnapshot* snap = m_settings ? m_settings->snapshot().computed.get() : nullptr;
     FieldStore::Context ctx(*rm, snap);
     // Validate field availability via unified store
@@ -385,17 +536,12 @@ void PlotWindow::recomputeLine(){
         if (!sf.data) sf = ctx.scalar(fname, useCell ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex);
         if (!sf.data) { m_lineStatus->setText(tr("Field not found")); return; }
     }
-    std::vector<float> dists; dists.reserve(N);
-    std::vector<float> vals; vals.reserve(N);
-    auto placement = useCell ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
-    for(int i=0;i<N;++i){
-        float t=float(i)/float(N-1);
-        glm::vec3 pos = p0 + t*(p1-p0);
-        float dist = t*len;
-        auto opt = FieldSampler::sample(ctx, fname, placement, pos);
-        float v = opt ? *opt : std::numeric_limits<float>::quiet_NaN();
-        dists.push_back(dist);
-        vals.push_back(v);
+    // Active line
+    std::vector<float> dists; std::vector<float> vals;
+    QString err;
+    if (!sampleLine(p0, p1, field, useCell?1:0, N, ctx, dists, vals, &err)) {
+        m_lineStatus->setText(err);
+        return;
     }
     // Compare mode: sample the same field along the SAME param points at the
     // other placement. Cell sampling stays flat per cell (piecewise constant);
@@ -405,27 +551,32 @@ void PlotWindow::recomputeLine(){
     QString label2;
     if (m_settings->getComparePlacements()) {
         int other = useCell ? 0 : 1;
-        auto otherPlacement = other ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
-        // Probe once with the other placement to confirm the store resolves it
-        // (falls back internally, but a missing field would sample all-NaN — skip).
-        auto probe = FieldSampler::sample(ctx, fname, otherPlacement, p0 + 0.5f*(p1-p0));
-        if (probe) {
-            vals2.reserve(N);
-            for(int i=0;i<N;++i){
-                float t=float(i)/float(N-1);
-                glm::vec3 pos = p0 + t*(p1-p0);
-                auto opt2 = FieldSampler::sample(ctx, fname, otherPlacement, pos);
-                vals2.push_back(opt2 ? *opt2 : std::numeric_limits<float>::quiet_NaN());
-            }
+        std::vector<float> d2;
+        if (sampleLine(p0, p1, field, other, N, ctx, d2, vals2)) {
             label2 = other ? tr("Cell") : tr("Vertex");
+        } else {
+            vals2.clear();
         }
     }
+    // Pinned lines: re-sample their stored definitions against the CURRENT
+    // mesh/snapshot so a mesh load or post-proc extract never leaves stale curves.
+    std::vector<LineSeries> pinnedSeries;
+    pinnedSeries.reserve(m_pinned.size());
+    for (const auto& def : m_pinned) {
+        std::vector<float> pd, pv;
+        if (sampleLine(def.p0, def.p1, def.field, def.placement, def.samples, ctx, pd, pv))
+            pinnedSeries.push_back({std::move(pd), std::move(pv), def.label, def.tipLabel, def.hidden});
+    }
+    m_lastPinned = pinnedSeries;
     // Y axis follows the sampled data, not the whole-field range. With compare
     // mode the range widens so both curves stay inside the frame.
     float sMin = std::numeric_limits<float>::max(), sMax = std::numeric_limits<float>::lowest();
-    for (float v : vals) { if (!std::isfinite(v)) continue; sMin = std::min(sMin, v); sMax = std::max(sMax, v); }
-    if (!vals2.empty())
-        for (float v : vals2) { if (!std::isfinite(v)) continue; sMin = std::min(sMin, v); sMax = std::max(sMax, v); }
+    auto span = [&](const std::vector<float>& vv) {
+        for (float v : vv) { if (!std::isfinite(v)) continue; sMin = std::min(sMin, v); sMax = std::max(sMax, v); }
+    };
+    span(vals);
+    span(vals2);
+    for (const auto& ps : pinnedSeries) span(ps.vals);
     if (sMin > sMax) { sMin = 0; sMax = 1; }
     float pad = (std::abs(sMax - sMin) < 1e-9f) ? std::max(1e-3f, std::abs(sMax) * 0.01f)
                                                 : (sMax - sMin) * 0.05f;
@@ -434,13 +585,16 @@ void PlotWindow::recomputeLine(){
     m_lineVals2 = std::move(vals2); m_lineLabel2 = label2;
     m_linePlot->setData(dists, vals, sMin, sMax, field, m_linePlacement);
     m_linePlot->setCompareSeries(m_lineVals2, label2);
+    m_linePlot->setPinnedLines(std::move(pinnedSeries));
     m_lineStats->setText(tr("Field %1 [%2]  %3 samples  range [%4 .. %5]").arg(field).arg(useCell?"Cell":"Vertex").arg(N).arg(sMin,0,'g',4).arg(sMax,0,'g',4));
-    m_lineStatus->setText(m_lineVals2.empty()
-        ? tr("Sampled %1 points along line").arg(N)
-        : tr("Sampled %1 points along line (dual: %2 vs %3)").arg(N).arg(useCell?"Cell":"Vertex").arg(m_lineLabel2.isEmpty()?"":m_lineLabel2));
-    // Ensure overlay is visible after sampling
-    if (m_settings && !m_settings->getShowLineProbe()) {
-        m_settings->setShowLineProbe(true);
-    }
+    QString editHint;
+    if (m_editingPin >= 0 && m_editingPin < int(m_pinned.size()))
+        editHint = tr(" — editing %1: Pin replaces it").arg(m_pinned[m_editingPin].label);
+    m_lineStatus->setText(
+        (m_lastPinned.empty()
+            ? (m_lineVals2.empty() ? tr("Sampled %1 points along line").arg(N)
+                                   : tr("Sampled %1 points along line (dual: %2 vs %3)").arg(N).arg(useCell?"Cell":"Vertex").arg(m_lineLabel2))
+            : tr("%1 pinned line(s) on canvas").arg(m_lastPinned.size()))
+        + editHint);
 }
 

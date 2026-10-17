@@ -99,7 +99,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_plotDock->hide();
     connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
     connect(m_plotWindow, &PlotWindow::requestOpenControls, this, [this](){ setSidebarSection(14); }); // 14 = Plots nav section
-    connect(m_plotDock, &QDockWidget::visibilityChanged, this, [this](bool v){ m_histogramVisible = v; });
+    connect(m_plotDock, &QDockWidget::visibilityChanged, this, [this](bool v){ m_histogramVisible = v; m_settings->setLineProbeWindowOpen(v); });
 
     setCentralWidget(m_centralHost);
     setDockNestingEnabled(true);

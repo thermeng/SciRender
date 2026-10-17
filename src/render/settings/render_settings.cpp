@@ -96,6 +96,10 @@ RenderSettings::~RenderSettings() = default;
 void RenderSettings::publishRenderState(::Renderer* scene) {
     if (!m_stateDirty && !m_store.isDirty()) return;
     m_store.state() = m_state;
+    // The P0→P1 overlay draws only while the Plots viewport is open AND the
+    // user ticked Show line — the checkbox alone must not light it up in a
+    // closed plots session.
+    m_store.state().showLineProbe = m_state.showLineProbe && m_lineProbeWindowOpen;
     m_store.markDirty();
     if (m_store.publish(scene)) m_stateDirty = false;
 }

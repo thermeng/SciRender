@@ -851,6 +851,11 @@ public:
       void setLineSamples(int v) { int n = std::clamp(v, 32, 2048); if (m_lineSamples != n) { m_lineSamples = n; emit plotSettingsChanged(); } }
       bool getComparePlacements() const { return m_comparePlacements; }
       void setComparePlacements(bool v) { if (m_comparePlacements != v) { m_comparePlacements = v; emit plotSettingsChanged(); } }
+      // Whether the Plots viewport (dock) is open. ANDed with showLineProbe
+      // when publishing state so the P0/P1 overlay never draws into the 3D
+      // scene while the plots window is closed. Not persisted.
+      bool getLineProbeWindowOpen() const { return m_lineProbeWindowOpen; }
+      void setLineProbeWindowOpen(bool v) { if (m_lineProbeWindowOpen != v) { m_lineProbeWindowOpen = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
 
 
      // LIC diagnostics: surfaced from Renderer::m_lastLicError after each frame.
@@ -1142,6 +1147,7 @@ private:
     int m_linePlacement = 0;
     int m_lineSamples = 256;
     bool m_comparePlacements = false; // line plot: draw the same field sampled at the OTHER placement
+    bool m_lineProbeWindowOpen = false; // Plots dock open? gates the P0/P1 overlay in the 3D scene
 
 
     // Mesh-derived data (separate from display settings so the
