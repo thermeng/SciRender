@@ -894,11 +894,15 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     m_state.meshHasCellVectors = !mesh->cellVectorsData.empty();
 
     // Field continuity: keep the user's active scalar/vector when this frame
-    // carries it; otherwise fall back to the frame's first available.
-    const std::string resolvedScalar = FieldResolver::resolveActiveScalar(*mesh, m_state.activeScalarName);
+    // carries it; otherwise fall back to the frame's first available. The
+    // snapshot is part of the seam: post-proc fields (vorticity/helicity/Q)
+    // live only in m_state.computed, so the continuity check must consult it —
+    // without it any snapshot-selected field "resolves" down to a mesh field
+    // on every frame and playback silently switches the visualization field.
+    const std::string resolvedScalar = FieldResolver::resolveActiveScalar(*mesh, m_state.activeScalarName, 0, m_state.computed.get());
     if (!resolvedScalar.empty()) m_state.activeScalarName = resolvedScalar;
     // Iso contour field has its own continuity (independent of surface field).
-    const std::string resolvedIso = FieldResolver::resolveActiveScalar(*mesh, m_state.isosurfaceField, m_state.isosurfacePlacement);
+    const std::string resolvedIso = FieldResolver::resolveActiveScalar(*mesh, m_state.isosurfaceField, m_state.isosurfacePlacement, m_state.computed.get());
     if (!resolvedIso.empty()) m_state.isosurfaceField = resolvedIso;
     m_meshData.guiMeta.scalarName = m_state.activeScalarName;
     m_meshData.guiMeta.availableScalarNames = mesh->availableScalarNames;

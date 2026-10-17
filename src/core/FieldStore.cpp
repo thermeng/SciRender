@@ -79,6 +79,14 @@ std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& reque
         if (snap) {
             if (snap->scalars.find(requested) != snap->scalars.end()) return requested;
             if (snap->vectors.find(requested) != snap->vectors.end()) return requested;
+            // Synthesized scalars on snapshot vectors ("V_vorticity [Magnitude]"
+            // etc.): the snapshot maps hold the raw base name, so strip the
+            // derived suffix before the claim test.
+            for (const std::string sfx : {std::string(" [Magnitude]"), std::string(" [X]"), std::string(" [Y]"), std::string(" [Z]")}) {
+                if (requested.size() > sfx.size() && requested.compare(requested.size() - sfx.size(), sfx.size(), sfx) == 0)
+                    if (snap->vectors.count(requested.substr(0, requested.size() - sfx.size())))
+                        return requested;
+            }
         }
         if (mesh.attributes) {
             if (placement == Placement::CellCenter) {
