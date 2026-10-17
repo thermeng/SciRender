@@ -55,6 +55,7 @@ private:
     QDoubleSpinBox* m_p1y = nullptr;
     QDoubleSpinBox* m_p1z = nullptr;
     QCheckBox* m_showLineCb = nullptr;
+    QCheckBox* m_compareCb = nullptr;
 };
 
 } // namespace sidebar

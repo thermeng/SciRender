@@ -849,6 +849,8 @@ public:
       void setLinePlacement(int v) { int p = (v == 1) ? 1 : 0; if (m_linePlacement != p) { m_linePlacement = p; emit plotSettingsChanged(); } }
       int getLineSamples() const { return m_lineSamples; }
       void setLineSamples(int v) { int n = std::clamp(v, 32, 2048); if (m_lineSamples != n) { m_lineSamples = n; emit plotSettingsChanged(); } }
+      bool getComparePlacements() const { return m_comparePlacements; }
+      void setComparePlacements(bool v) { if (m_comparePlacements != v) { m_comparePlacements = v; emit plotSettingsChanged(); } }
 
 
      // LIC diagnostics: surfaced from Renderer::m_lastLicError after each frame.
@@ -1139,6 +1141,7 @@ private:
     QString m_lineField;
     int m_linePlacement = 0;
     int m_lineSamples = 256;
+    bool m_comparePlacements = false; // line plot: draw the same field sampled at the OTHER placement
 
 
     // Mesh-derived data (separate from display settings so the

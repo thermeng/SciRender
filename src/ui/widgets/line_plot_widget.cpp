@@ -12,7 +12,10 @@ LinePlotWidget::LinePlotWidget(QWidget* p):QWidget(p){ setMouseTracking(true); s
 void LinePlotWidget::setData(const std::vector<float>& d, const std::vector<float>& v, float mn,float mx, const QString& f,int pl){
     m_dists=d; m_vals=v; m_vMin=mn; m_vMax=mx; m_field=f; m_placement=pl; m_hover=-1; update();
 }
-void LinePlotWidget::clear(){ m_dists.clear(); m_vals.clear(); m_hover=-1; update(); }
+void LinePlotWidget::setCompareSeries(const std::vector<float>& vals, const QString& label){
+    m_cVals = vals; m_cLabel = label; m_hover=-1; update();
+}
+void LinePlotWidget::clear(){ m_dists.clear(); m_vals.clear(); m_cVals.clear(); m_hover=-1; update(); }
 
 void LinePlotWidget::paintEvent(QPaintEvent*){
     QPainter p(this); p.setRenderHint(QPainter::Antialiasing,true);
@@ -39,6 +42,7 @@ void LinePlotWidget::paintEvent(QPaintEvent*){
     p.setPen(QPen(palette().color(QPalette::WindowText),1)); p.drawRect(m_rect);
     // line
     float dMin=m_dists.front(), dMax=m_dists.back(); if(std::abs(dMax-dMin)<1e-12f) dMax=dMin+1;
+    float dRange = dMax - dMin;
     QPainterPath path; bool first=true;
     for(size_t i=0;i<m_vals.size();++i){
         float t=(m_dists[i]-dMin)/(dMax-dMin);
@@ -48,7 +52,22 @@ void LinePlotWidget::paintEvent(QPaintEvent*){
         int y=m_rect.bottom()-int(v*m_rect.height());
         if(first){ path.moveTo(x,y); first=false; } else path.lineTo(x,y);
     }
-    p.setPen(QPen(QColor(0x4a,0x90,0xe2),2)); p.drawPath(path);
+    // compare curve (other placement, same dists): dashed, drawn UNDER the primary
+    bool hasCompare = !m_cVals.empty() && m_cVals.size() == m_dists.size() && m_cLabel.size();
+    if (hasCompare) {
+        QPainterPath cpy; bool cf = true;
+        for (size_t i = 0; i < m_cVals.size(); ++i) {
+            float v = (m_cVals[i] - m_vMin) / vRange;
+            if (!std::isfinite(v)) continue;
+            int x = m_rect.left() + int(m_dists[i] / dRange * m_rect.width());
+            int y = m_rect.bottom() - int(v * m_rect.height());
+            if (cf) { cpy.moveTo(x, y); cf = false; } else cpy.lineTo(x, y);
+        }
+        p.setPen(QPen(QColor(0xB0,0x54,0x3A), 2, Qt::DashLine));
+        p.drawPath(cpy);
+        p.setPen(QPen(QColor(0x4a,0x90,0xe2),2));
+    }
+    p.drawPath(path);
     // hover dot
     if(m_hover>=0 && m_hover < (int)m_vals.size()){
         float t=(m_dists[m_hover]-dMin)/(dMax-dMin);
@@ -84,7 +103,26 @@ void LinePlotWidget::paintEvent(QPaintEvent*){
     { QFont tf=p.font(); tf.setBold(true); p.setFont(tf);
       QString pl=m_placement==1?"Cell":"Vertex";
       QString title=QString("%1 [%2]  Line %3→%4").arg(m_field).arg(pl).arg(dMin,0,'g',4).arg(dMax,0,'g',4);
+      if (hasCompare) title=QString("%1 [%2 vs %3]  Line %4→%5").arg(m_field).arg(pl).arg(m_cLabel).arg(dMin,0,'g',4).arg(dMax,0,'g',4);
       p.drawText(QRect(m_rect.left(),0,m_rect.width(),m_top), Qt::AlignCenter, title);
+      // legend chips, top-right of the title row
+      if (hasCompare) {
+          int x = m_rect.right();
+          for (int i = 1; i >= 0; --i) { // compare chip first (rightmost), primary under it
+              QString label = i ? m_cLabel : pl;
+              QColor color = i ? QColor(0xB0,0x54,0x3A) : QColor(0x4a,0x90,0xe2);
+              bool dashed = (i != 0);
+              int tw = fm.horizontalAdvance(label);
+              int cw = tw + 26;
+              x -= cw;
+              if (x > m_rect.left()) {
+                  p.setPen(QPen(color, 2, dashed ? Qt::DashLine : Qt::SolidLine));
+                  p.drawLine(x+2, m_top/2, x+18, m_top/2);
+                  p.setPen(palette().color(QPalette::WindowText));
+                  p.drawText(QRect(x+22,0,tw,m_top),Qt::AlignLeft|Qt::AlignVCenter,label);
+              }
+          }
+      }
     }
     // axis titles: Y = field[placement], X = distance along the probe line
     { QFont tf=p.font(); tf.setItalic(false); p.setFont(tf);
@@ -110,6 +148,9 @@ void LinePlotWidget::mouseMoveEvent(QMouseEvent* e){
     int best=0; float bestD=std::abs(m_dists[0]-d);
     for(size_t i=1;i<m_dists.size();++i){ float dd=std::abs(m_dists[i]-d); if(dd<bestD){bestD=dd; best=int(i);} }
     if(best!=m_hover){ m_hover=best; update();}
-    QToolTip::showText(e->globalPosition().toPoint(), tr("d=%1  v=%2").arg(m_dists[best],0,'g',4).arg(m_vals[best],0,'g',4), this);
+    QString tip=tr("d=%1  v=%2").arg(m_dists[best],0,'g',4).arg(m_vals[best],0,'g',4);
+    if(m_hover<(int)m_cVals.size() && std::isfinite(m_cVals[m_hover]))
+        tip+=tr("  ~%1=%2").arg(m_cLabel).arg(m_cVals[m_hover],0,'g',4);
+    QToolTip::showText(e->globalPosition().toPoint(), tip, this);
 }
 void LinePlotWidget::leaveEvent(QEvent*){ if(m_hover!=-1){m_hover=-1; update();}}
