@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui")
 
 # MinGW workaround for Qt exception handling
 if(MINGW)
@@ -168,6 +169,40 @@ add_executable(SciRender
     src/ui/mesh_info_page.ui
     src/ui/animation_page.ui
     src/ui/postproc_page.ui
+    src/ui/panel_helpers.h
+    src/ui/panel_helpers.cpp
+    src/ui/pages/sidebar_page.h
+    src/ui/pages/sidebar_page.cpp
+    src/ui/pages/lighting_page.h
+    src/ui/pages/lighting_page.cpp
+    src/ui/pages/clipping_page.h
+    src/ui/pages/clipping_page.cpp
+    src/ui/pages/view_display_page.h
+    src/ui/pages/view_display_page.cpp
+    src/ui/pages/scalar_page.h
+    src/ui/pages/scalar_page.cpp
+    src/ui/pages/vectors_page.h
+    src/ui/pages/vectors_page.cpp
+    src/ui/pages/streamlines_page.h
+    src/ui/pages/streamlines_page.cpp
+    src/ui/pages/slice_plane_page.h
+    src/ui/pages/slice_plane_page.cpp
+    src/ui/pages/volume_page.h
+    src/ui/pages/volume_page.cpp
+    src/ui/pages/isosurface_page.h
+    src/ui/pages/isosurface_page.cpp
+    src/ui/pages/probe_page.h
+    src/ui/pages/probe_page.cpp
+    src/ui/pages/mesh_info_page.h
+    src/ui/pages/mesh_info_page.cpp
+    src/ui/pages/screenshot_page.h
+    src/ui/pages/screenshot_page.cpp
+    src/ui/pages/animation_page.h
+    src/ui/pages/animation_page.cpp
+    src/ui/pages/plots_page.h
+    src/ui/pages/plots_page.cpp
+    src/ui/pages/postproc_page.h
+    src/ui/pages/postproc_page.cpp
     assets/app_icon.rc
 )
 
