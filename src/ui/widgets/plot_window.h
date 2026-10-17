@@ -3,11 +3,13 @@
 #include <QLabel>
 #include <QTimer>
 #include <vector>
+#include <glm/glm.hpp>
 #include "plot_widget.h"
 #include "line_plot_widget.h"
 
 class RenderSettings;
 class QStackedWidget;
+namespace FieldStore { struct Context; }
 
 // Availability of the two placement options for a plot field, resolved against
 // the uploaded mesh + post snapshot. Shared with the sidebar plots page, which
@@ -38,6 +40,11 @@ public:
 Q_SIGNALS:
     void requestCloseHistogram();
     void requestOpenControls();
+    void pinnedListChanged();
+
+public slots:
+    void togglePinnedLine(int index);
+    void removePinnedLine(int index);
 
 private slots:
     void onPlotParamsChanged();
@@ -70,4 +77,45 @@ private:
     float m_lineMin=0,m_lineMax=1;
     QString m_lineField;
     int m_linePlacement=0;
+
+public:
+    // Pinned lines (session-scoped, not persisted): snapshots of the sampling
+    // definition at pin time. Recomputed against the current mesh on every
+    // refreshData so a mesh/meshDataUpdated never leaves stale curves.
+    struct PinnedLineDef {
+        glm::vec3 p0, p1;
+        QString field;
+        int placement = 0;   // 0 = Vertex, 1 = CellCenter
+        int samples = 256;
+        QString label;       // "L1", "L2", ...
+        QString tipLabel;    // "L1 Velocity [Magnitude] [Cell]"
+        bool hidden = false; // toggled by clicking the legend chip
+    };
+    void pinCurrentLine();
+    void clearPinnedLines();
+
+    // Sidebar management-list support: the Plots page renders a checkable
+    // list (isosurface-values idiom) of pinned lines and routes edits back.
+    struct PinInfo { QString label; QString tip; bool hidden; };
+    std::vector<PinInfo> pinnedLineInfos() const;
+    void setPinnedHiddenAt(int index, bool hidden);
+    // Load a pinned line's definition back into the sidebar (P0/P1, field,
+    // placement, samples); the next "Pin line" replaces it in place.
+    void editPinnedLine(int index);
+    int editingPin() const { return m_editingPin; }
+
+private:
+    // Samples one line into dists/vals; returns false if the field does not
+    // resolve on the current mesh/snapshot. Shared by active + pinned sampling.
+    bool sampleLine(const glm::vec3& p0, const glm::vec3& p1, const QString& field,
+                    int placement, int N, const FieldStore::Context& ctx,
+                    std::vector<float>& dists, std::vector<float>& vals, QString* err = nullptr);
+
+    // Last rendered pinned series (cache for CSV export without resampling).
+    std::vector<LineSeries> m_lastPinned;
+    // Pinned line definitions (session-scoped).
+    std::vector<PinnedLineDef> m_pinned;
+    // Index of the pinned line loaded back into the sidebar for editing;
+    // -1 when the "Pin line" button appends a new line instead.
+    int m_editingPin = -1;
 };
