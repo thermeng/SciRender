@@ -246,12 +246,84 @@ static void testRejections() {
     CHECK(postfields::gradPName("p") == "p_grad", "grad-p name");
 }
 
+static void testPlanarRotation2D() {
+    printf("[TEST] 2D slab solid rotation -> omega=(0,0,2)\n");
+    auto g = linspace(-2, 2, 7);
+    RenderMesh m = makeFlowGrid(g, g, {0.0f},
+        [](float x, float y, float) { return glm::vec3(-y, x, 0.0f); },
+        [](float, float, float) { return 0.0f; });
+    postfields::PostFieldsRequest req;
+    req.velocity = m.pointVectorsData.data();
+    req.pressure = m.attributes->pointScalars["pressure"].data();
+    auto r = postfields::computePostFields(m, req);
+    CHECK(r.ok, "2D rotation: ok");
+    float maxErr = 0;
+    for (auto& v : r.vorticity)
+        maxErr = std::max({maxErr, std::abs(v.x), std::abs(v.y), std::abs(v.z - 2.0f)});
+    CHECK(maxErr < 1e-3f, "2D rotation: vorticity == (0,0,2)");
+    float maxQ = 0;
+    for (float q : r.qCriterion) maxQ = std::max(maxQ, std::abs(q - 1.0f));
+    CHECK(maxQ < 1e-3f, "2D rotation: Q == 1");
+}
+
+static void testUnstructured2DLSQ() {
+    printf("[TEST] unstructured 2D triangulated LSQ -> omega=(0,0,2)\n");
+    RenderMesh m;
+    const int dX = 5, dY = 5;
+    const size_t N = (size_t)dX * dY;
+    m.gridDimX = m.gridDimY = m.gridDimZ = 0; // force unstructured path
+    m.datasetType = "UNSTRUCTURED_GRID";
+    m.vertices.resize(N * 3);
+    m.pointVectorsData.resize(N);
+    m.pointVectorCount = N;
+    m.pointVectorOffset["velocity"] = 0;
+    m.availableVectorNames.push_back("velocity");
+    m.vectorName = "velocity";
+    m.attributes = DatasetAttributes{};
+    std::vector<float>& ps = m.attributes->pointScalars["pressure"];
+    ps.resize(N, 0.0f);
+    auto node = [&](int i, int j) { return (size_t)i + (size_t)j * dX; };
+    for (int j = 0; j < dY; ++j)
+        for (int i = 0; i < dX; ++i) {
+            const size_t n = node(i, j);
+            m.vertices[n*3+0] = 0.5f * i; m.vertices[n*3+1] = 0.5f * j; m.vertices[n*3+2] = 0.0f;
+            m.pointVectorsData[n] = glm::vec3(-0.5f * j, 0.5f * i, 0.0f);
+        }
+    for (int j = 0; j + 1 < dY; ++j)
+        for (int i = 0; i + 1 < dX; ++i) {
+            const uint32_t a = (uint32_t)node(i,j), b = (uint32_t)node(i+1,j),
+                           c = (uint32_t)node(i+1,j+1), d = (uint32_t)node(i,j+1);
+            m.indices.push_back(a); m.indices.push_back(b); m.indices.push_back(c);
+            m.indices.push_back(a); m.indices.push_back(c); m.indices.push_back(d);
+        }
+    m.bounds.minX = 0; m.bounds.maxX = 2; m.bounds.minY = 0; m.bounds.maxY = 2;
+    postfields::PostFieldsRequest req;
+    req.velocity = m.pointVectorsData.data();
+    req.pressure = ps.data();
+    req.wantGradP = false;
+    auto r = postfields::computePostFieldsUnstructured(m, req);
+    CHECK(r.ok, "2D unstructured: ok");
+    if (r.ok) {
+        float maxErr = 0;
+        size_t badN = 0;
+        for (auto& v : r.vorticity) {
+            const float e = std::max({std::abs(v.x), std::abs(v.y), std::abs(v.z - 2.0f)});
+            if (e > 0.1f) ++badN;
+            maxErr = std::max(maxErr, e);
+        }
+        printf("  max|err|=%.6g, nodes>0.1=%zu/%zu\n", maxErr, badN, r.vorticity.size());
+        CHECK(badN == 0, "2D unstructured: all nodes omega==(0,0,2) (rotation exact for LSQ)");
+    }
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     testUniformFlow();
     testSolidRotation();
     testPoiseuille();
     testNonUniformRectilinear();
+    testPlanarRotation2D();
+    testUnstructured2DLSQ();
     testRejections();
     printf("\n");
     if (failures == 0) {

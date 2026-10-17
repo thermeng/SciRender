@@ -146,6 +146,26 @@ add_test(NAME anim_range_test COMMAND anim_range_test WORKING_DIRECTORY ${CMAKE_
 add_test(NAME streamline_direction_test COMMAND streamline_direction_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Post-processed fields (core math, no Qt/GL)
+add_executable(cylinder2d_vorticity_test
+    cylinder2d_vorticity_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/post_fields.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/gradient_estimator.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
+    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
+)
+target_include_directories(cylinder2d_vorticity_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor
+    ${ZLIB_INCLUDE_DIR}
+)
+target_link_libraries(cylinder2d_vorticity_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+
 add_executable(post_fields_test
     post_fields_test.cpp
     ${CMAKE_SOURCE_DIR}/../src/core/post_fields.cpp

@@ -205,8 +205,24 @@ bool LeastSquaresEstimator::buildNeighborsFromIndices(){
     const auto& idx = m_mesh->indices;
     if (idx.size()<3) return false;
     m_neighbors.assign(m_pointCount, {});
+    // Split meshes: indices are in split-vertex space (0..vertN-1) while the
+    // LSQ field arrays are in logical point space (0..sourcePointCount-1).
+    // Fold each index through vertexSourceIndex so the neighbor ring is the
+    // TRUE mesh one-ring; without this the ring is incomplete (skipped tri
+    // entries) and the estimator silently degrades to the radius-ball
+    // heuristic, which is badly inaccurate on stretched boundary-layer meshes.
+    const uint32_t* vmap = nullptr;
+    if (!m_mesh->vertexSourceIndex.empty()
+        && m_mesh->vertexSourceIndex.size() == m_mesh->vertices.size()/3
+        && m_pointCount <= m_mesh->vertexSourceIndex.size()) {
+        vmap = m_mesh->vertexSourceIndex.data();
+    }
     for (size_t t=0; t+2<idx.size(); t+=3){
         uint32_t a=idx[t], b=idx[t+1], c=idx[t+2];
+        if (vmap) {
+            if (a>=m_mesh->vertexSourceIndex.size()||b>=m_mesh->vertexSourceIndex.size()||c>=m_mesh->vertexSourceIndex.size()) continue;
+            a=vmap[a]; b=vmap[b]; c=vmap[c];
+        }
         if (a>=m_pointCount||b>=m_pointCount||c>=m_pointCount) continue;
         m_neighbors[a].push_back(b); m_neighbors[a].push_back(c);
         m_neighbors[b].push_back(a); m_neighbors[b].push_back(c);
