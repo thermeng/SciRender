@@ -4,6 +4,8 @@
 #include <vector>
 #include <algorithm>
 
+namespace postfields { struct ComputedSnapshot; }
+
 // Deep module behind Mesh data model seam.
 // Centralizes field name → data resolution that was duplicated across
 // RenderSettings, VectorGlyphSet, StreamlineSet, Renderer.
@@ -12,7 +14,11 @@ namespace FieldResolver {
 
 // Scalar (placement: 0=Vertex/point, 1=Cell Center/cell)
 // Overload without placement keeps backward compat (defaults to Vertex).
-std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested, int placement = 0);
+// snap: optional post-fields snapshot — post-proc fields (vorticity/helicity/Q)
+// live there, not in the mesh, so animation continuity checks must pass it or
+// they "resolve" a snapshot-selected field down to the frame's mesh field.
+std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested, int placement = 0,
+                                const postfields::ComputedSnapshot* snap = nullptr);
 const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax, int placement = 0);
 // DRY helper for volume/isosurface/histogram where Cell placement must return
 // per-cell (cellCount) data, not the point-extrapolated copy used for surface.

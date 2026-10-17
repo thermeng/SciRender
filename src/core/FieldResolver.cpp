@@ -1,5 +1,6 @@
 #include "core/FieldResolver.h"
 #include "core/FieldStore.h"
+#include "core/post_fields.h"
 
 namespace FieldResolver {
 
@@ -9,8 +10,9 @@ static FieldStore::Placement toPlacement(int p) {
 
 void clearCache() { FieldStore::clearCache(); }
 
-std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested, int placement) {
-    return FieldStore::resolveActiveScalar(mesh, requested, toPlacement(placement));
+std::string resolveActiveScalar(const RenderMesh& mesh, const std::string& requested, int placement,
+                                const postfields::ComputedSnapshot* snap) {
+    return FieldStore::resolveActiveScalar(mesh, requested, toPlacement(placement), snap);
 }
 
 const std::vector<float>* scalarData(const RenderMesh& mesh, const std::string& name, float& outMin, float& outMax, int placement) {
