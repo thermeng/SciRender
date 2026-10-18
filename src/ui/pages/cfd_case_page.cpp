@@ -380,6 +380,15 @@ void CfdCasePage::buildAdvancedDialog() {
         "Iterations inspected when watching for a continuity residual that keeps growing.");
     diagForm->addRow("Residual window", m_residualHistoryWindow);
 
+    auto* perfForm = addGroup(diagLay, "Performance");
+    m_numThreads = styleSpin(new QSpinBox);
+    m_numThreads->setRange(0, 1024);
+    m_numThreads->setSpecialValueText("auto");
+    m_numThreads->setToolTip(
+        "OpenMP threads used by the solver (matrix assembly, AMG, residuals).\n"
+        "0 = runtime default (honours OMP_NUM_THREADS).");
+    perfForm->addRow("Threads", m_numThreads);
+
     diagLay->addStretch(1);
 
     // ── Footer ───────────────────────────────────────────────────────────────
@@ -433,6 +442,7 @@ void CfdCasePage::applyDialogDefaults() {
 
     m_printFrequency->setValue(static_cast<int>(d.printFrequency));
     m_residualHistoryWindow->setValue(static_cast<int>(d.residualHistoryWindow));
+    m_numThreads->setValue(d.numThreads);
 
     // Checkbox signals only fire on an actual change, so sync explicitly.
     syncDialogDependencies();
@@ -562,6 +572,7 @@ void CfdCasePage::collectSettings() {
     s.pressureRefCell = static_cast<std::size_t>(m_pressureRefCell->value());
     s.printFrequency = static_cast<std::size_t>(m_printFrequency->value());
     s.residualHistoryWindow = static_cast<std::size_t>(m_residualHistoryWindow->value());
+    s.numThreads = m_numThreads->value();
 
     // Pressure linear solver
     s.pressureUseAMG = m_pressureUseAMG->isChecked();

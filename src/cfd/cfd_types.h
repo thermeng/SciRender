@@ -123,6 +123,9 @@ struct CaseSettings {
     std::size_t printFrequency = 1;
     std::size_t residualHistoryWindow = 20;
 
+    // Number of OpenMP threads used by the solver (matrix assembly, AMG,
+    // residuals). 0 = auto (OpenMP runtime default / OMP_NUM_THREADS).
+    int numThreads = 0;
     // Pressure-correction linear solver (see fvm::PressureCorrection::Config)
     bool pressureUseAMG = true;
     bool pressureUseAMGPreconditioner = true;
