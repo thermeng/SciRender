@@ -734,15 +734,15 @@ void RenderSettings::onMeshParsed() {
         m_state.meshUseScalarColor = false;          // ponytail: don't color on load
         m_state.showScalarColorbar = true;
         m_state.activeScalarName = loaded->scalarName;
-        // Auto-select placement: Cell Center if active field has cell data (so initial
-        // colorbar matches the wide range for cell fields like Pressure).
-        {
-            bool hasCell = loaded->attributes && loaded->attributes->cellScalars.find(m_state.activeScalarName) != loaded->attributes->cellScalars.end();
-            bool hasPoint = loaded->attributes && loaded->attributes->pointScalars.find(m_state.activeScalarName) != loaded->attributes->pointScalars.end();
-            if (hasCell && hasPoint) m_state.scalarPlacement = 1;
-            else if (hasCell) m_state.scalarPlacement = 1;
-            else m_state.scalarPlacement = 0;
-        }
+// Auto-select placement: Cell Center if active field has cell data (so initial
+// colorbar matches the wide range for cell fields like Pressure).
+{
+    bool hasCell = loaded->attributes && loaded->attributes->cellScalars.find(m_state.activeScalarName) != loaded->attributes->cellScalars.end();
+    bool hasPoint = loaded->attributes && loaded->attributes->pointScalars.find(m_state.activeScalarName) != loaded->attributes->pointScalars.end();
+    if (hasCell && hasPoint) m_state.scalarPlacement = 1;
+    else if (hasCell) m_state.scalarPlacement = 1;
+    else m_state.scalarPlacement = 0;
+}
         recomputeScalarRange();
         m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);

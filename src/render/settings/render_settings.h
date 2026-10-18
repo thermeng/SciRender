@@ -475,6 +475,7 @@ public:
 public slots:
     void loadMesh(const QString& filePath);
     void onMeshParsed(); // GUI-thread continuation after async parse
+    void applyLoadedMesh(const std::shared_ptr<const RenderMesh>& loaded, const QString& name);
     void onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, int frameIndex, double time); // PVD frame publish
     void onPostFieldsReady();
     void openRecent(const QString& filePath);

@@ -329,8 +329,11 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
             for (int b = 0; b < bands; ++b) {
                 float t0 = static_cast<float>(b) / static_cast<float>(bands);
                 float t1 = static_cast<float>(b + 1) / static_cast<float>(bands);
-                // Sample color at band center for the fill.
-                float tc = (static_cast<float>(b) + 0.5f) / static_cast<float>(bands);
+// Sample color at band center for the fill.
+float tc = (static_cast<float>(b) + 0.5f) / static_cast<float>(bands);
+// Match the smooth gradient orientation: vertical bars read top->max,
+// bottom->min, so reverse the band sample coordinate vertically.
+if (vertical) tc = 1.0f - tc;
                 // Map tc to a stop color by interpolating between gradient stops.
                 QColor col;
                 for (int i = 0; i < n - 1; ++i) {

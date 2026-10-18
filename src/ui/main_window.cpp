@@ -5,6 +5,7 @@
 #include "ui/panel_helpers.h"
 #include <cmath>
 #include <QApplication>
+#include <QClipboard>
 #include <QMenuBar>
 #include <QMenu>
 #include <QProgressDialog>
@@ -100,6 +101,58 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
     connect(m_plotWindow, &PlotWindow::requestOpenControls, this, [this](){ setSidebarSection(14); }); // 14 = Plots nav section
     connect(m_plotDock, &QDockWidget::visibilityChanged, this, [this](bool v){ m_histogramVisible = v; m_settings->setLineProbeWindowOpen(v); });
+
+    // Solver output: docked text panel at bottom of viewport area.
+    m_outputSink = new SolverOutputSink(this);
+    m_outputSink->install();
+
+    m_solverOutputContainer = new QWidget(m_centralHost);
+    auto* solLay = new QVBoxLayout(m_solverOutputContainer);
+    solLay->setContentsMargins(0, 0, 0, 0);
+    solLay->setSpacing(0);
+
+    m_solverOutputText = new QTextEdit(m_solverOutputContainer);
+    m_solverOutputText->setReadOnly(true);
+    m_solverOutputText->setFont(QFont("Consolas", 9));
+    m_solverOutputText->setLineWrapMode(QTextEdit::NoWrap);
+    solLay->addWidget(m_solverOutputText, 1);
+
+    auto* solBtnRow = new QHBoxLayout;
+    solBtnRow->setContentsMargins(4, 2, 4, 2);
+    solBtnRow->setSpacing(6);
+    auto* solCopyBtn = new QPushButton(tr("Copy"), m_solverOutputContainer);
+    auto* solClearBtn = new QPushButton(tr("Clear"), m_solverOutputContainer);
+    m_solverWrapCheck = new QCheckBox(tr("Wrap"), m_solverOutputContainer);
+    solBtnRow->addWidget(solCopyBtn);
+    solBtnRow->addWidget(solClearBtn);
+    solBtnRow->addWidget(m_solverWrapCheck);
+    solBtnRow->addStretch(1);
+    solLay->addLayout(solBtnRow);
+
+    m_solverOutputDock = new QDockWidget(tr("Solver Output"), m_centralHost);
+    m_solverOutputDock->setObjectName("SolverOutputDock");
+    m_solverOutputDock->setWidget(m_solverOutputContainer);
+    m_solverOutputDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+    m_solverOutputDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+    m_centralHost->addDockWidget(Qt::BottomDockWidgetArea, m_solverOutputDock);
+
+    connect(solCopyBtn, &QPushButton::clicked, this, [this]() {
+        if (m_solverOutputText) QApplication::clipboard()->setText(m_solverOutputText->toPlainText());
+    });
+    connect(solClearBtn, &QPushButton::clicked, this, [this]() {
+        if (m_solverOutputText) m_solverOutputText->clear();
+    });
+    connect(m_solverWrapCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_solverOutputText) m_solverOutputText->setLineWrapMode(on ? QTextEdit::WidgetWidth : QTextEdit::NoWrap);
+    });
+    connect(m_outputSink, &SolverOutputSink::text, this, [this](const QString& t) {
+        if (m_solverOutputText) {
+            m_solverOutputText->insertPlainText(t);
+            QTextCursor c = m_solverOutputText->textCursor();
+            c.movePosition(QTextCursor::End);
+            m_solverOutputText->setTextCursor(c);
+        }
+    }, Qt::QueuedConnection);
 
     setCentralWidget(m_centralHost);
     setDockNestingEnabled(true);
@@ -301,6 +354,7 @@ static const NavSection navSections[] = {
     { "Plots",           NavCapability::PlotData,
       QT_TRANSLATE_NOOP("MainWindow", "Histograms need a mesh with scalar data. "
                                       "Load a mesh with scalars, for example a .vtu.") },
+    { "CFD",             NavCapability::Always,        nullptr },
 };
 static constexpr int kNavSectionCount = int(sizeof(navSections) / sizeof(navSections[0]));
 
@@ -449,6 +503,7 @@ void MainWindow::setupSidebar() {
                     [plotsPage](bool v) { plotsPage->setViewportVisible(v); });
         addSectionPage(14, plotsPage);  // Plots
     }
+    addSectionPage(15, new sidebar::CfdCasePage(m_settings));  // CFD
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -462,17 +517,17 @@ void MainWindow::setupSidebar() {
                << " usableContent=" << (kSidebarWidth - 20) << "\n";
             const char* names[] = {"MeshInfo","Lighting","Clipping","ViewDisplay","Scalar",
                                    "Probe","Vectors","Streamlines","Volume","SlicePlane",
-                                   "Isosurface","PostProc","Screenshot","Animation","Plots"};
+                                   "Isosurface","PostProc","Screenshot","Animation","Plots","CFD"};
             for (int i = 0; i < m_sectionStack->count(); ++i) {
                 QWidget* page = m_sectionStack->widget(i);
                 QScrollArea* sa = page->findChild<QScrollArea*>();
                 if (!sa) { ts << names[i] << ": no scrollarea\n"; continue; }
-                QWidget* c = sa->widget();
-                int need = c->minimumSizeHint().width();
-                ts << QString("%1 %2 need=%3 over=%4\n")
-                      .arg(names[i], -13).arg(need > (kSidebarWidth - 20) ? "OVERFLOW" : "ok     ")
-                      .arg(need, 4).arg(qMax(0, need - (kSidebarWidth - 20)), 4);
-                if (need > (kSidebarWidth - 40)) {
+                 QWidget* c = sa->widget();
+                 int need = c->minimumSizeHint().width();
+                 ts << QString("%1 %2 need=%3 over=%4\n")
+                       .arg(names[i], -13).arg(need > (kSidebarWidth - 20) ? "OVERFLOW" : "ok     ")
+                       .arg(need, 4).arg(qMax(0, need - (kSidebarWidth - 20)), 4);
+                 if (need > (kSidebarWidth - 40)) {
                     ts << "   -- breakdown --\n";
                     for (QWidget* ch : c->findChildren<QWidget*>()) {
                         if (!ch->objectName().isEmpty() || ch->layout())

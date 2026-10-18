@@ -1,0 +1,560 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CfdCasePage</class>
+ <widget class="QWidget" name="CfdCasePage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>240</width>
+    <height>640</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>8</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>8</number>
+   </property>
+
+   <!-- ── Load Mesh ─────────────────────────────────────────────── -->
+   <item>
+    <widget class="QLabel" name="loadMeshHeader">
+     <property name="text">
+      <string>Load Mesh</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="loadBtn">
+     <property name="text">
+      <string>Load CFD Mesh...</string>
+     </property>
+     <property name="toolTip">
+      <string>Open a 2D case mesh (.msh, .vtk or .vtu).</string>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="statusText">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>34</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>No mesh loaded.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="textInteractionFlags">
+      <set>Qt::TextInteractionFlag::TextSelectableByMouse|Qt::TextInteractionFlag::TextSelectableByKeyboard</set>
+     </property>
+    </widget>
+   </item>
+
+   <!-- ── Boundary Conditions ───────────────────────────────────── -->
+   <item>
+    <widget class="QLabel" name="bcHeader">
+     <property name="text">
+      <string>Boundary Conditions</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="bcEditBtn">
+     <property name="text">
+      <string>Edit Boundaries...</string>
+     </property>
+     <property name="toolTip">
+      <string>Assign inlet, outlet and wall conditions to each mesh patch.</string>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
+   </item>
+
+   <!-- ── Physics ───────────────────────────────────────────────── -->
+   <item>
+    <widget class="QLabel" name="physicsHeader">
+     <property name="text">
+      <string>Physics</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="rhoRow" native="true">
+     <layout class="QHBoxLayout" name="rhoRowLayout">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="rhoLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Density</string></property>
+        <property name="toolTip"><string>rho</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="rhoSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="nuRow" native="true">
+     <layout class="QHBoxLayout" name="nuRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="nuLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Viscosity</string></property>
+        <property name="toolTip"><string>nu</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="nuSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="turbCb">
+     <property name="text">
+      <string>SST turbulence</string>
+     </property>
+     <property name="toolTip">
+      <string>Enable the k-omega SST turbulence model.</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="kInfRow" native="true">
+     <layout class="QHBoxLayout" name="kInfRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="kInfLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>k inlet</string></property>
+        <property name="toolTip"><string>k_inf</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="kInfSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="wInfRow" native="true">
+     <layout class="QHBoxLayout" name="wInfRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="wInfLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>omega inlet</string></property>
+        <property name="toolTip"><string>omega_inf</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="wInfSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- ── Solver ────────────────────────────────────────────────── -->
+   <item>
+    <widget class="QLabel" name="solverHeader">
+     <property name="text">
+      <string>Solver</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="tolRow" native="true">
+     <layout class="QHBoxLayout" name="tolRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="toleranceLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Tolerance</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="ScientificDoubleSpinBox" name="tolSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="maxIterRow" native="true">
+     <layout class="QHBoxLayout" name="maxIterRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="maxIterLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Max iterations</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="maxIterSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="alphaURow" native="true">
+     <layout class="QHBoxLayout" name="alphaURowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="alphaULabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Velocity relax</string></property>
+        <property name="toolTip"><string>alpha_u</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="alphaUSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="alphaPRow" native="true">
+     <layout class="QHBoxLayout" name="alphaPRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="alphaPLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Pressure relax</string></property>
+        <property name="toolTip"><string>alpha_p</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="alphaPSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="schemeRow" native="true">
+     <layout class="QHBoxLayout" name="schemeRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="schemeLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Convection</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="schemeCombo">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="simplecCb">
+     <property name="text">
+      <string>SIMPLEC</string>
+     </property>
+     <property name="toolTip">
+      <string>Consistent pressure-velocity coupling; usually allows larger relaxation.</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="rhieCb">
+     <property name="text">
+      <string>Rhie-Chow</string>
+     </property>
+     <property name="toolTip">
+      <string>Add Rhie-Chow pressure smoothing to suppress checkerboard modes.</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="advancedBtn">
+     <property name="text">
+      <string>Advanced...</string>
+     </property>
+     <property name="toolTip">
+      <string>Pressure, momentum AMG and diagnostics controls.</string>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
+   </item>
+
+   <!-- ── Run ───────────────────────────────────────────────────── -->
+   <item>
+    <widget class="QLabel" name="runHeader">
+     <property name="text">
+      <string>Run</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="solveMonitor" native="true">
+     <layout class="QGridLayout" name="monitorGrid">
+      <property name="horizontalSpacing"><number>8</number></property>
+      <property name="verticalSpacing"><number>2</number></property>
+      <property name="leftMargin"><number>8</number></property>
+      <property name="topMargin"><number>6</number></property>
+      <property name="rightMargin"><number>8</number></property>
+      <property name="bottomMargin"><number>6</number></property>
+      <item row="0" column="0">
+       <widget class="QLabel" name="iterLabel">
+        <property name="text"><string>Iteration</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLabel" name="iterValue">
+        <property name="text"><string>--</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="contLabel">
+        <property name="text"><string>Continuity</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLabel" name="contValue">
+        <property name="text"><string>--</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="momLabel">
+        <property name="text"><string>Momentum</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLabel" name="momValue">
+        <property name="text"><string>--</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="initBtn">
+     <property name="text">
+      <string>Initialize</string>
+     </property>
+     <property name="toolTip">
+      <string>Reset velocity and pressure to zero and preview the case.</string>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="runRowLayout">
+     <property name="spacing"><number>6</number></property>
+     <item>
+      <widget class="QPushButton" name="runBtn">
+       <property name="text"><string>Run</string></property>
+       <property name="toolTip"><string>Start the steady-state SIMPLE solve.</string></property>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+         <horstretch>1</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancelBtn">
+       <property name="text"><string>Cancel</string></property>
+       <property name="toolTip"><string>Request the running solve to stop.</string></property>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+         <horstretch>1</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QPushButton" name="exportBtn">
+     <property name="text">
+      <string>Export Solution...</string>
+     </property>
+     <property name="toolTip">
+      <string>Write the current fields to a .vtu file.</string>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>ScientificDoubleSpinBox</class>
+   <extends>QDoubleSpinBox</extends>
+   <header>ui/widgets/scientific_spin_box.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>
