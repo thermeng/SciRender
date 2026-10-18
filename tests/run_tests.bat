@@ -83,6 +83,14 @@ if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
 echo [run_tests] running post_fields_test...
 post_fields_test.exe
 if errorlevel 1 set FAIL=1
+:: --- AMG configuration surface (UI->solver translation + all enum combos) ---
+echo [run_tests] building amg_config_test...
+%GPP% -std=c++20 -O2 -g ..\src\fvm\AMG.cpp amg_config_test.cpp ^
+  -o amg_config_test.exe %INC% -I..\vendor\eigen-3.4.0
+if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
+echo [run_tests] running amg_config_test...
+amg_config_test.exe
+if errorlevel 1 set FAIL=1
 if %FAIL% NEQ 0 ( echo [run_tests] SOME TESTS FAILED & exit /b 1 )
 echo [run_tests] ALL TESTS PASSED
 if not defined CI pause

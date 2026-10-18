@@ -25,6 +25,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 # ---------------------------------------------------------------------------
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGLWidgets)
 find_package(OpenGL REQUIRED)
+find_package(OpenMP REQUIRED)
 
 # ---------------------------------------------------------------------------
 # 2. Configure Vendor Libraries
@@ -91,11 +92,72 @@ target_include_directories(CoreLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(CoreLib PUBLIC glm pugixml zlib lz4 lzma)
 
 # ---------------------------------------------------------------------------
+# 3b. FvmCore — absorbed FVM solver (fvm_core) + CfdLib glue
+# ---------------------------------------------------------------------------
+add_library(FvmCore STATIC
+    src/mesh/Mesh.cpp
+    src/mesh/BoundaryUtils.cpp
+    src/field/Field.cpp
+    src/field/VectorField.cpp
+    src/fvm/Laplacian.cpp
+    src/fvm/Poisson.cpp
+    src/fvm/Gradient.cpp
+    src/fvm/Divergence.cpp
+    src/fvm/Convection.cpp
+    src/fvm/Momentum.cpp
+    src/fvm/BoundaryConditions.cpp
+    src/fvm/SSTModel.cpp
+    src/fvm/Solver.cpp
+    src/fvm/SIMPLE.cpp
+    src/fvm/SIMPLEBoundaryConditions.cpp
+    src/fvm/PressureCorrection.cpp
+    src/fvm/AMG.cpp
+    src/io/VTKXMLWriter.cpp
+    src/io/ANSYSMeshReader.cpp
+    src/io/GmshReader.cpp
+    src/io/Checkpoint.cpp
+)
+target_include_directories(FvmCore SYSTEM PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/eigen-3.4.0"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/json"
+)
+target_compile_features(FvmCore PUBLIC cxx_std_20)
+target_link_libraries(FvmCore PUBLIC OpenMP::OpenMP_CXX)
+target_compile_definitions(FvmCore PUBLIC
+    EIGEN_PARALLELIZE_OPENMP
+    FVM_ALIGNMENT=64
+    FVM_CACHE_LINE_SIZE=64
+)
+target_compile_options(FvmCore PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:
+        -ffast-math
+        -funroll-loops
+        -fomit-frame-pointer
+    >
+    $<$<CXX_COMPILER_ID:MSVC>:
+        /fp:fast
+    >
+)
+
+add_library(CfdLib STATIC
+    src/cfd/cfd_types.h
+    src/cfd/amg_settings_bridge.h
+    src/cfd/cfd_mesh_adapter.h
+    src/cfd/cfd_mesh_adapter.cpp
+    src/cfd/cfd_result_builder.h
+    src/cfd/cfd_result_builder.cpp
+)
+target_include_directories(CfdLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
+target_link_libraries(CfdLib PUBLIC CoreLib FvmCore)
+
+# ---------------------------------------------------------------------------
 # 4. RenderLib — renderer, GL managers, streamlines, glyphs, overlays
 # ---------------------------------------------------------------------------
 add_library(RenderLib STATIC
     src/render/foundation/renderer.cpp
     src/render/settings/render_settings.cpp
+    src/render/settings/render_settings_apply.cpp
     src/render/settings/isosurface_controller.cpp
     src/render/settings/animation_controller.cpp
     src/render/settings/AnimationExporter.cpp
@@ -140,8 +202,14 @@ add_executable(SciRender
     src/ui/viewport_widget.h
     src/ui/colorbar_style_dialog.cpp
     src/ui/colorbar_style_dialog.h
+    src/ui/cfd_bc_dialog.cpp
+    src/ui/cfd_bc_dialog.h
     src/ui/widgets/colormap_combo.cpp
     src/ui/widgets/colormap_combo.h
+    src/ui/widgets/scientific_spin_box.h
+    src/ui/widgets/wheel_guard.h
+    src/ui/widgets/amg_config_widget.cpp
+    src/ui/widgets/amg_config_widget.h
     src/ui/widgets/range_editor.cpp
     src/ui/widgets/range_editor.h
     src/ui/widgets/plot_widget.cpp
@@ -156,6 +224,8 @@ add_executable(SciRender
     src/ui/widgets/transfer_function_widget.h
     src/ui/main_window.cpp
     src/ui/main_window.h
+    src/ui/solver_output_sink.cpp
+    src/ui/solver_output_sink.h
     src/ui/forms/main_window.ui
     src/ui/forms/scalar_page.ui
     src/ui/forms/isosurface_page.ui
@@ -171,6 +241,7 @@ add_executable(SciRender
     src/ui/forms/mesh_info_page.ui
     src/ui/forms/animation_page.ui
     src/ui/forms/postproc_page.ui
+    src/ui/forms/cfd_case_page.ui
     src/ui/panel_helpers.h
     src/ui/panel_helpers.cpp
     src/ui/pages/sidebar_page.h
@@ -203,6 +274,10 @@ add_executable(SciRender
     src/ui/pages/animation_page.cpp
     src/ui/pages/plots_page.h
     src/ui/pages/plots_page.cpp
+    src/ui/pages/cfd_case_page.h
+    src/ui/pages/cfd_case_page.cpp
+    src/ui/controllers/cfd_controller.h
+    src/ui/controllers/cfd_controller.cpp
     src/ui/pages/postproc_page.h
     src/ui/pages/postproc_page.cpp
     assets/app_icon.rc
@@ -214,7 +289,7 @@ target_compile_definitions(SciRender PRIVATE
     APP_ICON_SRC="${APP_ICON_PATH}"
 )
 
-target_link_libraries(SciRender PRIVATE CoreLib RenderLib)
+target_link_libraries(SciRender PRIVATE CoreLib RenderLib CfdLib)
 
 # Standard Qt6 Project Setup (Handles deployment dynamic copying)
 qt_standard_project_setup()

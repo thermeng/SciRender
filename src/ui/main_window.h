@@ -13,7 +13,13 @@
 #include <QList>
 #include <QVector>
 
+#include "solver_output_sink.h"
+#include <QTextEdit>
+#include <QCheckBox>
 #include "viewport_widget.h"
+#include "solver_output_sink.h"
+#include <QTextEdit>
+#include <QCheckBox>
 #include "render/settings/render_settings.h"
 #include "ui/pages/lighting_page.h"
 #include "ui/pages/clipping_page.h"
@@ -30,6 +36,7 @@
 #include "ui/pages/screenshot_page.h"
 #include "ui/pages/animation_page.h"
 #include "ui/pages/plots_page.h"
+#include "ui/pages/cfd_case_page.h"
 
 class PlotWindow;
 
@@ -123,6 +130,13 @@ private:
     QTimer m_particleTimer;
 
     QString m_currentFile;
+
+    // Solver output — docked text panel at bottom of viewport area
+    SolverOutputSink* m_outputSink = nullptr;
+    QDockWidget* m_solverOutputDock = nullptr;
+    QWidget* m_solverOutputContainer = nullptr;
+    QTextEdit* m_solverOutputText = nullptr;
+    QCheckBox* m_solverWrapCheck = nullptr;
 
     // Plots — dockable viewport constrained to original viewport location (draggable inside central host only)
     PlotWindow* m_plotWindow = nullptr;

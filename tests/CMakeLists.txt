@@ -202,3 +202,16 @@ target_include_directories(gizmo_math_test PRIVATE
     ${CMAKE_SOURCE_DIR}/../vendor
 )
 add_test(NAME gizmo_math_test COMMAND gizmo_math_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+# AMG configuration surface: the UI->solver translation of every multigrid
+# knob, plus every coarsening/interpolation/cycle/smoother combination
+# converging on a small Poisson operator. Compiles the real AMG.cpp, no Qt/GL.
+add_executable(amg_config_test
+    amg_config_test.cpp
+    ${CMAKE_SOURCE_DIR}/../src/fvm/AMG.cpp
+)
+target_include_directories(amg_config_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/../src
+    ${CMAKE_SOURCE_DIR}/../vendor/eigen-3.4.0
+)
+add_test(NAME amg_config_test COMMAND amg_config_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
