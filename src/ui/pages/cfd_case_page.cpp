@@ -5,7 +5,7 @@
 #include "ui/cfd_bc_dialog.h"
 #include "ui/controllers/cfd_controller.h"
 #include "ui/panel_helpers.h"
-#include "ui/widgets/amg_config_widget.h"
+#include "ui/widgets/wheel_guard.h"
 #include "ui/widgets/scientific_spin_box.h"
 #include "ui/widgets/wheel_guard.h"
 #include "ui_cfd_case_page.h"
@@ -104,9 +104,25 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_kInf = cfdUi.kInfSpin;
     m_wInf = cfdUi.wInfSpin;
 
+    // ── Time mode (steady / transient) ───────────────────────────────
+    m_steadyRadio = cfdUi.steadyRadio;
+    m_transientRadio = cfdUi.transientRadio;
+    m_transientOptions = cfdUi.transientOptions;
+    m_timeSchemeCombo = cfdUi.timeSchemeCombo;
+    m_dtSpin = cfdUi.dtSpin;
+    m_tEndSpin = cfdUi.tEndSpin;
+    m_adaptiveCflCb = cfdUi.adaptiveCflCb;
+    m_cflSpin = cfdUi.cflSpin;
+    m_minDtSpin = cfdUi.minDtSpin;
+    m_maxDtSpin = cfdUi.maxDtSpin;
+    m_writeIntervalSpin = cfdUi.writeIntervalSpin;
+    m_outerCorrectorsSpin = cfdUi.outerCorrectorsSpin;
+    m_pvdFileEdit = cfdUi.pvdFileEdit;
+    m_pvdBrowseBtn = cfdUi.pvdBrowseBtn;
+
     // ── Physics defaults ─────────────────────────────────────────────────────
-    m_rho->setRange(1e-6, 1e6);    m_rho->setDecimals(4); m_rho->setValue(1.0);
-    m_nu->setRange(1e-12, 1e3);    m_nu->setDecimals(4);  m_nu->setValue(0.01);
+    m_rho->setText("1.0");
+    m_nu->setText("0.01");
     m_kInf->setRange(1e-12, 1e3);  m_kInf->setDecimals(4); m_kInf->setValue(1e-3);
     m_wInf->setRange(1e-6, 1e6);   m_wInf->setDecimals(4); m_wInf->setValue(1.0);
 
@@ -125,6 +141,29 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_scheme->setMinimumContentsLength(8);
     m_rhie->setChecked(true);
 
+    // ── Time mode defaults ───────────────────────────────────────────────────
+    m_timeSchemeCombo->addItems({"Backward Euler", "BDF2"});
+    m_timeSchemeCombo->setCurrentIndex(0);
+    m_dtSpin->setRange(1e-12, 1e3);   m_dtSpin->setDecimals(9);  m_dtSpin->setValue(1e-3);
+    m_dtSpin->setSingleStep(1e-4);
+    m_tEndSpin->setRange(1e-12, 1e6); m_tEndSpin->setDecimals(6); m_tEndSpin->setValue(1.0);
+    m_cflSpin->setRange(1e-3, 1e3);   m_cflSpin->setDecimals(3);  m_cflSpin->setValue(0.5);
+    m_minDtSpin->setRange(1e-12, 1e3); m_minDtSpin->setDecimals(9); m_minDtSpin->setValue(1e-6);
+    m_maxDtSpin->setRange(1e-12, 1e3); m_maxDtSpin->setDecimals(6); m_maxDtSpin->setValue(0.01);
+    m_writeIntervalSpin->setRange(0, 1000000); m_writeIntervalSpin->setValue(1);
+    m_outerCorrectorsSpin->setRange(1, 50); m_outerCorrectorsSpin->setValue(3);
+
+    auto syncTime = [this]() { syncTimeDependencies(); };
+    connect(m_steadyRadio, &QRadioButton::toggled, this, [syncTime](bool) { syncTime(); });
+    connect(m_transientRadio, &QRadioButton::toggled, this, [syncTime](bool) { syncTime(); });
+    connect(m_pvdBrowseBtn, &QPushButton::clicked, this, [this]() {
+        QString f = QFileDialog::getSaveFileName(this, "PVD file", m_pvdFileEdit->text(), "PVD files (*.pvd)");
+        if (!f.isEmpty()) m_pvdFileEdit->setText(f);
+    });
+
+    // ── Frame streaming from transient runs ──────────────────────────────────
+    connect(m_ctrl, &CfdController::frameReady, this, &CfdCasePage::onTransientFrame);
+
     // k / omega are only meaningful with turbulence enabled.
     auto syncTurbulence = [this]() {
         const bool on = m_turb->isChecked();
@@ -141,6 +180,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     // top-left corner of the panel (a parented widget with no layout floats).
     buildAdvancedDialog();
     connect(m_advancedBtn, &QPushButton::clicked, this, [this] { m_advancedDlg->exec(); });
+    syncTime(); // depends on dialog widgets; must run after buildAdvancedDialog()
     // ── Read-out boxes ───────────────────────────────────────────────────────
     m_status->setStyleSheet(QString("QLabel { %1 padding: 6px 8px; }").arg(readoutStyle()));
 
@@ -167,6 +207,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     setRunning(false);
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
+    installWheelGuard(content);
     setContent(content, true);
 }
 
@@ -410,6 +451,53 @@ void CfdCasePage::syncDialogDependencies() {
     m_momentumAmgCycles->setEnabled(momentumAmg);
     m_momentumAmgMaxResidual->setEnabled(momentumAmg);
     m_momentumAmgWidget->setEnabled(momentumAmg);
+
+    // In transient (PISO) mode the corrector count comes from "Outer correctors"
+    // on the page, and the steady-path "Correctors" field is not consulted.
+    const bool transient = m_transientRadio && m_transientRadio->isChecked();
+    m_pressureCorrectors->setEnabled(!transient);
+    m_pressureCorrectors->setToolTip(transient
+        ? "Not used in transient (PISO) mode: the corrector count comes from \"Outer correctors\" on the Time section."
+        : "Number of pressure correctors per SIMPLE iteration.");
+}
+
+void CfdCasePage::syncTimeDependencies() {
+    const bool transient = m_transientRadio && m_transientRadio->isChecked();
+    m_transientOptions->setVisible(transient);
+
+    // Adaptive CFL only gates the CFL number; min/max dt still clamp a fixed dt.
+    const bool adaptive = m_adaptiveCflCb->isChecked();
+    m_cflSpin->setEnabled(transient && adaptive);
+    m_minDtSpin->setEnabled(transient);
+    m_maxDtSpin->setEnabled(transient);
+
+    // PISO makes these inert. Reflect that honestly instead of silently ignoring.
+    const bool steady = !transient;
+    m_alphaU->setEnabled(steady);
+    m_alphaP->setEnabled(steady);
+    m_rhie->setEnabled(steady);
+    if (transient) {
+        m_rhie->setChecked(true);
+        m_alphaU->setToolTip("Forced to 1.0 by PISO in transient mode.");
+        m_alphaP->setToolTip("Forced to 1.0 by PISO in transient mode.");
+        m_rhie->setToolTip("Forced on by PISO in transient mode.");
+    } else {
+        m_alphaU->setToolTip("");
+        m_alphaP->setToolTip("");
+        m_rhie->setToolTip("");
+    }
+    m_maxIter->setEnabled(steady);
+    m_maxIter->setToolTip(transient
+        ? "Not used in transient mode: the run marches to \"End time\"."
+        : "");
+
+    // Max iterations / tolerance labels: tolerance is the per-step corrector target.
+    m_tol->setToolTip(transient
+        ? "Per-step corrector convergence target in transient (PISO) mode."
+        : "");
+
+    // Keep the dialog's gating in sync too.
+    syncDialogDependencies();
 }
 
 void CfdCasePage::setRunning(bool running) {
@@ -455,8 +543,8 @@ void CfdCasePage::rebuildPatchTable() {
 
 void CfdCasePage::collectSettings() {
     cfd::CaseSettings s;
-    s.rho = m_rho->value();
-    s.nu = m_nu->value();
+    s.rho = m_rho->text().toDouble();
+    s.nu = m_nu->text().toDouble();
     s.tolerance = m_tol->value();
     s.maxIterations = static_cast<std::size_t>(m_maxIter->value());
     s.alphaU = m_alphaU->value();
@@ -489,6 +577,21 @@ void CfdCasePage::collectSettings() {
     s.momentumSolverStats = m_momentumSolverStats->isChecked();
     s.momentumAmg = m_momentumAmgWidget->config();
 
+    // Time mode (steady / transient)
+    s.transient.enabled = m_transientRadio->isChecked();
+    s.transient.dt = m_dtSpin->value();
+    s.transient.tEnd = m_tEndSpin->value();
+    s.transient.timeScheme = (m_timeSchemeCombo->currentIndex() == 1)
+        ? cfd::TransientSettings::TimeScheme::BDF2
+        : cfd::TransientSettings::TimeScheme::BackwardEuler;
+    s.transient.adaptiveCfl = m_adaptiveCflCb->isChecked();
+    s.transient.cfl = m_cflSpin->value();
+    s.transient.minDt = m_minDtSpin->value();
+    s.transient.maxDt = m_maxDtSpin->value();
+    s.transient.writeInterval = m_writeIntervalSpin->value();
+    s.transient.maxOuterCorrectors = m_outerCorrectorsSpin->value();
+    s.transient.pvdFile = m_pvdFileEdit->text().toStdString();
+
     m_ctrl->setSettings(s);
     m_ctrl->setPatchBCs(m_patchBCs);
 }
@@ -520,7 +623,14 @@ void CfdCasePage::onRun() {
     m_iterValue->setText("0");
     m_contValue->setText("--");
     m_momValue->setText("--");
-    m_ctrl->run();
+// Use per-frame min/max during CFD transient streaming so each time step
+// shows its own full range instead of an accumulated union.
+m_savedAnimGlobal = S()->getAnimScaleGlobal();
+S()->setAnimScaleGlobal(false);
+// Reseed the colormap range on the first transient frame instead of
+// inheriting a stale range from a previous run/animation.
+S()->resetAnimationSequence();
+m_ctrl->run();
 }
 
 void CfdCasePage::onCancel() {
@@ -565,15 +675,30 @@ void CfdCasePage::onProgress(int iteration, double continuity, double momentum) 
     m_momValue->setText(QString::number(momentum, 'e', 3));
 }
 
+void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time) {
+    if (!mesh) return;
+    // Preserve the user's scalar-color toggle: onAnimationFrame's first-frame
+    // block disables it by default (animation UX), which would blank the
+    // colormap mid-run.
+    const bool hadScalarColor = S()->getMeshUseScalarColor();
+    // Light per-frame publish: keeps the camera and the user's field selection.
+    S()->onAnimationFrame(mesh, step, time);
+    S()->setMeshUseScalarColor(hadScalarColor);
+    m_iterValue->setText(QString::number(step));
+    m_status->setText(QString("Transient: step %1, t = %2 s").arg(step).arg(time, 0, 'g', 6));
+}
+
 void CfdCasePage::onFinished(const QString& summary) {
     setRunning(false);
     m_status->setText(summary);
+    S()->setAnimScaleGlobal(m_savedAnimGlobal);
     auto rm = m_ctrl->resultMesh();
-    if (rm) S()->applyLoadedMesh(rm, "cfd_solution");
+    if (rm) S()->onAnimationFrame(rm, 0, 0.0);
 }
 
 void CfdCasePage::onFailed(const QString& error) {
     setRunning(false);
+    S()->setAnimScaleGlobal(m_savedAnimGlobal);
     m_status->setText("Failed: " + error);
 }
 

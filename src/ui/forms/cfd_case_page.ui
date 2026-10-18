@@ -70,6 +70,272 @@
      </property>
     </widget>
    </item>
+    <!-- ── Time (steady / transient) ──────────────────────────────── -->
+    <item>
+     <widget class="QLabel" name="timeHeader">
+      <property name="text">
+       <string>Time</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QWidget" name="timeModeRow" native="true">
+      <layout class="QHBoxLayout" name="timeModeRowLayout">
+       <property name="spacing"><number>6</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QRadioButton" name="steadyRadio">
+         <property name="text"><string>Steady</string></property>
+         <property name="checked"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QRadioButton" name="transientRadio">
+         <property name="text"><string>Transient</string></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QWidget" name="transientOptions" native="true">
+      <property name="visible"><bool>false</bool></property>
+      <layout class="QVBoxLayout" name="transientOptionsLayout">
+       <property name="spacing"><number>4</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+
+       <item>
+        <widget class="QWidget" name="timeSchemeRow" native="true">
+         <layout class="QHBoxLayout" name="timeSchemeRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="timeSchemeLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>Time scheme</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="timeSchemeCombo">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QWidget" name="dtRow" native="true">
+         <layout class="QHBoxLayout" name="dtRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="dtLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>Time step</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="ScientificDoubleSpinBox" name="dtSpin">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QWidget" name="tEndRow" native="true">
+         <layout class="QHBoxLayout" name="tEndRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="tEndLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>End time</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="ScientificDoubleSpinBox" name="tEndSpin">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QCheckBox" name="adaptiveCflCb">
+         <property name="text"><string>Adaptive CFL</string></property>
+         <property name="toolTip"><string>Recompute dt each step from the CFL number. min/max dt still clamp the step even when this is off.</string></property>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QWidget" name="cflRow" native="true">
+         <layout class="QHBoxLayout" name="cflRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="cflLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>CFL number</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QDoubleSpinBox" name="cflSpin">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QWidget" name="minDtRow" native="true">
+         <layout class="QHBoxLayout" name="minDtRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="minDtLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>Min dt</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="ScientificDoubleSpinBox" name="minDtSpin">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QWidget" name="maxDtRow" native="true">
+         <layout class="QHBoxLayout" name="maxDtRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="maxDtLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>Max dt</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="ScientificDoubleSpinBox" name="maxDtSpin">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QWidget" name="writeIntervalRow" native="true">
+         <layout class="QHBoxLayout" name="writeIntervalRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="writeIntervalLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>Write interval</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSpinBox" name="writeIntervalSpin">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QWidget" name="outerCorrectorsRow" native="true">
+         <layout class="QHBoxLayout" name="outerCorrectorsRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="outerCorrectorsLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>Outer correctors</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSpinBox" name="outerCorrectorsSpin">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QWidget" name="pvdRow" native="true">
+         <layout class="QHBoxLayout" name="pvdRowLayout">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QLabel" name="pvdFileLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>PVD file</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="pvdFileEdit">
+            <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+            <property name="placeholderText"><string>transient.pvd</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="pvdBrowseBtn">
+            <property name="text"><string>...</string></property>
+            <property name="maximumSize"><size><width>28</width><height>16777215</height></size></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+
+      </layout>
+     </widget>
+    </item>
+
+
 
    <!-- ── Boundary Conditions ───────────────────────────────────── -->
    <item>
@@ -124,7 +390,7 @@
        </widget>
       </item>
       <item>
-       <widget class="QDoubleSpinBox" name="rhoSpin">
+       <widget class="QLineEdit" name="rhoSpin">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
           <horstretch>1</horstretch>
@@ -154,7 +420,7 @@
        </widget>
       </item>
       <item>
-       <widget class="QDoubleSpinBox" name="nuSpin">
+       <widget class="QLineEdit" name="nuSpin">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
           <horstretch>1</horstretch>

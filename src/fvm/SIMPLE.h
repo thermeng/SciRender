@@ -263,7 +263,13 @@ private:
     // Solve with ILU. Used as the default and as the fallback when the
     // AMG-preconditioned solve produces an unacceptable residual.
     Eigen::VectorXd solveMomentumILU_(std::size_t d, std::size_t& itersOut);
-    bool checkConvergence_(std::size_t iter);
+    // Returns true when the caller should stop solving. `checkTolerance` gates
+    // the "residuals are below tolerance" clause: the steady path wants it, the
+    // transient path does not — a converged corrector loop at one time step
+    // says nothing about whether the transient simulation is finished, so a
+    // transient run must keep marching to tEnd (NaN/divergence and Cancel still
+    // stop it in both modes).
+    bool checkConvergence_(std::size_t iter, bool checkTolerance = true);
     bool aborted() const { return aborted_; }
     void saveCheckpoint_(std::size_t iter);
     void saveCheckpoint_(std::size_t iter, const TransientBlock<Dim>* transient);

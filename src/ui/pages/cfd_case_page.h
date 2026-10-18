@@ -13,6 +13,9 @@ class QCheckBox;
 class QLabel;
 class QDialog;
 class QDoubleSpinBox;
+class QRadioButton;
+class QLineEdit;
+class ScientificDoubleSpinBox;
 
 namespace sidebar {
 
@@ -32,6 +35,7 @@ private slots:
     void onFinished(const QString& summary);
     void onFailed(const QString& error);
     void onMeshLoaded();
+    void onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time);
 
 private:
     void buildAdvancedDialog();
@@ -41,6 +45,7 @@ private:
     void applyDialogDefaults();
     // Enable/disable controls whose meaning depends on a checkbox.
     void syncDialogDependencies();
+    void syncTimeDependencies();
     void rebuildPatchTable();
     void collectSettings();
     void setRunning(bool running);
@@ -49,8 +54,8 @@ private:
     std::vector<cfd::PatchBC> m_patchBCs;
     QString m_meshName;
 
-    QDoubleSpinBox* m_rho = nullptr;
-    QDoubleSpinBox* m_nu = nullptr;
+    QLineEdit* m_rho = nullptr;
+    QLineEdit* m_nu = nullptr;
     QDoubleSpinBox* m_tol = nullptr;
     QSpinBox* m_maxIter = nullptr;
     QDoubleSpinBox* m_alphaU = nullptr;
@@ -94,7 +99,24 @@ private:
     QCheckBox* m_momentumSolverStats = nullptr;
     AmgConfigWidget* m_momentumAmgWidget = nullptr;
 
+    // ── Time mode (steady / transient) ──────────────────────────────
+    QRadioButton* m_steadyRadio = nullptr;
+    QRadioButton* m_transientRadio = nullptr;
+    QWidget* m_transientOptions = nullptr;
+    QComboBox* m_timeSchemeCombo = nullptr;
+    ScientificDoubleSpinBox* m_dtSpin = nullptr;
+    ScientificDoubleSpinBox* m_tEndSpin = nullptr;
+    QCheckBox* m_adaptiveCflCb = nullptr;
+    QDoubleSpinBox* m_cflSpin = nullptr;
+    ScientificDoubleSpinBox* m_minDtSpin = nullptr;
+    ScientificDoubleSpinBox* m_maxDtSpin = nullptr;
+    QSpinBox* m_writeIntervalSpin = nullptr;
+    QSpinBox* m_outerCorrectorsSpin = nullptr;
+    QLineEdit* m_pvdFileEdit = nullptr;
+    QPushButton* m_pvdBrowseBtn = nullptr;
+
     bool m_running = false;
+    bool m_savedAnimGlobal = true;
 };
 
 } // namespace sidebar

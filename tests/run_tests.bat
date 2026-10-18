@@ -91,6 +91,14 @@ if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
 echo [run_tests] running amg_config_test...
 amg_config_test.exe
 if errorlevel 1 set FAIL=1
+:: --- Transient configuration surface (UI->solver translation + enum ordinals) ---
+echo [run_tests] building transient_settings_test...
+%GPP% -std=c++20 -O2 -g transient_settings_test.cpp ^
+  -o transient_settings_test.exe %INC% -I..\vendor\eigen-3.4.0 -I..\vendor\json
+if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
+echo [run_tests] running transient_settings_test...
+transient_settings_test.exe
+if errorlevel 1 set FAIL=1
 if %FAIL% NEQ 0 ( echo [run_tests] SOME TESTS FAILED & exit /b 1 )
 echo [run_tests] ALL TESTS PASSED
 if not defined CI pause

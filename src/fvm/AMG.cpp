@@ -499,7 +499,7 @@ void AMGHierarchy::extendedInterpolation(const SparseMatrix& A,
 
 void AMGHierarchy::truncateInterpolation(SparseMatrix& P) const {
     const double eps = config_.truncThreshold;
-    if (eps <= 0.0 || eps >= 1.0) return;
+    const bool doDrop = (eps > 0.0 && eps < 1.0);
 
     const int n = static_cast<int>(P.rows());
     // Row-major view for efficient row-wise truncation; move-assign back avoids extra copy
@@ -508,16 +508,18 @@ void AMGHierarchy::truncateInterpolation(SparseMatrix& P) const {
         double maxVal = 0.0;
         for (SparseMatrixRM::InnerIterator it(PRM, i); it; ++it) maxVal = std::max(maxVal, std::abs(it.value()));
         if (maxVal < 1e-30) continue;
-        double threshold = eps * maxVal;
-        double rowSum = 0.0, origSum = 0.0;
+        double threshold = doDrop ? (eps * maxVal) : 0.0;
+        double rowSum = 0.0;
         int count = 0;
         for (SparseMatrixRM::InnerIterator it(PRM, i); it; ++it) {
             double v = it.value();
-            origSum += v;
             if (std::abs(v) >= threshold) { rowSum += v; ++count; }
         }
+        // Always enforce partition-of-unity (row sum = 1) so interpolation
+        // reproduces the constant null space of the Poisson operator. Hypre's
+        // classical interpolation is constructed to satisfy P*1 = 1; without this
+        // normalization the coarse grid degrades for constant fields.
         if (count > 0 && std::abs(rowSum) > 1e-30) {
-            // Force partition-of-unity (row sum = 1) rather than preserving perturbed origSum
             double scale = 1.0 / rowSum;
             for (SparseMatrixRM::InnerIterator it(PRM, i); it; ++it) {
                 if (std::abs(it.value()) < threshold) it.valueRef() = 0.0;
@@ -531,15 +533,11 @@ void AMGHierarchy::truncateInterpolation(SparseMatrix& P) const {
 }
 
 void AMGHierarchy::updateFineValues(const SparseMatrix& A) {
-    if (levels_.empty()) return;
-    // Update fine level ARM to current A values (pattern is same)
-    SparseMatrixRM ARM = A;
-    if (ARM.rows() == levels_[0].ARM.rows() && ARM.nonZeros() == levels_[0].ARM.nonZeros()) {
-        levels_[0].ARM = std::move(ARM);
-    } else {
-        // Pattern changed — need full rebuild
-        invalidate();
-    }
+    // Coarse levels depend on A through the Galerkin product, so a value-only
+    // update of the fine level is unsound. Rebuild the full hierarchy so that
+    // strength/interpolation and the Galerkin coarse operator stay consistent
+    // with the current matrix values (e.g. momentum matrices in transient SIMPLE).
+    build(A);
 }
 
 SparseMatrix AMGHierarchy::galerkinProduct(const SparseMatrix& A, const SparseMatrix& P) const {
@@ -772,12 +770,7 @@ void AMGHierarchy::cycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x
 
 void AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
     if (levels_.empty()) { x = b; return; }
-    // One cycle applied to the caller's current guess. Callers that want a
-    // standalone preconditioner application (AMGPreconditioner) pass a zeroed
-    // x. Deliberately NOT zeroing here: repeating the call is what makes a
-    // multi-cycle preconditioner stronger, and an internal reset silently
-    // turned the cycle-count setting into a no-op.
-    if (x.size() != b.rows()) x = Eigen::VectorXd::Zero(b.rows());
+    x = Eigen::VectorXd::Zero(b.rows());
     cycle(0, b, x);
 }
 
@@ -785,9 +778,12 @@ bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
     if (levels_.empty()) return false;
 
     const int n = static_cast<int>(levels_[0].ARM.rows());
-    if (x.size() != n) x.resize(n);
-
-    x.setZero();
+    if (x.size() != n) {
+        x.resize(n);
+        x.setZero();
+    } else if (!x.allFinite()) {
+        x.setZero();
+    }
 
     double bnorm = b.norm();
     if (bnorm < 1e-30) {
