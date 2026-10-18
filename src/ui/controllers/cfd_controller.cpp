@@ -4,6 +4,7 @@
 #include "cfd/cfd_mesh_adapter.h"
 #include "cfd/cfd_result_builder.h"
 #include "cfd/cfd_types.h"
+#include "cfd/transient_settings_bridge.h"
 
 #include "mesh/Mesh.h"
 #include "field/Field.h"
@@ -15,6 +16,7 @@
 
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
+#include <QFileInfo>
 
 #include <memory>
 #include <mutex>
@@ -32,6 +34,7 @@ bool CfdController::loadMesh(const QString& path) {
         return false;
     }
     m_meshPtr = m_mesh.mesh2;
+    m_meshPath = path;
     emit meshLoaded();
     return true;
 }
@@ -39,10 +42,23 @@ bool CfdController::loadMesh(const QString& path) {
 void CfdController::run() {
     if (!m_meshPtr) { emit failed("No mesh loaded"); return; }
     m_cancel.store(false);
+    m_lastTime.store(0.0);
     uint64_t gen = ++m_gen;
 
     auto meshPtr = m_meshPtr;
     auto settings = m_settings;
+    auto base = m_mesh.renderMesh;
+    auto patchBCs = m_patchBCs;
+
+    // Resolve a relative PVD path against the mesh's directory so the .vtu
+    // frames and the .pvd land next to the case instead of in the process CWD.
+    if (!settings.transient.pvdFile.empty()) {
+        std::string& pvd = settings.transient.pvdFile;
+        if (pvd.find_first_of("/\\\\") == std::string::npos) {
+            QString dir = QFileInfo(m_meshPath).absolutePath();
+            pvd = (dir + "/" + QString::fromStdString(pvd)).toStdString();
+        }
+    }
 
     m_velocity = std::make_shared<fvm::VectorField<2>>(*meshPtr, 0.0);
     m_pressure = std::make_shared<fvm::Field<2>>(*meshPtr, 0.0);
@@ -72,11 +88,32 @@ void CfdController::run() {
     sc.momentumAmgMaxResidual = settings.momentumAmgMaxResidual;
     sc.momentumSolverStats = settings.momentumSolverStats;
     sc.momentumAmgConfig = toFvmAmg(settings.momentumAmg);
+    sc.solverType = toFvmSolverType(settings.transient);
+    sc.transient = toFvmTransient<2>(settings.transient);
     sc.iterationCallback = [this, gen](int iter, double cont, double mom) {
         if (gen != m_gen) return;
         if (m_cancel.load()) return;
         emit progress(iter, cont, mom);
     };
+    // Live viewport streaming for transient runs. One frame per time step,
+    // independent of the on-disk write cadence. The callback runs on the
+    // solver's worker thread between steps (nothing is mutating the fields at
+    // that point), so building the RenderMesh here is safe.
+    if (settings.transient.enabled) {
+        sc.transientCallback = [this, gen, meshPtr, base, settings, patchBCs](int step, double time,
+            const fvm::VectorField<2>& velocity, const fvm::Field<2>& pressure) {
+            if (gen != m_gen) return;
+            if (m_cancel.load()) return;
+            m_lastTime.store(time);
+            const fvm::SSTModel<2>* turb = nullptr;
+            {
+                std::lock_guard<std::mutex> lk(m_solverMutex);
+                if (m_solver) turb = m_solver->turbulence();
+            }
+            auto rm = buildResultMesh(base, *meshPtr, velocity, pressure, turb, settings, patchBCs);
+            if (rm) emit frameReady(rm, step, time);
+        };
+    }
 
     auto solver = std::make_shared<fvm::SIMPLE<2>>(*meshPtr, settings.rho, settings.nu, sc);
     if (settings.turbulence) solver->enableTurbulence(settings.kInf, settings.omegaInf, settings.alphaK, settings.alphaOmega);
@@ -117,12 +154,18 @@ void CfdController::run() {
         w->deleteLater();
         if (gen != m_gen) return;
         if (m_cancel.load()) { emit finished("Cancelled"); return; }
-        emit finished("Solve complete");
+        if (m_settings.transient.enabled)
+            emit finished(QString("Transient run complete (t = %1 s)").arg(m_lastTime.load(), 0, 'g', 6));
+        else
+            emit finished("Solve complete");
     });
 
-    auto fut = QtConcurrent::run([this, gen, solver]() {
+    auto fut = QtConcurrent::run([this, gen, solver, settings]() {
         if (gen != m_gen) return;
-        solver->solve(*m_velocity, *m_pressure);
+        if (settings.transient.enabled)
+            solver->solveTransient(*m_velocity, *m_pressure);
+        else
+            solver->solve(*m_velocity, *m_pressure);
     });
     w->setFuture(fut);
 }
@@ -160,5 +203,5 @@ void CfdController::exportVtu(const QString& path) {
 std::shared_ptr<const RenderMesh> CfdController::resultMesh() const {
     if (!m_meshPtr || !m_velocity || !m_pressure || !m_mesh.renderMesh) return nullptr;
     const fvm::SSTModel<2>* turb = m_solver ? m_solver->turbulence() : nullptr;
-    return buildResultMesh(m_mesh.renderMesh, *m_meshPtr, *m_velocity, *m_pressure, turb, m_settings);
+    return buildResultMesh(m_mesh.renderMesh, *m_meshPtr, *m_velocity, *m_pressure, turb, m_settings, m_patchBCs);
 }

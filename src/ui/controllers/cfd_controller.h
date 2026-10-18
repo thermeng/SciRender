@@ -3,6 +3,7 @@
 #include <QString>
 #include <memory>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <functional>
 
@@ -44,6 +45,12 @@ public:
 signals:
     void meshLoaded();
     void progress(int iteration, double continuity, double momentum);
+    // One frame per time step of a transient run, published from the solver's
+    // worker thread. Deliberately independent of the on-disk write cadence so
+    // the viewport keeps up even when "write interval" is large. The receiving
+    // connection is queued, so the payload must be immutable — which is why it
+    // is a shared_ptr<const RenderMesh>.
+    void frameReady(std::shared_ptr<const RenderMesh> mesh, int step, double time);
     void finished(const QString& summary);
     void failed(const QString& error);
 
@@ -58,5 +65,7 @@ private:
     std::mutex m_solverMutex;
     std::vector<cfd::PatchBC> m_patchBCs;
     std::atomic<bool> m_cancel{false};
+    std::atomic<double> m_lastTime{0.0}; // simulated time reached, for the summary
+    QString m_meshPath;                  // dir used to resolve a relative .pvd
     uint64_t m_gen = 0;
 };

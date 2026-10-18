@@ -590,7 +590,7 @@ void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResidual
 }
 
 template<std::size_t Dim>
-bool SIMPLE<Dim>::checkConvergence_(std::size_t iter) {
+bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance) {
     if (std::isnan(lastContResid_) || std::isinf(lastContResid_)) {
         aborted_ = true;
         std::cerr << "  WARNING: NaN/Inf continuity residual at iteration " << (iter + 1) << ", aborting\n";
@@ -603,7 +603,7 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter) {
     if (cancelRequested_.load(std::memory_order_acquire)) {
         return true;
     }
-    if (lastContResid_ < config_.tolerance && lastMomChange_ < config_.tolerance) {
+    if (checkTolerance && lastContResid_ < config_.tolerance && lastMomChange_ < config_.tolerance) {
         return true;
     }
     return false;
@@ -1347,7 +1347,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             }
             // checkConvergence_ detects NaN/inf divergence; act on it instead of
             // discarding the result and marching on to tEnd.
-            if (checkConvergence_(static_cast<std::size_t>(step))) break;
+            if (checkConvergence_(static_cast<std::size_t>(step), false)) break;
             // Turbulence updated once per time step after PISO correctors (frozen during correctors)
             if (turbulence_ && config_.transient.enabled && dt_ > 0) {
                 // One turbulence iteration with the corrected velocity
@@ -1376,7 +1376,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                 lastIterations_ = step * nOuter + outer + 1;
                 if (lastContResid_ < config_.tolerance && lastMomResid_ < config_.tolerance) break;
             }
-            if (checkConvergence_(static_cast<std::size_t>(step))) break;
+            if (checkConvergence_(static_cast<std::size_t>(step), false)) break;
         }
         // Roll the BDF2 history forward. dtPrev_ records the step size that
         // produced velocityN_, which is what the next step's BDF2 coefficients

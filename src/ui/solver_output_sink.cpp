@@ -12,8 +12,8 @@ void SolverOutputSink::install() {
     if (m_coutBuf) return;
     m_oldCout = std::cout.rdbuf();
     m_oldCerr = std::cerr.rdbuf();
-    m_coutBuf = new TeeBuf(m_oldCout, this);
-    m_cerrBuf = new TeeBuf(m_oldCerr, this);
+    m_coutBuf = new TeeBuf(nullptr, this);
+    m_cerrBuf = new TeeBuf(nullptr, this);
     std::cout.rdbuf(m_coutBuf);
     std::cerr.rdbuf(m_cerrBuf);
 }

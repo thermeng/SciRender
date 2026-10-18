@@ -477,6 +477,9 @@ public slots:
     void onMeshParsed(); // GUI-thread continuation after async parse
     void applyLoadedMesh(const std::shared_ptr<const RenderMesh>& loaded, const QString& name);
     void onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, int frameIndex, double time); // PVD frame publish
+    // Reset the animation-sequence state so the next transient run reseeds its
+    // scalar range on the first frame instead of inheriting a stale range.
+    void resetAnimationSequence() { m_animSequenceActive = false; }
     void onPostFieldsReady();
     void openRecent(const QString& filePath);
     void clearMeshes();

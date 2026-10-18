@@ -143,6 +143,7 @@ target_compile_options(FvmCore PRIVATE
 add_library(CfdLib STATIC
     src/cfd/cfd_types.h
     src/cfd/amg_settings_bridge.h
+    src/cfd/transient_settings_bridge.h
     src/cfd/cfd_mesh_adapter.h
     src/cfd/cfd_mesh_adapter.cpp
     src/cfd/cfd_result_builder.h

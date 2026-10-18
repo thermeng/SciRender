@@ -83,16 +83,19 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     const fvm::VectorField<2>& velocity,
     const fvm::Field<2>& pressure,
     const fvm::SSTModel<2>* turbulence,
-    const CaseSettings& settings) {
+    const CaseSettings& settings,
+    const std::vector<PatchBC>& patchBCs) {
 
     RenderMesh rm = *baseMesh; // copy geometry + cell topology CSRs
     auto& attrs = mesh_utils::ensureAttributes(rm);
 
     const int nCells = static_cast<int>(mesh.nCells());
+    if (nCells <= 0) return nullptr;
     const int nSrc = (rm.sourcePointCount > 0)
         ? rm.sourcePointCount
         : static_cast<int>(rm.vertices.size() / 3);
     const int nFinal = static_cast<int>(rm.vertices.size() / 3);
+    if (nSrc <= 0 || nFinal <= 0) return nullptr;
 
     auto expandToFinal = [&](const std::vector<float>& src) {
         std::vector<float> out(static_cast<std::size_t>(nFinal), 0.0f);
@@ -149,6 +152,38 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
 
     // Point-located velocity (glyphs, streamlines, LIC read this contiguous run).
     std::vector<glm::vec3> pointVel = extrapolateVectorToPoints(rm, cellVel, nCells, nSrc);
+
+    // Preserve prescribed boundary velocities at boundary vertices instead of
+    // leaving them as the average of adjacent cell centers. This keeps the
+    // visualized field consistent with the applied boundary conditions (e.g. a
+    // lid moving at 1 m/s shows up as 1 m/s on the lid).
+    for (const auto& pbc : patchBCs) {
+        auto git = mesh.boundaryGroups().find(pbc.patchName);
+        if (git == mesh.boundaryGroups().end()) continue;
+        glm::vec3 bvel(0.0f);
+        bool apply = false;
+        switch (pbc.type) {
+            case BCType::VelocityInlet:
+            case BCType::MovingWall:
+                bvel = glm::vec3(static_cast<float>(pbc.u),
+                                 static_cast<float>(pbc.v),
+                                 static_cast<float>(pbc.w));
+                apply = true;
+                break;
+            case BCType::WallNoSlip:
+                apply = true;
+                break;
+            default:
+                break;
+        }
+        if (!apply) continue;
+        for (std::size_t f : git->second) {
+            for (std::size_t vid : mesh.faceVertices(f)) {
+                if (vid < pointVel.size()) pointVel[vid] = bvel;
+            }
+        }
+    }
+
     rm.pointVectorsData = pointVel;
     rm.pointVectorOffset.clear();
     rm.pointVectorOffset["velocity"] = 0;

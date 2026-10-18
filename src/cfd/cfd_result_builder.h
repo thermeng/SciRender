@@ -19,6 +19,7 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     const fvm::VectorField<2>& velocity,
     const fvm::Field<2>& pressure,
     const fvm::SSTModel<2>* turbulence,
-    const CaseSettings& settings);
+    const CaseSettings& settings,
+    const std::vector<PatchBC>& patchBCs = {});
 
 } // namespace cfd
