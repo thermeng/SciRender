@@ -92,6 +92,7 @@ private:
     AmgConfigWidget* m_pressureAmgWidget = nullptr;
     QSpinBox* m_printFrequency = nullptr;
     QSpinBox* m_residualHistoryWindow = nullptr;
+    QSpinBox* m_numThreads = nullptr;
     QCheckBox* m_useAMGMomentum = nullptr;
     QSpinBox* m_momentumAmgThreshold = nullptr;
     QSpinBox* m_momentumAmgCycles = nullptr;

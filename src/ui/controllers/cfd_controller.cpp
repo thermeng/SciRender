@@ -21,6 +21,9 @@
 #include <memory>
 #include <mutex>
 
+#include <omp.h>
+#include <Eigen/Core>
+
 using namespace cfd;
 
 CfdController::CfdController(QObject* parent) : QObject(parent) {}
@@ -50,6 +53,13 @@ void CfdController::run() {
     auto base = m_mesh.renderMesh;
     auto patchBCs = m_patchBCs;
 
+    // Honor the user's thread-count choice (0 = OpenMP/Eigen default).
+    const int requestedThreads = settings.numThreads;
+    const int threadCount = requestedThreads > 0 ? requestedThreads : omp_get_max_threads();
+    if (threadCount > 0) {
+        omp_set_num_threads(threadCount);
+        Eigen::setNbThreads(threadCount);
+    }
     // Resolve a relative PVD path against the mesh's directory so the .vtu
     // frames and the .pvd land next to the case instead of in the process CWD.
     if (!settings.transient.pvdFile.empty()) {
