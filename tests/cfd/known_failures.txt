@@ -19,19 +19,10 @@
 #  grid, and the wall ghost no longer dilutes a prescribed cell's gradient)
 
 # --- Divergence --------------------------------------------------------------
-# The three-argument overload uses the interior cell velocity at the boundary
-# faces, so it lets the flow through a wall. It has to honour the Dirichlet
-# mask like the five-argument overload does.
-cfd.divergence.no_slip_wall_flux
-
-# maxDivergence() skips the boundary cells while Residual.h includes them, so
-# the two report different quantities under the same name.
-cfd.divergence.max_divergence_definition
-
-# The face velocity uses the orthogonal projection parameter as the
-# interpolation weight instead of the true intersection parameter, so a
-# linear field is not reproduced exactly on a skewed mesh.
-cfd.divergence.unstructured_uses_face_weights
+# (fixed: the face velocity now follows the momentum assembly - a cell with a
+#  prescribed velocity owns the whole face it shares with a neighbour - the
+#  boundary condition is an explicit input, the mask is validated, and
+#  maxDivergence() measures the same quantity as the residual)
 
 # --- Convection --------------------------------------------------------------
 # The three overloads assemble different operators: they disagree on the

@@ -1,146 +1,139 @@
 #include "fvm/Divergence.h"
+
 #include <algorithm>
+#include <stdexcept>
 
 namespace fvm {
 
-template<std::size_t Dim>
-Field<Dim> computeDivergence(const Mesh<Dim>& mesh, const VectorField<Dim>& velocity) {
-    Field<Dim> div(mesh, 0.0);
-    computeDivergenceInto(mesh, velocity, div);
-    return div;
+namespace {
+
+// The prescribed value of a component in a cell, when the cell prescribes it.
+inline bool prescribedValue(const std::vector<std::vector<char>>& mask,
+                            const std::vector<std::vector<double>>& values,
+                            std::size_t d, std::size_t cell, double& out) {
+    if (d >= mask.size() || mask[d].empty() || cell >= mask[d].size()) return false;
+    if (!mask[d][cell]) return false;
+    if (d >= values.size() || cell >= values[d].size()) return false;
+    out = values[d][cell];
+    return true;
 }
 
-template<std::size_t Dim>
-void computeDivergenceInto(const Mesh<Dim>& mesh, const VectorField<Dim>& velocity, Field<Dim>& div) {
-    // WARNING: This overload uses interior cell velocity at boundary faces.
-    // It is INCORRECT for meshes with Dirichlet BCs (walls, inlets, etc.).
-    // Use the 5-arg overload with dirichletMask/dirichletValues for correct results.
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) div[i] = 0.0;
-
-    for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
-        const std::size_t P = mesh.owner(f);
-        const std::size_t N = mesh.neighbor(f);
-        const bool isBoundary = (N == std::size_t(-1));
-
-        // Pre-cache face normal and area for branch-friendly access
-        const auto& nrm = mesh.faceNormal(f);
-        const auto  area = mesh.faceArea(f);
-
-        double w = isBoundary ? 0.0 : mesh.faceWeight(f);
-        double un = 0.0;
-        for (std::size_t d = 0; d < Dim; ++d) {
-            double uFace = isBoundary ? velocity[d][P]
-                                      : (1.0 - w) * velocity[d][P] + w * velocity[d][N];
-            un += uFace * nrm[d];
-        }
-
-        double flux = un * area;
-        div[P] += flux / mesh.cellVolume(P);
-        if (!isBoundary) {
-            div[N] -= flux / mesh.cellVolume(N);
-        }
+// The mask must cover every cell and every component, otherwise the
+// prescribed values would be read out of bounds.
+void validateMask(std::size_t dim, std::size_t nCells,
+                  const std::vector<std::vector<char>>& mask,
+                  const std::vector<std::vector<double>>& values) {
+    if (mask.empty()) return;
+    if (mask.size() < dim)
+        throw std::invalid_argument("computeDivergenceInto: the Dirichlet mask needs one entry per component");
+    for (std::size_t d = 0; d < dim; ++d) {
+        if (mask[d].size() != nCells)
+            throw std::invalid_argument("computeDivergenceInto: the Dirichlet mask needs one entry per cell");
+        if (!values.empty() && values[d].size() != nCells)
+            throw std::invalid_argument("computeDivergenceInto: the Dirichlet values need one entry per cell");
     }
 }
 
-template<std::size_t Dim>
-double maxDivergence(const Mesh<Dim>& mesh, const VectorField<Dim>& velocity) {
-    Field<Dim> div(mesh, 0.0);
-    computeDivergenceInto(mesh, velocity, div);
-    double maxDiv = 0.0;
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i)) continue;
-        maxDiv = std::max(maxDiv, std::abs(div[i]));
-    }
-    return maxDiv;
-}
+} // namespace
 
 template<std::size_t Dim>
 void computeDivergenceInto(const Mesh<Dim>& mesh, const VectorField<Dim>& velocity, Field<Dim>& div,
                            const std::vector<std::vector<char>>& dirichletMask,
-                           const std::vector<std::vector<double>>& dirichletValues) {
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) div[i] = 0.0;
-
-    const bool hasMask = !dirichletMask.empty() && !dirichletMask[0].empty();
-
-    for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
-        const std::size_t P = mesh.owner(f);
-        const std::size_t N = mesh.neighbor(f);
-        const bool isBoundary = (N == std::size_t(-1));
-
-        const auto& nrm = mesh.faceNormal(f);
-        const auto  area = mesh.faceArea(f);
-
-        double w = isBoundary ? 0.0 : mesh.faceWeight(f);
-        double un = 0.0;
-        for (std::size_t d = 0; d < Dim; ++d) {
-            double uFace;
-            if (isBoundary) {
-                uFace = (hasMask && dirichletMask[d][P])
-                            ? dirichletValues[d][P]
-                            : velocity[d][P];
-            } else {
-                uFace = (1.0 - w) * velocity[d][P] + w * velocity[d][N];
-            }
-            un += uFace * nrm[d];
-        }
-
-        double flux = un * area;
-        div[P] += flux / mesh.cellVolume(P);
-        if (!isBoundary) {
-            div[N] -= flux / mesh.cellVolume(N);
-        }
-    }
-}
-
-template<std::size_t Dim>
-void computeDivergenceInto(const Mesh<Dim>& mesh, const VectorField<Dim>& velocity, Field<Dim>& div,
-                           double& sumFlux) {
+                           const std::vector<std::vector<double>>& dirichletValues,
+                           double* sumFlux) {
     const std::size_t n = mesh.nCells();
+    validateMask(Dim, n, dirichletMask, dirichletValues);
+
     for (std::size_t i = 0; i < n; ++i) div[i] = 0.0;
+    if (sumFlux) *sumFlux = 0.0;
 
     const std::size_t nF = mesh.nFaces();
-    sumFlux = 0.0;
-
     for (std::size_t f = 0; f < nF; ++f) {
         const std::size_t P = mesh.owner(f);
         const std::size_t N = mesh.neighbor(f);
         const bool isBoundary = (N == std::size_t(-1));
 
         const auto& nrm = mesh.faceNormal(f);
-        const auto  area = mesh.faceArea(f);
+        const double area = mesh.faceArea(f);
+        const double w = isBoundary ? 0.0 : mesh.faceWeight(f);
 
-        double w = isBoundary ? 0.0 : mesh.faceWeight(f);
         double un = 0.0;
         for (std::size_t d = 0; d < Dim; ++d) {
-            double uFace = isBoundary ? velocity[d][P]
-                                      : (1.0 - w) * velocity[d][P] + w * velocity[d][N];
+            double prescribed = 0.0;
+            double uFace;
+            if (isBoundary) {
+                // A boundary face belongs to the cell that owns it: its
+                // prescribed value, or its own velocity when the boundary
+                // condition is unknown.
+                uFace = prescribedValue(dirichletMask, dirichletValues, d, P, prescribed)
+                            ? prescribed
+                            : velocity[d][P];
+            } else if (prescribedValue(dirichletMask, dirichletValues, d, N, prescribed)) {
+                // The neighbour prescribes its velocity: it owns the whole
+                // face, so the face carries the prescribed value.
+                uFace = prescribed;
+            } else if (prescribedValue(dirichletMask, dirichletValues, d, P, prescribed)) {
+                uFace = prescribed;
+            } else {
+                uFace = (1.0 - w) * velocity[d][P] + w * velocity[d][N];
+            }
             un += uFace * nrm[d];
         }
 
-        double flux = un * area;
+        const double flux = un * area;
         div[P] += flux / mesh.cellVolume(P);
-        if (!isBoundary) {
+        if (!isBoundary)
             div[N] -= flux / mesh.cellVolume(N);
-        }
-        sumFlux += std::abs(flux);
+        if (sumFlux) *sumFlux += std::abs(flux);
     }
 }
 
-template Field<2> computeDivergence<2>(const Mesh<2>&, const VectorField<2>&);
-template Field<3> computeDivergence<3>(const Mesh<3>&, const VectorField<3>&);
+template<std::size_t Dim>
+Field<Dim> computeDivergence(const Mesh<Dim>& mesh, const VectorField<Dim>& velocity,
+                             const std::vector<std::vector<char>>& dirichletMask,
+                             const std::vector<std::vector<double>>& dirichletValues) {
+    Field<Dim> div(mesh, 0.0);
+    computeDivergenceInto(mesh, velocity, div, dirichletMask, dirichletValues);
+    return div;
+}
 
-template void computeDivergenceInto<2>(const Mesh<2>&, const VectorField<2>&, Field<2>&);
-template void computeDivergenceInto<3>(const Mesh<3>&, const VectorField<3>&, Field<3>&);
+template<std::size_t Dim>
+double maxDivergence(const Mesh<Dim>& mesh, const VectorField<Dim>& velocity,
+                     const std::vector<std::vector<char>>& dirichletMask,
+                     const std::vector<std::vector<double>>& dirichletValues) {
+    Field<Dim> div(mesh, 0.0);
+    computeDivergenceInto(mesh, velocity, div, dirichletMask, dirichletValues);
+
+    double maxDiv = 0.0;
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        // A cell with a prescribed velocity is excluded: its mass balance
+        // cannot be corrected by the pressure correction. The boundary cells
+        // are included - the imbalance of a wall cell is a genuine solver
+        // error, which is exactly what the residual reports.
+        bool isPrescribed = false;
+        for (std::size_t d = 0; d < Dim && !isPrescribed; ++d) {
+            double prescribed = 0.0;
+            isPrescribed = prescribedValue(dirichletMask, dirichletValues, d, i, prescribed);
+        }
+        if (isPrescribed) continue;
+        maxDiv = std::max(maxDiv, std::abs(div[i]));
+    }
+    return maxDiv;
+}
 
 template void computeDivergenceInto<2>(const Mesh<2>&, const VectorField<2>&, Field<2>&,
-    const std::vector<std::vector<char>>&, const std::vector<std::vector<double>>&);
+    const std::vector<std::vector<char>>&, const std::vector<std::vector<double>>&, double*);
 template void computeDivergenceInto<3>(const Mesh<3>&, const VectorField<3>&, Field<3>&,
+    const std::vector<std::vector<char>>&, const std::vector<std::vector<double>>&, double*);
+
+template Field<2> computeDivergence<2>(const Mesh<2>&, const VectorField<2>&,
+    const std::vector<std::vector<char>>&, const std::vector<std::vector<double>>&);
+template Field<3> computeDivergence<3>(const Mesh<3>&, const VectorField<3>&,
     const std::vector<std::vector<char>>&, const std::vector<std::vector<double>>&);
 
-template void computeDivergenceInto<2>(const Mesh<2>&, const VectorField<2>&, Field<2>&, double&);
-template void computeDivergenceInto<3>(const Mesh<3>&, const VectorField<3>&, Field<3>&, double&);
-
-template double maxDivergence<2>(const Mesh<2>&, const VectorField<2>&);
-template double maxDivergence<3>(const Mesh<3>&, const VectorField<3>&);
+template double maxDivergence<2>(const Mesh<2>&, const VectorField<2>&,
+    const std::vector<std::vector<char>>&, const std::vector<std::vector<double>>&);
+template double maxDivergence<3>(const Mesh<3>&, const VectorField<3>&,
+    const std::vector<std::vector<char>>&, const std::vector<std::vector<double>>&);
 
 } // namespace fvm
