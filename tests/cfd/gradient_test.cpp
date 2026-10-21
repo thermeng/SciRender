@@ -126,14 +126,22 @@ TEST_CASE("cfd.gradient.green_gauss_cell_linear_exact") {
     }
 }
 
-// On a skewed mesh the cell-based Green-Gauss gradient must still be exact
-// for a linear field: the face value has to be the exact linear interpolation
-// between the two cell centres (the mesh's faceWeight), not the plain average
-// 0.5*(phi_P + phi_N), which is only correct when the face is exactly midway
-// between the centres.
-TEST_CASE("cfd.gradient.green_gauss_cell_skewed_mesh") {
+// The cell-based Green-Gauss must use the mesh's face weight - the exact
+// linear interpolation between the two cell centres - and not a plain
+// 0.5 average, which is only correct when the two cells have the same size.
+//
+// A stretched grid discriminates the two: the cells have different widths, so
+// the face is NOT midway between the centres and the 0.5 average is plainly
+// wrong, while the mesh's face weight is the exact interpolation coefficient
+// (the face centre lies on the centre-to-centre line of an orthogonal grid).
+//
+// A non-orthogonal (skewed) mesh is a different matter: there the face centre
+// is off the centre-to-centre line, the mesh's face weight is the orthogonal
+// projection parameter, and a cell-centred scheme is only first-order accurate.
+// That is a property of the formulation, not a defect of the operator.
+TEST_CASE("cfd.gradient.green_gauss_cell_stretched_exact") {
     const Linear lin{2.0, -3.0, 1.0};
-    const fvm::Mesh<2> mesh = triangles2D();
+    const fvm::Mesh<2> mesh = stretched2D(8, 1.2);
     Field<2> phi(mesh, 0.0);
     fillScalar(phi, lin);
     Gradient<2> grad(mesh, GradientScheme::GreenGaussCellBased);
@@ -148,8 +156,8 @@ TEST_CASE("cfd.gradient.green_gauss_cell_skewed_mesh") {
         worst = std::max(worst, std::abs(g[0][i] - lin.ax));
         worst = std::max(worst, std::abs(g[1][i] - lin.ay));
     }
-    MESSAGE("skewed-mesh Green-Gauss gradient error = ", worst);
-    CHECK_MESSAGE(worst < 1e-12, "the Green-Gauss gradient must use the exact face interpolation");
+    MESSAGE("stretched-mesh Green-Gauss gradient error = ", worst);
+    CHECK_MESSAGE(worst < 1e-12, "the Green-Gauss gradient must use the mesh's face weight");
 }
 
 // The node-based Green-Gauss scheme needs the mesh vertices and the cell /

@@ -33,11 +33,22 @@ are hand-derived from the physics, not copied from the implementation's output.
   it without a residual);
 * the wall ghost implements a zero-gradient condition, so the boundary cells
   are excluded from the exactness claims;
-* the cell-based Green-Gauss must use the exact face interpolation
-  `(1-w)*phi_P + w*phi_N` with the mesh's `faceWeight`, not a plain
-  `0.5*(phi_P + phi_N)`;
-* the node-based Green-Gauss needs the mesh vertices, which only exist for
-  unstructured meshes.
+* the cell-based Green-Gauss must use the mesh's face weight - the exact
+  linear interpolation between the two cell centres - and not a plain
+  `0.5*(phi_P + phi_N)`. A stretched grid discriminates the two: the cells
+  have different widths, so the face is not midway between the centres;
+* the node-based Green-Gauss reconstructs the nodes of a structured mesh from
+  the grid (a structured mesh has no vertex arrays) and reproduces a linear
+  field exactly;
+* a prescribed cell keeps its own value: the gradient of such a cell is the
+  one-sided gradient towards the interior, and the wall ghost must not dilute
+  it.
+
+A **non-orthogonal** (skewed) mesh is a different matter: there the face
+centre is off the centre-to-centre line, the mesh's face weight is the
+orthogonal projection parameter (bounded, and the standard choice), and a
+cell-centred scheme is only first-order accurate. That is a property of the
+formulation, not a defect of the operator.
 
 ### Divergence (`cfd.divergence.*`)
 
