@@ -26,6 +26,87 @@ std::array<std::vector<double>, 2> uniformDCoeff(const fvm::Mesh<2>& mesh, doubl
             std::vector<double>(mesh.nCells(), value)};
 }
 
+// One pressure-correction solve on a predictor with a zero-mean divergence,
+// plus everything the coupling can be judged by.
+struct CouplingCase {
+    double divergenceBefore = 0.0;
+    double divergenceAfter = 0.0;
+    double maxP = 0.0;
+    // The ratio between the pressure matrix's row (divided by the cell
+    // volume) and the divergence of the gradient the velocity correction
+    // applies. It must be 1: the two operators have to be the same one.
+    double operatorRatio = 0.0;
+};
+
+CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh) {
+    CouplingCase result;
+
+    // A predictor with a zero-mean divergence: it expands in the left half of
+    // the domain and contracts in the right half, so the pure Neumann pressure
+    // problem is compatible.
+    fvm::VectorField<2> uStar(mesh, 0.0);
+    fillVector(uStar, [](double x, double, double) {
+        const double u = (x < 0.5) ? x : (1.0 - x);
+        return std::array<double, 2>{u, 0.0};
+    });
+
+    fvm::Field<2> pressure(mesh, 0.0);
+    fvm::Field<2> pPrime(mesh, 0.0);
+    std::vector<char> isPressureNeumann(mesh.nCells(), 1);
+
+    fvm::PressureCorrection<2> pc(mesh);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
+
+    // Apply the correction the way the solver does.
+    const std::array<std::vector<double>, 2> dCoeff = uniformDCoeff(mesh, 1.0);
+    std::vector<std::vector<char>> velMask(2, std::vector<char>(mesh.nCells(), 0));
+    std::vector<std::vector<double>> velVals(2, std::vector<double>(mesh.nCells(), 0.0));
+    std::array<fvm::Field<2>, 2> dpdx{fvm::Field<2>(mesh, 0.0), fvm::Field<2>(mesh, 0.0)};
+    fvm::VectorField<2> corrected(mesh, 0.0);
+    fvm::correctVelocity(mesh, uStar, pPrime, dCoeff, velMask, velVals, dpdx, corrected);
+
+    fvm::Field<2> divBefore(mesh, 0.0);
+    fvm::computeDivergenceInto(mesh, uStar, divBefore, {}, {});
+    fvm::Field<2> divAfter(mesh, 0.0);
+    fvm::computeDivergenceInto(mesh, corrected, divAfter, {}, {});
+
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        result.maxP = std::max(result.maxP, std::abs(pPrime[i]));
+        if (mesh.isBoundary(i))
+            continue;
+        result.divergenceBefore = std::max(result.divergenceBefore, std::abs(divBefore[i]));
+        result.divergenceAfter = std::max(result.divergenceAfter, std::abs(divAfter[i]));
+    }
+
+    // The operator consistency: the pressure matrix's row divided by the cell
+    // volume must equal the divergence of the gradient the velocity correction
+    // applies.
+    const auto& A = pc.lastMatrix();
+    Eigen::VectorXd pVec(mesh.nCells());
+    for (std::size_t i = 0; i < mesh.nCells(); ++i)
+        pVec[i] = pPrime[i];
+    const Eigen::VectorXd Ap = A * pVec;
+
+    fvm::VectorField<2> correction(mesh, 0.0);
+    for (std::size_t d = 0; d < 2; ++d)
+        for (std::size_t i = 0; i < mesh.nCells(); ++i)
+            correction[d][i] = dCoeff[d][i] * dpdx[d][i];
+    fvm::Field<2> divOfCorrection(mesh, 0.0);
+    fvm::computeDivergenceInto(mesh, correction, divOfCorrection, {}, {});
+
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        if (mesh.isBoundary(i))
+            continue;
+        if (pc.pressureMask()[i])
+            continue; // the pinned cells carry no flux equation
+        const double fromMatrix = Ap[static_cast<int>(i)] / mesh.cellVolume(i);
+        const double fromDivergence = divOfCorrection[i];
+        const double ratio = std::abs(fromDivergence) / std::max(std::abs(fromMatrix), 1e-30);
+        result.operatorRatio = std::max(result.operatorRatio, ratio);
+    }
+    return result;
+}
+
 } // namespace
 
 TEST_SUITE("cfd") {
@@ -80,43 +161,44 @@ TEST_CASE("cfd.pressure.reference_cell_pinned_to_zero") {
 // The pressure correction exists to remove the divergence of the predictor.
 // After the correction the interior divergence must be much smaller than
 // before.
+//
+// The source must be COMPATIBLE: the pressure equation of a closed domain is
+// pure Neumann, so it only has a solution when the right-hand side sums to
+// zero. A predictor with a uniform divergence (div = 1 everywhere) does not
+// satisfy that - the walls would have to supply the missing mass - and the
+// solver's reference cell then has to absorb an impossible balance, which
+// says nothing about the coupling.
+//
+// The predictor below therefore expands in the left half of the domain and
+// contracts in the right half: div = +1 and -1, a zero mean over the domain.
 TEST_CASE("cfd.pressure.correction_removes_divergence") {
-    const fvm::Mesh<2> mesh = uniform2D(8);
-    // A divergent predictor: u* = (x, 0) has div = 1.
-    fvm::VectorField<2> uStar(mesh, 0.0);
-    fillVector(uStar, [](double x, double, double) { return std::array<double, 2>{x, 0.0}; });
+    const CouplingCase c = solveCouplingCase(uniform2D(8));
 
-    fvm::Field<2> pressure(mesh, 0.0);
-    fvm::Field<2> pPrime(mesh, 0.0);
-    std::vector<char> isPressureNeumann(mesh.nCells(), 1);
+    MESSAGE("interior max |div|: before = ", c.divergenceBefore, ", after = ", c.divergenceAfter,
+            ", max |p'| = ", c.maxP);
 
-    fvm::PressureCorrection<2> pc(mesh);
-    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
+    CHECK_MESSAGE(c.divergenceBefore > 0.5, "the predictor must actually be divergent");
+    CHECK_MESSAGE(c.divergenceAfter < 0.1 * c.divergenceBefore,
+                  "the pressure correction must remove the divergence");
+}
 
-    // Apply the correction the way the solver does.
-    std::array<std::vector<double>, 2> dCoeff = uniformDCoeff(mesh, 1.0);
-    std::vector<std::vector<char>> velMask(2, std::vector<char>(mesh.nCells(), 0));
-    std::vector<std::vector<double>> velVals(2, std::vector<double>(mesh.nCells(), 0.0));
-    std::array<fvm::Field<2>, 2> dpdx{fvm::Field<2>(mesh, 0.0), fvm::Field<2>(mesh, 0.0)};
-    fvm::VectorField<2> corrected(mesh, 0.0);
-    fvm::correctVelocity(mesh, uStar, pPrime, dCoeff, velMask, velVals, dpdx, corrected);
+// The pressure matrix and the gradient the velocity correction applies must be
+// the SAME operator: the matrix's row divided by the cell volume has to equal
+// the divergence of that gradient. Only then can the correction cancel the
+// divergence it was built for.
+//
+// Today they are not: the matrix assembles the distance-weighted (5-point)
+// Laplacian, while the correction subtracts the divergence of the cell-centred
+// least-squares gradient. The two agree to O(h^2) in smooth regions and
+// diverge where the field has strong curvature - which is exactly where the
+// solver leaves the largest mass-balance error.
+TEST_CASE("cfd.pressure.operator_consistency") {
+    const CouplingCase c = solveCouplingCase(uniform2D(8));
 
-    fvm::Field<2> divBefore(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, uStar, divBefore, {}, {});
-    fvm::Field<2> divAfter(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, corrected, divAfter, {}, {});
-
-    double before = 0.0;
-    double after = 0.0;
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i))
-            continue;
-        before = std::max(before, std::abs(divBefore[i]));
-        after = std::max(after, std::abs(divAfter[i]));
-    }
-    MESSAGE("interior max |div|: before = ", before, ", after = ", after);
-    CHECK_MESSAGE(before > 0.5, "the predictor must actually be divergent");
-    CHECK_MESSAGE(after < 0.1 * before, "the pressure correction must remove the divergence");
+    MESSAGE("operator consistency: |div(d grad p')| / |(A p')/V| = ", c.operatorRatio);
+    CHECK_MESSAGE(c.operatorRatio < 1.2,
+                  "the pressure matrix and the correction's gradient must be the same operator "
+                      "(ratio " << c.operatorRatio << ")");
 }
 
 // A cell without a single interior face has no pressure equation. It is

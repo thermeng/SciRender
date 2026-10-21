@@ -60,6 +60,9 @@ public:
     // residual the solver ended with.
     std::size_t lastSolveIterations() const { return lastSolveIterations_; }
     double lastSolveResidual() const { return lastSolveResidual_; }
+    // The assembled system of the last solve (diagnostics).
+    const SparseMatrix& lastMatrix() const { return A_; }
+    const Eigen::VectorXd& lastRhs() const { return bVec_; }
 
     void solve(
         const VectorField<Dim>& uStar,

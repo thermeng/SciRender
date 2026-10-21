@@ -44,7 +44,11 @@ struct ChannelResult {
     std::vector<double> meanPerColumn;
 };
 
-ChannelResult runChannel() {
+struct ChannelRun {
+    ChannelResult result;
+};
+
+ChannelResult runChannel(int iterations = kIterations) {
     const double nu = kInletSpeed * kHeight / kReynolds; // rho = 1
 
     fvm::Mesh<2> mesh = fvm::Mesh<2>(std::array<std::size_t, 2>{static_cast<std::size_t>(kNx),
@@ -59,7 +63,7 @@ ChannelResult runChannel() {
     forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
 
     fvm::SIMPLE<2>::Config cfg;
-    cfg.maxIterations = static_cast<std::size_t>(kIterations);
+    cfg.maxIterations = static_cast<std::size_t>(iterations);
     cfg.tolerance = 1e-8;
     cfg.runFixedIterations = true;
     cfg.convergenceHoldIterations = 3;
@@ -165,6 +169,25 @@ TEST_CASE("fvm.channel.open_outlet_divergence") {
     for (std::size_t i = 0; i < r.centreline.size(); ++i)
         MESSAGE("  x = ", i, " u = ", r.centreline[i]);
     CHECK_MESSAGE(roughest < 0.05 * r.maxU, "the centreline profile must be smooth");
+}
+
+// The channel must also reach a steady state. This separates the two
+// explanations for a large divergence: a state that has not converged yet, or
+// an operator that cannot cancel the divergence at all.
+TEST_CASE("fvm.channel.steady_state") {
+    const ChannelResult a = runChannel(kIterations);
+    const ChannelResult b = runChannel(2 * kIterations);
+
+    MESSAGE("steady state: max |div u| after ", kIterations, " iterations = ", a.maxDivergence,
+            ", after ", 2 * kIterations, " iterations = ", b.maxDivergence);
+
+    // The divergence must not keep shrinking: if it does, the state is still
+    // developing and the large divergence is a transient, not a defect.
+    CHECK_MESSAGE(b.maxDivergence > 0.5 * a.maxDivergence,
+                  "the divergence must have plateaued - a shrinking divergence means the state "
+                  "is still developing");
+    CHECK_MESSAGE(std::abs(b.maxDivergence - a.maxDivergence) < 0.2 * a.maxDivergence,
+                  "the steady state must be reached");
 }
 
 } // TEST_SUITE("fvm")
