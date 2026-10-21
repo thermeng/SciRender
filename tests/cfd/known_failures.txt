@@ -1,11 +1,12 @@
 # Known-failure registry for the CFD fundamentals suite.
 #
 # Every test case listed here is known to fail because the solver deviates
-# from the contract the test states. Such a CTest row is registered with
-# WILL_FAIL TRUE: it passes while the defect is open, and it turns RED as soon
-# as the solver is fixed - that is the signal to remove the entry.
+# from the contract the test states. Such a CTest row runs through
+# cmake/expect_failure.cmake, which inverts the outcome: it passes while the
+# defect is open, and it turns RED as soon as the solver is fixed - that is
+# the signal to remove the entry.
 #
-#   ctest --test-dir build-tests -L known-broken --output-on-failure
+#   ctest --test-dir build-tests -L known-broken -V
 #
 # lists the outstanding work with the real diagnostic of every defect.
 #
@@ -13,20 +14,9 @@
 # cannot silently rot.
 
 # --- Gradient ----------------------------------------------------------------
-# The cell-based Green-Gauss uses 0.5*(phi_P + phi_N) as the interior face
-# value instead of the exact interpolation (1-w)*phi_P + w*phi_N with the
-# mesh's faceWeight, so the scheme is only first order on a skewed mesh.
-cfd.gradient.green_gauss_cell_skewed_mesh
-
-# The node-based Green-Gauss reads Mesh::vertices() / cellVertices() /
-# faceVertices(), which are only populated for unstructured meshes. On a
-# structured mesh this is an out-of-bounds read and the test SEGFAULTS.
-crash:cfd.gradient.green_gauss_node_based_structured
-
-# The wall ghost adds its direction to the least-squares normal matrix but
-# contributes nothing to the right-hand side, so the gradient of a prescribed
-# wall cell is half the one-sided gradient it should have.
-cfd.gradient.dirichlet_value_is_not_a_face_value
+# (fixed: the cell-based Green-Gauss uses the exact face interpolation, the
+#  node-based Green-Gauss reconstructs the nodes of a structured mesh from the
+#  grid, and the wall ghost no longer dilutes a prescribed cell's gradient)
 
 # --- Divergence --------------------------------------------------------------
 # The three-argument overload uses the interior cell velocity at the boundary
