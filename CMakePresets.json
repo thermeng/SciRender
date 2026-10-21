@@ -2,7 +2,7 @@
   "version": 6,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 19
+    "minor": 25
   },
   "configurePresets": [
     {
@@ -10,7 +10,6 @@
       "hidden": true,
       "generator": "MinGW Makefiles",
       "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "C:/Qt/6.11.1/mingw_64",
         "CMAKE_C_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/gcc.exe",
         "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/g++.exe"
       }
@@ -21,7 +20,8 @@
       "inherits": "base",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.11.1/mingw_64"
       }
     },
     {
@@ -30,7 +30,20 @@
       "inherits": "base",
       "binaryDir": "${sourceDir}/build-release",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.11.1/mingw_64"
+      }
+    },
+    {
+      "name": "tests",
+      "displayName": "Tests (no Qt, no OpenGL)",
+      "description": "Test-only build: the application is not built, so the suite needs neither Qt nor an OpenGL context.",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build-tests",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "SCIRENDER_BUILD_APP": "OFF",
+        "SCIRENDER_BUILD_TESTS": "ON"
       }
     }
   ],
@@ -42,6 +55,37 @@
     {
       "name": "release",
       "configurePreset": "release"
+    },
+    {
+      "name": "tests",
+      "configurePreset": "tests",
+      "targets": [
+        "scirender_core_tests",
+        "scirender_fvm_tests",
+        "scirender_render_tests"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "tests",
+      "configurePreset": "tests",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "tests-fast",
+      "displayName": "Tests (without the slow CFD benchmark)",
+      "configurePreset": "tests",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "exclude": {
+          "label": "slow"
+        }
+      }
     }
   ]
 }

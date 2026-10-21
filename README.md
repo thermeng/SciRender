@@ -221,10 +221,55 @@ stops. It is used only when all of the following hold:
 | `src/render/` | OpenGL renderer, lighting model (`LightingModel`, 5-dir kit), mesh/LOD upload (`MeshGLManager`/`LodScheduler`), vector glyphs, streamlines + `StreamlineController`, particles, volume pass + `VolumeTextureCache`/`VectorTextureCache`, LIC (`surface_lic.frag`), colormap manager, colorbar overlay, axis triad + light markers, bbox/quality overlays, wireframe pass, depth-peel transparency, screenshot capture, animation playback controller + AVI/PNG exporter |
 | `src/shaders/` | GLSL vertex/fragment/geometry/compute shaders — `mesh.{vert,frag,clip.geo}`, `glyph.{vert,frag}`, `wire.{vert,geo,frag}`, `bbox.{vert,frag}`, `streamline.{vert,frag}`, `seed.{vert,frag}`, `particle.{vert,frag}`, `volume.{vert,frag}`, `volume_slice.{vert,frag}`, `quality_overlay.{vert,frag}`, `depth_peel.{vert,frag}`/`composite.{vert,frag}`, `surface_lic.frag`, `pbr_common.glsl`, LOD `lod.comp`/`lod_output.comp`/`lod_tris.comp` |
 | `src/ui/` | Qt Widgets main window, 12 sidebar pages (lighting, clipping, slice planes, volume, scalar, vectors, streamlines, view/display, screenshot, mesh info, animation, isosurface), animation export dialog, viewport widget, colorbar style dialog with per-colorbar palette/fixed-range (sharp, borderless bar), recent-files (8) + Clear Mesh |
-| `tests/` | Standalone regression harnesses — parsers, PVD collections, marching-cubes isosurface, streamline direction, animation range rules — driven by `run_tests.{bat,sh}` |
-| `samples/` | VTK/STL fixture files used by the regression harness |
+| `tests/` | Regression suite (doctest + CTest) — parsers, PVD collections, marching-cubes isosurface, post-processing fields, camera math, AMG/transient configuration, streamline direction. A CMake subdirectory of this project: it links the real `CoreLib`/`FvmCore`/`CfdLib`/`RenderCore` targets, so there is no separate test build system |
+| `tools/` | Developer CLI diagnostics (not part of the test suite), e.g. the cylinder-vorticity probe |
+| `samples/` | VTK/STL fixture files used by the regression suite |
 | `assets/` | Application icon |
-| `vendor/` | GLAD (OpenGL loader), GLM (math), pugixml (XML parsing), LZ4 & LZMA (compression) |
+| `vendor/` | GLAD (OpenGL loader), GLM (math), pugixml (XML parsing), LZ4 & LZMA (compression), doctest (test framework) |
+
+## Tests
+
+The regression suite is part of the main CMake project, so the tests always run
+against the same sources as the application. The application itself is not
+built for a test-only configure, which means the suite needs **neither Qt nor
+an OpenGL context**.
+
+```bash
+cmake --preset tests                                     # configure build-tests
+cmake --build --preset tests                             # build the 3 test binaries
+ctest --preset tests --output-on-failure                 # run everything
+```
+
+Or, in one step (configure if needed, build, run):
+
+```bash
+tests/run_tests.bat        # Windows
+tests/run_tests.sh         # Linux / macOS / Git Bash
+```
+
+Every doctest test case is registered as **its own CTest row**, so a failure
+names the behaviour that broke rather than "the binary failed":
+
+```
+12/81 Test #12: core.fields.overlapping_names_deduplicate ...........   Failed    0.01 sec
+tests/core/field_names_test.cpp:34: ERROR: CHECK_MESSAGE( sizes_match(merged, {"velocity"}), "point/cell name dedup" ) is NOT correct!
+  values: CHECK_MESSAGE( sizes_match(merged, {"velocity"}), "point/cell name dedup" )
+```
+
+Useful filters:
+
+| Command | Effect |
+|---|---|
+| `ctest --test-dir build-tests -L core` | only the `core` layer (parsers, fields, isosurface, camera) |
+| `ctest --test-dir build-tests -L fvm` | only the `fvm` layer (AMG, transient settings, CFD benchmark) |
+| `ctest --test-dir build-tests -L render` | only the render-layer tests |
+| `ctest --test-dir build-tests -LE slow` | skip the slow CFD benchmark (`ctest --preset tests-fast`) |
+| `ctest --test-dir build-tests -R "core.parse"` | only the tests whose name matches |
+| `ctest --test-dir build-tests --output-on-failure` | print the failing assertion of every failed test |
+
+Build switches: `SCIRENDER_BUILD_APP` (default `ON`), `SCIRENDER_BUILD_TESTS`
+(default `ON`), `SCIRENDER_BUILD_TOOLS` (default `OFF`).
+
 
 ## License
 

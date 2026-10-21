@@ -1,104 +1,39 @@
 @echo off
+REM ---------------------------------------------------------------------------
+REM Configure, build and run the SciRender regression suite.
+REM
+REM The suite is a subdirectory of the main CMake project: it links the real
+REM CoreLib / FvmCore / CfdLib / RenderCore targets, so there is no separate
+REM test build system. The application is NOT built, which means the suite
+REM needs neither Qt nor an OpenGL context.
+REM
+REM Usage:
+REM   run_tests.bat                     run every test
+REM   run_tests.bat -LE slow            skip the slow CFD benchmark
+REM   run_tests.bat -R core.parse       run one test (or a group of tests)
+REM   run_tests.bat --output-on-failure  extra arguments are passed to ctest
+REM ---------------------------------------------------------------------------
 setlocal
-echo [run_tests] compiling parser core + running regression harness...
-set GPP=
-for %%P in ("C:\Qt\Tools\mingw1310_64\bin\g++.exe" "C:\Qt\Tools\mingw_64\bin\g++.exe") do (
-  if not defined GPP if exist %%P set "GPP=%%P"
+
+set "ROOT=%~dp0.."
+set "BUILD=%ROOT%\build-tests"
+
+where cmake >nul 2>nul
+if errorlevel 1 (
+    echo [error] cmake was not found on PATH.
+    exit /b 1
 )
-if not defined GPP ( echo ERROR: g++.exe not found in known Qt MinGW dirs & pause & exit /b 1 )
-set PATH=C:\Qt\Tools\mingw1310_64\bin;%PATH%
-set INC=-I.. -I..\src -I..\vendor -I..\vendor\glad\include -I..\vendor\pugixml -I..\vendor\lz4 -I..\vendor\lzma
-cd /d %~dp0
-set FAIL=0
-echo [run_tests] building parse_regression...
-%GPP% -std=c++20 -O2 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
-  ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
-  ..\vendor\pugixml\pugixml.cpp ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
-  parse_regression.cpp ^
-  -o parse_regression.exe %INC% -lz
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running parse_regression...
-parse_regression.exe > last_parse.log 2>&1
-type last_parse.log
-if errorlevel 1 set FAIL=1
-echo.
-echo [run_tests] building streamline_direction_test...
-%GPP% -std=c++20 -O2 -g ..\vendor\glad\src\gl.c ..\src\core\FieldStore.cpp ..\src\core\FieldResolver.cpp ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
-  ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
-  ..\src\render\foundation\gl_raii.cpp ^
-  ..\src\render\streamlines\StreamlineSet.cpp streamline_direction_test.cpp ^
-  ..\vendor\pugixml\pugixml.cpp ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
-  -o streamline_direction_test.exe %INC% -lz
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running streamline_direction_test...
-streamline_direction_test.exe > last_direction.log 2>&1
-type last_direction.log
-if errorlevel 1 set FAIL=1
-:: --- isosurface (marching cubes) regression ---
-echo [run_tests] building isosurface_test...
-%GPP% -std=c++20 -O2 -g ..\src\core\vtk_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
-  ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
-  ..\src\core\FieldStore.cpp ..\src\core\FieldResolver.cpp ^
-  ..\src\core\isosurface.cpp ..\vendor\pugixml\pugixml.cpp ^
-  ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
-  isosurface_test.cpp ^
-  -o isosurface_test.exe %INC% -lz
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running isosurface_test...
-isosurface_test.exe > last_isosurface.log 2>&1
-type last_isosurface.log
-if errorlevel 1 set FAIL=1
-:: --- PVD collection parser regression ---
-echo [run_tests] building pvd_test...
-%GPP% -std=c++20 -O2 -g ..\src\core\pvd_parser.cpp ..\src\core\vtk_xml_parser.cpp ..\src\core\vtk_parser.cpp ..\src\core\vtk_common.cpp ..\src\core\mesh_utils.cpp ^
-  ..\src\core\stl_parser.cpp ..\src\core\obj_parser.cpp ..\src\core\mesh_loader.cpp ^
-  ..\vendor\pugixml\pugixml.cpp ..\vendor\lz4\lz4.c ..\vendor\lzma\LzmaDec.c ..\vendor\lzma\7zAlloc.c ^
-  pvd_test.cpp ^
-  -o pvd_test.exe %INC% -lz
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running pvd_test...
-pvd_test.exe > last_pvd.log 2>&1
-type last_pvd.log
-if errorlevel 1 set FAIL=1
-:: --- animation colormap-range accumulator rules ---
-echo [run_tests] building anim_range_test...
-%GPP% -std=c++20 -O2 -g anim_range_test.cpp -o anim_range_test.exe %INC%
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running anim_range_test...
-anim_range_test.exe
-if errorlevel 1 set FAIL=1
-:: --- vector-field name dedup rules ---
-echo [run_tests] building field_names_test...
-%GPP% -std=c++20 -O2 -g field_names_test.cpp ..\src\core\FieldStore.cpp ..\src\core\FieldResolver.cpp ^
-  -o field_names_test.exe %INC%
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running field_names_test...
-field_names_test.exe
-if errorlevel 1 set FAIL=1
-:: --- post-processed vector calculus fields ---
-echo [run_tests] building post_fields_test...
-%GPP% -std=c++20 -O2 -g post_fields_test.cpp ..\src\core\post_fields.cpp ^
-  -o post_fields_test.exe %INC%
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running post_fields_test...
-post_fields_test.exe
-if errorlevel 1 set FAIL=1
-:: --- AMG configuration surface (UI->solver translation + all enum combos) ---
-echo [run_tests] building amg_config_test...
-%GPP% -std=c++20 -O2 -g ..\src\fvm\AMG.cpp amg_config_test.cpp ^
-  -o amg_config_test.exe %INC% -I..\vendor\eigen-3.4.0
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running amg_config_test...
-amg_config_test.exe
-if errorlevel 1 set FAIL=1
-:: --- Transient configuration surface (UI->solver translation + enum ordinals) ---
-echo [run_tests] building transient_settings_test...
-%GPP% -std=c++20 -O2 -g transient_settings_test.cpp ^
-  -o transient_settings_test.exe %INC% -I..\vendor\eigen-3.4.0 -I..\vendor\json
-if errorlevel 1 ( echo [run_tests] COMPILE FAILED & exit /b 1 )
-echo [run_tests] running transient_settings_test...
-transient_settings_test.exe
-if errorlevel 1 set FAIL=1
-if %FAIL% NEQ 0 ( echo [run_tests] SOME TESTS FAILED & exit /b 1 )
-echo [run_tests] ALL TESTS PASSED
-if not defined CI pause
+
+if not exist "%BUILD%\CMakeCache.txt" (
+    echo [configure] %BUILD%
+    cmake -S "%ROOT%" -B "%BUILD%" -DSCIRENDER_BUILD_APP=OFF -DSCIRENDER_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    if errorlevel 1 exit /b 1
+)
+
+echo [build] test binaries
+cmake --build "%BUILD%" --target scirender_core_tests scirender_fvm_tests scirender_render_tests
+if errorlevel 1 exit /b 1
+
+echo [test] ctest
+ctest --test-dir "%BUILD%" --output-on-failure %*
+exit /b %errorlevel%

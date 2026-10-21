@@ -1,217 +1,87 @@
-cmake_minimum_required(VERSION 3.16)
-project(vtk_xml_test_build C CXX)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# ---------------------------------------------------------------------------
+# Test suite.
+#
+# A subdirectory of the root project: the tests link the real CoreLib /
+# FvmCore / CfdLib / RenderCore targets, so there is exactly one copy of the
+# production sources in the build graph and the suite can never drift from
+# the application.
+#
+# Every test binary is discovered by CTest with one row per doctest test case
+# (see cmake/DiscoverDoctestTests.cmake).
+# ---------------------------------------------------------------------------
 
-# Find zlib
-find_path(ZLIB_INCLUDE_DIR zlib.h
-  PATHS "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/include"
-        "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/sys-root/mingw/include"
-        "C:/Program Files/mingw-w64/mingw64/include")
-find_library(ZLIB_LIBRARY z
-  PATHS "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/lib"
-        "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/sys-root/mingw/lib"
-        "C:/Program Files/mingw-w64/mingw64/lib")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DiscoverDoctestTests.cmake")
 
-add_library(pugixml STATIC ${CMAKE_SOURCE_DIR}/../vendor/pugixml/pugixml.cpp)
-target_include_directories(pugixml PUBLIC ${CMAKE_SOURCE_DIR}/../vendor/pugixml)
+file(TO_CMAKE_PATH "${PROJECT_SOURCE_DIR}/samples" SCIRENDER_SAMPLES_DIR)
 
-add_library(lz4 STATIC ${CMAKE_SOURCE_DIR}/../vendor/lz4/lz4.c)
-target_include_directories(lz4 PUBLIC ${CMAKE_SOURCE_DIR}/../vendor/lz4)
+set(SCIRENDER_TEST_SUPPORT_SOURCES
+    support/doctest_main.cpp
+    support/test_support.cpp
+    support/mesh_fixtures.cpp)
 
-add_library(lzma STATIC
-    ${CMAKE_SOURCE_DIR}/../vendor/lzma/LzmaDec.c
-    ${CMAKE_SOURCE_DIR}/../vendor/lzma/7zAlloc.c
-)
-target_include_directories(lzma PUBLIC ${CMAKE_SOURCE_DIR}/../vendor/lzma)
+# scirender_add_test_suite(<target> SOURCES <files...> LIBRARIES <libs...>)
+#
+# Adds a test executable, wires up the shared support code, points it at the
+# repository's sample fixtures and registers every test case with CTest.
+function(scirender_add_test_suite target)
+    cmake_parse_arguments(ARG "" "" "SOURCES;LIBRARIES" "" ${ARGN})
 
-add_executable(parse_regression
-    parse_regression.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_quality.cpp
-)
-target_include_directories(parse_regression PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-    ${ZLIB_INCLUDE_DIR}
-)
-target_link_libraries(parse_regression PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+    add_executable(${target}
+        ${ARG_SOURCES}
+        ${SCIRENDER_TEST_SUPPORT_SOURCES})
 
-# Standalone regression check for the marching-cubes isosurface extractor.
-# Compiles the REAL CoreLib sources (no Qt/GL). Run via tests/run_tests.{bat,sh}
-add_executable(isosurface_test
-    isosurface_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/isosurface.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
-)
-target_include_directories(isosurface_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-    ${ZLIB_INCLUDE_DIR}
-)
-target_link_libraries(isosurface_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+    target_link_libraries(${target} PRIVATE ${ARG_LIBRARIES} doctest::doctest)
 
-# PVD (.pvd collection index) parser check — no Qt/GL, mirrors the other
-# standalone tests. Run from tests/ (fixtures are written relative to ../samples).
-add_executable(pvd_test
-    pvd_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/pvd_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_quality.cpp
-)
-target_include_directories(pvd_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-    ${ZLIB_INCLUDE_DIR}
-)
-target_link_libraries(pvd_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+    target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# Vector-field name listing rules (FieldResolver): point + cell lists must
-# merge deduplicated. Now delegated to FieldStore deep module.
-add_executable(field_names_test
-    field_names_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
-)
-target_include_directories(field_names_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-)
+    target_compile_features(${target} PRIVATE cxx_std_20)
 
-# Animation colormap-range accumulator rules (FieldResolver::AnimRangeState).
-# Header-only logic — compiles the real header, no Qt/GL.
-add_executable(anim_range_test
-    anim_range_test.cpp
-)
-target_include_directories(anim_range_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-)
+    target_compile_definitions(${target} PRIVATE
+        SCIRENDER_SAMPLES_DIR="${SCIRENDER_SAMPLES_DIR}"
+        SCIRENDER_TEST_TMP_DIR="${CMAKE_CURRENT_BINARY_DIR}/tmp")
 
-# Streamline direction / integration check — needs glad+GL stubs + StreamlineSet
-add_executable(streamline_direction_test
-    streamline_direction_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldResolver.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
-    ${CMAKE_SOURCE_DIR}/../src/render/foundation/gl_raii.cpp
-    ${CMAKE_SOURCE_DIR}/../src/render/streamlines/StreamlineSet.cpp
-    ${CMAKE_SOURCE_DIR}/../vendor/glad/src/gl.c
-)
-target_include_directories(streamline_direction_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-    ${CMAKE_SOURCE_DIR}/../vendor/glad/include
-    ${ZLIB_INCLUDE_DIR}
-)
-target_link_libraries(streamline_direction_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+    scirender_discover_tests(${target})
+endfunction()
 
-# CTest wiring — single source of truth for CI; run_tests.{bat,sh} should delegate here
-enable_testing()
-add_test(NAME parse_regression COMMAND parse_regression WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-add_test(NAME isosurface_test COMMAND isosurface_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-add_test(NAME pvd_test COMMAND pvd_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-add_test(NAME field_names_test COMMAND field_names_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-add_test(NAME anim_range_test COMMAND anim_range_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-add_test(NAME streamline_direction_test COMMAND streamline_direction_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# ---------------------------------------------------------------------------
+# core — parsers, field store, post-processing, isosurface, camera math
+# ---------------------------------------------------------------------------
+scirender_add_test_suite(scirender_core_tests
+    SOURCES
+        core/parse_test.cpp
+        core/isosurface_test.cpp
+        core/pvd_test.cpp
+        core/field_names_test.cpp
+        core/anim_range_test.cpp
+        core/post_fields_test.cpp
+        core/post_fields_visualization_test.cpp
+        core/camera_math_test.cpp
+    LIBRARIES
+        CoreLib)
 
-# Post-processed fields (core math, no Qt/GL)
-add_executable(cylinder2d_vorticity_test
-    cylinder2d_vorticity_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/post_fields.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/gradient_estimator.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_xml_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/vtk_common.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_utils.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/stl_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/obj_parser.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/mesh_loader.cpp
-)
-target_include_directories(cylinder2d_vorticity_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-    ${ZLIB_INCLUDE_DIR}
-)
-target_link_libraries(cylinder2d_vorticity_test PRIVATE pugixml ${ZLIB_LIBRARY} lz4 lzma)
+# ---------------------------------------------------------------------------
+# fvm — absorbed solver, AMG configuration, transient settings, Ghia benchmark
+#
+# The Ghia cavity case is named "slow.*" so that it carries the "slow" CTest
+# label and can be excluded with `ctest -LE slow`.
+# ---------------------------------------------------------------------------
+scirender_add_test_suite(scirender_fvm_tests
+    SOURCES
+        fvm/amg_config_test.cpp
+        fvm/transient_settings_test.cpp
+        fvm/ghia_cavity_test.cpp
+    LIBRARIES
+        FvmCore
+        CfdLib
+        CoreLib)
 
-add_executable(post_fields_test
-    post_fields_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/post_fields.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/gradient_estimator.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
-)
-target_include_directories(post_fields_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-)
-add_test(NAME post_fields_test COMMAND post_fields_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-add_executable(post_fields_visualization_test
-    post_fields_visualization_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/post_fields.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/gradient_estimator.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/FieldStore.cpp
-)
-target_include_directories(post_fields_visualization_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-)
-add_test(NAME post_fields_visualization_test COMMAND post_fields_visualization_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-# Fly-to-face camera interpolation (camera_math) + triad footprint rules.
-# Uses the real Camera class; pure GLM, no Qt/GL.
-add_executable(gizmo_math_test
-    gizmo_math_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/camera_math.cpp
-    ${CMAKE_SOURCE_DIR}/../src/core/Camera.cpp
-)
-target_include_directories(gizmo_math_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor
-)
-add_test(NAME gizmo_math_test COMMAND gizmo_math_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-
-# AMG configuration surface: the UI->solver translation of every multigrid
-# knob, plus every coarsening/interpolation/cycle/smoother combination
-# converging on a small Poisson operator. Compiles the real AMG.cpp, no Qt/GL.
-add_executable(amg_config_test
-    amg_config_test.cpp
-    ${CMAKE_SOURCE_DIR}/../src/fvm/AMG.cpp
-)
-target_include_directories(amg_config_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/../src
-    ${CMAKE_SOURCE_DIR}/../vendor/eigen-3.4.0
-)
-add_test(NAME amg_config_test COMMAND amg_config_test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# ---------------------------------------------------------------------------
+# render — CPU-side render helpers (no GL context required)
+# ---------------------------------------------------------------------------
+scirender_add_test_suite(scirender_render_tests
+    SOURCES
+        render/streamline_test.cpp
+    LIBRARIES
+        RenderCore
+        CoreLib
+        glad)
