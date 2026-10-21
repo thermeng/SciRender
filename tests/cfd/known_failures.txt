@@ -44,20 +44,27 @@
 #  equation instead of being silently ignored)
 
 # --- Pressure / velocity coupling -------------------------------------------
-# The pressure correction makes the divergence worse instead of removing it:
-# a predictor with div = 1 ends up with an interior divergence of ~34.
+# The pressure correction makes the divergence worse instead of removing it.
 #
-# Measured: the error scales as 1/h^2 (34 -> 147 -> 608 for 8x8 -> 16x16 ->
-# 32x32) and the correction is dominated by an arbitrary O(1) component: the
-# solved p' is a nearly constant field (max |p'| = 0.62 / 0.76 / 0.89) where
-# the physical answer is O(h^2), with a sharp dip at the pinned reference cell.
-# The gradient of that dip is O(1/h), so the velocity correction is O(1/h) and
-# its divergence is O(1/h^2) - exactly the measured error.
+# Measured: with a COMPATIBLE (zero-mean) divergence source the correction
+# removes only 44% of the divergence - 1.0 before, 0.56 after.
 #
-# The pressure matrix (the unscaled discrete Laplacian: the entries are
-# d*A/dist, so its low modes have eigenvalues O(h^2)) and the gradient used in
-# the velocity correction (Green-Gauss) are not the same operator, and the
-# reference cell does not control the near-null constant mode. The fix has to
-# make the pressure operator, the momentum's pressure term and the velocity
-# correction one and the same operator.
+# The cause is a mismatch between the two operators that have to be the same
+# one: the pressure matrix assembles the distance-weighted (5-point) Laplacian,
+# while the velocity correction subtracts the divergence of the cell-centred
+# least-squares gradient. The ratio between the matrix's row divided by the
+# cell volume and the divergence of that gradient is 2.12 - see
+# cfd.pressure.operator_consistency below.
+#
+# (An earlier version of this entry reported a 1/h^2 error growth. That was an
+# artefact of an ill-posed test: the source was a uniform divergence in a
+# closed domain, which no pure Neumann pressure problem can satisfy. The
+# reference cell then has to absorb an impossible balance, and the result says
+# nothing about the coupling.)
 cfd.pressure.correction_removes_divergence
+
+# The pressure matrix and the gradient the velocity correction applies must be
+# the same operator: the matrix's row divided by the cell volume has to equal
+# the divergence of that gradient, otherwise the correction cannot cancel the
+# divergence it was built for. The ratio is 2.12 today.
+cfd.pressure.operator_consistency
