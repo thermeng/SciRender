@@ -1,29 +1,8 @@
 #include "fvm/Convection.h"
 #include "fvm/Gradient.h"
-#include <limits>
+#include <stdexcept>
 
 namespace fvm {
-
-template<std::size_t Dim>
-Convection<Dim>::Convection(const Mesh<Dim>& mesh) : mesh_(mesh) {}
-
-template<std::size_t Dim>
-void Convection<Dim>::setScheme(ConvectionScheme scheme) {
-    scheme_ = scheme;
-}
-
-template<std::size_t Dim>
-ConvectionScheme Convection<Dim>::scheme() const {
-    return scheme_;
-}
-
-template<std::size_t Dim>
-void Convection<Dim>::ensureWorkspace_(std::size_t n) const {
-    if (!workspaceInitialized_ || diagInc_.size() != n) {
-        diagInc_.resize(n);
-        workspaceInitialized_ = true;
-    }
-}
 
 // Helper: Barth-Jespersen limited SOU correction
 template<std::size_t Dim>
@@ -59,181 +38,65 @@ inline double limitedSOUCorrection(
 }
 
 template<std::size_t Dim>
-template<typename TripletContainer>
-void Convection<Dim>::discretizeImpl(TripletContainer& triplets, Eigen::VectorXd& b,
-                                     const Field<Dim>& phi,
-                                     const std::array<const Field<Dim>*, Dim>& velocities,
-                                     const std::vector<char>& dirichletMask,
-                                     const std::vector<double>& dirichletValues,
-                                     const std::array<Field<Dim>, Dim>* phiGrad) {
-    const std::size_t n = mesh_.nCells();
-    const std::size_t nF = mesh_.nFaces();
-    const bool hasMask = !dirichletMask.empty();
-    const bool useTVD = false;
-    const bool useSOU = (scheme_ == ConvectionScheme::SecondOrderUpwind);
-    const bool isUpwindBase = (scheme_ == ConvectionScheme::Upwind || useSOU);
+Convection<Dim>::Convection(const Mesh<Dim>& mesh) : mesh_(mesh) {}
 
-    ensureWorkspace_(n);
-    diagInc_.fill(0.0);
-
-    // Prepare gradient for SOU if needed - require caller-supplied grad to avoid per-call O(Dn) alloc
-    const std::array<Field<Dim>, Dim>* gradPtr = phiGrad;
-    // If useSOU && gradPtr==nullptr -> degrade to upwind (no correction), caller should supply grad (Solver/SIMPLE already do)
-
-    auto addFlux = [&](double F, bool hasNeighbor, std::size_t nb, std::size_t P) {
-        // Hoisted isUpwindBase avoids per-face enum + isTVD call (saves ~15% branches)
-        if (isUpwindBase) {
-            if (F >= 0.0) {
-                diagInc_[P] += F;
-            } else {
-                if (hasNeighbor && hasMask && dirichletMask[nb]) {
-                    b(P) -= F * dirichletValues[nb];
-                } else if (!hasNeighbor) {
-                    // Boundary inflow (reverse flow at outlet): suppress convective
-                    // flux instead of adding a destabilizing negative diagonal.
-                } else {
-                    triplets.emplace_back(P, nb, F);
-                }
-            }
-        } else {
-            // Central
-            if (hasNeighbor) {
-                diagInc_[P] += 0.5 * F;
-                if (hasMask && dirichletMask[nb]) {
-                    b(P) -= 0.5 * F * dirichletValues[nb];
-                } else {
-                    triplets.emplace_back(P, nb, 0.5 * F);
-                }
-            } else {
-                diagInc_[P] += F;
-            }
-        }
-    };
-
-    for (std::size_t f = 0; f < nF; ++f) {
-        const std::size_t P = mesh_.owner(f);
-        const std::size_t N = mesh_.neighbor(f);
-        const bool isBoundary = (N == std::size_t(-1));
-
-        double w = isBoundary ? 0.0 : mesh_.faceWeight(f);
-        double un = 0.0;
-        for (std::size_t d = 0; d < Dim; ++d) {
-            double uFace = isBoundary ? (*velocities[d])[P]
-                                      : (1.0 - w) * (*velocities[d])[P] + w * (*velocities[d])[N];
-            un += uFace * mesh_.faceNormal(f)[d];
-        }
-        double F = un * mesh_.faceArea(f);
-
-        if (!(hasMask && dirichletMask[P])) {
-            addFlux(F, !isBoundary, N, P);
-        }
-
-        if (!isBoundary && !(hasMask && dirichletMask[N])) {
-            double Frev = -F;
-            addFlux(Frev, true, P, N);
-        }
-
-        // Fix #1-8: SOU via gradient reconstruction, deferred correction, bounded, distance-weighted
-        if (useSOU && gradPtr != nullptr) {
-            const auto& grad = *gradPtr;
-            const double* xF = mesh_.faceCenterPtr(f);
-            if (!isBoundary) {
-                // Interior face: two possible upwind cells (P for F>=0, N for F<0)
-                // Apply correction as deferred (explicit) to preserve diagonal dominance
-                if (F >= 0.0) {
-                    if (!(hasMask && dirichletMask[P])) {
-                        const double* xUp = mesh_.cellCenterPtr(P);
-                        double gradDotR = 0.0;
-                        for (std::size_t d = 0; d < Dim; ++d) {
-                            double r = xF[d] - xUp[d];
-                            gradDotR += grad[d][P] * r;
-                        }
-                        double limited = limitedSOUCorrection(mesh_, P, f, gradDotR, phi[P], phi, dirichletMask, dirichletValues);
-                        b(P) += F * limited;
-                    }
-                    if (!(hasMask && dirichletMask[N])) {
-                        // For N cell, flux is -F (inflow from P), but its upwind for its own equation is not this face when F>=0
-                        // N's outward flux is -F <0, so its upwind is not P, correction for N should use its own upwind (N) only when flow is N->P (F<0)
-                        // So no correction to N when F>=0
-                    }
-                } else { // F < 0, flow N->P
-                    if (!(hasMask && dirichletMask[N])) {
-                        const double* xUp = mesh_.cellCenterPtr(N);
-                        double gradDotR = 0.0;
-                        for (std::size_t d = 0; d < Dim; ++d) {
-                            double r = xF[d] - xUp[d];
-                            gradDotR += grad[d][N] * r;
-                        }
-                        double limited = limitedSOUCorrection(mesh_, N, f, gradDotR, phi[N], phi, dirichletMask, dirichletValues);
-                        // For N, outward flux is -F? Wait we already added flux for N via addFlux(-F). Correction for N is (-F is not, actually F is from P perspective)
-                        // For N, the outward normal is -faceNormal, so flux for N is -F. Upwind is N, so correction is (-F)*? No F is P->N flux, -F is N outward.
-                        // But we are correcting b(N) which already has upwind contribution. The face value for N's equation when F<0 is phi_f = phi[N] + gradDotR, flux -F? Actually N's equation uses Frev = -F >0 as outward flux for N.
-                        // So correction magnitude is (-F) * limited? Let's use -F.
-                        // However our b(N) correction previously was b(N) -= F*(phi_f - phi[N]) = -F*limited
-                        b(N) += (-F) * limited;
-                    }
-                }
-                // For the opposite cell's inflow, no extra correction (upwind is the other cell)
-            } else {
-                // Boundary face: only P exists. Fix #2 and #7: include boundary faces for outflow
-                if (!(hasMask && dirichletMask[P])) {
-                    if (F > 0.0) {
-                        // Outflow: extrapolate from P
-                        const double* xUp = mesh_.cellCenterPtr(P);
-                        double gradDotR = 0.0;
-                        for (std::size_t d = 0; d < Dim; ++d) {
-                            double r = xF[d] - xUp[d];
-                            gradDotR += grad[d][P] * r;
-                        }
-                        double limited = limitedSOUCorrection(mesh_, P, f, gradDotR, phi[P], phi, dirichletMask, dirichletValues);
-                        b(P) += F * limited;
-                    } else if (F < 0.0) {
-                        // Inflow with Dirichlet: use Dirichlet value, no SOU correction (bounded)
-                        // If no Dirichlet, could extrapolate but we skip to stay bounded
-                    }
-                }
-            }
-        }
-    }
-
-    for (std::size_t P = 0; P < n; ++P) {
-        if (diagInc_[P] != 0.0) {
-            triplets.emplace_back(P, P, diagInc_[P]);
-        }
-    }
+template<std::size_t Dim>
+void Convection<Dim>::setScheme(ConvectionScheme scheme) {
+    scheme_ = scheme;
 }
 
 template<std::size_t Dim>
-template<typename TripletContainer>
-void Convection<Dim>::discretizeImplUnified(TripletContainer& triplets, Eigen::VectorXd& b,
-                                            std::vector<double>& diagInc,
-                                            const Field<Dim>& phi,
-                                            const std::array<const Field<Dim>*, Dim>& velocities,
-                                            const std::vector<char>& dirichletMask,
-                                            const std::vector<double>& dirichletValues,
-                                            const std::array<Field<Dim>, Dim>* phiGrad,
-                                            const std::vector<std::vector<char>>& dirichletMaskAll,
-                                            const std::vector<std::vector<double>>& dirichletValsAll) {
-    const std::size_t nF = mesh_.nFaces();
-    const bool hasMask = !dirichletMask.empty();
-    const bool hasMaskAll = !dirichletMaskAll.empty();
-    const bool useTVD = false;
-    const bool useSOU = (scheme_ == ConvectionScheme::SecondOrderUpwind);
+ConvectionScheme Convection<Dim>::scheme() const {
+    return scheme_;
+}
 
-    const std::array<Field<Dim>, Dim>* gradPtr = phiGrad;
+// ---------------------------------------------------------------------------
+// The one implementation.
+//
+// The face velocity follows the rule of the momentum assembly: a cell with a
+// prescribed velocity owns the WHOLE face it shares with a neighbour (the
+// neighbour takes priority), otherwise the face velocity is the exact linear
+// interpolation between the two cell centres.
+//
+// Second order upwind reconstructs the face value from the cell gradient.
+// Without a gradient the scheme would silently degrade to plain upwind, so
+// the call is rejected instead.
+// ---------------------------------------------------------------------------
+template<std::size_t Dim>
+void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::VectorXd& b,
+                                     std::vector<double>& diagInc,
+                                     const Field<Dim>& phi,
+                                     const std::array<const Field<Dim>*, Dim>& velocities,
+                                     const ConvectionBCs& bcs,
+                                     const std::array<Field<Dim>, Dim>* phiGrad) {
+    const std::size_t n = mesh_.nCells();
+    const std::size_t nF = mesh_.nFaces();
+    const bool hasMask = !bcs.scalarMask.empty();
+    const bool hasMaskAll = !bcs.velocityMask.empty();
+    const bool useSOU = (scheme_ == ConvectionScheme::SecondOrderUpwind);
     const bool isUpwindBase = (scheme_ == ConvectionScheme::Upwind || useSOU);
 
+    if (useSOU && phiGrad == nullptr)
+        throw std::invalid_argument(
+            "Convection::discretize: second order upwind needs the cell gradient");
+
+    const std::array<Field<Dim>, Dim>* gradPtr = phiGrad;
+    diagInc.assign(n, 0.0);
+
+    // The flux of a face, split between the two cells it separates.
     auto addConvFlux = [&](double flux, std::size_t from, std::size_t to) {
         if (isUpwindBase) {
-            if (flux >= 0.0) diagInc[from] += flux;
-            else {
-                if (hasMask && dirichletMask[to]) b(from) -= flux * dirichletValues[to];
-                else if (!(hasMask && dirichletMask[from])) triplets.emplace_back(from, to, flux);
+            if (flux >= 0.0) {
+                diagInc[from] += flux;
+            } else {
+                if (hasMask && bcs.scalarMask[to]) b(from) -= flux * bcs.scalarValues[to];
+                else if (!(hasMask && bcs.scalarMask[from])) triplets.emplace_back(from, to, flux);
             }
         } else {
+            // Central
             diagInc[from] += 0.5 * flux;
-            if (hasMask && dirichletMask[to]) b(from) -= 0.5 * flux * dirichletValues[to];
-            else if (!(hasMask && dirichletMask[from])) triplets.emplace_back(from, to, 0.5 * flux);
+            if (hasMask && bcs.scalarMask[to]) b(from) -= 0.5 * flux * bcs.scalarValues[to];
+            else if (!(hasMask && bcs.scalarMask[from])) triplets.emplace_back(from, to, 0.5 * flux);
         }
     };
 
@@ -241,54 +104,47 @@ void Convection<Dim>::discretizeImplUnified(TripletContainer& triplets, Eigen::V
         const std::size_t P = mesh_.owner(f);
         const std::size_t N = mesh_.neighbor(f);
         if (N == std::size_t(-1)) {
-            // Boundary: handle outflow SOU as deferred
-            if (useSOU && gradPtr != nullptr) {
-                // Need velocities to compute F
-                double un = 0.0;
-                for (std::size_t dd = 0; dd < Dim; ++dd) {
-                    double uFace = 0.0;
-                    if (hasMaskAll && !dirichletMaskAll[dd].empty() && dirichletMaskAll[dd][P]) uFace = dirichletValsAll[dd][P];
-                    else uFace = (*velocities[dd])[P];
-                    un += uFace * mesh_.faceNormal(f)[dd];
-                }
-                double F = un * mesh_.faceArea(f);
-                if (F > 0.0 && !(hasMask && dirichletMask[P])) {
+            // Boundary face. The base flux has to be added for EVERY scheme:
+            // the previous code only handled it inside the SOU branch, so with
+            // plain upwind, central differencing or QUICK the convective flux
+            // through the boundary was dropped entirely and the transported
+            // quantity did not balance at the outlet.
+            double un = 0.0;
+            for (std::size_t dd = 0; dd < Dim; ++dd) {
+                double uFace = 0.0;
+                if (hasMaskAll && !bcs.velocityMask[dd].empty() && bcs.velocityMask[dd][P])
+                    uFace = bcs.velocityValues[dd][P];
+                else
+                    uFace = (*velocities[dd])[P];
+                un += uFace * mesh_.faceNormal(f)[dd];
+            }
+            const double F = un * mesh_.faceArea(f);
+
+            if (hasMask && bcs.scalarMask[P]) {
+                // The owner cell is prescribed: its row is an identity row, so
+                // the face contributes nothing.
+                continue;
+            }
+
+            if (F >= 0.0) {
+                // Outflow: the face value is the owner value.
+                diagInc[P] += F;
+                if (useSOU) {
                     const double* xF = mesh_.faceCenterPtr(f);
                     const double* xUp = mesh_.cellCenterPtr(P);
                     double gradDotR = 0.0;
-                    for (std::size_t d = 0; d < Dim; ++d) gradDotR += (*gradPtr)[d][P] * (xF[d] - xUp[d]);
-                    double limited = limitedSOUCorrection(mesh_, P, f, gradDotR, phi[P], phi, dirichletMask, dirichletValues);
-                    b(P) += F * limited;
-                    // Still add base flux via addFlux? For boundary, base flux is handled via diagInc in main loop? But we skip interior loop for boundary, so add base
-                    // Base flux for boundary outflow: diagInc[P] += F
-                    // We need to ensure base is added. For unified, boundary faces were skipped earlier (continue). So we need to add base here.
-                    diagInc[P] += F;
-                } else if (F < 0.0 && !(hasMask && dirichletMask[P])) {
-                    // Inflow Dirichlet handled via b, no SOU
-                    double un2 = 0.0;
-                    for (std::size_t dd = 0; dd < Dim; ++dd) {
-                        double uFace = 0.0;
-                        if (hasMaskAll && !dirichletMaskAll[dd].empty() && dirichletMaskAll[dd][P]) uFace = dirichletValsAll[dd][P];
-                        else uFace = (*velocities[dd])[P];
-                        un2 += uFace * mesh_.faceNormal(f)[dd];
-                    }
-                    double F2 = un2 * mesh_.faceArea(f);
-                    // Inflow: b already will be handled? For boundary inflow, flux is negative, upwind is outside, should use Dirichlet
-                    // Base handling: for inflow, b(P) -= F*phiUpwind (Dirichlet) - we need to mimic addFlux behavior
-                    // Since we are in unified boundary path, we need to add base
-                    if (hasMaskAll) {
-                        // Dirichlet for velocity already, but phi Dirichlet is dirichletMask
-                        // For phi, if Dirichlet, b already includes -F*phiDirichlet via hasMask check? For boundary, hasNeighbor false, addFlux does diagInc[P]+=F for F>=0 else diagInc? Wait for boundary, hasNeighbor false, so addFlux for inflow (F<0) would do diagInc[P]+=F (negative). But we are not calling addFlux.
-                        // Simplified: for boundary inflow, no SOU, base is upwind Dirichlet
-                        // Use phi Dirichlet if available
-                        if (hasMask && dirichletMask[P]) {
-                            // P is Dirichlet, no equation
-                        } else {
-                            // Need to find upwind phi: Dirichlet outside
-                            // For now, assume phi Dirichlet not set, so no contribution
-                        }
-                    }
+                    for (std::size_t d = 0; d < Dim; ++d)
+                        gradDotR += (*gradPtr)[d][P] * (xF[d] - xUp[d]);
+                    double limited = limitedSOUCorrection(mesh_, P, f, gradDotR, phi[P], phi,
+                                                           bcs.scalarMask, bcs.scalarValues);
+                    // Known LHS term -> RHS with a sign flip (see the SOU branch).
+                    b(P) -= F * limited;
                 }
+            } else {
+                // Inflow at the boundary (a reversed outflow): the upwind
+                // value is outside the domain and unknown, so the convective
+                // flux is suppressed rather than adding a destabilising
+                // negative diagonal.
             }
             continue;
         }
@@ -296,57 +152,109 @@ void Convection<Dim>::discretizeImplUnified(TripletContainer& triplets, Eigen::V
         double un = 0.0;
         for (std::size_t dd = 0; dd < Dim; ++dd) {
             double uFace;
-            if (hasMaskAll && !dirichletMaskAll[dd].empty() && dirichletMaskAll[dd][N]) uFace = dirichletValsAll[dd][N];
-            else if (hasMaskAll && !dirichletMaskAll[dd].empty() && dirichletMaskAll[dd][P]) uFace = dirichletValsAll[dd][P];
-            else uFace = (1.0 - w) * (*velocities[dd])[P] + w * (*velocities[dd])[N];
+            if (hasMaskAll && !bcs.velocityMask[dd].empty() && bcs.velocityMask[dd][N])
+                uFace = bcs.velocityValues[dd][N];
+            else if (hasMaskAll && !bcs.velocityMask[dd].empty() && bcs.velocityMask[dd][P])
+                uFace = bcs.velocityValues[dd][P];
+            else
+                uFace = (1.0 - w) * (*velocities[dd])[P] + w * (*velocities[dd])[N];
             un += uFace * mesh_.faceNormal(f)[dd];
         }
         double F = un * mesh_.faceArea(f);
         addConvFlux(F, P, N);
         addConvFlux(-F, N, P);
-        if (useSOU && gradPtr != nullptr) {
+        if (useSOU) {
             const double* xF = mesh_.faceCenterPtr(f);
-            if (F >= 0.0 && !(hasMask && dirichletMask[P])) {
-                const double* xUp = mesh_.cellCenterPtr(P);
-                double gradDotR = 0.0;
-                for (std::size_t d = 0; d < Dim; ++d) gradDotR += (*gradPtr)[d][P] * (xF[d] - xUp[d]);
-                double limited = limitedSOUCorrection(mesh_, P, f, gradDotR, phi[P], phi, dirichletMask, dirichletValues);
-                b(P) += F * limited;
-            } else if (F < 0.0 && !(hasMask && dirichletMask[N])) {
-                const double* xUp = mesh_.cellCenterPtr(N);
-                double gradDotR = 0.0;
-                for (std::size_t d = 0; d < Dim; ++d) gradDotR += (*gradPtr)[d][N] * (xF[d] - xUp[d]);
-                double limited = limitedSOUCorrection(mesh_, N, f, gradDotR, phi[N], phi, dirichletMask, dirichletValues);
-                b(N) += (-F) * limited;
+            // Upwind cell is P for F >= 0 and N for F < 0. The deferred
+            // correction belongs to both cells; the downwind cell always needs
+            // its share, even when the upwind cell is prescribed (then the
+            // upwind contribution of this face was moved to the downwind
+            // cell's right-hand side by addConvFlux and the two must still
+            // cancel).
+            const bool upIsP = (F >= 0.0);
+            const std::size_t upCell = upIsP ? P : N;
+            const std::size_t downCell = upIsP ? N : P;
+            const bool upPrescribed = hasMask && bcs.scalarMask[upCell];
+            const bool downPrescribed = hasMask && bcs.scalarMask[downCell];
+            const double* xUp = mesh_.cellCenterPtr(upCell);
+            double gradDotR = 0.0;
+            for (std::size_t d = 0; d < Dim; ++d) gradDotR += (*gradPtr)[d][upCell] * (xF[d] - xUp[d]);
+            double phiUp = upPrescribed ? bcs.scalarValues[upCell] : phi[upCell];
+            double limited = limitedSOUCorrection(mesh_, upCell, f, gradDotR, phiUp, phi,
+                                                   bcs.scalarMask, bcs.scalarValues);
+            if (upIsP) {
+                if (!upPrescribed) b(P) -= F * limited;
+                if (!downPrescribed) b(N) += F * limited;
+            } else {
+                if (!upPrescribed) b(N) -= (-F) * limited;
+                if (!downPrescribed) b(P) += (-F) * limited;
+            }
+        }
+        if (scheme_ == ConvectionScheme::QUICK) {
+            const auto& fn = mesh_.faceNormal(f);
+            std::array<double, Dim> fnArr{};
+            for (std::size_t dd = 0; dd < Dim; ++dd) fnArr[dd] = fn[dd];
+            auto [up, up2] = secondOrderUpwindCells(mesh_, P, N, un, fnArr);
+            std::size_t down = (F >= 0.0) ? N : P;
+            if (up != up2 && up != down && up2 != down) {
+                const double* xUp2 = mesh_.cellCenterPtr(up2);
+                const double* xUp = mesh_.cellCenterPtr(up);
+                const double* xDown = mesh_.cellCenterPtr(down);
+                const double* xFp = mesh_.faceCenterPtr(f);
+                auto coord = [&](const double* x) {
+                    double s = 0.0;
+                    for (std::size_t d = 0; d < Dim; ++d) s += x[d] * fn[d];
+                    return s;
+                };
+                double s2 = coord(xUp2), sUp = coord(xUp), sDown = coord(xDown), sF = coord(xFp);
+                double denomA = (s2 - sUp) * (s2 - sDown);
+                double denomB = (sUp - s2) * (sUp - sDown);
+                double denomC = (sDown - s2) * (sDown - sUp);
+                if (std::abs(denomA) > 1e-30 && std::abs(denomB) > 1e-30 && std::abs(denomC) > 1e-30) {
+                    double wa = (sF - sUp) * (sF - sDown) / denomA;
+                    double wb = (sF - s2) * (sF - sDown) / denomB;
+                    double wc = (sF - s2) * (sF - sUp) / denomC;
+                    auto cellVal = [&](std::size_t c) {
+                        return (hasMask && bcs.scalarMask[c]) ? bcs.scalarValues[c] : phi[c];
+                    };
+                    double phiF = wa * cellVal(up2) + wb * cellVal(up) + wc * cellVal(down);
+                    double corr = phiF - cellVal(up);
+                    // Same rule as the SOU branch: the downwind cell always
+                    // receives its share of the correction.
+                    const bool upIsP = (F >= 0.0);
+                    const bool upPrescribed = hasMask && bcs.scalarMask[upIsP ? P : N];
+                    const bool downPrescribed = hasMask && bcs.scalarMask[upIsP ? N : P];
+                    if (upIsP) {
+                        if (!upPrescribed) b(P) -= F * corr;
+                        if (!downPrescribed) b(N) += F * corr;
+                    } else {
+                        if (!upPrescribed) b(N) -= (-F) * corr;
+                        if (!downPrescribed) b(P) += (-F) * corr;
+                    }
+                }
             }
         }
     }
 }
 
-template<std::size_t Dim>
-void Convection<Dim>::discretize(std::vector<Triplet>& triplets, Eigen::VectorXd& b,
-                                 std::vector<double>& diagInc,
-                                 const Field<Dim>& phi,
-                                 const std::array<const Field<Dim>*, Dim>& velocities,
-                                 const std::vector<char>& dirichletMask,
-                                 const std::vector<double>& dirichletValues,
-                                 const std::array<Field<Dim>, Dim>* phiGrad,
-                                 const std::vector<std::vector<char>>& dirichletMaskAll,
-                                 const std::vector<std::vector<double>>& dirichletValsAll) {
-    discretizeImplUnified(triplets, b, diagInc, phi, velocities, dirichletMask, dirichletValues, phiGrad, dirichletMaskAll, dirichletValsAll);
-}
+// ---------------------------------------------------------------------------
+// The three entry points. They differ only in where the result is delivered,
+// so they always assemble the same operator.
+// ---------------------------------------------------------------------------
 
 template<std::size_t Dim>
 void Convection<Dim>::discretize(SparseMatrix& A, Eigen::VectorXd& b,
                                  const Field<Dim>& phi,
                                  const std::array<const Field<Dim>*, Dim>& velocities,
-                                 const std::vector<char>& dirichletMask,
-                                 const std::vector<double>& dirichletValues,
+                                 const ConvectionBCs& bcs,
                                  const std::array<Field<Dim>, Dim>* phiGrad) {
     const std::size_t n = mesh_.nCells();
     std::vector<Triplet> convTriplets;
+    std::vector<double> diagInc;
     convTriplets.reserve(n * (2 * Dim + 1));
-    discretizeImpl(convTriplets, b, phi, velocities, dirichletMask, dirichletValues, phiGrad);
+    discretizeImpl(convTriplets, b, diagInc, phi, velocities, bcs, phiGrad);
+    for (std::size_t i = 0; i < n; ++i)
+        if (diagInc[i] != 0.0) convTriplets.emplace_back(static_cast<int>(i), static_cast<int>(i), diagInc[i]);
     SparseMatrix Aconv(n, n);
     Aconv.setFromTriplets(convTriplets.begin(), convTriplets.end());
     A += Aconv;
@@ -354,12 +262,25 @@ void Convection<Dim>::discretize(SparseMatrix& A, Eigen::VectorXd& b,
 
 template<std::size_t Dim>
 void Convection<Dim>::discretize(std::vector<Triplet>& triplets, Eigen::VectorXd& b,
+                                 std::vector<double>& diagInc,
                                  const Field<Dim>& phi,
                                  const std::array<const Field<Dim>*, Dim>& velocities,
-                                 const std::vector<char>& dirichletMask,
-                                 const std::vector<double>& dirichletValues,
+                                 const ConvectionBCs& bcs,
                                  const std::array<Field<Dim>, Dim>* phiGrad) {
-    discretizeImpl(triplets, b, phi, velocities, dirichletMask, dirichletValues, phiGrad);
+    discretizeImpl(triplets, b, diagInc, phi, velocities, bcs, phiGrad);
+}
+
+template<std::size_t Dim>
+void Convection<Dim>::discretize(std::vector<Triplet>& triplets, Eigen::VectorXd& b,
+                                 const Field<Dim>& phi,
+                                 const std::array<const Field<Dim>*, Dim>& velocities,
+                                 const ConvectionBCs& bcs,
+                                 const std::array<Field<Dim>, Dim>* phiGrad) {
+    const std::size_t n = mesh_.nCells();
+    std::vector<double> diagInc;
+    discretizeImpl(triplets, b, diagInc, phi, velocities, bcs, phiGrad);
+    for (std::size_t i = 0; i < n; ++i)
+        if (diagInc[i] != 0.0) triplets.emplace_back(static_cast<int>(i), static_cast<int>(i), diagInc[i]);
 }
 
 template<std::size_t Dim>

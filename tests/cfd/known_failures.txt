@@ -25,18 +25,10 @@
 #  maxDivergence() measures the same quantity as the residual)
 
 # --- Convection --------------------------------------------------------------
-# The three overloads assemble different operators: they disagree on the
-# treatment of a boundary inflow (the central branch adds a negative diagonal
-# where the unified branch suppresses the flux) and on the Dirichlet face rule.
-cfd.convection.overloads_agree
-
-# Second order upwind silently degrades to plain upwind when no cell gradient
-# is supplied instead of rejecting the call.
-cfd.convection.sou_requires_gradient
-
-# A cell with a prescribed velocity must contribute that value to the whole
-# face; only the unified overload implements the rule, the other two ignore it.
-cfd.convection.dirichlet_neighbour_rule
+# (fixed: the three entry points share one implementation, the face velocity
+#  follows the momentum assembly - a cell with a prescribed velocity owns the
+#  whole face it shares with a neighbour - and second order upwind rejects a
+#  call without the cell gradient instead of degrading to plain upwind)
 
 # --- Poisson / Laplacian -----------------------------------------------------
 # A Dirichlet mask shorter than the cell count is read out of bounds instead

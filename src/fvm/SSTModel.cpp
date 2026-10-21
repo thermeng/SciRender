@@ -313,9 +313,8 @@ void SSTModel<Dim>::solveKTransport(const VectorField<Dim>& velocity,
 
     std::array<Field<Dim>, Dim> gradK;
     for (auto& g : gradK) g = Field<Dim>(mesh_, 0.0);
-
-    convection_.discretize(A, b, k_, velPtrs, kBCMask_, kBCVals_,
-                           nullptr);
+    convection_.discretize(A, b, k_, velPtrs, ConvectionBCs{kBCMask_, kBCVals_, {}, {}},
+                           &gradK_);
 
     for (std::size_t i = 0; i < n; ++i) {
         if (kBCMask_[i]) continue;
@@ -424,8 +423,9 @@ void SSTModel<Dim>::solveOmegaTransport(const VectorField<Dim>& velocity,
     std::array<Field<Dim>, Dim> gradOmega;
     for (auto& g : gradOmega) g = Field<Dim>(mesh_, 0.0);
 
-    convection_.discretize(A, b, omega_, velPtrs, omegaBCMask_, omegaBCVals_,
-                           nullptr);
+    convection_.discretize(A, b, omega_, velPtrs,
+                           ConvectionBCs{omegaBCMask_, omegaBCVals_, {}, {}},
+                           &gradOmega_);
 
     for (std::size_t i = 0; i < n; ++i) {
         if (omegaBCMask_[i]) continue;
@@ -528,7 +528,7 @@ void SSTModel<Dim>::solveKTransportTransient(const VectorField<Dim>& velocity,
     convection_.setScheme(scheme);
     std::array<Field<Dim>, Dim> gradK;
     for (auto& g : gradK) g = Field<Dim>(mesh_, 0.0);
-    convection_.discretize(A, b, k_, velPtrs, kBCMask_, kBCVals_, nullptr);
+    convection_.discretize(A, b, k_, velPtrs, ConvectionBCs{kBCMask_, kBCVals_, {}, {}}, &gradK_);
     for (std::size_t i = 0; i < n; ++i) {
         if (kBCMask_[i]) continue;
         double destroyCoeff = c.beta_star * std::max(omega_[i], config_.omegaMin) * mesh_.cellVolume(i);
@@ -603,7 +603,8 @@ void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocit
     convection_.setScheme(scheme);
     std::array<Field<Dim>, Dim> gradOmega;
     for (auto& g : gradOmega) g = Field<Dim>(mesh_, 0.0);
-    convection_.discretize(A, b, omega_, velPtrs, omegaBCMask_, omegaBCVals_, nullptr);
+    convection_.discretize(A, b, omega_, velPtrs,
+                           ConvectionBCs{omegaBCMask_, omegaBCVals_, {}, {}}, &gradOmega_);
     for (std::size_t i = 0; i < n; ++i) {
         if (omegaBCMask_[i]) continue;
         double beta = F1_[i] * c.beta1 + (1.0 - F1_[i]) * c.beta2;

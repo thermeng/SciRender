@@ -87,12 +87,20 @@ formulation, not a defect of the operator.
 
 * upwind: `F >= 0 -> A(P,P) += F`, `F < 0 -> A(P,N) = F`; central: `F/2` on
   both;
+* a cell with a prescribed velocity owns the **whole** face it shares with a
+  neighbour (the neighbour takes priority) - the same rule as the momentum
+  assembly;
 * second order upwind: the upwind base plus a deferred reconstruction that is
-  clamped to the neighbour bounds, with the known term moved to the right-hand
-  side (so the full balance is `(A phi) - b`);
+  clamped to the neighbour bounds, with the known term moved to the
+  right-hand side (so the full balance is `(A phi) - b). It needs the cell
+  gradient: a call without it is **rejected** rather than silently degrading to
+  plain upwind;
 * central, second order upwind and QUICK are exact for a linear field;
 * a constant transported quantity is conserved by a divergence-free flow;
-* the three overloads must assemble the same operator.
+* the three entry points (the sparse matrix, the triplets with a separate
+  diagonal and the triplets with the diagonal included) must assemble the same
+  operator.
+
 
 ### Pressure and velocity correction (`cfd.pressure.*`, `cfd.velocity.*`)
 

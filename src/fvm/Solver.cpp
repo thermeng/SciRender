@@ -104,9 +104,8 @@ Eigen::VectorXd AdvectionDiffusionSolver<Dim>::solveSteady() {
         }
 
         convection_.discretize(A, b, solution_, velPtrs,
-                               bcs_.dirichletMask(),
-                               bcs_.dirichletValues(),
-                               nonlinear ? &solGrad : nullptr);
+                                ConvectionBCs{bcs_.dirichletMask(), bcs_.dirichletValues(), {}, {}},
+                                nonlinear ? &solGrad : nullptr);
 
         bcs_.addNeumannContributions(b);
 
