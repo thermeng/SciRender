@@ -31,20 +31,33 @@
 #  call without the cell gradient instead of degrading to plain upwind)
 
 # --- Poisson / Laplacian -----------------------------------------------------
-# A Dirichlet mask shorter than the cell count is read out of bounds instead
-# of being rejected.
-cfd.poisson.truncated_mask_is_rejected
+# (fixed: a Dirichlet mask that does not cover every cell is rejected instead
+#  of being read out of bounds)
 
 # --- Pressure correction -----------------------------------------------------
-# The pressure correction makes the divergence worse instead of removing it:
-# a predictor with div = 1 ends up with an interior divergence of ~34.
-cfd.pressure.correction_removes_divergence
-
-# A cell without a single interior face has no pressure equation and is
-# silently converted into a Dirichlet cell with p' = 0.
-cfd.pressure.isolated_cell_not_silently_pinned
+# (fixed: a cell without a pressure equation is excluded from the unknowns and
+#  reported, instead of being silently pinned to p' = 0)
 
 # --- Boundary conditions -----------------------------------------------------
-# A moving wall prescribed on the faces does not drive the momentum equation:
-# the whole domain stays at rest. The face path is not consumed.
-cfd.bc.face_path_moving_wall_drives_flow
+# (fixed: a cell that owns a face-conditioned face is no longer frozen by the
+#  cell mask, so a moving wall prescribed on its faces drives the momentum
+#  equation instead of being silently ignored)
+
+# --- Pressure / velocity coupling -------------------------------------------
+# The pressure correction makes the divergence worse instead of removing it:
+# a predictor with div = 1 ends up with an interior divergence of ~34.
+#
+# Measured: the error scales as 1/h^2 (34 -> 147 -> 608 for 8x8 -> 16x16 ->
+# 32x32) and the correction is dominated by an arbitrary O(1) component: the
+# solved p' is a nearly constant field (max |p'| = 0.62 / 0.76 / 0.89) where
+# the physical answer is O(h^2), with a sharp dip at the pinned reference cell.
+# The gradient of that dip is O(1/h), so the velocity correction is O(1/h) and
+# its divergence is O(1/h^2) - exactly the measured error.
+#
+# The pressure matrix (the unscaled discrete Laplacian: the entries are
+# d*A/dist, so its low modes have eigenvalues O(h^2)) and the gradient used in
+# the velocity correction (Green-Gauss) are not the same operator, and the
+# reference cell does not control the near-null constant mode. The fix has to
+# make the pressure operator, the momentum's pressure term and the velocity
+# correction one and the same operator.
+cfd.pressure.correction_removes_divergence

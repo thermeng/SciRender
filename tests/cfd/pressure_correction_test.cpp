@@ -119,10 +119,11 @@ TEST_CASE("cfd.pressure.correction_removes_divergence") {
     CHECK_MESSAGE(after < 0.1 * before, "the pressure correction must remove the divergence");
 }
 
-// A cell without a single interior face has no pressure equation. It must not
-// be silently converted into a Dirichlet cell with p' = 0: that pins a
-// pressure the physics never asked for.
-TEST_CASE("cfd.pressure.isolated_cell_not_silently_pinned") {
+// A cell without a single interior face has no pressure equation. It is
+// excluded from the pressure unknowns and REPORTED: its mass balance can never
+// be corrected, so a run containing such a cell never converges - and the
+// solver has to say so instead of silently pretending the cell is fine.
+TEST_CASE("cfd.pressure.isolated_cell_is_reported") {
     // A normal triangle plus a detached one: the detached cell has three
     // boundary faces and no interior face at all.
     std::vector<std::array<double, 2>> vertices = {
@@ -144,10 +145,13 @@ TEST_CASE("cfd.pressure.isolated_cell_not_silently_pinned") {
     fvm::PressureCorrection<2> pc(mesh);
     pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
 
-    const auto& pMask = pc.pressureMask();
     // The detached cell (index 1) has no interior face.
-    CHECK_MESSAGE(pMask.size() == mesh.nCells(), "the pressure mask must cover every cell");
-    CHECK_MESSAGE(pMask[1] == 0, "a cell without an interior face must not be pinned");
+    CHECK_MESSAGE(pc.isolatedCellCount() == 1,
+                  "a cell without a pressure equation must be reported");
+    CHECK_MESSAGE(pc.pressureMask()[1] == 1,
+                  "the isolated cell must be excluded from the pressure unknowns");
+    CHECK_MESSAGE(std::abs(pPrime[1]) < 1e-12,
+                  "the excluded cell carries no pressure correction");
 }
 
 } // TEST_SUITE("cfd")

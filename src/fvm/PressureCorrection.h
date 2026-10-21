@@ -50,6 +50,17 @@ public:
     const std::vector<char>& pressureMask() const { return pMask_; }
     const std::array<Field<Dim>, Dim>& pressureGradient() const { return pressureGrad_; }
 
+    // The number of cells that have no pressure equation at all (no interior
+    // face: a detached cell). Such a cell is excluded from the pressure
+    // unknowns and its mass balance can never be corrected, so the count is
+    // reported - otherwise the run silently never converges.
+    std::size_t isolatedCellCount() const { return isolatedCellCount_; }
+
+    // Diagnostics of the last linear solve: the iteration count and the
+    // residual the solver ended with.
+    std::size_t lastSolveIterations() const { return lastSolveIterations_; }
+    double lastSolveResidual() const { return lastSolveResidual_; }
+
     void solve(
         const VectorField<Dim>& uStar,
         const std::array<std::vector<double>, Dim>& dCoeff,
@@ -60,7 +71,14 @@ public:
         const std::vector<char>* isPressureDirichletFace = nullptr,
         const std::vector<std::pair<std::size_t, double>>* pressureOutletFaces = nullptr,
         const std::vector<FaceVelocityBC>* faceBC = nullptr,
-        const std::vector<char>* faceHasBC = nullptr);
+        const std::vector<char>* faceHasBC = nullptr,
+        // Velocity Dirichlet data (cell-level). When a cell carries a prescribed
+        // velocity the momentum assembly uses that prescribed value for the WHOLE
+        // face; the divergence here must use the very same face velocity, or the
+        // pressure correction balances a mass imbalance that the momentum
+        // equation never had.
+        const std::vector<std::vector<char>>* velDirichletMask = nullptr,
+        const std::vector<std::vector<double>>* velDirichletVals = nullptr);
 
 private:
     const Mesh<Dim>& mesh_;
@@ -78,6 +96,11 @@ private:
     mutable std::vector<double> pVals_;
     mutable std::vector<char> isPressureOutlet_;
     mutable Field<Dim> divU_;
+    // Cells without a pressure equation (see isolatedCellCount()).
+    std::size_t isolatedCellCount_ = 0;
+    // Diagnostics of the last linear solve.
+    std::size_t lastSolveIterations_ = 0;
+    double lastSolveResidual_ = 0.0;
 
     Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
                              Eigen::IncompleteCholesky<double>> cgSolver_;

@@ -1,7 +1,24 @@
 #include "fvm/Laplacian.h"
 #include "fvm/SSTConstants.h"
 
+#include <stdexcept>
+
 namespace fvm {
+
+namespace {
+
+// A Dirichlet mask/value pair must cover every cell: otherwise the prescribed
+// values are read out of bounds while the operator is assembled.
+void validateDirichlet(std::size_t nCells, const std::vector<char>& mask,
+                       const std::vector<double>& values) {
+    if (mask.empty()) return;
+    if (mask.size() != nCells)
+        throw std::invalid_argument("Laplacian::discretize: the Dirichlet mask needs one entry per cell");
+    if (values.size() != nCells)
+        throw std::invalid_argument("Laplacian::discretize: the Dirichlet values need one entry per cell");
+}
+
+} // namespace
 
 template<std::size_t Dim>
 Laplacian<Dim>::Laplacian(const Mesh<Dim>& mesh, double k)
@@ -27,6 +44,8 @@ void Laplacian<Dim>::discretize(SparseMatrix& A, Eigen::VectorXd& b,
     const bool hasMask = !dirichletMask.empty();
     const bool hasSource = !source.empty();
     const bool hasGrad = (phiGrad != nullptr);
+
+    validateDirichlet(n, dirichletMask, dirichletValues);
 
     ensureWorkspace_(n);
     diagSum_.fill(0.0);
@@ -65,14 +84,24 @@ void Laplacian<Dim>::discretize(SparseMatrix& A, Eigen::VectorXd& b,
         for (std::size_t d2 = 0; d2 < Dim; ++d2)
             dotSfd += fn[d2] * d[d2];
 
-        bool negativeDiffusion = (dotSfd < 0.0);
-        double absDotSfd = negativeDiffusion ? -dotSfd : dotSfd;
-        const double coeff = k_ * area * absDotSfd / (dist * dist);
+        // The face coefficient is Gamma * A * (d . S_f) / |d|^2: it carries the
+        // sign of the cosine between the face normal and the centre-to-centre
+        // vector, which is what the Green-Gauss decomposition of the face
+        // gradient requires. The mesh orients every internal face normal from
+        // the owner towards the neighbour, so (d . S_f) > 0 and the coefficient
+        // is positive. The previous code took the absolute value and, for a
+        // negative cosine, dropped the coupling from the matrix while still
+        // adding a Dirichlet source term to the right-hand side: the face then
+        // contributed a load without any matching operator, so the operator
+        // stopped being conservative and the residual no longer balanced.
+        const double coeff = k_ * area * dotSfd / (dist * dist);
 
         double correction = 0.0;
         if (hasGrad) {
             double Sf_nonorth[Dim];
-            double dot_f_dhat = absDotSfd / dist;
+            // (d . S_f) / |d| is the signed projection of the face area vector
+            // onto the centre-to-centre direction.
+            double dot_f_dhat = dotSfd / dist;
             for (std::size_t d2 = 0; d2 < Dim; ++d2) {
                 Sf_nonorth[d2] = area * fn[d2] - area * dot_f_dhat * d[d2] / dist;
             }
@@ -81,35 +110,24 @@ void Laplacian<Dim>::discretize(SparseMatrix& A, Eigen::VectorXd& b,
             correction *= nonOrthCorrectionFactor;
         }
 
-        if (negativeDiffusion) {
-            if (!(hasMask && dirichletMask[P])) {
-                b(P) += coeff * (hasMask && dirichletMask[N] ? dirichletValues[N] : 0.0);
-                b(P) -= correction;
+        if (!(hasMask && dirichletMask[P])) {
+            if (hasMask && dirichletMask[N]) {
+                b(P) += coeff * dirichletValues[N];
+            } else {
+                triplets_.emplace_back(P, N, -coeff);
             }
-            if (!(hasMask && dirichletMask[N])) {
-                b(N) += coeff * (hasMask && dirichletMask[P] ? dirichletValues[P] : 0.0);
-                b(N) += correction;
-            }
-        } else {
-            if (!(hasMask && dirichletMask[P])) {
-                if (hasMask && dirichletMask[N]) {
-                    b(P) += coeff * dirichletValues[N];
-                } else {
-                    triplets_.emplace_back(P, N, -coeff);
-                }
-                diagSum_[P] += coeff;
-                if (hasGrad) b(P) -= correction;
-            }
+            diagSum_[P] += coeff;
+            if (hasGrad) b(P) -= correction;
+        }
 
-            if (!(hasMask && dirichletMask[N])) {
-                if (hasMask && dirichletMask[P]) {
-                    b(N) += coeff * dirichletValues[P];
-                } else {
-                    triplets_.emplace_back(N, P, -coeff);
-                }
-                diagSum_[N] += coeff;
-                if (hasGrad) b(N) += correction;
+        if (!(hasMask && dirichletMask[N])) {
+            if (hasMask && dirichletMask[P]) {
+                b(N) += coeff * dirichletValues[P];
+            } else {
+                triplets_.emplace_back(N, P, -coeff);
             }
+            diagSum_[N] += coeff;
+            if (hasGrad) b(N) += correction;
         }
     }
 

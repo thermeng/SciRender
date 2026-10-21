@@ -107,7 +107,10 @@ formulation, not a defect of the operator.
 * a uniform flow must not produce a pressure correction;
 * the pinned reference cell carries `p' = 0`;
 * the correction must remove the divergence it was built for;
-* a cell without an interior face must not be silently pinned;
+* a cell without an interior face has no pressure equation: it is excluded
+  from the pressure unknowns and **reported** (`isolatedCellCount()`), because
+  its mass balance can never be corrected and the run would otherwise never
+  converge without saying why;
 * `u = u* - d * grad(p')`, a prescribed cell is not corrected, and a symmetry
   wall projects the normal component out.
 
