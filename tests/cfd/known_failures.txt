@@ -1,0 +1,77 @@
+# Known-failure registry for the CFD fundamentals suite.
+#
+# Every test case listed here is known to fail because the solver deviates
+# from the contract the test states. Such a CTest row is registered with
+# WILL_FAIL TRUE: it passes while the defect is open, and it turns RED as soon
+# as the solver is fixed - that is the signal to remove the entry.
+#
+#   ctest --test-dir build-tests -L known-broken --output-on-failure
+#
+# lists the outstanding work with the real diagnostic of every defect.
+#
+# A name that does not match any test case fails the build, so the registry
+# cannot silently rot.
+
+# --- Gradient ----------------------------------------------------------------
+# The cell-based Green-Gauss uses 0.5*(phi_P + phi_N) as the interior face
+# value instead of the exact interpolation (1-w)*phi_P + w*phi_N with the
+# mesh's faceWeight, so the scheme is only first order on a skewed mesh.
+cfd.gradient.green_gauss_cell_skewed_mesh
+
+# The node-based Green-Gauss reads Mesh::vertices() / cellVertices() /
+# faceVertices(), which are only populated for unstructured meshes. On a
+# structured mesh this is an out-of-bounds read and the test SEGFAULTS.
+crash:cfd.gradient.green_gauss_node_based_structured
+
+# The wall ghost adds its direction to the least-squares normal matrix but
+# contributes nothing to the right-hand side, so the gradient of a prescribed
+# wall cell is half the one-sided gradient it should have.
+cfd.gradient.dirichlet_value_is_not_a_face_value
+
+# --- Divergence --------------------------------------------------------------
+# The three-argument overload uses the interior cell velocity at the boundary
+# faces, so it lets the flow through a wall. It has to honour the Dirichlet
+# mask like the five-argument overload does.
+cfd.divergence.no_slip_wall_flux
+
+# maxDivergence() skips the boundary cells while Residual.h includes them, so
+# the two report different quantities under the same name.
+cfd.divergence.max_divergence_definition
+
+# The face velocity uses the orthogonal projection parameter as the
+# interpolation weight instead of the true intersection parameter, so a
+# linear field is not reproduced exactly on a skewed mesh.
+cfd.divergence.unstructured_uses_face_weights
+
+# --- Convection --------------------------------------------------------------
+# The three overloads assemble different operators: they disagree on the
+# treatment of a boundary inflow (the central branch adds a negative diagonal
+# where the unified branch suppresses the flux) and on the Dirichlet face rule.
+cfd.convection.overloads_agree
+
+# Second order upwind silently degrades to plain upwind when no cell gradient
+# is supplied instead of rejecting the call.
+cfd.convection.sou_requires_gradient
+
+# A cell with a prescribed velocity must contribute that value to the whole
+# face; only the unified overload implements the rule, the other two ignore it.
+cfd.convection.dirichlet_neighbour_rule
+
+# --- Poisson / Laplacian -----------------------------------------------------
+# A Dirichlet mask shorter than the cell count is read out of bounds instead
+# of being rejected.
+cfd.poisson.truncated_mask_is_rejected
+
+# --- Pressure correction -----------------------------------------------------
+# The pressure correction makes the divergence worse instead of removing it:
+# a predictor with div = 1 ends up with an interior divergence of ~34.
+cfd.pressure.correction_removes_divergence
+
+# A cell without a single interior face has no pressure equation and is
+# silently converted into a Dirichlet cell with p' = 0.
+cfd.pressure.isolated_cell_not_silently_pinned
+
+# --- Boundary conditions -----------------------------------------------------
+# A moving wall prescribed on the faces does not drive the momentum equation:
+# the whole domain stays at rest. The face path is not consumed.
+cfd.bc.face_path_moving_wall_drives_flow
