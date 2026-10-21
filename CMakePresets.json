@@ -58,12 +58,7 @@
     },
     {
       "name": "tests",
-      "configurePreset": "tests",
-      "targets": [
-        "scirender_core_tests",
-        "scirender_fvm_tests",
-        "scirender_render_tests"
-      ]
+      "configurePreset": "tests"
     }
   ],
   "testPresets": [

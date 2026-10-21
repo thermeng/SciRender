@@ -19,12 +19,21 @@ set(SCIRENDER_TEST_SUPPORT_SOURCES
     support/test_support.cpp
     support/mesh_fixtures.cpp)
 
-# scirender_add_test_suite(<target> SOURCES <files...> LIBRARIES <libs...>)
+# The fvm fixtures need the solver's Mesh, so they only go into the suites
+# that link FvmCore.
+set(SCIRENDER_FVM_TEST_SUPPORT_SOURCES
+    support/fvm_fixtures.cpp)
+
+# scirender_add_test_suite(<target> SOURCES <files...> LIBRARIES <libs...>
+#                          [REGISTRIES <files...>])
 #
 # Adds a test executable, wires up the shared support code, points it at the
 # repository's sample fixtures and registers every test case with CTest.
+# REGISTRIES lists known-failure files: the listed test cases are registered
+# with WILL_FAIL TRUE so they pass while the defect is open (see
+# cmake/DiscoverDoctestTests.cmake).
 function(scirender_add_test_suite target)
-    cmake_parse_arguments(ARG "" "" "SOURCES;LIBRARIES" "" ${ARGN})
+    cmake_parse_arguments(ARG "" "" "SOURCES;LIBRARIES;REGISTRIES" "" ${ARGN})
 
     add_executable(${target}
         ${ARG_SOURCES}
@@ -40,7 +49,7 @@ function(scirender_add_test_suite target)
         SCIRENDER_SAMPLES_DIR="${SCIRENDER_SAMPLES_DIR}"
         SCIRENDER_TEST_TMP_DIR="${CMAKE_CURRENT_BINARY_DIR}/tmp")
 
-    scirender_discover_tests(${target})
+    scirender_discover_tests(${target} REGISTRIES ${ARG_REGISTRIES})
 endfunction()
 
 # ---------------------------------------------------------------------------
@@ -85,3 +94,34 @@ scirender_add_test_suite(scirender_render_tests
         RenderCore
         CoreLib
         glad)
+
+# ---------------------------------------------------------------------------
+# cfd — the CFD fundamentals suite
+#
+# One test case per operator behaviour. The cases that encode a contract the
+# solver does not yet honour are listed in cfd/known_failures.txt: they are
+# registered with WILL_FAIL TRUE, so the suite stays green while the defects
+# are open, and each one turns red as soon as the solver is fixed.
+#
+#   ctest --test-dir build-tests -L known-broken --output-on-failure
+#
+# lists the outstanding work with the real diagnostic of every defect.
+# ---------------------------------------------------------------------------
+scirender_add_test_suite(scirender_cfd_tests
+    SOURCES
+        cfd/mesh_geometry_test.cpp
+        cfd/gradient_test.cpp
+        cfd/divergence_test.cpp
+        cfd/poisson_test.cpp
+        cfd/convection_test.cpp
+        cfd/pressure_correction_test.cpp
+        cfd/velocity_correction_test.cpp
+        cfd/boundary_conditions_test.cpp
+        cfd/residual_test.cpp
+        ${SCIRENDER_FVM_TEST_SUPPORT_SOURCES}
+    LIBRARIES
+        FvmCore
+        CfdLib
+        CoreLib
+    REGISTRIES
+        "${CMAKE_CURRENT_SOURCE_DIR}/cfd/known_failures.txt")

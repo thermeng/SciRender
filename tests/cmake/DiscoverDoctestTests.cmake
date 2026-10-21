@@ -15,18 +15,33 @@
 # the caller's directory, not to this file.
 set(SCIRENDER_DISCOVER_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/DiscoverDoctestTests.cmake"
     CACHE INTERNAL "Path of the doctest CTest discovery script")
+set(SCIRENDER_EXPECT_FAILURE_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/expect_failure.cmake"
+    CACHE INTERNAL "Path of the known-failure test wrapper")
 
+# scirender_discover_tests(TARGET <tgt> [REGISTRIES <file>...])
+#
+# REGISTRIES lists "known failure" files: one test-case name per line. A listed
+# test case is registered with WILL_FAIL TRUE, so it passes *by failing* while
+# the defect is open. The moment the solver is fixed the row turns red, which
+# is the signal to remove the entry. A listed name that matches no discovered
+# test case fails the build, so the registry cannot silently rot.
 function(scirender_discover_tests TARGET)
+    cmake_parse_arguments(ARG "" "" "REGISTRIES" "" ${ARGN})
+
     set(_tests "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}_tests.cmake")
     set(_include "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}_include.cmake")
 
-    add_custom_command(TARGET ${TARGET} POST_BUILD
-        BYPRODUCTS "${_tests}"
+    # A dedicated target (not a POST_BUILD step) so the CTest matrix is
+    # regenerated on EVERY build: the registry of known failures can change
+    # without the test binary changing.
+    add_custom_target(${TARGET}_ctest_discovery ALL
         COMMAND ${CMAKE_COMMAND}
                 -D "TEST_EXECUTABLE=$<TARGET_FILE:${TARGET}>"
                 -D "TEST_OUTPUT=${_tests}"
                 -D "TEST_WORKING_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                -D "XFAIL_REGISTRIES=${ARG_REGISTRIES}"
                 -P "${SCIRENDER_DISCOVER_SCRIPT}"
+        DEPENDS ${TARGET}
         VERBATIM)
 
     file(WRITE "${_include}"
@@ -116,17 +131,79 @@ if(CMAKE_SCRIPT_MODE_FILE)
     file(TO_CMAKE_PATH "${TEST_EXECUTABLE}" executable)
     file(TO_CMAKE_PATH "${TEST_WORKING_DIR}" working_dir)
 
+    # ------------------------------------------------------------------------
+    # Known-failure registry
+    #
+    # Each registry file lists test-case names (one per line, '#' comments and
+    # blank lines allowed) that are known to fail because the solver deviates
+    # from the contract the test states. Those rows are registered with
+    # WILL_FAIL TRUE: they pass while the defect is open and turn red as soon
+    # as the solver is fixed.
+    #
+    # A name prefixed with "crash:" describes a defect that takes the test
+    # process down. The prefix is stripped here; the wrapper treats a crash
+    # like any other failure.
+    # ------------------------------------------------------------------------
+    set(xfail_names "")
+    foreach(registry IN LISTS XFAIL_REGISTRIES)
+        if(registry STREQUAL "")
+            continue()
+        endif()
+        if(NOT EXISTS "${registry}")
+            message(FATAL_ERROR "Known-failure registry '${registry}' does not exist")
+        endif()
+        file(STRINGS "${registry}" registry_lines)
+        foreach(line IN LISTS registry_lines)
+            string(STRIP "${line}" line)
+            if(line STREQUAL "")
+                continue()
+            endif()
+            if(line MATCHES "^#")
+                continue()
+            endif()
+            if(line MATCHES "^crash:")
+                string(REGEX REPLACE "^crash:" "" line "${line}")
+            endif()
+            list(APPEND xfail_names "${line}")
+        endforeach()
+    endforeach()
+
+    # Every registered name must exist, otherwise the registry has gone stale.
+    foreach(name IN LISTS xfail_names)
+        list(FIND cases "${name}" found)
+        if(found EQUAL -1)
+            message(FATAL_ERROR
+                    "Known-failure registry lists '${name}', but no such test case exists in "
+                    "'${TEST_EXECUTABLE}'.\nRemove the stale entry (or restore the test).")
+        endif()
+    endforeach()
+
     set(content "")
     foreach(case IN LISTS cases)
         # Label = the part of the test case name before the first dot
-        # (core / fvm / render / slow) so `ctest -L core` selects a layer.
+        # (core / fvm / render / slow / cfd) so `ctest -L core` selects a layer.
         string(REGEX REPLACE "\\..*$" "" label "${case}")
         # Escape commas: doctest treats them as filter separators.
         string(REPLACE "," "\\," escaped_case "${case}")
+
+        list(FIND xfail_names "${case}" is_xfail)
+        set(extra_props "")
+        if(NOT is_xfail EQUAL -1)
+            set(extra_props ";known-broken")
+        endif()
+
+        if(is_xfail EQUAL -1)
+            string(APPEND content
+                   "add_test(\"${case}\" \"${executable}\" \"--test-case=${escaped_case}\" \"--no-colors\")\n")
+        else()
+            # A known failure runs through a wrapper that inverts the outcome:
+            # the row passes while the defect is open (a crash counts as a
+            # failure too) and turns red as soon as the solver is fixed.
+            string(APPEND content
+                   "add_test(\"${case}\" \"${CMAKE_COMMAND}\" \"-DTEST_EXECUTABLE=${executable}\" \"-DTEST_CASE=${escaped_case}\" \"-DTEST_WORKING_DIR=${working_dir}\" \"-P\" \"${SCIRENDER_EXPECT_FAILURE_SCRIPT}\")\n")
+        endif()
         string(APPEND content
-               "add_test(\"${case}\" \"${executable}\" \"--test-case=${escaped_case}\" \"--no-colors\")\n")
-        string(APPEND content
-               "set_tests_properties(\"${case}\" PROPERTIES WORKING_DIRECTORY \"${working_dir}\" LABELS \"${label}\")\n")
+               "set_tests_properties(\"${case}\" PROPERTIES WORKING_DIRECTORY \"${working_dir}\" LABELS \"${label}${extra_props}\")\n")
     endforeach()
 
     file(WRITE "${TEST_OUTPUT}" "${content}")
