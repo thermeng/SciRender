@@ -3,14 +3,18 @@
 // Contract pinned here:
 //   - the face flux is F = (u_f . n) * A with the face velocity interpolated
 //     with the mesh's faceWeight;
+//   - a cell with a prescribed velocity owns the WHOLE face it shares with a
+//     neighbour (the neighbour takes priority) - the same rule as the momentum
+//     assembly;
 //   - upwind: F >= 0 -> A(P,P) += F, F < 0 -> A(P,N) = F;
 //   - central: A(P,P) += F/2 and A(P,N) = F/2;
-//   - second order upwind: the upwind base plus a deferred reconstruction
-//     phi_f = phi_up + grad(phi_up) . r, clamped to the neighbour bounds; the
-//     known term moves to the right-hand side with a sign flip, so the full
-//     balance is (A phi) - b;
+//   - second order upwind: the upwind base plus a deferred reconstruction that
+//     is clamped to the neighbour bounds, with the known term moved to the
+//     right-hand side (so the full balance is (A phi) - b). It needs the cell
+//     gradient: without it the call is rejected instead of silently degrading
+//     to plain upwind;
 //   - a constant transported quantity is conserved by a divergence-free flow;
-//   - the three overloads must assemble the same operator.
+//   - the three entry points assemble the same operator.
 #include "doctest/doctest.h"
 #include "fvm/Convection.h"
 #include "fvm/Gradient.h"
@@ -35,45 +39,43 @@ std::array<const fvm::Field<2>*, 2> velocityPtrs(const fvm::VectorField<2>& v) {
     return {&v[0], &v[1]};
 }
 
-// The SparseMatrix overload.
+Eigen::MatrixXd fromTriplets(const std::vector<fvm::Triplet>& t, std::size_t n) {
+    fvm::SparseMatrix A(n, n);
+    A.setFromTriplets(t.begin(), t.end());
+    return Eigen::MatrixXd(A);
+}
+
+// The SparseMatrix entry point (the matrix is added to, so it starts empty).
 Assembled assembleSparse(fvm::Convection<2>& conv, const fvm::Mesh<2>& mesh,
                          const fvm::Field<2>& phi, const fvm::VectorField<2>& vel,
-                         const std::vector<char>& mask = {},
-                         const std::vector<double>& values = {},
+                         const fvm::ConvectionBCs& bcs = {},
                          const std::array<fvm::Field<2>, 2>* grad = nullptr) {
     const std::size_t n = mesh.nCells();
     fvm::SparseMatrix A(n, n);
     Eigen::VectorXd b = Eigen::VectorXd::Zero(n);
-    conv.discretize(A, b, phi, velocityPtrs(vel), mask, values, grad);
+    conv.discretize(A, b, phi, velocityPtrs(vel), bcs, grad);
     return {Eigen::MatrixXd(A), b};
 }
 
-// The triplet overloads: the plain one and the "unified" one that takes the
-// per-component Dirichlet masks and the diagonal accumulator.
+// The triplet entry points: the diagonal is returned separately, or it is part
+// of the triplets.
 Assembled assembleTriplets(fvm::Convection<2>& conv, const fvm::Mesh<2>& mesh,
                            const fvm::Field<2>& phi, const fvm::VectorField<2>& vel,
-                           bool unified, const std::vector<char>& mask = {},
-                           const std::vector<double>& values = {},
-                           const std::array<fvm::Field<2>, 2>* grad = nullptr,
-                           const std::vector<std::vector<char>>& maskAll = {},
-                           const std::vector<std::vector<double>>& valsAll = {}) {
+                           bool withDiagonal, const fvm::ConvectionBCs& bcs = {},
+                           const std::array<fvm::Field<2>, 2>* grad = nullptr) {
     const std::size_t n = mesh.nCells();
     std::vector<fvm::Triplet> triplets;
     Eigen::VectorXd b = Eigen::VectorXd::Zero(n);
-
-    if (unified) {
-        std::vector<double> diagInc(n, 0.0);
-        conv.discretize(triplets, b, diagInc, phi, velocityPtrs(vel), mask, values, grad, maskAll,
-                        valsAll);
-        for (std::size_t i = 0; i < n; ++i)
-            triplets.emplace_back(static_cast<int>(i), static_cast<int>(i), diagInc[i]);
+    if (withDiagonal) {
+        conv.discretize(triplets, b, phi, velocityPtrs(vel), bcs, grad);
     } else {
-        conv.discretize(triplets, b, phi, velocityPtrs(vel), mask, values, grad);
+        std::vector<double> diagInc;
+        conv.discretize(triplets, b, diagInc, phi, velocityPtrs(vel), bcs, grad);
+        for (std::size_t i = 0; i < n; ++i)
+            if (diagInc[i] != 0.0)
+                triplets.emplace_back(static_cast<int>(i), static_cast<int>(i), diagInc[i]);
     }
-
-    fvm::SparseMatrix A(n, n);
-    A.setFromTriplets(triplets.begin(), triplets.end());
-    return {Eigen::MatrixXd(A), b};
+    return {fromTriplets(triplets, n), b};
 }
 
 } // namespace
@@ -96,7 +98,17 @@ TEST_CASE("cfd.convection.constant_field_annihilated") {
         CAPTURE(static_cast<int>(scheme));
         fvm::Convection<2> conv(mesh);
         conv.setScheme(scheme);
-        const Assembled op = assembleSparse(conv, mesh, phi, vel);
+
+        // Second order upwind needs the cell gradient.
+        std::array<fvm::Field<2>, 2> grad{fvm::Field<2>(mesh, 0.0), fvm::Field<2>(mesh, 0.0)};
+        const std::array<fvm::Field<2>, 2>* gradPtr = nullptr;
+        if (scheme == fvm::ConvectionScheme::SecondOrderUpwind) {
+            fvm::Gradient<2> gradient(mesh, fvm::GradientScheme::LeastSquares);
+            gradient.compute(phi, grad);
+            gradPtr = &grad;
+        }
+
+        const Assembled op = assembleSparse(conv, mesh, phi, vel, fvm::ConvectionBCs{}, gradPtr);
 
         const Eigen::VectorXd ones = Eigen::VectorXd::Ones(mesh.nCells());
         const Eigen::VectorXd applied = op.A * ones;
@@ -186,7 +198,7 @@ TEST_CASE("cfd.convection.sou_linear_exact") {
 
     fvm::Convection<2> conv(mesh);
     conv.setScheme(fvm::ConvectionScheme::SecondOrderUpwind);
-    const Assembled op = assembleSparse(conv, mesh, phi, vel, {}, {}, &grad);
+    const Assembled op = assembleSparse(conv, mesh, phi, vel, fvm::ConvectionBCs{}, &grad);
 
     const Eigen::VectorXd phiVec = Eigen::VectorXd::Map(phi.values().data(), phi.size());
     const Eigen::VectorXd applied = op.A * phiVec;
@@ -232,7 +244,7 @@ TEST_CASE("cfd.convection.sou_limiter_bounds") {
 
         fvm::Convection<2> conv(mesh);
         conv.setScheme(fvm::ConvectionScheme::SecondOrderUpwind);
-        const Assembled op = assembleSparse(conv, mesh, phi, vel, {}, {}, &grad);
+        const Assembled op = assembleSparse(conv, mesh, phi, vel, fvm::ConvectionBCs{}, &grad);
 
         // In the first column the cell is the upwind cell of its +x face and
         // every other face carries no flux, so b holds that face's correction
@@ -288,8 +300,9 @@ TEST_CASE("cfd.convection.quick_linear_exact") {
     CHECK_MESSAGE(checked > 0, "the test must actually check some cells");
 }
 
-// The three overloads must assemble the same operator. They differ today on
-// the treatment of a boundary inflow and on the Dirichlet face rule.
+// The three entry points must assemble the same operator. The flow is
+// reversed here, so the +x wall becomes a boundary inflow - the case the two
+// implementations used to disagree on.
 TEST_CASE("cfd.convection.overloads_agree") {
     const fvm::Mesh<2> mesh = uniform2D(4);
     fvm::Field<2> phi(mesh, 1.0);
@@ -302,7 +315,7 @@ TEST_CASE("cfd.convection.overloads_agree") {
 
     const Assembled sparse = assembleSparse(conv, mesh, phi, vel);
     const Assembled plain = assembleTriplets(conv, mesh, phi, vel, false);
-    const Assembled unified = assembleTriplets(conv, mesh, phi, vel, true);
+    const Assembled withDiagonal = assembleTriplets(conv, mesh, phi, vel, true);
 
     for (int i = 0; i < static_cast<int>(mesh.nCells()); ++i) {
         CAPTURE(i);
@@ -310,9 +323,10 @@ TEST_CASE("cfd.convection.overloads_agree") {
             CAPTURE(j);
             CHECK_MESSAGE(std::abs(sparse.A(i, j) - plain.A(i, j)) < 1e-15,
                           "the SparseMatrix and the triplet overload must agree");
-            CHECK_MESSAGE(std::abs(sparse.A(i, j) - unified.A(i, j)) < 1e-15,
-                          "the unified overload must assemble the same operator");
+            CHECK_MESSAGE(std::abs(sparse.A(i, j) - withDiagonal.A(i, j)) < 1e-15,
+                          "the triplet overloads must agree");
         }
+        CHECK_MESSAGE(std::abs(sparse.b[i] - plain.b[i]) < 1e-15, "the right-hand sides must agree");
     }
 }
 
@@ -330,12 +344,13 @@ TEST_CASE("cfd.convection.sou_requires_gradient") {
     fvm::SparseMatrix A(mesh.nCells(), mesh.nCells());
     Eigen::VectorXd b = Eigen::VectorXd::Zero(mesh.nCells());
 
-    CHECK_THROWS_AS(conv.discretize(A, b, phi, velocityPtrs(vel)), std::invalid_argument);
+    CHECK_THROWS_AS(conv.discretize(A, b, phi, velocityPtrs(vel), fvm::ConvectionBCs{}),
+                    std::invalid_argument);
 }
 
-// A cell with a prescribed velocity contributes that value to the whole face,
-// so the momentum and the continuity see the same flux. Every overload must
-// implement the rule.
+// A cell with a prescribed velocity contributes that value to the whole face
+// it shares with a neighbour, so the momentum and the continuity see the same
+// flux.
 TEST_CASE("cfd.convection.dirichlet_neighbour_rule") {
     const int n = 4;
     const double h = 1.0 / n;
@@ -346,37 +361,32 @@ TEST_CASE("cfd.convection.dirichlet_neighbour_rule") {
 
     // Prescribe the velocity of the cell left of the middle one.
     const std::size_t P = mesh.cellIndex(1, 1);
-    std::vector<char> mask(mesh.nCells(), 0);
-    std::vector<double> values(mesh.nCells(), 0.0);
-    mask[P] = 1;
-    values[P] = 5.0;
-
-    // The per-component form of the same mask.
-    std::vector<std::vector<char>> maskAll(2, std::vector<char>(mesh.nCells(), 0));
-    std::vector<std::vector<double>> valsAll(2, std::vector<double>(mesh.nCells(), 0.0));
-    maskAll[0][P] = 1;
-    valsAll[0][P] = 5.0;
+    fvm::ConvectionBCs bcs;
+    bcs.velocityMask.assign(2, std::vector<char>(mesh.nCells(), 0));
+    bcs.velocityValues.assign(2, std::vector<double>(mesh.nCells(), 0.0));
+    bcs.velocityMask[0][P] = 1;
+    bcs.velocityValues[0][P] = 5.0;
 
     fvm::Convection<2> conv(mesh);
     conv.setScheme(fvm::ConvectionScheme::Upwind);
 
-    const Assembled sparse = assembleSparse(conv, mesh, phi, vel, mask, values);
-    const Assembled plain = assembleTriplets(conv, mesh, phi, vel, false, mask, values);
-    const Assembled unified = assembleTriplets(conv, mesh, phi, vel, true, mask, values, nullptr,
-                                               maskAll, valsAll);
+    const Assembled withMask = assembleSparse(conv, mesh, phi, vel, bcs);
+    const Assembled withoutMask = assembleSparse(conv, mesh, phi, vel);
 
-    // The neighbour to the right sees the prescribed value on the shared face:
-    // its diagonal picks up -(5 - 1) * h, on top of the +h of its own outflow.
+    // The face between P and its right neighbour carries 5 instead of the
+    // interpolated 1, so its flux grows by 4*h: the owner's diagonal grows
+    // and the coupling to the neighbour becomes -5*h.
     const std::size_t N = mesh.cellIndex(2, 1);
+    const int ip = static_cast<int>(P);
     const int iN = static_cast<int>(N);
-    MESSAGE("neighbour diagonal: sparse=", sparse.A(iN, iN), " plain=", plain.A(iN, iN),
-            " unified=", unified.A(iN, iN));
-    CHECK_MESSAGE(std::abs(sparse.A(iN, iN) - plain.A(iN, iN)) < 1e-15,
-                  "the overloads must agree");
-    CHECK_MESSAGE(std::abs(sparse.A(iN, iN) - unified.A(iN, iN)) < 1e-15,
-                  "the overloads must agree");
-    CHECK_MESSAGE(std::abs(std::abs(sparse.A(iN, iN)) - 4.0 * h) < 1e-12,
-                  "the prescribed cell must contribute its value to the whole face");
+    MESSAGE("owner diagonal: masked ", withMask.A(ip, ip), " unmasked ", withoutMask.A(ip, ip));
+    MESSAGE("coupling: masked ", withMask.A(iN, ip), " unmasked ", withoutMask.A(iN, ip));
+    CHECK_MESSAGE(std::abs(withMask.A(ip, ip) - 5.0 * h) < 1e-12,
+                  "the owner of the face must carry the prescribed velocity");
+    CHECK_MESSAGE(std::abs(withMask.A(iN, ip) + 5.0 * h) < 1e-12,
+                  "the neighbour must see the prescribed velocity on the shared face");
+    CHECK_MESSAGE(std::abs(withoutMask.A(iN, ip) + h) < 1e-12,
+                  "without the rule the face carries the interpolated velocity");
 }
 
 } // TEST_SUITE("cfd")
