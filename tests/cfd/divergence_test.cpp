@@ -1,13 +1,18 @@
 // Divergence operator: the flux balance of a cell.
 //
 // Contract pinned here:
-//   - the face velocity is the exact linear interpolation between the two
-//     cell centres (the mesh's faceWeight), never a plain 0.5 average;
-//   - at a boundary face the velocity comes from the Dirichlet mask, not from
-//     the interior cell - the 3-argument overload cannot honour that and is
-//     therefore wrong for meshes with walls;
+//   - the face velocity is the exact linear interpolation between the two cell
+//     centres (the mesh's faceWeight);
+//   - a cell with a prescribed velocity contributes that value to the WHOLE
+//     face it shares with a neighbour, and the neighbour takes priority - the
+//     same rule as the momentum assembly, so the divergence and the momentum
+//     see the same flux;
+//   - at a boundary face the velocity is the prescribed value of the cell that
+//     owns the face; with no boundary condition the face carries the owner's
+//     velocity;
 //   - the fluxes telescope: sum(div * V) over the cells equals the net flux
-//     through the boundary faces.
+//     through the boundary faces;
+//   - maxDivergence() measures the same quantity as the residual.
 #include "doctest/doctest.h"
 #include "fvm/Divergence.h"
 #include "support/fvm_fixtures.h"
@@ -74,7 +79,7 @@ TEST_CASE("cfd.divergence.constant_field_interior") {
     v[0].assign(1.0);
 
     fvm::Field<2> div(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, v, div);
+    fvm::computeDivergenceInto(mesh, v, div, {}, {});
 
     for (std::size_t i = 0; i < mesh.nCells(); ++i) {
         if (mesh.isBoundary(i))
@@ -84,10 +89,11 @@ TEST_CASE("cfd.divergence.constant_field_interior") {
     }
 }
 
-// At a wall the velocity must come from the boundary condition. The 5-argument
-// overload honours the mask, the 3-argument overload uses the interior cell
-// velocity and therefore lets the flow through the wall.
-TEST_CASE("cfd.divergence.no_slip_wall_flux") {
+// At a wall the velocity comes from the boundary condition: the wall carries
+// no flux, so the wall cell still shows the outflow through its interior face.
+// Without a boundary condition the face carries the owner's velocity, and the
+// flow passes through the wall.
+TEST_CASE("cfd.divergence.wall_flux_with_and_without_boundary_condition") {
     const int n = 4;
     const double h = 1.0 / n;
     const fvm::Mesh<2> mesh = uniform2D(n);
@@ -99,17 +105,25 @@ TEST_CASE("cfd.divergence.no_slip_wall_flux") {
     fvm::Field<2> divWithMask(mesh, 0.0);
     fvm::computeDivergenceInto(mesh, v, divWithMask, w.mask, w.values);
     fvm::Field<2> divNoMask(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, v, divNoMask);
+    fvm::computeDivergenceInto(mesh, v, divNoMask, {}, {});
 
-    // The masked overload: the wall carries no flux, so the left wall cell
-    // still shows the outflow through its interior face.
     const std::size_t leftWall = mesh.cellIndex(0, 1);
-    CHECK_MESSAGE(std::abs(divWithMask[leftWall] - 1.0 / h) < 1e-12,
-                  "the masked divergence of a left wall cell");
+    const std::size_t neighbour = mesh.cellIndex(1, 1);
 
-    // The unmasked overload must give the same answer.
-    CHECK_MESSAGE(std::abs(divNoMask[leftWall] - divWithMask[leftWall]) < 1e-12,
-                  "the 3-argument overload must honour the wall boundary condition");
+    // With the wall condition the wall cell prescribes a zero velocity, so it
+    // owns the whole face it shares with its neighbour: the wall face carries
+    // no flux AND the interior face carries the prescribed (zero) velocity.
+    // The flow is therefore blocked and the imbalance appears in the
+    // neighbour, which still pushes its fluid through the blocked face.
+    CHECK_MESSAGE(std::abs(divWithMask[leftWall]) < 1e-12, "the wall cell itself is balanced");
+    CHECK_MESSAGE(std::abs(divWithMask[neighbour] - 1.0 / h) < 1e-12,
+                  "the cell next to the wall carries the imbalance");
+
+    // Without a boundary condition the face carries the owner's velocity, so
+    // the flow passes through the wall and nothing is imbalanced.
+    CHECK_MESSAGE(std::abs(divNoMask[leftWall]) < 1e-12, "the wall cell is balanced");
+    CHECK_MESSAGE(std::abs(divNoMask[neighbour]) < 1e-12,
+                  "without a boundary condition the flow passes through the wall");
 }
 
 // The cell fluxes telescope: the sum of div*V over the cells equals the net
@@ -144,7 +158,7 @@ TEST_CASE("cfd.divergence.linear_field_exact") {
     fillVector(v, [](double x, double y, double) { return std::array<double, 2>{x, y}; });
 
     fvm::Field<2> div(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, v, div);
+    fvm::computeDivergenceInto(mesh, v, div, {}, {});
 
     for (std::size_t i = 0; i < mesh.nCells(); ++i) {
         if (mesh.isBoundary(i))
@@ -154,44 +168,119 @@ TEST_CASE("cfd.divergence.linear_field_exact") {
     }
 }
 
-// maxDivergence() skips the boundary cells while the residual reports the
-// maximum over all cells. The two must measure the same quantity.
+// On a stretched grid the cells have different widths, so the face is not
+// midway between the centres: the mesh's face weight is the exact
+// interpolation coefficient there (the grid is orthogonal, so the face centre
+// lies on the centre-to-centre line) and the divergence of a linear field is
+// exact.
+//
+// A non-orthogonal (skewed) mesh is a different matter: the face centre is
+// off that line, the mesh's face weight is the orthogonal projection
+// parameter, and a cell-centred scheme is only first-order accurate there.
+TEST_CASE("cfd.divergence.stretched_mesh_exact") {
+    const fvm::Mesh<2> mesh = stretched2D(8, 1.2);
+    fvm::VectorField<2> v(mesh, 0.0);
+    fillVector(v, [](double x, double y, double) { return std::array<double, 2>{x, y}; });
+
+    fvm::Field<2> div(mesh, 0.0);
+    fvm::computeDivergenceInto(mesh, v, div, {}, {});
+
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        if (mesh.isBoundary(i))
+            continue;
+        CAPTURE(i);
+        CHECK_MESSAGE(std::abs(div[i] - 2.0) < 1e-12, "div(x, y) == 2 on a stretched grid");
+    }
+}
+
+// maxDivergence() must measure the same quantity as the residual: the largest
+// absolute divergence over the cells whose mass balance the pressure
+// correction can still change. A cell with a prescribed velocity is excluded
+// (its mass balance cannot be corrected), the boundary cells are included.
 TEST_CASE("cfd.divergence.max_divergence_definition") {
     const int n = 4;
     const fvm::Mesh<2> mesh = uniform2D(n);
     fvm::VectorField<2> v(mesh, 0.0);
     v[0].assign(1.0);
 
+    // A no-slip wall: the wall cells carry the largest imbalance (the wall
+    // face has no flux) but their mass balance cannot be corrected.
     const WallMask w = makeMask(mesh, 0.0);
+
+    const double withMask = fvm::maxDivergence(mesh, v, w.mask, w.values);
+    const double withoutMask = fvm::maxDivergence(mesh, v, {}, {});
+
+    // The reference: the largest |div| over the cells the residual reports.
     fvm::Field<2> div(mesh, 0.0);
     fvm::computeDivergenceInto(mesh, v, div, w.mask, w.values);
+    double reference = 0.0;
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        if (w.mask[0][i] || w.mask[1][i]) continue; // prescribed: excluded
+        reference = std::max(reference, std::abs(div[i]));
+    }
 
-    double maxAll = 0.0;
-    for (std::size_t i = 0; i < mesh.nCells(); ++i)
-        maxAll = std::max(maxAll, std::abs(div[i]));
-
-    const double reported = fvm::maxDivergence(mesh, v);
-    MESSAGE("max |div| over all cells = ", maxAll, ", maxDivergence() = ", reported);
-    CHECK_MESSAGE(std::abs(reported - maxAll) < 1e-12,
+    MESSAGE("max |div| with the wall condition = ", withMask, ", without = ", withoutMask,
+            ", reference = ", reference);
+    CHECK_MESSAGE(std::abs(withMask - reference) < 1e-12,
                   "maxDivergence must measure the same quantity as the residual");
+    CHECK_MESSAGE(withMask > withoutMask,
+                  "the wall condition blocks the flow, so the imbalance is visible");
 }
 
-// On a skewed mesh the face velocity must use the exact interpolation
-// weight, so a linear field still has an exact divergence.
-TEST_CASE("cfd.divergence.unstructured_uses_face_weights") {
-    const fvm::Mesh<2> mesh = triangles2D();
+// A cell with a prescribed velocity contributes that value to the whole face it
+// shares with a neighbour - the neighbour takes priority - so the divergence
+// and the momentum assembly see the same flux.
+TEST_CASE("cfd.divergence.prescribed_cell_owns_the_whole_face") {
+    const int n = 4;
+    const double h = 1.0 / n;
+    const fvm::Mesh<2> mesh = uniform2D(n);
     fvm::VectorField<2> v(mesh, 0.0);
-    fillVector(v, [](double x, double y, double) { return std::array<double, 2>{x, y}; });
+    v[0].assign(1.0);
 
+    // Prescribe the velocity of the cell left of the middle one.
+    const std::size_t P = mesh.cellIndex(1, 1);
+    std::vector<std::vector<char>> mask(2, std::vector<char>(mesh.nCells(), 0));
+    std::vector<std::vector<double>> values(2, std::vector<double>(mesh.nCells(), 0.0));
+    mask[0][P] = 1;
+    values[0][P] = 5.0;
+
+    fvm::Field<2> divWithMask(mesh, 0.0);
+    fvm::computeDivergenceInto(mesh, v, divWithMask, mask, values);
+    fvm::Field<2> divNoMask(mesh, 0.0);
+    fvm::computeDivergenceInto(mesh, v, divNoMask, {}, {});
+
+    // The shared face carries 5 instead of the interpolated 1, so its flux
+    // grows by 4*h. The prescribed cell owns BOTH of the faces it touches
+    // (the whole-face rule), so the two fluxes cancel and its own balance is
+    // unchanged - its mass balance is not the solver's business anyway. The
+    // neighbour, whose own face is interpolated, loses the extra flux.
+    const std::size_t N = mesh.cellIndex(2, 1);
+    const double fluxDelta = 4.0 * h;
+    CHECK_MESSAGE(std::abs(divWithMask[P] - divNoMask[P]) < 1e-12,
+                  "the prescribed cell owns both of its faces, so its balance is unchanged");
+    CHECK_MESSAGE(std::abs((divWithMask[N] - divNoMask[N]) + fluxDelta / mesh.cellVolume(N)) < 1e-12,
+                  "the neighbour sees the prescribed value on the shared face");
+}
+
+// A mask that does not cover every cell (or every component) must be
+// rejected instead of being read out of bounds.
+TEST_CASE("cfd.divergence.mask_is_validated") {
+    const fvm::Mesh<2> mesh = uniform2D(4);
+    fvm::VectorField<2> v(mesh, 0.0);
+    v[0].assign(1.0);
     fvm::Field<2> div(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, v, div);
 
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i))
-            continue;
-        CAPTURE(i);
-        CHECK_MESSAGE(std::abs(div[i] - 2.0) < 1e-12, "div(x, y) == 2 on a skewed mesh");
-    }
+    // A mask that is one cell short.
+    std::vector<std::vector<char>> shortMask(2, std::vector<char>(mesh.nCells() - 1, 0));
+    std::vector<std::vector<double>> shortValues(2, std::vector<double>(mesh.nCells() - 1, 0.0));
+    CHECK_THROWS_AS(fvm::computeDivergenceInto(mesh, v, div, shortMask, shortValues),
+                    std::invalid_argument);
+
+    // A mask with fewer components than dimensions.
+    std::vector<std::vector<char>> oneComponent(1, std::vector<char>(mesh.nCells(), 0));
+    std::vector<std::vector<double>> fullValues(2, std::vector<double>(mesh.nCells(), 0.0));
+    CHECK_THROWS_AS(fvm::computeDivergenceInto(mesh, v, div, oneComponent, fullValues),
+                    std::invalid_argument);
 }
 
 } // TEST_SUITE("cfd")

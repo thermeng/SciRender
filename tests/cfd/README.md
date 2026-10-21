@@ -54,11 +54,20 @@ formulation, not a defect of the operator.
 
 * the face velocity is the exact linear interpolation between the two cell
   centres;
-* at a boundary face the velocity comes from the Dirichlet mask, not from the
-  interior cell - the three-argument overload cannot honour that;
+* a cell with a prescribed velocity owns the **whole** face it shares with a
+  neighbour (the neighbour takes priority) - the same rule as the momentum
+  assembly, so the divergence and the momentum see the same flux;
+* at a boundary face the velocity is the prescribed value of the cell that
+  owns the face; with no boundary condition the face carries the owner's
+  velocity;
 * the fluxes telescope: `sum(div * V)` over the cells equals the net flux
   through the boundary faces;
-* `maxDivergence()` and the residual must measure the same quantity.
+* `maxDivergence()` measures the same quantity as the residual: the largest
+  absolute divergence over the cells whose mass balance the pressure
+  correction can still change (a cell with a prescribed velocity is excluded,
+  the boundary cells are included);
+* the Dirichlet mask is validated: a mask that does not cover every cell (or
+  every component) is rejected instead of being read out of bounds.
 
 ### Laplacian / Poisson (`cfd.poisson.*`)
 

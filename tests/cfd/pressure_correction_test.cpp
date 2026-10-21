@@ -102,9 +102,9 @@ TEST_CASE("cfd.pressure.correction_removes_divergence") {
     fvm::correctVelocity(mesh, uStar, pPrime, dCoeff, velMask, velVals, dpdx, corrected);
 
     fvm::Field<2> divBefore(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, uStar, divBefore);
+    fvm::computeDivergenceInto(mesh, uStar, divBefore, {}, {});
     fvm::Field<2> divAfter(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, corrected, divAfter);
+    fvm::computeDivergenceInto(mesh, corrected, divAfter, {}, {});
 
     double before = 0.0;
     double after = 0.0;
