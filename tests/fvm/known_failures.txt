@@ -1,0 +1,18 @@
+# Known-failure registry for the fvm suite.
+#
+# Every test case listed here is known to fail because the solver deviates
+# from the contract the test states. Such a CTest row runs through
+# cmake/expect_failure.cmake, which inverts the outcome: it passes while the
+# defect is open, and it turns RED as soon as the solver is fixed - that is
+# the signal to remove the entry.
+#
+#   ctest --test-dir build-tests -L known-broken -V
+#
+# A name that does not match any test case fails the build.
+
+# The accuracy target of the lid-driven cavity: the centreline profile must
+# agree with Ghia's published Re = 400 table to within a few percent. The
+# cavity is converged (the profile changes by 7e-6 between 600 and 1200
+# iterations), so the remaining 6.9% max / 3.2% L2 error is the scheme's, and
+# closing it needs a better scheme (or a finer mesh), not more iterations.
+slow.cavity_msh.re400_accuracy_target

@@ -8,14 +8,16 @@ Two properties drive the design:
 * **A test-only build needs neither Qt nor an OpenGL context.** `cmake --preset tests` configures the suite without the application, so it runs anywhere the compiler runs.
 
 ```
-131 test cases
+134 test cases
   core    65   parsers, isosurface, post-processing fields, camera math
-  fvm      6   AMG configuration, transient settings, the cavity benchmark
+  fvm      6   AMG configuration, transient settings
   render   9   the streamline operator (CPU side, no GL)
   cfd     49   the CFD fundamentals: mesh geometry, gradient, divergence,
                Laplacian/Poisson, convection schemes, pressure and velocity
                correction, boundary conditions, residual
-  slow     2   the CFD benchmark cases (a label on the fvm suite, not a suite)
+  slow     5   the cavity benchmarks: the structured cavity (Ghia, Re = 100)
+               and the ANSYS-mesh cavity (Ghia, Re = 400) - a label, not a
+               suite
 ```
 
 ## Layout
@@ -33,9 +35,10 @@ tests/
 │   └── fvm_fixtures.{h,cpp}    fvm::Mesh fixtures + analytic field fillers
 ├── core/                       core/ layer
 ├── fvm/                        fvm/ layer
+│   └── known_failures.txt      the registry of known defects (fvm suite)
 ├── render/                     render/ layer
 ├── cfd/                        cfd/ layer - see cfd/README.md for the contracts
-│   ├── known_failures.txt      the registry of known defects
+│   ├── known_failures.txt      the registry of known defects (cfd suite)
 │   └── README.md
 ├── run_tests.bat               configure + build + run (Windows)
 └── run_tests.sh                configure + build + run (POSIX)
@@ -189,6 +192,26 @@ schemes, the divergence, the Laplacian/Poisson operator, the convection
 schemes, the pressure and velocity correction, the boundary conditions and the
 residual reporting. Read it before changing a solver operator: it says what
 the code is supposed to do, and which parts are still open.
+
+## The cavity benchmarks
+
+The lid-driven cavity is the flagship validation case, in two variants:
+
+* `slow.ghia.*` - a generated structured grid (32x32), the classical Ghia
+  Re = 100 reference, and the check that the state is converged.
+* `slow.cavity_msh.*` - the ANSYS mesh `samples/cfd/CavityQuad_40x40.msh`
+  (the graded 40x40 quad grid Fluent was run on), the Ghia Re = 400 reference,
+  and the accuracy target.
+
+The `.msh` variant is set up **the way an end user sets it up in the
+application**: the mesh's named boundary groups are the "patches" (the lid group
+in that mesh is called `movingwall`), and every patch is a boundary condition
+applied to the faces of that group through `setVelocityBCOnFacesWithSlip` -
+exactly the call the CFD case page makes.
+
+The cases report the peak velocity, the mass balance, the centreline profile
+against the published table and the centre of the primary vortex, so a solver
+fix can be measured against them.
 
 ## Notes
 

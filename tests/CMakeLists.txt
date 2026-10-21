@@ -79,10 +79,13 @@ scirender_add_test_suite(scirender_fvm_tests
         fvm/amg_config_test.cpp
         fvm/transient_settings_test.cpp
         fvm/ghia_cavity_test.cpp
+        fvm/cavity_msh_test.cpp
     LIBRARIES
         FvmCore
         CfdLib
-        CoreLib)
+        CoreLib
+    REGISTRIES
+        "${CMAKE_CURRENT_SOURCE_DIR}/fvm/known_failures.txt")
 
 # ---------------------------------------------------------------------------
 # render — CPU-side render helpers (no GL context required)
