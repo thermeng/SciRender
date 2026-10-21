@@ -770,7 +770,9 @@ void AMGHierarchy::cycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x
 
 void AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
     if (levels_.empty()) { x = b; return; }
-    x = Eigen::VectorXd::Zero(b.rows());
+    // x is the caller's current guess and is NOT discarded: the cycle is a
+    // stationary iteration on top of it, so calling applyCycle repeatedly
+    // applies multiple cycles (AMGPreconditioner::setCycles).
     cycle(0, b, x);
 }
 

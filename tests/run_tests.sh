@@ -1,52 +1,33 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
+# ---------------------------------------------------------------------------
+# Configure, build and run the SciRender regression suite.
+#
+# The suite is a subdirectory of the main CMake project: it links the real
+# CoreLib / FvmCore / CfdLib / RenderCore targets, so there is no separate
+# test build system. The application is NOT built, which means the suite
+# needs neither Qt nor an OpenGL context.
+#
+# Usage:
+#   ./run_tests.sh                     run every test
+#   ./run_tests.sh -LE slow            skip the slow CFD benchmark
+#   ./run_tests.sh -R core.parse       run one test (or a group of tests)
+# Extra arguments are passed straight through to ctest.
+# ---------------------------------------------------------------------------
 set -e
-cd "$(dirname "$0")"
-MINGW=/c/Qt/Tools/mingw1310_64/bin
-export PATH="$MINGW:$PATH"
-echo "[run_tests] building parse_regression..."
-g++ -std=c++20 -O2 -g ../src/core/vtk_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
-  ../src/core/stl_parser.cpp ../src/core/obj_parser.cpp ../src/core/mesh_loader.cpp \
-  ../src/core/vtk_xml_parser.cpp ../vendor/pugixml/pugixml.cpp \
-  ../vendor/lz4/lz4.c ../vendor/lzma/LzmaDec.c ../vendor/lzma/7zAlloc.c \
-  parse_regression.cpp \
-  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o parse_regression.exe
-echo "[run_tests] running parse_regression..."
-./parse_regression.exe | tee last_parse.log
-echo ""
-echo "[run_tests] building streamline_direction_test..."
-g++ -std=c++20 -O2 -g ../vendor/glad/src/gl.c ../src/core/FieldResolver.cpp ../src/core/vtk_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
-  ../src/core/stl_parser.cpp ../src/core/obj_parser.cpp ../src/core/mesh_loader.cpp \
-  ../src/core/vtk_xml_parser.cpp   ../src/render/foundation/gl_raii.cpp ../src/render/streamlines/StreamlineSet.cpp streamline_direction_test.cpp \
-  ../vendor/pugixml/pugixml.cpp ../vendor/lz4/lz4.c ../vendor/lzma/LzmaDec.c ../vendor/lzma/7zAlloc.c \
-  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o streamline_direction_test.exe
-echo "[run_tests] running streamline_direction_test..."
-./streamline_direction_test.exe | tee last_direction.log
-echo ""
-echo "[run_tests] building isosurface_test..."
-g++ -std=c++20 -O2 -g ../src/core/vtk_parser.cpp ../src/core/vtk_xml_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
-  ../src/core/stl_parser.cpp ../src/core/obj_parser.cpp ../src/core/mesh_loader.cpp \
-  ../src/core/FieldStore.cpp ../src/core/FieldResolver.cpp \
-  ../src/core/isosurface.cpp ../vendor/pugixml/pugixml.cpp \
-  ../vendor/lz4/lz4.c ../vendor/lzma/LzmaDec.c ../vendor/lzma/7zAlloc.c \
-  isosurface_test.cpp \
-  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o isosurface_test.exe
-echo "[run_tests] running isosurface_test..."
-./isosurface_test.exe | tee last_isosurface.log
-echo ""
-echo "[run_tests] building post_fields_test..."
-g++ -std=c++20 -O2 -g ../src/core/post_fields.cpp \
-  post_fields_test.cpp \
-  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o post_fields_test.exe
-echo "[run_tests] running post_fields_test..."
-./post_fields_test.exe | tee last_post_fields.log
-echo ""
-echo "[run_tests] building pvd_test..."
-g++ -std=c++20 -O2 -g ../src/core/pvd_parser.cpp ../src/core/vtk_parser.cpp ../src/core/vtk_xml_parser.cpp ../src/core/vtk_common.cpp ../src/core/mesh_utils.cpp \
-  ../src/core/stl_parser.cpp ../src/core/obj_parser.cpp ../src/core/mesh_loader.cpp \
-  ../vendor/pugixml/pugixml.cpp ../vendor/lz4/lz4.c ../vendor/lzma/LzmaDec.c ../vendor/lzma/7zAlloc.c \
-  pvd_test.cpp \
-  -I.. -I../src -I../vendor -I../vendor/glad/include -I../vendor/pugixml -I../vendor/lz4 -I../vendor/lzma -lz -o pvd_test.exe
-echo "[run_tests] running pvd_test..."
-./pvd_test.exe | tee last_pvd.log
-echo ""
-echo "[run_tests] ALL TESTS PASSED"
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+BUILD="$ROOT/build-tests"
+
+if [ ! -f "$BUILD/CMakeCache.txt" ]; then
+    echo "[configure] $BUILD"
+    cmake -S "$ROOT" -B "$BUILD" \
+        -DSCIRENDER_BUILD_APP=OFF \
+        -DSCIRENDER_BUILD_TESTS=ON \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo
+fi
+
+echo "[build] test binaries"
+cmake --build "$BUILD" --target scirender_core_tests scirender_fvm_tests scirender_render_tests
+
+echo "[test] ctest"
+exec ctest --test-dir "$BUILD" --output-on-failure "$@"

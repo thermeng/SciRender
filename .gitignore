@@ -89,11 +89,10 @@ CMakeLists.txt.user*
 /.qtcreator/
 
 
-# Test harness generated logs and sandbox (keep last_parse.log as regression gold)
+# Test suite: the suite is a CMake subdirectory of the project, so all build
+# output lives under build*/ and the samples/ fixture tree stays read-only.
+tests/last_*.log
 tests/fresh_parse.log
-tests/last_direction.log
-tests/last_isosurface.log
-tests/last_pvd.log
 samples/pvd_test_sandbox/
 samples/pvd_animation/
 /tests/build/

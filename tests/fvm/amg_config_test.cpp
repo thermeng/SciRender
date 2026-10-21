@@ -11,31 +11,19 @@
 
 #include "cfd/amg_settings_bridge.h"
 #include "fvm/AMG.h"
+#include "doctest/doctest.h"
 
 #include <Eigen/Sparse>
 
 #include <cmath>
-#include <cstdio>
 #include <string>
 #include <vector>
 
 namespace {
 
-int g_failures = 0;
-
-void check(bool ok, const std::string& what) {
-    if (!ok) {
-        std::printf("  FAIL  %s\n", what.c_str());
-        ++g_failures;
-    }
-}
-
-void checkNear(double got, double want, const std::string& what) {
-    if (!(std::fabs(got - want) <= 1e-12 * (1.0 + std::fabs(want)))) {
-        std::printf("  FAIL  %s (got %.17g want %.17g)\n", what.c_str(), got, want);
-        ++g_failures;
-    }
-}
+#define CHECK_NEAR(got, want)                                                                      \
+    CHECK_MESSAGE(std::fabs((got) - (want)) <= 1e-12 * (1.0 + std::fabs(want)),                   \
+                  #got " ~= " #want " (got " << (got) << ", want " << (want) << ")")
 
 // Standard 5-point Laplacian on an nx*ny grid: symmetric positive definite,
 // which is exactly the operator AML/AMG is built for.
@@ -47,10 +35,14 @@ fvm::SparseMatrix poisson2D(int nx, int ny) {
         for (int i = 0; i < nx; ++i) {
             const int k = j * nx + i;
             trips.emplace_back(k, k, 4.0);
-            if (i > 0) trips.emplace_back(k, k - 1, -1.0);
-            if (i < nx - 1) trips.emplace_back(k, k + 1, -1.0);
-            if (j > 0) trips.emplace_back(k, k - nx, -1.0);
-            if (j < ny - 1) trips.emplace_back(k, k + nx, -1.0);
+            if (i > 0)
+                trips.emplace_back(k, k - 1, -1.0);
+            if (i < nx - 1)
+                trips.emplace_back(k, k + 1, -1.0);
+            if (j > 0)
+                trips.emplace_back(k, k - nx, -1.0);
+            if (j < ny - 1)
+                trips.emplace_back(k, k + nx, -1.0);
         }
     }
     fvm::SparseMatrix A(n, n);
@@ -58,35 +50,45 @@ fvm::SparseMatrix poisson2D(int nx, int ny) {
     return A;
 }
 
+double relResidual(const fvm::SparseMatrix& A, const Eigen::VectorXd& b, const Eigen::VectorXd& x) {
+    return (b - A * x).norm() / b.norm();
+}
+
+} // namespace
+
+TEST_SUITE("fvm") {
+
 // ---------------------------------------------------------------------------
 // 1. cfd::AmgSettings <-> fvm::AMGHierarchy::Config mapping
 // ---------------------------------------------------------------------------
-void testTranslation() {
-    std::printf("translation\n");
-
+TEST_CASE("fvm.amg.settings_translation") {
     // The combo boxes in the UI store the cfd enum ordinal, and the switch in
     // toFvmAmg assumes the ordinals line up with the fvm enums. Pin that down.
-    check(int(cfd::AmgSettings::CoarseningType::RS) == int(fvm::AMGHierarchy::CoarseningType::RS),
-          "CoarseningType::RS ordinal");
-    check(int(cfd::AmgSettings::CoarseningType::PMIS) == int(fvm::AMGHierarchy::CoarseningType::PMIS),
-          "CoarseningType::PMIS ordinal");
-    check(int(cfd::AmgSettings::InterpolationType::Direct) == int(fvm::AMGHierarchy::InterpolationType::Direct),
-          "InterpolationType::Direct ordinal");
-    check(int(cfd::AmgSettings::InterpolationType::Extended) == int(fvm::AMGHierarchy::InterpolationType::Extended),
-          "InterpolationType::Extended ordinal");
-    check(int(cfd::AmgSettings::CycleType::V) == int(fvm::AMGHierarchy::CycleType::V),
-          "CycleType::V ordinal");
-    check(int(cfd::AmgSettings::CycleType::F) == int(fvm::AMGHierarchy::CycleType::F),
-          "CycleType::F ordinal");
-    check(int(cfd::AmgSettings::SmootherType::SymmetricGaussSeidel) ==
-              int(fvm::AMGHierarchy::SmootherType::SymmetricGaussSeidel),
-          "SmootherType::SymmetricGaussSeidel ordinal");
-    check(int(cfd::AmgSettings::SmootherType::ForwardGaussSeidel) ==
-              int(fvm::AMGHierarchy::SmootherType::ForwardGaussSeidel),
-          "SmootherType::ForwardGaussSeidel ordinal");
-    check(int(cfd::AmgSettings::SmootherType::ForwardSOR) ==
-              int(fvm::AMGHierarchy::SmootherType::ForwardSOR),
-          "SmootherType::ForwardSOR ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::CoarseningType::RS) ==
+                      int(fvm::AMGHierarchy::CoarseningType::RS),
+                  "CoarseningType::RS ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::CoarseningType::PMIS) ==
+                      int(fvm::AMGHierarchy::CoarseningType::PMIS),
+                  "CoarseningType::PMIS ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::InterpolationType::Direct) ==
+                      int(fvm::AMGHierarchy::InterpolationType::Direct),
+                  "InterpolationType::Direct ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::InterpolationType::Extended) ==
+                      int(fvm::AMGHierarchy::InterpolationType::Extended),
+                  "InterpolationType::Extended ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::CycleType::V) == int(fvm::AMGHierarchy::CycleType::V),
+                  "CycleType::V ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::CycleType::F) == int(fvm::AMGHierarchy::CycleType::F),
+                  "CycleType::F ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::SmootherType::SymmetricGaussSeidel) ==
+                      int(fvm::AMGHierarchy::SmootherType::SymmetricGaussSeidel),
+                  "SmootherType::SymmetricGaussSeidel ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::SmootherType::ForwardGaussSeidel) ==
+                      int(fvm::AMGHierarchy::SmootherType::ForwardGaussSeidel),
+                  "SmootherType::ForwardGaussSeidel ordinal");
+    CHECK_MESSAGE(int(cfd::AmgSettings::SmootherType::ForwardSOR) ==
+                      int(fvm::AMGHierarchy::SmootherType::ForwardSOR),
+                  "SmootherType::ForwardSOR ordinal");
 
     // Deliberately non-default on every field, with values that cannot be
     // confused with one another, so a dropped copy is always caught.
@@ -112,50 +114,51 @@ void testTranslation() {
 
     const fvm::AMGHierarchy::Config c = cfd::toFvmAmg(s);
 
-    check(c.coarseningType == fvm::AMGHierarchy::CoarseningType::PMIS, "coarseningType");
-    check(c.interpolationType == fvm::AMGHierarchy::InterpolationType::Extended, "interpolationType");
-    check(c.cycleType == fvm::AMGHierarchy::CycleType::F, "cycleType");
-    check(c.smootherType == fvm::AMGHierarchy::SmootherType::ForwardSOR, "smootherType");
-    checkNear(c.smootherOmega, 0.875, "smootherOmega");
-    checkNear(c.strengthThreshold, 0.375, "strengthThreshold");
-    checkNear(c.truncThreshold, 0.125, "truncThreshold");
-    check(c.maxLevels == 7, "maxLevels");
-    check(c.minCoarseSize == 23, "minCoarseSize");
-    check(c.preSweeps == 3, "preSweeps");
-    check(c.postSweeps == 4, "postSweeps");
-    check(c.maxIterations == 77, "maxIterations");
-    checkNear(c.tolerance, 3e-11, "tolerance");
-    check(c.rngSeed == 1234, "rngSeed");
-    checkNear(c.stagnationFactor, 1.25, "stagnationFactor");
-    check(c.stagnationMinIter == 17, "stagnationMinIter");
-    checkNear(c.stagnationLooseFactor, 6.5, "stagnationLooseFactor");
-    checkNear(c.galerkinDropTol, 5e-14, "galerkinDropTol");
+    CHECK_MESSAGE(c.coarseningType == fvm::AMGHierarchy::CoarseningType::PMIS, "coarseningType");
+    CHECK_MESSAGE(c.interpolationType == fvm::AMGHierarchy::InterpolationType::Extended,
+                  "interpolationType");
+    CHECK_MESSAGE(c.cycleType == fvm::AMGHierarchy::CycleType::F, "cycleType");
+    CHECK_MESSAGE(c.smootherType == fvm::AMGHierarchy::SmootherType::ForwardSOR, "smootherType");
+    CHECK_NEAR(c.smootherOmega, 0.875);
+    CHECK_NEAR(c.strengthThreshold, 0.375);
+    CHECK_NEAR(c.truncThreshold, 0.125);
+    CHECK_MESSAGE(c.maxLevels == 7, "maxLevels");
+    CHECK_MESSAGE(c.minCoarseSize == 23, "minCoarseSize");
+    CHECK_MESSAGE(c.preSweeps == 3, "preSweeps");
+    CHECK_MESSAGE(c.postSweeps == 4, "postSweeps");
+    CHECK_MESSAGE(c.maxIterations == 77, "maxIterations");
+    CHECK_NEAR(c.tolerance, 3e-11);
+    CHECK_MESSAGE(c.rngSeed == 1234, "rngSeed");
+    CHECK_NEAR(c.stagnationFactor, 1.25);
+    CHECK_MESSAGE(c.stagnationMinIter == 17, "stagnationMinIter");
+    CHECK_NEAR(c.stagnationLooseFactor, 6.5);
+    CHECK_NEAR(c.galerkinDropTol, 5e-14);
 
     // The presets must land on the values the solver shipped with, otherwise
     // Reset in the dialog would silently change solver behaviour.
     const fvm::AMGHierarchy::Config p = cfd::toFvmAmg(cfd::AmgSettings::pressureDefaults());
-    check(p.interpolationType == fvm::AMGHierarchy::InterpolationType::Direct, "pressure preset interpolation");
-    check(p.cycleType == fvm::AMGHierarchy::CycleType::V, "pressure preset cycle");
-    check(p.smootherType == fvm::AMGHierarchy::SmootherType::SymmetricGaussSeidel, "pressure preset smoother");
-    check(p.preSweeps == 2 && p.postSweeps == 2, "pressure preset sweeps");
+    CHECK_MESSAGE(p.interpolationType == fvm::AMGHierarchy::InterpolationType::Direct,
+                  "pressure preset interpolation");
+    CHECK_MESSAGE(p.cycleType == fvm::AMGHierarchy::CycleType::V, "pressure preset cycle");
+    CHECK_MESSAGE(p.smootherType == fvm::AMGHierarchy::SmootherType::SymmetricGaussSeidel,
+                  "pressure preset smoother");
+    const bool pressureSweeps = (p.preSweeps == 2) && (p.postSweeps == 2);
+    CHECK_MESSAGE(pressureSweeps, "pressure preset sweeps");
 
     const fvm::AMGHierarchy::Config m = cfd::toFvmAmg(cfd::AmgSettings::momentumDefaults());
-    check(m.interpolationType == fvm::AMGHierarchy::InterpolationType::Direct, "momentum preset interpolation");
-    check(m.cycleType == fvm::AMGHierarchy::CycleType::V, "momentum preset cycle");
-    check(m.smootherType == fvm::AMGHierarchy::SmootherType::ForwardGaussSeidel, "momentum preset smoother");
-    check(m.preSweeps == 1 && m.postSweeps == 1, "momentum preset sweeps");
+    CHECK_MESSAGE(m.interpolationType == fvm::AMGHierarchy::InterpolationType::Direct,
+                  "momentum preset interpolation");
+    CHECK_MESSAGE(m.cycleType == fvm::AMGHierarchy::CycleType::V, "momentum preset cycle");
+    CHECK_MESSAGE(m.smootherType == fvm::AMGHierarchy::SmootherType::ForwardGaussSeidel,
+                  "momentum preset smoother");
+    const bool momentumSweeps = (m.preSweeps == 1) && (m.postSweeps == 1);
+    CHECK_MESSAGE(momentumSweeps, "momentum preset sweeps");
 }
 
 // ---------------------------------------------------------------------------
 // 2. Every enum combination builds and converges
 // ---------------------------------------------------------------------------
-double relResidual(const fvm::SparseMatrix& A, const Eigen::VectorXd& b, const Eigen::VectorXd& x) {
-    return (b - A * x).norm() / b.norm();
-}
-
-void testAllCombinations() {
-    std::printf("enum combinations\n");
-
+TEST_CASE("fvm.amg.enum_combinations") {
     const fvm::SparseMatrix A = poisson2D(32, 32);
     const int n = static_cast<int>(A.rows());
     Eigen::VectorXd b = Eigen::VectorXd::Ones(n);
@@ -171,6 +174,11 @@ void testAllCombinations() {
         for (int in = 0; in < 2; ++in) {
             for (int cy = 0; cy < 2; ++cy) {
                 for (int sm = 0; sm < 3; ++sm) {
+                    const std::string label = std::string("coarse=") + coarseNames[co] +
+                                              " interp=" + interpNames[in] + " cycle=" +
+                                              cycleNames[cy] + " smoother=" + smoothNames[sm];
+                    CAPTURE(label);
+
                     fvm::AMGHierarchy::Config cfg;
                     cfg.coarseningType = static_cast<fvm::AMGHierarchy::CoarseningType>(co);
                     cfg.interpolationType = static_cast<fvm::AMGHierarchy::InterpolationType>(in);
@@ -186,29 +194,24 @@ void testAllCombinations() {
                     Eigen::VectorXd x = x0;
                     const bool ok = amg.solve(b, x);
 
-                    const std::string label = std::string("coarse=") + coarseNames[co] +
-                                              " interp=" + interpNames[in] +
-                                              " cycle=" + cycleNames[cy] +
-                                              " smoother=" + smoothNames[sm];
-                    check(amg.isBuilt(), label + " built");
-                    check(x.allFinite(), label + " finite");
+                    CHECK_MESSAGE(amg.isBuilt(), "hierarchy built");
+                    CHECK_MESSAGE(x.allFinite(), "solution is finite");
                     const double r = x.allFinite() ? relResidual(A, b, x) : 1.0;
-                    check(ok, label + " reported converged (relRes=" + std::to_string(r) + ")");
-                    check(r < 1e-5, label + " relResidual below 1e-5 (relRes=" + std::to_string(r) + ")");
+                    CAPTURE(r);
+                    CHECK_MESSAGE(ok, "solver reported convergence");
+                    CHECK_MESSAGE(r < 1e-5, "relative residual below 1e-5");
                     ++cases;
                 }
             }
         }
     }
-    std::printf("  exercised %d configurations\n", cases);
+    CHECK_MESSAGE(cases == 24, "exercised all 24 configurations, got " << cases);
 }
 
 // ---------------------------------------------------------------------------
 // 3. Preconditioner cycle count
 // ---------------------------------------------------------------------------
-void testPreconditionerCycles() {
-    std::printf("preconditioner cycles\n");
-
+TEST_CASE("fvm.amg.preconditioner_cycles") {
     const fvm::SparseMatrix A = poisson2D(24, 24);
     const int n = static_cast<int>(A.rows());
     Eigen::VectorXd b = Eigen::VectorXd::Ones(n);
@@ -230,7 +233,7 @@ void testPreconditionerCycles() {
     two.setCycles(2);
     const double r2 = relResidual(A, b, two.solve(b));
 
-    check(r2 < r1, "two cycles beat one (r2=" + std::to_string(r2) + " r1=" + std::to_string(r1) + ")");
+    CHECK_MESSAGE(r2 < r1, "two cycles beat one (r2=" << r2 << " r1=" << r1 << ")");
 
     // A cycle count below one must clamp rather than skip the preconditioner,
     // which would silently turn the Krylov solve into an unpreconditioned one.
@@ -238,20 +241,7 @@ void testPreconditionerCycles() {
     zero.setAMG(&amg);
     zero.setCycles(0);
     const double r0 = relResidual(A, b, zero.solve(b));
-    checkNear(r0, r1, "cycle count 0 clamps to 1");
+    CHECK_NEAR(r0, r1);
 }
 
-} // namespace
-
-int main() {
-    testTranslation();
-    testAllCombinations();
-    testPreconditionerCycles();
-
-    if (g_failures == 0) {
-        std::printf("amg_config_test: all checks passed\n");
-        return 0;
-    }
-    std::printf("amg_config_test: %d check(s) failed\n", g_failures);
-    return 1;
-}
+} // TEST_SUITE("fvm")
