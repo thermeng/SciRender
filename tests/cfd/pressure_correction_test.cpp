@@ -37,6 +37,10 @@ struct CouplingCase {
     // volume) and the divergence of the gradient the velocity correction
     // applies. It must be 1: the two operators have to be the same one.
     double operatorRatio = 0.0;
+    // The ratio between the pressure matrix's row (divided by the cell
+    // volume) and the divergence of the gradient the velocity correction
+    // applies. It must be 1: the two operators have to be the same one.
+    double lsqOperatorRatio = 0.0;
 };
 
 CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = false) {
@@ -123,6 +127,30 @@ CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = fal
             correctionField[d][i] = dpdx[d][i];
     fvm::Field<2> divOfCorrection(mesh, 0.0);
     fvm::computeDivergenceInto(mesh, correctionField, divOfCorrection, {}, {});
+
+    // The same field through the LEAST-SQUARES gradient - the scheme the
+    // momentum operator uses for its pressure term.
+    fvm::VectorField<2> lsqGrad(mesh, 0.0);
+    {
+        fvm::Gradient<2> gradient(mesh, fvm::GradientScheme::LeastSquares);
+        std::array<fvm::Field<2>, 2> lsq{fvm::Field<2>(mesh, 0.0), fvm::Field<2>(mesh, 0.0)};
+        gradient.compute(pPrime, lsq);
+        for (std::size_t d = 0; d < 2; ++d)
+            for (std::size_t i = 0; i < mesh.nCells(); ++i)
+                lsqGrad[d][i] = lsq[d][i];
+    }
+    fvm::Field<2> divOfLSQ(mesh, 0.0);
+    fvm::computeDivergenceInto(mesh, lsqGrad, divOfLSQ, {}, {});
+
+    double worstLsqRatio = 0.0;
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        if (mesh.isBoundary(i) || pc.pressureMask()[i])
+            continue;
+        const double fromMatrix = Ap[static_cast<int>(i)] / mesh.cellVolume(i);
+        const double lsqRatio = std::abs(divOfLSQ[i]) / std::max(std::abs(fromMatrix), 1e-30);
+        worstLsqRatio = std::max(worstLsqRatio, lsqRatio);
+    }
+    result.lsqOperatorRatio = worstLsqRatio;
 
     for (std::size_t i = 0; i < mesh.nCells(); ++i) {
         if (mesh.isBoundary(i))
@@ -306,16 +334,45 @@ TEST_CASE("cfd.pressure.operator_consistency_on_a_known_field") {
             deep[i] = ok ? 1 : 0;
         }
 
+        // The same field through the gradient the velocity correction uses: the
+        // Green-Gauss face-value form (the correction in VelocityCorrection.h
+        // computes it, not the least-squares fit).
+        fvm::VectorField<2> ggGrad(mesh, 0.0);
+        {
+            for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
+                const std::size_t P = mesh.owner(f);
+                const std::size_t N = mesh.neighbor(f);
+                double pFace;
+                if (N == std::size_t(-1)) {
+                    pFace = pVec[P];
+                } else {
+                    const double w = mesh.faceWeight(f);
+                    pFace = (1.0 - w) * pVec[P] + w * pVec[N];
+                }
+                for (std::size_t d = 0; d < 2; ++d) {
+                    const double contrib = pFace * mesh.faceNormalPtr(f)[d] * mesh.faceArea(f);
+                    ggGrad[d][P] += contrib / mesh.cellVolume(P);
+                    if (N != std::size_t(-1))
+                        ggGrad[d][N] -= contrib / mesh.cellVolume(N);
+                }
+            }
+        }
+        fvm::Field<2> divOfGG(mesh, 0.0);
+        fvm::computeDivergenceInto(mesh, ggGrad, divOfGG, {}, {});
+
         double worstMatrix = 0.0;
         double worstDivergence = 0.0;
+        double worstGG = 0.0;
         for (std::size_t i = 0; i < mesh.nCells(); ++i) {
             if (!deep[i])
                 continue;
             worstMatrix = std::max(worstMatrix, std::abs(Ap[static_cast<int>(i)] / mesh.cellVolume(i)));
             worstDivergence = std::max(worstDivergence, std::abs(divOfGrad[i]));
+            worstGG = std::max(worstGG, std::abs(divOfGG[i]));
         }
-        MESSAGE("n=", n, ": (A p)/V = ", worstMatrix, ", div(grad p) = ", worstDivergence,
-                ", ratio = ", worstDivergence / std::max(worstMatrix, 1e-30));
+        MESSAGE("n=", n, ": (A p)/V = ", worstMatrix, ", div(LSQ grad p) = ", worstDivergence,
+                ", div(GG grad p) = ", worstGG, ", GG ratio = ", worstGG / std::max(worstMatrix, 1e-30),
+                ", LSQ ratio = ", worstDivergence / std::max(worstMatrix, 1e-30));
 
         // Both must approach the continuum value 2.
         CHECK_MESSAGE(std::abs(worstMatrix - 2.0) < 0.1, "the matrix must be the Laplacian of x^2");
@@ -357,6 +414,22 @@ TEST_CASE("cfd.pressure.isolated_cell_is_reported") {
                   "the isolated cell must be excluded from the pressure unknowns");
     CHECK_MESSAGE(std::abs(pPrime[1]) < 1e-12,
                   "the excluded cell carries no pressure correction");
+}
+
+// The two operators on the ACTUAL pressure correction: the pressure matrix and
+// the gradient the velocity correction applies must be the same one, otherwise
+// the correction cannot cancel the divergence it was built for.
+//
+// The field is the solved p' (which has a kink, not a polynomial), so the two
+// operators are genuinely distinguishable - a quadratic would be exact for
+// both and the comparison would prove nothing.
+TEST_CASE("cfd.pressure.operator_consistency_on_the_solved_field") {
+    for (int n : {8, 16, 32}) {
+        const fvm::Mesh<2> mesh = uniform2D(n);
+        const CouplingCase c = solveCouplingCase(mesh);
+        MESSAGE("n=", n, ": residual |div u| = ", c.divergenceAfter, ", GG ratio = ",
+                c.operatorRatio, ", LSQ ratio = ", c.lsqOperatorRatio);
+    }
 }
 
 } // TEST_SUITE("cfd")

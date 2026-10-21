@@ -5,11 +5,25 @@
 #include "field/VectorField.h"
 #include "fvm/SIMPLETypes.h"
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
 namespace fvm {
 
+// Applies the pressure correction to the predictor.
+//
+// The correction has to cancel the divergence of the predictor, so it must be
+// built with the same face operator the pressure equation assembles: the
+// pressure matrix's row is
+//     sum_faces coeff * (p_P - p_N),   coeff = d * A * (S . d) / |d|^2,
+// and the gradient whose divergence reproduces that row is the one built from
+// the same face differences.
+//
+// The Green-Gauss face-value gradient (the average of the two cell values) is a
+// DIFFERENT operator: its divergence is a wide stencil that does not match the
+// matrix, and the correction then removes the divergence only in total, not
+// face by face - which leaves a residual that grows with the mesh refinement.
 template<std::size_t Dim>
 inline void correctVelocity(
     const Mesh<Dim>& mesh,
@@ -26,29 +40,22 @@ inline void correctVelocity(
     const std::size_t n = mesh.nCells();
     const std::size_t nF = mesh.nFaces();
 
-    // Unstructured meshes carry boundary conditions on faces, not cells. A cell
-    // that owns a Dirichlet (wall/inlet/moving-wall) face must not have its
-    // velocity overwritten by the pressure correction, otherwise the predictor's
-    // face-based boundary treatment is undone every outer iteration.
-    // Unstructured meshes carry boundary conditions on faces, not cells. A cell
-    // that owns a Dirichlet (wall/inlet/moving-wall) face must not have its
-    // velocity overwritten by the pressure correction, otherwise the predictor's
-    // face-based boundary treatment is undone every outer iteration.
-    std::vector<char> fixedCell(n, 0);
-    if (faceBC && faceHasBC) {
-        for (std::size_t f = 0; f < nF; ++f) {
-            if (mesh.neighbor(f) != std::size_t(-1)) continue;
-            if (f >= faceBC->size() || f >= faceHasBC->size()) continue;
-            if (!(*faceHasBC)[f]) continue;
-            auto t = (*faceBC)[f].type;
-            if (t == VelocityBCType::NoSlip ||
-                t == VelocityBCType::MovingWall ||
-                t == VelocityBCType::Inlet) {
-                fixedCell[mesh.owner(f)] = 1;
-            }
-        }
-    }
-
+    // A cell whose velocity is prescribed AT THE CELL LEVEL (Dirichlet mask) is
+    // not corrected - that is handled component-wise below.
+    //
+    // A cell that merely OWNS a face carrying a Dirichlet BC (no-slip wall,
+    // moving wall, inlet) is NOT frozen. On a face-based (ghost-cell) boundary
+    // treatment the cell-centre velocity of such a cell is a free unknown: the
+    // wall condition lives on the face, not on the cell. Freezing the cell at
+    // the momentum predictor removed the only degree of freedom the pressure
+    // correction has for balancing that cell's mass balance, so the wall layer
+    // kept a persistent continuity error and the pressure field that drives the
+    // recirculation was biased exactly at the boundary (the corner cells, where
+    // the secondary vortices of a lid-driven cavity are generated).
+    //
+    // The predictor's face-based treatment is not undone by correcting the cell:
+    // the face condition is re-imposed every time the momentum equation is
+    // assembled, independently of the cell velocity.
     for (auto& g : dpdx) g.assign(0.0);
 
     for (std::size_t f = 0; f < nF; ++f) {
@@ -79,10 +86,6 @@ inline void correctVelocity(
     for (std::size_t d = 0; d < Dim; ++d) {
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < n; ++i) {
-            if (fixedCell[i]) {
-                velocity[d][i] = uStar[d][i];
-                continue;
-            }
             if (dirichletMask[d][i]) {
                 velocity[d][i] = dirichletVals[d][i];
             } else {
