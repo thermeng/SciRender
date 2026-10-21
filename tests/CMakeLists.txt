@@ -80,6 +80,7 @@ scirender_add_test_suite(scirender_fvm_tests
         fvm/transient_settings_test.cpp
         fvm/ghia_cavity_test.cpp
         fvm/cavity_msh_test.cpp
+        fvm/channel_test.cpp
     LIBRARIES
         FvmCore
         CfdLib

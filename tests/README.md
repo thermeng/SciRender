@@ -8,9 +8,9 @@ Two properties drive the design:
 * **A test-only build needs neither Qt nor an OpenGL context.** `cmake --preset tests` configures the suite without the application, so it runs anywhere the compiler runs.
 
 ```
-134 test cases
+135 test cases
   core    65   parsers, isosurface, post-processing fields, camera math
-  fvm      6   AMG configuration, transient settings
+  fvm      7   AMG configuration, transient settings, the open channel
   render   9   the streamline operator (CPU side, no GL)
   cfd     49   the CFD fundamentals: mesh geometry, gradient, divergence,
                Laplacian/Poisson, convection schemes, pressure and velocity
@@ -212,6 +212,19 @@ exactly the call the CFD case page makes.
 The cases report the peak velocity, the mass balance, the centreline profile
 against the published table and the centre of the primary vortex, so a solver
 fix can be measured against them.
+
+## The open channel
+
+`fvm.channel.open_outlet_divergence` is the case that exposes the
+pressure-velocity coupling. A closed cavity cannot: it has no net outflow, so
+the spurious near-null mode of the pure-Neumann pressure operator produces no
+gradient and the corruption cancels. An open channel (a velocity inlet, a
+pressure outlet, no-slip walls) does - the pressure correction has a real
+right-hand side.
+
+The case reports the interior divergence *per column*, which localises the
+defect: the divergence is largest exactly where the predictor is divergent
+(the entry region and the pressure outlet) and small everywhere else.
 
 ## Notes
 
