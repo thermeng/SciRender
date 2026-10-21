@@ -122,6 +122,7 @@ scirender_add_test_suite(scirender_cfd_tests
         cfd/velocity_correction_test.cpp
         cfd/boundary_conditions_test.cpp
         cfd/residual_test.cpp
+        cfd/debug_coupling_test.cpp
         ${SCIRENDER_FVM_TEST_SUPPORT_SOURCES}
     LIBRARIES
         FvmCore
