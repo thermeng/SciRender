@@ -46,25 +46,28 @@
 # --- Pressure / velocity coupling -------------------------------------------
 # The pressure correction makes the divergence worse instead of removing it.
 #
-# Measured: with a COMPATIBLE (zero-mean) divergence source the correction
-# removes only 44% of the divergence - 1.0 before, 0.56 after.
+# Measured, with a COMPATIBLE (zero-mean) divergence source: the correction
+# removes only 44% of the divergence - 1.0 before, 0.56 after - and the error
+# GROWS with refinement (0.56 -> 1.52 -> 3.46 for 8x8 -> 16x16 -> 32x32).
+# Refining the mesh makes the mass balance worse, which is the worst kind of
+# defect.
 #
-# The cause is a mismatch between the two operators that have to be the same
-# one: the pressure matrix assembles the distance-weighted (5-point) Laplacian,
-# while the velocity correction subtracts the divergence of the cell-centred
-# least-squares gradient. The ratio between the matrix's row divided by the
-# cell volume and the divergence of that gradient is 2.12 - see
-# cfd.pressure.operator_consistency below.
+# The cause is NOT the interior operator: on a field with a known value
+# (p = x^2) the pressure matrix and the gradient the velocity correction
+# applies both give the exact Laplacian (2.0) in the deep interior, with a
+# ratio of 1.0 - see cfd.pressure.operator_consistency_on_a_known_field.
 #
-# (An earlier version of this entry reported a 1/h^2 error growth. That was an
-# artefact of an ill-posed test: the source was a uniform divergence in a
-# closed domain, which no pure Neumann pressure problem can satisfy. The
-# reference cell then has to absorb an impossible balance, and the result says
-# nothing about the coupling.)
+# The mismatch is entirely at the BOUNDARY: the cells next to a wall and the
+# pinned cells (the reference cell and the pressure outlet). Those are exactly
+# where the open channel shows its error (0.47 in the entry region, 0.97 at the
+# pressure outlet).
 cfd.pressure.correction_removes_divergence
 
 # The pressure matrix and the gradient the velocity correction applies must be
-# the same operator: the matrix's row divided by the cell volume has to equal
-# the divergence of that gradient, otherwise the correction cannot cancel the
-# divergence it was built for. The ratio is 2.12 today.
+# the same operator. They agree in the deep interior, but not next to the
+# walls and the pinned cells, so the ratio is 2.12.
 cfd.pressure.operator_consistency
+
+# The coupling error must shrink with the mesh spacing. It does not: it grows
+# like 1/h for a kinked source and like 1/h for a smooth one as well.
+cfd.pressure.coupling_error_scaling
