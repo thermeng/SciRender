@@ -234,9 +234,12 @@ against the same sources as the application. The application itself is not
 built for a test-only configure, which means the suite needs **neither Qt nor
 an OpenGL context**.
 
+See **[tests/README.md](tests/README.md)** for the full guide: the layout, the
+conventions, how to add a test, and how the known-failure registry works.
+
 ```bash
 cmake --preset tests                                     # configure build-tests
-cmake --build --preset tests                             # build the 3 test binaries
+cmake --build --preset tests                             # build the 4 test binaries
 ctest --preset tests --output-on-failure                 # run everything
 ```
 
