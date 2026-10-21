@@ -266,27 +266,24 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
         const std::size_t N = neighborPtr[f];
         const double* xP = mesh_.cellCenterPtr(P);
         if (N == std::size_t(-1)) {
-            // Wall-adjacent: include a ghost cell reflected across the boundary
-            // face so the cell-centered gradient is not flattened to zero at
-            // walls. The ghost carries a ZERO-GRADIENT (Neumann) condition: the
-            // field does not change across the face, so the ghost contributes
-            // its direction to the normal matrix and nothing to the right-hand
-            // side.
+            // Wall-adjacent cell: the gradient is fitted over the INTERIOR
+            // neighbours only.
             //
-            // A cell with a prescribed value is different: its value is known,
-            // so there is no unknown left for the ghost to constrain. The
-            // gradient of such a cell is the one-sided gradient towards the
-            // interior, and the ghost must not dilute it.
-            if (hasMask && P < dirichletMask.size() && dirichletMask[P]) continue;
-            const double* xF = mesh_.faceCenterPtr(f);
-            double dG[Dim];
-            for (std::size_t dd = 0; dd < Dim; ++dd) dG[dd] = 2.0 * (xF[dd] - xP[dd]);
-            auto& Mp = M_all[P];
-            for (std::size_t i = 0; i < Dim; ++i) {
-                for (std::size_t j = 0; j < Dim; ++j) {
-                    Mp(i, j) += dG[i] * dG[j];
-                }
-            }
+            // A reflected ghost cell used to be added here, carrying a
+            // zero-gradient (Neumann) condition: it contributed its direction
+            // to the normal matrix and nothing to the right-hand side, so it
+            // dragged the gradient of the wall cell towards zero in the
+            // wall-normal direction.
+            //
+            // That is inconsistent with the pressure equation, whose wall face
+            // contributes NOTHING at all (the flux through a wall is
+            // prescribed, so it does not change with the pressure correction).
+            // The two operators have to be the same one: where they are not,
+            // the pressure correction cannot cancel the divergence it was
+            // built for, and the error is largest exactly in the wall layer.
+            //
+            // The cell-centre gradient of a wall cell is an extrapolation
+            // from the interior, which is the standard treatment.
             continue;
         } else {
             const double* xN = mesh_.cellCenterPtr(N);

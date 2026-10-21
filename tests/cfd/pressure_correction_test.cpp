@@ -31,6 +31,7 @@ std::array<std::vector<double>, 2> uniformDCoeff(const fvm::Mesh<2>& mesh, doubl
 struct CouplingCase {
     double divergenceBefore = 0.0;
     double divergenceAfter = 0.0;
+    double divergenceAwayFromReference = 0.0;
     double maxP = 0.0;
     // The ratio between the pressure matrix's row (divided by the cell
     // volume) and the divergence of the gradient the velocity correction
@@ -38,17 +39,24 @@ struct CouplingCase {
     double operatorRatio = 0.0;
 };
 
-CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh) {
+CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = false) {
     CouplingCase result;
 
     // A predictor with a zero-mean divergence: it expands in the left half of
     // the domain and contracts in the right half, so the pure Neumann pressure
-    // problem is compatible.
+    // problem is compatible. The smooth variant has the same zero mean but no
+    // kink, which separates a structural mismatch from a truncation effect.
     fvm::VectorField<2> uStar(mesh, 0.0);
-    fillVector(uStar, [](double x, double, double) {
-        const double u = (x < 0.5) ? x : (1.0 - x);
-        return std::array<double, 2>{u, 0.0};
-    });
+    if (smoothSource) {
+        fillVector(uStar, [](double x, double, double) {
+            return std::array<double, 2>{std::sin(2.0 * M_PI * x), 0.0};
+        });
+    } else {
+        fillVector(uStar, [](double x, double, double) {
+            const double u = (x < 0.5) ? x : (1.0 - x);
+            return std::array<double, 2>{u, 0.0};
+        });
+    }
 
     fvm::Field<2> pressure(mesh, 0.0);
     fvm::Field<2> pPrime(mesh, 0.0);
@@ -78,21 +86,43 @@ CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh) {
         result.divergenceAfter = std::max(result.divergenceAfter, std::abs(divAfter[i]));
     }
 
+    // The divergence away from the pinned reference cell. The reference cell is
+    // pinned to p' = 0, which forces a dip in the pressure correction next to
+    // it; the dip's gradient is O(1/h), and it is that dip - not the
+    // physical correction - that the velocity correction picks up.
+    {
+        std::vector<char> nearPinned(mesh.nCells(), 0);
+        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+            if (!pc.pressureMask()[i])
+                continue;
+            for (std::size_t nb : mesh.cellNeighbors(i))
+                nearPinned[nb] = 1;
+            nearPinned[i] = 1;
+        }
+        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+            if (mesh.isBoundary(i) || nearPinned[i])
+                continue;
+            result.divergenceAwayFromReference =
+                std::max(result.divergenceAwayFromReference, std::abs(divAfter[i]));
+        }
+    }
+
     // The operator consistency: the pressure matrix's row divided by the cell
-    // volume must equal the divergence of the gradient the velocity correction
-    // applies.
+    // volume must equal the divergence of the correction the velocity
+    // correction applies. (dpdx now carries the correction field itself, with
+    // the d coefficient already folded into the face coefficient.)
     const auto& A = pc.lastMatrix();
     Eigen::VectorXd pVec(mesh.nCells());
     for (std::size_t i = 0; i < mesh.nCells(); ++i)
         pVec[i] = pPrime[i];
     const Eigen::VectorXd Ap = A * pVec;
 
-    fvm::VectorField<2> correction(mesh, 0.0);
+    fvm::VectorField<2> correctionField(mesh, 0.0);
     for (std::size_t d = 0; d < 2; ++d)
         for (std::size_t i = 0; i < mesh.nCells(); ++i)
-            correction[d][i] = dCoeff[d][i] * dpdx[d][i];
+            correctionField[d][i] = dpdx[d][i];
     fvm::Field<2> divOfCorrection(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, correction, divOfCorrection, {}, {});
+    fvm::computeDivergenceInto(mesh, correctionField, divOfCorrection, {}, {});
 
     for (std::size_t i = 0; i < mesh.nCells(); ++i) {
         if (mesh.isBoundary(i))
@@ -199,6 +229,99 @@ TEST_CASE("cfd.pressure.operator_consistency") {
     CHECK_MESSAGE(c.operatorRatio < 1.2,
                   "the pressure matrix and the correction's gradient must be the same operator "
                       "(ratio " << c.operatorRatio << ")");
+}
+
+// How the coupling error scales with the mesh spacing, for a source with a
+// kink and for a smooth one. A truncation-level mismatch shrinks with h; a
+// structural one does not.
+TEST_CASE("cfd.pressure.coupling_error_scaling") {
+    for (int smooth = 0; smooth < 2; ++smooth) {
+        const char* label = smooth ? "smooth source" : "kinked source";
+        double previous = 0.0;
+        for (int n : {8, 16, 32}) {
+            const CouplingCase c = solveCouplingCase(uniform2D(n), smooth != 0);
+            MESSAGE(label, ": n=", n, " h=", 1.0 / n, ": residual |div u| = ", c.divergenceAfter,
+                    ", away from the reference cell = ", c.divergenceAwayFromReference,
+                    ", operator ratio = ", c.operatorRatio);
+            if (n > 8)
+                CHECK_MESSAGE(c.divergenceAfter < previous,
+                              "the coupling error must shrink with the mesh spacing (n=" << n
+                                                                              << ")");
+            previous = c.divergenceAfter;
+        }
+    }
+}
+
+// The two operators on a field whose value is known analytically: p = x^2.
+// Both must give the same thing, and both must converge to the continuum
+// value (the Laplacian of x^2 is 2) as the mesh is refined.
+TEST_CASE("cfd.pressure.operator_consistency_on_a_known_field") {
+    for (int n : {8, 16, 32}) {
+        const fvm::Mesh<2> mesh = uniform2D(n);
+        // The matrix does not depend on the solution, so any solve gives us the
+        // operator.
+        fvm::VectorField<2> uStar(mesh, 0.0);
+        fvm::Field<2> pressure(mesh, 0.0);
+        fvm::Field<2> pPrime(mesh, 0.0);
+        std::vector<char> isPressureNeumann(mesh.nCells(), 1);
+        fvm::PressureCorrection<2> pc(mesh);
+        pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
+
+        // The known field: p = x^2, so the Laplacian is 2.
+        Eigen::VectorXd pVec(mesh.nCells());
+        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+            const double x = mesh.cellCenter(i)[0];
+            pVec[i] = x * x;
+        }
+        const Eigen::VectorXd Ap = pc.lastMatrix() * pVec;
+
+        // The same field through the gradient the velocity correction uses.
+        fvm::Gradient<2> gradient(mesh, fvm::GradientScheme::LeastSquares);
+        fvm::Field<2> pField(mesh, 0.0);
+        for (std::size_t i = 0; i < mesh.nCells(); ++i)
+            pField[i] = mesh.cellCenter(i)[0] * mesh.cellCenter(i)[0];
+        std::array<fvm::Field<2>, 2> dpdx{fvm::Field<2>(mesh, 0.0), fvm::Field<2>(mesh, 0.0)};
+        gradient.compute(pField, dpdx);
+        fvm::VectorField<2> gradField(mesh, 0.0);
+        for (std::size_t d = 0; d < 2; ++d)
+            for (std::size_t i = 0; i < mesh.nCells(); ++i)
+                gradField[d][i] = dpdx[d][i];
+        fvm::Field<2> divOfGrad(mesh, 0.0);
+        fvm::computeDivergenceInto(mesh, gradField, divOfGrad, {}, {});
+
+        // Only the deep interior: the wall ghost and the pinned reference cell
+        // distort the operators around them, and the comparison has to be
+        // made where both are well defined.
+        std::vector<char> deep(mesh.nCells(), 0);
+        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+            if (mesh.isBoundary(i) || pc.pressureMask()[i])
+                continue;
+            bool ok = true;
+            for (std::size_t nb : mesh.cellNeighbors(i)) {
+                if (mesh.isBoundary(nb) || pc.pressureMask()[nb]) {
+                    ok = false;
+                    break;
+                }
+            }
+            deep[i] = ok ? 1 : 0;
+        }
+
+        double worstMatrix = 0.0;
+        double worstDivergence = 0.0;
+        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+            if (!deep[i])
+                continue;
+            worstMatrix = std::max(worstMatrix, std::abs(Ap[static_cast<int>(i)] / mesh.cellVolume(i)));
+            worstDivergence = std::max(worstDivergence, std::abs(divOfGrad[i]));
+        }
+        MESSAGE("n=", n, ": (A p)/V = ", worstMatrix, ", div(grad p) = ", worstDivergence,
+                ", ratio = ", worstDivergence / std::max(worstMatrix, 1e-30));
+
+        // Both must approach the continuum value 2.
+        CHECK_MESSAGE(std::abs(worstMatrix - 2.0) < 0.1, "the matrix must be the Laplacian of x^2");
+        CHECK_MESSAGE(std::abs(worstDivergence - 2.0) < 0.1,
+                      "the gradient's divergence must be the Laplacian of x^2");
+    }
 }
 
 // A cell without a single interior face has no pressure equation. It is
