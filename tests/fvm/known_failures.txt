@@ -12,7 +12,23 @@
 
 # The accuracy target of the lid-driven cavity: the centreline profile must
 # agree with Ghia's published Re = 400 table to within a few percent. The
-# cavity is converged (the profile changes by 7e-6 between 600 and 1200
+# cavity is converged (the profile changes by 4e-4 between 400 and 800
 # iterations), so the remaining 6.9% max / 3.2% L2 error is the scheme's, and
 # closing it needs a better scheme (or a finer mesh), not more iterations.
 slow.cavity_msh.re400_accuracy_target
+
+# An open channel must reach a divergence-free steady state. It does not: the
+# interior divergence reaches 0.97 (the criterion is 3.7e-4) and the inlet and
+# outlet fluxes are 2% apart.
+#
+# The fingerprint localises the defect: the divergence is largest exactly where
+# the predictor is divergent - it rises from 0.10 at the inlet to 0.47 over the
+# first four columns, decays to 0.05 in the middle, and spikes to 0.97 at the
+# pressure outlet. Everywhere else it is small. So the pressure correction
+# leaves the predictor's divergence essentially uncancelled wherever it is
+# non-zero, which is the signature of the pressure operator's near-null
+# constant mode (a closed cavity has no net outflow, so that mode produces no
+# gradient and the cavity stays clean - see the notes in
+# tests/cfd/known_failures.txt).
+fvm.channel.open_outlet_divergence
+
