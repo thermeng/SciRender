@@ -2,6 +2,7 @@
 #include "fvm/SSTConstants.h"
 #include "mesh/BoundaryUtils.h"
 
+#include <array>
 #include <iostream>
 #include <cmath>
 #include <limits>
@@ -29,7 +30,9 @@ void PressureCorrection<Dim>::solve(
     const std::vector<char>* isPressureDirichletFace,
     const std::vector<std::pair<std::size_t, double>>* pressureOutletFaces,
     const std::vector<FaceVelocityBC>* faceBC,
-    const std::vector<char>* faceHasBC) {
+    const std::vector<char>* faceHasBC,
+    const std::vector<std::vector<char>>* velDirichletMask,
+    const std::vector<std::vector<double>>* velDirichletVals) {
 
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
@@ -107,10 +110,29 @@ void PressureCorrection<Dim>::solve(
 
     std::size_t refCell = config_.pressureRefCell;
     if (refCell >= n) {
-        refCell = n;
-        for (std::size_t i = 0; i < n; ++i) if (!mesh_.isBoundary(i) && !isPressureOutlet_[i]) { refCell = i; break; }
-        if (refCell == n) for (std::size_t i = 0; i < n; ++i) if (!isPressureOutlet_[i]) { refCell = i; break; }
-        if (refCell == n) refCell = n - 1;
+        // The pinned cell is the one cell whose continuity error the pressure
+        // correction cannot remove, so it belongs in a smooth interior region -
+        // not at the first interior cell, which in a cavity is a corner: the
+        // largest local imbalance, and exactly where the corner vortices form.
+        std::array<double, Dim> centroid{};
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto& c = mesh_.cellCenter(i);
+            for (std::size_t d = 0; d < Dim; ++d) centroid[d] += c[d];
+        }
+        for (std::size_t d = 0; d < Dim; ++d) centroid[d] /= static_cast<double>(n);
+        double best = std::numeric_limits<double>::max();
+        for (std::size_t i = 0; i < n; ++i) {
+            if (mesh_.isBoundary(i) || isPressureOutlet_[i]) continue;
+            const auto& c = mesh_.cellCenter(i);
+            double d2 = 0.0;
+            for (std::size_t d = 0; d < Dim; ++d) {
+                const double dd = c[d] - centroid[d];
+                d2 += dd * dd;
+            }
+            if (d2 < best) { best = d2; refCell = i; }
+        }
+        if (refCell >= n) for (std::size_t i = 0; i < n; ++i) if (!isPressureOutlet_[i]) { refCell = i; break; }
+        if (refCell >= n) refCell = n - 1;
     }
     if (!pMask_[refCell]) { pMask_[refCell]=true; pVals_[refCell]=0.0; }
 
@@ -123,6 +145,11 @@ void PressureCorrection<Dim>::solve(
 
     divU_.assign(0.0);
     // diagSum already zeroed in fused init above (was separate O(n) fill)
+
+    // The deferred non-orthogonal (cross-diffusion) term is accumulated here
+    // instead of directly into bVec_: the row assembly below OVERWRITES bVec_
+    // with the divergence term, which used to silently discard it.
+    std::vector<double> nonOrthRhs(n, 0.0);
 
     const double* distPtr = mesh_.faceDistPtr();
 
@@ -154,7 +181,32 @@ void PressureCorrection<Dim>::solve(
         } else {
             double w = mesh_.faceWeight(f);
             for (std::size_t d = 0; d < Dim; ++d) {
-                double uFace = (N == std::size_t(-1)) ? uStar[d][P] : (1.0 - w) * uStar[d][P] + w * uStar[d][N];
+                // Face velocity must match the momentum assembly exactly
+                // (Momentum.cpp interior-face rule): a cell with a prescribed
+                // velocity contributes that prescribed value to the WHOLE face,
+                // and the neighbour takes priority. Using a plain interpolation
+                // here would balance a mass imbalance the momentum equation does
+                // not have, which corrupts the pressure field near the walls.
+                double uFace;
+                bool dirN = false, dirP = false;
+                if (velDirichletMask && velDirichletVals &&
+                    d < velDirichletMask->size() && d < velDirichletVals->size()) {
+                    const auto& m = (*velDirichletMask)[d];
+                    const auto& v = (*velDirichletVals)[d];
+                    if (!m.empty() && !v.empty()) {
+                        if (N != std::size_t(-1) && m[N]) dirN = true;
+                        if (m[P]) dirP = true;
+                    }
+                }
+                if (dirN) {
+                    uFace = (*velDirichletVals)[d][N];
+                } else if (dirP) {
+                    uFace = (*velDirichletVals)[d][P];
+                } else if (N == std::size_t(-1)) {
+                    uFace = uStar[d][P];
+                } else {
+                    uFace = (1.0 - w) * uStar[d][P] + w * uStar[d][N];
+                }
                 un += uFace * fn[d];
             }
         }
@@ -171,18 +223,25 @@ void PressureCorrection<Dim>::solve(
 
         // --- Matrix assembly ---
         if (N == std::size_t(-1)) {
-        if (!pMask_[P]) {
-                const double* xPptr = mesh_.cellCenterPtr(P);
-                const double* xFptr = mesh_.faceCenterPtr(f);
-                double dotSfd = 0.0;
-                for (std::size_t d = 0; d < Dim; ++d) dotSfd += fn[d] * (xFptr[d] - xPptr[d]);
-                double absDotSfd = std::abs(dotSfd);
-                double dFaceN = 0.0;
-                for (std::size_t d = 0; d < Dim; ++d) dFaceN += dCoeff[d][P] * fn[d] * fn[d];
-                if (dFaceN > minFaceDist && dist > minFaceDist && absDotSfd > minFaceDist) {
-                    diagSum_[P] += dFaceN * area * absDotSfd / (dist * dist);
-                }
-            }
+            // A solid wall carries a PRESCRIBED mass flux (zero for no-slip and
+            // moving walls, the wall's own normal velocity otherwise). That flux
+            // does not change when the pressure is corrected, so the wall face
+            // contributes NOTHING to the pressure-correction equation.
+            //
+            // Adding its coefficient to the diagonal (as this used to) is the
+            // coefficient of a DIRICHLET ghost (p'_ghost = 0) rather than of a
+            // zero-gradient ghost (p'_ghost = p'_P): it silently imposes
+            // p' = 0 on every wall cell. The geometric factor doubled the
+            // damage - for a boundary face dist = |x_F - x_P| = delta/2, so
+            // area*|dotSfd|/dist^2 = 2*area/delta, twice an interior face. The
+            // result is a spurious half-Dirichlet condition around the whole
+            // cavity boundary: the near-wall pressure gradient is crushed, the
+            // adverse pressure gradient along the bottom wall disappears and
+            // the corner vortices never form. The pressure correction is
+            // elliptic, so the error reaches the whole domain. It also breaks
+            // the exact cancellation between the pressure correction and the
+            // velocity correction, which holds only if the wall faces
+            // contribute nothing.
             continue;
         }
 
@@ -196,7 +255,6 @@ void PressureCorrection<Dim>::solve(
 
         double dotSfd = 0.0;
         for (std::size_t dd = 0; dd < Dim; ++dd) dotSfd += fn[dd] * dVec[dd];
-        double absDotSfd = std::abs(dotSfd);
         double w = mesh_.faceWeight(f);
         double dFaceN = 0.0;
         for (std::size_t dd = 0; dd < Dim; ++dd) {
@@ -205,7 +263,14 @@ void PressureCorrection<Dim>::solve(
             double dN_eff = pMask_[N] ? 0.0 : dCoeff[dd][N];
             dFaceN += ((1.0 - w) * dP_eff + w * dN_eff) * nd * nd;
         }
-        double coeff = (dist > minFaceDist && dFaceN > minFaceDist) ? dFaceN * area * absDotSfd / (dist * dist) : 0.0;
+        // Signed geometric factor, as in the momentum operator: the same
+        // (d . S_f) / |d|^2 has to appear in the pressure equation and in the
+        // momentum diffusion, otherwise the pressure correction and the
+        // velocity correction no longer cancel each other and the
+        // pressure-velocity coupling degrades on a skewed mesh. The mesh
+        // orients every internal face normal owner -> neighbour, so the factor
+        // is positive.
+        double coeff = (dist > minFaceDist && dFaceN > minFaceDist) ? dFaceN * area * dotSfd / (dist * dist) : 0.0;
 
         double correction = 0.0;
         double dot_f_dhat = dotSfd / dist;
@@ -225,7 +290,7 @@ void PressureCorrection<Dim>::solve(
                 triplets_.emplace_back(P, N, -coeff);
             }
             diagSum_[P] += coeff;
-            bVec_(P) -= correction;
+            nonOrthRhs[P] -= correction;
         }
 
         if (!pMask_[N]) {
@@ -235,7 +300,7 @@ void PressureCorrection<Dim>::solve(
                 triplets_.emplace_back(N, P, -coeff);
             }
             diagSum_[N] += coeff;
-            bVec_(N) += correction;
+            nonOrthRhs[N] += correction;
         }
     }
 
@@ -256,20 +321,33 @@ void PressureCorrection<Dim>::solve(
     }
     if (nReverseFlow > 0) std::cerr << "  WARNING: " << nReverseFlow << " pressure outlet face(s) with reverse flow\n";
 
+    std::size_t isolatedCells = 0;
     for (std::size_t P = 0; P < n; ++P) {
         if (pMask_[P]) {
             triplets_.emplace_back(P, P, 1.0);
             bVec_(P) = pVals_[P];
         } else if (diagSum_[P] <= 0.0) {
+            // The cell has no interior face, so it has no pressure equation:
+            // its pressure is arbitrary and its mass balance can never be
+            // corrected. It is excluded from the unknowns (p' = 0 is a
+            // convention here, not a constraint) and REPORTED - a cell like
+            // this keeps a permanent continuity error, and a run that never
+            // converges must say why.
             pMask_[P] = true;
             pVals_[P] = 0.0;
             triplets_.emplace_back(P, P, 1.0);
             bVec_(P) = 0.0;
+            ++isolatedCells;
         } else {
             triplets_.emplace_back(P, P, diagSum_[P]);
-            bVec_(P) = -divU_[P] * mesh_.cellVolume(P);
+            bVec_(P) = -divU_[P] * mesh_.cellVolume(P) + nonOrthRhs[P];
         }
     }
+    isolatedCellCount_ = isolatedCells;
+    if (isolatedCells > 0)
+        std::cerr << "  WARNING: " << isolatedCells
+                  << " cell(s) have no interior face and therefore no pressure equation;"
+                  << " their mass balance cannot be corrected\n";
 
     Eigen::VectorXd x;
     bool converged = false;
@@ -413,6 +491,8 @@ void PressureCorrection<Dim>::solve(
         cgSolver_.factorize(A_);
         x = cgSolver_.solve(bVec_);
         converged = (cgSolver_.info() == Eigen::Success);
+        lastSolveIterations_ = cgSolver_.iterations();
+        lastSolveResidual_ = cgSolver_.error();
         if (!converged) {
             std::cerr << "  WARNING: pressure CG failed (iters=" << cgSolver_.iterations()
                       << ", resid=" << cgSolver_.error() << "), falling back to BiCGSTAB\n";

@@ -125,6 +125,41 @@ TEST_CASE("cfd.bc.face_path_moving_wall_drives_flow") {
     solver.setVelocityBC(0, +1, fvm::VelocityBCType::NoSlip);
     solver.setVelocityBC(1, -1, fvm::VelocityBCType::NoSlip);
 
+    // The face condition must reach the discretisation, and the cells that own
+    // a face-conditioned face must NOT be frozen by the cell mask: the
+    // momentum assembly skips the boundary faces of a frozen cell, so a frozen
+    // lid cell would silently ignore the moving wall.
+    {
+        fvm::SIMPLEBoundaryConditions<2> probe(mesh);
+        probe.setVelocityBCOnFaces(boundaryFaces(mesh, 1, +1), fvm::VelocityBCType::MovingWall,
+                                   lidSpeed, 0.0, 0.0);
+        probe.setVelocityBC(0, -1, fvm::VelocityBCType::NoSlip);
+        probe.setVelocityBC(0, +1, fvm::VelocityBCType::NoSlip);
+        probe.setVelocityBC(1, -1, fvm::VelocityBCType::NoSlip);
+        const fvm::BCDiscretization disc = probe.build();
+
+        const auto lidFaces = boundaryFaces(mesh, 1, +1);
+        int lidFacesWithMovingWall = 0;
+        for (std::size_t f : lidFaces) {
+            if (f < disc.faceHasBC_.size() && disc.faceHasBC_[f] &&
+                disc.faceBC_[f].type == fvm::VelocityBCType::MovingWall)
+                ++lidFacesWithMovingWall;
+        }
+        CHECK_MESSAGE(lidFacesWithMovingWall == static_cast<int>(lidFaces.size()),
+                      "every lid face must carry the moving wall condition");
+
+        int lidCellsFrozen = 0;
+        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+            const auto c = mesh.cellCoords(i);
+            const bool onLid = (c[1] == mesh.dims()[1] - 1);
+            const bool frozen = disc.dirichletMask_[0][i] || disc.dirichletMask_[1][i];
+            if (onLid && frozen)
+                ++lidCellsFrozen;
+        }
+        CHECK_MESSAGE(lidCellsFrozen == 0,
+                      "a cell that owns a face-conditioned face must not be frozen");
+    }
+
     fvm::VectorField<2> velocity(mesh, 0.0);
     fvm::Field<2> pressure(mesh, 0.0);
     solver.solve(velocity, pressure);

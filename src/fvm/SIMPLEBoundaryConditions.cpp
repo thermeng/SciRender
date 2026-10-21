@@ -97,12 +97,36 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
     std::vector<std::pair<std::size_t, int>> faceToWallMap;
     buildFaceToWallMap(mesh, faceToWallMap);
 
-    if (!mesh.isUnstructured() || spec.faceVelBCs.empty()) {
+    if (!mesh.isUnstructured()) {
+        // Structured meshes use a cell based boundary treatment: the wall
+        // conditions are imposed on the boundary cells. An unstructured mesh
+        // is treated face by face (see the face loop below), so the cells are
+        // deliberately NOT frozen here - a cell that only owns a boundary face
+        // must stay a free unknown, otherwise the pressure correction loses
+        // the degree of freedom it needs to balance that cell (see
+        // VelocityCorrection.h).
         for (std::size_t wall_d = 0; wall_d < Dim; ++wall_d) {
             applyWallBCToMasks(mesh, wall_d, -1, spec.velBcs[wall_d * 2],
                                disc.dirichletMask_, disc.dirichletVals_, disc.slipWallMask_);
             applyWallBCToMasks(mesh, wall_d, +1, spec.velBcs[wall_d * 2 + 1],
                                disc.dirichletMask_, disc.dirichletVals_, disc.slipWallMask_);
+        }
+
+        // A cell that owns a boundary face with an explicit FACE condition is
+        // NOT frozen by the cell mask. The condition lives on the face, and
+        // the momentum assembly skips the boundary faces of a frozen cell - so
+        // freezing it would silently ignore the face condition altogether (a
+        // moving wall prescribed on its faces would leave the domain at rest).
+        // The cell stays a free unknown instead, exactly as on an unstructured
+        // mesh, and the face condition drives it.
+        for (const auto& [faceIdx, fbc] : spec.faceVelBCs) {
+            (void)fbc;
+            if (faceIdx >= mesh.nFaces() || mesh.neighbor(faceIdx) != std::size_t(-1)) continue;
+            const std::size_t cell = mesh.owner(faceIdx);
+            for (std::size_t d = 0; d < Dim; ++d) {
+                disc.dirichletMask_[d][cell] = 0;
+                disc.dirichletVals_[d][cell] = 0.0;
+            }
         }
     }
 
@@ -122,17 +146,21 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                         if (!isDirichletWall(cornerBC.type) || !isDirichletWall(otherBC.type)) {
                             continue;
                         }
+                        bool cMoving = (cornerBC.type == VelocityBCType::MovingWall);
+                        bool oMoving = (otherBC.type  == VelocityBCType::MovingWall);
+                        bool mixedMovingStationary = (cMoving != oMoving);
+
                         double cornerVals[Dim]{};
                         bool   cornerValid[Dim]{};
                         for (std::size_t d = 0; d < Dim; ++d) {
                             double vC = (d == 0) ? cornerBC.u : (d == 1) ? cornerBC.v : cornerBC.w;
                             double vO = (d == 0) ? otherBC.u  : (d == 1) ? otherBC.v  : otherBC.w;
-                            bool cMoving = (cornerBC.type == VelocityBCType::MovingWall);
-                            bool oMoving = (otherBC.type  == VelocityBCType::MovingWall);
-                            if (!cMoving && !oMoving) continue;
-                            if (cMoving && !oMoving) { cornerVals[d] = vC; cornerValid[d] = true; }
-                            else if (!cMoving && oMoving) { cornerVals[d] = vO; cornerValid[d] = true; }
-                            else {
+                            if (mixedMovingStationary) {
+                                // Let mixed corners float: do not force a Dirichlet value
+                                // for either velocity component; the momentum equations
+                                // will determine the cell value from face fluxes.
+                                cornerValid[d] = false;
+                            } else if (cMoving && oMoving) {
                                 if (std::abs(vC - vO) < 1e-12) {
                                     cornerVals[d] = vC;
                                     cornerValid[d] = true;
@@ -140,15 +168,24 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                                     cornerVals[d] = 0.0;
                                     cornerValid[d] = true;
                                 }
+                            } else {
+                                // Both stationary: no override needed.
+                                cornerValid[d] = false;
                             }
                         }
                         forEachBoundaryCell(mesh, corner_d, corner_sign, [&](std::size_t cell) {
                             auto c = mesh.cellCoords(cell);
                             if (c[other_d] == (other_sign < 0 ? 0 : mesh.n(other_d) - 1)) {
-                                for (std::size_t d = 0; d < Dim; ++d) {
-                                    if (cornerValid[d]) {
-                                        disc.dirichletMask_[d][cell] = 1;
-                                        disc.dirichletVals_[d][cell] = cornerVals[d];
+                                if (mixedMovingStationary) {
+                                    for (std::size_t d = 0; d < Dim; ++d) {
+                                        disc.dirichletMask_[d][cell] = 0;
+                                    }
+                                } else {
+                                    for (std::size_t d = 0; d < Dim; ++d) {
+                                        if (cornerValid[d]) {
+                                            disc.dirichletMask_[d][cell] = 1;
+                                            disc.dirichletVals_[d][cell] = cornerVals[d];
+                                        }
                                     }
                                 }
                             }
@@ -159,7 +196,7 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
         }
     }
 
-    if (!mesh.isUnstructured() || spec.faceVelBCs.empty()) {
+    if (!mesh.isUnstructured()) {
         for (std::size_t wall_d = 0; wall_d < Dim; ++wall_d) {
             for (int sign : {-1, +1}) {
                 std::size_t idx = wall_d * 2 + (sign < 0 ? 0 : 1);
@@ -213,21 +250,6 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
         }
     }
 
-    {
-        std::vector<int> boundaryFaceCount(mesh.nCells(), 0);
-        std::vector<int> pressureNeumannCount(mesh.nCells(), 0);
-        for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
-            if (mesh.neighbor(f) != std::size_t(-1)) continue;
-            std::size_t P = mesh.owner(f);
-            ++boundaryFaceCount[P];
-            if (disc.isPressureNeumannFace_[f]) ++pressureNeumannCount[P];
-        }
-        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-            disc.isPressureNeumann_[i] = (boundaryFaceCount[i] > 0 &&
-                                         pressureNeumannCount[i] == boundaryFaceCount[i]);
-        }
-    }
-
     std::sort(disc.pressureOutletCells_.begin(), disc.pressureOutletCells_.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
     disc.pressureOutletCells_.erase(
@@ -267,10 +289,72 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
             } else {
                 disc.faceBC_[f].type = VelocityBCType::NoSlip;
                 disc.faceHasBC_[f] = 1;
+                disc.isPressureNeumannFace_[f] = 1;
             }
         } else {
-            disc.faceBC_[f].type = VelocityBCType::NoSlip;
-            disc.faceHasBC_[f] = 1;
+            // Unstructured mesh: deduce the wall direction from the face
+            // normal so that a direction based BC (inlet, outlet, no-slip
+            // wall, moving wall, ...) still applies to this face. The
+            // previous code applied the direction based BCs only when NO face
+            // based BC existed at all, so on an unstructured mesh a single
+            // face based BC silently discarded every direction based BC and
+            // those walls fell back to the default no-slip.
+            const auto& fn = mesh.faceNormal(f);
+            std::size_t wall_d = 0;
+            double maxA = 0.0;
+            for (std::size_t d = 0; d < Dim; ++d) {
+                const double a = std::abs(fn[d]);
+                if (a > maxA) { maxA = a; wall_d = d; }
+            }
+            const int sign = (fn[wall_d] < 0.0) ? -1 : 1;
+            if (maxA >= 0.5) {
+                // The face is aligned with a coordinate direction: use the
+                // direction based boundary condition.
+                const auto& bc = spec.velBcs[wall_d * 2 + (sign < 0 ? 0 : 1)];
+                FaceVelocityBC fbc;
+                fbc.type = bc.type;
+                fbc.u = bc.u; fbc.v = bc.v; fbc.w = bc.w;
+                fbc.pressureValue = bc.pressureValue;
+                disc.faceBC_[f] = fbc;
+                disc.faceHasBC_[f] = 1;
+                if (bc.type == VelocityBCType::PressureOutlet) {
+                    disc.isPressureDirichletFace_[f] = 1;
+                    disc.pressureOutletFaces_.emplace_back(f, bc.pressureValue);
+                } else {
+                    disc.isPressureNeumannFace_[f] = 1;
+                }
+            } else {
+                // Oblique face: no direction based condition applies.
+                disc.faceBC_[f].type = VelocityBCType::NoSlip;
+                disc.faceHasBC_[f] = 1;
+                // A no-slip wall is a pressure-Neumann boundary. Without this flag the
+                // owning cell fails the "every boundary face is Neumann" test below,
+                // and PressureCorrection then drops that cell from the Poisson system
+                // as a p' = 0 Dirichlet cell - i.e. it invents a p = 0 constraint on a
+                // wall that the momentum equation treats as a solid no-slip surface.
+                // The two must agree, otherwise the pressure field that drives the
+                // recirculation is corrupted exactly at the boundary.
+                disc.isPressureNeumannFace_[f] = 1;
+            }
+        }
+    }
+
+    // Cell-level pressure condition: a boundary cell is pressure-Neumann only
+    // when EVERY boundary face it owns is Neumann. This must run after the
+    // face BC assignment above, because that is where the fallback no-slip wall
+    // is installed - and the fallback has to contribute its Neumann flag.
+    {
+        std::vector<int> boundaryFaceCount(mesh.nCells(), 0);
+        std::vector<int> pressureNeumannCount(mesh.nCells(), 0);
+        for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
+            if (mesh.neighbor(f) != std::size_t(-1)) continue;
+            std::size_t P = mesh.owner(f);
+            ++boundaryFaceCount[P];
+            if (disc.isPressureNeumannFace_[f]) ++pressureNeumannCount[P];
+        }
+        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+            disc.isPressureNeumann_[i] = (boundaryFaceCount[i] > 0 &&
+                                         pressureNeumannCount[i] == boundaryFaceCount[i]);
         }
     }
 

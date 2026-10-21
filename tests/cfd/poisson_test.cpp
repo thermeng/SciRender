@@ -274,21 +274,36 @@ TEST_CASE("cfd.poisson.non_orthogonal_correction") {
     }
 }
 
-// A mask that is shorter than the cell count must be rejected instead of
-// being read out of bounds.
+// A mask that does not cover every cell must be rejected instead of being
+// read out of bounds.
 TEST_CASE("cfd.poisson.truncated_mask_is_rejected") {
     const fvm::Mesh<2> mesh = uniform2D(4);
     fvm::Field<2> c(mesh, 1.0);
     fvm::Field<2> source(mesh, 0.0);
 
-    std::vector<char> mask(mesh.nCells() - 1, 0);
-    std::vector<double> values(mesh.nCells() - 1, 0.0);
-
     fvm::Poisson<2> poisson(mesh);
     fvm::SparseMatrix A;
     Eigen::VectorXd b;
 
-    CHECK_THROWS_AS(poisson.discretize(A, b, c, source, mask, values), std::invalid_argument);
+    // A mask that is one cell short.
+    std::vector<char> shortMask(mesh.nCells() - 1, 0);
+    std::vector<double> shortValues(mesh.nCells() - 1, 0.0);
+    CHECK_THROWS_AS(poisson.discretize(A, b, c, source, shortMask, shortValues),
+                    std::invalid_argument);
+
+    // A mask that is one cell too long.
+    std::vector<char> longMask(mesh.nCells() + 1, 0);
+    std::vector<double> longValues(mesh.nCells() + 1, 0.0);
+    CHECK_THROWS_AS(poisson.discretize(A, b, c, source, longMask, longValues),
+                    std::invalid_argument);
+
+    // A mask without values.
+    std::vector<char> mask(mesh.nCells(), 0);
+    CHECK_THROWS_AS(poisson.discretize(A, b, c, source, mask, {}), std::invalid_argument);
+
+    // The Laplacian is the same operator and must validate the same way.
+    fvm::Laplacian<2> laplacian(mesh, 1.0);
+    CHECK_THROWS_AS(laplacian.discretize(A, b, shortMask, shortValues, {}), std::invalid_argument);
 }
 
 } // TEST_SUITE("cfd")
