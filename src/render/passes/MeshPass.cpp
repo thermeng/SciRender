@@ -38,6 +38,7 @@ void MeshPass::init(const ShaderSources& sources) {
             licEnhancedLoc = glGetUniformLocation(licShaderProgram, "uLicEnhanced");
             licOnlyLoc = glGetUniformLocation(licShaderProgram, "uLicOnly");
             licIntegratorLoc = glGetUniformLocation(licShaderProgram, "uLicIntegrator");
+            licMagThreshLoc = glGetUniformLocation(licShaderProgram, "uLicMagThresh");
         }
         if (!sources.meshClipGeo.empty() && licShaderProgram.has()) {
             licClipShaderProgram.reset(compileProgramWithGS(
@@ -61,6 +62,7 @@ void MeshPass::init(const ShaderSources& sources) {
                 licClipEnhancedLoc = glGetUniformLocation(licClipShaderProgram, "uLicEnhanced");
                 licClipOnlyLoc = glGetUniformLocation(licClipShaderProgram, "uLicOnly");
                 licClipIntegratorLoc = glGetUniformLocation(licClipShaderProgram, "uLicIntegrator");
+                licClipMagThreshLoc = glGetUniformLocation(licClipShaderProgram, "uLicMagThresh");
             }
         }
     }
@@ -214,7 +216,8 @@ void MeshPass::drawOpaque(const RenderRenderState& state,
 void MeshPass::activateLicProgram(const RenderRenderState& state, const ColormapManager& colormap,
                                     GLuint vectorTex, GLuint noiseTex,
                                     const glm::vec3& boxMin, const glm::vec3& boxMax,
-                                    int texDimX, int texDimY, int texDimZ) {
+                                    int texDimX, int texDimY, int texDimZ,
+                                    float vectorMaxMagnitude) {
     const bool useCrinkleClip = state.crinkleClipMode && licClipShaderProgram.has();
     GlProgram& prog = useCrinkleClip ? licClipShaderProgram : licShaderProgram;
     glUseProgram(prog);
@@ -235,6 +238,7 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     GLint enhancedLocActive = useCrinkleClip ? licClipEnhancedLoc : licEnhancedLoc;
     GLint onlyLocActive = useCrinkleClip ? licClipOnlyLoc : licOnlyLoc;
     GLint integratorLocActive = useCrinkleClip ? licClipIntegratorLoc : licIntegratorLoc;
+    GLint magThreshLocActive = useCrinkleClip ? licClipMagThreshLoc : licMagThreshLoc;
     if (numBandsLocActive != -1) glUniform1f(numBandsLocActive, static_cast<float>(state.scalarColorBands));
     if (vecTexLocActive != -1 && vectorTex != 0) {
         glBindTextureUnit(2, vectorTex);
@@ -264,6 +268,14 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     if (enhancedLocActive != -1) glUniform1i(enhancedLocActive, state.licEnhanced ? 1 : 0);
     if (onlyLocActive != -1) glUniform1i(onlyLocActive, state.licOnly ? 1 : 0);
     if (integratorLocActive != -1) glUniform1i(integratorLocActive, std::clamp(state.licIntegrator, 0, 2));
+    // Magnitude below which the flow direction counts as undefined. Relative
+    // to the strongest vector of the field (1e-4 of it) so the cut-off does
+    // not depend on the unit the field happens to be in; the absolute floor
+    // keeps a field that is at rest everywhere from producing a direction.
+    if (magThreshLocActive != -1) {
+        const float relThresh = vectorMaxMagnitude > 0.0f ? vectorMaxMagnitude * 1e-4f : 0.0f;
+        glUniform1f(magThreshLocActive, std::max(relThresh, 1e-30f));
+    }
     // General-purpose UVW mapping: interior dims map [0,1] to texel centers to avoid half-texel bleeding;
     // degenerate slab (dim<=1) has no extent — shader collapses that axis to 0.5 via range-relative epsilon, so no scale needed.
     glm::vec3 uvwScale(1.0f);
@@ -303,9 +315,9 @@ MeshPassResult MeshPass::drawLic(const RenderRenderState& state,
         return {};
     return drawCommon(state, view, proj, model, drawList, drawVerts, edgeDrawList,
                       meshManager, colormap,
-                      [&](const RenderRenderState& s, const ColormapManager& c) {
-                           activateLicProgram(s, c, licRes.vectorTex, licRes.noiseTex, licRes.boxMin, licRes.boxMax, licRes.texDimX, licRes.texDimY, licRes.texDimZ);
-                      },
+                           [&](const RenderRenderState& s, const ColormapManager& c) {
+                           activateLicProgram(s, c, licRes.vectorTex, licRes.noiseTex, licRes.boxMin, licRes.boxMax, licRes.texDimX, licRes.texDimY, licRes.texDimZ, licRes.maxMagnitude);
+                       },
                       true);
 }
 

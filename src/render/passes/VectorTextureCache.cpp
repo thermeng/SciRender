@@ -5,6 +5,43 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
+
+namespace {
+
+// Per-axis cap for the LIC vector texture.
+// A 2D field (every CFD case) stays at its native resolution up to 512 per
+// axis: 512*512*1 texels * 12 B = 3 MB. A 3D field is capped at 64 per axis
+// (262k texels) because the resample cost grows with the texel count.
+constexpr int kMaxLicDim2D = 512;
+constexpr int kMaxLicDim3D = 64;
+// Above this many distinct values along an axis the point set is not a grid
+// and the exact grid detection is abandoned (the generic resample is used).
+constexpr std::size_t kDistinctCoordCap = 4096;
+
+inline std::uint32_t floatBits(float f) {
+    std::uint32_t b = 0;
+    std::memcpy(&b, &f, sizeof(b));
+    if (b == 0x80000000u) return 0u;   // -0.0 -> +0.0 so both hash the same
+    return b;
+}
+
+// Number of distinct coordinate values along one axis. Hashed on the float
+// bits, so it is O(n) and exact for the repeated coordinates of a regular
+// grid. Returns cap+1 when the axis carries more distinct values than cap,
+// i.e. the point set is not a grid.
+template <typename PosAt>
+std::size_t distinctCoordCount(PosAt&& posAt, std::size_t n, std::size_t axis, std::size_t cap) {
+    std::unordered_set<std::uint32_t> seen;
+    seen.reserve(std::min<std::size_t>(n, 2048) * 2 + 16);
+    for (std::size_t i = 0; i < n; ++i) {
+        seen.insert(floatBits(posAt(i, axis)));
+        if (seen.size() > cap) return cap + 1;
+    }
+    return seen.size();
+}
+
+} // namespace
 
 bool VectorTextureCache::resolveField(const RenderMesh& mesh, const std::string& name, int placement,
                                        const glm::vec3*& outData, size_t& outCount, bool& outIsCell,
@@ -26,6 +63,72 @@ bool VectorTextureCache::resolveField(const RenderMesh& mesh, const std::string&
     outCount = vf.count;
     outIsCell = vf.isCell;
     return true;
+}
+
+VectorTextureCache::GridDims VectorTextureCache::chooseGridDims(const RenderMesh& mesh, size_t count, bool isCell) {
+    GridDims d;
+
+    // Source positions of the field: the cell centres for a cell-centred
+    // field, the vertices otherwise.
+    const glm::vec3* cellPos = nullptr;
+    if (isCell) {
+        if (mesh.cellCenters.empty() || mesh.cellCenters.size() != count) return d;
+        cellPos = mesh.cellCenters.data();
+    }
+    const float* verts = mesh.vertices.data();
+    const std::size_t numVerts = mesh.vertices.size() / 3;
+    const std::size_t n = std::min(numVerts, count);
+    if (n == 0) return d;
+
+    auto posAt = [&](std::size_t v, std::size_t axis) -> float {
+        if (cellPos) {
+            const glm::vec3& c = cellPos[v];
+            return axis == 0 ? c.x : (axis == 1 ? c.y : c.z);
+        }
+        return verts[v * 3 + axis];
+    };
+
+    // 1) A regular grid: use the grid's OWN resolution. The distinct
+    //    coordinates along an axis are the grid's node counts, so a 41x41
+    //    cavity field yields a 41x41 texture - no resampling, no loss of the
+    //    small structures.
+    const std::size_t nx = distinctCoordCount(posAt, n, 0, kDistinctCoordCap);
+    const std::size_t ny = distinctCoordCount(posAt, n, 1, kDistinctCoordCap);
+    const std::size_t nz = distinctCoordCount(posAt, n, 2, kDistinctCoordCap);
+    if (nx >= 2 && ny >= 2 && nz >= 1 &&
+        nx <= kDistinctCoordCap && ny <= kDistinctCoordCap && nz <= kDistinctCoordCap) {
+        const long double prod = static_cast<long double>(nx) * static_cast<long double>(ny) *
+                                 static_cast<long double>(nz);
+        // Grid-like: the distinct coordinates multiply to about the point
+        // count (a grid with every node occupied, or a few empty cells).
+        if (prod >= static_cast<long double>(n) && prod <= static_cast<long double>(n) * 4.0L) {
+            d.x = static_cast<int>(std::min<std::size_t>(nx, kMaxLicDim2D));
+            d.y = static_cast<int>(std::min<std::size_t>(ny, kMaxLicDim2D));
+            d.z = static_cast<int>(std::min<std::size_t>(nz, kMaxLicDim3D));
+            if (d.x > 0 && d.y > 0 && d.z > 0) return d;
+        }
+    }
+
+    // 2) Generic point set. A SLAB (a 2D field: every CFD case) has sqrt(n)
+    //    points per axis, not cbrt(n). Using cbrt for a slab is what reduced
+    //    a 41x41 cavity field to a 16x16 texture and smeared the secondary
+    //    corner vortices into the primary vortex.
+    const float rangeX = mesh.bounds.maxX - mesh.bounds.minX;
+    const float rangeY = mesh.bounds.maxY - mesh.bounds.minY;
+    const float rangeZ = mesh.bounds.maxZ - mesh.bounds.minZ;
+    const float diag = std::sqrt(rangeX * rangeX + rangeY * rangeY + rangeZ * rangeZ);
+    const float minRange = std::min(std::min(rangeX, rangeY), rangeZ);
+    const bool slab = diag > 0.0f && minRange <= diag * 1e-6f;
+    if (slab) {
+        int r = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(n))));
+        r = std::clamp(r, 16, kMaxLicDim2D);
+        d.x = r; d.y = r; d.z = 1;
+    } else {
+        int r = static_cast<int>(std::ceil(std::cbrt(static_cast<double>(n))));
+        r = std::clamp(r, 16, kMaxLicDim3D);
+        d.x = d.y = d.z = r;
+    }
+    return d;
 }
 
 bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data, size_t count, bool isCell,
@@ -62,22 +165,19 @@ bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data
         }
     }
 
-    int res = 32;
-    if (numVerts > 0) {
-        float density = std::cbrt(static_cast<float>(numVerts));
-        int ideal = static_cast<int>(std::ceil(density));
-        res = std::clamp(ideal, 16, 32);
-        if (numVerts > 50000) res = 32;
-        if (numVerts > 200000) res = 24;
-    }
-    outDimX = outDimY = outDimZ = res;
-    size_t total = static_cast<size_t>(res) * res * res;
+    // Resolution from the DATA itself, not from a cubic guess.
+    //
+    // The old heuristic was ceil(cbrt(numVerts)) clamped to [16, 32]. For a
+    // 2D field - which is every CFD case - the per-axis count is sqrt(n), not
+    // cbrt(n): a 41x41 cavity field (1681 points) collapsed to a 16x16
+    // texture, and the small structures (the secondary corner vortices) were
+    // averaged away. chooseGridDims() detects a regular grid exactly and
+    // otherwise uses the 2D-aware estimate.
+    const GridDims gd = chooseGridDims(mesh, count, isCell);
+    if (gd.x <= 0 || gd.y <= 0 || gd.z <= 0) return false;
+    size_t total = static_cast<size_t>(gd.x) * gd.y * gd.z;
     if (total == 0 || total > kMaxGridTexels) return false;
-    if (limit == 0) {
-        outGrid.assign(total, glm::vec3(0.0f));
-        return true;
-    }
-    outGrid.resize(total, glm::vec3(0.0f));
+    outGrid.assign(total, glm::vec3(0.0f));
 
     float minX = static_cast<float>(mesh.bounds.minX), maxX = static_cast<float>(mesh.bounds.maxX);
     float minY = static_cast<float>(mesh.bounds.minY), maxY = static_cast<float>(mesh.bounds.maxY);
@@ -100,10 +200,14 @@ bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data
         float x, y, z;
         const glm::vec3* vec;
     };
-    // Cap resample source points: full nearest-neighbour over 200k+ points is
-    // ~345M distance evals on the render thread. Strided subsampling keeps
-    // LIC interactive while preserving coverage.
-    constexpr size_t kMaxResamplePoints = 65536;
+    // Cap the resample source points so a huge field cannot blow up the
+    // render thread. The cap has to scale with the TARGET grid: the spatial
+    // hash now has one cell per texel, so the interpolation cost is
+    // O(27 * number of source points) - linear in the field, independent of
+    // the texture resolution. Subsampling below ~4 points per texel would
+    // leave holes in the texture (a texel whose neighbourhood holds no
+    // sample), so the floor is tied to the texel count.
+    const size_t kMaxResamplePoints = std::max<size_t>(65536, total * 4);
     size_t stride = 1;
     if (limit > kMaxResamplePoints) stride = (limit + kMaxResamplePoints - 1) / kMaxResamplePoints;
     std::vector<SpatialEntry> spatial;
@@ -123,58 +227,80 @@ bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data
         spatial.push_back(e);
     }
 
-    const int gridRes = 8;
+    // Spatial hash sized to the TARGET grid, not to a fixed 8^3 cube.
+    //
+    // The fixed cube made the interpolation radius 1/8 of the DOMAIN: a
+    // 41x41 field was smoothed over five cells and every structure smaller
+    // than that (the secondary corner vortices) disappeared. With the hash at
+    // the texel size the radius is a couple of texels - a local
+    // interpolation, not a domain-wide blur.
+    const int hashX = std::clamp(gd.x, 1, 256);
+    const int hashY = std::clamp(gd.y, 1, 256);
+    const int hashZ = std::clamp(gd.z, 1, 32);
     // General-purpose thin-axis handling: use relative epsilon based on scene diag, not absolute 1e-8 world units.
     float diagRange = std::sqrt(rangeX*rangeX + rangeY*rangeY + rangeZ*rangeZ);
     float epsRange = std::max(diagRange * 1e-7f, 1e-7f);
-    std::vector<std::vector<size_t>> grid(static_cast<size_t>(gridRes) * gridRes * gridRes);
+    std::vector<std::vector<size_t>> grid(static_cast<size_t>(hashX) * hashY * hashZ);
+    auto hashIndex = [&](int gx, int gy, int gz) -> size_t {
+        return (static_cast<size_t>(gx) + static_cast<size_t>(gy) * hashX +
+                static_cast<size_t>(gz) * hashX * hashY);
+    };
     for (size_t v = 0; v < spatial.size(); ++v) {
-        int gx = static_cast<int>(std::clamp((spatial[v].x - minX) / (rangeX > epsRange ? rangeX : epsRange), 0.0f, 0.999f) * gridRes);
-        int gy = static_cast<int>(std::clamp((spatial[v].y - minY) / (rangeY > epsRange ? rangeY : epsRange), 0.0f, 0.999f) * gridRes);
-        int gz = static_cast<int>(std::clamp((spatial[v].z - minZ) / (rangeZ > epsRange ? rangeZ : epsRange), 0.0f, 0.999f) * gridRes);
-        grid[static_cast<size_t>(gx + gy * gridRes + gz * gridRes * gridRes)].push_back(v);
+        int gx = static_cast<int>(std::clamp((spatial[v].x - minX) / (rangeX > epsRange ? rangeX : epsRange), 0.0f, 0.999f) * hashX);
+        int gy = static_cast<int>(std::clamp((spatial[v].y - minY) / (rangeY > epsRange ? rangeY : epsRange), 0.0f, 0.999f) * hashY);
+        int gz = static_cast<int>(std::clamp((spatial[v].z - minZ) / (rangeZ > epsRange ? rangeZ : epsRange), 0.0f, 0.999f) * hashZ);
+        grid[hashIndex(gx, gy, gz)].push_back(v);
     }
 
-    // Linear resampling: inverse-distance weighted (IDW) average over 27-cell neighborhood
-    // replaces pure nearest-neighbor Voronoi. Matches Streamline's trilinear philosophy
-    // and gives smooth GL_LINEAR interpolation. eps avoids singularity at texel center.
+    // Linear resampling: inverse-distance weighted (IDW) average over the
+    // 27-cell neighborhood of the spatial hash replaces pure nearest-neighbor
+    // Voronoi. Matches Streamline's trilinear philosophy and gives smooth
+    // GL_LINEAR interpolation. eps avoids singularity at texel center.
     const float idwEps = 1e-6f * (rangeX*rangeX + rangeY*rangeY + rangeZ*rangeZ + 1.0f);
-    for (size_t i = 0; i < total; ++i) {
-        int ix = static_cast<int>(i) % res;
-        int iy = (static_cast<int>(i) / res) % res;
-        int iz = static_cast<int>(i) / (res * res);
-        float wx = (ix + 0.5f) / static_cast<float>(res);
-        float wy = (iy + 0.5f) / static_cast<float>(res);
-        float wz = (iz + 0.5f) / static_cast<float>(res);
-        float px = minX + wx * rangeX;
-        float py = minY + wy * rangeY;
-        float pz = minZ + wz * rangeZ;
+    for (int iz = 0; iz < gd.z; ++iz) {
+        for (int iy = 0; iy < gd.y; ++iy) {
+            for (int ix = 0; ix < gd.x; ++ix) {
+                // Texel centres follow the same convention as the structured
+                // fast path (texel i sits at i/(n-1) of the range), so the same
+                // field is sampled at the same world positions no matter which
+                // path built the texture.
+                const float wx = (gd.x > 1) ? static_cast<float>(ix) / static_cast<float>(gd.x - 1) : 0.5f;
+                const float wy = (gd.y > 1) ? static_cast<float>(iy) / static_cast<float>(gd.y - 1) : 0.5f;
+                const float wz = (gd.z > 1) ? static_cast<float>(iz) / static_cast<float>(gd.z - 1) : 0.5f;
+                const float px = minX + wx * rangeX;
+                const float py = minY + wy * rangeY;
+                const float pz = minZ + wz * rangeZ;
 
-        glm::vec3 acc(0.0f);
-        float wSum = 0.0f;
-        int gx = static_cast<int>(std::clamp((px - minX) / (rangeX > epsRange ? rangeX : epsRange), 0.0f, 0.999f) * gridRes);
-        int gy = static_cast<int>(std::clamp((py - minY) / (rangeY > epsRange ? rangeY : epsRange), 0.0f, 0.999f) * gridRes);
-        int gz = static_cast<int>(std::clamp((pz - minZ) / (rangeZ > epsRange ? rangeZ : epsRange), 0.0f, 0.999f) * gridRes);
-        for (int dz = -1; dz <= 1; ++dz) {
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dx = -1; dx <= 1; ++dx) {
-                    int nx = gx + dx, ny = gy + dy, nz = gz + dz;
-                    if (nx < 0 || nx >= gridRes || ny < 0 || ny >= gridRes || nz < 0 || nz >= gridRes) continue;
-                    const auto& cell = grid[static_cast<size_t>(nx + ny * gridRes + nz * gridRes * gridRes)];
-                    for (size_t v : cell) {
-                        const auto& e = spatial[v];
-                        float ddx = e.x - px, ddy = e.y - py, ddz = e.z - pz;
-                        float d2 = ddx * ddx + ddy * ddy + ddz * ddz;
-                        // IDW p=2: w = 1/(d2+eps) ; close samples dominate but neighbors blend
-                        float w = 1.0f / (d2 + idwEps);
-                        acc += (*e.vec) * w;
-                        wSum += w;
+                glm::vec3 acc(0.0f);
+                float wSum = 0.0f;
+                int gx = static_cast<int>(std::clamp((px - minX) / (rangeX > epsRange ? rangeX : epsRange), 0.0f, 0.999f) * hashX);
+                int gy = static_cast<int>(std::clamp((py - minY) / (rangeY > epsRange ? rangeY : epsRange), 0.0f, 0.999f) * hashY);
+                int gz = static_cast<int>(std::clamp((pz - minZ) / (rangeZ > epsRange ? rangeZ : epsRange), 0.0f, 0.999f) * hashZ);
+                for (int dz = -1; dz <= 1; ++dz) {
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            const int nx = gx + dx, ny = gy + dy, nz = gz + dz;
+                            if (nx < 0 || nx >= hashX || ny < 0 || ny >= hashY || nz < 0 || nz >= hashZ) continue;
+                            const auto& cell = grid[hashIndex(nx, ny, nz)];
+                            for (size_t v : cell) {
+                                const auto& e = spatial[v];
+                                float ddx = e.x - px, ddy = e.y - py, ddz = e.z - pz;
+                                float d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+                                // IDW p=2: w = 1/(d2+eps) ; close samples dominate but neighbors blend
+                                float w = 1.0f / (d2 + idwEps);
+                                acc += (*e.vec) * w;
+                                wSum += w;
+                            }
+                        }
                     }
                 }
+                const size_t o = static_cast<size_t>(ix) + static_cast<size_t>(iy) * gd.x +
+                                 static_cast<size_t>(iz) * gd.x * gd.y;
+                outGrid[o] = (wSum > 0.0f) ? (acc / wSum) : glm::vec3(0.0f);
             }
         }
-        outGrid[i] = (wSum > 0.0f) ? (acc / wSum) : glm::vec3(0.0f);
     }
+    outDimX = gd.x; outDimY = gd.y; outDimZ = gd.z;
     return true;
 }
 
@@ -227,20 +353,13 @@ GLuint VectorTextureCache::textureForField(const std::string& name, const Render
         int cDimZ = (dimZ > 1) ? dimZ - 1 : 1;
         if (static_cast<size_t>(cDimX) * static_cast<size_t>(cDimY) * static_cast<size_t>(cDimZ) == count) {
             baseDimX = cDimX; baseDimY = cDimY; baseDimZ = cDimZ;
-        } else {
-
-            float density = std::cbrt(static_cast<float>(std::max<size_t>(numVerts, 1)));
-            int r = std::clamp(static_cast<int>(std::ceil(density)), 16, 32);
-            if (numVerts > 50000) r = 32;
-            if (numVerts > 200000) r = 24;
-            baseDimX = baseDimY = baseDimZ = r;
         }
-    } else {
-        float density = std::cbrt(static_cast<float>(std::max<size_t>(numVerts, 1)));
-        int r = std::clamp(static_cast<int>(std::ceil(density)), 16, 32);
-        if (numVerts > 50000) r = 32;
-        if (numVerts > 200000) r = 24;
-        baseDimX = baseDimY = baseDimZ = r;
+    }
+    if (baseDimX <= 0) {
+        // Same resolution the builder will use - the two must agree or the
+        // texture is rebuilt on every frame.
+        const GridDims gd = chooseGridDims(*mesh, count, isCell);
+        baseDimX = gd.x; baseDimY = gd.y; baseDimZ = gd.z;
     }
     // Wrap mode is fixed to Repeat (GL_REPEAT); no mirror padding.
     int expectedDimX = baseDimX, expectedDimY = baseDimY, expectedDimZ = baseDimZ;
@@ -327,9 +446,15 @@ GLuint VectorTextureCache::buildTexture(const std::string& name, const RenderMes
     if (existing != m_entries.end() && existing->second.lruIt != m_lru.end()) {
         m_lru.erase(existing->second.lruIt);
     }
+    // Strongest vector of the sampled field: the LIC uses it to make its
+    // "no direction here" cut-off relative to the field, so a flow in mm/s
+    // behaves like a flow in m/s.
+    float maxMag = 0.0f;
+    for (const glm::vec3& v : grid) maxMag = std::max(maxMag, glm::length(v));
     Entry& e = m_entries[key];
     e.tex.reset(raw);
     e.dimX = texDimX; e.dimY = texDimY; e.dimZ = texDimZ;
+    e.maxMagnitude = maxMag;
     m_lru.push_front(key);
     e.lruIt = m_lru.begin();
     evictIfNeeded();
@@ -364,6 +489,28 @@ bool VectorTextureCache::getTextureDims(const std::string& name, int& dimX, int&
 bool VectorTextureCache::getTextureDims(const std::string& name, int /*licBoundaryMode*/, int& dimX, int& dimY, int& dimZ) const {
     // Deprecated mode param ignored — delegate to canonical.
     return getTextureDims(name, dimX, dimY, dimZ);
+}
+
+float VectorTextureCache::getMaxMagnitude(const std::string& name, int placement, const RenderMesh* mesh) const {
+    if (mesh) {
+        const glm::vec3* d = nullptr;
+        size_t cnt = 0;
+        bool isCell = false;
+        if (resolveField(*mesh, name, placement, d, cnt, isCell, nullptr)) {
+            const std::string key = makeKey(name, isCell);
+            auto it = m_entries.find(key);
+            if (it != m_entries.end()) return it->second.maxMagnitude;
+        }
+    }
+    for (const auto& key : m_lru) {
+        for (int cell = 0; cell <= 1; ++cell) {
+            if (key == makeKey(name, cell != 0)) {
+                auto jt = m_entries.find(key);
+                if (jt != m_entries.end()) return jt->second.maxMagnitude;
+            }
+        }
+    }
+    return 0.0f;
 }
 
 bool VectorTextureCache::getTextureDims(const std::string& name, int placement, int /*licBoundaryMode*/, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ) const {

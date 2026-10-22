@@ -111,6 +111,10 @@ VectorsPage::VectorsPage(RenderSettings* settings, QWidget* parent)
         auto* spin = vectorsUi.licStepsSpin;
         spin->setRange(4, 128);
         spin->setValue(s->getLicSteps());
+        spin->setToolTip(
+            "Number of LIC steps in each direction (the kernel has 1+2*steps taps).\n"
+            "A longer kernel integrates the noise over a longer path and gives\n"
+            "smoother, more continuous streaks.");
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [s](double v) {
             s->setLicSteps(static_cast<int>(std::round(v)));
         });
@@ -119,12 +123,22 @@ VectorsPage::VectorsPage(RenderSettings* settings, QWidget* parent)
         auto* spin = vectorsUi.licStepSizeSpin;
         spin->setRange(0.001, 2.0);
         spin->setValue(s->getLicStepSize());
+        spin->setToolTip(
+            "LIC step as a fraction of the scene diagonal.\n"
+            "The kernel is 2*Steps*StepSize long, while the noise it convolves has a\n"
+            "correlation length of 1/Frequency. For the LIC to read as streamlines the\n"
+            "kernel should be a few correlation lengths: raise Step Size (or lower\n"
+            "Frequency) if the result looks like noise rather than flow lines.");
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), s, &RenderSettings::setLicStepSize);
     }
     {
         auto* spin = vectorsUi.licFreqSpin;
         spin->setRange(0.5, 64.0);
         spin->setValue(s->getLicNoiseFreq());
+        spin->setToolTip(
+            "Frequency of the input noise texture.\n"
+            "Higher = finer noise = finer streaks, but the kernel (2*Steps*StepSize)\n"
+            "has to grow with it to keep the same look.");
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), s, &RenderSettings::setLicNoiseFreq);
     }
 

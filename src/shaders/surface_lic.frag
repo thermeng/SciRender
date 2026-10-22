@@ -46,6 +46,11 @@ uniform float uLicNoiseFreq;    // noise UV scale, expected [0.5..64]
 uniform int uLicEnhanced;       // 0=single-pass, 1=enhanced 2-pass (sharpens coherence)
 uniform int uLicIntegrator;     // 0=Euler, 1=Midpoint, 2=RK4
 uniform bool uLicOnly;          // true = skip PBR, output unshaded LIC color
+// Magnitude below which the flow direction is treated as undefined. It is
+// relative to the strongest vector of the field (set by the CPU), so a field
+// in mm/s is treated exactly like a field in m/s. The absolute floor keeps a
+// field that is at rest everywhere from producing a direction at all.
+uniform float uLicMagThresh = 5e-5;
 uniform vec3 uUvwScale = vec3(1.0);
 uniform vec3 uUvwOffset = vec3(0.0);
 
@@ -83,7 +88,7 @@ float licNoiseSample3D_scaled(vec3 uvw, float freqScale) {
 // Helper: sample normalized vector direction at a world position.
 // Returns sign * v/|v| if |v| > magThresh else vec3(0) signalling termination (matches StreamlineSet RK4).
 vec3 licSampleDir(vec3 pos, vec3 boxMin, vec3 invRange, vec3 range, vec3 norm, float sign) {
-    const float magThresh = 5e-5;
+    const float magThresh = uLicMagThresh;
     vec3 uvw = worldToUVW(pos, boxMin, invRange, range);
     vec3 v = texture(uVectorTex, uvw).rgb;
     vec3 vTan = v - dot(v, norm) * norm;
@@ -261,7 +266,7 @@ void main() {
     float mag = length(vec);
 
     float licGray = 0.5;
-    const float magThresh = 5e-5;
+    const float magThresh = uLicMagThresh;
     bool hasVector = mag > magThresh;
 
     float normEps = max(diag * diag * 1e-14, 1e-12);
