@@ -133,7 +133,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_tol->setRange(1e-7, 1e-1);   m_tol->setDecimals(9);  m_tol->setValue(1e-3);
     m_tol->setSingleStep(1e-6);
     m_tol->setCorrectionMode(QDoubleSpinBox::CorrectToPreviousValue);
-    m_maxIter->setRange(1, 100000); m_maxIter->setValue(2000);
+    m_maxIter->setRange(1, 100000); m_maxIter->setValue(500);
     m_alphaU->setRange(0.01, 1.0); m_alphaU->setDecimals(2); m_alphaU->setValue(0.7);
     m_alphaP->setRange(0.01, 1.0); m_alphaP->setDecimals(2); m_alphaP->setValue(0.3);
     m_scheme->addItems({"Upwind", "Central", "Second-Order Upwind"});
@@ -464,11 +464,11 @@ void CfdCasePage::syncDialogDependencies() {
 
     // In transient (PISO) mode the corrector count comes from "Outer correctors"
     // on the page, and the steady-path "Correctors" field is not consulted.
-    const bool transient = m_transientRadio && m_transientRadio->isChecked();
-    m_pressureCorrectors->setEnabled(!transient);
-    m_pressureCorrectors->setToolTip(transient
-        ? "Not used in transient (PISO) mode: the corrector count comes from \"Outer correctors\" on the Time section."
-        : "Number of pressure correctors per SIMPLE iteration.");
+    // SIMPLE does a single pressure correction per iteration, so the
+    // corrector count is fixed at 1 and the field is not user-editable.
+    m_pressureCorrectors->setEnabled(false);
+    m_pressureCorrectors->setToolTip(
+        "SIMPLE performs a single pressure correction per iteration; this value is fixed at 1.");
 }
 
 void CfdCasePage::syncTimeDependencies() {
