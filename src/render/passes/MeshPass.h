@@ -61,6 +61,10 @@ public:
         int texDimX = 0;
         int texDimY = 0;
         int texDimZ = 0;
+        // Strongest vector of the sampled field. The LIC uses it to make the
+        // "no direction here" cut-off relative to the field instead of
+        // absolute, so a flow in mm/s is treated like a flow in m/s.
+        float maxMagnitude = 0.0f;
         bool valid() const { return vectorTex != 0 && noiseTex != 0; }
     };
     MeshPassResult drawLic(const RenderRenderState& state,
@@ -87,7 +91,8 @@ private:
     void activateLicProgram(const RenderRenderState& state, const ColormapManager& colormap,
                             GLuint vectorTex, GLuint noiseTex,
                             const glm::vec3& boxMin, const glm::vec3& boxMax,
-                            int texDimX, int texDimY, int texDimZ);
+                            int texDimX, int texDimY, int texDimZ,
+                            float vectorMaxMagnitude = 0.0f);
     MeshUBOData makeUbo(const RenderRenderState& state,
                          const glm::mat4& view,
                          const glm::mat4& proj,
@@ -152,4 +157,6 @@ private:
     GLint licClipOnlyLoc = -1;
     GLint licIntegratorLoc = -1;
     GLint licClipIntegratorLoc = -1;
+    GLint licMagThreshLoc = -1;
+    GLint licClipMagThreshLoc = -1;
 };

@@ -177,11 +177,16 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
     #     Streamline/vector-glyph set construction and the GL RAII helpers
     #     carry no Qt dependency, so they can be linked (and tested) without
     #     pulling in Qt6 or a live GL context.
+    #
+    #     The LIC vector texture cache lives here too: the part that decides
+    #     the resolution of the sampled velocity field is pure CPU work and is
+    #     covered by the regression suite (tests/render/lic_vector_texture_test.cpp).
     # -----------------------------------------------------------------------
     add_library(RenderCore STATIC
         src/render/streamlines/StreamlineSet.cpp
         src/render/streamlines/VectorGlyphSet.cpp
         src/render/foundation/gl_raii.cpp
+        src/render/passes/VectorTextureCache.cpp
     )
     target_link_libraries(RenderCore PUBLIC CoreLib glad)
 endif()
@@ -205,7 +210,6 @@ if(SCIRENDER_BUILD_APP)
         src/render/passes/ParticlePass.cpp
         src/render/passes/VolumePass.cpp
         src/render/passes/VolumeTextureCache.cpp
-        src/render/passes/VectorTextureCache.cpp
         src/render/overlays/VolumeSliceOverlay.cpp
         src/render/passes/WireframePass.cpp
         src/render/passes/DepthPeelPass.cpp

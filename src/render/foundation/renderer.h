@@ -295,7 +295,14 @@ struct RenderRenderState {
     bool showLic = false;
     int vectorVisMode = 0;
     int licSteps = 24;          // kernel half-length (total taps = 1+2*steps); UI [4..128], GPU tolerates [0..128]
-    float licStepSize = 0.02f;  // fraction of scene diagonal; MeshPass converts to worldStep = licStepSize*diag, clamped to [1e-6, diag*2]
+    // Fraction of the scene diagonal per LIC step. The kernel is
+    // 2*steps*licStepSize long, while the noise it convolves has a
+    // correlation length of 1/licNoiseFreq - a kernel of a few correlation
+    // lengths is what makes an LIC read as streamlines. At the old default
+    // (0.02) the kernel was ~10 correlation lengths long and smeared the
+    // whole field into a blur; 0.005 puts it at ~2.7 for the default
+    // steps/frequency.
+    float licStepSize = 0.005f;  // fraction of scene diagonal; MeshPass converts to worldStep = licStepSize*diag, clamped to [1e-6, diag*2]
     float licNoiseFreq = 8.0f;  // UI [0.5..64], upload clamped to same
     int licNoiseGrain = 256;    // quantized to 64/128/256/512
     int licBoundaryMode = 1;    // deprecated: fixed to Repeat (GL_REPEAT). Persisted values coerced to 1; not used for texture key.
