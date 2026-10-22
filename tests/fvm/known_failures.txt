@@ -17,21 +17,29 @@
 # closing it needs a better scheme (or a finer mesh), not more iterations.
 slow.cavity_msh.re400_accuracy_target
 
-# An open channel must reach a divergence-free steady state. It does not: the
-# interior divergence reaches 0.97 (the criterion is 3.7e-4) and the inlet and
-# outlet fluxes are 2% apart.
+# An open channel must reach a divergence-free steady state. It still does not,
+# but the picture changed completely.
 #
-# It is not a transient: the divergence is IDENTICAL after 600 and 1200
-# iterations (0.969333 both), so the state has converged onto a mass balance
-# that is wrong.
+# Before: the interior divergence reached 0.97 (the criterion is 3.7e-4) and the
+# inlet and the outlet fluxes were 2% apart. The divergence spiked to 0.97 in
+# the middle of the domain - exactly where the pressure solver had pinned its
+# reference cell - and fell off towards both ends.
 #
-# The fingerprint localises the defect: the divergence is largest exactly where
-# the predictor is divergent - it rises from 0.10 at the inlet to 0.47 over the
-# first four columns, decays to 0.05 in the middle, and spikes to 0.97 at the
-# pressure outlet. Everywhere else it is small. So the pressure correction
-# leaves the predictor's divergence essentially uncancelled wherever it is
-# non-zero, which is the signature of the pressure operator and the correction's
-# gradient not being the same operator (see
-# tests/cfd/known_failures.txt).
+# The spike was the pinned reference cell: its row in the pressure matrix was
+# replaced by an identity row, so the ONE cell whose mass balance the pressure
+# correction can never remove was the cell with the LARGEST uncorrected
+# imbalance. The reference cell is now only pinned when the pressure system is
+# actually singular (a pure Neumann domain, i.e. a closed cavity); an open
+# boundary carries a Dirichlet cell, so nothing has to be pinned at all.
+#
+# Now: max |div u| = 0.136 (was 0.97), the inlet and the outlet fluxes are
+# 0.4% apart (was 2%), and the mean velocity is 1.00001 along the whole
+# channel - a clean developed flow.
+#
+# What is left sits at the inlet: the profile has to develop from the flat
+# inlet over the first few cells, and the Rhie-Chow term (the difference
+# between the interpolated cell velocity and the conservative face flux) is
+# largest exactly there. The remaining error is the pressure-velocity coupling
+# defect of tests/cfd/known_failures.txt, not a transient.
 fvm.channel.open_outlet_divergence
 

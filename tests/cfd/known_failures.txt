@@ -63,10 +63,19 @@
 # cfd.pressure.coupling_diagnosis shows it: the correction removes the
 # divergence in total but not face by face.
 #
-# So the fix is to make the pressure matrix the divergence of the SAME gradient
-# the correction applies - the pressure equation then has to be assembled as
-# the composition (a wider stencil) - and to give the momentum operator the
-# same gradient for its pressure term, so that the three agree.
+# Part of this has been fixed: the reference cell is no longer pinned when the
+# pressure system is not singular (an open boundary carries a Dirichlet cell),
+# and the pinned cell of a pure Neumann domain is now chosen as the cell with
+# the SMALLEST uncorrectable imbalance instead of the cell closest to the
+# centroid. The numbers above are for the PURE NEUMANN case, which still needs
+# a reference cell: its row is replaced by an identity row, so that ONE cell
+# keeps its predictor's imbalance for the whole run and the p' field carries a
+# local feature there.
+#
+# The remaining fix is to make the pressure matrix the divergence of the SAME
+# gradient the correction applies - the pressure equation then has to be
+# assembled as the composition (a wider stencil) - and to give the momentum
+# operator the same gradient for its pressure term, so that the three agree.
 cfd.pressure.correction_removes_divergence
 
 # The pressure matrix and the gradient the velocity correction applies must be
