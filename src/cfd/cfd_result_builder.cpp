@@ -14,15 +14,16 @@ namespace cfd {
 
 namespace {
 
-// Extrapolate a per-cell scalar to per-point by averaging over all cells
-// incident to each point (one-ring). Mirrors
-// mesh_utils::extrapolateCellDataToPoints but works straight from the
-// RenderMesh CSRs (cellConnectivity/cellOffsets, VTK-style end offsets) so no
-// cell->vertex list has to be rebuilt.
-std::vector<float> extrapolateScalarToPoints(const RenderMesh& rm,
-                                             const std::vector<float>& cellVals,
-                                             int nCells, int nPts) {
-    std::vector<float> out(static_cast<std::size_t>(nPts), 0.0f);
+// Extrapolate a per-cell value to per-point by averaging over all cells
+// incident to each point (one-ring). Works straight from the RenderMesh CSRs
+// (cellConnectivity/cellOffsets, VTK-style end offsets) so no cell->vertex
+// list has to be rebuilt. Templated on the value type so scalar and vector
+// fields share one implementation.
+template<typename T>
+std::vector<T> extrapolateToPoints(const RenderMesh& rm,
+                                   const std::vector<T>& cellVals,
+                                   int nCells, int nPts, const T& zero = T{}) {
+    std::vector<T> out(static_cast<std::size_t>(nPts), zero);
     std::vector<int> cnt(static_cast<std::size_t>(nPts), 0);
     const auto& conn = rm.cellConnectivity;
     const auto& off = rm.cellOffsets;
@@ -30,32 +31,7 @@ std::vector<float> extrapolateScalarToPoints(const RenderMesh& rm,
     for (int c = 0; c < nCells && c < static_cast<int>(off.size()); ++c) {
         const uint32_t end = off[static_cast<std::size_t>(c)];
         if (end > conn.size()) { start = end; continue; }
-        const float v = cellVals[static_cast<std::size_t>(c)];
-        for (uint32_t a = start; a < end; ++a) {
-            const uint32_t pid = conn[a];
-            if (pid < static_cast<uint32_t>(nPts)) { out[pid] += v; ++cnt[pid]; }
-        }
-        start = end;
-    }
-    for (int i = 0; i < nPts; ++i) {
-        const auto ui = static_cast<std::size_t>(i);
-        if (cnt[ui] > 0) out[ui] /= static_cast<float>(cnt[ui]);
-    }
-    return out;
-}
-
-std::vector<glm::vec3> extrapolateVectorToPoints(const RenderMesh& rm,
-                                                 const std::vector<glm::vec3>& cellVecs,
-                                                 int nCells, int nPts) {
-    std::vector<glm::vec3> out(static_cast<std::size_t>(nPts), glm::vec3(0.0f));
-    std::vector<int> cnt(static_cast<std::size_t>(nPts), 0);
-    const auto& conn = rm.cellConnectivity;
-    const auto& off = rm.cellOffsets;
-    uint32_t start = 0;
-    for (int c = 0; c < nCells && c < static_cast<int>(off.size()); ++c) {
-        const uint32_t end = off[static_cast<std::size_t>(c)];
-        if (end > conn.size()) { start = end; continue; }
-        const glm::vec3& v = cellVecs[static_cast<std::size_t>(c)];
+        const T& v = cellVals[static_cast<std::size_t>(c)];
         for (uint32_t a = start; a < end; ++a) {
             const uint32_t pid = conn[a];
             if (pid < static_cast<uint32_t>(nPts)) { out[pid] += v; ++cnt[pid]; }
@@ -125,7 +101,7 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     attrs.cellScalars["pressure"] = cellPres;
     attrs.cellScalarRanges["pressure"] = rangeOf(cellPres);
 
-    std::vector<float> pointPresSrc = extrapolateScalarToPoints(rm, cellPres, nCells, nSrc);
+    std::vector<float> pointPresSrc = extrapolateToPoints<float>(rm, cellPres, nCells, nSrc);
     std::vector<float> pointPres = expandToFinal(pointPresSrc);
 
     attrs.pointScalars["pressure"] = pointPres;
@@ -151,7 +127,7 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     rm.cellVectorCount = static_cast<std::size_t>(nCells);
 
     // Point-located velocity (glyphs, streamlines, LIC read this contiguous run).
-    std::vector<glm::vec3> pointVel = extrapolateVectorToPoints(rm, cellVel, nCells, nSrc);
+    std::vector<glm::vec3> pointVel = extrapolateToPoints<glm::vec3>(rm, cellVel, nCells, nSrc);
 
     // Preserve prescribed boundary velocities at boundary vertices instead of
     // leaving them as the average of adjacent cell centers. This keeps the
@@ -211,7 +187,7 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
         for (const auto& [name, cellVals] : fields) {
             attrs.cellScalars[name] = *cellVals;
             attrs.cellScalarRanges[name] = rangeOf(*cellVals);
-            std::vector<float> ptsSrc = extrapolateScalarToPoints(rm, *cellVals, nCells, nSrc);
+            std::vector<float> ptsSrc = extrapolateToPoints<float>(rm, *cellVals, nCells, nSrc);
             std::vector<float> pts = expandToFinal(ptsSrc);
             attrs.pointScalars[name] = pts;
             attrs.pointScalarRanges[name] = rangeOf(ptsSrc);
