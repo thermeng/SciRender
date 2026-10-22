@@ -13,36 +13,6 @@
 # A name that does not match any test case fails the build, so the registry
 # cannot silently rot.
 
-# --- Gradient ----------------------------------------------------------------
-# (fixed: the cell-based Green-Gauss uses the exact face interpolation, the
-#  node-based Green-Gauss reconstructs the nodes of a structured mesh from the
-#  grid, and the wall ghost no longer dilutes a prescribed cell's gradient)
-
-# --- Divergence --------------------------------------------------------------
-# (fixed: the face velocity now follows the momentum assembly - a cell with a
-#  prescribed velocity owns the whole face it shares with a neighbour - the
-#  boundary condition is an explicit input, the mask is validated, and
-#  maxDivergence() measures the same quantity as the residual)
-
-# --- Convection --------------------------------------------------------------
-# (fixed: the three entry points share one implementation, the face velocity
-#  follows the momentum assembly - a cell with a prescribed velocity owns the
-#  whole face it shares with a neighbour - and second order upwind rejects a
-#  call without the cell gradient instead of degrading to plain upwind)
-
-# --- Poisson / Laplacian -----------------------------------------------------
-# (fixed: a Dirichlet mask that does not cover every cell is rejected instead
-#  of being read out of bounds)
-
-# --- Pressure correction -----------------------------------------------------
-# (fixed: a cell without a pressure equation is excluded from the unknowns and
-#  reported, instead of being silently pinned to p' = 0)
-
-# --- Boundary conditions -----------------------------------------------------
-# (fixed: a cell that owns a face-conditioned face is no longer frozen by the
-#  cell mask, so a moving wall prescribed on its faces drives the momentum
-#  equation instead of being silently ignored)
-
 # --- Pressure / velocity coupling -------------------------------------------
 # The pressure correction makes the divergence worse instead of removing it.
 #
