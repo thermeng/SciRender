@@ -1,4 +1,5 @@
 #include "fvm/Divergence.h"
+#include "fvm/Validation.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -18,22 +19,6 @@ inline bool prescribedValue(const std::vector<std::vector<char>>& mask,
     return true;
 }
 
-// The mask must cover every cell and every component, otherwise the
-// prescribed values would be read out of bounds.
-void validateMask(std::size_t dim, std::size_t nCells,
-                  const std::vector<std::vector<char>>& mask,
-                  const std::vector<std::vector<double>>& values) {
-    if (mask.empty()) return;
-    if (mask.size() < dim)
-        throw std::invalid_argument("computeDivergenceInto: the Dirichlet mask needs one entry per component");
-    for (std::size_t d = 0; d < dim; ++d) {
-        if (mask[d].size() != nCells)
-            throw std::invalid_argument("computeDivergenceInto: the Dirichlet mask needs one entry per cell");
-        if (!values.empty() && values[d].size() != nCells)
-            throw std::invalid_argument("computeDivergenceInto: the Dirichlet values need one entry per cell");
-    }
-}
-
 } // namespace
 
 template<std::size_t Dim>
@@ -42,7 +27,7 @@ void computeDivergenceInto(const Mesh<Dim>& mesh, const VectorField<Dim>& veloci
                            const std::vector<std::vector<double>>& dirichletValues,
                            double* sumFlux) {
     const std::size_t n = mesh.nCells();
-    validateMask(Dim, n, dirichletMask, dirichletValues);
+    validateVelocityMask(Dim, n, dirichletMask, dirichletValues);
 
     for (std::size_t i = 0; i < n; ++i) div[i] = 0.0;
     if (sumFlux) *sumFlux = 0.0;

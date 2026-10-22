@@ -1,24 +1,10 @@
 #include "fvm/Poisson.h"
+#include "fvm/Validation.h"
 #include "fvm/SSTConstants.h"
 
 #include <stdexcept>
 
 namespace fvm {
-
-namespace {
-
-// A Dirichlet mask/value pair must cover every cell: otherwise the prescribed
-// values are read out of bounds while the operator is assembled.
-void validateDirichlet(std::size_t nCells, const std::vector<char>& mask,
-                       const std::vector<double>& values) {
-    if (mask.empty()) return;
-    if (mask.size() != nCells)
-        throw std::invalid_argument("Poisson::discretize: the Dirichlet mask needs one entry per cell");
-    if (values.size() != nCells)
-        throw std::invalid_argument("Poisson::discretize: the Dirichlet values need one entry per cell");
-}
-
-} // namespace
 
 template<std::size_t Dim>
 Poisson<Dim>::Poisson(const Mesh<Dim>& mesh) : mesh_(mesh) {}

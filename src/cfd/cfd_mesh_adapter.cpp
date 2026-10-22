@@ -4,7 +4,6 @@
 #include "io/GmshReader.h"
 #include "mesh/Mesh.h"
 #include "core/mesh_loader.h"
-#include "core/mesh_loader.h"
 
 #include <algorithm>
 #include <fstream>

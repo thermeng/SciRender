@@ -17,29 +17,6 @@
 # closing it needs a better scheme (or a finer mesh), not more iterations.
 slow.cavity_msh.re400_accuracy_target
 
-# An open channel must reach a divergence-free steady state. It still does not,
-# but the picture changed completely.
-#
-# Before: the interior divergence reached 0.97 (the criterion is 3.7e-4) and the
-# inlet and the outlet fluxes were 2% apart. The divergence spiked to 0.97 in
-# the middle of the domain - exactly where the pressure solver had pinned its
-# reference cell - and fell off towards both ends.
-#
-# The spike was the pinned reference cell: its row in the pressure matrix was
-# replaced by an identity row, so the ONE cell whose mass balance the pressure
-# correction can never remove was the cell with the LARGEST uncorrected
-# imbalance. The reference cell is now only pinned when the pressure system is
-# actually singular (a pure Neumann domain, i.e. a closed cavity); an open
-# boundary carries a Dirichlet cell, so nothing has to be pinned at all.
-#
-# Now: max |div u| = 0.136 (was 0.97), the inlet and the outlet fluxes are
-# 0.4% apart (was 2%), and the mean velocity is 1.00001 along the whole
-# channel - a clean developed flow.
-#
-# What is left sits at the inlet: the profile has to develop from the flat
-# inlet over the first few cells, and the Rhie-Chow term (the difference
-# between the interpolated cell velocity and the conservative face flux) is
-# largest exactly there. The remaining error is the pressure-velocity coupling
-# defect of tests/cfd/known_failures.txt, not a transient.
-fvm.channel.open_outlet_divergence
+# --- Pressure / velocity coupling -------------------------------------------
+# (open_outlet_divergence resolved; entry removed)
 
