@@ -107,9 +107,16 @@ struct CaseSettings {
     double rho = 1.0, nu = 0.01;
     double tolerance = 1e-3;
     std::size_t maxIterations = 500;
+    // Ignore the residual tolerance and run exactly maxIterations iterations.
+    bool runFixedIterations = false;
+    // Consecutive iterations the residual criterion must hold before the run
+    // is declared converged.
+    int convergenceHoldIterations = 3;
     double alphaU = 0.7, alphaP = 0.3;
     bool simplec = false;
     int scheme = 0; // 0 upwind, 1 central, 2 second-order upwind
+    // 0 least squares, 1 green-gauss cell based, 2 green-gauss node based
+    int gradientScheme = 0;
     bool rhieChow = true;
     bool turbulence = false;
     double kInf = 1e-3, omegaInf = 1.0;
