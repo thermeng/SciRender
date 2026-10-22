@@ -58,10 +58,13 @@ private:
     QLineEdit* m_nu = nullptr;
     QDoubleSpinBox* m_tol = nullptr;
     QSpinBox* m_maxIter = nullptr;
+    // Run exactly "Max iterations" iterations, ignoring the residual tolerance.
+    QCheckBox* m_runFixedIterations = nullptr;
     QDoubleSpinBox* m_alphaU = nullptr;
     QDoubleSpinBox* m_alphaP = nullptr;
     QCheckBox* m_simplec = nullptr;
     QComboBox* m_scheme = nullptr;
+    QComboBox* m_gradientScheme = nullptr;
     QCheckBox* m_rhie = nullptr;
     QCheckBox* m_turb = nullptr;
     QDoubleSpinBox* m_kInf = nullptr;
@@ -92,6 +95,9 @@ private:
     AmgConfigWidget* m_pressureAmgWidget = nullptr;
     QSpinBox* m_printFrequency = nullptr;
     QSpinBox* m_residualHistoryWindow = nullptr;
+    // Consecutive iterations the residual criterion must hold before the run
+    // is declared converged.
+    QSpinBox* m_convergenceHold = nullptr;
     QSpinBox* m_numThreads = nullptr;
     QCheckBox* m_useAMGMomentum = nullptr;
     QSpinBox* m_momentumAmgThreshold = nullptr;

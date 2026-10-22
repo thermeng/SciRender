@@ -574,7 +574,14 @@ void Momentum<Dim>::assembleWithConvection(
                         // No flux, nothing to add
                     } else if (F >= 0.0) {
                         diagInc_[P] += F;
-                        // SOU outflow boundary: second-order extrapolation via gradient (Fix #2, #7)
+                        // SOU outflow boundary: second-order extrapolation via gradient.
+                        //
+                        // The reconstructed face value is phi_f = phi_up + corr, so the
+                        // face contributes F*(phi_up + corr) to the owner row. The base
+                        // upwind assembly already carries F*phi_up, therefore the known
+                        // part F*corr moves to the right-hand side with a sign flip
+                        // (b(P) -= F*corr). Adding it with the opposite sign turns the
+                        // bounded second-order reconstruction into a downwind one.
                         if (scheme == ConvectionScheme::SecondOrderUpwind && phiGrad != nullptr) {
                             const double* xUp = mesh_.cellCenterPtr(P);
                             double gradDotR = 0.0;
@@ -592,7 +599,7 @@ void Momentum<Dim>::assembleWithConvection(
                             double phiF = phiUp + gradDotR;
                             if (phiF > phiMax) phiF = phiMax;
                             else if (phiF < phiMin) phiF = phiMin;
-                            b(P) += F * (phiF - phiUp);
+                            b(P) -= F * (phiF - phiUp);
                         }
                     } else {
                         double phiUpwind;
@@ -700,20 +707,22 @@ void Momentum<Dim>::assembleWithConvection(
                 un += uFace * fn[dd];
             }
             double F = rho_ * un * area;
+            // The base assembly always carries the UPWIND face value. The
+            // second-order reconstruction (SOU/QUICK) enters afterwards as a
+            // deferred correction, so the base must stay plain upwind for those
+            // schemes too. QUICK shares the same base.
+            const bool isUpwindBase = (scheme == ConvectionScheme::Upwind ||
+                                       scheme == ConvectionScheme::SecondOrderUpwind ||
+                                       scheme == ConvectionScheme::QUICK);
             auto addConvFluxUnified = [&](double flux, std::size_t from, std::size_t to) {
-                if (scheme == ConvectionScheme::Upwind || scheme == ConvectionScheme::SecondOrderUpwind) {
-                    if (flux >= 0.0) diagInc_[from] += flux;
-                    else {
-                        if (hasMask && dirichletMask[to]) b(from) -= flux * dirichletValues[to];
-                        else if (!(hasMask && dirichletMask[from])) triplets_.emplace_back(from, to, flux);
-                    }
-                } else if (scheme == ConvectionScheme::SecondOrderUpwind) {
+                if (isUpwindBase) {
                     if (flux >= 0.0) diagInc_[from] += flux;
                     else {
                         if (hasMask && dirichletMask[to]) b(from) -= flux * dirichletValues[to];
                         else if (!(hasMask && dirichletMask[from])) triplets_.emplace_back(from, to, flux);
                     }
                 } else {
+                    // Central
                     diagInc_[from] += 0.5 * flux;
                     if (hasMask && dirichletMask[to]) b(from) -= 0.5 * flux * dirichletValues[to];
                     else if (!(hasMask && dirichletMask[from])) triplets_.emplace_back(from, to, 0.5 * flux);
@@ -721,73 +730,119 @@ void Momentum<Dim>::assembleWithConvection(
             };
             addConvFluxUnified(F, P, N);
             addConvFluxUnified(-F, N, P);
-            // SOU via gradient reconstruction (deferred, bounded, distance-weighted) - Fix #2: only upwind cell needs to be non-Dirichlet
-            if (scheme == ConvectionScheme::SecondOrderUpwind && phiGrad != nullptr) {
-                const double* xF = mesh_.faceCenterPtr(f);
-                if (F >= 0.0) {
-                    if (!(hasMask && dirichletMask[P])) {
-                        const double* xUp = mesh_.cellCenterPtr(P);
-                        double gradDotR = 0.0;
-                        for (std::size_t dd = 0; dd < Dim; ++dd) {
-                            double r = xF[dd] - xUp[dd];
-                            gradDotR += (*phiGrad)[dd][P] * r;
+
+            // ---- deferred reconstruction (second order upwind / QUICK) ----
+            //
+            // The reconstructed face value is phi_f = phi_up + corr. The base
+            // upwind assembly already carries phi_up on the two rows, so only
+            // the increment is left: the upwind (donor) cell loses F*corr from
+            // its left-hand side and the downwind cell gains it.
+            //
+            // BOTH shares are required. Dropping the receiver's share, or
+            // flipping the sign, makes the convective operator
+            // non-conservative and turns the bounded second-order scheme into
+            // an unbounded downwind one. This mirrors the scalar Convection
+            // operator (src/fvm/Convection.cpp), which is the tested
+            // reference for this contract.
+            if (scheme == ConvectionScheme::SecondOrderUpwind ||
+                scheme == ConvectionScheme::QUICK) {
+                const bool upIsP = (F >= 0.0);
+                const std::size_t upCell = upIsP ? P : N;
+                const std::size_t downCell = upIsP ? N : P;
+                const bool upPrescribed = hasMask && dirichletMask[upCell];
+                const bool downPrescribed = hasMask && dirichletMask[downCell];
+                const double fluxMag = std::abs(F);
+
+                double corr = 0.0;
+                bool haveCorr = false;
+
+                if (scheme == ConvectionScheme::QUICK) {
+                    // Three-point quadratic reconstruction (unbounded by design -
+                    // the same reconstruction the scalar Convection operator
+                    // uses).
+                    std::array<double, Dim> fnArr{};
+                    for (std::size_t dd = 0; dd < Dim; ++dd) fnArr[dd] = fn[dd];
+                    auto upPair = secondOrderUpwindCells(mesh_, P, N, un, fnArr);
+                    const std::size_t up = upPair.first;
+                    const std::size_t up2 = upPair.second;
+                    if (up != up2 && up != downCell && up2 != downCell) {
+                        const double* xUp2 = mesh_.cellCenterPtr(up2);
+                        const double* xUp = mesh_.cellCenterPtr(up);
+                        const double* xDown = mesh_.cellCenterPtr(downCell);
+                        const double* xFp = mesh_.faceCenterPtr(f);
+                        auto coord = [&](const double* x) {
+                            double s = 0.0;
+                            for (std::size_t dd = 0; dd < Dim; ++dd) s += x[dd] * fnArr[dd];
+                            return s;
+                        };
+                        const double s2 = coord(xUp2), sUp = coord(xUp), sDown = coord(xDown), sF = coord(xFp);
+                        const double denomA = (s2 - sUp) * (s2 - sDown);
+                        const double denomB = (sUp - s2) * (sUp - sDown);
+                        const double denomC = (sDown - s2) * (sDown - sUp);
+                        if (std::abs(denomA) > 1e-30 && std::abs(denomB) > 1e-30 && std::abs(denomC) > 1e-30) {
+                            const double wa = (sF - sUp) * (sF - sDown) / denomA;
+                            const double wb = (sF - s2) * (sF - sDown) / denomB;
+                            const double wc = (sF - s2) * (sF - sUp) / denomC;
+                            auto cellVal = [&](std::size_t c) {
+                                return (hasMask && dirichletMask[c]) ? dirichletValues[c] : velocity[d][c];
+                            };
+                            const double phiF = wa * cellVal(up2) + wb * cellVal(up) + wc * cellVal(downCell);
+                            corr = phiF - cellVal(up);
+                            haveCorr = true;
                         }
-                        double phiUp = velocity[d][P];
-                        double phiMin = phiUp, phiMax = phiUp;
-                        for (auto nb : mesh_.cellNeighbors(P)) {
-                            double v = (hasMask && dirichletMask[nb]) ? dirichletValues[nb] : velocity[d][nb];
-                            if (v < phiMin) phiMin = v;
-                            if (v > phiMax) phiMax = v;
-                        }
-                        double phiF = phiUp + gradDotR;
-                        if (phiF > phiMax) phiF = phiMax;
-                        else if (phiF < phiMin) phiF = phiMin;
-                        b(P) += F * (phiF - phiUp);
                     }
+                } else if (phiGrad != nullptr) {
+                    // Gradient reconstruction, clamped to the bounds of the
+                    // upwind cell's neighbours (Barth-Jespersen style).
+                    const double* xF = mesh_.faceCenterPtr(f);
+                    const double* xUp = mesh_.cellCenterPtr(upCell);
+                    double gradDotR = 0.0;
+                    for (std::size_t dd = 0; dd < Dim; ++dd) {
+                        double r = xF[dd] - xUp[dd];
+                        gradDotR += (*phiGrad)[dd][upCell] * r;
+                    }
+                    double phiUp = upPrescribed ? dirichletValues[upCell] : velocity[d][upCell];
+                    double phiMin = phiUp, phiMax = phiUp;
+                    for (auto nb : mesh_.cellNeighbors(upCell)) {
+                        double v = (hasMask && dirichletMask[nb]) ? dirichletValues[nb] : velocity[d][nb];
+                        if (v < phiMin) phiMin = v;
+                        if (v > phiMax) phiMax = v;
+                    }
+                    double phiF = phiUp + gradDotR;
+                    if (phiF > phiMax) phiF = phiMax;
+                    else if (phiF < phiMin) phiF = phiMin;
+                    corr = phiF - phiUp;
+                    haveCorr = true;
                 } else {
-                    if (!(hasMask && dirichletMask[N])) {
-                        const double* xUp = mesh_.cellCenterPtr(N);
-                        double gradDotR = 0.0;
-                        for (std::size_t dd = 0; dd < Dim; ++dd) {
-                            double r = xF[dd] - xUp[dd];
-                            gradDotR += (*phiGrad)[dd][N] * r;
-                        }
-                        double phiUp = velocity[d][N];
-                        double phiMin = phiUp, phiMax = phiUp;
-                        for (auto nb : mesh_.cellNeighbors(N)) {
-                            double v = (hasMask && dirichletMask[nb]) ? dirichletValues[nb] : velocity[d][nb];
-                            if (v < phiMin) phiMin = v;
-                            if (v > phiMax) phiMax = v;
-                        }
-                        double phiF = phiUp + gradDotR;
-                        if (phiF > phiMax) phiF = phiMax;
-                        else if (phiF < phiMin) phiF = phiMin;
-                        b(N) += (-F) * (phiF - phiUp);
+                    // Second order upwind without a cell gradient: fall back to
+                    // the distance-weighted two-cell extrapolation.
+                    std::array<double, Dim> fnArr{};
+                    for (std::size_t dd = 0; dd < Dim; ++dd) fnArr[dd] = fn[dd];
+                    auto upPair = secondOrderUpwindCells(mesh_, P, N, un, fnArr);
+                    const std::size_t up = upPair.first;
+                    const std::size_t up2 = upPair.second;
+                    if (up != up2) {
+                        const double phiUp = (hasMask && dirichletMask[up]) ? dirichletValues[up] : velocity[d][up];
+                        const double phiUp2 = velocity[d][up2];
+                        const double* xF2 = mesh_.faceCenterPtr(f);
+                        const double* xUp = mesh_.cellCenterPtr(up);
+                        const double* xUp2 = mesh_.cellCenterPtr(up2);
+                        double distF = 0, distUp = 0;
+                        for (std::size_t dd = 0; dd < Dim; ++dd) { double df = xF2[dd]-xUp[dd]; double du = xUp[dd]-xUp2[dd]; distF += df*df; distUp += du*du; }
+                        distF = std::sqrt(distF); distUp = std::sqrt(distUp);
+                        double wgt = (distUp > 1e-12 ? distF/distUp : 0.5); if (wgt > 2.0) wgt = 2.0;
+                        double phiF = phiUp + wgt * (phiUp - phiUp2);
+                        double phiMin = std::min(phiUp, phiUp2), phiMax = std::max(phiUp, phiUp2);
+                        for (auto nb : mesh_.cellNeighbors(up)) { double v = velocity[d][nb]; if (v < phiMin) phiMin = v; if (v > phiMax) phiMax = v; }
+                        if (phiF > phiMax) phiF = phiMax; else if (phiF < phiMin) phiF = phiMin;
+                        corr = phiF - phiUp;
+                        haveCorr = true;
                     }
                 }
-            } else if (scheme == ConvectionScheme::SecondOrderUpwind && phiGrad == nullptr) {
-                // Fallback to distance-weighted two-cell extrapolation if gradient not available
-                auto fn = mesh_.faceNormal(f);
-                std::array<double, Dim> fnArr{};
-                for (std::size_t dd=0; dd<Dim; ++dd) fnArr[dd]=fn[dd];
-                auto upPair = secondOrderUpwindCells(mesh_, P, N, un, fnArr);
-                std::size_t up = upPair.first, up2 = upPair.second;
-                if (up != up2) {
-                    double phiUp = velocity[d][up];
-                    double phiUp2 = velocity[d][up2];
-                    const double* xF2 = mesh_.faceCenterPtr(f);
-                    const double* xUp = mesh_.cellCenterPtr(up);
-                    const double* xUp2 = mesh_.cellCenterPtr(up2);
-                    double distF=0, distUp=0;
-                    for (std::size_t dd=0; dd<Dim; ++dd){double df=xF2[dd]-xUp[dd]; double du=xUp[dd]-xUp2[dd]; distF+=df*df; distUp+=du*du;}
-                    distF=std::sqrt(distF); distUp=std::sqrt(distUp);
-                    double w = (distUp>1e-12? distF/distUp : 0.5); if(w>2.0) w=2.0;
-                    double phiF = phiUp + w*(phiUp - phiUp2);
-                    double phiMin = std::min(phiUp, phiUp2), phiMax = std::max(phiUp, phiUp2);
-                    for (auto nb: mesh_.cellNeighbors(up)){ double v=velocity[d][nb]; if(v<phiMin) phiMin=v; if(v>phiMax) phiMax=v; }
-                    if (phiF>phiMax) phiF=phiMax; else if(phiF<phiMin) phiF=phiMin;
-                    if (F>=0.0) b(P) += F*(phiF - velocity[d][P]);
-                    else b(N) += (-F)*(phiF - velocity[d][N]);
+
+                if (haveCorr && corr != 0.0 && fluxMag > 0.0) {
+                    if (!upPrescribed) b(upCell) -= fluxMag * corr;
+                    if (!downPrescribed) b(downCell) += fluxMag * corr;
                 }
             }
         }

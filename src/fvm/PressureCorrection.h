@@ -14,6 +14,7 @@
 #include <vector>
 #include <memory>
 #include <cstddef>
+#include <utility>
 
 namespace fvm {
 
@@ -29,6 +30,14 @@ public:
         // the solve falls back to CG+IC (or BiCGSTAB+ILU). Pure-Neumann meshes
         // use twice this, because AMG handles a pinned reference cell poorly.
         std::size_t amgThreshold = 10000;
+        // How many times the pressure matrix may change its VALUES before the
+        // AMG hierarchy is rebuilt. The coarse levels depend on the matrix
+        // through the Galerkin product, so a value change makes the hierarchy
+        // stale - but rebuilding it on every outer iteration costs more than
+        // the solve it accelerates. The matrix moves by a few percent per
+        // iteration, so a hierarchy a few iterations old is still a good
+        // preconditioner.
+        std::size_t amgRebuildInterval = 10;
         AMGHierarchy::Config amgConfig = []{
             AMGHierarchy::Config c;
             c.interpolationType = AMGHierarchy::InterpolationType::Extended;
@@ -86,20 +95,31 @@ public:
 private:
     const Mesh<Dim>& mesh_;
     Config config_;
+    // The least-squares gradient of the pressure field: the operator whose
+    // divergence the pressure matrix is assembled from, so that matrix,
+    // correction gradient and momentum pressure term are the same operator.
+    // (Its Green-Gauss flavour, pressureGradient(), remains as the gradient
+    // the residuals report.)
     std::unique_ptr<Gradient<Dim>> gradientCalc_;
     std::array<Field<Dim>, Dim> pressureGrad_;
-    std::array<Field<Dim>, Dim> pressureGradPrev_;
-    bool hasPrevGrad_ = false;
+    // The per-cell least-squares gradient as row coefficients
+    // (gradientRows_[d][cell] = (column, coefficient) pairs), built once per
+    // PressureCorrection object: the pressure matrix is assembled from them.
+    std::array<std::vector<std::vector<std::pair<std::size_t, double>>>, Dim> gradientRows_;
+    bool gradientRowsBuilt_ = false;
 
     // Reusable buffers to avoid per-iteration allocation
     mutable std::vector<Triplet> triplets_;
     mutable Eigen::VectorXd bVec_;
-    mutable std::vector<double> diagSum_;
     mutable std::vector<char> pMask_;
     mutable std::vector<double> pVals_;
     mutable std::vector<char> isPressureOutlet_;
     mutable Field<Dim> divU_;
-    // Cells without a pressure equation (see isolatedCellCount()).
+
+    // The number of cells that have no pressure equation at all (no interior
+    // face: a detached cell). Such a cell is excluded from the pressure
+    // unknowns and its mass balance can never be corrected, so the count is
+    // reported - otherwise the run silently never converges.
     std::size_t isolatedCellCount_ = 0;
     // Diagnostics of the last linear solve.
     std::size_t lastSolveIterations_ = 0;
@@ -117,6 +137,9 @@ private:
     AMGPreconditioner amgPrec_;
     bool amgBuilt_ = false;
     std::size_t amgPatternHash_ = 0;
+    // Number of value changes of the pressure matrix since the hierarchy was
+    // last built (see Config::amgRebuildInterval).
+    std::size_t amgValueUpdates_ = 0;
 
     mutable SparseMatrix A_;
     mutable bool aPatternBuilt_ = false;

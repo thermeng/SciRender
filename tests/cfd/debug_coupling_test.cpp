@@ -137,4 +137,117 @@ TEST_CASE("cfd.pressure.coupling_diagnosis") {
     }
 }
 
+// TEMPORARY probe: localize the composed-matrix deviation on the x^2 field.
+#include "fvm/Gradient.h"
+TEST_CASE("cfd.temp.matrix_probe") {
+    const fvm::Mesh<2> mesh = uniform2D(8);
+    const std::size_t n = mesh.nCells();
+
+    fvm::VectorField<2> uStarZero(mesh, 0.0);
+    fvm::Field<2> pressure(mesh, 0.0);
+    fvm::Field<2> pPrime(mesh, 0.0);
+    std::vector<char> isPressureNeumann(n, 1);
+    fvm::PressureCorrection<2> pc(mesh);
+    std::vector<std::vector<double>> pVecPerDim;
+    (void)pVecPerDim;
+    pc.solve(uStarZero, {{std::vector<double>(n, 1.0), std::vector<double>(n, 1.0)}}, pressure, pPrime,
+             {}, isPressureNeumann);
+
+    // p = x^2 through the assembled matrix.
+    std::vector<double> pVec(n, 0.0);
+    for (std::size_t i = 0; i < n; ++i)
+        pVec[i] = mesh.cellCenter(i)[0] * mesh.cellCenter(i)[0];
+    const Eigen::VectorXd Ap = pc.lastMatrix() * Eigen::Map<const Eigen::VectorXd>(pVec.data(), static_cast<Eigen::Index>(n));
+
+    // The pin and the "deep" set (2 rings from walls and masks).
+    std::size_t pinned = n;
+    for (std::size_t i = 0; i < n; ++i)
+        if (pc.pressureMask()[i]) { pinned = i; break; }
+    printf("pinned cell = %zu (i=%zu, j=%zu)\n", pinned, mesh.cellCoords(pinned)[0], mesh.cellCoords(pinned)[1]);
+
+    // LS gradient divergence of the same p field, per cell.
+    fvm::Gradient<2> gradient(mesh, fvm::GradientScheme::LeastSquares);
+    std::array<fvm::Field<2>, 2> lsq{fvm::Field<2>(mesh, 0.0), fvm::Field<2>(mesh, 0.0)};
+    fvm::Field<2> pField(mesh, 0.0);
+    for (std::size_t i = 0; i < n; ++i) pField[i] = mesh.cellCenter(i)[0] * mesh.cellCenter(i)[0];
+    gradient.compute(pField, lsq);
+    fvm::VectorField<2> gradField(mesh, 0.0);
+    for (std::size_t d = 0; d < 2; ++d)
+        for (std::size_t i = 0; i < n; ++i) gradField[d][i] = lsq[d][i];
+    fvm::Field<2> divOfGrad(mesh, 0.0);
+    fvm::computeDivergenceInto(mesh, gradField, divOfGrad, {}, {});
+
+    printf("map of (Ap/V - 2)  [j=0..7 rows, i=0..7 cols]:\n");
+    for (std::size_t j = 0; j < 8; ++j) {
+        printf("  ");
+        for (std::size_t i = 0; i < 8; ++i) {
+            const std::size_t c = mesh.cellIndex(i, 7 - j);
+            printf("%+8.4f", Ap(static_cast<Eigen::Index>(c)) / mesh.cellVolume(c) - 2.0);
+        }
+        printf("\n");
+    }
+    printf("map of div(LS grad p) - 2:\n");
+    for (std::size_t j = 0; j < 8; ++j) {
+        printf("  ");
+        for (std::size_t i = 0; i < 8; ++i) {
+            const std::size_t c = mesh.cellIndex(i, 7 - j);
+            printf("%+8.4f", divOfGrad[c] - 2.0);
+        }
+        printf("\n");
+    }
+
+    // The matrix row of the worst deep cell, printed column by column.
+    std::size_t worst = n;
+    double worstVal = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (mesh.isBoundary(i)) continue;
+        const double v = std::abs(Ap(static_cast<Eigen::Index>(i)) / mesh.cellVolume(i) - 2.0);
+        if (v > worstVal) { worstVal = v; worst = i; }
+    }
+    printf("pinned/masked cells:");
+    for (std::size_t i = 0; i < n; ++i)
+        if (pc.pressureMask()[i])
+            printf(" %zu(i%zu,j%zu)", i, mesh.cellCoords(i)[0], mesh.cellCoords(i)[1]);
+    printf("\n");
+    if (worst < n) {
+        printf("worst cell %zu (i=%zu, j=%zu): Ap/V = %+.6f\n", worst, mesh.cellCoords(worst)[0],
+               mesh.cellCoords(worst)[1], Ap(static_cast<Eigen::Index>(worst)) / mesh.cellVolume(worst));
+        const auto& A = pc.lastMatrix();
+        printf("  row entries (col: (i,j) value):\n");
+        for (Eigen::Index c = 0; c < A.outerSize(); ++c) {
+            for (Eigen::SparseMatrix<double>::InnerIterator it(A, c); it; ++it) {
+                if (it.row() == static_cast<Eigen::Index>(worst)) {
+                    const std::size_t cc = static_cast<std::size_t>(c);
+                    printf("   col %zu (i=%zu, j=%zu): %+0.6f\n", cc, mesh.cellCoords(cc)[0],
+                           mesh.cellCoords(cc)[1], it.value());
+                }
+            }
+        }
+        // And what div(LS grad) looks like at the worst cell:
+        printf("  div(LS grad) there = %+.6f\n", divOfGrad[worst]);
+    }
+
+    // Row dumps for the last column, first column and the pin ring.
+    auto dumpRow = [&](std::size_t r) {
+        if (r >= n) return;
+        printf("row %zu (i=%zu, j=%zu): Ap/V = %+.5f, div(LSgrad) = %+.5f, masked = %d\n", r,
+               mesh.cellCoords(r)[0], mesh.cellCoords(r)[1],
+               Ap(static_cast<Eigen::Index>(r)) / mesh.cellVolume(r), divOfGrad[r],
+               (int)pc.pressureMask()[r]);
+        const auto& A = pc.lastMatrix();
+        for (Eigen::Index c = 0; c < A.outerSize(); ++c) {
+            for (Eigen::SparseMatrix<double>::InnerIterator it(A, c); it; ++it) {
+                if (it.row() == static_cast<Eigen::Index>(r)) {
+                    const std::size_t cc = static_cast<std::size_t>(c);
+                    printf("   col %zu (i=%zu, j=%zu): %+0.6f\n", cc, mesh.cellCoords(cc)[0],
+                           mesh.cellCoords(cc)[1], it.value());
+                }
+            }
+        }
+    };
+    dumpRow(mesh.cellIndex(7, 3));
+    dumpRow(mesh.cellIndex(2, 3));
+    dumpRow(mesh.cellIndex(3, 2));
+}
+
 } // TEST_SUITE("cfd")

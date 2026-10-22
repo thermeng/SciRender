@@ -1,6 +1,7 @@
 #include "fvm/Gradient.h"
 
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 namespace fvm {
@@ -347,6 +348,119 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
                 if (std::abs(m11) > 1e-30) grad[1][P] = rhs_all[P](1) / m11; else grad[1][P] = 0.0;
                 if (std::abs(m22) > 1e-30) grad[2][P] = rhs_all[P](2) / m22; else grad[2][P] = 0.0;
             }
+        }
+    }
+}
+
+template<std::size_t Dim>
+void Gradient<Dim>::buildMatrices(
+    std::array<std::vector<std::vector<std::pair<std::size_t, double>>>, Dim>& out) const {
+    if (scheme_ != GradientScheme::LeastSquares) {
+        throw std::invalid_argument("buildMatrices is only defined for the least-squares gradient");
+    }
+
+    const std::size_t n = mesh_.nCells();
+    for (auto& perDim : out) {
+        perDim.clear();
+        perDim.resize(n);
+    }
+
+    // The normal matrix M of the per-cell fit, exactly as computeLeastSquares_
+    // builds it: an interior face's direction enters squared, which makes the
+    // accumulation independent of which side this cell is on.
+    std::vector<Eigen::Matrix<double, Dim, Dim>> M(n, Eigen::Matrix<double, Dim, Dim>::Zero());
+    const std::size_t nF = mesh_.nFaces();
+    const std::size_t* ownerPtr = mesh_.ownerPtr();
+    const std::size_t* neighborPtr = mesh_.neighborPtr();
+
+    for (std::size_t f = 0; f < nF; ++f) {
+        const std::size_t P = ownerPtr[f];
+        const std::size_t N = neighborPtr[f];
+        if (N == std::size_t(-1))
+            continue; // a wall face contributes nothing to the fit
+        const double* xP = mesh_.cellCenterPtr(P);
+        const double* xN = mesh_.cellCenterPtr(N);
+        for (std::size_t i = 0; i < Dim; ++i) {
+            for (std::size_t j = 0; j < Dim; ++j) {
+                const double contrib = (xN[i] - xP[i]) * (xN[j] - xP[j]);
+                M[P](i, j) += contrib;
+                M[N](i, j) += contrib;
+            }
+        }
+    }
+
+    for (std::size_t C = 0; C < n; ++C) {
+        const auto& Mc = M[C];
+
+        // The fit g = M^-1 * sum_f d_f (phi_other - phi_C) is linear in the
+        // field: the coefficient of phi_other is M^-1 d, and the coefficient
+        // of phi_C is its negation. The branch structure (invertible / the
+        // per-direction fallback) mirrors computeLeastSquares_ so both give
+        // the same gradient on every mesh.
+        auto addCoefficients = [&](std::size_t other, const double* dOther) {
+            for (std::size_t d = 0; d < Dim; ++d) {
+                double self = 0.0;
+                bool known = false;
+                double k = 0.0;
+                if constexpr (Dim == 2) {
+                    const double m00 = Mc(0, 0), m01 = Mc(0, 1), m10 = Mc(1, 0), m11 = Mc(1, 1);
+                    const double det = m00 * m11 - m01 * m10;
+                    if (std::abs(det) > 1e-30) {
+                        const double invDet = 1.0 / det;
+                        // Rows of the 2x2 inverse: row 0 = {m11,-m01} * invDet, row 1 = {-m10, m00} * invDet.
+                        const double r0 = (d == 0 ? m11 : -m10) * invDet;
+                        const double r1 = (d == 0 ? -m01 : m00) * invDet;
+                        k = r0 * dOther[0] + r1 * dOther[1];
+                        known = true;
+                    } else if (std::abs(Mc(d, d)) > 1e-30) {
+                        k = dOther[d] / Mc(d, d); // per-direction fallback
+                        known = true;
+                    }
+                } else {
+                    const double m00 = Mc(0, 0), m01 = Mc(0, 1), m02 = Mc(0, 2);
+                    const double m10 = Mc(1, 0), m11 = Mc(1, 1), m12 = Mc(1, 2);
+                    const double m20 = Mc(2, 0), m21 = Mc(2, 1), m22 = Mc(2, 2);
+                    const double det = m00 * (m11 * m22 - m12 * m21)
+                                     - m01 * (m10 * m22 - m12 * m20)
+                                     + m02 * (m10 * m21 - m11 * m20);
+                    if (std::abs(det) > 1e-30) {
+                        const double invDet = 1.0 / det;
+                        const double rows[3][3] = {
+                            {m11 * m22 - m12 * m21, m02 * m21 - m01 * m22, m01 * m12 - m02 * m11},
+                            {m12 * m20 - m10 * m22, m00 * m22 - m02 * m20, m02 * m10 - m00 * m12},
+                            {m10 * m21 - m11 * m20, m01 * m20 - m00 * m21, m00 * m11 - m01 * m10}};
+                        k = (rows[d][0] * dOther[0] + rows[d][1] * dOther[1] + rows[d][2] * dOther[2]) * invDet;
+                        known = true;
+                    } else if (std::abs(Mc(d, d)) > 1e-30) {
+                        k = dOther[d] / Mc(d, d);
+                        known = true;
+                    }
+                }
+                if (known) {
+                    out[d][C].emplace_back(other, k);
+                    self = -k;
+                }
+                if (self != 0.0)
+                    out[d][C].emplace_back(C, self);
+            }
+        };
+
+        for (std::size_t f : mesh_.cellFaces(C)) {
+            const std::size_t Nf = mesh_.neighbor(f);
+            if (Nf == std::size_t(-1))
+                continue; // wall faces contribute nothing to the fit
+            // C can be the face's OWNER (other cell = neighbour) or the face's
+            // NEIGHBOUR (other cell = owner): the direction to the other cell
+            // decides, and the same value difference times that direction
+            // enters the fit either way - the accumulation below is
+            // orientation independent (see computeLeastSquares_).
+            const std::size_t O = (Nf == C) ? mesh_.owner(f) : Nf;
+            const double* xC = mesh_.cellCenterPtr(C);
+            const double* xO = mesh_.cellCenterPtr(O);
+            double dOther[Dim];
+            for (std::size_t i = 0; i < Dim; ++i)
+                dOther[i] = xO[i] - xC[i];
+            addCoefficients(O, dOther);
         }
     }
 }

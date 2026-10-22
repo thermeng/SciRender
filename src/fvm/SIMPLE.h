@@ -57,10 +57,17 @@ public:
         SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
         std::size_t maxIterations = 100;
         double tolerance = 1e-3;
+        // Ignore the residual tolerance and run exactly maxIterations iterations.
+        bool runFixedIterations = false;
+        // Consecutive iterations the residual criterion must hold before the run
+        // is declared converged.
+        int convergenceHoldIterations = 3;
         double alphaP = 0.3;
         double alphaU = 0.7;
         std::size_t pressureRefCell = SIZE_MAX;
         ConvectionScheme convectionScheme = ConvectionScheme::Upwind;
+        // Gradient operator used for the convective reconstruction.
+        GradientScheme gradientScheme = GradientScheme::LeastSquares;
         bool rhieChow = true;
         bool simplec = false; // kept as requested: SIMPLE vs SIMPLEC via this flag
         // Number of pressure correctors per SIMPLE iteration (>=1).
@@ -113,6 +120,13 @@ public:
         // step. Measure before enabling (simple.momentum_solver_stats).
         bool useAMGMomentum = false;
         std::size_t momentumAmgThreshold = 20000;
+        // How many momentum solves may reuse the same AMG hierarchy before it
+        // is rebuilt. The coarse levels depend on the momentum matrix through
+        // the Galerkin product and the matrix changes every solve (convective
+        // flux, pressure gradient, under-relaxation, rho*V/dt), so the
+        // hierarchy is technically stale after every solve - but rebuilding it
+        // every time costs more than the solve it accelerates.
+        std::size_t momentumAmgRebuildInterval = 5;
         // Number of AMG cycles per preconditioner application. >1 makes the
         // preconditioner stronger at linear cost.
         int momentumAmgCycles = 1;
@@ -186,6 +200,26 @@ public:
 
     void solve(VectorField<Dim>& velocity, Field<Dim>& pressure);
     void solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressure);
+
+    // Why the run ended.
+    //
+    // A run that reaches maxIterations without meeting the tolerance is NOT a
+    // converged solution, and the difference has to be visible: the caller
+    // (the application, a test) must be able to tell a steady state from a
+    // field that merely stopped changing because the iteration budget ran
+    // out. Before this existed every run reported "complete", so a diverged
+    // or unconverged result was presented exactly like a converged one.
+    enum class Status {
+        NotConverged,  // the iteration budget ran out before the tolerance
+        Converged,     // the tolerance was met (and held) before the budget
+        Aborted,       // NaN/Inf residual or a detected divergence
+        Cancelled      // the user cancelled the run
+    };
+    Status status() const { return status_; }
+    bool converged() const { return status_ == Status::Converged; }
+    // A short human-readable description of the status, for the UI and the
+    // solver's own summary.
+    const char* statusText() const;
 
     void bindVelocity(VectorField<Dim>& velocity);
     void bindPressure(Field<Dim>& pressure);
@@ -333,6 +367,8 @@ private:
     double maxInletSpeed_ = 0.0;
     double prevContResid_ = 0.0;
     std::size_t stallCount_ = 0;
+    // Number of consecutive iterations the residual criterion has held.
+    int convergedStreak_ = 0;
     bool momPatternAnalyzed_ = false;
     std::size_t startIteration_ = 0;
     std::vector<double> residualHistory_;
@@ -364,6 +400,9 @@ private:
     mutable std::array<Eigen::BiCGSTAB<SparseMatrix, AMGPreconditioner>, Dim> momAmgSolver_;
     mutable std::array<bool, Dim> momAmgBuilt_{};
     mutable std::array<std::size_t, Dim> momAmgPatternHash_{};
+    // Number of momentum solves since the hierarchy was last rebuilt (see
+    // Config::momentumAmgRebuildInterval).
+    mutable std::array<std::size_t, Dim> momAmgValueUpdates_{};
     mutable std::array<bool, Dim> momAmgPatternAnalyzed_{};
     // Set once we have decided the momentum operator is unsuitable for AMG, so
     // we do not rescan for positive off-diagonals every iteration.
@@ -407,6 +446,8 @@ private:
     Field<Dim> omegaNM1_;
     // Set when the p' magnitude limiter had to clip, so the run can be flagged.
     std::size_t pPrimeLimiterHits_ = 0;
+    // Why the run ended (see Status).
+    Status status_ = Status::NotConverged;
 
     // Cached zero source to avoid O(Dn) alloc per iteration (was Field(mesh,0) per call)
     mutable Field<Dim> zeroSourceCache_;
