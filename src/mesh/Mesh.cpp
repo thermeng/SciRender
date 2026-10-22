@@ -1,5 +1,8 @@
 #include "mesh/Mesh.h"
 
+#include <algorithm>
+#include <utility>
+
 namespace fvm {
 
 template<std::size_t Dim>
@@ -38,18 +41,19 @@ Mesh<Dim> Mesh<Dim>::makeStretching(std::array<std::size_t, Dim> n,
 
 template<std::size_t Dim>
 Mesh<Dim>::Mesh(std::vector<std::array<double, Dim>> vertices,
-                std::vector<std::vector<std::size_t>> cells)
-    : vertices_(std::move(vertices)), cells_(std::move(cells)), unstructured_(true) {
+                std::vector<std::vector<std::size_t>> cells,
+                std::vector<std::vector<std::vector<std::size_t>>> cellFaces)
+    : vertices_(std::move(vertices)), cells_(std::move(cells)),
+      cellFaceVerts_(std::move(cellFaces)), unstructured_(true) {
 
     nCells_ = cells_.size();
     cellCenters_.resize(nCells_);
     cellVolumes_.resize(nCells_);
     isBoundary_.resize(nCells_, false);
 
-    for (std::size_t i = 0; i < nCells_; ++i) {
-        cellCenters_[i] = computeCellCenter_(cells_[i]);
-        cellVolumes_[i] = computeCellVolume_(cells_[i]);
-    }
+    // Cell geometry first: the face normals are oriented with respect to the
+    // cell centres, so the centres must be known before the face table is built.
+    computeUnstructuredCellData_();
 
     computeUnstructuredFaceData_();
 }
@@ -395,134 +399,239 @@ std::array<double, Dim> Mesh<Dim>::computeCellCenter_(
 }
 
 template<std::size_t Dim>
-double Mesh<Dim>::computeCellVolume_(
-    const std::vector<std::size_t>& cell) const {
+std::vector<std::vector<std::size_t>> Mesh<Dim>::cellFaceLoops_(std::size_t ci) const {
+    if (!cellFaceVerts_.empty() && ci < cellFaceVerts_.size()) {
+        return cellFaceVerts_[ci];
+    }
+    const auto& cell = cells_[ci];
+    const std::size_t nv = cell.size();
+    std::vector<std::vector<std::size_t>> loops;
     if constexpr (Dim == 2) {
-        double area = 0.0;
-        std::size_t n = cell.size();
-        for (std::size_t i = 0; i < n; ++i) {
-            std::size_t j = (i + 1) % n;
-            const auto& pi = vertices_[cell[i]];
-            const auto& pj = vertices_[cell[j]];
-            area += pi[0] * pj[1] - pj[0] * pi[1];
+        loops.reserve(nv);
+        for (std::size_t i = 0; i < nv; ++i) {
+            loops.push_back({cell[i], cell[(i + 1) % nv]});
         }
-        return std::abs(area) / 2.0;
     } else if constexpr (Dim == 3) {
-        std::size_t nv = cell.size();
         if (nv == 4) {
-            const auto& v0 = vertices_[cell[0]];
-            const auto& v1 = vertices_[cell[1]];
-            const auto& v2 = vertices_[cell[2]];
-            const auto& v3 = vertices_[cell[3]];
-            double ax = v1[0]-v0[0], ay = v1[1]-v0[1], az = v1[2]-v0[2];
-            double bx = v2[0]-v0[0], by = v2[1]-v0[1], bz = v2[2]-v0[2];
-            double cx = v3[0]-v0[0], cy = v3[1]-v0[1], cz = v3[2]-v0[2];
-            double det = ax*(by*cz - bz*cy) - ay*(bx*cz - bz*cx) + az*(bx*cy - by*cx);
-            return std::abs(det) / 6.0;
+            // Tetrahedron: the four triangular faces.
+            loops = {{cell[0], cell[1], cell[2]},
+                     {cell[0], cell[1], cell[3]},
+                     {cell[0], cell[2], cell[3]},
+                     {cell[1], cell[2], cell[3]}};
         } else if (nv == 8) {
-            auto tetVol = [&](std::size_t i0, std::size_t i1, std::size_t i2, std::size_t i3) -> double {
-                const auto& p0 = vertices_[cell[i0]];
-                const auto& p1 = vertices_[cell[i1]];
-                const auto& p2 = vertices_[cell[i2]];
-                const auto& p3 = vertices_[cell[i3]];
-                double ax = p1[0]-p0[0], ay = p1[1]-p0[1], az = p1[2]-p0[2];
-                double bx = p2[0]-p0[0], by = p2[1]-p0[1], bz = p2[2]-p0[2];
-                double cx = p3[0]-p0[0], cy = p3[1]-p0[1], cz = p3[2]-p0[2];
-                return std::abs(ax*(by*cz - bz*cy) - ay*(bx*cz - bz*cx) + az*(bx*cy - by*cx)) / 6.0;
-            };
-            double vol = 0.0;
-            vol += tetVol(0,1,3,4);
-            vol += tetVol(1,2,3,6);
-            vol += tetVol(1,4,5,6);
-            vol += tetVol(3,4,6,7);
-            vol += tetVol(1,3,4,6);
-            return vol;
+            // Hexahedron in VTK/Gmsh element order: 0-3 bottom, 4-7 top.
+            loops = {{cell[0], cell[1], cell[2], cell[3]},
+                     {cell[4], cell[5], cell[6], cell[7]},
+                     {cell[0], cell[1], cell[5], cell[4]},
+                     {cell[2], cell[3], cell[7], cell[6]},
+                     {cell[0], cell[3], cell[7], cell[4]},
+                     {cell[1], cell[2], cell[6], cell[5]}};
         } else {
-            double cx = 0, cy = 0, cz = 0;
-            for (std::size_t i = 0; i < nv; ++i) {
-                cx += vertices_[cell[i]][0];
-                cy += vertices_[cell[i]][1];
-                cz += vertices_[cell[i]][2];
+            // Fallback: a triangle fan from vertex 0. Only valid for convex
+            // cells whose faces are triangles. Any other polyhedral cell must
+            // be supplied with an explicit face list.
+            for (std::size_t i = 0; i + 1 < nv; ++i) {
+                loops.push_back({cell[0], cell[i], cell[i + 1]});
             }
-            cx /= nv; cy /= nv; cz /= nv;
-            double vol = 0.0;
-            for (std::size_t i = 1; i + 1 < nv; ++i) {
-                const auto& p0 = vertices_[cell[0]];
-                const auto& p1 = vertices_[cell[i]];
-                const auto& p2 = vertices_[cell[i+1]];
-                double ax = p1[0]-p0[0], ay = p1[1]-p0[1], az = p1[2]-p0[2];
-                double bx = p2[0]-p0[0], by = p2[1]-p0[1], bz = p2[2]-p0[2];
-                double nx = ay*bz - az*by, ny = az*bx - ax*bz, nz = ax*by - ay*bx;
-                double d[3] = {cx-p0[0], cy-p0[1], cz-p0[2]};
-                double dot = nx*d[0] + ny*d[1] + nz*d[2];
-                if (dot > 0) { nx = -nx; ny = -ny; nz = -nz; }
-                double mag = std::sqrt(nx*nx + ny*ny + nz*nz);
-                if (mag > 0) {
-                    double area = mag / 2.0;
-                    double fcx = (p0[0]+p1[0]+p2[0])/3.0;
-                    double fcy = (p0[1]+p1[1]+p2[1])/3.0;
-                    double fcz = (p0[2]+p1[2]+p2[2])/3.0;
-                    vol += std::abs((fcx*nx/mag + fcy*ny/mag + fcz*nz/mag) * area) / 3.0;
-                }
-            }
-            return vol;
         }
     }
-    return 0.0;
+    return loops;
+}
+
+template<std::size_t Dim>
+void Mesh<Dim>::polygonGeometry3D_(const std::vector<std::size_t>& loop,
+                                    double& area,
+                                    std::array<double, 3>& normal,
+                                    std::array<double, 3>& centroid) const {
+    area = 0.0;
+    normal = {0.0, 0.0, 0.0};
+    centroid = {0.0, 0.0, 0.0};
+    if constexpr (Dim != 3) {
+        return;  // only meaningful in 3D
+    }
+    const std::size_t n = loop.size();
+    if (n == 0) return;
+    if (n < 3) {
+        // Degenerate "face" (a point or an edge): no area, no normal.
+        for (std::size_t d = 0; d < 3; ++d) {
+            double s = 0.0;
+            for (std::size_t v = 0; v < n; ++v) s += vertices_[loop[v]][d];
+            centroid[d] = s / static_cast<double>(n);
+        }
+        return;
+    }
+
+    // Newell normal: the sum of the fan triangles' area vectors, so it is the
+    // area-weighted average normal of a warped polygon and the exact normal of
+    // a planar one.
+    double nw[3] = {0.0, 0.0, 0.0};
+    for (std::size_t i = 0; i < n; ++i) {
+        const auto& p = vertices_[loop[i]];
+        const auto& q = vertices_[loop[(i + 1) % n]];
+        nw[0] += p[1] * q[2] - p[2] * q[1];
+        nw[1] += p[2] * q[0] - p[0] * q[2];
+        nw[2] += p[0] * q[1] - p[1] * q[0];
+    }
+    const double mag = std::sqrt(nw[0] * nw[0] + nw[1] * nw[1] + nw[2] * nw[2]);
+
+    // Fan triangulation: the true surface area of the (possibly warped) face.
+    double acc = 0.0;
+    double c[3] = {0.0, 0.0, 0.0};
+    for (std::size_t i = 1; i + 1 < n; ++i) {
+        const auto& p0 = vertices_[loop[0]];
+        const auto& p1 = vertices_[loop[i]];
+        const auto& p2 = vertices_[loop[i + 1]];
+        const double e1[3] = {p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]};
+        const double e2[3] = {p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]};
+        const double cr[3] = {e1[1] * e2[2] - e1[2] * e2[1],
+                              e1[2] * e2[0] - e1[0] * e2[2],
+                              e1[0] * e2[1] - e1[1] * e2[0]};
+        const double triArea = 0.5 * std::sqrt(cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]);
+        if (triArea <= 0.0) continue;
+        area += triArea;
+        for (std::size_t d = 0; d < 3; ++d) {
+            c[d] += triArea * (p0[d] + p1[d] + p2[d]) / 3.0;
+        }
+    }
+    if (area > 0.0) {
+        for (std::size_t d = 0; d < 3; ++d) centroid[d] = c[d] / area;
+    } else {
+        for (std::size_t d = 0; d < 3; ++d) {
+            centroid[d] = 0.0;
+            for (std::size_t v = 0; v < n; ++v) centroid[d] += vertices_[loop[v]][d];
+            centroid[d] /= static_cast<double>(n);
+        }
+    }
+    if (mag > 0.0) {
+        normal[0] = nw[0] / mag;
+        normal[1] = nw[1] / mag;
+        normal[2] = nw[2] / mag;
+    }
+}
+
+template<std::size_t Dim>
+void Mesh<Dim>::computeUnstructuredCellData_() {
+    cellVolumes_.assign(nCells_, 0.0);
+    cellCenters_.assign(nCells_, std::array<double, Dim>{});
+
+    for (std::size_t ci = 0; ci < nCells_; ++ci) {
+        if constexpr (Dim == 2) {
+            // Shoelace area and the matching polygon centroid. The centroid is
+            // the true area centroid, not the average of the vertices: the
+            // latter is only equal to it for triangles and it feeds the face
+            // distances, the interpolation weights and every gradient
+            // reconstruction, so the error would propagate through the whole
+            // discretisation.
+            const auto& cell = cells_[ci];
+            const std::size_t nv = cell.size();
+            double a2 = 0.0;      // twice the signed area
+            double cx = 0.0, cy = 0.0;
+            for (std::size_t i = 0; i < nv; ++i) {
+                const std::size_t j = (i + 1) % nv;
+                const auto& pi = vertices_[cell[i]];
+                const auto& pj = vertices_[cell[j]];
+                const double cr = pi[0] * pj[1] - pj[0] * pi[1];
+                a2 += cr;
+                cx += (pi[0] + pj[0]) * cr;
+                cy += (pi[1] + pj[1]) * cr;
+            }
+            const double area = std::abs(a2) / 2.0;
+            cellVolumes_[ci] = area;
+            if (area > 1e-30) {
+                cellCenters_[ci][0] = cx / (3.0 * a2);
+                cellCenters_[ci][1] = cy / (3.0 * a2);
+            } else {
+                cellCenters_[ci] = computeCellCenter_(cell);
+            }
+        } else {
+            // Divergence theorem over the cell's own faces:
+            //   V      = (1/3) sum_f A_f (x_fc . n_out)
+            //   V * c  = (1/4) sum_f A_f (x_fc . n_out) x_fc
+            // This is exact for any convex (or star shaped) polyhedron and
+            // needs no assumption about the element type, so a hexahedron read
+            // in a non-VTK vertex order, a prism or a general polyhedron all
+            // get the right volume and centroid.
+            const auto loops = cellFaceLoops_(ci);
+            const std::array<double, Dim> guess = computeCellCenter_(cells_[ci]);
+            double vol = 0.0;
+            double mom[3] = {0.0, 0.0, 0.0};
+            for (const auto& loop : loops) {
+                double area = 0.0;
+                std::array<double, 3> nrm{};
+                std::array<double, 3> fc{};
+                polygonGeometry3D_(loop, area, nrm, fc);
+                if (area <= 0.0) continue;
+                // Orient the face normal away from the cell (outward).
+                double s = 0.0;
+                for (std::size_t d = 0; d < 3; ++d) s += (fc[d] - guess[d]) * nrm[d];
+                if (s < 0.0) {
+                    for (std::size_t d = 0; d < 3; ++d) nrm[d] = -nrm[d];
+                    s = -s;
+                }
+                double triple = 0.0;
+                for (std::size_t d = 0; d < 3; ++d) triple += fc[d] * nrm[d];
+                vol += area * triple / 3.0;
+                for (std::size_t d = 0; d < 3; ++d) mom[d] += area * triple * fc[d] / 4.0;
+            }
+            cellVolumes_[ci] = std::abs(vol);
+            if (std::abs(vol) > 1e-30) {
+                // The outward orientation makes both the volume and the first
+                // moment flip together, so the ratio is sign independent.
+                for (std::size_t d = 0; d < 3; ++d) cellCenters_[ci][d] = mom[d] / vol;
+            } else {
+                cellCenters_[ci] = guess;
+            }
+        }
+    }
 }
 
 template<std::size_t Dim>
 void Mesh<Dim>::computeUnstructuredFaceData_() {
     using FaceKey = std::vector<std::size_t>;
-    std::unordered_map<FaceKey, std::pair<std::size_t, std::size_t>, FaceKeyHash> faceMap;
-    faceMap.reserve(nCells_ * 6);
+
+    // A face is identified by the SET of its vertices (sorted), so the two
+    // cells sharing it agree on the key whatever the orientation of their
+    // vertex loops. The loop of the owner cell is kept as well: the face
+    // geometry (area, normal, centroid) is computed from the ordered loop, not
+    // from the sorted key, because a sorted key destroys the polygon order and
+    // with it the area of a warped quadrilateral.
+    struct FaceRecord {
+        FaceKey key;
+        std::size_t owner = 0;
+        std::size_t neighbor = std::size_t(-1);
+        std::vector<std::size_t> loop;
+    };
+    std::vector<FaceRecord> faces;
+    faces.reserve(nCells_ * 6);
+    std::unordered_map<FaceKey, std::size_t, FaceKeyHash> faceIndex;
+    faceIndex.reserve(nCells_ * 6);
 
     for (std::size_t ci = 0; ci < nCells_; ++ci) {
-        const auto& cell = cells_[ci];
-        std::size_t nv = cell.size();
-
-        if constexpr (Dim == 2) {
-            for (std::size_t i = 0; i < nv; ++i) {
-                std::size_t j = (i + 1) % nv;
-                FaceKey fk = {cell[i], cell[j]};
-                if (fk[0] > fk[1]) std::swap(fk[0], fk[1]);
-                auto it = faceMap.find(fk);
-                if (it == faceMap.end()) {
-                    faceMap.emplace(fk, std::pair<std::size_t,std::size_t>{ci, std::size_t(-1)});
-                } else {
-                    it->second.second = ci;
-                }
+        for (const auto& loop : cellFaceLoops_(ci)) {
+            if (loop.size() < (Dim == 2 ? 2u : 3u)) continue;
+            FaceKey key = loop;
+            std::sort(key.begin(), key.end());
+            key.erase(std::unique(key.begin(), key.end()), key.end());
+            if (key.size() < (Dim == 2 ? 2u : 3u)) continue;
+            auto it = faceIndex.find(key);
+            if (it == faceIndex.end()) {
+                faceIndex.emplace(key, faces.size());
+                faces.push_back(FaceRecord{std::move(key), ci, std::size_t(-1), loop});
+            } else if (faces[it->second].neighbor == std::size_t(-1)) {
+                faces[it->second].neighbor = ci;
             }
-        } else if constexpr (Dim == 3) {
-            auto addFace = [&](FaceKey fk) {
-                std::sort(fk.begin(), fk.end());
-                auto it = faceMap.find(fk);
-                if (it == faceMap.end()) faceMap.emplace(fk, std::pair<std::size_t,std::size_t>{ci, std::size_t(-1)});
-                else it->second.second = ci;
-            };
-            if (nv == 4) {
-                addFace({cell[0], cell[1], cell[2]});
-                addFace({cell[0], cell[1], cell[3]});
-                addFace({cell[0], cell[2], cell[3]});
-                addFace({cell[1], cell[2], cell[3]});
-            } else if (nv == 8) {
-                addFace({cell[0], cell[1], cell[2], cell[3]});
-                addFace({cell[4], cell[5], cell[6], cell[7]});
-                addFace({cell[0], cell[1], cell[5], cell[4]});
-                addFace({cell[2], cell[3], cell[7], cell[6]});
-                addFace({cell[0], cell[3], cell[7], cell[4]});
-                addFace({cell[1], cell[2], cell[6], cell[5]});
-            } else {
-                for (std::size_t i = 0; i + 1 < nv; ++i) {
-                    FaceKey fk = {cell[0], cell[i], cell[i+1]};
-                    std::sort(fk.begin(), fk.end());
-                    addFace(fk);
-                }
-            }
+            // A face shared by more than two cells is non-manifold: the first
+            // neighbour is kept and the extra one ignored.
         }
     }
 
-    nFaces_ = faceMap.size();
+    // Deterministic face numbering: sorting by the key makes the face indices
+    // independent of the hash order of the lookup table, so a mesh rebuilt from
+    // the same input always produces the same numbering.
+    std::sort(faces.begin(), faces.end(),
+              [](const FaceRecord& a, const FaceRecord& b) { return a.key < b.key; });
+
+    nFaces_ = faces.size();
     owner_.resize(nFaces_);
     neighbor_.resize(nFaces_);
     faceArea_.resize(nFaces_);
@@ -533,93 +642,53 @@ void Mesh<Dim>::computeUnstructuredFaceData_() {
     faceVertices_.resize(nFaces_);
     isBoundary_.assign(nCells_, false);
 
-    std::size_t f = 0;
-    for (const auto& [key, pr] : faceMap) {
-        owner_[f] = pr.first;
-        neighbor_[f] = pr.second;
-        faceVertices_[f] = key;
-
-        std::size_t nFaceVerts = key.size();
-        for (std::size_t d = 0; d < Dim; ++d) {
-            faceCenter_[f][d] = 0.0;
-            for (std::size_t v = 0; v < nFaceVerts; ++v) {
-                faceCenter_[f][d] += vertices_[key[v]][d];
-            }
-            faceCenter_[f][d] /= static_cast<double>(nFaceVerts);
-        }
+    for (std::size_t f = 0; f < nFaces_; ++f) {
+        const FaceRecord& rec = faces[f];
+        owner_[f] = rec.owner;
+        neighbor_[f] = rec.neighbor;
+        faceVertices_[f] = rec.key;
 
         if constexpr (Dim == 3) {
-            double n[3] = {0, 0, 0};
-            double mag = 0.0;
-            if (nFaceVerts == 3) {
-                const auto& p0 = vertices_[key[0]];
-                const auto& p1 = vertices_[key[1]];
-                const auto& p2 = vertices_[key[2]];
-                double e1[3] = {p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2]};
-                double e2[3] = {p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2]};
-                n[0] = e1[1]*e2[2] - e1[2]*e2[1];
-                n[1] = e1[2]*e2[0] - e1[0]*e2[2];
-                n[2] = e1[0]*e2[1] - e1[1]*e2[0];
-                mag = std::sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
-                faceArea_[f] = 0.5 * mag;
-            } else if (nFaceVerts == 4) {
-                const auto& p0 = vertices_[key[0]];
-                const auto& p1 = vertices_[key[1]];
-                const auto& p2 = vertices_[key[2]];
-                const auto& p3 = vertices_[key[3]];
-                double d1[3] = {p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2]};
-                double d2[3] = {p3[0]-p1[0], p3[1]-p1[1], p3[2]-p1[2]};
-                n[0] = d1[1]*d2[2] - d1[2]*d2[1];
-                n[1] = d1[2]*d2[0] - d1[0]*d2[2];
-                n[2] = d1[0]*d2[1] - d1[1]*d2[0];
-                mag = std::sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
-                faceArea_[f] = 0.5 * mag;
+            double area = 0.0;
+            std::array<double, 3> n{};
+            std::array<double, 3> fc{};
+            polygonGeometry3D_(rec.loop, area, n, fc);
+            faceArea_[f] = area;
+            for (std::size_t d = 0; d < 3; ++d) {
+                faceCenter_[f][d] = fc[d];
+                faceNormal_[f][d] = n[d];
             }
-
-            if (neighbor_[f] != std::size_t(-1)) {
-                const auto& oc = cellCenters_[owner_[f]];
-                const auto& nc = cellCenters_[neighbor_[f]];
-                double d[3] = {nc[0]-oc[0], nc[1]-oc[1], nc[2]-oc[2]};
-                if (n[0]*d[0] + n[1]*d[1] + n[2]*d[2] < 0) {
-                    n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2];
-                }
-            } else {
-                const auto& oc = cellCenters_[owner_[f]];
-                double d[3] = {faceCenter_[f][0]-oc[0], faceCenter_[f][1]-oc[1], faceCenter_[f][2]-oc[2]};
-                if (n[0]*d[0] + n[1]*d[1] + n[2]*d[2] < 0) {
-                    n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2];
-                }
-            }
-            if (mag > 0) {
-                faceNormal_[f][0] = n[0] / mag;
-                faceNormal_[f][1] = n[1] / mag;
-                faceNormal_[f][2] = n[2] / mag;
-            } else {
-                faceNormal_[f] = {};
-            }
-        } else if constexpr (Dim == 2) {
-            const auto& p0 = vertices_[key[0]];
-            const auto& p1 = vertices_[key[1]];
-            double dx = p1[0] - p0[0], dy = p1[1] - p0[1];
-            double mag = std::sqrt(dx*dx + dy*dy);
+        } else {
+            const auto& p0 = vertices_[rec.loop[0]];
+            const auto& p1 = vertices_[rec.loop[1]];
+            const double dx = p1[0] - p0[0];
+            const double dy = p1[1] - p0[1];
+            const double mag = std::sqrt(dx * dx + dy * dy);
             faceArea_[f] = mag;
-
-            double nx = dy, ny = -dx;
-            if (neighbor_[f] != std::size_t(-1)) {
-                const auto& oc = cellCenters_[owner_[f]];
-                const auto& nc = cellCenters_[neighbor_[f]];
-                double d[2] = {nc[0]-oc[0], nc[1]-oc[1]};
-                if (nx*d[0] + ny*d[1] < 0) { nx = -nx; ny = -ny; }
-            } else {
-                const auto& oc = cellCenters_[owner_[f]];
-                double d[2] = {faceCenter_[f][0]-oc[0], faceCenter_[f][1]-oc[1]};
-                if (nx*d[0] + ny*d[1] < 0) { nx = -nx; ny = -ny; }
+            for (std::size_t d = 0; d < 2; ++d) {
+                faceCenter_[f][d] = 0.5 * (p0[d] + p1[d]);
             }
-            if (mag > 0) {
-                faceNormal_[f][0] = nx / mag;
-                faceNormal_[f][1] = ny / mag;
+            // Right-hand normal of the loop direction; the orientation is fixed
+            // below (owner -> neighbour, or outward for a boundary face).
+            faceNormal_[f][0] = mag > 0.0 ? dy / mag : 0.0;
+            faceNormal_[f][1] = mag > 0.0 ? -dx / mag : 0.0;
+        }
+
+        // Orient the face normal: owner -> neighbour for an internal face,
+        // outward from the owner for a boundary face.
+        {
+            const auto& oc = cellCenters_[owner_[f]];
+            double delta[Dim];
+            if (neighbor_[f] != std::size_t(-1)) {
+                const auto& nc = cellCenters_[neighbor_[f]];
+                for (std::size_t dd = 0; dd < Dim; ++dd) delta[dd] = nc[dd] - oc[dd];
             } else {
-                faceNormal_[f] = {};
+                for (std::size_t dd = 0; dd < Dim; ++dd) delta[dd] = faceCenter_[f][dd] - oc[dd];
+            }
+            double dot = 0.0;
+            for (std::size_t dd = 0; dd < Dim; ++dd) dot += faceNormal_[f][dd] * delta[dd];
+            if (dot < 0.0) {
+                for (std::size_t dd = 0; dd < Dim; ++dd) faceNormal_[f][dd] = -faceNormal_[f][dd];
             }
         }
 
@@ -632,15 +701,23 @@ void Mesh<Dim>::computeUnstructuredFaceData_() {
                 dist2 += diff * diff;
             }
             faceDist_[f] = std::sqrt(dist2);
-            // weight = |xF - xP| / |xN - xP|
-            double dPF2 = 0.0;
+            // Interpolation weight: the parameter of the orthogonal projection
+            // of the face centre onto the owner->neighbour segment. This is the
+            // exact linear-interpolation coefficient between the two cell
+            // centres; the distance ratio |xF-xP|/|xN-xP| overestimates it on
+            // a skewed mesh (the face centre is then off the centre-to-centre
+            // line) and can even exceed 1, which turns the interpolation into
+            // an extrapolation.
+            double num = 0.0;
+            double den = 0.0;
             for (std::size_t d = 0; d < Dim; ++d) {
-                double diff = faceCenter_[f][d] - oc[d];
-                dPF2 += diff * diff;
+                const double pf = faceCenter_[f][d] - oc[d];
+                const double pn = nc[d] - oc[d];
+                num += pf * pn;
+                den += pn * pn;
             }
-            double distPF = std::sqrt(dPF2);
-            double distPN = faceDist_[f];
-            faceWeights_[f] = (distPN > 1e-12) ? distPF / distPN : 0.5;
+            double w = (den > 1e-24) ? num / den : 0.5;
+            faceWeights_[f] = std::min(1.0, std::max(0.0, w));
         } else {
             const auto& oc = cellCenters_[owner_[f]];
             double dist2 = 0.0;
@@ -650,13 +727,8 @@ void Mesh<Dim>::computeUnstructuredFaceData_() {
             }
             faceDist_[f] = std::sqrt(dist2);
             faceWeights_[f] = 0.0;
-        }
-
-        if (neighbor_[f] == std::size_t(-1)) {
             isBoundary_[owner_[f]] = true;
         }
-
-        f++;
     }
     buildAdjacencyAndBoundaryCache_();
 }
@@ -769,15 +841,20 @@ void Mesh<Dim>::computeFaceData_() {
                         dist2 += diff * diff;
                     }
                     faceDist_[f] = std::sqrt(dist2);
-                    // w = |xF - xP| / |xN - xP|
-                    double dPF2 = 0.0;
+                    // w = the parameter of the orthogonal projection of the face
+                    // centre onto the owner->neighbour segment (the exact
+                    // linear-interpolation coefficient between the two cell
+                    // centres). On a uniform grid it is exactly 0.5.
+                    double num = 0.0;
+                    double den = 0.0;
                     for (std::size_t dd = 0; dd < Dim; ++dd) {
-                        double diff = faceCenter_[f][dd] - oc[dd];
-                        dPF2 += diff * diff;
+                        const double pf = faceCenter_[f][dd] - oc[dd];
+                        const double pn = nc[dd] - oc[dd];
+                        num += pf * pn;
+                        den += pn * pn;
                     }
-                    double dPF = std::sqrt(dPF2);
-                    double dPN = faceDist_[f];
-                    faceWeights_[f] = (dPN > 1e-12) ? dPF / dPN : 0.5;
+                    double w = (den > 1e-24) ? num / den : 0.5;
+                    faceWeights_[f] = std::min(1.0, std::max(0.0, w));
                 } else {
                     auto oc = cellCenter(owner_[f]);
                     double dist2 = 0.0;

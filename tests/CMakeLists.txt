@@ -119,6 +119,7 @@ scirender_add_test_suite(scirender_cfd_tests
         cfd/divergence_test.cpp
         cfd/poisson_test.cpp
         cfd/convection_test.cpp
+        cfd/momentum_convection_test.cpp
         cfd/pressure_correction_test.cpp
         cfd/velocity_correction_test.cpp
         cfd/boundary_conditions_test.cpp

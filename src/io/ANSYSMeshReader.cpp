@@ -408,6 +408,24 @@ ANSYSMeshReader<Dim>::reconstructCells(
             continue;
         }
 
+        if constexpr (Dim == 3) {
+            // In 3D a cell face is a polygon, not an edge, so the edge walk
+            // below cannot reconstruct a vertex loop. The cell vertices are
+            // simply the union of the vertices of its faces; the ORDER does not
+            // matter because the cell geometry is derived from the explicit
+            // face topology (see reconstructCellFaces) and the vertex list is
+            // only used as a set.
+            std::vector<std::size_t> verts;
+            std::unordered_map<std::size_t, char> seen;
+            for (std::size_t fi : cf) {
+                for (std::size_t v : faces[fi].vertices) {
+                    if (seen.emplace(v, 1).second) verts.push_back(v);
+                }
+            }
+            cells[c] = std::move(verts);
+            continue;
+        }
+
         std::unordered_map<std::size_t, std::vector<std::size_t>> vertToFaces;
         for (std::size_t fi : cf) {
             for (std::size_t v : faces[fi].vertices) {
@@ -459,6 +477,37 @@ ANSYSMeshReader<Dim>::reconstructCells(
     }
 
     return cells;
+}
+
+// ============================================================================
+// Cell Face Topology
+// ============================================================================
+
+template<std::size_t Dim>
+std::vector<std::vector<std::vector<std::size_t>>>
+ANSYSMeshReader<Dim>::reconstructCellFaces(
+    const std::vector<FaceRecord>& faces,
+    std::size_t cellCount) {
+
+    std::vector<std::vector<std::size_t>> cellToFaces(cellCount);
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        const auto& f = faces[i];
+        if (f.rightCell >= 0 && static_cast<std::size_t>(f.rightCell) < cellCount) {
+            cellToFaces[f.rightCell].push_back(i);
+        }
+        if (f.leftCell >= 0 && static_cast<std::size_t>(f.leftCell) < cellCount) {
+            cellToFaces[f.leftCell].push_back(i);
+        }
+    }
+
+    std::vector<std::vector<std::vector<std::size_t>>> cellFaces(cellCount);
+    for (std::size_t c = 0; c < cellCount; ++c) {
+        cellFaces[c].reserve(cellToFaces[c].size());
+        for (std::size_t fi : cellToFaces[c]) {
+            cellFaces[c].push_back(faces[fi].vertices);
+        }
+    }
+    return cellFaces;
 }
 
 // ============================================================================
@@ -572,20 +621,29 @@ ANSYSMeshReader<Dim>::read(const std::string& filename) {
     }
 
     auto cellVerts = reconstructCells(state.faces, state.totalCells);
+    auto cellFaces = reconstructCellFaces(state.faces, state.totalCells);
 
+    // The explicit face topology keeps the element node order irrelevant: the
+    // mesh builds its faces from the face records instead of assuming a VTK
+    // element layout that ANSYS does not use.
     std::vector<std::vector<std::size_t>> meshCells;
+    std::vector<std::vector<std::vector<std::size_t>>> meshCellFaces;
     meshCells.reserve(cellVerts.size());
-    for (auto& cv : cellVerts) {
-        if (!cv.empty()) {
-            meshCells.push_back(std::move(cv));
-        }
+    meshCellFaces.reserve(cellVerts.size());
+    for (std::size_t c = 0; c < cellVerts.size(); ++c) {
+        if (cellVerts[c].empty()) continue;
+        meshCells.push_back(std::move(cellVerts[c]));
+        // The face list must follow the SAME cells as the vertex list, so it
+        // is filtered with the same predicate.
+        meshCellFaces.push_back(c < cellFaces.size() ? cellFaces[c]
+                                                     : std::vector<std::vector<std::size_t>>{});
     }
 
     if (meshCells.empty()) {
         throw std::runtime_error("ANSYSMeshReader: cell reconstruction produced no valid cells");
     }
 
-    Mesh<Dim> mesh(state.vertices, meshCells);
+    Mesh<Dim> mesh(state.vertices, meshCells, meshCellFaces);
 
     auto boundaryGroups = extractBoundaryGroups(
         mesh, state.faces, state.zoneNames, state.zoneTypes, state.faceZoneTypes);

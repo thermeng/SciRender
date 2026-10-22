@@ -463,35 +463,49 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
         float sy = maxY - minY;
         float sz = maxZ - minZ;
 
-        for (int i = 0; i < actualCount; ++i) {
-            int idx = static_cast<int>(i * stride);
-            int ix = idx % nU;
-            int iy = idx / nU;
-            float tx = (ix + 0.5f) / nU;
-            float ty = (iy + 0.5f) / nV;
-            float x = minX + tx * sx;
-            float y = minY + ty * sy;
-            float z = minZ + pos * sz;
+        int nUout = std::min(nU, static_cast<int>(std::ceil(std::sqrt(static_cast<double>(actualCount)))));
+        if (nUout < 1) nUout = 1;
+        int nVout = std::min(nV, static_cast<int>(std::ceil(static_cast<double>(actualCount) / nUout)));
+        if (nVout < 1) nVout = 1;
 
-            if (mode == "PlaneXZ") {
-                y = minY + pos * sy;
-                z = minZ + ty * sz;
-            } else if (mode == "PlaneYZ") {
-                x = minX + pos * sx;
-                y = minY + ty * sy;
-                z = minZ + tx * sz;
+        std::vector<int> ixs, iys;
+        for (int i = 0; i < nUout; ++i)
+            ixs.push_back((nUout == 1) ? (nU / 2) : (i * (nU - 1)) / (nUout - 1));
+        for (int i = 0; i < nVout; ++i)
+            iys.push_back((nVout == 1) ? (nV / 2) : (i * (nV - 1)) / (nVout - 1));
+
+        int count = 0;
+        for (int iy : iys) {
+            for (int ix : ixs) {
+                if (count >= actualCount) break;
+                float tx = (ix + 0.5f) / nU;
+                float ty = (iy + 0.5f) / nV;
+                float x = minX + tx * sx;
+                float y = minY + ty * sy;
+                float z = minZ + pos * sz;
+
+                if (mode == "PlaneXZ") {
+                    y = minY + pos * sy;
+                    z = minZ + ty * sz;
+                } else if (mode == "PlaneYZ") {
+                    x = minX + pos * sx;
+                    y = minY + ty * sy;
+                    z = minZ + tx * sz;
+                }
+
+                if (jitter > 0.0) {
+                    float dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    float dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    float dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    x = std::clamp(x + dx, minX, maxX);
+                    y = std::clamp(y + dy, minY, maxY);
+                    z = std::clamp(z + dz, minZ, maxZ);
+                }
+
+                seeds.emplace_back(x, y, z);
+                ++count;
             }
-
-            if (jitter > 0.0) {
-                float dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                float dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                float dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                x = std::clamp(x + dx, minX, maxX);
-                y = std::clamp(y + dy, minY, maxY);
-                z = std::clamp(z + dz, minZ, maxZ);
-            }
-
-            seeds.emplace_back(x, y, z);
+            if (count >= actualCount) break;
         }
         return seeds;
     }
@@ -499,33 +513,54 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
     int n = static_cast<int>(std::ceil(std::cbrt(static_cast<double>(seedCount))));
     n = std::max(1, n);
     int totalPts = n * n * n;
-    float stride = static_cast<float>(totalPts) / static_cast<float>(seedCount);
+    int actualCount = std::min(seedCount, totalPts);
+    if (actualCount <= 0) return seeds;
+
     float sx = maxX - minX;
     float sy = maxY - minY;
     float sz = maxZ - minZ;
 
-    for (int i = 0; i < seedCount; ++i) {
-        int idx = static_cast<int>(i * stride);
-        int ix = idx % n;
-        int iy = (idx / n) % n;
-        int iz = idx / (n * n);
-        float tx = (ix + 0.5f) / n;
-        float ty = (iy + 0.5f) / n;
-        float tz = (iz + 0.5f) / n;
-        float x = minX + tx * sx;
-        float y = minY + ty * sy;
-        float z = minZ + tz * sz;
+    int nOut = std::min(n, static_cast<int>(std::ceil(std::cbrt(static_cast<double>(actualCount)))));
+    if (nOut < 1) nOut = 1;
 
-        if (jitter > 0.0) {
-            float dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-            float dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-            float dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-            x = std::clamp(x + dx, minX, maxX);
-            y = std::clamp(y + dy, minY, maxY);
-            z = std::clamp(z + dz, minZ, maxZ);
+    std::vector<int> ixs, iys, izs;
+    for (int i = 0; i < nOut; ++i) {
+        int ix = (nOut == 1) ? (n / 2) : (i * (n - 1)) / (nOut - 1);
+        ixs.push_back(ix);
+        iys.push_back(ix);
+        izs.push_back(ix);
+    }
+    // use same count for each axis
+    iys = ixs;
+    izs = ixs;
+
+    int count = 0;
+    for (int iz : izs) {
+        for (int iy : iys) {
+            for (int ix : ixs) {
+                if (count >= actualCount) break;
+                float tx = (ix + 0.5f) / n;
+                float ty = (iy + 0.5f) / n;
+                float tz = (iz + 0.5f) / n;
+                float x = minX + tx * sx;
+                float y = minY + ty * sy;
+                float z = minZ + tz * sz;
+
+                if (jitter > 0.0) {
+                    float dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    float dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    float dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    x = std::clamp(x + dx, minX, maxX);
+                    y = std::clamp(y + dy, minY, maxY);
+                    z = std::clamp(z + dz, minZ, maxZ);
+                }
+
+                seeds.emplace_back(x, y, z);
+                ++count;
+            }
+            if (count >= actualCount) break;
         }
-
-        seeds.emplace_back(x, y, z);
+        if (count >= actualCount) break;
     }
     return seeds;
 }

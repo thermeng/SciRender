@@ -657,9 +657,38 @@
       </item>
      </layout>
     </widget>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="simplecCb">
+    </item>
+    <item>
+     <widget class="QWidget" name="gradientSchemeRow" native="true">
+      <layout class="QHBoxLayout" name="gradientSchemeRowLayout">
+       <property name="spacing"><number>6</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QLabel" name="gradientSchemeLabel">
+         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+         <property name="text"><string>Gradient</string></property>
+         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="gradientSchemeCombo">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+           <horstretch>1</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QCheckBox" name="simplecCb">
      <property name="text">
       <string>SIMPLEC</string>
      </property>

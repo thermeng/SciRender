@@ -91,17 +91,19 @@ inline ResidualResult computeResiduals(
                 // Interior: distance-weighted
                 for (std::size_t d = 0; d < Dim; ++d) {
                     double uFace;
-                    bool hasDirP = !dirichletMask.empty() && d < dirichletMask.size() && !dirichletMask[d].empty() && dirichletMask[d][P];
-                    bool hasDirN = !dirichletMask.empty() && d < dirichletMask.size() && !dirichletMask[d].empty() && dirichletMask[d][N];
-                    if (hasDirP && hasDirN) {
-                        // Both Dirichlet - use average of Dirichlet values weighted
-                        double vP = dirichletVals[d][P];
-                        double vN = dirichletVals[d][N];
-                        uFace = (1.0 - w) * vP + w * vN;
+                    const bool hasDirP = !dirichletMask.empty() && d < dirichletMask.size() && !dirichletMask[d].empty() && dirichletMask[d][P];
+                    const bool hasDirN = !dirichletMask.empty() && d < dirichletMask.size() && !dirichletMask[d].empty() && dirichletMask[d][N];
+                    // The SAME rule as the momentum assembly and the pressure
+                    // correction: a cell with a prescribed velocity owns the
+                    // whole face it shares with a neighbour and the NEIGHBOUR
+                    // takes priority. The residual has to be built from the
+                    // same face velocity as the operators it measures,
+                    // otherwise the number printed as "continuity" is not the
+                    // quantity the pressure correction drives to zero.
+                    if (hasDirN) {
+                        uFace = dirichletVals[d][N];
                     } else if (hasDirP) {
                         uFace = dirichletVals[d][P];
-                    } else if (hasDirN) {
-                        uFace = dirichletVals[d][N];
                     } else {
                         uFace = (1.0 - w) * velocity[d][P] + w * velocity[d][N];
                     }

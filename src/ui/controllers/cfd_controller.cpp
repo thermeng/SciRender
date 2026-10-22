@@ -76,12 +76,17 @@ void CfdController::run() {
     fvm::SIMPLE<2>::Config sc;
     sc.maxIterations = settings.maxIterations;
     sc.tolerance = settings.tolerance;
+    sc.runFixedIterations = settings.runFixedIterations;
+    sc.convergenceHoldIterations = settings.convergenceHoldIterations;
     sc.alphaU = settings.alphaU;
     sc.alphaP = settings.alphaP;
     sc.simplec = settings.simplec;
     sc.rhieChow = settings.rhieChow;
     sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
-                          : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind : fvm::ConvectionScheme::Upwind);
+                          : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind
+                             : (settings.scheme == 3 ? fvm::ConvectionScheme::QUICK : fvm::ConvectionScheme::Upwind));
+    sc.gradientScheme = settings.gradientScheme == 1 ? fvm::GradientScheme::GreenGaussCellBased
+                       : (settings.gradientScheme == 2 ? fvm::GradientScheme::GreenGaussNodeBased : fvm::GradientScheme::LeastSquares);
     sc.printFrequency = settings.printFrequency;
     sc.residualHistoryWindow = settings.residualHistoryWindow;
     sc.pressureCorrectors = settings.pressureCorrectors;
@@ -164,18 +169,55 @@ void CfdController::run() {
         w->deleteLater();
         if (gen != m_gen) return;
         if (m_cancel.load()) { emit finished("Cancelled"); return; }
-        if (m_settings.transient.enabled)
+        if (m_settings.transient.enabled) {
             emit finished(QString("Transient run complete (t = %1 s)").arg(m_lastTime.load(), 0, 'g', 6));
-        else
-            emit finished("Solve complete");
+            return;
+        }
+        // Report the VERDICT, not just "the run ended". A run that hit the
+        // iteration limit without meeting the tolerance is not a steady state,
+        // and the user has to be able to tell the two apart before they trust
+        // the field they are looking at.
+        fvm::SIMPLE<2>::Status st = fvm::SIMPLE<2>::Status::NotConverged;
+        double cont = 0.0;
+        int iters = 0;
+        {
+            std::lock_guard<std::mutex> lk(m_solverMutex);
+            if (m_solver) {
+                st = m_solver->status();
+                cont = m_solver->finalContinuityResidual();
+                iters = m_solver->lastIterations();
+            }
+        }
+        switch (st) {
+        case fvm::SIMPLE<2>::Status::Converged:
+            emit finished(QString("Converged in %1 iterations (continuity %2)")
+                              .arg(iters).arg(cont, 0, 'g', 4));
+            break;
+        case fvm::SIMPLE<2>::Status::Aborted:
+            emit finished("Solve aborted: the residual diverged or went non-finite");
+            break;
+        case fvm::SIMPLE<2>::Status::Cancelled:
+            emit finished("Cancelled");
+            break;
+        case fvm::SIMPLE<2>::Status::NotConverged:
+            emit finished(QString("NOT converged: iteration limit (%1) reached, continuity %2")
+                              .arg(iters).arg(cont, 0, 'g', 4));
+            break;
+        }
     });
 
-    auto fut = QtConcurrent::run([this, gen, solver, settings]() {
+    // The fields are captured BY VALUE: run() replaces m_velocity/m_pressure
+    // with fresh objects, and a worker that dereferenced the members would
+    // then write into the NEW fields while the new solver is using them (and
+    // the shared_ptr assignment itself would race with the worker's read).
+    auto velocity = m_velocity;
+    auto pressure = m_pressure;
+    auto fut = QtConcurrent::run([this, gen, solver, settings, velocity, pressure]() {
         if (gen != m_gen) return;
         if (settings.transient.enabled)
-            solver->solveTransient(*m_velocity, *m_pressure);
+            solver->solveTransient(*velocity, *pressure);
         else
-            solver->solve(*m_velocity, *m_pressure);
+            solver->solve(*velocity, *pressure);
     });
     w->setFuture(fut);
 }

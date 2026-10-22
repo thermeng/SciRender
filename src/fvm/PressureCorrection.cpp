@@ -38,12 +38,13 @@ void PressureCorrection<Dim>::solve(
     const std::size_t nF = mesh_.nFaces();
 
     if (!gradientCalc_) {
-        gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_);
+        gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_, GradientScheme::LeastSquares);
         for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
-        for (auto& g : pressureGradPrev_) g = Field<Dim>(mesh_, 0.0);
     }
 
-    // Green-Gauss (face-based) gradient for consistency with Momentum
+    // Green-Gauss gradient of the pressure field, the diagnostic the
+    // residuals report (the matrix and the velocity correction are built from
+    // the least-squares gradient above; see buildMatrices in Gradient.h).
     for (std::size_t d = 0; d < Dim; ++d) pressureGrad_[d].assign(0.0);
     const std::size_t* ownerPtr = mesh_.ownerPtr();
     const std::size_t* neighborPtr = mesh_.neighborPtr();
@@ -66,22 +67,19 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
-    // Reuse pre-allocated buffers - fused single-pass init (was 4*O(n) fills)
+    // Reuse pre-allocated buffers
     triplets_.clear();
-    triplets_.reserve(n * (2 * Dim + 1));
+    triplets_.reserve(n * (2 * Dim + 4));
     bVec_.resize(n);
     bVec_.setZero();
 
     if (pMask_.size() != n) pMask_.resize(n);
     if (pVals_.size() != n) pVals_.resize(n);
     if (isPressureOutlet_.size() != n) isPressureOutlet_.resize(n);
-    if (diagSum_.size() != n) diagSum_.resize(n);
-    // Single fused O(n) init instead of 4 separate fills
     for (std::size_t i = 0; i < n; ++i) {
         pMask_[i] = false;
         pVals_[i] = 0.0;
         isPressureOutlet_[i] = false;
-        diagSum_[i] = 0.0;
     }
     for (const auto& [cell, pRef] : pressureOutletCells) {
         isPressureOutlet_[cell] = true;
@@ -108,34 +106,8 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
-    std::size_t refCell = config_.pressureRefCell;
-    if (refCell >= n) {
-        // The pinned cell is the one cell whose continuity error the pressure
-        // correction cannot remove, so it belongs in a smooth interior region -
-        // not at the first interior cell, which in a cavity is a corner: the
-        // largest local imbalance, and exactly where the corner vortices form.
-        std::array<double, Dim> centroid{};
-        for (std::size_t i = 0; i < n; ++i) {
-            const auto& c = mesh_.cellCenter(i);
-            for (std::size_t d = 0; d < Dim; ++d) centroid[d] += c[d];
-        }
-        for (std::size_t d = 0; d < Dim; ++d) centroid[d] /= static_cast<double>(n);
-        double best = std::numeric_limits<double>::max();
-        for (std::size_t i = 0; i < n; ++i) {
-            if (mesh_.isBoundary(i) || isPressureOutlet_[i]) continue;
-            const auto& c = mesh_.cellCenter(i);
-            double d2 = 0.0;
-            for (std::size_t d = 0; d < Dim; ++d) {
-                const double dd = c[d] - centroid[d];
-                d2 += dd * dd;
-            }
-            if (d2 < best) { best = d2; refCell = i; }
-        }
-        if (refCell >= n) for (std::size_t i = 0; i < n; ++i) if (!isPressureOutlet_[i]) { refCell = i; break; }
-        if (refCell >= n) refCell = n - 1;
-    }
-    if (!pMask_[refCell]) { pMask_[refCell]=true; pVals_[refCell]=0.0; }
-
+    // A boundary cell the pressure does not prescribe and an outlet does not
+    // reach is a Dirichlet cell of the pressure correction (p' = 0 there).
     for (std::size_t i = 0; i < n; ++i) {
         if (mesh_.isBoundary(i) && !isPressureNeumann[i] && !isPressureOutlet_[i]) {
             pMask_[i] = true;
@@ -143,22 +115,82 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
+    // A pure Neumann system (no Dirichlet pressure anywhere) is singular: it
+    // needs ONE pinned reference cell (p' = 0 there) to fix the constant
+    // mode. When the system already carries a Dirichlet row - an outlet, a
+    // prescribed pressure boundary - nothing has to be pinned: pinning a
+    // second cell would force a spurious local feature into p' exactly where
+    // the mass balance must stay correct.
+    bool hasDirichletPressure = false;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (pMask_[i]) { hasDirichletPressure = true; break; }
+    }
+    if (!hasDirichletPressure) {
+        std::size_t refCell = config_.pressureRefCell;
+        if (refCell >= n) {
+            // The pinned cell is the one cell whose continuity error the
+            // pressure correction cannot remove, so it belongs in a smooth
+            // interior region - not at the first interior cell, which in a
+            // cavity is a corner: the largest local imbalance, and exactly
+            // where the corner vortices form.
+            std::array<double, Dim> centroid{};
+            for (std::size_t i = 0; i < n; ++i) {
+                const auto& c = mesh_.cellCenter(i);
+                for (std::size_t d = 0; d < Dim; ++d) centroid[d] += c[d];
+            }
+            for (std::size_t d = 0; d < Dim; ++d) centroid[d] /= static_cast<double>(n);
+            double best = std::numeric_limits<double>::max();
+            for (std::size_t i = 0; i < n; ++i) {
+                if (mesh_.isBoundary(i) || isPressureOutlet_[i] || pMask_[i]) continue;
+                if (!isPressureNeumann[i] || mesh_.isBoundary(i)) continue;
+                const auto& c = mesh_.cellCenter(i);
+                double d2 = 0.0;
+                for (std::size_t d = 0; d < Dim; ++d) {
+                    const double dd = c[d] - centroid[d];
+                    d2 += dd * dd;
+                }
+                if (d2 < best) { best = d2; refCell = i; }
+            }
+            if (refCell >= n) {
+                for (std::size_t i = 0; i < n; ++i) {
+                    if (mesh_.isBoundary(i) || isPressureOutlet_[i]) continue;
+                    refCell = i;
+                    break;
+                }
+            }
+            if (refCell >= n) refCell = n - 1;
+        }
+        if (!pMask_[refCell]) { pMask_[refCell] = true; pVals_[refCell] = 0.0; }
+    }
+
+    // A cell without a single interior face has no pressure equation at all:
+    // its mass balance can never be corrected. It is excluded from the
+    // unknowns (carries p' = 0) and counted, so the run reports it instead of
+    // silently never converging. The deliberately pinned reference cell - and
+    // any other cell whose pressure is already prescribed - is a CHOICE, not a
+    // discovery, so it is not reported as isolated.
+    isolatedCellCount_ = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (pMask_[i])
+            continue;
+        bool hasInteriorFace = false;
+        for (std::size_t f : mesh_.cellFaces(i)) {
+            if (mesh_.neighbor(f) != std::size_t(-1)) { hasInteriorFace = true; break; }
+        }
+        if (!hasInteriorFace) {
+            ++isolatedCellCount_;
+            pMask_[i] = true;
+            pVals_[i] = 0.0;
+        }
+    }
+
     divU_.assign(0.0);
-    // diagSum already zeroed in fused init above (was separate O(n) fill)
-
-    // The deferred non-orthogonal (cross-diffusion) term is accumulated here
-    // instead of directly into bVec_: the row assembly below OVERWRITES bVec_
-    // with the divergence term, which used to silently discard it.
-    std::vector<double> nonOrthRhs(n, 0.0);
-
-    const double* distPtr = mesh_.faceDistPtr();
 
     for (std::size_t f = 0; f < nF; ++f) {
         const std::size_t P = ownerPtr[f];
         const std::size_t N = neighborPtr[f];
         const double* fn = mesh_.faceNormalPtr(f);
         const double area = areaPtr[f];
-        const double dist = distPtr[f];
 
         // --- Divergence: use face-based BC for Dirichlet walls (general FVM) ---
         double un = 0.0;
@@ -211,101 +243,203 @@ void PressureCorrection<Dim>::solve(
             }
         }
 
-        if (config_.rhieChow && N != std::size_t(-1)) {
-            un += rhieChowCorrection(mesh_, f, dCoeff, pressure, pressureGrad_, pMask_);
-        }
-
         double flux = un * area;
         divU_[P] += flux;
         if (N != std::size_t(-1)) {
             divU_[N] -= flux;
         }
+    }
 
-        // --- Matrix assembly ---
-        if (N == std::size_t(-1)) {
-            // A solid wall carries a PRESCRIBED mass flux (zero for no-slip and
-            // moving walls, the wall's own normal velocity otherwise). That flux
-            // does not change when the pressure is corrected, so the wall face
-            // contributes NOTHING to the pressure-correction equation.
-            //
-            // Adding its coefficient to the diagonal (as this used to) is the
-            // coefficient of a DIRICHLET ghost (p'_ghost = 0) rather than of a
-            // zero-gradient ghost (p'_ghost = p'_P): it silently imposes
-            // p' = 0 on every wall cell. The geometric factor doubled the
-            // damage - for a boundary face dist = |x_F - x_P| = delta/2, so
-            // area*|dotSfd|/dist^2 = 2*area/delta, twice an interior face. The
-            // result is a spurious half-Dirichlet condition around the whole
-            // cavity boundary: the near-wall pressure gradient is crushed, the
-            // adverse pressure gradient along the bottom wall disappears and
-            // the corner vortices never form. The pressure correction is
-            // elliptic, so the error reaches the whole domain. It also breaks
-            // the exact cancellation between the pressure correction and the
-            // velocity correction, which holds only if the wall faces
-            // contribute nothing.
-            continue;
-        }
+    // ------------------------------------------------------------------
+    // The pressure matrix is the composition A = div(d * G) of the face
+    // divergence with the SAME per-cell least-squares gradient
+    // (gradientRows_, from Gradient::buildMatrices) the velocity correction
+    // applies. With b = div(u*) in raw flux-sum units the solved field then
+    // satisfies, cell by cell:
+    //
+    //     div(u* - d * grad(p')) = 0
+    //
+    // exactly - not only in total. The former two-point matrix and the
+    // correction's gradient were different operators, and they disagreed
+    // wherever p' has a local feature (a kink in the source, the reference
+    // cell): exactly there the correction failed to remove the divergence
+    // it was built for, and the leftover error grew as the mesh was
+    // refined. The composition is a wider stencil - a face sees the
+    // gradient of both of its cells and each gradient reaches that cell's
+    // own neighbours - which also makes the cross-diffusion part of the
+    // diffusion EXACT, so no deferred non-orthogonal reconstruction is
+    // needed and the cancellation holds on skewed meshes as well.
+    //
+    // Boundary faces enter the matrix only where the face velocity is the
+    // corrected owner value (faces without a velocity BC, and pressure
+    // outlets): those are the same faces whose flux the divergence loop
+    // above takes from the owner cell, and the correction must be able to
+    // fix what leaks through them. Faces with a prescribed velocity (walls,
+    // inlets, moving lids) contribute nothing: their flux cannot change.
+    // ------------------------------------------------------------------
+    if (!gradientRowsBuilt_) {
+        gradientCalc_->buildMatrices(gradientRows_);
+        gradientRowsBuilt_ = true;
+    }
 
-        if (pMask_[P] && pMask_[N]) continue;
-
-        const double* xPptr = mesh_.cellCenterPtr(P);
-        const double* xNptr = mesh_.cellCenterPtr(N);
-
-        std::array<double, Dim> dVec{};
-        for (std::size_t dd = 0; dd < Dim; ++dd) dVec[dd] = xNptr[dd] - xPptr[dd];
-
-        double dotSfd = 0.0;
-        for (std::size_t dd = 0; dd < Dim; ++dd) dotSfd += fn[dd] * dVec[dd];
-        double w = mesh_.faceWeight(f);
-        double dFaceN = 0.0;
-        for (std::size_t dd = 0; dd < Dim; ++dd) {
-            double nd = fn[dd];
-            double dP_eff = pMask_[P] ? 0.0 : dCoeff[dd][P];
-            double dN_eff = pMask_[N] ? 0.0 : dCoeff[dd][N];
-            dFaceN += ((1.0 - w) * dP_eff + w * dN_eff) * nd * nd;
-        }
-        // Signed geometric factor, as in the momentum operator: the same
-        // (d . S_f) / |d|^2 has to appear in the pressure equation and in the
-        // momentum diffusion, otherwise the pressure correction and the
-        // velocity correction no longer cancel each other and the
-        // pressure-velocity coupling degrades on a skewed mesh. The mesh
-        // orients every internal face normal owner -> neighbour, so the factor
-        // is positive.
-        double coeff = (dist > minFaceDist && dFaceN > minFaceDist) ? dFaceN * area * dotSfd / (dist * dist) : 0.0;
-
-        double correction = 0.0;
-        double dot_f_dhat = dotSfd / dist;
-        // Non-orthogonal (cross-diffusion) correction is deferred: use the
-        // previous outer iteration's pressure gradient so it does not
-        // over-correct on skewed cells.
-        const auto& pgNonOrth = hasPrevGrad_ ? pressureGradPrev_ : pressureGrad_;
-        for (std::size_t dd = 0; dd < Dim; ++dd) {
-            double Sf_nonorth_dd = area * fn[dd] - area * dot_f_dhat * dVec[dd] / dist;
-            correction += ((1.0 - w) * pgNonOrth[dd][P] + w * pgNonOrth[dd][N]) * Sf_nonorth_dd;
-        }
-        correction *= dFaceN;
-        if (!pMask_[P]) {
-            if (pMask_[N]) {
-                bVec_(P) += coeff * pVals_[N];
-            } else {
-                triplets_.emplace_back(P, N, -coeff);
+    // A cell whose velocity is prescribed in EVERY component of EVERY
+    // incident face has no p' sensitivity at all: its equation would be
+    // empty, so it becomes a Dirichlet cell of the pressure system (p'
+    // pinned to p' = 0), which keeps the matrix invertible.
+    {
+        std::vector<char> rowVoid(n, 1);
+        for (std::size_t f = 0; f < nF; ++f) {
+            const std::size_t P = ownerPtr[f];
+            const std::size_t N = neighborPtr[f];
+            for (std::size_t d = 0; d < Dim; ++d) {
+                bool dirN = false, dirP = false;
+                if (velDirichletMask && d < velDirichletMask->size() && !(*velDirichletMask)[d].empty()) {
+                    dirP = (*velDirichletMask)[d][P];
+                    if (N != std::size_t(-1)) dirN = (*velDirichletMask)[d][N];
+                }
+                if (!dirN && !dirP) {
+                    rowVoid[P] = 0;
+                    if (N != std::size_t(-1)) rowVoid[N] = 0;
+                }
             }
-            diagSum_[P] += coeff;
-            nonOrthRhs[P] -= correction;
         }
-
-        if (!pMask_[N]) {
-            if (pMask_[P]) {
-                bVec_(N) += coeff * pVals_[P];
-            } else {
-                triplets_.emplace_back(N, P, -coeff);
+        for (std::size_t i = 0; i < n; ++i) {
+            if (rowVoid[i] && !pMask_[i]) {
+                pMask_[i] = true;
+                pVals_[i] = 0.0;
             }
-            diagSum_[N] += coeff;
-            nonOrthRhs[N] += correction;
         }
     }
 
-    for (std::size_t P = 0; P < n; ++P) {
-        divU_[P] /= mesh_.cellVolume(P);
+    // Assemble: the per-face flux sensitivity accumulated into per-row
+    // column lists. Entries are summed on emit below so every
+    // (row, column) pair lands in triplets_ exactly once and the A_ value
+    // scatter map stays a bijection.
+    std::vector<std::vector<std::pair<std::size_t, double>>> rowAcc(n);
+    for (std::size_t f = 0; f < nF; ++f) {
+        const std::size_t P = ownerPtr[f];
+        const std::size_t N = neighborPtr[f];
+        const double* fn = mesh_.faceNormalPtr(f);
+        const double area = areaPtr[f];
+
+        if (N == std::size_t(-1)) {
+            // A boundary face whose velocity the boundary condition FIXES
+            // (walls, inlets, moving lids) does not respond to p' and
+            // contributes nothing to the matrix; its prescribed flux is
+            // already in b. Without a BC - and at pressure outlets, where
+            // both the b-side and the divergence diagnostics use the
+            // extrapolated owner value - the face velocity IS the corrected
+            // owner value, so its p' sensitivity completes the composed
+            // operator on the boundary ring: without it the continuity the
+            // solver enforces and the divergence the run measures would
+            // disagree exactly at the wall cells, and whatever the walls
+            // leak would have nowhere to go but the reference cell.
+            //
+            // (The owner of a BC'd outlet face carries prescribed p' - its
+            // row is replaced by the identity below - so its terms would be
+            // discarded anyway.)
+            if (pMask_[P])
+                continue;
+            const bool hasBCEntry = faceBC && faceHasBC && f < faceBC->size() && (*faceHasBC)[f];
+            bool ownerExtrapolated = !hasBCEntry;
+            if (hasBCEntry) {
+                const auto t = (*faceBC)[f].type;
+                ownerExtrapolated = (t == VelocityBCType::PressureOutlet || t == VelocityBCType::Outlet);
+            }
+            if (!ownerExtrapolated)
+                continue;
+            for (std::size_t d = 0; d < Dim; ++d) {
+                bool dirP = false;
+                if (velDirichletMask && d < velDirichletMask->size() && !(*velDirichletMask)[d].empty())
+                    dirP = (*velDirichletMask)[d][P];
+                if (dirP) continue; // corrected owner value = prescribed: fixed
+                const double local = -dCoeff[d][P] * fn[d] * area;
+                if (local != 0.0) {
+                    for (const auto& [col, k] : gradientRows_[d][P])
+                        rowAcc[P].emplace_back(col, local * k);
+                }
+            }
+            continue;
+        }
+
+        const double w = mesh_.faceWeight(f);
+
+        for (std::size_t d = 0; d < Dim; ++d) {
+            // A cell with a prescribed velocity contributes the prescribed
+            // value to the WHOLE face (the neighbour takes priority - the
+            // same rule the divergence above uses), so the face velocity
+            // does not respond to p' in that component.
+            bool dirN = false, dirP = false;
+            if (velDirichletMask && d < velDirichletMask->size() && !(*velDirichletMask)[d].empty()) {
+                dirN = (*velDirichletMask)[d][N];
+                dirP = (*velDirichletMask)[d][P];
+            }
+            if (dirN || dirP) continue;
+
+            const double faceP = (1.0 - w) * dCoeff[d][P] * fn[d] * area;
+            const double faceN = w * dCoeff[d][N] * fn[d] * area;
+            // Face velocity = faceP * (G p')[d][P] + faceN * (G p')[d][N]:
+            // +flux into the owner's row, -flux into the neighbour's row,
+            // the same bookkeeping the divergence of u* uses above.
+            if (faceP != 0.0) {
+                for (const auto& [col, k] : gradientRows_[d][P]) {
+                    rowAcc[P].emplace_back(col, faceP * k);
+                    rowAcc[N].emplace_back(col, -faceP * k);
+                }
+            }
+            if (faceN != 0.0) {
+                for (const auto& [col, k] : gradientRows_[d][N]) {
+                    rowAcc[P].emplace_back(col, faceN * k);
+                    rowAcc[N].emplace_back(col, -faceN * k);
+                }
+            }
+        }
+    }
+
+    for (std::size_t r = 0; r < n; ++r) {
+        if (pMask_[r]) {
+            // Identity row: p' is prescribed here (reference cell, outlet,
+            // isolated or degenerate cell).
+            triplets_.emplace_back(r, r, 1.0);
+            bVec_(r) = pVals_[r];
+            rowAcc[r].clear();
+            continue;
+        }
+        auto& entries = rowAcc[r];
+        std::sort(entries.begin(), entries.end(),
+                  [](const std::pair<std::size_t, double>& lhs, const std::pair<std::size_t, double>& rhs) {
+                      return lhs.first < rhs.first;
+                  });
+        // b = div(u*) in raw flux-sum units (divU_ is divided per volume
+        // only after the solve, where it is read back as a diagnostic).
+        double rowB = divU_[r];
+        std::size_t emitted = 0;
+        std::size_t last = 0;
+        for (std::size_t idx = 1; idx <= entries.size(); ++idx) {
+            if (idx == entries.size() || entries[idx].first != entries[last].first) {
+                double val = 0.0;
+                for (std::size_t k = last; k < idx; ++k) val += entries[k].second;
+                // Every column stays in the matrix, including those of pinned
+                // / Dirichlet cells: their identity rows prescribe the value,
+                // so the rows that reference them remain EXACT rows of the
+                // composed operator. (Shifting prescribed columns into the
+                // rhs instead would make the STORED matrix a truncated
+                // operator whose action no longer matches the divergence of
+                // the gradient it was built from.)
+                triplets_.emplace_back(r, entries[last].first, val);
+                ++emitted;
+                last = idx;
+            }
+        }
+        bVec_(r) = rowB;
+        if (emitted == 0) {
+            // Degenerate row (e.g. all incident dCoeff are zero): pin it so
+            // the system stays invertible.
+            pMask_[r] = true;
+            pVals_[r] = 0.0;
+            triplets_.emplace_back(r, r, 1.0);
+            bVec_(r) = 0.0;
+        }
     }
 
     // --- Reverse flow diagnostic (no topology change) ---
@@ -321,36 +455,25 @@ void PressureCorrection<Dim>::solve(
     }
     if (nReverseFlow > 0) std::cerr << "  WARNING: " << nReverseFlow << " pressure outlet face(s) with reverse flow\n";
 
-    std::size_t isolatedCells = 0;
     for (std::size_t P = 0; P < n; ++P) {
-        if (pMask_[P]) {
-            triplets_.emplace_back(P, P, 1.0);
-            bVec_(P) = pVals_[P];
-        } else if (diagSum_[P] <= 0.0) {
-            // The cell has no interior face, so it has no pressure equation:
-            // its pressure is arbitrary and its mass balance can never be
-            // corrected. It is excluded from the unknowns (p' = 0 is a
-            // convention here, not a constraint) and REPORTED - a cell like
-            // this keeps a permanent continuity error, and a run that never
-            // converges must say why.
-            pMask_[P] = true;
-            pVals_[P] = 0.0;
-            triplets_.emplace_back(P, P, 1.0);
-            bVec_(P) = 0.0;
-            ++isolatedCells;
-        } else {
-            triplets_.emplace_back(P, P, diagSum_[P]);
-            bVec_(P) = -divU_[P] * mesh_.cellVolume(P) + nonOrthRhs[P];
-        }
+        divU_[P] /= mesh_.cellVolume(P);
     }
-    isolatedCellCount_ = isolatedCells;
-    if (isolatedCells > 0)
-        std::cerr << "  WARNING: " << isolatedCells
-                  << " cell(s) have no interior face and therefore no pressure equation;"
-                  << " their mass balance cannot be corrected\n";
 
     Eigen::VectorXd x;
     bool converged = false;
+
+    // The stopping criterion of the linear solve has to follow the mesh: the
+    // pressure equation drives a FLUX-SUM residual to zero, and the quantity
+    // that must vanish is |r|/V - the divergence of the corrected velocity.
+    // A fixed relative tolerance keeps |r| ~ tol*|b| independent of h, which
+    // leaves a per-cell divergence floor of tol/V that GROWS as the mesh is
+    // refined. Scaling the relative tolerance by the mean cell volume keeps
+    // the resolved divergence ~ tol*h on average - strictly shrinking with
+    // refinement - which is what makes the coupled velocity/pressure pair
+    // converge at the same rate the truncation error does.
+    double volSum = 0.0;
+    for (std::size_t i = 0; i < n; ++i) volSum += mesh_.cellVolume(i);
+    const double volScale = (n > 0) ? volSum / static_cast<double>(n) : 1.0;
 
     std::size_t patternHash = 0;
     for (std::size_t i = 0; i < pMask_.size(); ++i) {
@@ -427,7 +550,9 @@ void PressureCorrection<Dim>::solve(
     if (config_.useAMG && config_.useAMGPreconditioner && n >= effectiveThreshold) {
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
             amg_.invalidate();
-            amg_.setConfig(config_.amgConfig);
+            auto amgCfg = config_.amgConfig;
+            amgCfg.tolerance *= volScale;
+            amg_.setConfig(amgCfg);
             amg_.build(A_);
             amgPrec_.setAMG(&amg_);
             amgBuilt_ = true;
@@ -439,7 +564,7 @@ void PressureCorrection<Dim>::solve(
         if (amg_.isBuilt()) {
             if (!pPatternAnalyzed_) {
                 bicgSolver_.setMaxIterations(1000);
-                bicgSolver_.setTolerance(1e-4);
+                bicgSolver_.setTolerance(1e-4 * volScale);
                 bicgSolver_.analyzePattern(A_);
                 pPatternAnalyzed_ = true;
             }
@@ -456,7 +581,9 @@ void PressureCorrection<Dim>::solve(
     } else if (config_.useAMG && n >= effectiveThreshold) {
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
             amg_.invalidate();
-            amg_.setConfig(config_.amgConfig);
+            auto amgCfg = config_.amgConfig;
+            amgCfg.tolerance *= volScale;
+            amg_.setConfig(amgCfg);
             amg_.build(A_);
             amgBuilt_ = true;
             amgPatternHash_ = patternHash;
@@ -475,42 +602,47 @@ void PressureCorrection<Dim>::solve(
     if (!converged) {
         std::size_t nz = triplets_.size();
         if (!pPatternAnalyzed_ || maskChanged || nz != prevNonZeroPattern_) {
-            cgSolver_.setMaxIterations(10000);
-            cgSolver_.setTolerance(1e-8);
-            cgSolver_.analyzePattern(A_);
-            bicgSolver_.setMaxIterations(1000);
-            bicgSolver_.setTolerance(1e-4);
-            bicgSolver_.analyzePattern(A_);
             bicgFallbackSolver_.setMaxIterations(10000);
-            bicgFallbackSolver_.setTolerance(1e-8);
+            bicgFallbackSolver_.setTolerance(1e-8 * volScale);
             bicgFallbackSolver_.analyzePattern(A_);
+            bicgSolver_.setMaxIterations(1000);
+            bicgSolver_.setTolerance(1e-4 * volScale);
+            bicgSolver_.analyzePattern(A_);
+            cgSolver_.setMaxIterations(10000);
+            cgSolver_.setTolerance(1e-8 * volScale);
+            cgSolver_.analyzePattern(A_);
             pPatternAnalyzed_ = true;
             prevPMask_ = pMask_;
             prevNonZeroPattern_ = nz;
         }
-        cgSolver_.factorize(A_);
-        x = cgSolver_.solve(bVec_);
-        converged = (cgSolver_.info() == Eigen::Success);
-        lastSolveIterations_ = cgSolver_.iterations();
-        lastSolveResidual_ = cgSolver_.error();
+        // The composed pressure matrix is NOT symmetric: its rows are built
+        // from one-sided least-squares gradient fits, so A = A^T fails almost
+        // everywhere. CG + Incomplete Cholesky is only meaningful for SPD
+        // systems and either stalls or diverges here, so the nonsymmetric
+        // Krylov solve (BiCGSTAB + ILU) goes first and CG stays as a fallback
+        // in case BiCGSTAB stalls on this particular pattern.
+        bicgFallbackSolver_.factorize(A_);
+        x = bicgFallbackSolver_.solve(bVec_);
+        converged = (bicgFallbackSolver_.info() == Eigen::Success);
+        lastSolveIterations_ = bicgFallbackSolver_.iterations();
+        lastSolveResidual_ = bicgFallbackSolver_.error();
         if (!converged) {
-            std::cerr << "  WARNING: pressure CG failed (iters=" << cgSolver_.iterations()
-                      << ", resid=" << cgSolver_.error() << "), falling back to BiCGSTAB\n";
+            std::cerr << "  WARNING: pressure BiCGSTAB+ILU failed (iters=" << bicgFallbackSolver_.iterations()
+                      << ", resid=" << bicgFallbackSolver_.error() << "), falling back to CG+IC\n";
         }
         if (!converged) {
-            bicgFallbackSolver_.factorize(A_);
-            x = bicgFallbackSolver_.solve(bVec_);
+            cgSolver_.factorize(A_);
+            x = cgSolver_.solve(bVec_);
+            converged = (cgSolver_.info() == Eigen::Success);
+            lastSolveIterations_ = cgSolver_.iterations();
+            lastSolveResidual_ = cgSolver_.error();
 
-            if (bicgFallbackSolver_.info() != Eigen::Success) {
-                std::cerr << "  WARNING: pressure BiCGSTAB fallback also failed (iters=" << bicgFallbackSolver_.iterations()
-                          << ", resid=" << bicgFallbackSolver_.error() << ")\n";
+            if (!converged) {
+                std::cerr << "  WARNING: pressure CG fallback also failed (iters=" << cgSolver_.iterations()
+                          << ", resid=" << cgSolver_.error() << ")\n";
             }
         }
     }
-
-    // Defer the non-orthogonal correction gradient for the next outer iteration.
-    pressureGradPrev_ = pressureGrad_;
-    hasPrevGrad_ = true;
 
     #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < n; ++i) {

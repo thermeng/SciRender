@@ -148,14 +148,27 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         FVM_ALIGNMENT=64
         FVM_CACHE_LINE_SIZE=64
     )
+    # NOTE: no -ffast-math / /fp:fast here.
+    #
+    # "Fast math" implies -ffinite-math-only (GCC) / /fp:fast (MSVC), i.e. the
+    # compiler is allowed to assume that no value is ever NaN or infinite. Every
+    # NaN/Inf guard in the solver (SIMPLE.cpp, Momentum.cpp, PressureCorrection.cpp)
+    # is then compiled to `false` and the divergence detection is dead code: a
+    # blown-up run silently propagates NaN into the velocity and pressure fields
+    # instead of aborting. It also allows the reassociation of floating point
+    # expressions, which breaks the exact telescoping of the flux sums the
+    # continuity residual is built from.
+    #
+    # -fno-math-errno keeps the speed of the transcendental functions without
+    # any of that.
     target_compile_options(FvmCore PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:
-            -ffast-math
+            -fno-math-errno
             -funroll-loops
             -fomit-frame-pointer
     >
         $<$<CXX_COMPILER_ID:MSVC>:
-            /fp:fast
+            /fp:precise
     >
     )
 

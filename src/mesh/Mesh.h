@@ -37,8 +37,19 @@ public:
                                std::array<double, Dim> l,
                                std::array<double, Dim> ratio);
 
+    // Unstructured mesh.
+    //
+    // `cells` holds the vertex indices of every cell. `cellFaces` is optional:
+    // when it is provided it holds, for every cell, the ordered vertex loop of
+    // each of its faces. Supplying it is the only way to describe a cell whose
+    // topology is not implied by its vertex count (a prism, a pyramid, a general
+    // polyhedron) or whose vertices are not in the VTK/Gmsh element order
+    // (hexahedra read from other formats). When it is empty the topology is
+    // inferred: edges for 2D polygons, the four triangles of a tetrahedron and
+    // the six VTK-ordered faces of a hexahedron.
     Mesh(std::vector<std::array<double, Dim>> vertices,
-         std::vector<std::vector<std::size_t>> cells);
+         std::vector<std::vector<std::size_t>> cells,
+         std::vector<std::vector<std::vector<std::size_t>>> cellFaces = {});
 
     std::size_t nCells() const;
     const std::array<std::size_t, Dim>& dims() const;
@@ -56,7 +67,10 @@ public:
     std::array<double, Dim> cellCenter(std::size_t idx) const;
     double faceArea(std::size_t d, std::size_t idx) const;
     double cellVolume(std::size_t idx) const;
-    // Interpolation weight for face f: phi_f = (1-w)*phi_P + w*phi_N, w = |xF-xP|/|xN-xP| (0.5 for uniform)
+    // Interpolation weight for face f: phi_f = (1-w)*phi_P + w*phi_N.
+    // w is the parameter of the orthogonal projection of the face centre onto
+    // the owner->neighbour segment, so it is the exact linear-interpolation
+    // coefficient between the two cell centres. It is 0.5 on a uniform mesh.
     double faceWeight(std::size_t f) const;
     // Distance-weighted face value: (1-w)*phi_P + w*phi_N, or phi_P for boundary
     template<typename T>
@@ -142,6 +156,10 @@ public:
 
     std::vector<std::array<double, Dim>> vertices_;
     std::vector<std::vector<std::size_t>> cells_;
+    // Optional explicit face topology: cellFaceVerts_[cell][face] = ordered
+    // vertex loop of that face. Empty => the topology is inferred from the
+    // cell's vertex list.
+    std::vector<std::vector<std::vector<std::size_t>>> cellFaceVerts_;
     std::vector<std::array<double, Dim>> cellCenters_;
     std::vector<double> cellVolumes_;
     std::vector<std::vector<std::size_t>> faceVertices_;
@@ -160,7 +178,18 @@ private:
     void initUniform_(std::array<std::size_t, Dim> n, std::array<double, Dim> l);
     static std::vector<double> geometricStretching_(std::size_t n, double L, double r);
     std::array<double, Dim> computeCellCenter_(const std::vector<std::size_t>& cell) const;
-    double computeCellVolume_(const std::vector<std::size_t>& cell) const;
+    // Ordered vertex loops of the faces of cell `ci` (explicit topology when
+    // supplied, otherwise inferred from the cell's vertex list).
+    std::vector<std::vector<std::size_t>> cellFaceLoops_(std::size_t ci) const;
+    // Area, unit normal and centroid of a 3D polygon given as an ordered
+    // vertex loop. The normal follows the loop orientation, the area is the
+    // true surface area (fan triangulation) so warped quads are handled.
+    void polygonGeometry3D_(const std::vector<std::size_t>& loop,
+                            double& area,
+                            std::array<double, 3>& normal,
+                            std::array<double, 3>& centroid) const;
+    // Volume and centroid of every unstructured cell.
+    void computeUnstructuredCellData_();
     void computeUnstructuredFaceData_();
     void computeFaceData_();
     void buildAdjacencyAndBoundaryCache_();

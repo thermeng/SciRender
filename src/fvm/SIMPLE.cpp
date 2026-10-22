@@ -166,6 +166,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     lastIterations_ = 0;
     lastContResid_ = 0.0;
     lastMomResid_ = 0.0;
+    convergedStreak_ = 0;
     aborted_ = false;
     {
         bool isPISO = (config_.solverType == SolverType::PISO) ||
@@ -228,6 +229,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     }
 
     gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_);
+    gradientCalc_->setScheme(config_.gradientScheme);
 
     if (config_.turbulenceEnabled) {
         typename SSTModel<Dim>::Config sstCfg;
@@ -262,7 +264,10 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
 
-    bcDiscretization_ = bc_.build();
+    // The boundary discretization is rebuilt only when the boundary
+    // conditions actually changed. Rebuilding it every outer iteration copied
+    // six per-cell vectors (and their allocations) for nothing.
+    if (bc_.isDirty()) bcDiscretization_ = bc_.build();
 
     solveMomentum_(uStar_, velocityOld_);
 
@@ -272,7 +277,8 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
         pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
                                  bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
                                  &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
-                                 &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
+                                 &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                                 &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
 
         // Scale p' only if extreme (configurable multiple of dynamic pressure).
         limitPressureCorrection_(pPrime_);
@@ -416,14 +422,21 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
         momAmg_[d].build(momA_);
         momAmgPatternHash_[d] = hash;
         momAmgBuilt_[d] = momAmg_[d].isBuilt();
+        momAmgValueUpdates_[d] = 0;
         ++momStats_.amgBuilds;
         momStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tb).count();
-    } else {
+    } else if (++momAmgValueUpdates_[d] >= std::max<std::size_t>(1, config_.momentumAmgRebuildInterval)) {
         // The momentum matrix VALUES change every solve (convective flux,
         // pressure gradient, under-relaxation, rho*V/dt), unlike the pressure
         // correction matrix which is constant between pattern changes. Without
         // this the fine-level smoother runs on iteration-1 coefficients and the
         // preconditioner degrades until BiCGSTAB stalls.
+        //
+        // The rebuild is amortised: updateFineValues() rebuilds the whole
+        // hierarchy (the coarse levels depend on A through the Galerkin
+        // product, so a value-only fine update would be unsound), and doing
+        // that on every solve costs more than the solve it accelerates.
+        momAmgValueUpdates_[d] = 0;
         momAmg_[d].updateFineValues(momA_);
     }
 
@@ -603,8 +616,16 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance) {
     if (cancelRequested_.load(std::memory_order_acquire)) {
         return true;
     }
-    if (checkTolerance && lastContResid_ < config_.tolerance && lastMomChange_ < config_.tolerance) {
-        return true;
+    if (checkTolerance && !config_.runFixedIterations) {
+        if (lastContResid_ < config_.tolerance && lastMomChange_ < config_.tolerance) {
+            // The criterion must hold for `convergenceHoldIterations`
+            // consecutive iterations before the run is declared converged: a
+            // single lucky iteration is not a steady state.
+            if (++convergedStreak_ >= std::max(1, config_.convergenceHoldIterations))
+                return true;
+        } else {
+            convergedStreak_ = 0;
+        }
     }
     return false;
 }
@@ -698,10 +719,23 @@ void SIMPLE<Dim>::printFinalStats_() const {
         maxU = std::max(maxU, std::abs((boundVelocity())[0][i]));
         maxV = std::max(maxV, std::abs((boundVelocity())[1][i]));
     }
+    // The verdict comes first: "max|u|" alone says nothing about whether the
+    // result is a steady state.
+    std::cerr << "  [final] status: " << statusText()
+              << "  (iterations=" << lastIterations_
+              << ", continuity=" << lastContResid_ << ")\n";
     if (aborted_) {
         std::cerr << "  [final] ABORTED (diverged or NaN residuals)\n";
     } else {
         std::cerr << "  [final] max|u|=" << maxU << "  max|v|=" << maxV << "\n";
+    }
+    if (pPrimeLimiterHits_ > 0) {
+        std::cerr << "  WARNING: the p' magnitude limiter fired " << pPrimeLimiterHits_
+                  << " time(s). It rescales p' uniformly, which imposes an effective\n"
+                     "         alphaP=alphaU<1 and weakens the pressure/velocity coupling:\n"
+                     "         continuity is no longer exactly satisfied at the end of a\n"
+                     "         corrector. Raise simple.pressure_correction_limit or turn the\n"
+                     "         limiter off if the run is well behaved.\n";
     }
 }
 
@@ -709,8 +743,13 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     initializeSolve_(velocity, pressure);
 
+    status_ = Status::NotConverged;
+
     for (std::size_t iter = startIteration_; iter < config_.maxIterations; ++iter) {
-        if (cancelRequested_.load(std::memory_order_acquire)) break;
+        if (cancelRequested_.load(std::memory_order_acquire)) {
+            status_ = Status::Cancelled;
+            break;
+        }
 
         performIteration_(velocity, pressure, iter);
 
@@ -726,11 +765,34 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
 
         saveCheckpoint_(iter);
 
-        if (checkConvergence_(iter)) break;
+        if (checkConvergence_(iter)) {
+            // Distinguish the three reasons the loop can end: the tolerance was
+            // met, the run blew up, or the user cancelled it. Reporting "done"
+            // for all three is what made an unconverged result look converged.
+            if (aborted_) {
+                status_ = Status::Aborted;
+            } else if (cancelRequested_.load(std::memory_order_acquire)) {
+                status_ = Status::Cancelled;
+            } else {
+                status_ = Status::Converged;
+            }
+            break;
+        }
     }
 
     printMomentumSolverStats_();
     printFinalStats_();
+}
+
+template<std::size_t Dim>
+const char* SIMPLE<Dim>::statusText() const {
+    switch (status_) {
+        case Status::Converged:   return "converged";
+        case Status::Aborted:     return "aborted (diverged or non-finite residual)";
+        case Status::Cancelled:   return "cancelled";
+        case Status::NotConverged: break;
+    }
+    return "not converged (iteration limit reached)";
 }
 
 template<std::size_t Dim>
@@ -1012,12 +1074,13 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
-    bcDiscretization_ = bc_.build();
+    if (bc_.isDirty()) bcDiscretization_ = bc_.build();
     solveMomentumTransient_(uStar_, velocityOld_);
     pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
-                             bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
-                             &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
-                             &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
+                              bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
+                              &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
+                              &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                              &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
     limitPressureCorrection_(pPrime_);
     pressureBeforeCorrection_ = boundPressure();
     pressureGradBefore_ = pressureCorrection_.pressureGradient();
@@ -1077,7 +1140,7 @@ void SIMPLE<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& 
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
-    bcDiscretization_ = bc_.build();
+    if (bc_.isDirty()) bcDiscretization_ = bc_.build();
     solveMomentumTransient_(uStar_, velocityOld_);
     // dCoeff_ now frozen for all correctors in this time step
 }
@@ -1087,9 +1150,10 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
     // Pressure correction with frozen dCoeff - true PISO, no momentum rebuild (Fluent-like)
     // Use predicted uStar_ (frozen) for divU; after correction uStar_ is updated to corrected velocity for next loop
     pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
-                             bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
-                             &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
-                             &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
+                              bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
+                              &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
+                              &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                              &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
     limitPressureCorrection_(pPrime_);
     pressureBeforeCorrection_ = boundPressure();
     pressureGradBefore_ = pressureCorrection_.pressureGradient();

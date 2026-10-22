@@ -4,6 +4,7 @@
 #include "field/Field.h"
 #include <array>
 #include <cstddef>
+#include <utility>
 #include <vector>
 #include <Eigen/Dense>
 
@@ -35,6 +36,18 @@ public:
                  std::array<Field<Dim>, Dim>& grad,
                  const std::vector<char>& dirichletMask = {},
                  const std::vector<double>& dirichletValues = {}) const;
+
+    // The least-squares gradient as row-wise coefficients, so the pressure
+    // equation can be assembled as the exact composition of the divergence
+    // with THIS operator.
+    //
+    // out[d][cell] lists (column, coefficient) pairs with
+    //   (G phi)[d][cell] = sum over (c, k) in out[d][cell] of k * phi[c],
+    // using exactly the weights compute() applies for the LeastSquares scheme
+    // (the fit over the interior neighbours, the singular-mesh fallback). The
+    // scheme must therefore be LeastSquares when this is asked for; another
+    // scheme throws.
+    void buildMatrices(std::array<std::vector<std::vector<std::pair<std::size_t, double>>>, Dim>& out) const;
 
     const Mesh<Dim>& mesh() const;
 
