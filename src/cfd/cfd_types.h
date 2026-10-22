@@ -106,7 +106,7 @@ struct TransientSettings {
 struct CaseSettings {
     double rho = 1.0, nu = 0.01;
     double tolerance = 1e-3;
-    std::size_t maxIterations = 100;
+    std::size_t maxIterations = 500;
     double alphaU = 0.7, alphaP = 0.3;
     bool simplec = false;
     int scheme = 0; // 0 upwind, 1 central, 2 second-order upwind
@@ -117,15 +117,15 @@ struct CaseSettings {
 
     // Advanced SIMPLE settings
     std::size_t pressureRefCell = 0; // 0 = auto (last cell)
-    int pressureCorrectors = 3;
-    bool limitPressureCorrection = true;
+    int pressureCorrectors = 1;
+    bool limitPressureCorrection = false;
     double pressureCorrectionLimit = 5.0;
     std::size_t printFrequency = 1;
     std::size_t residualHistoryWindow = 20;
 
     // Number of OpenMP threads used by the solver (matrix assembly, AMG,
     // residuals). 0 = auto (OpenMP runtime default / OMP_NUM_THREADS).
-    int numThreads = 0;
+    int numThreads = 1;
     // Pressure-correction linear solver (see fvm::PressureCorrection::Config)
     bool pressureUseAMG = true;
     bool pressureUseAMGPreconditioner = true;
