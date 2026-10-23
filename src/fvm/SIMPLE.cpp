@@ -810,20 +810,7 @@ SSTModel<Dim>* SIMPLE<Dim>::turbulence() { return turbulence_.get(); }
 template<std::size_t Dim>
 const SSTModel<Dim>* SIMPLE<Dim>::turbulence() const { return turbulence_.get(); }
 
-template<std::size_t Dim>
-void SIMPLE<Dim>::requestCancel() {
-    cancelRequested_.store(true, std::memory_order_release);
-}
-
-template<std::size_t Dim>
-void SIMPLE<Dim>::resetCancel() {
-    cancelRequested_.store(false, std::memory_order_release);
-}
-
-template<std::size_t Dim>
-bool SIMPLE<Dim>::isCancelRequested() const {
-    return cancelRequested_.load(std::memory_order_acquire);
-}
+// (cancel control now inherited from Cancellable)
 
 // --- Private method implementations ---
 

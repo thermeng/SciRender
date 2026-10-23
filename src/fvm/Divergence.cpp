@@ -1,4 +1,5 @@
 #include "fvm/Divergence.h"
+#include "fvm/FaceOperator.h"
 #include "fvm/Validation.h"
 
 #include <algorithm>
@@ -29,48 +30,8 @@ void computeDivergenceInto(const Mesh<Dim>& mesh, const VectorField<Dim>& veloci
     const std::size_t n = mesh.nCells();
     validateVelocityMask(Dim, n, dirichletMask, dirichletValues);
 
-    for (std::size_t i = 0; i < n; ++i) div[i] = 0.0;
-    if (sumFlux) *sumFlux = 0.0;
-
-    const std::size_t nF = mesh.nFaces();
-    for (std::size_t f = 0; f < nF; ++f) {
-        const std::size_t P = mesh.owner(f);
-        const std::size_t N = mesh.neighbor(f);
-        const bool isBoundary = (N == std::size_t(-1));
-
-        const auto& nrm = mesh.faceNormal(f);
-        const double area = mesh.faceArea(f);
-        const double w = isBoundary ? 0.0 : mesh.faceWeight(f);
-
-        double un = 0.0;
-        for (std::size_t d = 0; d < Dim; ++d) {
-            double prescribed = 0.0;
-            double uFace;
-            if (isBoundary) {
-                // A boundary face belongs to the cell that owns it: its
-                // prescribed value, or its own velocity when the boundary
-                // condition is unknown.
-                uFace = prescribedValue(dirichletMask, dirichletValues, d, P, prescribed)
-                            ? prescribed
-                            : velocity[d][P];
-            } else if (prescribedValue(dirichletMask, dirichletValues, d, N, prescribed)) {
-                // The neighbour prescribes its velocity: it owns the whole
-                // face, so the face carries the prescribed value.
-                uFace = prescribed;
-            } else if (prescribedValue(dirichletMask, dirichletValues, d, P, prescribed)) {
-                uFace = prescribed;
-            } else {
-                uFace = (1.0 - w) * velocity[d][P] + w * velocity[d][N];
-            }
-            un += uFace * nrm[d];
-        }
-
-        const double flux = un * area;
-        div[P] += flux / mesh.cellVolume(P);
-        if (!isBoundary)
-            div[N] -= flux / mesh.cellVolume(N);
-        if (sumFlux) *sumFlux += std::abs(flux);
-    }
+    FaceOperator<Dim> op(mesh);
+    op.divergence(velocity, div, dirichletMask, dirichletValues, sumFlux);
 }
 
 template<std::size_t Dim>
