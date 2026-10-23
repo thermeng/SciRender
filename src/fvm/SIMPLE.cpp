@@ -1445,6 +1445,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         // Roll the BDF2 history forward. dtPrev_ records the step size that
         // produced velocityN_, which is what the next step's BDF2 coefficients
         // are derived from.
+        if (cancelRequested_.load(std::memory_order_acquire)) break;
         velocityNM1_ = velocityN_;
         velocityN_ = velocity;
         pressureN_ = pressure;

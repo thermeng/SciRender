@@ -34,6 +34,7 @@ public:
     void setPatchBCs(const std::vector<cfd::PatchBC>& bcs) { m_patchBCs = bcs; }
     void run();
     void cancel();
+    bool isCancelled() const { return m_cancel.load(); }
     // Zero the velocity/pressure fields and return the freshly initialized
     // result mesh so the user can confirm a clean start before re-running.
     // Returns nullptr when no mesh is loaded. Safe to call between runs; do
