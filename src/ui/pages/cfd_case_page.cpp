@@ -708,6 +708,7 @@ void CfdCasePage::onFinished(const QString& summary) {
     setRunning(false);
     m_status->setText(summary);
     S()->setAnimScaleGlobal(m_savedAnimGlobal);
+    if (summary == "Cancelled") return;
     auto rm = m_ctrl->resultMesh();
     if (rm) S()->onAnimationFrame(rm, 0, 0.0);
 }
