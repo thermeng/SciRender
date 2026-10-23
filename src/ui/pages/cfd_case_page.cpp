@@ -16,6 +16,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <iostream>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -81,20 +82,16 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     connect(m_ctrl, &CfdController::failed, this, &CfdCasePage::onFailed);
 
     // ── Widgets ──────────────────────────────────────────────────────────────
-    m_status = cfdUi.statusText;
     m_iterValue = cfdUi.iterValue;
     m_contValue = cfdUi.contValue;
     m_momValue = cfdUi.momValue;
 
-    m_loadBtn = cfdUi.loadBtn;
     m_bcEditBtn = cfdUi.bcEditBtn;
     m_advancedBtn = cfdUi.advancedBtn;
     m_initBtn = cfdUi.initBtn;
     m_runBtn = cfdUi.runBtn;
     m_cancelBtn = cfdUi.cancelBtn;
-    m_exportBtn = cfdUi.exportBtn;
-    m_saveCaseBtn = cfdUi.saveCaseBtn;
-    m_loadCaseBtn = cfdUi.loadCaseBtn;
+
 
 
     m_rho = cfdUi.rhoSpin;
@@ -191,8 +188,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     connect(m_advancedBtn, &QPushButton::clicked, this, [this] { m_advancedDlg->exec(); });
     syncTime(); // depends on dialog widgets; must run after buildAdvancedDialog()
     // ── Read-out boxes ───────────────────────────────────────────────────────
-    m_status->setStyleSheet(QString("QLabel { %1 padding: 6px 8px; }").arg(readoutStyle()));
-
     QWidget* monitor = cfdUi.solveMonitor;
     monitor->setAttribute(Qt::WA_StyledBackground, true);
     monitor->setStyleSheet(QString("#solveMonitor { %1 }").arg(readoutStyle()));
@@ -205,17 +200,13 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     }
 
     // ── Signals ──────────────────────────────────────────────────────────────
-    connect(m_loadBtn, &QPushButton::clicked, this, &CfdCasePage::onLoadMesh);
     connect(m_bcEditBtn, &QPushButton::clicked, this, &CfdCasePage::onEditBCs);
     connect(m_runBtn, &QPushButton::clicked, this, &CfdCasePage::onRun);
     connect(m_cancelBtn, &QPushButton::clicked, this, &CfdCasePage::onCancel);
     connect(m_initBtn, &QPushButton::clicked, this, &CfdCasePage::onInitialize);
-    connect(m_exportBtn, &QPushButton::clicked, this, &CfdCasePage::onExport);
-    connect(m_saveCaseBtn, &QPushButton::clicked, this, &CfdCasePage::onSaveCase);
-    connect(m_loadCaseBtn, &QPushButton::clicked, this, &CfdCasePage::onLoadCase);
 
 
-    m_status->setText("No mesh loaded.");
+    log("No mesh loaded.");
     setRunning(false);
 
     qobject_cast<QVBoxLayout*>(content->layout())->addStretch();
@@ -523,7 +514,6 @@ void CfdCasePage::setRunning(bool running) {
     if (m_runBtn) m_runBtn->setEnabled(!running);
     if (m_initBtn) m_initBtn->setEnabled(!running);
     if (m_cancelBtn) m_cancelBtn->setEnabled(running);
-    if (m_loadBtn) m_loadBtn->setEnabled(!running);
     if (m_advancedBtn) m_advancedBtn->setEnabled(!running);
     if (m_bcEditBtn) m_bcEditBtn->setEnabled(!running && !m_patchBCs.empty());
 }
@@ -533,8 +523,12 @@ void CfdCasePage::onLoadMesh() {
         this, "Load CFD Mesh", QString(), "Mesh (*.msh *.vtk *.vtu);;All files (*)");
     if (path.isEmpty()) return;
     m_meshName = QFileInfo(path).fileName();
-    m_status->setText("Loading " + m_meshName + "...");
+    log("Loading " + m_meshName + "...");
     m_ctrl->loadMesh(path); // emits meshLoaded() (or failed()) synchronously
+}
+
+void CfdCasePage::log(const QString& msg) {
+    std::cout << msg.toStdString() << std::endl;
 }
 
 void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
@@ -594,7 +588,7 @@ void CfdCasePage::onMeshLoaded() {
     if (res.renderMesh) {
         S()->applyLoadedMesh(res.renderMesh, m_meshName.isEmpty() ? "CFD Mesh" : m_meshName);
     }
-    m_status->setText(QString("%1 — %2 patches")
+    log(QString("%1 — %2 patches")
                           .arg(m_meshName.isEmpty() ? "Mesh" : m_meshName)
                           .arg(res.patches.size()));
     setRunning(m_running);
@@ -671,7 +665,7 @@ void CfdCasePage::onEditBCs() {
     const auto& res = m_ctrl->meshResult();
     if (m_patchBCs.empty() && !res.patches.empty()) rebuildPatchTable();
     if (m_patchBCs.empty()) {
-        m_status->setText("Load a mesh first.");
+        log("Load a mesh first.");
         return;
     }
 
@@ -683,14 +677,14 @@ void CfdCasePage::onEditBCs() {
     if (dlg.exec() != QDialog::Accepted) return;
 
     m_patchBCs = dlg.patchBCs();
-    m_status->setText(QString("Boundary conditions updated (%1 patches).").arg(m_patchBCs.size()));
+    log(QString("Boundary conditions updated (%1 patches).").arg(m_patchBCs.size()));
 }
 
 void CfdCasePage::onRun() {
     if (m_running) return;
     collectSettings();
     setRunning(true);
-    m_status->setText("Running...");
+    log("Running...");
     m_iterValue->setText("0");
     m_contValue->setText("--");
     m_momValue->setText("--");
@@ -707,26 +701,26 @@ m_ctrl->run();
 void CfdCasePage::onCancel() {
     if (!m_running) return;
     m_ctrl->cancel();
-    m_status->setText("Cancelling...");
+    log("Cancelling...");
 }
 
 void CfdCasePage::onInitialize() {
     if (m_running) {
-        m_status->setText("Stop the current run before initializing.");
+        log("Stop the current run before initializing.");
         return;
     }
     if (!m_ctrl->meshResult().mesh2) {
-        m_status->setText("Load a mesh first.");
+        log("Load a mesh first.");
         return;
     }
     collectSettings();
     auto rm = m_ctrl->initialize();
     if (!rm) {
-        m_status->setText("No mesh loaded.");
+        log("No mesh loaded.");
         return;
     }
     S()->applyLoadedMesh(rm, "cfd_solution");
-    m_status->setText("Initialized: U = 0, p = 0.");
+    log("Initialized: U = 0, p = 0.");
     m_iterValue->setText("0");
     m_contValue->setText("--");
     m_momValue->setText("--");
@@ -737,7 +731,7 @@ void CfdCasePage::onExport() {
                                                       "VTK (*.vtu)");
     if (path.isEmpty()) return;
     m_ctrl->exportVtu(path);
-    m_status->setText("Exported " + QFileInfo(path).fileName());
+    log("Exported " + QFileInfo(path).fileName());
 }
 
 void CfdCasePage::onSaveCase() {
@@ -745,16 +739,16 @@ void CfdCasePage::onSaveCase() {
                                                       "CFD Case (*.scfd)");
     if (path.isEmpty()) return;
     collectSettings();
-    if (m_ctrl->saveCase(path)) m_status->setText("Saved " + QFileInfo(path).fileName());
-    else m_status->setText("Save failed");
+    if (m_ctrl->saveCase(path)) log("Saved " + QFileInfo(path).fileName());
+    else log("Save failed");
 }
 
 void CfdCasePage::onLoadCase() {
     const QString path = QFileDialog::getOpenFileName(this, "Load Case", QString(),
                                                       "CFD Case (*.scfd)");
     if (path.isEmpty()) return;
-    if (m_ctrl->loadCase(path)) m_status->setText("Loaded " + QFileInfo(path).fileName());
-    else m_status->setText("Load failed");
+    if (m_ctrl->loadCase(path)) log("Loaded " + QFileInfo(path).fileName());
+    else log("Load failed");
 }
 
 void CfdCasePage::onCaseLoaded() {
@@ -784,38 +778,38 @@ void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int s
     S()->onAnimationFrame(mesh, step, time);
     S()->setMeshUseScalarColor(hadScalarColor);
     m_iterValue->setText(QString::number(step));
-    m_status->setText(QString("Transient: step %1, t = %2 s").arg(step).arg(time, 0, 'g', 6));
+    log(QString("Transient: step %1, t = %2 s").arg(step).arg(time, 0, 'g', 6));
 }
 
 void CfdCasePage::onFinished(const QString& summary) {
     setRunning(false);
-    m_status->setText(summary);
+    log(summary);
     S()->setAnimScaleGlobal(m_savedAnimGlobal);
     if (summary == "Cancelled") {
         auto rm = m_ctrl->resultMesh();
-        if (!rm) { m_status->setText(summary + " (no result mesh)"); return; }
+        if (!rm) { log(summary + " (no result mesh)"); return; }
         try {
             S()->applyLoadedMesh(rm, "cfd_solution");
-            m_status->setText(summary + " (visualized)");
+            log(summary + " (visualized)");
         } catch (const std::exception& e) {
-            m_status->setText(QString("Visualize failed: %1").arg(e.what()));
+            log(QString("Visualize failed: %1").arg(e.what()));
         }
         return;
     }
     auto rm = m_ctrl->resultMesh();
-    if (!rm) { m_status->setText(summary + " (no result mesh)"); return; }
+    if (!rm) { log(summary + " (no result mesh)"); return; }
     try {
         S()->applyLoadedMesh(rm, "cfd_solution");
-        m_status->setText(summary + " (visualized)");
+        log(summary + " (visualized)");
     } catch (const std::exception& e) {
-        m_status->setText(QString("Visualize failed: %1").arg(e.what()));
+        log(QString("Visualize failed: %1").arg(e.what()));
     }
 }
 
 void CfdCasePage::onFailed(const QString& error) {
     setRunning(false);
     S()->setAnimScaleGlobal(m_savedAnimGlobal);
-    m_status->setText("Failed: " + error);
+    log("Failed: " + error);
 }
 
 } // namespace sidebar
