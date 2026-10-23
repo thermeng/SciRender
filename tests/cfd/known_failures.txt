@@ -12,12 +12,3 @@
 #
 # A name that does not match any test case fails the build, so the registry
 # cannot silently rot.
-
-# --- Pressure / velocity coupling -------------------------------------------
-# --- Pressure / velocity coupling (resolved) ---
-# cfd.pressure.correction_removes_divergence
-# cfd.pressure.operator_consistency
-
-# The coupling error must shrink with the mesh spacing. It does not: it grows
-# like 1/h for a kinked source and for a smooth one as well.
-cfd.pressure.coupling_error_scaling

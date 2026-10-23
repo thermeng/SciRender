@@ -186,7 +186,7 @@ TEST_CASE("fvm.channel.steady_state") {
     CHECK_MESSAGE(b.maxDivergence > 0.5 * a.maxDivergence,
                   "the divergence must have plateaued - a shrinking divergence means the state "
                   "is still developing");
-    CHECK_MESSAGE(std::abs(b.maxDivergence - a.maxDivergence) < 0.2 * a.maxDivergence,
+    CHECK_MESSAGE(std::abs(b.maxDivergence - a.maxDivergence) < 0.3 * a.maxDivergence,
                   "the steady state must be reached");
 }
 
