@@ -691,6 +691,7 @@ void CfdCasePage::onProgress(int iteration, double continuity, double momentum) 
 }
 
 void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time) {
+    if (m_ctrl && m_ctrl->isCancelled()) return;
     if (!mesh) return;
     // Preserve the user's scalar-color toggle: onAnimationFrame's first-frame
     // block disables it by default (animation UX), which would blank the

@@ -126,6 +126,7 @@ void CfdController::run() {
                 if (m_solver) turb = m_solver->turbulence();
             }
             auto rm = buildResultMesh(base, *meshPtr, velocity, pressure, turb, settings, patchBCs);
+            if (m_cancel.load()) return;
             if (rm) emit frameReady(rm, step, time);
         };
     }
