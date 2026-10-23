@@ -1,4 +1,4 @@
-﻿#include "main_window.h"
+#include "main_window.h"
 #include "ui_main_window.h"
 #include "animation_export_dialog.h"
 #include "ui/widgets/plot_window.h"
@@ -74,7 +74,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Plot: dockable viewport constrained to original viewport location.
     // Inner QMainWindow hosts viewport + plot so plot can only dock around the
-    // viewport (Left/Right/Top/Bottom of central area) â€” never before the sidebar.
+    // viewport (Left/Right/Top/Bottom of central area) — never before the sidebar.
     m_centralHost = new QMainWindow(this);
     m_centralHost->setObjectName("CentralHost");
     m_centralHost->setWindowFlags(Qt::Widget);
@@ -94,7 +94,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_plotDock->setObjectName("PlotDock");
     m_plotDock->setWidget(m_histContainer);
     m_plotDock->setAllowedAreas(Qt::AllDockWidgetAreas);
-    // No Floatable â€” plot must stay docked inside central host (original viewport location)
+    // No Floatable — plot must stay docked inside central host (original viewport location)
     m_plotDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
     m_centralHost->addDockWidget(Qt::RightDockWidgetArea, m_plotDock); // default: horizontally beside scene
     m_plotDock->hide();
@@ -306,7 +306,7 @@ void MainWindow::setupMenus() {
 //
 // The capability drives the predicate; `unavailableReason` is deliberately
 // per-section rather than per-capability. Two sections can need the same data
-// and still describe it in their own terms â€” Volume and Slice Plane both need a
+// and still describe it in their own terms — Volume and Slice Plane both need a
 // 3D grid with a scalar field, but only one of them is volume rendering, and
 // showing the wrong feature name on a page reads as a bug.
 enum class NavCapability {
@@ -1118,7 +1118,7 @@ void MainWindow::showShortcuts() {
     info.exec();
 }
 
-// Plots page (12) â€” dockable viewport launcher (constrained to central host)
+// Plots page (12) — dockable viewport launcher (constrained to central host)
 void MainWindow::setHistogramVisible(bool visible) {
     m_histogramVisible = visible;
     if (m_plotDock) {

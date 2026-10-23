@@ -22,12 +22,12 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
                                            int initialBandCount, QWidget* parent)
     : QDialog(parent), m_settings(settings), m_barSubtitle(barSubtitle) {
     // Slice bars arrive per-axis ("Slice X"/"Slice Y"/"Slice Z") but share one
-    // slice style backend â€” normalize for all logic below. Title keeps the
+    // slice style backend — normalize for all logic below. Title keeps the
     // original so the user still sees which plane they right-clicked.
     const QString displaySubtitle = m_barSubtitle;
     if (m_barSubtitle.startsWith("Slice")) m_barSubtitle = "Slice";
     setWindowTitle(displaySubtitle.isEmpty() ? QString("Colorbar Style")
-                                             : QString("Colorbar Style â€” %1").arg(displaySubtitle));
+                                             : QString("Colorbar Style — %1").arg(displaySubtitle));
     setModal(true);
 
     m_initialFontFamily = m_settings->getColorbarFontFamily();
@@ -158,7 +158,7 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
     // swatch preview. Use Colormap toggle stays in sidebar per spec.
     {
         if (!m_barSubtitle.isEmpty()) {
-            auto* palHeader = new QLabel(QString("Palette â€” %1").arg(m_barSubtitle), this);
+            auto* palHeader = new QLabel(QString("Palette — %1").arg(m_barSubtitle), this);
             QFont f = palHeader->font(); f.setBold(true); palHeader->setFont(f);
             form->addRow(palHeader);
         }
@@ -207,7 +207,7 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
 
     // Fixed Range per bar (RangeEditor + Enable checkbox). Adaptive for Vector/Streamline.
     {
-        auto* rangeHeader = new QLabel(QString("Fixed Range â€” %1").arg(m_barSubtitle.isEmpty() ? QString("scalar") : m_barSubtitle), this);
+        auto* rangeHeader = new QLabel(QString("Fixed Range — %1").arg(m_barSubtitle.isEmpty() ? QString("scalar") : m_barSubtitle), this);
         QFont hf = rangeHeader->font(); hf.setBold(true); rangeHeader->setFont(hf);
         form->addRow(rangeHeader);
 
@@ -458,7 +458,7 @@ void ColorbarStyleDialog::syncRangeFromSettings() {
         m_rangeBoundComp = comp;
         bool solidOrNone = (mode == 0) || !(m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors());
         if (solidOrNone) {
-            m_rangeModeLabel->setText("Fixed Range disabled â€” Color By is Solid Color or no vectors");
+            m_rangeModeLabel->setText("Fixed Range disabled — Color By is Solid Color or no vectors");
             m_rangeModeLabel->setVisible(true);
             m_rangeEnable->blockSignals(true); m_rangeEnable->setChecked(false); m_rangeEnable->setEnabled(false); m_rangeEnable->blockSignals(false);
             m_rangeEditor->setEnabled(false);
@@ -491,7 +491,7 @@ void ColorbarStyleDialog::syncRangeFromSettings() {
         m_rangeBoundComp = comp;
         bool solidOrNone = (mode == 0) || !m_settings->hasMeshVectors();
         if (solidOrNone) {
-            m_rangeModeLabel->setText("Fixed Range disabled â€” Color By is Solid Color or no vectors");
+            m_rangeModeLabel->setText("Fixed Range disabled — Color By is Solid Color or no vectors");
             m_rangeModeLabel->setVisible(true);
             m_rangeEnable->blockSignals(true); m_rangeEnable->setChecked(false); m_rangeEnable->setEnabled(false); m_rangeEnable->blockSignals(false);
             m_rangeEditor->setEnabled(false);
