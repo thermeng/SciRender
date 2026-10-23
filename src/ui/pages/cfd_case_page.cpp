@@ -465,13 +465,9 @@ void CfdCasePage::syncDialogDependencies() {
     m_momentumAmgMaxResidual->setEnabled(momentumAmg);
     m_momentumAmgWidget->setEnabled(momentumAmg);
 
-    // In transient (PISO) mode the corrector count comes from "Outer correctors"
-    // on the page, and the steady-path "Correctors" field is not consulted.
-    // SIMPLE does a single pressure correction per iteration, so the
-    // corrector count is fixed at 1 and the field is not user-editable.
-    m_pressureCorrectors->setEnabled(false);
-    m_pressureCorrectors->setToolTip(
-        "SIMPLE performs a single pressure correction per iteration; this value is fixed at 1.");
+    // "Correctors" is usable in both steady (SIMPLE) and transient (PISO) runs.
+    m_pressureCorrectors->setEnabled(true);
+    m_pressureCorrectors->setToolTip("Pressure-corrector sweeps per iteration.");
 }
 
 void CfdCasePage::syncTimeDependencies() {
