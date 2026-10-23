@@ -99,6 +99,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_alphaP = cfdUi.alphaPSpin;
     m_simplec = cfdUi.simplecCb;
     m_scheme = cfdUi.schemeCombo;
+    m_gradientScheme = cfdUi.gradientSchemeCombo;
     m_rhie = cfdUi.rhieCb;
     m_turb = cfdUi.turbCb;
     m_kInf = cfdUi.kInfSpin;
@@ -139,6 +140,8 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_scheme->addItems({"Upwind", "Central", "Second-Order Upwind"});
     m_scheme->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_scheme->setMinimumContentsLength(8);
+    m_gradientScheme->addItems({"Least Squares", "Green-Gauss Cell", "Green-Gauss Node"});
+    m_gradientScheme->setCurrentIndex(0);
     m_rhie->setChecked(true);
 
     // ── Time mode defaults ───────────────────────────────────────────────────
@@ -561,6 +564,7 @@ void CfdCasePage::collectSettings() {
     s.alphaP = m_alphaP->value();
     s.simplec = m_simplec->isChecked();
     s.scheme = m_scheme->currentIndex();
+    s.gradientScheme = m_gradientScheme->currentIndex();
     s.rhieChow = m_rhie->isChecked();
     s.turbulence = m_turb->isChecked();
     s.kInf = m_kInf->value();
