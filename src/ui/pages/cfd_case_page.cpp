@@ -73,6 +73,9 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
 
     m_ctrl = new CfdController(this);
     connect(m_ctrl, &CfdController::meshLoaded, this, &CfdCasePage::onMeshLoaded);
+    connect(m_ctrl, &CfdController::caseLoaded, this, &CfdCasePage::onCaseLoaded);
+
+
     connect(m_ctrl, &CfdController::progress, this, &CfdCasePage::onProgress);
     connect(m_ctrl, &CfdController::finished, this, &CfdCasePage::onFinished);
     connect(m_ctrl, &CfdController::failed, this, &CfdCasePage::onFailed);
@@ -90,6 +93,9 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_runBtn = cfdUi.runBtn;
     m_cancelBtn = cfdUi.cancelBtn;
     m_exportBtn = cfdUi.exportBtn;
+    m_saveCaseBtn = cfdUi.saveCaseBtn;
+    m_loadCaseBtn = cfdUi.loadCaseBtn;
+
 
     m_rho = cfdUi.rhoSpin;
     m_nu = cfdUi.nuSpin;
@@ -205,6 +211,9 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     connect(m_cancelBtn, &QPushButton::clicked, this, &CfdCasePage::onCancel);
     connect(m_initBtn, &QPushButton::clicked, this, &CfdCasePage::onInitialize);
     connect(m_exportBtn, &QPushButton::clicked, this, &CfdCasePage::onExport);
+    connect(m_saveCaseBtn, &QPushButton::clicked, this, &CfdCasePage::onSaveCase);
+    connect(m_loadCaseBtn, &QPushButton::clicked, this, &CfdCasePage::onLoadCase);
+
 
     m_status->setText("No mesh loaded.");
     setRunning(false);
@@ -528,6 +537,57 @@ void CfdCasePage::onLoadMesh() {
     m_ctrl->loadMesh(path); // emits meshLoaded() (or failed()) synchronously
 }
 
+void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
+    m_rho->setText(QString::number(s.rho));
+    m_nu->setText(QString::number(s.nu));
+    m_tol->setValue(s.tolerance);
+    m_maxIter->setValue((int)s.maxIterations);
+    m_alphaU->setValue(s.alphaU);
+    m_alphaP->setValue(s.alphaP);
+    m_simplec->setChecked(s.simplec);
+    m_scheme->setCurrentIndex(s.scheme);
+    m_gradientScheme->setCurrentIndex(s.gradientScheme);
+    m_rhie->setChecked(s.rhieChow);
+    m_turb->setChecked(s.turbulence);
+    m_kInf->setValue(s.kInf);
+    m_wInf->setValue(s.omegaInf);
+
+    m_pressureCorrectors->setValue(s.pressureCorrectors);
+    m_limitPressureCorrection->setChecked(s.limitPressureCorrection);
+    m_pressureCorrectionLimit->setValue(s.pressureCorrectionLimit);
+    m_pressureRefCell->setValue((int)s.pressureRefCell);
+    m_printFrequency->setValue((int)s.printFrequency);
+    m_residualHistoryWindow->setValue((int)s.residualHistoryWindow);
+    m_numThreads->setValue(s.numThreads);
+
+    m_pressureUseAMG->setChecked(s.pressureUseAMG);
+    m_pressureUseAMGPreconditioner->setChecked(s.pressureUseAMGPreconditioner);
+    m_pressureAmgThreshold->setValue((int)s.pressureAmgThreshold);
+    m_pressureAmgWidget->setConfig(s.pressureAmg);
+
+    m_useAMGMomentum->setChecked(s.useAMGMomentum);
+    m_momentumAmgThreshold->setValue((int)s.momentumAmgThreshold);
+    m_momentumAmgCycles->setValue(s.momentumAmgCycles);
+    m_momentumAmgMaxResidual->setValue(s.momentumAmgMaxResidual);
+    m_momentumSolverStats->setChecked(s.momentumSolverStats);
+    m_momentumAmgWidget->setConfig(s.momentumAmg);
+
+    m_transientRadio->setChecked(s.transient.enabled);
+    m_dtSpin->setValue(s.transient.dt);
+    m_tEndSpin->setValue(s.transient.tEnd);
+    m_timeSchemeCombo->setCurrentIndex(s.transient.timeScheme == cfd::TransientSettings::TimeScheme::BDF2 ? 1 : 0);
+    m_adaptiveCflCb->setChecked(s.transient.adaptiveCfl);
+    m_cflSpin->setValue(s.transient.cfl);
+    m_minDtSpin->setValue(s.transient.minDt);
+    m_maxDtSpin->setValue(s.transient.maxDt);
+    m_writeIntervalSpin->setValue(s.transient.writeInterval);
+    m_outerCorrectorsSpin->setValue(s.transient.maxOuterCorrectors);
+    m_pvdFileEdit->setText(QString::fromStdString(s.transient.pvdFile));
+
+    syncDialogDependencies();
+    syncTimeDependencies();
+}
+
 void CfdCasePage::onMeshLoaded() {
     rebuildPatchTable();
     const auto& res = m_ctrl->meshResult();
@@ -680,6 +740,33 @@ void CfdCasePage::onExport() {
     m_status->setText("Exported " + QFileInfo(path).fileName());
 }
 
+void CfdCasePage::onSaveCase() {
+    const QString path = QFileDialog::getSaveFileName(this, "Save Case", "cfd_case.scfd",
+                                                      "CFD Case (*.scfd)");
+    if (path.isEmpty()) return;
+    collectSettings();
+    if (m_ctrl->saveCase(path)) m_status->setText("Saved " + QFileInfo(path).fileName());
+    else m_status->setText("Save failed");
+}
+
+void CfdCasePage::onLoadCase() {
+    const QString path = QFileDialog::getOpenFileName(this, "Load Case", QString(),
+                                                      "CFD Case (*.scfd)");
+    if (path.isEmpty()) return;
+    if (m_ctrl->loadCase(path)) m_status->setText("Loaded " + QFileInfo(path).fileName());
+    else m_status->setText("Load failed");
+}
+
+void CfdCasePage::onCaseLoaded() {
+    applySettings(m_ctrl->settings());
+    auto rm = m_ctrl->resultMesh();
+    if (rm) S()->applyLoadedMesh(rm, m_meshName.isEmpty() ? "CFD Result" : m_meshName);
+    else onMeshLoaded();
+}
+
+
+
+
 void CfdCasePage::onProgress(int iteration, double continuity, double momentum) {
     m_iterValue->setText(QString::number(iteration));
     m_contValue->setText(QString::number(continuity, 'e', 3));
@@ -704,9 +791,25 @@ void CfdCasePage::onFinished(const QString& summary) {
     setRunning(false);
     m_status->setText(summary);
     S()->setAnimScaleGlobal(m_savedAnimGlobal);
-    if (summary == "Cancelled") return;
+    if (summary == "Cancelled") {
+        auto rm = m_ctrl->resultMesh();
+        if (!rm) { m_status->setText(summary + " (no result mesh)"); return; }
+        try {
+            S()->applyLoadedMesh(rm, "cfd_solution");
+            m_status->setText(summary + " (visualized)");
+        } catch (const std::exception& e) {
+            m_status->setText(QString("Visualize failed: %1").arg(e.what()));
+        }
+        return;
+    }
     auto rm = m_ctrl->resultMesh();
-    if (rm) S()->onAnimationFrame(rm, 0, 0.0);
+    if (!rm) { m_status->setText(summary + " (no result mesh)"); return; }
+    try {
+        S()->applyLoadedMesh(rm, "cfd_solution");
+        m_status->setText(summary + " (visualized)");
+    } catch (const std::exception& e) {
+        m_status->setText(QString("Visualize failed: %1").arg(e.what()));
+    }
 }
 
 void CfdCasePage::onFailed(const QString& error) {

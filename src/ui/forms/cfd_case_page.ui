@@ -841,6 +841,38 @@
      </property>
     </widget>
    </item>
+   <item>
+    <widget class="QPushButton" name="saveCaseBtn">
+     <property name="text">
+      <string>Save Case...</string>
+     </property>
+     <property name="toolTip">
+      <string>Save mesh, settings and result to a .scfd file.</string>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="loadCaseBtn">
+     <property name="text">
+      <string>Load Case...</string>
+     </property>
+     <property name="toolTip">
+      <string>Load a .scfd case (mesh, settings and result).</string>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
+   </item>
   </layout>
  </widget>
  <customwidgets>

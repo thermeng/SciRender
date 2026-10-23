@@ -4,7 +4,7 @@
 #include "mesh/BoundaryUtils.h"
 #include "field/Field.h"
 #include "field/VectorField.h"
-#include "fvm/Types.h"
+#include "fvm/Cancellable.h"
 #include "fvm/SIMPLETypes.h"
 #include "fvm/SIMPLEBoundaryConditions.h"
 #include "fvm/Momentum.h"
@@ -36,7 +36,7 @@
 namespace fvm {
 
 template<std::size_t Dim>
-class SIMPLE {
+class SIMPLE : public Cancellable {
 public:
     struct TransientConfig {
         bool enabled = false;
@@ -251,10 +251,6 @@ public:
     SSTModel<Dim>* turbulence();
     const SSTModel<Dim>* turbulence() const;
 
-    void requestCancel();
-    void resetCancel();
-    bool isCancelRequested() const;
-
 private:
     const Field<Dim>& zeroSource_() const;
 
@@ -361,7 +357,6 @@ private:
     // iteration progress, not how well the momentum equation is satisfied.
     double lastMomChange_ = 0.0;
     std::unique_ptr<SSTModel<Dim>> turbulence_;
-    std::atomic<bool> cancelRequested_{false};
     bool aborted_ = false;
     double adaptiveAlphaP_ = 0.0;
     double maxInletSpeed_ = 0.0;

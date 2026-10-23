@@ -30,11 +30,14 @@ private slots:
     void onCancel();
     void onInitialize();
     void onExport();
+    void onSaveCase();
+    void onLoadCase();
     void onEditBCs();
     void onProgress(int iteration, double continuity, double momentum);
     void onFinished(const QString& summary);
     void onFailed(const QString& error);
     void onMeshLoaded();
+    void onCaseLoaded();
     void onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time);
 
 private:
@@ -48,6 +51,8 @@ private:
     void syncTimeDependencies();
     void rebuildPatchTable();
     void collectSettings();
+    void applySettings(const cfd::CaseSettings& s);
+
     void setRunning(bool running);
 
     CfdController* m_ctrl = nullptr;
@@ -82,6 +87,8 @@ private:
     QPushButton* m_runBtn = nullptr;
     QPushButton* m_cancelBtn = nullptr;
     QPushButton* m_exportBtn = nullptr;
+    QPushButton* m_saveCaseBtn = nullptr;
+    QPushButton* m_loadCaseBtn = nullptr;
 
     // Advanced solver settings live in one dialog, built up front and hidden.
     QDialog* m_advancedDlg = nullptr;

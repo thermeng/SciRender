@@ -2,7 +2,7 @@
 
 #include "mesh/Mesh.h"
 #include "field/Field.h"
-#include "fvm/Types.h"
+#include "fvm/Cancellable.h"
 #include "fvm/Laplacian.h"
 #include "fvm/Convection.h"
 #include "fvm/Gradient.h"
@@ -24,7 +24,7 @@ std::array<Field<Dim>, Dim> makeVelocities(const Mesh<Dim>& mesh);
 }
 
 template<std::size_t Dim>
-class AdvectionDiffusionSolver {
+class AdvectionDiffusionSolver : public Cancellable {
 public:
     AdvectionDiffusionSolver(const Mesh<Dim>& mesh, double k);
 
@@ -51,10 +51,6 @@ public:
     const Mesh<Dim>& mesh() const;
     double k() const;
 
-    void requestCancel();
-    void resetCancel();
-    bool isCancelRequested() const;
-
 private:
     const Mesh<Dim>& mesh_;
     double k_;
@@ -69,10 +65,8 @@ private:
     Field<Dim> solution_;
 
     mutable std::unique_ptr<Gradient<Dim>> gradCalc_;
-
     int lastIterations_ = 0;
     double lastResidual_ = 0.0;
-    std::atomic<bool> cancelRequested_{false};
 };
 
 extern template class AdvectionDiffusionSolver<2>;

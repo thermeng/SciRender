@@ -29,7 +29,10 @@ public:
     ~CfdController();
 
     bool loadMesh(const QString& path);
+    bool saveCase(const QString& path);
+    bool loadCase(const QString& path);
     const cfd::MeshLoadResult& meshResult() const { return m_mesh; }
+    const cfd::CaseSettings& settings() const { return m_settings; }
     void setSettings(const cfd::CaseSettings& s) { m_settings = s; }
     void setPatchBCs(const std::vector<cfd::PatchBC>& bcs) { m_patchBCs = bcs; }
     void run();
@@ -45,6 +48,7 @@ public:
 
 signals:
     void meshLoaded();
+    void caseLoaded();
     void progress(int iteration, double continuity, double momentum);
     // One frame per time step of a transient run, published from the solver's
     // worker thread. Deliberately independent of the on-disk write cadence so

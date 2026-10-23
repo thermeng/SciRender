@@ -17,6 +17,12 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
 #include <QFileInfo>
+#include <QDataStream>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTemporaryFile>
+
 
 #include <memory>
 #include <mutex>
@@ -251,6 +257,225 @@ void CfdController::exportVtu(const QString& path) {
     const fvm::Field<2>* om = turb ? &turb->omega() : nullptr;
     const fvm::Field<2>* nt = turb ? &turb->nut() : nullptr;
     fvm::VTKXMLWriter<2>::writeWithVelocity(path.toStdString(), *m_meshPtr, *m_pressure, vel, "pressure", k, om, nt);
+}
+
+// --- Case I/O -------------------------------------------------------------
+
+bool CfdController::saveCase(const QString& path) {
+    if (!m_meshPtr) return false;
+    if (m_meshPath.isEmpty()) return false;
+    QFile meshFile(m_meshPath);
+    if (!meshFile.open(QIODevice::ReadOnly)) return false;
+    const QByteArray meshBytes = meshFile.readAll();
+    meshFile.close();
+    const QString meshName = QFileInfo(m_meshPath).fileName();
+
+    QJsonObject o;
+    o["rho"] = m_settings.rho;
+    o["nu"] = m_settings.nu;
+    o["tolerance"] = m_settings.tolerance;
+    o["maxIterations"] = (qint64)m_settings.maxIterations;
+    o["runFixedIterations"] = m_settings.runFixedIterations;
+    o["convergenceHoldIterations"] = m_settings.convergenceHoldIterations;
+    o["alphaU"] = m_settings.alphaU;
+    o["alphaP"] = m_settings.alphaP;
+    o["simplec"] = m_settings.simplec;
+    o["scheme"] = m_settings.scheme;
+    o["gradientScheme"] = m_settings.gradientScheme;
+    o["rhieChow"] = m_settings.rhieChow;
+    o["turbulence"] = m_settings.turbulence;
+    o["kInf"] = m_settings.kInf;
+    o["omegaInf"] = m_settings.omegaInf;
+    o["alphaK"] = m_settings.alphaK;
+    o["alphaOmega"] = m_settings.alphaOmega;
+    o["pressureRefCell"] = (qint64)m_settings.pressureRefCell;
+    o["pressureCorrectors"] = m_settings.pressureCorrectors;
+    o["limitPressureCorrection"] = m_settings.limitPressureCorrection;
+    o["pressureCorrectionLimit"] = m_settings.pressureCorrectionLimit;
+    o["printFrequency"] = (qint64)m_settings.printFrequency;
+    o["residualHistoryWindow"] = (qint64)m_settings.residualHistoryWindow;
+    o["numThreads"] = m_settings.numThreads;
+    o["pressureUseAMG"] = m_settings.pressureUseAMG;
+    o["pressureUseAMGPreconditioner"] = m_settings.pressureUseAMGPreconditioner;
+    o["pressureAmgThreshold"] = (qint64)m_settings.pressureAmgThreshold;
+    o["useAMGMomentum"] = m_settings.useAMGMomentum;
+    o["momentumAmgThreshold"] = (qint64)m_settings.momentumAmgThreshold;
+    o["momentumAmgCycles"] = m_settings.momentumAmgCycles;
+    o["momentumAmgMaxResidual"] = m_settings.momentumAmgMaxResidual;
+    o["momentumSolverStats"] = m_settings.momentumSolverStats;
+
+    QJsonObject t;
+    t["enabled"] = m_settings.transient.enabled;
+    t["dt"] = m_settings.transient.dt;
+    t["tEnd"] = m_settings.transient.tEnd;
+    t["timeScheme"] = (int)m_settings.transient.timeScheme;
+    t["adaptiveCfl"] = m_settings.transient.adaptiveCfl;
+    t["cfl"] = m_settings.transient.cfl;
+    t["minDt"] = m_settings.transient.minDt;
+    t["maxDt"] = m_settings.transient.maxDt;
+    t["writeInterval"] = m_settings.transient.writeInterval;
+    t["maxOuterCorrectors"] = m_settings.transient.maxOuterCorrectors;
+    t["pvdFile"] = QString::fromStdString(m_settings.transient.pvdFile);
+    o["transient"] = t;
+
+    const QByteArray settings = QJsonDocument(o).toJson(QJsonDocument::Compact);
+
+    const bool hasResult = (m_velocity && m_pressure);
+    const std::size_t n = hasResult ? m_meshPtr->nCells() : 0;
+    const fvm::SSTModel<2>* turb = m_solver ? m_solver->turbulence() : nullptr;
+    const bool hasTurb = hasResult && (turb != nullptr);
+
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly)) return false;
+    QDataStream ds(&out);
+    ds.setByteOrder(QDataStream::LittleEndian);
+    ds << QString("SCFD");
+    ds << (qint32)2;
+    ds << meshName;
+    ds << (qint64)meshBytes.size();
+    ds.writeRawData(meshBytes.constData(), meshBytes.size());
+    ds << (qint64)settings.size();
+    ds.writeRawData(settings.constData(), settings.size());
+    ds << hasResult;
+    if (hasResult) {
+        ds << (qint64)n;
+        for (std::size_t d = 0; d < 2; ++d)
+            for (std::size_t i = 0; i < n; ++i) ds << m_velocity->operator[](d)[i];
+        for (std::size_t i = 0; i < n; ++i) ds << m_pressure->operator[](i);
+        ds << hasTurb;
+        if (hasTurb) {
+            for (std::size_t i = 0; i < n; ++i) ds << turb->k()[i];
+            for (std::size_t i = 0; i < n; ++i) ds << turb->omega()[i];
+            for (std::size_t i = 0; i < n; ++i) ds << turb->nut()[i];
+        }
+    }
+    out.close();
+    return true;
+}
+
+bool CfdController::loadCase(const QString& path) {
+    QFile in(path);
+    if (!in.open(QIODevice::ReadOnly)) return false;
+    QDataStream ds(&in);
+    ds.setByteOrder(QDataStream::LittleEndian);
+    QString magic;
+    qint32 version;
+    ds >> magic >> version;
+    if (magic != "SCFD" || version != 2) return false;
+
+    QString meshName;
+    ds >> meshName;
+    qint64 meshSz;
+    ds >> meshSz;
+    if (meshSz < 0) return false;
+    QByteArray meshBytes((int)meshSz, '\0');
+    if (ds.readRawData(meshBytes.data(), (int)meshSz) != meshSz) return false;
+
+    qint64 sz;
+    ds >> sz;
+    if (sz < 0) return false;
+    QByteArray settings((int)sz, '\0');
+    if (ds.readRawData(settings.data(), (int)sz) != sz) return false;
+
+    bool hasResult;
+    ds >> hasResult;
+
+    QTemporaryFile tmp;
+    if (!tmp.open()) return false;
+    tmp.close();
+    const QString ext = QFileInfo(meshName).suffix();
+    QString tempPath = tmp.fileName();
+    if (!ext.isEmpty()) tempPath += "." + ext;
+    QFile mf(tempPath);
+    if (!mf.open(QIODevice::WriteOnly)) return false;
+    mf.write(meshBytes);
+    mf.close();
+
+    if (!loadMesh(tempPath)) return false;
+
+    if (hasResult) {
+        qint64 n;
+        ds >> n;
+        if (n < 0) return false;
+        const std::size_t N = (std::size_t)n;
+        m_velocity = std::make_shared<fvm::VectorField<2>>(*m_meshPtr, 0.0);
+        m_pressure = std::make_shared<fvm::Field<2>>(*m_meshPtr, 0.0);
+        for (std::size_t d = 0; d < 2; ++d)
+            for (std::size_t i = 0; i < N && i < m_meshPtr->nCells(); ++i) {
+                double v; ds >> v;
+                m_velocity->operator[](d)[i] = v;
+            }
+        for (std::size_t i = 0; i < N && i < m_meshPtr->nCells(); ++i) {
+            double v; ds >> v;
+            m_pressure->operator[](i) = v;
+        }
+        bool hasTurb;
+        ds >> hasTurb;
+        if (hasTurb) {
+            double dummy;
+            for (std::size_t i = 0; i < N; ++i) ds >> dummy;
+            for (std::size_t i = 0; i < N; ++i) ds >> dummy;
+            for (std::size_t i = 0; i < N; ++i) ds >> dummy;
+        }
+    } else {
+        m_velocity = std::make_shared<fvm::VectorField<2>>(*m_meshPtr, 0.0);
+        m_pressure = std::make_shared<fvm::Field<2>>(*m_meshPtr, 0.0);
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(settings);
+    if (doc.isObject()) {
+        const QJsonObject o = doc.object();
+        m_settings.rho = o.value("rho").toDouble(m_settings.rho);
+        m_settings.nu = o.value("nu").toDouble(m_settings.nu);
+        m_settings.tolerance = o.value("tolerance").toDouble(m_settings.tolerance);
+        m_settings.maxIterations = (std::size_t)o.value("maxIterations").toVariant().toULongLong();
+        m_settings.runFixedIterations = o.value("runFixedIterations").toBool(m_settings.runFixedIterations);
+        m_settings.convergenceHoldIterations = o.value("convergenceHoldIterations").toInt(m_settings.convergenceHoldIterations);
+        m_settings.alphaU = o.value("alphaU").toDouble(m_settings.alphaU);
+        m_settings.alphaP = o.value("alphaP").toDouble(m_settings.alphaP);
+        m_settings.simplec = o.value("simplec").toBool(m_settings.simplec);
+        m_settings.scheme = o.value("scheme").toInt(m_settings.scheme);
+        m_settings.gradientScheme = o.value("gradientScheme").toInt(m_settings.gradientScheme);
+        m_settings.rhieChow = o.value("rhieChow").toBool(m_settings.rhieChow);
+        m_settings.turbulence = o.value("turbulence").toBool(m_settings.turbulence);
+        m_settings.kInf = o.value("kInf").toDouble(m_settings.kInf);
+        m_settings.omegaInf = o.value("omegaInf").toDouble(m_settings.omegaInf);
+        m_settings.alphaK = o.value("alphaK").toDouble(m_settings.alphaK);
+        m_settings.alphaOmega = o.value("alphaOmega").toDouble(m_settings.alphaOmega);
+        m_settings.pressureRefCell = (std::size_t)o.value("pressureRefCell").toVariant().toULongLong();
+        m_settings.pressureCorrectors = o.value("pressureCorrectors").toInt(m_settings.pressureCorrectors);
+        m_settings.limitPressureCorrection = o.value("limitPressureCorrection").toBool(m_settings.limitPressureCorrection);
+        m_settings.pressureCorrectionLimit = o.value("pressureCorrectionLimit").toDouble(m_settings.pressureCorrectionLimit);
+        m_settings.printFrequency = (std::size_t)o.value("printFrequency").toVariant().toULongLong();
+        m_settings.residualHistoryWindow = (std::size_t)o.value("residualHistoryWindow").toVariant().toULongLong();
+        m_settings.numThreads = o.value("numThreads").toInt(m_settings.numThreads);
+        m_settings.pressureUseAMG = o.value("pressureUseAMG").toBool(m_settings.pressureUseAMG);
+        m_settings.pressureUseAMGPreconditioner = o.value("pressureUseAMGPreconditioner").toBool(m_settings.pressureUseAMGPreconditioner);
+        m_settings.pressureAmgThreshold = (std::size_t)o.value("pressureAmgThreshold").toVariant().toULongLong();
+        m_settings.useAMGMomentum = o.value("useAMGMomentum").toBool(m_settings.useAMGMomentum);
+        m_settings.momentumAmgThreshold = (std::size_t)o.value("momentumAmgThreshold").toVariant().toULongLong();
+        m_settings.momentumAmgCycles = o.value("momentumAmgCycles").toInt(m_settings.momentumAmgCycles);
+        m_settings.momentumAmgMaxResidual = o.value("momentumAmgMaxResidual").toDouble(m_settings.momentumAmgMaxResidual);
+        m_settings.momentumSolverStats = o.value("momentumSolverStats").toBool(m_settings.momentumSolverStats);
+
+        const QJsonObject t = o.value("transient").toObject();
+        m_settings.transient.enabled = t.value("enabled").toBool(m_settings.transient.enabled);
+        m_settings.transient.dt = t.value("dt").toDouble(m_settings.transient.dt);
+        m_settings.transient.tEnd = t.value("tEnd").toDouble(m_settings.transient.tEnd);
+        m_settings.transient.timeScheme = (cfd::TransientSettings::TimeScheme)t.value("timeScheme").toInt((int)m_settings.transient.timeScheme);
+        m_settings.transient.adaptiveCfl = t.value("adaptiveCfl").toBool(m_settings.transient.adaptiveCfl);
+        m_settings.transient.cfl = t.value("cfl").toDouble(m_settings.transient.cfl);
+        m_settings.transient.minDt = t.value("minDt").toDouble(m_settings.transient.minDt);
+        m_settings.transient.maxDt = t.value("maxDt").toDouble(m_settings.transient.maxDt);
+        m_settings.transient.writeInterval = t.value("writeInterval").toInt(m_settings.transient.writeInterval);
+        m_settings.transient.maxOuterCorrectors = t.value("maxOuterCorrectors").toInt(m_settings.transient.maxOuterCorrectors);
+        m_settings.transient.pvdFile = t.value("pvdFile").toString(QString::fromStdString(m_settings.transient.pvdFile)).toStdString();
+    }
+
+    in.close();
+    emit meshLoaded();
+    emit caseLoaded();
+    return true;
 }
 
 std::shared_ptr<const RenderMesh> CfdController::resultMesh() const {

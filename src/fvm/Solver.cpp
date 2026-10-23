@@ -193,21 +193,6 @@ const Mesh<Dim>& AdvectionDiffusionSolver<Dim>::mesh() const { return mesh_; }
 template<std::size_t Dim>
 double AdvectionDiffusionSolver<Dim>::k() const { return k_; }
 
-template<std::size_t Dim>
-void AdvectionDiffusionSolver<Dim>::requestCancel() {
-    cancelRequested_.store(true, std::memory_order_release);
-}
-
-template<std::size_t Dim>
-void AdvectionDiffusionSolver<Dim>::resetCancel() {
-    cancelRequested_.store(false, std::memory_order_release);
-}
-
-template<std::size_t Dim>
-bool AdvectionDiffusionSolver<Dim>::isCancelRequested() const {
-    return cancelRequested_.load(std::memory_order_acquire);
-}
-
 template class AdvectionDiffusionSolver<2>;
 template class AdvectionDiffusionSolver<3>;
 
