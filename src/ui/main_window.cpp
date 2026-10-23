@@ -210,6 +210,12 @@ void MainWindow::setupMenus() {
 
     fileMenu->addAction("&Clear", this, &MainWindow::clearMeshes);
     fileMenu->addSeparator();
+    if (!m_cfdPage) m_cfdPage = new sidebar::CfdCasePage(m_settings);
+    fileMenu->addAction("Load CFD &Mesh...", m_cfdPage, &sidebar::CfdCasePage::onLoadMesh);
+    fileMenu->addAction("&Export Solution...", m_cfdPage, &sidebar::CfdCasePage::onExport);
+    fileMenu->addAction("&Save Case...", m_cfdPage, &sidebar::CfdCasePage::onSaveCase);
+    fileMenu->addAction("&Load Case...", m_cfdPage, &sidebar::CfdCasePage::onLoadCase);
+    fileMenu->addSeparator();
     fileMenu->addAction("E&xit", qApp, &QApplication::quit);
 
     // View menu
@@ -503,7 +509,8 @@ void MainWindow::setupSidebar() {
                     [plotsPage](bool v) { plotsPage->setViewportVisible(v); });
         addSectionPage(14, plotsPage);  // Plots
     }
-    addSectionPage(15, new sidebar::CfdCasePage(m_settings));  // CFD
+    m_cfdPage = m_cfdPage ? m_cfdPage : new sidebar::CfdCasePage(m_settings);
+    addSectionPage(15, m_cfdPage);  // CFD
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);

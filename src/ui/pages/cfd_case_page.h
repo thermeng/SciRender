@@ -24,18 +24,21 @@ class CfdCasePage : public SidebarPage {
 public:
     explicit CfdCasePage(RenderSettings* settings, QWidget* parent = nullptr);
 
-private slots:
+public slots:
     void onLoadMesh();
-    void onRun();
-    void onCancel();
-    void onInitialize();
     void onExport();
     void onSaveCase();
     void onLoadCase();
+
+private slots:
+    void onRun();
+    void onCancel();
+    void onInitialize();
     void onEditBCs();
     void onProgress(int iteration, double continuity, double momentum);
     void onFinished(const QString& summary);
     void onFailed(const QString& error);
+    void log(const QString& msg);
     void onMeshLoaded();
     void onCaseLoaded();
     void onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time);
@@ -75,20 +78,15 @@ private:
     QDoubleSpinBox* m_kInf = nullptr;
     QDoubleSpinBox* m_wInf = nullptr;
 
-    QLabel* m_status = nullptr;
     QLabel* m_iterValue = nullptr;
     QLabel* m_contValue = nullptr;
     QLabel* m_momValue = nullptr;
 
-    QPushButton* m_loadBtn = nullptr;
     QPushButton* m_bcEditBtn = nullptr;
     QPushButton* m_advancedBtn = nullptr;
     QPushButton* m_initBtn = nullptr;
     QPushButton* m_runBtn = nullptr;
     QPushButton* m_cancelBtn = nullptr;
-    QPushButton* m_exportBtn = nullptr;
-    QPushButton* m_saveCaseBtn = nullptr;
-    QPushButton* m_loadCaseBtn = nullptr;
 
     // Advanced solver settings live in one dialog, built up front and hidden.
     QDialog* m_advancedDlg = nullptr;

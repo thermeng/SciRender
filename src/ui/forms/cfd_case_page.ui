@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>CfdCasePage</class>
  <widget class="QWidget" name="CfdCasePage">
@@ -27,49 +27,6 @@
     <number>8</number>
    </property>
 
-   <!-- ── Load Mesh ─────────────────────────────────────────────── -->
-   <item>
-    <widget class="QLabel" name="loadMeshHeader">
-     <property name="text">
-      <string>Load Mesh</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QPushButton" name="loadBtn">
-     <property name="text">
-      <string>Load CFD Mesh...</string>
-     </property>
-     <property name="toolTip">
-      <string>Open a 2D case mesh (.msh, .vtk or .vtu).</string>
-     </property>
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="statusText">
-     <property name="minimumSize">
-      <size>
-       <width>0</width>
-       <height>34</height>
-      </size>
-     </property>
-     <property name="text">
-      <string>No mesh loaded.</string>
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
-     <property name="textInteractionFlags">
-      <set>Qt::TextInteractionFlag::TextSelectableByMouse|Qt::TextInteractionFlag::TextSelectableByKeyboard</set>
-     </property>
-    </widget>
-   </item>
     <!-- ── Time (steady / transient) ──────────────────────────────── -->
     <item>
      <widget class="QLabel" name="timeHeader">
@@ -337,7 +294,7 @@
 
 
 
-   <!-- ── Boundary Conditions ───────────────────────────────────── -->
+   <!-- â”€â”€ Boundary Conditions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
    <item>
     <widget class="QLabel" name="bcHeader">
      <property name="text">
@@ -362,7 +319,7 @@
     </widget>
    </item>
 
-   <!-- ── Physics ───────────────────────────────────────────────── -->
+   <!-- â”€â”€ Physics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
    <item>
     <widget class="QLabel" name="physicsHeader">
      <property name="text">
@@ -503,7 +460,7 @@
     </widget>
    </item>
 
-   <!-- ── Solver ────────────────────────────────────────────────── -->
+   <!-- â”€â”€ Solver â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
    <item>
     <widget class="QLabel" name="solverHeader">
      <property name="text">
@@ -724,7 +681,7 @@
     </widget>
    </item>
 
-   <!-- ── Run ───────────────────────────────────────────────────── -->
+   <!-- â”€â”€ Run â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
    <item>
     <widget class="QLabel" name="runHeader">
      <property name="text">
@@ -824,54 +781,6 @@
       </widget>
      </item>
     </layout>
-   </item>
-   <item>
-    <widget class="QPushButton" name="exportBtn">
-     <property name="text">
-      <string>Export Solution...</string>
-     </property>
-     <property name="toolTip">
-      <string>Write the current fields to a .vtu file.</string>
-     </property>
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QPushButton" name="saveCaseBtn">
-     <property name="text">
-      <string>Save Case...</string>
-     </property>
-     <property name="toolTip">
-      <string>Save mesh, settings and result to a .scfd file.</string>
-     </property>
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QPushButton" name="loadCaseBtn">
-     <property name="text">
-      <string>Load Case...</string>
-     </property>
-     <property name="toolTip">
-      <string>Load a .scfd case (mesh, settings and result).</string>
-     </property>
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-       <horstretch>0</horstretch>
-       <verstretch>0</verstretch>
-      </sizepolicy>
-     </property>
-    </widget>
    </item>
   </layout>
  </widget>

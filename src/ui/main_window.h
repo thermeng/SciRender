@@ -98,6 +98,7 @@ private:
     QWidget* m_sidebarWidget = nullptr;
     QWidget* m_rightPanel = nullptr;
     QStackedWidget* m_sectionStack = nullptr;
+    sidebar::CfdCasePage* m_cfdPage = nullptr;
     int m_activeSection = -1;
     bool m_sidebarExpanded = false;
     static constexpr int kSidebarWidth = 240;
