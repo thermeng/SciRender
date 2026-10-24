@@ -97,6 +97,8 @@ struct TransientSettings {
     double maxDt = 0.01;
     // Output cadence in time steps; 0 disables file output entirely.
     int writeInterval = 1;
+    // Non-orthogonal correctors per pressure solve (PISO).
+    int nonOrthogonalCorrectors = 1;
     // Pressure correctors per step (PISO: 1 predictor + this many correctors).
     int maxOuterCorrectors = 3;
     // Base name or full path for the .pvd/.vtu output. Empty = "transient".

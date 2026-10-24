@@ -315,6 +315,7 @@ bool CfdController::saveCase(const QString& path) {
     t["maxDt"] = m_settings.transient.maxDt;
     t["writeInterval"] = m_settings.transient.writeInterval;
     t["maxOuterCorrectors"] = m_settings.transient.maxOuterCorrectors;
+    t["nonOrthogonalCorrectors"] = m_settings.transient.nonOrthogonalCorrectors;
     t["pvdFile"] = QString::fromStdString(m_settings.transient.pvdFile);
     o["transient"] = t;
 
@@ -469,6 +470,7 @@ bool CfdController::loadCase(const QString& path) {
         m_settings.transient.maxDt = t.value("maxDt").toDouble(m_settings.transient.maxDt);
         m_settings.transient.writeInterval = t.value("writeInterval").toInt(m_settings.transient.writeInterval);
         m_settings.transient.maxOuterCorrectors = t.value("maxOuterCorrectors").toInt(m_settings.transient.maxOuterCorrectors);
+        m_settings.transient.nonOrthogonalCorrectors = t.value("nonOrthogonalCorrectors").toInt(m_settings.transient.nonOrthogonalCorrectors);
         m_settings.transient.pvdFile = t.value("pvdFile").toString(QString::fromStdString(m_settings.transient.pvdFile)).toStdString();
     }
 

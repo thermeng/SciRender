@@ -43,6 +43,7 @@ inline typename fvm::SIMPLE<Dim>::TransientConfig toFvmTransient(const Transient
     c.maxDt = s.maxDt;
     c.writeInterval = s.writeInterval;
     c.maxOuterCorrectors = s.maxOuterCorrectors;
+    c.nonOrthogonalCorrectors = s.nonOrthogonalCorrectors;
     c.pvdFile = s.pvdFile;
     return c;
 }
