@@ -144,6 +144,17 @@ public:
         }
     }
 
+    void setInletTurbulence(const std::vector<std::size_t>& faces, double k, double omega) {
+        for (std::size_t f : faces) {
+            std::size_t cell = mesh_.owner(f);
+            if (cell < kBCMask_.size()) {
+                kBCMask_[cell] = 1;
+                kBCVals_[cell] = k;
+                omegaBCMask_[cell] = 1;
+                omegaBCVals_[cell] = omega;
+            }
+        }
+    }
     void solveIteration(const VectorField<Dim>& velocity,
                         ConvectionScheme scheme);
     void solveIterationTransient(const VectorField<Dim>& velocity,
@@ -191,7 +202,7 @@ private:
     void solveKTransport(const VectorField<Dim>& velocity,
                          ConvectionScheme scheme);
     void solveOmegaTransport(const VectorField<Dim>& velocity,
-                             ConvectionScheme scheme);
+                            ConvectionScheme scheme);
     void solveKTransportTransient(const VectorField<Dim>& velocity,
                                   ConvectionScheme scheme,
                                   double dt,

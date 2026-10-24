@@ -105,8 +105,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_gradientScheme = cfdUi.gradientSchemeCombo;
     m_rhie = cfdUi.rhieCb;
     m_turb = cfdUi.turbCb;
-    m_kInf = cfdUi.kInfSpin;
-    m_wInf = cfdUi.wInfSpin;
 
     // ── Time mode (steady / transient) ───────────────────────────────
     m_steadyRadio = cfdUi.steadyRadio;
@@ -128,9 +126,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     // ── Physics defaults ─────────────────────────────────────────────────────
     m_rho->setText("1.0");
     m_nu->setText("0.01");
-    m_kInf->setRange(1e-12, 1e3);  m_kInf->setDecimals(4); m_kInf->setValue(1e-3);
-    m_wInf->setRange(1e-6, 1e6);   m_wInf->setDecimals(4); m_wInf->setValue(1.0);
-
     // ── Solver defaults ──────────────────────────────────────────────────────
     // The tolerance spin box displays scientific notation (see
     // ScientificDoubleSpinBox) but keeps a high decimal precision so values
@@ -185,15 +180,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
             S()->applyPostStatus(slot->postStatus);
         onTransientFrame(slot->mesh, slot->step, slot->time);
     });
-
-    // k / omega are only meaningful with turbulence enabled.
-    auto syncTurbulence = [this]() {
-        const bool on = m_turb->isChecked();
-        m_kInf->setEnabled(on);
-        m_wInf->setEnabled(on);
-    };
-    connect(m_turb, &QCheckBox::toggled, this, [syncTurbulence](bool) { syncTurbulence(); });
-    syncTurbulence();
 
     // ── Advanced solver settings (dialog) ────────────────────────────────────
     // Built up front and kept hidden. Its fields are read by collectSettings(),
@@ -559,8 +545,6 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_gradientScheme->setCurrentIndex(s.gradientScheme);
     m_rhie->setChecked(s.rhieChow);
     m_turb->setChecked(s.turbulence);
-    m_kInf->setValue(s.kInf);
-    m_wInf->setValue(s.omegaInf);
 
     m_pressureCorrectors->setValue(s.pressureCorrectors);
     m_limitPressureCorrection->setChecked(s.limitPressureCorrection);
@@ -634,8 +618,8 @@ void CfdCasePage::collectSettings() {
     s.gradientScheme = m_gradientScheme->currentIndex();
     s.rhieChow = m_rhie->isChecked();
     s.turbulence = m_turb->isChecked();
-    s.kInf = m_kInf->value();
-    s.omegaInf = m_wInf->value();
+    s.kInf = 1e-3;
+    s.omegaInf = 1.0;
     // Advanced
     s.pressureCorrectors = m_pressureCorrectors->value();
     s.limitPressureCorrection = m_limitPressureCorrection->isChecked();

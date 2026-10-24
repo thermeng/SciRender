@@ -259,8 +259,13 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
         std::array<BC, 2*Dim> velBCEnums{};
         for (std::size_t i = 0; i < 2 * Dim; ++i)
             velBCEnums[i] = bc_.velBCs()[i].type;
-        turbulence_->computeWallDistance(velBCEnums);
-        turbulence_->setBoundaryConditions(velBCEnums);
+    turbulence_->computeWallDistance(velBCEnums);
+    turbulence_->setBoundaryConditions(velBCEnums);
+    for (const auto& it : config_.inletTurbulence) {
+        auto git = mesh_.boundaryGroups().find(it.patch);
+        if (git == mesh_.boundaryGroups().end()) continue;
+        turbulence_->setInletTurbulence(git->second, it.k, it.omega);
+    }
     }
 
     velocityOld_ = VectorField<Dim>(mesh_, 0.0);

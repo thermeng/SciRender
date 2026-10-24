@@ -72,6 +72,7 @@ inline QByteArray serializeCaseSettings(const CaseSettings& s, const std::vector
         b["suppressBackflow"] = pbc.suppressBackflow;
         b["backflowU"] = pbc.backflowU; b["backflowV"] = pbc.backflowV; b["backflowW"] = pbc.backflowW;
         b["backflowK"] = pbc.backflowK; b["backflowOmega"] = pbc.backflowOmega;
+        b["kInlet"] = pbc.kInlet; b["omegaInlet"] = pbc.omegaInlet;
         bcArr.append(b);
     }
     o["patchBCs"] = bcArr;
@@ -149,6 +150,8 @@ inline bool deserializeCaseSettings(const QByteArray& settings, CaseSettings& s,
             pbc.backflowW = b.value("backflowW").toDouble(pbc.backflowW);
             pbc.backflowK = b.value("backflowK").toDouble(pbc.backflowK);
             pbc.backflowOmega = b.value("backflowOmega").toDouble(pbc.backflowOmega);
+            pbc.kInlet = b.value("kInlet").toDouble(pbc.kInlet);
+            pbc.omegaInlet = b.value("omegaInlet").toDouble(pbc.omegaInlet);
             patchBCs.push_back(pbc);
         }
     }

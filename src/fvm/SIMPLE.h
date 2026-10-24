@@ -57,8 +57,14 @@ public:
         bool piso = false; // DEPRECATED legacy: use Config::solverType==PISO instead. Kept for compat only - will be removed
     };
 
-    struct Config {
-        SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
+struct InletTurbulence {
+    std::string patch;
+    double k = 1e-3;
+    double omega = 1.0;
+};
+
+struct Config {
+    SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
         std::size_t maxIterations = 100;
         double tolerance = 1e-3;
         // Ignore the residual tolerance and run exactly maxIterations iterations.
@@ -82,10 +88,11 @@ public:
         std::size_t printFrequency = 1;
         std::size_t residualHistoryWindow = 20;
         bool turbulenceEnabled = false;
-        double kInf = 1e-3;
-        double omegaInf = 1.0;
-        double alphaK = 0.7;
-        double alphaOmega = 0.7;
+    double kInf = 1e-3;
+    double omegaInf = 1.0;
+    double alphaK = 0.7;
+    double alphaOmega = 0.7;
+    std::vector<InletTurbulence> inletTurbulence;
 
         // --- Pressure-correction linear solver ---------------------------
         // The pressure Poisson system is symmetric, so AMG is a good fit. It

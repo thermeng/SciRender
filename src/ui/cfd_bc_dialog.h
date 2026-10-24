@@ -60,6 +60,8 @@ private:
     QDoubleSpinBox* m_u = nullptr;
     QDoubleSpinBox* m_v = nullptr;
     QDoubleSpinBox* m_w = nullptr;
+    QDoubleSpinBox* m_kInlet = nullptr;
+    QDoubleSpinBox* m_omegaInlet = nullptr;
 
     QWidget* m_pressureSection = nullptr;
     QDoubleSpinBox* m_pressure = nullptr;
