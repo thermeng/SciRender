@@ -27,6 +27,7 @@
 #include "render/settings/StateStore.h"
 #include "core/FieldResolver.h"
 #include "core/FieldStore.h"
+#include "core/post_fields.h"
 
 #include <QElapsedTimer>
 
@@ -475,11 +476,16 @@ public:
 public slots:
     void loadMesh(const QString& filePath);
     void onMeshParsed(); // GUI-thread continuation after async parse
-    void applyLoadedMesh(const std::shared_ptr<const RenderMesh>& loaded, const QString& name);
+    void applyLoadedMesh(const std::shared_ptr<const RenderMesh>& loaded, const QString& name, bool resetCamera = true);
     void onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, int frameIndex, double time); // PVD frame publish
     // Reset the animation-sequence state so the next transient run reseeds its
     // scalar range on the first frame instead of inheriting a stale range.
     void resetAnimationSequence() { m_animSequenceActive = false; }
+    void setComputedSnapshot(std::shared_ptr<const postfields::ComputedSnapshot> snap) {
+        m_state.computed = snap;
+        m_isoController.setSnapshot(snap);
+        markStateDirty();
+    }
     void onPostFieldsReady();
     void openRecent(const QString& filePath);
     void clearMeshes();
@@ -530,6 +536,14 @@ public:
     float* getBgColor() { return m_state.bgColor; }
 
     Q_INVOKABLE void setSidebarWidth(float w) { sidebarWidth = w; }
+
+    // ---- post-field extraction handoff (GUI thread only) -------------------
+    // Immutable copy of the extraction settings. Taken on the GUI thread and
+    // handed to the render-prep worker, which then never touches RenderSettings.
+    postfields::SnapshotRequest postSnapshotRequest() const;
+    // Applies a status produced by the worker. Called from the GUI thread so
+    // m_postStatus/statusMessage are only ever written there.
+    void applyPostStatus(const std::string& status);
 
     STATE_PROP(isGizmoVisible, setGizmoVisible, bool, m_state.showGizmo, Display)
     STATE_PROP(getGizmoCorner, setGizmoCorner, int, m_state.gizmoCorner, Display)

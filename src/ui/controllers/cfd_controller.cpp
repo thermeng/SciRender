@@ -21,6 +21,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QTemporaryFile>
 
 
@@ -34,7 +35,12 @@ using namespace cfd;
 
 CfdController::CfdController(QObject* parent) : QObject(parent) {}
 
-CfdController::~CfdController() = default;
+CfdController::~CfdController() {
+    m_renderPrepRunning.store(false);
+    if (m_renderPrepThread.joinable()) m_renderPrepThread.join();
+    m_diskWriterRunning.store(false);
+    if (m_diskWriterThread.joinable()) m_diskWriterThread.join();
+}
 
 bool CfdController::loadMesh(const QString& path) {
     m_mesh = cfd::loadMesh(path.toStdString());
@@ -50,8 +56,13 @@ bool CfdController::loadMesh(const QString& path) {
 
 void CfdController::run() {
     if (!m_meshPtr) { emit failed("No mesh loaded"); return; }
+    // Stop any previous render-prep thread.
+    m_renderPrepRunning.store(false);
+    if (m_renderPrepThread.joinable()) m_renderPrepThread.join();
     m_cancel.store(false);
     m_lastTime.store(0.0);
+    m_latestStep.store(nullptr);
+    m_latestFrameSlot.store(nullptr);
     uint64_t gen = ++m_gen;
 
     auto meshPtr = m_meshPtr;
@@ -116,24 +127,23 @@ void CfdController::run() {
         if (m_cancel.load()) return;
         emit progress(iter, cont, mom);
     };
-    // Live viewport streaming for transient runs. One frame per time step,
-    // independent of the on-disk write cadence. The callback runs on the
-    // solver's worker thread between steps (nothing is mutating the fields at
-    // that point), so building the RenderMesh here is safe.
+    // Frame bus (Phase 2): solver stores an immutable step snapshot each
+    // iteration; render-prep thread builds the mesh off the UI thread.
     if (settings.transient.enabled) {
-        sc.transientCallback = [this, gen, meshPtr, base, settings, patchBCs](int step, double time,
+        sc.renderCallback = [this, gen](int step, double time,
             const fvm::VectorField<2>& velocity, const fvm::Field<2>& pressure) {
             if (gen != m_gen) return;
             if (m_cancel.load()) return;
             m_lastTime.store(time);
-            const fvm::SSTModel<2>* turb = nullptr;
-            {
-                std::lock_guard<std::mutex> lk(m_solverMutex);
-                if (m_solver) turb = m_solver->turbulence();
-            }
-            auto rm = buildResultMesh(base, *meshPtr, velocity, pressure, turb, settings, patchBCs);
-            if (m_cancel.load()) return;
-            if (rm) emit frameReady(rm, step, time);
+            auto v = std::make_shared<fvm::VectorField<2>>(velocity);
+            auto p = std::make_shared<fvm::Field<2>>(pressure);
+            auto ts = std::make_shared<TransientStep>();
+            ts->step = step;
+            ts->time = time;
+            ts->velocity = v;
+            ts->pressure = p;
+            ts->gen = gen;
+            m_latestStep.store(std::shared_ptr<const TransientStep>(ts));
         };
     }
 
@@ -171,9 +181,137 @@ void CfdController::run() {
         m_solver = solver;
     }
 
+    if (settings.transient.enabled) {
+        m_renderPrepRunning.store(true);
+        auto baseMesh = base;
+        auto meshP = meshPtr;
+        auto cfg = settings;
+        auto bcs = patchBCs;
+        m_renderPrepThread = std::thread([this, gen, baseMesh, meshP, cfg, bcs]() {
+            std::shared_ptr<const TransientStep> last;
+            while (m_renderPrepRunning.load() && gen == m_gen && !m_cancel.load()) {
+                auto step = m_latestStep.load();
+                if (!step || step == last) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    continue;
+                }
+                if (m_cancel.load() || gen != m_gen) break;
+                const fvm::SSTModel<2>* turb = nullptr;
+                {
+                    std::lock_guard<std::mutex> lk(m_solverMutex);
+                    if (m_solver) turb = m_solver->turbulence();
+                }
+                auto rm = buildResultMesh(baseMesh, *meshP, *step->velocity, *step->pressure, turb, cfg, bcs);
+                if (m_cancel.load() || gen != m_gen) break;
+                if (rm) {
+                    // Publish mesh + post-field snapshot + status as ONE immutable
+                    // slot: the GUI then always sees a consistent time step, and
+                    // nothing here touches RenderSettings.
+                    auto slot = std::make_shared<CfdFrameSlot>();
+                    slot->mesh = rm;
+                    slot->step = step->step;
+                    slot->time = step->time;
+                    slot->gen = gen;
+                    if (m_postExtractor) {
+                        auto res = m_postExtractor(*rm);
+                        if (res.keepExisting) {
+                            auto prev = m_latestFrameSlot.load();
+                            slot->computed = prev ? prev->computed : nullptr;
+                        } else {
+                            slot->computed = res.ok ? res.snapshot : nullptr;
+                            slot->postStatus = std::move(res.status);
+                            slot->postExtracted = true;
+                        }
+                    }
+                    m_latestFrameSlot.store(std::move(slot));
+                }
+                last = step;
+            }
+        });
+    }
+
+    if (settings.transient.enabled && settings.transient.writeInterval > 0) {
+        m_diskWriterRunning.store(true);
+        auto meshP = meshPtr;
+        auto cfg = settings;
+        // base name
+        std::string baseName = cfg.transient.pvdFile;
+        if (baseName.empty()) baseName = "transient";
+        if (baseName.size() > 4 && baseName.substr(baseName.size()-4) == ".pvd")
+            baseName = baseName.substr(0, baseName.size()-4);
+        int wi = cfg.transient.writeInterval;
+        m_diskWriterThread = std::thread([this, gen, meshP, cfg, baseName, wi]() {
+            std::vector<std::string> entries;
+            int lastSeen = -1;
+            while (m_diskWriterRunning.load() && gen == m_gen && !m_cancel.load()) {
+                auto stepPtr = m_latestStep.load();
+                if (!stepPtr || stepPtr->gen != gen) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    continue;
+                }
+                int step = stepPtr->step;
+                if (step == lastSeen) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    continue;
+                }
+                lastSeen = step;
+                if (step % wi != 0) continue;
+                // write VTK
+                std::string ext = meshP->isUnstructured() ? ".vtu" : (meshP->isUniform() ? ".vti" : ".vtr");
+                std::string fname = baseName + "_" + std::to_string(step) + ext;
+                std::array<const fvm::Field<2>*, 2> velPtrs{};
+                for (std::size_t d = 0; d < 2; ++d) velPtrs[d] = &stepPtr->velocity->operator[](d);
+                fvm::VTKXMLWriter<2>::writeWithVelocity(fname, *meshP, *stepPtr->pressure, velPtrs, "Pressure");
+                std::string entry = std::to_string(stepPtr->time) + "|" + fname;
+                entries.push_back(entry);
+                // update PVD file
+                // derive dir
+                std::string dir;
+                const std::size_t slash = fname.find_last_of("/\\");
+                if (slash != std::string::npos) dir = fname.substr(0, slash + 1);
+                std::string pvdFile = dir + baseName + ".pvd";
+                if (!cfg.transient.pvdFile.empty()) {
+                    const std::string& want = cfg.transient.pvdFile;
+                    const std::size_t wslash = want.find_last_of("/\\");
+                    if (wslash != std::string::npos) pvdFile = want;
+                    else pvdFile = dir + want;
+                }
+                std::ofstream out(pvdFile);
+                if (out) {
+                    out << "<?xml version=\"1.0\"?>\n";
+                    out << "<VTKFile type=\"Collection\" version=\"0.1\">\n";
+                    out << "  <Collection>\n";
+                    for (auto& e : entries) {
+                        auto pos = e.find('|');
+                        std::string t = (pos == std::string::npos) ? "0" : e.substr(0, pos);
+                        std::string f = (pos == std::string::npos) ? e : e.substr(pos+1);
+                        out << "    <DataSet timestep=\"" << t << "\" file=\"" << f << "\"/>\n";
+                    }
+                    out << "  </Collection>\n";
+                    out << "</VTKFile>\n";
+                }
+                std::cout << "  [transient] VTK written to: " << fname << " (pvd updated)\n";
+                // turbulence
+                const fvm::SSTModel<2>* turb = nullptr;
+                {
+                    std::lock_guard<std::mutex> lk(m_solverMutex);
+                    if (m_solver) turb = m_solver->turbulence();
+                }
+                if (turb) {
+                    std::string turbFile = baseName + "_turb_" + std::to_string(step) + ext;
+                    fvm::VTKXMLWriter<2>::writeTurbulence(turbFile, *meshP, turb->k(), turb->omega(), turb->nut());
+                }
+            }
+        });
+    }
+
     QFutureWatcher<void>* w = new QFutureWatcher<void>(this);
     connect(w, &QFutureWatcher<void>::finished, this, [this, w, gen]() {
         w->deleteLater();
+        m_renderPrepRunning.store(false);
+        if (m_renderPrepThread.joinable()) m_renderPrepThread.join();
+        m_diskWriterRunning.store(false);
+        if (m_diskWriterThread.joinable()) m_diskWriterThread.join();
         if (gen != m_gen) return;
         if (m_cancel.load()) { emit finished("Cancelled"); return; }
         if (m_settings.transient.enabled) {
@@ -230,6 +368,10 @@ void CfdController::run() {
 }
 
 std::shared_ptr<const RenderMesh> CfdController::initialize() {
+    m_renderPrepRunning.store(false);
+    if (m_renderPrepThread.joinable()) m_renderPrepThread.join();
+    m_diskWriterRunning.store(false);
+    if (m_diskWriterThread.joinable()) m_diskWriterThread.join();
     if (!m_meshPtr || !m_mesh.renderMesh) return nullptr;
     // Invalidate any in-flight solve generation so its result cannot be applied
     // after this reset, then start from a uniform zero field.
@@ -240,7 +382,12 @@ std::shared_ptr<const RenderMesh> CfdController::initialize() {
 }
 
 void CfdController::cancel() {
+    // Runs on the GUI thread: only signal. Joining here would freeze the UI for
+    // however long the current frame build / VTK write takes; the solve-future
+    // continuation (and run()/initialize()/the destructor) own the joins.
     m_cancel.store(true);
+    m_renderPrepRunning.store(false);
+    m_diskWriterRunning.store(false);
     std::shared_ptr<fvm::SIMPLE<2>> solver;
     {
         std::lock_guard<std::mutex> lk(m_solverMutex);
@@ -252,7 +399,11 @@ void CfdController::cancel() {
 void CfdController::exportVtu(const QString& path) {
     if (!m_meshPtr || !m_velocity || !m_pressure) return;
     std::array<const fvm::Field<2>*, 2> vel{&m_velocity->operator[](0), &m_velocity->operator[](1)};
-    const fvm::SSTModel<2>* turb = m_solver ? m_solver->turbulence() : nullptr;
+    const fvm::SSTModel<2>* turb = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(m_solverMutex);
+        if (m_solver) turb = m_solver->turbulence();
+    }
     const fvm::Field<2>* k = turb ? &turb->k() : nullptr;
     const fvm::Field<2>* om = turb ? &turb->omega() : nullptr;
     const fvm::Field<2>* nt = turb ? &turb->nut() : nullptr;
@@ -318,6 +469,20 @@ bool CfdController::saveCase(const QString& path) {
     t["nonOrthogonalCorrectors"] = m_settings.transient.nonOrthogonalCorrectors;
     t["pvdFile"] = QString::fromStdString(m_settings.transient.pvdFile);
     o["transient"] = t;
+
+    QJsonArray bcArr;
+    for (const auto& pbc : m_patchBCs) {
+        QJsonObject b;
+        b["patchName"] = QString::fromStdString(pbc.patchName);
+        b["type"] = (int)pbc.type;
+        b["u"] = pbc.u; b["v"] = pbc.v; b["w"] = pbc.w;
+        b["pressure"] = pbc.pressure;
+        b["suppressBackflow"] = pbc.suppressBackflow;
+        b["backflowU"] = pbc.backflowU; b["backflowV"] = pbc.backflowV; b["backflowW"] = pbc.backflowW;
+        b["backflowK"] = pbc.backflowK; b["backflowOmega"] = pbc.backflowOmega;
+        bcArr.append(b);
+    }
+    o["patchBCs"] = bcArr;
 
     const QByteArray settings = QJsonDocument(o).toJson(QJsonDocument::Compact);
 
@@ -472,6 +637,37 @@ bool CfdController::loadCase(const QString& path) {
         m_settings.transient.maxOuterCorrectors = t.value("maxOuterCorrectors").toInt(m_settings.transient.maxOuterCorrectors);
         m_settings.transient.nonOrthogonalCorrectors = t.value("nonOrthogonalCorrectors").toInt(m_settings.transient.nonOrthogonalCorrectors);
         m_settings.transient.pvdFile = t.value("pvdFile").toString(QString::fromStdString(m_settings.transient.pvdFile)).toStdString();
+
+        const QJsonArray bcArr = o.value("patchBCs").toArray();
+        if (!bcArr.isEmpty()) {
+            m_patchBCs.clear();
+            for (const auto& v : bcArr) {
+                const QJsonObject b = v.toObject();
+                cfd::PatchBC pbc;
+                pbc.patchName = b.value("patchName").toString().toStdString();
+                pbc.type = static_cast<cfd::BCType>(b.value("type").toInt((int)cfd::BCType::WallNoSlip));
+                pbc.u = b.value("u").toDouble(pbc.u);
+                pbc.v = b.value("v").toDouble(pbc.v);
+                pbc.w = b.value("w").toDouble(pbc.w);
+                pbc.pressure = b.value("pressure").toDouble(pbc.pressure);
+                pbc.suppressBackflow = b.value("suppressBackflow").toBool(pbc.suppressBackflow);
+                pbc.backflowU = b.value("backflowU").toDouble(pbc.backflowU);
+                pbc.backflowV = b.value("backflowV").toDouble(pbc.backflowV);
+                pbc.backflowW = b.value("backflowW").toDouble(pbc.backflowW);
+                pbc.backflowK = b.value("backflowK").toDouble(pbc.backflowK);
+                pbc.backflowOmega = b.value("backflowOmega").toDouble(pbc.backflowOmega);
+                m_patchBCs.push_back(pbc);
+            }
+        }
+    }
+
+    if (m_patchBCs.empty()) {
+        for (const auto& patch : m_mesh.patches) {
+            cfd::PatchBC pbc;
+            pbc.patchName = patch.name;
+            pbc.type = cfd::BCType::WallNoSlip;
+            m_patchBCs.push_back(pbc);
+        }
     }
 
     in.close();
@@ -482,6 +678,10 @@ bool CfdController::loadCase(const QString& path) {
 
 std::shared_ptr<const RenderMesh> CfdController::resultMesh() const {
     if (!m_meshPtr || !m_velocity || !m_pressure || !m_mesh.renderMesh) return nullptr;
-    const fvm::SSTModel<2>* turb = m_solver ? m_solver->turbulence() : nullptr;
+    const fvm::SSTModel<2>* turb = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(m_solverMutex);
+        if (m_solver) turb = m_solver->turbulence();
+    }
     return buildResultMesh(m_mesh.renderMesh, *m_meshPtr, *m_velocity, *m_pressure, turb, m_settings, m_patchBCs);
 }

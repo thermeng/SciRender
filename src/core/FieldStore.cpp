@@ -8,7 +8,10 @@
 namespace FieldStore {
 namespace {
 
-thread_local std::unordered_map<std::string, std::vector<float>> s_derivedCache;
+// Derived arrays are shared_ptr-owned so a caller can outlive a cache refill:
+// handles returned in ScalarField::owner keep the data alive even after
+// clearCache()/a different mesh swaps the map contents.
+thread_local std::unordered_map<std::string, std::shared_ptr<const std::vector<float>>> s_derivedCache;
 thread_local const RenderMesh* s_derivedLastMesh = nullptr;
 thread_local uint64_t s_derivedLastHash = 0;
 
@@ -39,8 +42,7 @@ std::vector<float> synthesizeDerivedArray(const glm::vec3* data, size_t count,
 } // anonymous
 
 void clearCache() {
-    s_derivedCache.clear();
-    std::unordered_map<std::string, std::vector<float>>().swap(s_derivedCache);
+    decltype(s_derivedCache)().swap(s_derivedCache);
     s_derivedLastMesh = nullptr;
     s_derivedLastHash = 0;
 }
@@ -224,17 +226,17 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key,
         if (s_derivedLastMesh != &mesh || s_derivedLastHash != curHash) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; s_derivedLastHash = curHash; }
 
         std::string keyPoint = name + "#vert";
-        const std::vector<float>* pointPtr = nullptr;
+        std::shared_ptr<const std::vector<float>> pointOwner;
         Range pRange{0,1};
         auto itP = s_derivedCache.find(keyPoint);
         if (itP != s_derivedCache.end()) {
-            pointPtr = &itP->second;
-            pRange = computeRange(*pointPtr);
+            pointOwner = itP->second;
+            pRange = computeRange(*pointOwner);
         } else if (hasPoint) {
-            auto derived = synthesizeDerivedArray(vfPoint.data, vfPoint.count, suffix, comp);
-            pRange = computeRange(derived);
-            auto &slot = s_derivedCache[keyPoint] = std::move(derived);
-            pointPtr = &slot;
+            pointOwner = std::make_shared<const std::vector<float>>(
+                synthesizeDerivedArray(vfPoint.data, vfPoint.count, suffix, comp));
+            pRange = computeRange(*pointOwner);
+            s_derivedCache[keyPoint] = pointOwner;
         }
 
         if (placement == Placement::CellCenter && hasCell) {
@@ -242,18 +244,20 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key,
             auto itC = s_derivedCache.find(keyCell);
             Range cRange{0,1};
             if (itC != s_derivedCache.end()) {
-                cRange = computeRange(itC->second);
+                cRange = computeRange(*itC->second);
             } else {
-                auto derivedC = synthesizeDerivedArray(vfCell.data, vfCell.count, suffix, comp);
-                cRange = computeRange(derivedC);
-                s_derivedCache[keyCell] = std::move(derivedC);
+                auto derivedC = std::make_shared<const std::vector<float>>(
+                    synthesizeDerivedArray(vfCell.data, vfCell.count, suffix, comp));
+                cRange = computeRange(*derivedC);
+                s_derivedCache[keyCell] = derivedC;
             }
             // surface data stays point-sized but range is cell-wide
-            if (pointPtr) return {pointPtr, cRange, true};
+            if (pointOwner) return {pointOwner.get(), cRange, true, pointOwner};
             auto itCF = s_derivedCache.find(keyCell);
-            if (itCF != s_derivedCache.end()) return {&itCF->second, cRange, true};
+            if (itCF != s_derivedCache.end())
+                return {itCF->second.get(), cRange, true, itCF->second};
         }
-        if (pointPtr) return {pointPtr, pRange, false};
+        if (pointOwner) return {pointOwner.get(), pRange, false, pointOwner};
         return {nullptr, {0,1}, false};
     };
 
@@ -335,12 +339,13 @@ ScalarField resolveScalarForVolume(const RenderMesh& mesh, const FieldKey& key,
         if (s_derivedLastMesh != &mesh || s_derivedLastHash != curHash2) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; s_derivedLastHash = curHash2; }
         auto itc = s_derivedCache.find(cacheKey);
         if (itc != s_derivedCache.end()) {
-            return {&itc->second, computeRange(itc->second), vf.isCell};
+            return {itc->second.get(), computeRange(*itc->second), vf.isCell, itc->second};
         }
-        auto derived = synthesizeDerivedArray(vf.data, vf.count, suffix, comp);
-        Range r = computeRange(derived);
-        auto &slot = s_derivedCache[cacheKey] = std::move(derived);
-        return {&slot, r, vf.isCell};
+        auto derived = std::make_shared<const std::vector<float>>(
+            synthesizeDerivedArray(vf.data, vf.count, suffix, comp));
+        Range r = computeRange(*derived);
+        s_derivedCache[cacheKey] = derived;
+        return {derived.get(), r, vf.isCell, derived};
     };
     ScalarField r;
     r = tryDerivedVol(" [Magnitude]", -1); if (r.data) return r;

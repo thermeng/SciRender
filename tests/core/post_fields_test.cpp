@@ -68,6 +68,51 @@ TEST_CASE("core.postfields.solid_rotation") {
     CHECK_MESSAGE(maxAbs(r.helicity) < 1e-3f, "rotation: helicity ~ 0 (planar)");
 }
 
+TEST_CASE("core.postfields.extract_snapshot") {
+    auto g = linspace(-2, 2, 7);
+    RenderMesh m = makeFlowGrid(g, g, g,
+        [](float x, float y, float) { return glm::vec3(-y, x, 0.0f); },
+        [](float x, float, float) { return x; });
+
+    postfields::SnapshotRequest req;
+    req.velocitySource = "velocity";
+    req.pressureSource = "pressure";
+
+    SUBCASE("success publishes named fields with ranges") {
+        auto res = postfields::extractSnapshot(m, req);
+        CHECK_MESSAGE(res.ok, "snapshot: ok");
+        REQUIRE(res.snapshot);
+        CHECK_MESSAGE(!res.snapshot->empty(), "snapshot: not empty");
+        CHECK_MESSAGE(res.status.empty(), "snapshot: no status on success");
+        CHECK_MESSAGE(res.snapshot->vectors.count("velocity_vorticity") == 1, "snapshot: vorticity");
+        CHECK_MESSAGE(res.snapshot->vectors.count("pressure_grad") == 1, "snapshot: grad p");
+        CHECK_MESSAGE(res.snapshot->scalars.count("velocity_helicity") == 1, "snapshot: helicity");
+        CHECK_MESSAGE(res.snapshot->scalars.count("velocity_Q") == 1, "snapshot: Q");
+        const auto& qRange = res.snapshot->scalarRanges.at("velocity_Q");
+        CHECK_MESSAGE(qRange.first <= qRange.second, "snapshot: Q range ordered");
+    }
+
+    SUBCASE("missing velocity field fails with a status") {
+        auto bad = req;
+        bad.velocitySource = "no_such_field";
+        auto res = postfields::extractSnapshot(m, bad);
+        CHECK_MESSAGE(!res.ok, "snapshot: missing field fails");
+        CHECK_MESSAGE(!res.snapshot, "snapshot: no payload on failure");
+        CHECK_MESSAGE(!res.status.empty(), "snapshot: status explains failure");
+        CHECK_MESSAGE(!res.keepExisting, "snapshot: not a carry-forward");
+    }
+
+    SUBCASE("auto re-extract disabled carries the previous snapshot") {
+        auto carry = req;
+        carry.autoReextract = false;
+        auto res = postfields::extractSnapshot(m, carry);
+        CHECK_MESSAGE(res.ok, "snapshot: carry-forward ok");
+        CHECK_MESSAGE(res.keepExisting, "snapshot: carry-forward flagged");
+        CHECK_MESSAGE(!res.snapshot, "snapshot: caller keeps its own");
+        CHECK_MESSAGE(res.status.empty(), "snapshot: carry-forward is silent");
+    }
+}
+
 TEST_CASE("core.postfields.poiseuille") {
     auto g = linspace(-1, 1, 9);
     RenderMesh m = makeFlowGrid(g, g, linspace(0, 1, 4),

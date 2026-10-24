@@ -1,6 +1,7 @@
 #pragma once
 #include "core/mesh_loader.h"
 #include "core/post_fields.h"
+#include <memory>
 #include <string>
 #include <vector>
 #include <optional>
@@ -38,6 +39,11 @@ struct ScalarField {
     const std::vector<float>* data = nullptr; // storage owned by RenderMesh or derived cache
     Range range{};
     bool isCell = false; // true when data came from cell storage (size == cellCount)
+    // Non-null for synthesized derived scalars: keeps the derived array alive for
+    // as long as the caller holds this handle. Without it a raw `data` pointer
+    // dangles as soon as the per-thread derived cache is refilled for another
+    // mesh — which is every frame while a transient run streams.
+    std::shared_ptr<const std::vector<float>> owner;
 };
 
 struct VectorField {
