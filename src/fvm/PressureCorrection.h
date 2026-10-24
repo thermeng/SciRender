@@ -63,6 +63,19 @@ public:
         }();
     };
 
+    struct PressureSolverStats {
+        std::size_t solves = 0;
+        std::size_t amgSolves = 0;
+        std::size_t iluSolves = 0;
+        std::size_t amgBuilds = 0;
+        std::size_t amgRejected = 0;
+        std::size_t krylovIters = 0;
+        std::size_t amgKrylovIters = 0;
+        double iluSeconds = 0.0;
+        double amgSeconds = 0.0;
+        double buildSeconds = 0.0;
+    };
+
     PressureCorrection(const Mesh<Dim>& mesh, const Config& config);
     PressureCorrection(const Mesh<Dim>& mesh);
     void setConfig(const Config& cfg) { config_ = cfg; }
@@ -79,6 +92,8 @@ public:
     // residual the solver ended with.
     std::size_t lastSolveIterations() const { return lastSolveIterations_; }
     double lastSolveResidual() const { return lastSolveResidual_; }
+    const PressureSolverStats& pressureStats() const { return pressureStats_; }
+    void resetPressureStats() { pressureStats_ = PressureSolverStats{}; }
     // The assembled system of the last solve (diagnostics).
     const SparseMatrix& lastMatrix() const { return A_; }
     const Eigen::VectorXd& lastRhs() const { return bVec_; }
@@ -134,6 +149,7 @@ private:
     // Diagnostics of the last linear solve.
     std::size_t lastSolveIterations_ = 0;
     double lastSolveResidual_ = 0.0;
+    mutable PressureSolverStats pressureStats_{};
 
     Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
                              Eigen::IncompleteCholesky<double>> cgSolver_;

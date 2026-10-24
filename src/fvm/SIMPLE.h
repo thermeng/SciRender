@@ -313,6 +313,7 @@ private:
     // coarse operator loses diagonal dominance, so we refuse to use it.
     static bool hasPositiveOffDiagonals_(const SparseMatrix& A);
     void printMomentumSolverStats_() const;
+    void printPressureSolverStats_() const;
     // Solve with ILU. Used as the default and as the fallback when the
     // AMG-preconditioned solve produces an unacceptable residual.
     Eigen::VectorXd solveMomentumILU_(std::size_t d, std::size_t& itersOut);

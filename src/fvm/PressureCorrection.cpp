@@ -6,6 +6,7 @@
 #include <iostream>
 #include <cmath>
 #include <limits>
+#include <chrono>
 
 namespace fvm {
 
@@ -36,6 +37,8 @@ void PressureCorrection<Dim>::solve(
 
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
+
+    pressureStats_.solves++;
 
     if (!gradientCalc_) {
         gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_, GradientScheme::LeastSquares);
@@ -654,7 +657,10 @@ void PressureCorrection<Dim>::solve(
             auto amgCfg = config_.amgConfig;
             amgCfg.tolerance *= volScale;
             amg_.setConfig(amgCfg);
+            auto tBuild = std::chrono::steady_clock::now();
             amg_.build(A_);
+            pressureStats_.amgBuilds++;
+            pressureStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tBuild).count();
             amgPrec_.setAMG(&amg_);
             amgBuilt_ = true;
             amgPatternHash_ = patternHash;
@@ -672,9 +678,14 @@ void PressureCorrection<Dim>::solve(
             }
             bicgSolver_.factorize(A_);
             bicgSolver_.preconditioner().setAMG(&amg_);
+            auto tSolve = std::chrono::steady_clock::now();
             x = bicgSolver_.solve(bVec_);
+            pressureStats_.amgSolves++;
+            pressureStats_.amgKrylovIters += bicgSolver_.iterations();
+            pressureStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tSolve).count();
             converged = (bicgSolver_.info() == Eigen::Success);
             if (!converged) {
+                pressureStats_.amgRejected++;
                 std::cerr << "  WARNING: AMG-preconditioned BiCGSTAB did not converge (iters="
                           << bicgSolver_.iterations() << ", resid=" << bicgSolver_.error()
                           << "), falling back to CG+IC\n";
@@ -686,7 +697,10 @@ void PressureCorrection<Dim>::solve(
             auto amgCfg = config_.amgConfig;
             amgCfg.tolerance *= volScale;
             amg_.setConfig(amgCfg);
+            auto tBuild = std::chrono::steady_clock::now();
             amg_.build(A_);
+            pressureStats_.amgBuilds++;
+            pressureStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tBuild).count();
             amgBuilt_ = true;
             amgPatternHash_ = patternHash;
             prevPMask_ = pMask_;
@@ -694,8 +708,12 @@ void PressureCorrection<Dim>::solve(
         }
 
         if (amg_.isBuilt()) {
+            auto tSolve = std::chrono::steady_clock::now();
             converged = amg_.solve(bVec_, x);
+            pressureStats_.amgSolves++;
+            pressureStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tSolve).count();
             if (!converged) {
+                pressureStats_.amgRejected++;
                 std::cerr << "  WARNING: AMG solve did not converge, falling back to CG+IC\n";
             }
         }
@@ -726,8 +744,12 @@ void PressureCorrection<Dim>::solve(
         // The compact Rhie-Chow matrix is the two-point Laplacian stored with
         // the opposite sign (positive diagonal, negative off-diagonal), i.e.
         // SPD; BiCGSTAB still solves it, and CG remains the fallback.
+        auto tIlu = std::chrono::steady_clock::now();
         bicgFallbackSolver_.factorize(A_);
         x = bicgFallbackSolver_.solve(bVec_);
+        pressureStats_.iluSolves++;
+        pressureStats_.krylovIters += bicgFallbackSolver_.iterations();
+        pressureStats_.iluSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tIlu).count();
         converged = (bicgFallbackSolver_.info() == Eigen::Success);
         lastSolveIterations_ = bicgFallbackSolver_.iterations();
         lastSolveResidual_ = bicgFallbackSolver_.error();
@@ -738,6 +760,7 @@ void PressureCorrection<Dim>::solve(
         if (!converged) {
             cgSolver_.factorize(A_);
             x = cgSolver_.solve(bVec_);
+            pressureStats_.krylovIters += cgSolver_.iterations();
             converged = (cgSolver_.info() == Eigen::Success);
             lastSolveIterations_ = cgSolver_.iterations();
             lastSolveResidual_ = cgSolver_.error();
