@@ -4,7 +4,9 @@
 #include "cfd/cfd_mesh_adapter.h"
 #include "cfd/cfd_result_builder.h"
 #include "cfd/cfd_types.h"
+#include "cfd/case_codec.h"
 #include "cfd/transient_settings_bridge.h"
+#include "cfd/solver_config_bridge.h"
 
 #include "mesh/Mesh.h"
 #include "field/Field.h"
@@ -90,38 +92,7 @@ void CfdController::run() {
     m_velocity = std::make_shared<fvm::VectorField<2>>(*meshPtr, 0.0);
     m_pressure = std::make_shared<fvm::Field<2>>(*meshPtr, 0.0);
 
-    fvm::SIMPLE<2>::Config sc;
-    sc.maxIterations = settings.maxIterations;
-    sc.tolerance = settings.tolerance;
-    sc.runFixedIterations = settings.runFixedIterations;
-    sc.convergenceHoldIterations = settings.convergenceHoldIterations;
-    sc.alphaU = settings.alphaU;
-    sc.alphaP = settings.alphaP;
-    sc.simplec = settings.simplec;
-    sc.rhieChow = settings.rhieChow;
-    sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
-                          : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind
-                             : (settings.scheme == 3 ? fvm::ConvectionScheme::QUICK : fvm::ConvectionScheme::Upwind));
-    sc.gradientScheme = settings.gradientScheme == 1 ? fvm::GradientScheme::GreenGaussCellBased
-                       : (settings.gradientScheme == 2 ? fvm::GradientScheme::GreenGaussNodeBased : fvm::GradientScheme::LeastSquares);
-    sc.printFrequency = settings.printFrequency;
-    sc.residualHistoryWindow = settings.residualHistoryWindow;
-    sc.pressureCorrectors = settings.pressureCorrectors;
-    sc.limitPressureCorrection = settings.limitPressureCorrection;
-    sc.pressureCorrectionLimit = settings.pressureCorrectionLimit;
-    sc.pressureRefCell = settings.pressureRefCell == 0 ? SIZE_MAX : settings.pressureRefCell;
-    sc.pressureUseAMG = settings.pressureUseAMG;
-    sc.pressureUseAMGPreconditioner = settings.pressureUseAMGPreconditioner;
-    sc.pressureAmgThreshold = settings.pressureAmgThreshold;
-    sc.pressureAmgConfig = toFvmAmg(settings.pressureAmg);
-    sc.useAMGMomentum = settings.useAMGMomentum;
-    sc.momentumAmgThreshold = settings.momentumAmgThreshold;
-    sc.momentumAmgCycles = settings.momentumAmgCycles;
-    sc.momentumAmgMaxResidual = settings.momentumAmgMaxResidual;
-    sc.momentumSolverStats = settings.momentumSolverStats;
-    sc.momentumAmgConfig = toFvmAmg(settings.momentumAmg);
-    sc.solverType = toFvmSolverType(settings.transient);
-    sc.transient = toFvmTransient<2>(settings.transient);
+    fvm::SIMPLE<2>::Config sc = cfd::toFvmConfig<2>(settings);
     sc.iterationCallback = [this, gen](int iter, double cont, double mom) {
         if (gen != m_gen) return;
         if (m_cancel.load()) return;
@@ -421,70 +392,7 @@ bool CfdController::saveCase(const QString& path) {
     meshFile.close();
     const QString meshName = QFileInfo(m_meshPath).fileName();
 
-    QJsonObject o;
-    o["rho"] = m_settings.rho;
-    o["nu"] = m_settings.nu;
-    o["tolerance"] = m_settings.tolerance;
-    o["maxIterations"] = (qint64)m_settings.maxIterations;
-    o["runFixedIterations"] = m_settings.runFixedIterations;
-    o["convergenceHoldIterations"] = m_settings.convergenceHoldIterations;
-    o["alphaU"] = m_settings.alphaU;
-    o["alphaP"] = m_settings.alphaP;
-    o["simplec"] = m_settings.simplec;
-    o["scheme"] = m_settings.scheme;
-    o["gradientScheme"] = m_settings.gradientScheme;
-    o["rhieChow"] = m_settings.rhieChow;
-    o["turbulence"] = m_settings.turbulence;
-    o["kInf"] = m_settings.kInf;
-    o["omegaInf"] = m_settings.omegaInf;
-    o["alphaK"] = m_settings.alphaK;
-    o["alphaOmega"] = m_settings.alphaOmega;
-    o["pressureRefCell"] = (qint64)m_settings.pressureRefCell;
-    o["pressureCorrectors"] = m_settings.pressureCorrectors;
-    o["limitPressureCorrection"] = m_settings.limitPressureCorrection;
-    o["pressureCorrectionLimit"] = m_settings.pressureCorrectionLimit;
-    o["printFrequency"] = (qint64)m_settings.printFrequency;
-    o["residualHistoryWindow"] = (qint64)m_settings.residualHistoryWindow;
-    o["numThreads"] = m_settings.numThreads;
-    o["pressureUseAMG"] = m_settings.pressureUseAMG;
-    o["pressureUseAMGPreconditioner"] = m_settings.pressureUseAMGPreconditioner;
-    o["pressureAmgThreshold"] = (qint64)m_settings.pressureAmgThreshold;
-    o["useAMGMomentum"] = m_settings.useAMGMomentum;
-    o["momentumAmgThreshold"] = (qint64)m_settings.momentumAmgThreshold;
-    o["momentumAmgCycles"] = m_settings.momentumAmgCycles;
-    o["momentumAmgMaxResidual"] = m_settings.momentumAmgMaxResidual;
-    o["momentumSolverStats"] = m_settings.momentumSolverStats;
-
-    QJsonObject t;
-    t["enabled"] = m_settings.transient.enabled;
-    t["dt"] = m_settings.transient.dt;
-    t["tEnd"] = m_settings.transient.tEnd;
-    t["timeScheme"] = (int)m_settings.transient.timeScheme;
-    t["adaptiveCfl"] = m_settings.transient.adaptiveCfl;
-    t["cfl"] = m_settings.transient.cfl;
-    t["minDt"] = m_settings.transient.minDt;
-    t["maxDt"] = m_settings.transient.maxDt;
-    t["writeInterval"] = m_settings.transient.writeInterval;
-    t["maxOuterCorrectors"] = m_settings.transient.maxOuterCorrectors;
-    t["nonOrthogonalCorrectors"] = m_settings.transient.nonOrthogonalCorrectors;
-    t["pvdFile"] = QString::fromStdString(m_settings.transient.pvdFile);
-    o["transient"] = t;
-
-    QJsonArray bcArr;
-    for (const auto& pbc : m_patchBCs) {
-        QJsonObject b;
-        b["patchName"] = QString::fromStdString(pbc.patchName);
-        b["type"] = (int)pbc.type;
-        b["u"] = pbc.u; b["v"] = pbc.v; b["w"] = pbc.w;
-        b["pressure"] = pbc.pressure;
-        b["suppressBackflow"] = pbc.suppressBackflow;
-        b["backflowU"] = pbc.backflowU; b["backflowV"] = pbc.backflowV; b["backflowW"] = pbc.backflowW;
-        b["backflowK"] = pbc.backflowK; b["backflowOmega"] = pbc.backflowOmega;
-        bcArr.append(b);
-    }
-    o["patchBCs"] = bcArr;
-
-    const QByteArray settings = QJsonDocument(o).toJson(QJsonDocument::Compact);
+    const QByteArray settings = cfd::serializeCaseSettings(m_settings, m_patchBCs);
 
     const bool hasResult = (m_velocity && m_pressure);
     const std::size_t n = hasResult ? m_meshPtr->nCells() : 0;
@@ -588,78 +496,7 @@ bool CfdController::loadCase(const QString& path) {
         m_pressure = std::make_shared<fvm::Field<2>>(*m_meshPtr, 0.0);
     }
 
-    QJsonDocument doc = QJsonDocument::fromJson(settings);
-    if (doc.isObject()) {
-        const QJsonObject o = doc.object();
-        m_settings.rho = o.value("rho").toDouble(m_settings.rho);
-        m_settings.nu = o.value("nu").toDouble(m_settings.nu);
-        m_settings.tolerance = o.value("tolerance").toDouble(m_settings.tolerance);
-        m_settings.maxIterations = (std::size_t)o.value("maxIterations").toVariant().toULongLong();
-        m_settings.runFixedIterations = o.value("runFixedIterations").toBool(m_settings.runFixedIterations);
-        m_settings.convergenceHoldIterations = o.value("convergenceHoldIterations").toInt(m_settings.convergenceHoldIterations);
-        m_settings.alphaU = o.value("alphaU").toDouble(m_settings.alphaU);
-        m_settings.alphaP = o.value("alphaP").toDouble(m_settings.alphaP);
-        m_settings.simplec = o.value("simplec").toBool(m_settings.simplec);
-        m_settings.scheme = o.value("scheme").toInt(m_settings.scheme);
-        m_settings.gradientScheme = o.value("gradientScheme").toInt(m_settings.gradientScheme);
-        m_settings.rhieChow = o.value("rhieChow").toBool(m_settings.rhieChow);
-        m_settings.turbulence = o.value("turbulence").toBool(m_settings.turbulence);
-        m_settings.kInf = o.value("kInf").toDouble(m_settings.kInf);
-        m_settings.omegaInf = o.value("omegaInf").toDouble(m_settings.omegaInf);
-        m_settings.alphaK = o.value("alphaK").toDouble(m_settings.alphaK);
-        m_settings.alphaOmega = o.value("alphaOmega").toDouble(m_settings.alphaOmega);
-        m_settings.pressureRefCell = (std::size_t)o.value("pressureRefCell").toVariant().toULongLong();
-        m_settings.pressureCorrectors = o.value("pressureCorrectors").toInt(m_settings.pressureCorrectors);
-        m_settings.limitPressureCorrection = o.value("limitPressureCorrection").toBool(m_settings.limitPressureCorrection);
-        m_settings.pressureCorrectionLimit = o.value("pressureCorrectionLimit").toDouble(m_settings.pressureCorrectionLimit);
-        m_settings.printFrequency = (std::size_t)o.value("printFrequency").toVariant().toULongLong();
-        m_settings.residualHistoryWindow = (std::size_t)o.value("residualHistoryWindow").toVariant().toULongLong();
-        m_settings.numThreads = o.value("numThreads").toInt(m_settings.numThreads);
-        m_settings.pressureUseAMG = o.value("pressureUseAMG").toBool(m_settings.pressureUseAMG);
-        m_settings.pressureUseAMGPreconditioner = o.value("pressureUseAMGPreconditioner").toBool(m_settings.pressureUseAMGPreconditioner);
-        m_settings.pressureAmgThreshold = (std::size_t)o.value("pressureAmgThreshold").toVariant().toULongLong();
-        m_settings.useAMGMomentum = o.value("useAMGMomentum").toBool(m_settings.useAMGMomentum);
-        m_settings.momentumAmgThreshold = (std::size_t)o.value("momentumAmgThreshold").toVariant().toULongLong();
-        m_settings.momentumAmgCycles = o.value("momentumAmgCycles").toInt(m_settings.momentumAmgCycles);
-        m_settings.momentumAmgMaxResidual = o.value("momentumAmgMaxResidual").toDouble(m_settings.momentumAmgMaxResidual);
-        m_settings.momentumSolverStats = o.value("momentumSolverStats").toBool(m_settings.momentumSolverStats);
-
-        const QJsonObject t = o.value("transient").toObject();
-        m_settings.transient.enabled = t.value("enabled").toBool(m_settings.transient.enabled);
-        m_settings.transient.dt = t.value("dt").toDouble(m_settings.transient.dt);
-        m_settings.transient.tEnd = t.value("tEnd").toDouble(m_settings.transient.tEnd);
-        m_settings.transient.timeScheme = (cfd::TransientSettings::TimeScheme)t.value("timeScheme").toInt((int)m_settings.transient.timeScheme);
-        m_settings.transient.adaptiveCfl = t.value("adaptiveCfl").toBool(m_settings.transient.adaptiveCfl);
-        m_settings.transient.cfl = t.value("cfl").toDouble(m_settings.transient.cfl);
-        m_settings.transient.minDt = t.value("minDt").toDouble(m_settings.transient.minDt);
-        m_settings.transient.maxDt = t.value("maxDt").toDouble(m_settings.transient.maxDt);
-        m_settings.transient.writeInterval = t.value("writeInterval").toInt(m_settings.transient.writeInterval);
-        m_settings.transient.maxOuterCorrectors = t.value("maxOuterCorrectors").toInt(m_settings.transient.maxOuterCorrectors);
-        m_settings.transient.nonOrthogonalCorrectors = t.value("nonOrthogonalCorrectors").toInt(m_settings.transient.nonOrthogonalCorrectors);
-        m_settings.transient.pvdFile = t.value("pvdFile").toString(QString::fromStdString(m_settings.transient.pvdFile)).toStdString();
-
-        const QJsonArray bcArr = o.value("patchBCs").toArray();
-        if (!bcArr.isEmpty()) {
-            m_patchBCs.clear();
-            for (const auto& v : bcArr) {
-                const QJsonObject b = v.toObject();
-                cfd::PatchBC pbc;
-                pbc.patchName = b.value("patchName").toString().toStdString();
-                pbc.type = static_cast<cfd::BCType>(b.value("type").toInt((int)cfd::BCType::WallNoSlip));
-                pbc.u = b.value("u").toDouble(pbc.u);
-                pbc.v = b.value("v").toDouble(pbc.v);
-                pbc.w = b.value("w").toDouble(pbc.w);
-                pbc.pressure = b.value("pressure").toDouble(pbc.pressure);
-                pbc.suppressBackflow = b.value("suppressBackflow").toBool(pbc.suppressBackflow);
-                pbc.backflowU = b.value("backflowU").toDouble(pbc.backflowU);
-                pbc.backflowV = b.value("backflowV").toDouble(pbc.backflowV);
-                pbc.backflowW = b.value("backflowW").toDouble(pbc.backflowW);
-                pbc.backflowK = b.value("backflowK").toDouble(pbc.backflowK);
-                pbc.backflowOmega = b.value("backflowOmega").toDouble(pbc.backflowOmega);
-                m_patchBCs.push_back(pbc);
-            }
-        }
-    }
+    if (!cfd::deserializeCaseSettings(settings, m_settings, m_patchBCs)) return false;
 
     if (m_patchBCs.empty()) {
         for (const auto& patch : m_mesh.patches) {
