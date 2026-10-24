@@ -179,6 +179,7 @@ void PressureCorrection<Dim>::solve(
     // any other cell whose pressure is already prescribed - is a CHOICE, not a
     // discovery, so it is not reported as isolated.
     isolatedCellCount_ = 0;
+    #pragma omp parallel for reduction(+:isolatedCellCount_) schedule(static)
     for (std::size_t i = 0; i < n; ++i) {
         if (pMask_[i])
             continue;
@@ -195,6 +196,7 @@ void PressureCorrection<Dim>::solve(
 
     divU_.assign(0.0);
 
+    #pragma omp parallel for schedule(static)
     for (std::size_t f = 0; f < nF; ++f) {
         const std::size_t P = ownerPtr[f];
         const std::size_t N = neighborPtr[f];
@@ -287,8 +289,10 @@ void PressureCorrection<Dim>::solve(
         }
 
         double flux = un * area;
+        #pragma omp atomic
         divU_[P] += flux;
         if (N != std::size_t(-1)) {
+            #pragma omp atomic
             divU_[N] -= flux;
         }
     }
