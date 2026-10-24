@@ -1,11 +1,11 @@
 // Headless check for FieldResolver::AnimRangeState - the animation colormap
 // range rules (whole-sequence union vs per-frame rescale). No Qt/GL.
-#include "core/FieldResolver.h"
+#include "render/settings/anim_range.h"
 #include "doctest/doctest.h"
 
 #include <cmath>
 
-using FieldResolver::AnimRangeState;
+using ::AnimRangeState;
 
 namespace {
 

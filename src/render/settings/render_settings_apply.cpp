@@ -29,8 +29,8 @@ void RenderSettings::applyLoadedMesh(const std::shared_ptr<const RenderMesh>& lo
 // mesh (including derived [Magnitude]/[X]/[Y]/[Z] fields); only fall back to
 // the mesh's default scalar (or another available one) when it does not.
 const std::string requestedScalar = m_state.activeScalarName;
-const std::string resolvedScalar = FieldResolver::resolveActiveScalar(*loaded, requestedScalar,
-    m_state.scalarPlacement, m_state.computed.get());
+const std::string resolvedScalar = FieldStore::resolveActiveScalar(*loaded, requestedScalar,
+    FieldStore::toPlacement(m_state.scalarPlacement), m_state.computed.get());
 if (!resolvedScalar.empty()) m_state.activeScalarName = resolvedScalar;
 else if (!loaded->scalarName.empty()) m_state.activeScalarName = loaded->scalarName;
 else {

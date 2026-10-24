@@ -95,7 +95,6 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/core/mesh_loader.cpp
         src/core/mesh_quality.cpp
         src/core/FieldStore.cpp
-        src/core/FieldResolver.cpp
         src/core/post_fields.cpp
         src/core/gradient_estimator.cpp
         src/core/isosurface.cpp
