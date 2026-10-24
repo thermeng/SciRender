@@ -124,6 +124,7 @@ private:
     ScientificDoubleSpinBox* m_maxDtSpin = nullptr;
     QSpinBox* m_writeIntervalSpin = nullptr;
     QSpinBox* m_outerCorrectorsSpin = nullptr;
+    QSpinBox* m_nonOrthCorrectorsSpin = nullptr;
     QLineEdit* m_pvdFileEdit = nullptr;
     QPushButton* m_pvdBrowseBtn = nullptr;
 

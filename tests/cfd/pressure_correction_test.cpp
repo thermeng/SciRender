@@ -13,6 +13,7 @@
 #include "fvm/VelocityCorrection.h"
 #include "support/fvm_fixtures.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -428,6 +429,137 @@ TEST_CASE("cfd.pressure.operator_consistency_on_the_solved_field") {
         MESSAGE("n=", n, ": residual |div u| = ", c.divergenceAfter, ", GG ratio = ",
                 c.operatorRatio, ", LSQ ratio = ", c.lsqOperatorRatio);
     }
+}
+
+// The PISO pressure operator is the compact two-point Laplacian. A cell must
+// couple only to its face neighbours, not to the second ring the legacy
+// composed least-squares operator reaches; that compact stencil is what the
+// Rhie-Chow face flux is built to balance. The legacy operator is checked in
+// the same test so a future "simplification" cannot silently switch PISO back
+// to the wide stencil.
+TEST_CASE("cfd.pressure.compact_operator_has_two_point_stencil") {
+    const fvm::Mesh<2> mesh = uniform2D(8);
+    fvm::VectorField<2> uStar(mesh, 0.0);
+    fvm::Field<2> pressure(mesh, 0.0);
+    fvm::Field<2> pPrime(mesh, 0.0);
+    std::vector<char> isPressureNeumann(mesh.nCells(), 1);
+
+    // An interior cell with no boundary neighbours, away from the reference
+    // cell the solver pins at the domain centroid, so neither the wall ghost
+    // nor the pinned row can perturb the row under test.
+    const std::size_t i = 2 * 8 + 2;
+    const std::size_t secondRing = i + 2; // (x+2, y): reachable only through
+                                          // the face-neighbour gradient
+    REQUIRE(!mesh.isBoundary(i));
+    REQUIRE(!mesh.isBoundary(secondRing));
+
+    auto coefficient = [&](bool compact, std::size_t row, std::size_t col) {
+        fvm::PressureCorrection<2>::Config cfg;
+        cfg.compactRhieChow = compact;
+        cfg.useAMG = false;
+        fvm::PressureCorrection<2> pc(mesh, cfg);
+        pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {},
+                 isPressureNeumann);
+        return pc.lastMatrix().coeff(static_cast<int>(row),
+                                     static_cast<int>(col));
+    };
+
+    const double compactSecondRing = coefficient(true, i, secondRing);
+    const double legacySecondRing = coefficient(false, i, secondRing);
+    MESSAGE("second-ring coefficient: compact = ", compactSecondRing,
+            ", legacy = ", legacySecondRing);
+
+    CHECK_MESSAGE(std::abs(compactSecondRing) < 1e-14,
+                  "the compact operator must not couple a cell to the second "
+                  "ring the composed gradient reaches");
+    CHECK_MESSAGE(std::abs(legacySecondRing) > 1e-12,
+                  "the legacy composed operator must keep its wider stencil");
+
+    // Every off-row entry of the compact row must be a face neighbour.
+    fvm::PressureCorrection<2>::Config cfg;
+    cfg.compactRhieChow = true;
+    cfg.useAMG = false;
+    fvm::PressureCorrection<2> pc(mesh, cfg);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {},
+             isPressureNeumann);
+    const auto& A = pc.lastMatrix();
+    std::vector<std::size_t> faceNeighbors(mesh.cellNeighbors(i).begin(),
+                                           mesh.cellNeighbors(i).end());
+    for (std::size_t j = 0; j < mesh.nCells(); ++j) {
+        if (j == i)
+            continue;
+        const bool adjacent =
+            std::find(faceNeighbors.begin(), faceNeighbors.end(), j) !=
+            faceNeighbors.end();
+        if (!adjacent) {
+            CHECK_MESSAGE(std::abs(A.coeff(static_cast<int>(i),
+                                           static_cast<int>(j))) < 1e-14,
+                          "compact row has a non-face-neighbour entry at " << j);
+        }
+    }
+}
+
+// A checkerboard pressure is invisible to the central cell gradient but has a
+// large two-point face gradient. That mismatch is exactly what the Rhie-Chow
+// term sees, and the compact operator must turn it into a correction that
+// cancels the checkerboard instead of letting it survive in the coupling.
+TEST_CASE("cfd.pressure.compact_rhie_chow_cancels_checkerboard") {
+    const fvm::Mesh<2> mesh = uniform2D(8);
+    fvm::VectorField<2> uStar(mesh, 0.0);
+    fvm::Field<2> pressure(mesh, 0.0);
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        const auto& c = mesh.cellCenter(i);
+        const int ix = static_cast<int>(std::floor(c[0] * 8.0));
+        const int iy = static_cast<int>(std::floor(c[1] * 8.0));
+        pressure[i] = ((ix + iy) % 2 == 0) ? 1.0 : -1.0;
+    }
+    fvm::Field<2> pPrime(mesh, 0.0);
+    std::vector<char> isPressureNeumann(mesh.nCells(), 1);
+
+    fvm::PressureCorrection<2>::Config cfg;
+    cfg.compactRhieChow = true;
+    cfg.useAMG = false;
+    fvm::PressureCorrection<2> pc(mesh, cfg);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {},
+             isPressureNeumann);
+
+    // Measure the checkerboard left in the corrected pressure over the
+    // central 2x2. The wall cells differ (the ghost pressure that the
+    // least-squares fit uses changes their cell gradient), so the exact
+    // cancellation holds in the interior, not on the boundary ring. The
+    // uncorrected amplitude is 1; the compact Rhie-Chow correction must
+    // remove almost all of it.
+    double sum = 0.0;
+    int count = 0;
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        const auto& c = mesh.cellCenter(i);
+        const int ix = static_cast<int>(std::floor(c[0] * 8.0));
+        const int iy = static_cast<int>(std::floor(c[1] * 8.0));
+        if (ix < 3 || ix > 4 || iy < 3 || iy > 4)
+            continue;
+        sum += pressure[i] + pPrime[i];
+        ++count;
+    }
+    const double mean = sum / count;
+    double amplitude = 0.0;
+    double maxP = 0.0;
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        const auto& c = mesh.cellCenter(i);
+        const int ix = static_cast<int>(std::floor(c[0] * 8.0));
+        const int iy = static_cast<int>(std::floor(c[1] * 8.0));
+        if (ix < 3 || ix > 4 || iy < 3 || iy > 4)
+            continue;
+        amplitude = std::max(amplitude,
+                             std::abs(pressure[i] + pPrime[i] - mean));
+        maxP = std::max(maxP, std::abs(pPrime[i]));
+    }
+    MESSAGE("checkerboard amplitude after correction = ", amplitude,
+            ", max |p'| = ", maxP);
+    CHECK_MESSAGE(amplitude < 0.05,
+                  "the compact Rhie-Chow correction must remove the "
+                  "checkerboard mode");
+    CHECK_MESSAGE(maxP > 0.5,
+                  "the correction must actually act on the checkerboard");
 }
 
 } // TEST_SUITE("cfd")

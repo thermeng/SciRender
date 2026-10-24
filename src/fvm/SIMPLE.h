@@ -49,6 +49,10 @@ public:
         double minDt = 1e-6;
         int writeInterval = 1;
         int maxOuterCorrectors = 3;
+        // Number of inner PISO passes per outer corrector. Each pass rebuilds
+        // the explicit momentum residual from the velocity the previous pass
+        // produced and projects it again, so this knob is not a no-op.
+        int nonOrthogonalCorrectors = 1;
         std::string pvdFile = "";
         bool piso = false; // DEPRECATED legacy: use Config::solverType==PISO instead. Kept for compat only - will be removed
     };
@@ -270,9 +274,20 @@ private:
     void applyPressureSolverConfig_();
     void performIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure, std::size_t iter);
     void performTransientIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure);
-    // Fluent-like PISO: predictor + frozen-A correctors (robust)
+    // True PISO: one momentum predictor, then pressure correctors that
+    // reconstruct the explicit momentum residual H(u) from the corrected
+    // velocity before each projection. The momentum operator and its
+    // pressure-free right-hand side are frozen for the time step.
     void performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& pressure);
     void performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& pressure);
+    // Rebuild the corrector predictor u~ from the current velocity and
+    // pressure: u~ = H(u)/aP - d grad(p), i.e. the momentum equation with
+    // the off-diagonal terms treated explicitly at the current velocity.
+    // Writes u~ into uStar_. This is what makes successive PISO correctors
+    // act on a non-zero momentum residual instead of repeating the same
+    // projection.
+    void updatePisoPredictor_();
+    bool isPiso_() const;
     void updateResiduals_();
     // Normalised linear residual |A u - b| / sum|b| of the momentum system
     // for component d, evaluated at the current velocity. Uses the
@@ -340,6 +355,13 @@ private:
     std::array<std::vector<double>, Dim> dCoeff_{};
 
     std::unique_ptr<Gradient<Dim>> gradientCalc_;
+    // Least-squares pressure gradient used by the transient momentum
+    // predictor, the PISO corrector and the pressure correction's Rhie-Chow
+    // term. It is deliberately independent of gradientCalc_ (which follows
+    // Config::gradientScheme and is used for the convective reconstruction):
+    // the pressure operator must be the same one the pressure matrix and the
+    // velocity correction are built from.
+    std::unique_ptr<Gradient<Dim>> pressureGradientCalc_;
 
     std::optional<std::reference_wrapper<VectorField<Dim>>> velocity_;
     std::optional<std::reference_wrapper<Field<Dim>>> pressure_;
@@ -380,6 +402,9 @@ private:
     // direction's own operator, hence these snapshots.
     mutable std::array<SparseMatrix, Dim> momAsnap_;
     mutable std::array<Eigen::VectorXd, Dim> momBsnap_;
+    // Pressure-free momentum RHS (b + V grad p at the predictor) per
+    // direction. Frozen with momAsnap_/momBsnap_ for the PISO correctors.
+    std::array<Eigen::VectorXd, Dim> momB0_;
     mutable std::vector<Triplet> momTriplets_;
     mutable Field<Dim> momDiag_;
     mutable std::array<Field<Dim>, Dim> velGrad_;

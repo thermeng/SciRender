@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 using namespace test_support;
@@ -158,6 +159,80 @@ TEST_CASE("fvm.transient.open_channel_reaches_steady") {
     for (std::size_t c = 0; c < meshT.nCells(); ++c)
         maxDiff = std::max(maxDiff, std::abs(velT[0][c] - velS[0][c]));
     CHECK_MESSAGE(maxDiff < 0.1, "transient run must approach the steady solution");
+}
+
+TEST_CASE("fvm.transient.piso_inner_correctors_are_not_a_noop") {
+    const double nu = kInletSpeed * kHeight / kReynolds;
+
+    auto run = [&](int innerPasses) {
+        fvm::Mesh<2> mesh = fvm::Mesh<2>(
+            std::array<std::size_t, 2>{8, 4},
+            std::array<double, 2>{2.0, 1.0});
+
+        std::vector<std::size_t> inlet, outlet, walls;
+        forEachBoundaryFace(mesh, 0, -1, [&](std::size_t f, std::size_t) { inlet.push_back(f); });
+        forEachBoundaryFace(mesh, 0, +1, [&](std::size_t f, std::size_t) { outlet.push_back(f); });
+        forEachBoundaryFace(mesh, 1, -1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
+        forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
+
+        fvm::SIMPLE<2>::Config cfg;
+        cfg.maxIterations = 100;
+        cfg.tolerance = 1e-6;
+        cfg.runFixedIterations = false;
+        cfg.convergenceHoldIterations = 1;
+        cfg.alphaU = 0.7;
+        cfg.alphaP = 0.3;
+        cfg.rhieChow = true;
+        cfg.pressureCorrectors = 2;
+        cfg.printFrequency = 1000000;
+        cfg.convectionScheme = fvm::ConvectionScheme::Upwind;
+        cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
+        cfg.transient.enabled = true;
+        cfg.transient.dt = 0.01;
+        // Exactly one time step, one outer corrector: the only difference
+        // between the two runs is the number of inner PISO passes.
+        cfg.transient.tEnd = cfg.transient.dt;
+        cfg.transient.scheme = fvm::TimeScheme::Euler;
+        cfg.transient.adaptive = false;
+        cfg.transient.maxOuterCorrectors = 1;
+        cfg.transient.nonOrthogonalCorrectors = innerPasses;
+        cfg.solverType = fvm::SolverType::PISO;
+
+        fvm::SIMPLE<2> solver(mesh, 1.0, nu, cfg);
+        solver.setVelocityBCOnFacesWithSlip(inlet, "inlet", kInletSpeed, 0.0, 0.0, false, 0.0);
+        solver.setVelocityBCOnFacesWithSlip(outlet, "pressure_outlet", 0.0, 0.0, 0.0, false, 0.0);
+        solver.setVelocityBCOnFacesWithSlip(walls, "wall", 0.0, 0.0, 0.0, false, 0.0);
+
+        fvm::VectorField<2> velocity(mesh, 0.0);
+        fvm::Field<2> pressure(mesh, 0.0);
+        solver.solveTransient(velocity, pressure);
+
+        std::vector<double> u(mesh.nCells());
+        for (std::size_t i = 0; i < mesh.nCells(); ++i)
+            u[i] = velocity[0][i];
+        return std::make_pair(solver.finalContinuityResidual(), u);
+    };
+
+    const auto [residualOne, uOne] = run(1);
+    const auto [residualThree, uThree] = run(3);
+
+    MESSAGE("PISO continuity: 1 inner pass = ", residualOne,
+            ", 3 inner passes = ", residualThree);
+    CHECK_MESSAGE(std::isfinite(residualOne), "the one-pass residual must be finite");
+    CHECK_MESSAGE(std::isfinite(residualThree), "the three-pass residual must be finite");
+
+    double maxDiff = 0.0;
+    for (std::size_t i = 0; i < uOne.size(); ++i)
+        maxDiff = std::max(maxDiff, std::abs(uOne[i] - uThree[i]));
+    MESSAGE("PISO velocity difference between 1 and 3 inner passes = ", maxDiff);
+
+    // The extra inner passes must actually do work. If they were still the
+    // old no-op loop, the two fields would be identical.
+    CHECK_MESSAGE(maxDiff > 1e-12,
+                  "inner PISO passes must change the corrected velocity");
+    // And they must not make the mass balance worse.
+    CHECK_MESSAGE(residualThree <= residualOne * 1.05 + 1e-14,
+                  "additional inner PISO passes must not degrade continuity");
 }
 
 } // TEST_SUITE("fvm")

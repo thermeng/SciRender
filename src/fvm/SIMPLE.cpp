@@ -35,8 +35,18 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
 }
 
 template<std::size_t Dim>
+bool SIMPLE<Dim>::isPiso_() const {
+    return (config_.solverType == SolverType::PISO) ||
+           (config_.transient.enabled && config_.transient.piso);
+}
+
+template<std::size_t Dim>
 void SIMPLE<Dim>::applyPressureSolverConfig_() {
     typename PressureCorrection<Dim>::Config pcCfg;
+    // The compact face-normal Laplacian + Rhie-Chow flux is the collocated
+    // operator the PISO correctors need. The steady path keeps the legacy
+    // composed least-squares operator (and its exact-cancellation tests).
+    pcCfg.compactRhieChow = isPiso_() && config_.rhieChow;
     pcCfg.rhieChow = config_.rhieChow;
     pcCfg.pressureRefCell = config_.pressureRefCell;
     pcCfg.useAMG = config_.pressureUseAMG;
@@ -230,6 +240,11 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
 
     gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_);
     gradientCalc_->setScheme(config_.gradientScheme);
+    // The pressure operator is always least squares: the pressure matrix, the
+    // PISO corrector and the velocity correction are built from it.
+    pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
+        mesh_, GradientScheme::LeastSquares);
+    for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
 
     if (config_.turbulenceEnabled) {
         typename SSTModel<Dim>::Config sstCfg;
@@ -889,7 +904,15 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::solveMomentumTransient_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld) {
-    momentum_.computePressureGradient(boundPressure(), pressureGrad_);
+    // The pressure source in the transient momentum equation must use the same
+    // least-squares operator as the pressure correction. The Green-Gauss
+    // gradient used to be used here, which made the predictor solve a
+    // different pressure term than the corrector cancelled; the mismatch is
+    // largest on skewed/non-uniform meshes.
+    if (!pressureGradientCalc_)
+        pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
+            mesh_, GradientScheme::LeastSquares);
+    pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
     if constexpr (Dim == 2) {
         solveMomentumComponentTransient_(0, uStar, velocityOld, pressureGrad_);
         solveMomentumComponentTransient_(1, uStar, velocityOld, pressureGrad_);
@@ -1118,54 +1141,143 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
     }
 }
 
-// Fluent-like PISO: frozen-A predictor + pressure correctors (robust, no momentum rebuild)
+// True PISO predictor. The momentum equation is assembled and solved once
+// per time step; the pressure-free right-hand side b0 is frozen for the
+// correctors so each one can reconstruct H(u) cheaply.
 template<std::size_t Dim>
 void SIMPLE<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
-    // Force Rhie-Chow for PISO (Fluent/StarCCM+ always use it on collocated grids)
-    // and disable under-relaxation
+    (void)velocity;
+    (void)pressure;
     adaptiveAlphaP_ = 1.0;
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
     if (bc_.isDirty()) bcDiscretization_ = bc_.build();
     solveMomentumTransient_(uStar_, velocityOld_);
-    // dCoeff_ now frozen for all correctors in this time step
+
+    // The corrector reconstructs the explicit momentum residual at the
+    // CURRENT velocity. For the first corrector that current velocity is the
+    // predictor u*, not the old time level: copying it here makes
+    // updatePisoPredictor_ see a zero residual and reproduce u*, exactly as
+    // PISO's first corrector should.
+    boundVelocity() = uStar_;
+
+    // b0 = b + V grad(p^n): the momentum right-hand side with the pressure
+    // source removed. b is the snapshot the linear solve just used, so this
+    // is the exact same operator/source pair.
+    const std::size_t n = mesh_.nCells();
+    const double* vol = mesh_.cellVolumePtr();
+    for (std::size_t d = 0; d < Dim; ++d) {
+        momB0_[d].resize(static_cast<Eigen::Index>(n));
+        for (std::size_t i = 0; i < n; ++i) {
+            momB0_[d](static_cast<Eigen::Index>(i)) =
+                momBsnap_[d](static_cast<Eigen::Index>(i)) + vol[i] * pressureGrad_[d][i];
+        }
+    }
+}
+
+// Rebuild u~ = H(u)/aP - d grad(p) from the current velocity and pressure.
+// H(u) is the momentum operator with the off-diagonal terms evaluated
+// explicitly at u and the pressure source removed:
+//
+//   aP u~ = b0 - sum_off a_nb u_nb - V grad(p)
+//         = b0 - A u + aP u - V grad(p)
+//
+// so u~ = u + (b0 - A u - V grad(p)) / aP. With aP = V/dCoeff this is the
+// HbyA form used by PISO: the first corrector (u = u*, p = p^n) reproduces
+// u*, while later correctors see the non-zero momentum residual left by the
+// previous projection. That is what makes maxOuterCorrectors > 1 meaningful;
+// repeating the same frozen-u* projection would be a no-op.
+template<std::size_t Dim>
+void SIMPLE<Dim>::updatePisoPredictor_() {
+    if (!pressureGradientCalc_)
+        pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
+            mesh_, GradientScheme::LeastSquares);
+    pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
+
+    const auto& u = boundVelocity();
+    const std::size_t n = mesh_.nCells();
+    const double* vol = mesh_.cellVolumePtr();
+    for (std::size_t d = 0; d < Dim; ++d) {
+        if (momB0_[d].size() != static_cast<Eigen::Index>(n) ||
+            momAsnap_[d].rows() != static_cast<Eigen::Index>(n)) {
+            // Defensive: no frozen predictor (should not happen in the PISO
+            // path). Fall back to the current velocity.
+            uStar_[d] = u[d];
+            continue;
+        }
+        Eigen::Map<const Eigen::VectorXd> uvec(
+            u[d].values().data(), static_cast<Eigen::Index>(n));
+        const Eigen::VectorXd Au = momAsnap_[d] * uvec;
+        #pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < n; ++i) {
+            const Eigen::Index ii = static_cast<Eigen::Index>(i);
+            double corr = 0.0;
+            const double dc = dCoeff_[d][i];
+            if (dc > 0.0) {
+                const double aP = vol[i] / dc;
+                const double residual = momB0_[d](ii) - Au(ii) - vol[i] * pressureGrad_[d][i];
+                corr = residual / aP;
+            }
+            double val = u[d][i] + corr;
+            if (!std::isfinite(val)) val = u[d][i];
+            uStar_[d][i] = val;
+        }
+        const auto& dirMask = bcDiscretization_.dirichletMask(d);
+        const auto& dirVals = bcDiscretization_.dirichletVals(d);
+        for (std::size_t i = 0; i < n; ++i) {
+            if (dirMask[i]) uStar_[d][i] = dirVals[i];
+        }
+    }
 }
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
-    // Pressure correction with frozen dCoeff - true PISO, no momentum rebuild (Fluent-like)
-    // Use predicted uStar_ (frozen) for divU; after correction uStar_ is updated to corrected velocity for next loop
-    pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
-                              bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
-                              &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
-                              &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                              &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
-    limitPressureCorrection_(pPrime_);
-    pressureBeforeCorrection_ = boundPressure();
-    pressureGradBefore_ = pressureCorrection_.pressureGradient();
-    // Correct velocity with frozen dCoeff - Fluent PISO uses predicted uStar
-    correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
-                    bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
-                    &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
-    #pragma omp parallel for schedule(static)
-    for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
-        (boundPressure())[i] += pPrime_[i]; // alphaP=1 for PISO
-    }
-    if (!bcDiscretization_.pressureOutletFaces().empty()) {
-        for (const auto& [face, pRef] : bcDiscretization_.pressureOutletFaces()) {
-            if (face < mesh_.nFaces()) {
-                std::size_t cell = mesh_.owner(face);
+    (void)velocity;
+    (void)pressure;
+    // nonOrthogonalCorrectors is the number of inner PISO passes per outer
+    // corrector. Each pass reconstructs the momentum residual at the velocity
+    // the previous pass produced and projects it again; this is not a no-op
+    // even though the compact face-normal Laplacian is exact for the
+    // orthogonal part of the operator.
+    const int nInner = std::max(1, config_.transient.nonOrthogonalCorrectors);
+    for (int inner = 0; inner < nInner; ++inner) {
+        updatePisoPredictor_();
+
+        pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
+                                  bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
+                                  &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
+                                  &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                                  &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
+        // No p' limiter here. Scaling p' would silently impose alphaP < 1 and
+        // destroy the continuity the corrector just enforced; PISO's stability
+        // comes from the corrector loop and dt, not from clipping the field.
+        pressureBeforeCorrection_ = boundPressure();
+        pressureGradBefore_ = pressureCorrection_.pressureGradient();
+
+        correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
+                        bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
+                        &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
+        #pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
+            (boundPressure())[i] += pPrime_[i]; // alphaP = 1 for PISO
+        }
+        if (!bcDiscretization_.pressureOutletFaces().empty()) {
+            for (const auto& [face, pRef] : bcDiscretization_.pressureOutletFaces()) {
+                if (face < mesh_.nFaces()) {
+                    std::size_t cell = mesh_.owner(face);
+                    (boundPressure())[cell] = pRef;
+                }
+            }
+        } else {
+            for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
                 (boundPressure())[cell] = pRef;
             }
         }
-    } else {
-        for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
-            (boundPressure())[cell] = pRef;
-        }
+        // Do NOT copy boundVelocity() back into uStar_: the next inner pass
+        // must reconstruct u~ from the corrected velocity, not reuse the
+        // previous projection's input.
     }
-    // Prepare for next corrector: update uStar_ to corrected velocity
-    uStar_ = boundVelocity();
 }
 
 template<std::size_t Dim>
@@ -1354,6 +1466,13 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
     double tEnd = config_.transient.tEnd;
     int step = timeStep_;
     if (!haveHistory) time_ = 0.0;
+    // PISO on a collocated grid requires Rhie-Chow. Force it (and therefore
+    // the compact face-normal pressure operator) once, before the first solve,
+    // so the pressure matrix pattern does not switch mid-run.
+    if (isPiso_()) {
+        config_.rhieChow = true;
+        applyPressureSolverConfig_();
+    }
     // For adaptive we loop while time < tEnd
     while (time_ < tEnd - 1e-12) {
         if (cancelRequested_.load(std::memory_order_acquire)) break;
@@ -1377,8 +1496,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         ++step;
         timeStep_ = step;
         // Outer correctors per time step - Fluent-like distinction
-        bool isPISO = (config_.solverType == SolverType::PISO) ||
-                      (config_.transient.enabled && config_.transient.piso);
+        bool isPISO = isPiso_();
         // PISO robustness: force Rhie-Chow (like Fluent/StarCCM+ on collocated grids)
         if (isPISO && !config_.rhieChow) {
             config_.rhieChow = true;

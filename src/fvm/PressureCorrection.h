@@ -22,7 +22,17 @@ template<std::size_t Dim>
 class PressureCorrection {
 public:
     struct Config {
+        // Diagnostic Rhie-Chow switch (the residual reports the correction).
         bool rhieChow = true;
+        // Assemble the pressure equation from the compact face-normal
+        // Laplacian and use the Rhie-Chow face flux on its right-hand side.
+        // This is the collocated-grid formulation: the pressure matrix is the
+        // two-point operator div(d_f (p_N-p_P)/d), the Rhie-Chow term removes
+        // the checkerboard mode, and the velocity correction remains
+        // u = u* - d grad(p'). Enabled for PISO; the legacy composed
+        // least-squares operator (compactRhieChow = false) is kept for the
+        // steady path and its exact-cancellation contracts.
+        bool compactRhieChow = false;
         std::size_t pressureRefCell = SIZE_MAX;
         bool useAMG = true;
         bool useAMGPreconditioner = true;
@@ -95,11 +105,11 @@ public:
 private:
     const Mesh<Dim>& mesh_;
     Config config_;
-    // The least-squares gradient of the pressure field: the operator whose
-    // divergence the pressure matrix is assembled from, so that matrix,
-    // correction gradient and momentum pressure term are the same operator.
-    // (Its Green-Gauss flavour, pressureGradient(), remains as the gradient
-    // the residuals report.)
+    // The least-squares gradient of the pressure field. In compact Rhie-Chow
+    // mode it supplies the face-interpolated gradient that the Rhie-Chow
+    // correction subtracts; in legacy mode it is also the operator whose
+    // divergence the pressure matrix is assembled from. It is the same
+    // operator the velocity correction applies.
     std::unique_ptr<Gradient<Dim>> gradientCalc_;
     std::array<Field<Dim>, Dim> pressureGrad_;
     // The per-cell least-squares gradient as row coefficients
@@ -132,6 +142,10 @@ private:
     bool pPatternAnalyzed_ = false;
     mutable std::vector<char> prevPMask_;
     mutable std::size_t prevNonZeroPattern_ = 0;
+    // The compact and legacy operators have different stencils. A transition
+    // between them (e.g. when PISO forces Rhie-Chow after construction) must
+    // re-analyse the preconditioner, not just overwrite values.
+    bool prevCompact_ = false;
 
     AMGHierarchy amg_;
     AMGPreconditioner amgPrec_;

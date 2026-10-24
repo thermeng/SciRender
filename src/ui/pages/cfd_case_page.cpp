@@ -121,6 +121,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_maxDtSpin = cfdUi.maxDtSpin;
     m_writeIntervalSpin = cfdUi.writeIntervalSpin;
     m_outerCorrectorsSpin = cfdUi.outerCorrectorsSpin;
+    m_nonOrthCorrectorsSpin = cfdUi.nonOrthCorrectorsSpin;
     m_pvdFileEdit = cfdUi.pvdFileEdit;
     m_pvdBrowseBtn = cfdUi.pvdBrowseBtn;
 
@@ -158,6 +159,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_maxDtSpin->setRange(1e-12, 1e3); m_maxDtSpin->setDecimals(6); m_maxDtSpin->setValue(0.01);
     m_writeIntervalSpin->setRange(0, 1000000); m_writeIntervalSpin->setValue(1);
     m_outerCorrectorsSpin->setRange(1, 50); m_outerCorrectorsSpin->setValue(3);
+    m_nonOrthCorrectorsSpin->setRange(0, 10); m_nonOrthCorrectorsSpin->setValue(1);
 
     auto syncTime = [this]() { syncTimeDependencies(); };
     connect(m_steadyRadio, &QRadioButton::toggled, this, [syncTime](bool) { syncTime(); });
@@ -576,6 +578,7 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_maxDtSpin->setValue(s.transient.maxDt);
     m_writeIntervalSpin->setValue(s.transient.writeInterval);
     m_outerCorrectorsSpin->setValue(s.transient.maxOuterCorrectors);
+    m_nonOrthCorrectorsSpin->setValue(s.transient.nonOrthogonalCorrectors);
     m_pvdFileEdit->setText(QString::fromStdString(s.transient.pvdFile));
 
     syncDialogDependencies();
@@ -655,6 +658,7 @@ void CfdCasePage::collectSettings() {
     s.transient.maxDt = m_maxDtSpin->value();
     s.transient.writeInterval = m_writeIntervalSpin->value();
     s.transient.maxOuterCorrectors = m_outerCorrectorsSpin->value();
+    s.transient.nonOrthogonalCorrectors = m_nonOrthCorrectorsSpin->value();
     s.transient.pvdFile = m_pvdFileEdit->text().toStdString();
 
     m_ctrl->setSettings(s);
