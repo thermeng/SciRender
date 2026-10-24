@@ -536,6 +536,26 @@ void SIMPLE<Dim>::printMomentumSolverStats_() const {
     std::cerr << "    ILU solve time:    " << momStats_.iluSeconds << " s\n";
 }
 
+template <std::size_t Dim>
+void SIMPLE<Dim>::printPressureSolverStats_() const {
+    const auto& s = pressureCorrection_.pressureStats();
+    std::cerr << "\n  Pressure linear solver statistics\n";
+    std::cerr << "    solves:            " << s.solves << "\n";
+    std::cerr << "    AMG solves:        " << s.amgSolves << "\n";
+    std::cerr << "    ILU solves:        " << s.iluSolves << "\n";
+    std::cerr << "    AMG builds:        " << s.amgBuilds << "\n";
+    std::cerr << "    AMG rejected:      " << s.amgRejected << "  (fell back to ILU/CG)\n";
+    std::cerr << "    Krylov iters:      " << s.krylovIters << "\n";
+    if (s.solves > 0) {
+        std::cerr << "    Krylov iters/solve:"
+                  << "  " << (static_cast<double>(s.krylovIters) /
+                              static_cast<double>(s.solves)) << "\n";
+    }
+    std::cerr << "    AMG build time:    " << s.buildSeconds << " s\n";
+    std::cerr << "    AMG solve time:    " << s.amgSeconds << " s\n";
+    std::cerr << "    ILU solve time:    " << s.iluSeconds << " s\n";
+}
+
 template<std::size_t Dim>
 double SIMPLE<Dim>::momentumResidual_(std::size_t d) const {
     if (d >= Dim) return 0.0;
@@ -801,6 +821,7 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     }
 
     printMomentumSolverStats_();
+    printPressureSolverStats_();
     printFinalStats_();
 }
 
@@ -1589,6 +1610,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                   << "           correctors, or raising simple.pressure_correction_limit.\n";
     }
     printMomentumSolverStats_();
+    printPressureSolverStats_();
     printFinalStats_();
 }
 
