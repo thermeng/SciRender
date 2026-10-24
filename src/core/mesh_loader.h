@@ -365,6 +365,36 @@ namespace mesh_utils {
         if (!m.attributes) m.attributes.emplace();
         return *m.attributes;
     }
+
+    // Unified cell->point extrapolation (one-ring average). Returns a
+    // pointCount-sized array; isolated points stay zero. Templated on the
+    // value type so scalar and vector fields share one implementation.
+    template<typename T>
+    inline std::vector<T> extrapolateCellToPoints(const RenderMesh& mesh,
+                                                  const std::vector<T>& cellVals,
+                                                  std::size_t nCells,
+                                                  std::size_t pointCount) {
+        std::vector<T> out(pointCount, T{});
+        std::vector<int> cnt(pointCount, 0);
+        if (mesh.cellConnectivity.empty() || mesh.cellOffsets.empty()) return out;
+        const auto& conn = mesh.cellConnectivity;
+        const auto& off = mesh.cellOffsets;
+        std::size_t start = 0;
+        for (std::size_t c = 0; c < off.size() && c < nCells && c < cellVals.size(); ++c) {
+            const uint32_t end = off[c];
+            if (end > conn.size()) { start = end; continue; }
+            const T& v = cellVals[c];
+            for (uint32_t a = static_cast<uint32_t>(start); a < end; ++a) {
+                const uint32_t pid = conn[a];
+                if (pid < pointCount) { out[pid] += v; ++cnt[pid]; }
+            }
+            start = end;
+        }
+        for (std::size_t i = 0; i < pointCount; ++i) {
+            if (cnt[i] > 0) out[i] = out[i] / static_cast<float>(cnt[i]);
+        }
+        return out;
+    }
     inline bool hasNonFinite(std::span<const float> v) {
         return std::any_of(v.begin(), v.end(), [](float f){ return !std::isfinite(f); });
     }
