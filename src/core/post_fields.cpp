@@ -1,5 +1,6 @@
 #include "core/post_fields.h"
 #include "core/gradient_estimator.h"
+#include "core/mesh_loader.h"
 
 #include <algorithm>
 #include <cmath>
@@ -340,60 +341,16 @@ bool isCellScalarPointer(const RenderMesh& mesh, const float* p){
     return false;
 }
 std::vector<glm::vec3> extrapolateCellVectorsToPoints(const RenderMesh& mesh, const glm::vec3* cellData, size_t cellCount, size_t pointCount){
-    std::vector<glm::vec3> out(pointCount, glm::vec3(0.0f));
-    std::vector<int> cnt(pointCount, 0);
-    if (mesh.cellConnectivity.empty() || mesh.cellOffsets.empty()){
-        // No topology: fallback to nearest cell center via brute (for polydata without cells, just copy first)
-        if (cellCount>0){
-            for (size_t i=0;i<pointCount;++i) out[i]=cellData[ i % cellCount ];
-        }
-        return out;
-    }
-    const auto& conn = mesh.cellConnectivity;
-    const auto& off = mesh.cellOffsets;
-    uint32_t start=0;
-    for(size_t c=0;c<off.size() && c<cellCount; ++c){
-        uint32_t end = off[c];
-        if (end>conn.size()) { start=end; continue; }
-        for(uint32_t a=start;a<end;++a){
-            uint32_t pid = conn[a];
-            if (pid < pointCount){
-                out[pid] += cellData[c];
-                cnt[pid]++;
-            }
-        }
-        start=end;
-    }
-    for(size_t i=0;i<pointCount;++i) if(cnt[i]>0) out[i] /= float(cnt[i]);
-    // Isolated points (no incident cell) — keep 0, will be handled as zero gradient
-    return out;
+    if (!cellData || cellCount == 0 || pointCount == 0) return std::vector<glm::vec3>(pointCount, glm::vec3(0.0f));
+    std::vector<glm::vec3> cellVals(cellCount);
+    for (size_t i = 0; i < cellCount; ++i) cellVals[i] = cellData[i];
+    return mesh_utils::extrapolateCellToPoints<glm::vec3>(mesh, cellVals, cellCount, pointCount);
 }
 std::vector<float> extrapolateCellScalarsToPoints(const RenderMesh& mesh, const float* cellData, size_t cellCount, size_t pointCount){
-    std::vector<float> out(pointCount, 0.0f);
-    std::vector<int> cnt(pointCount, 0);
-    if (mesh.cellConnectivity.empty() || mesh.cellOffsets.empty()){
-        if (cellCount>0){
-            for (size_t i=0;i<pointCount;++i) out[i]=cellData[ i % cellCount ];
-        }
-        return out;
-    }
-    const auto& conn = mesh.cellConnectivity;
-    const auto& off = mesh.cellOffsets;
-    uint32_t start=0;
-    for(size_t c=0;c<off.size() && c<cellCount; ++c){
-        uint32_t end = off[c];
-        if (end>conn.size()) { start=end; continue; }
-        for(uint32_t a=start;a<end;++a){
-            uint32_t pid = conn[a];
-            if (pid < pointCount){
-                out[pid] += cellData[c];
-                cnt[pid]++;
-            }
-        }
-        start=end;
-    }
-    for(size_t i=0;i<pointCount;++i) if(cnt[i]>0) out[i] /= float(cnt[i]);
-    return out;
+    if (!cellData || cellCount == 0 || pointCount == 0) return std::vector<float>(pointCount, 0.0f);
+    std::vector<float> cellVals(cellCount);
+    for (size_t i = 0; i < cellCount; ++i) cellVals[i] = cellData[i];
+    return mesh_utils::extrapolateCellToPoints<float>(mesh, cellVals, cellCount, pointCount);
 }
 } // anon
 
