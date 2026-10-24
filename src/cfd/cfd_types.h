@@ -15,6 +15,8 @@ struct PatchBC {
     bool suppressBackflow = false;
     double backflowU = 0.0, backflowV = 0.0, backflowW = 0.0;
     double backflowK = 0.0, backflowOmega = 0.0;
+    // Turbulence inlet values (used for velocity inlets).
+    double kInlet = 1e-3, omegaInlet = 1.0;
 };
 
 // UI-facing mirror of fvm::AMGHierarchy::Config. Kept as a plain struct with

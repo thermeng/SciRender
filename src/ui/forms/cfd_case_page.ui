@@ -421,71 +421,11 @@
       <string>Enable the k-omega SST turbulence model.</string>
      </property>
     </widget>
-   </item>
-   <item>
-    <widget class="QWidget" name="kInfRow" native="true">
-     <layout class="QHBoxLayout" name="kInfRowLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="kInfLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>k inlet</string></property>
-        <property name="toolTip"><string>k_inf</string></property>
-        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QDoubleSpinBox" name="kInfSpin">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-          <horstretch>1</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QWidget" name="wInfRow" native="true">
-     <layout class="QHBoxLayout" name="wInfRowLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="wInfLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>omega inlet</string></property>
-        <property name="toolTip"><string>omega_inf</string></property>
-        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QDoubleSpinBox" name="wInfSpin">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-          <horstretch>1</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
+    </item>
 
-   <!-- â”€â”€ Solver â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
-   <item>
-    <widget class="QLabel" name="solverHeader">
+    <!-- ── Solver ─────────────────────────────────────────────────────────────── -->
+    <item>
+     <widget class="QLabel" name="solverHeader">
      <property name="text">
       <string>Solver</string>
      </property>

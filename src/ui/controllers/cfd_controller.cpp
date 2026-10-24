@@ -93,6 +93,16 @@ void CfdController::run() {
     m_pressure = std::make_shared<fvm::Field<2>>(*meshPtr, 0.0);
 
     fvm::SIMPLE<2>::Config sc = cfd::toFvmConfig<2>(settings);
+    if (settings.turbulence) {
+        for (const auto& pbc : m_patchBCs) {
+            if (pbc.type != cfd::BCType::VelocityInlet) continue;
+            fvm::SIMPLE<2>::InletTurbulence it;
+            it.patch = pbc.patchName;
+            it.k = pbc.kInlet;
+            it.omega = pbc.omegaInlet;
+            sc.inletTurbulence.push_back(it);
+        }
+    }
     sc.iterationCallback = [this, gen](int iter, double cont, double mom) {
         if (gen != m_gen) return;
         if (m_cancel.load()) return;

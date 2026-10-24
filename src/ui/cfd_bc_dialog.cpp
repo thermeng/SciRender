@@ -180,7 +180,7 @@ CfdBoundaryConditionsDialog::CfdBoundaryConditionsDialog(std::vector<cfd::PatchB
     });
 
     for (QDoubleSpinBox* spin : {m_u, m_v, m_w, m_pressure, m_backflowU, m_backflowV, m_backflowW,
-                                 m_backflowK, m_backflowOmega}) {
+                                 m_backflowK, m_backflowOmega, m_kInlet, m_omegaInlet}) {
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
                 [this](double) { if (!m_syncing) commitCurrent(); });
     }
@@ -281,9 +281,26 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
             grid->addWidget(spins[c], 0, c * 2 + 1);
             grid->setColumnStretch(c * 2 + 1, 1);
         }
-        velocityLay->addLayout(grid);
-    }
-    lay->addWidget(m_velocitySection);
+         velocityLay->addLayout(grid);
+     }
+     // Turbulence inlet values (velocity inlet only)
+     velocityLay->addWidget(fieldLabel("Turbulence inlet", m_velocitySection));
+     m_kInlet = makeCoefficientSpin(1e-3, m_velocitySection);
+     m_omegaInlet = makeCoefficientSpin(1.0, m_velocitySection);
+     {
+         auto* grid = new QGridLayout;
+         grid->setContentsMargins(0, 0, 0, 0);
+         grid->setHorizontalSpacing(8);
+         grid->setVerticalSpacing(4);
+         grid->addWidget(fieldLabel("k", m_velocitySection), 0, 0);
+         grid->addWidget(m_kInlet, 0, 1);
+         grid->addWidget(fieldLabel("omega", m_velocitySection), 0, 2);
+         grid->addWidget(m_omegaInlet, 0, 3);
+         grid->setColumnStretch(1, 1);
+         grid->setColumnStretch(3, 1);
+         velocityLay->addLayout(grid);
+     }
+     lay->addWidget(m_velocitySection);
 
     // ── Pressure & backflow (pressure outlet) ──
     m_pressureSection = new QWidget(detail);
@@ -380,6 +397,8 @@ void CfdBoundaryConditionsDialog::loadCurrent() {
     m_backflowW->setValue(bc.backflowW);
     m_backflowK->setValue(bc.backflowK);
     m_backflowOmega->setValue(bc.backflowOmega);
+    m_kInlet->setValue(bc.kInlet);
+    m_omegaInlet->setValue(bc.omegaInlet);
     m_syncing = false;
 
     updateConditionVisibility();
@@ -400,6 +419,8 @@ void CfdBoundaryConditionsDialog::commitCurrent() {
     bc.backflowW = m_backflowW->value();
     bc.backflowK = m_backflowK->value();
     bc.backflowOmega = m_backflowOmega->value();
+    bc.kInlet = m_kInlet->value();
+    bc.omegaInlet = m_omegaInlet->value();
 }
 
 void CfdBoundaryConditionsDialog::refreshConditionCell(int row) {
