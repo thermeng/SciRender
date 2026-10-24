@@ -526,4 +526,120 @@ std::string helicityName(const std::string& v) { return v + "_helicity"; }
 std::string qCriterionName(const std::string& v) { return v + "_Q"; }
 std::string gradPName(const std::string& p) { return p + "_grad"; }
 
+namespace {
+
+// Range scan kept local: FieldStore::computeRange sits above this layer, and
+// post_fields must stay dependency-free so it remains headlessly testable.
+void scanRange(const std::vector<float>& v, float& mn, float& mx) {
+    mn = 0.0f; mx = 1.0f;
+    if (v.empty()) return;
+    float lo = std::numeric_limits<float>::max();
+    float hi = std::numeric_limits<float>::lowest();
+    bool have = false;
+    for (float f : v) {
+        if (!std::isfinite(f)) continue;
+        lo = std::min(lo, f);
+        hi = std::max(hi, f);
+        have = true;
+    }
+    if (!have) return;
+    mn = lo;
+    mx = (std::abs(hi - lo) < 1e-6f) ? lo + 1.0f : hi;
+}
+
+} // anonymous
+
+SnapshotResult extractSnapshot(const RenderMesh& mesh, const SnapshotRequest& request) {
+    SnapshotResult out;
+    if (!request.autoReextract) {
+        out.ok = true;
+        out.keepExisting = true;
+        return out;
+    }
+    const bool needVel = request.needsVelocity();
+    const bool needP = request.needsPressure();
+
+    CartesianGrid grid;
+    const bool isCartesian = extractCartesianGrid(mesh, grid);
+    PointVectorField vf{};
+    PointScalarField pf{};
+    bool haveVf = false, havePf = false;
+    if (isCartesian) {
+        if (needVel) haveVf = extractPointVectors(mesh, grid, request.velocitySource, vf);
+        if (needP) havePf = extractPointScalars(mesh, grid, request.pressureSource, pf);
+        if (needVel && !haveVf) haveVf = extractPointVectorsUnstructured(mesh, request.velocitySource, vf);
+        if (needP && !havePf) havePf = extractPointScalarsUnstructured(mesh, request.pressureSource, pf);
+    } else {
+        if (needVel) haveVf = extractPointVectorsUnstructured(mesh, request.velocitySource, vf);
+        if (needP) havePf = extractPointScalarsUnstructured(mesh, request.pressureSource, pf);
+    }
+
+    if ((needVel && !haveVf) || (needP && !havePf)) {
+        out.status = "Auto re-extract failed: field not found on frame";
+        return out;
+    }
+
+    PostFieldsRequest req;
+    if (haveVf) req.velocity = vf.data;
+    if (havePf) req.pressure = pf.data;
+    req.wantVorticity = request.wantVorticity;
+    req.wantHelicity = request.wantHelicity;
+    req.wantQ = request.wantQ;
+    req.wantGradP = request.wantGradP;
+
+    auto res = isCartesian ? computePostFields(grid, req) : computePostFields(mesh, req);
+    if (!res.ok && isCartesian) res = computePostFields(mesh, req);
+    if (!res.ok) {
+        out.status = res.error + " (frame)";
+        return out;
+    }
+
+    auto hasGarbage = [](const std::vector<float>& v) {
+        for (float f : v) if (!std::isfinite(f)) return true;
+        return false;
+    };
+    auto hasGarbageVec = [](const std::vector<glm::vec3>& v) {
+        for (const auto& t : v)
+            if (!std::isfinite(t.x) || !std::isfinite(t.y) || !std::isfinite(t.z)) return true;
+        return false;
+    };
+    const bool garbage = (res.hasHelicity && hasGarbage(res.helicity))
+                      || (res.hasQ && hasGarbage(res.qCriterion))
+                      || (res.hasVorticity && hasGarbageVec(res.vorticity))
+                      || (res.hasGradP && hasGarbageVec(res.gradP));
+    if (garbage) {
+        out.status = "Garbage (NaN/Inf) on frame — blanking";
+        return out;
+    }
+
+    auto snap = std::make_shared<ComputedSnapshot>();
+    if (res.hasVorticity) {
+        auto v = std::make_shared<const std::vector<glm::vec3>>(std::move(res.vorticity));
+        snap->vectors[vorticityName(request.velocitySource)] = v;
+    }
+    if (res.hasHelicity) {
+        auto v = std::make_shared<const std::vector<float>>(std::move(res.helicity));
+        float mn = 0.0f, mx = 1.0f;
+        scanRange(*v, mn, mx);
+        const std::string name = helicityName(request.velocitySource);
+        snap->scalars[name] = v;
+        snap->scalarRanges[name] = {mn, mx};
+    }
+    if (res.hasQ) {
+        auto v = std::make_shared<const std::vector<float>>(std::move(res.qCriterion));
+        float mn = 0.0f, mx = 1.0f;
+        scanRange(*v, mn, mx);
+        const std::string name = qCriterionName(request.velocitySource);
+        snap->scalars[name] = v;
+        snap->scalarRanges[name] = {mn, mx};
+    }
+    if (res.hasGradP) {
+        auto v = std::make_shared<const std::vector<glm::vec3>>(std::move(res.gradP));
+        snap->vectors[gradPName(request.pressureSource)] = v;
+    }
+    out.snapshot = snap;
+    out.ok = true;
+    return out;
+}
+
 } // namespace postfields

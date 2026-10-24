@@ -1,6 +1,6 @@
 #include "render/settings/render_settings.h"
 
-void RenderSettings::applyLoadedMesh(const std::shared_ptr<const RenderMesh>& loaded, const QString& name) {
+void RenderSettings::applyLoadedMesh(const std::shared_ptr<const RenderMesh>& loaded, const QString& name, bool resetCamera) {
     if (!loaded || loaded->vertices.empty()) { setStatus("Could not load result"); return; }
     clearPostFields();
     m_meshData.loadedMesh = loaded;
@@ -25,21 +25,35 @@ void RenderSettings::applyLoadedMesh(const std::shared_ptr<const RenderMesh>& lo
     m_meshData.datasetType = loaded->datasetType;
     m_meshData.meshFormat = loaded->fileFormat;
     m_state.hasMeshLoaded = true;
-m_state.activeScalarName = loaded->scalarName;
-m_state.meshHasScalars = !loaded->scalars.empty();
+// Preserve the user's current scalar field when it still resolves in the new
+// mesh (including derived [Magnitude]/[X]/[Y]/[Z] fields); only fall back to
+// the mesh's default scalar (or another available one) when it does not.
+const std::string requestedScalar = m_state.activeScalarName;
+const std::string resolvedScalar = FieldResolver::resolveActiveScalar(*loaded, requestedScalar,
+    m_state.scalarPlacement, m_state.computed.get());
+if (!resolvedScalar.empty()) m_state.activeScalarName = resolvedScalar;
+else if (!loaded->scalarName.empty()) m_state.activeScalarName = loaded->scalarName;
+else {
+    auto avail = FieldStore::availableScalars(*loaded, m_state.computed.get());
+    if (!avail.empty()) m_state.activeScalarName = avail.front();
+}
+m_state.meshHasScalars = !loaded->scalars.empty() || FieldStore::hasAnyScalar(*loaded, m_state.computed.get());
 
 // Auto-select placement: prefer Vertex (point data) when it exists, since
 // surface shading uploads point-sized data; fall back to Cell Center only
 // when there is no point counterpart. Recompute the range so the colorbar
 // matches the data actually uploaded to the GPU.
 if (loaded->attributes) {
-    bool hasCell = loaded->attributes->cellScalars.find(m_state.activeScalarName) != loaded->attributes->cellScalars.end();
-    bool hasPoint = loaded->attributes->pointScalars.find(m_state.activeScalarName) != loaded->attributes->pointScalars.end();
+    bool hasCell = loaded->attributes->cellScalars.find(m_state.activeScalarName) != loaded->attributes->cellScalars.end()
+                   && !loaded->attributes->cellScalars.at(m_state.activeScalarName).empty();
+    bool hasPoint = loaded->attributes->pointScalars.find(m_state.activeScalarName) != loaded->attributes->pointScalars.end()
+                    && !loaded->attributes->pointScalars.at(m_state.activeScalarName).empty();
     if (hasPoint) m_state.scalarPlacement = 0;
     else if (hasCell) m_state.scalarPlacement = 1;
     else m_state.scalarPlacement = 0;
 }
 recomputeScalarRange();
+m_meshData.guiMeta.scalarName = m_state.activeScalarName;
 
     m_state.meshHasVectors = !loaded->pointVectorsData.empty();
     m_state.meshHasCellVectors = !loaded->cellVectorsData.empty();
@@ -62,9 +76,46 @@ recomputeScalarRange();
     if (m_postPressureSource.empty() && !loaded->availableScalarNames.empty())
         m_postPressureSource = loaded->availableScalarNames.front();
 
-    // Hand the immutable payload to the render thread and recenter the camera.
+    // Hand the immutable payload to the render thread. Reframe the camera only
+    // when the data itself changed (mesh load / case load / run completion); a
+    // cancelled run visualises its partial result without yanking the view.
     m_renderer.setPendingMesh(loaded);
-    resetCameraInstant();
+    if (resetCamera) resetCameraInstant();
+
+    // Upload the resolved active scalar (not just mesh->scalars, which may be
+    // the parser default) so surface/volume shading matches the selection
+    // immediately after a mesh/run load instead of waiting for a placement toggle.
+    {
+        float mn = 0.f, mx = 1.f;
+        auto snap = m_state.computed.get();
+        auto place = m_state.scalarPlacement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+        const std::vector<float>* data = FieldStore::scalarData(*loaded, m_state.activeScalarName, mn, mx, place, snap);
+        if (data && !data->empty()) {
+            std::shared_ptr<const std::vector<float>> payload;
+            if (data->size() == loaded->vertices.size() / 3
+                || loaded->vertexSourceIndex.empty()
+                || loaded->vertexSourceIndex.size() != loaded->vertices.size() / 3) {
+                payload = std::make_shared<const std::vector<float>>(*data);
+            } else if (data->size() == (size_t)loaded->sourcePointCount
+                       || data->size() == (size_t)(loaded->gridDimX * loaded->gridDimY * loaded->gridDimZ)) {
+                auto expanded = std::make_shared<std::vector<float>>();
+                expanded->resize(loaded->vertices.size() / 3);
+                const auto& lut = loaded->vertexSourceIndex;
+                for (size_t i = 0; i < lut.size(); ++i) {
+                    uint32_t src = lut[i];
+                    if (src < data->size()) (*expanded)[i] = (*data)[src];
+                    else (*expanded)[i] = (*data)[0];
+                }
+                payload = expanded;
+            } else {
+                payload = std::make_shared<const std::vector<float>>(*data);
+            }
+            m_meshData.guiMeta.scalars = *payload;
+            m_renderer.markScalarDirty(payload);
+            m_renderer.markVolumeDirty(loaded);
+        }
+    }
+
     emit meshLoadStateChanged();
     markStateDirty(); emit meshDataUpdated();
 }

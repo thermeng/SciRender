@@ -66,25 +66,6 @@ MeshLoadResult loadMesh(const std::string& path) {
     rm.normals.assign(rm.vertices.size(), 0.0f);
     for (size_t i = 0; i < rm.normals.size(); i += 3) rm.normals[i+2] = 1.0f;
 
-    // patch id per vertex (boundary vertices get patch index+1)
-    std::vector<int> vertexPatch(rm.vertices.size()/3, 0);
-    // map vertex -> patch id via boundary groups
-    int pid = 1;
-    for (const auto& kv : m.boundaryGroups()) {
-        for (std::size_t fi : kv.second) {
-            for (std::size_t vi : m.faceVertices(fi)) {
-                if (vi < vertexPatch.size()) vertexPatch[vi] = pid;
-            }
-        }
-        ++pid;
-    }
-    // scalars (per vertex) = patch id
-    rm.scalars.resize(rm.vertices.size()/3);
-    for (size_t i = 0; i < rm.scalars.size(); ++i) rm.scalars[i] = static_cast<float>(vertexPatch[i]);
-    rm.scalarName = "patchId";
-    rm.availableScalarNames.push_back("patchId");
-    mesh_utils::ensureAttributes(rm).cellScalars["patchId"] = {}; // placeholder
-
     // triangulate 2D cells (fvm cells are polygons)
     const auto& cells = m.cells();
     uint32_t off = 0;

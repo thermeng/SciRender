@@ -209,7 +209,6 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
         rm.availableScalarNames.push_back("omega");
         rm.availableScalarNames.push_back("nut");
     }
-    rm.availableScalarNames.push_back("patchId");
 
     mesh_utils::finalizeGeometrySignatures(rm);
     return std::make_shared<const RenderMesh>(std::move(rm));

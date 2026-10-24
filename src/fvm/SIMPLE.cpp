@@ -1566,28 +1566,11 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             config_.iterationCallback(step, lastContResid_, lastMomResid_);
         }
         saveTransientCheckpoint_(step, time_);
-        // Transient VTK/PVD handling
-        if (config_.transient.writeInterval > 0 && step % config_.transient.writeInterval == 0) {
-            if (config_.transientCallback) {
-                config_.transientCallback(step, time_, velocity, pressure);
-            } else {
-                std::string ext;
-                if (mesh_.isUnstructured()) ext = ".vtu";
-                else if (mesh_.isUniform()) ext = ".vti";
-                else ext = ".vtr";
-                std::string fname = pvdBaseName_ + "_" + std::to_string(step) + ext;
-                std::array<const Field<Dim>*, Dim> velPtrs{};
-                for (std::size_t d = 0; d < Dim; ++d) velPtrs[d] = &velocity[d];
-                VTKXMLWriter<Dim>::writeWithVelocity(fname, mesh_, pressure, velPtrs, "Pressure");
-                std::string entry = std::to_string(time_) + "|" + fname;
-                pvdEntries_.push_back(entry);
-                updatePVDFile_();
-                std::cout << "  [transient] VTK written to: " << fname << " (pvd updated)\n";
-                if (turbulence_) {
-                    std::string turbFile = pvdBaseName_ + "_turb_" + std::to_string(step) + ext;
-                    VTKXMLWriter<Dim>::writeTurbulence(turbFile, mesh_, turbulence_->k(), turbulence_->omega(), turbulence_->nut());
-                }
-            }
+        // Render callback: every step, independent of disk cadence.
+        if (config_.renderCallback) {
+            config_.renderCallback(step, time_, velocity, pressure);
+        } else if (config_.transientCallback) {
+            config_.transientCallback(step, time_, velocity, pressure);
         }
         if (step >= 1000000) break; // safety
         if (!config_.transient.adaptive && step >= nSteps) break;

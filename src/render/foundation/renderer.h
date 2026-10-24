@@ -575,12 +575,19 @@ public:
         }
         scalarDirty = true;
     }
+    void markVectorDirty(std::shared_ptr<const RenderMesh> mesh) {
+        {
+            std::lock_guard<std::mutex> lock(meshQueueMutex);
+            m_pendingVectorMesh = std::move(mesh);
+        }
+        vectorDirty = true;
+    }
     void updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scalars);
 
     // Plot kernel (GPU histogram MVP) — owns compute program + SSBOs
     PlotKernel& plotKernel();
     const PlotKernel& plotKernel() const;
-    const RenderMesh* lastUploadedMeshForPlot() const { return m_lastUploadedMesh.get(); }
+    const RenderMesh* lastUploadedMeshForPlot() const { return m_dataMesh.get(); }
 
 
 
@@ -597,7 +604,7 @@ public:
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         return m_pendingVolumeMesh;
     }
-    bool hasVolumeData() const { return m_lastUploadedMesh && m_lastUploadedMesh->hasVolumeData(); }
+    bool hasVolumeData() const { return m_dataMesh && m_dataMesh->hasVolumeData(); }
     void uploadVolumeFromScalarDirty(const RenderRenderState& state,
         std::shared_ptr<const std::vector<float>> scalars,
         std::shared_ptr<const RenderMesh> mesh);
@@ -707,6 +714,7 @@ private:
 
 
     std::atomic<bool> scalarDirty{false};
+    std::atomic<bool> vectorDirty{false};
 
 
 
@@ -718,7 +726,13 @@ private:
   private:
 
       std::shared_ptr<const RenderMesh> m_pendingMesh;
+    std::shared_ptr<const RenderMesh> m_pendingVectorMesh;
+    // m_lastUploadedMesh is ONLY ever set where geometry is actually uploaded,
+    // so it always describes what the GPU holds. m_dataMesh is the newest mesh
+    // carrying field data (vectors/scalars may advance without a re-upload) and
+    // is what data consumers (glyphs, LIC, volume, streamlines, plots) read.
     std::shared_ptr<const RenderMesh> m_lastUploadedMesh;
+    std::shared_ptr<const RenderMesh> m_dataMesh;
     std::shared_ptr<const RenderMesh> m_pendingIsosurface;
     std::shared_ptr<const RenderMesh> m_lastIsosurfaceMesh;
     std::atomic<bool> isosurfaceDirty{false};

@@ -160,6 +160,7 @@ public:
         }();
 
         std::function<void(int, double, double)> iterationCallback;
+        std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> renderCallback;
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> transientCallback;
         CheckpointConfig checkpoint;
         TransientConfig transient;

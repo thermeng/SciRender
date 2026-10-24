@@ -933,18 +933,28 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     float mn = 0.0f, mx = 1.0f;
     // Snapshot-aware: helicity/Q live in computed snapshot, not mesh attributes
     const auto* snapPtr = m_state.computed.get();
-    const std::vector<float>* activeFieldData =
-        FieldStore::scalarData(*mesh, m_state.activeScalarName, mn, mx,
-                               m_state.scalarPlacement==1?FieldStore::Placement::CellCenter:FieldStore::Placement::Vertex,
-                               snapPtr);
-    if (!activeFieldData) {
+    const FieldStore::Placement scalarPlacement = m_state.scalarPlacement == 1
+        ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
+    // Owning handle: derived scalars ([Magnitude]/[X]/[Y]/[Z]) are synthesized
+    // into FieldStore's per-thread cache. Holding the ref-counted owner here
+    // keeps the array valid even if a later resolve refills the cache for
+    // another mesh — which happens on every frame of a transient run.
+    FieldStore::ScalarField activeField =
+        FieldStore::resolveScalar(*mesh, {m_state.activeScalarName, scalarPlacement}, snapPtr);
+    if (!activeField.data) {
         // fallback to legacy resolver (covers cell->point extrapolated)
-        activeFieldData = FieldResolver::scalarData(*mesh, m_state.activeScalarName, mn, mx, m_state.scalarPlacement);
+        float legacyMin = 0.0f, legacyMax = 1.0f;
+        if (const std::vector<float>* legacy =
+                FieldResolver::scalarData(*mesh, m_state.activeScalarName, legacyMin, legacyMax, m_state.scalarPlacement)) {
+            activeField.data = legacy;
+            activeField.range = {legacyMin, legacyMax};
+        }
     }
-    const bool haveRange = activeFieldData != nullptr || (snapPtr && snapPtr->scalars.find(m_state.activeScalarName)!=snapPtr->scalars.end());
+    if (activeField.data) { mn = activeField.range.min; mx = activeField.range.max; }
+    const bool haveRange = activeField.data != nullptr || (snapPtr && snapPtr->scalars.find(m_state.activeScalarName)!=snapPtr->scalars.end());
     const bool hasAny = FieldStore::hasAnyScalar(*mesh, snapPtr);
     if (!haveRange) {
-        mn = 0.0f; mx = 1.0f; activeFieldData = nullptr;
+        mn = 0.0f; mx = 1.0f; activeField = {};
         // If vector-only mesh with derived scalars, still report hasScalars true
         // and pick a derived field as active if none is set
         if (hasAny && m_state.activeScalarName.empty()) {
@@ -952,11 +962,8 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
             if (!avail.empty()) {
                 m_state.activeScalarName = avail.front();
                 // re-resolve for range
-                activeFieldData = FieldStore::scalarData(*mesh, m_state.activeScalarName, mn, mx,
-                    m_state.scalarPlacement==1?FieldStore::Placement::CellCenter:FieldStore::Placement::Vertex, snapPtr);
-                if (activeFieldData) {
-                    // haveRange now true via derived
-                }
+                activeField = FieldStore::resolveScalar(*mesh, {m_state.activeScalarName, scalarPlacement}, snapPtr);
+                if (activeField.data) { mn = activeField.range.min; mx = activeField.range.max; }
             }
         }
     }
@@ -1000,71 +1007,6 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         m_isoController.requestLiveRecompute();
     }
 
-    // Post-processed fields per-frame recompute (when auto enabled) — blank+error overlay on failure per grilling.
-    if (m_postAutoReextract && m_postSnapshot && !m_postSnapshot->empty()) {
-        const bool needVel = m_postWantVorticity || m_postWantHelicity || m_postWantQ;
-        const bool needP = m_postWantGradP;
-        postfields::CartesianGrid grid;
-        bool isCartesian = postfields::extractCartesianGrid(*mesh, grid);
-        postfields::PointVectorField vf{}; postfields::PointScalarField pf{};
-        bool haveVf=false, havePf=false;
-        if (isCartesian){
-            if (needVel) haveVf = postfields::extractPointVectors(*mesh, grid, m_postVelocitySource, vf);
-            if (needP) havePf = postfields::extractPointScalars(*mesh, grid, m_postPressureSource, pf);
-            if (needVel && !haveVf) haveVf = postfields::extractPointVectorsUnstructured(*mesh, m_postVelocitySource, vf);
-            if (needP && !havePf) havePf = postfields::extractPointScalarsUnstructured(*mesh, m_postPressureSource, pf);
-        } else {
-            if (needVel) haveVf = postfields::extractPointVectorsUnstructured(*mesh, m_postVelocitySource, vf);
-            if (needP) havePf = postfields::extractPointScalarsUnstructured(*mesh, m_postPressureSource, pf);
-        }
-        bool ok = (!needVel || haveVf) && (!needP || havePf);
-        if (!ok) {
-            m_postStatus = std::string("Auto re-extract failed: field not found on frame");
-            setStatus(QString::fromStdString(m_postStatus));
-            m_postSnapshot.reset();
-            m_state.computed.reset();
-            m_isoController.setSnapshot(nullptr);
-            markStateDirty();
-        } else {
-            postfields::PostFieldsRequest req;
-            if (haveVf) req.velocity = vf.data;
-            if (havePf) req.pressure = pf.data;
-            req.wantVorticity = m_postWantVorticity; req.wantHelicity = m_postWantHelicity;
-            req.wantQ = m_postWantQ; req.wantGradP = m_postWantGradP;
-            auto res = isCartesian ? postfields::computePostFields(grid, req) : postfields::computePostFields(*mesh, req);
-            if (!res.ok && isCartesian) res = postfields::computePostFields(*mesh, req);
-            if (!res.ok) {
-                m_postStatus = res.error + " (frame)";
-                setStatus(QString::fromStdString(m_postStatus));
-                m_postSnapshot.reset();
-                m_state.computed.reset();
-                m_isoController.setSnapshot(nullptr);
-                markStateDirty();
-            } else {
-                auto hasGarbage = [](const std::vector<float>& v){ for(float f: v) if(!std::isfinite(f)) return true; return false; };
-                auto hasGarbageVec = [](const std::vector<glm::vec3>& v){ for(auto &t: v) if(!std::isfinite(t.x)||!std::isfinite(t.y)||!std::isfinite(t.z)) return true; return false; };
-                bool garbage = (res.hasHelicity && hasGarbage(res.helicity)) || (res.hasQ && hasGarbage(res.qCriterion)) || (res.hasVorticity && hasGarbageVec(res.vorticity)) || (res.hasGradP && hasGarbageVec(res.gradP));
-                if (garbage) {
-                    m_postStatus = "Garbage (NaN/Inf) on frame — blanking";
-                    setStatus(QString::fromStdString(m_postStatus));
-                    m_postSnapshot.reset();
-                    m_state.computed.reset();
-                    m_isoController.setSnapshot(nullptr);
-                    markStateDirty();
-                } else {
-                    auto snap = std::make_shared<postfields::ComputedSnapshot>();
-                    if (res.hasVorticity) { auto v = std::make_shared<const std::vector<glm::vec3>>(std::move(res.vorticity)); snap->vectors[postfields::vorticityName(m_postVelocitySource)] = v; }
-                    if (res.hasHelicity) { auto v = std::make_shared<const std::vector<float>>(std::move(res.helicity)); auto r = FieldStore::computeRange(*v); snap->scalars[postfields::helicityName(m_postVelocitySource)] = v; snap->scalarRanges[postfields::helicityName(m_postVelocitySource)] = {r.min, r.max}; }
-                    if (res.hasQ) { auto v = std::make_shared<const std::vector<float>>(std::move(res.qCriterion)); auto r = FieldStore::computeRange(*v); snap->scalars[postfields::qCriterionName(m_postVelocitySource)] = v; snap->scalarRanges[postfields::qCriterionName(m_postVelocitySource)] = {r.min, r.max}; }
-                    if (res.hasGradP) { auto v = std::make_shared<const std::vector<glm::vec3>>(std::move(res.gradP)); snap->vectors[postfields::gradPName(m_postPressureSource)] = v; }
-                    m_postSnapshot = snap;
-                    m_state.computed = snap;
-                    m_isoController.setSnapshot(snap);
-                    markStateDirty();
-                }
-            }
-        }
-    }
     // Phase 1.1: scalar-only fast path for fixed-mesh animations.
     // Compare the incoming frame against the mesh the GPU last received
     // (prevMesh), NOT against m_meshData.loadedMesh (already == mesh above —
@@ -1080,7 +1022,8 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         && prevMesh->gridDimZ == mesh->gridDimZ) {
         topologyUnchanged = true;
     }
-    auto makePayload = [&](const std::vector<float>* src) -> std::shared_ptr<const std::vector<float>> {
+    auto makePayload = [&](const FieldStore::ScalarField& field) -> std::shared_ptr<const std::vector<float>> {
+        const std::vector<float>* src = field.data;
         if (!src) return nullptr;
         // Snapshot scalars are per-node (125) but SBO needs per-vertex (177) when mesh is split.
         // Unstructured post fields also use sourcePointCount (125) vs vertices 177. Check both.
@@ -1101,8 +1044,10 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
             }
             return expanded;
         }
+        // Derived scalars are already ref-counted by FieldStore — share the
+        // owner instead of copying the array on every frame.
+        if (field.owner) return field.owner;
         // Avoid O(N) copy for stored point/cell scalars: alias mesh ownership.
-        // Derived scalars ( [Magnitude]/ [X]/ [Y]/ [Z]) live in thread_local cache, so must copy.
         const std::string& nm = m_state.activeScalarName;
         bool storedInMesh = false;
         if (mesh->attributes) {
@@ -1127,21 +1072,26 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         }
         return false;
     };
-    if (topologyUnchanged && !(m_state.meshHasVectors || m_state.meshHasCellVectors)) {
+    if (topologyUnchanged) {
         // Only scalars (and derived) changed — re-upload SBO (+ volume texture).
-        // Reuse activeFieldData captured above to avoid second O(N) scan.
-        if (activeFieldData) {
-            auto payload = makePayload(activeFieldData);
+        // Reuse activeField captured above to avoid second O(N) scan.
+        if (activeField.data) {
+            auto payload = makePayload(activeField);
             m_renderer.markScalarDirty(payload);
             if (hasVolume()) {
                 m_renderer.markVolumeDirty(mesh);
             }
         }
+        // Vector data changes per frame but geometry is stable: refresh vector
+        // glyphs without re-uploading geometry.
+        if (m_state.meshHasVectors || m_state.meshHasCellVectors) {
+            m_renderer.markVectorDirty(mesh);
+        }
     } else {
         // Full upload for topology-changing frames (adaptive mesh, first frame)
         m_renderer.setPendingMesh(mesh);
-        if (activeFieldData) {
-            auto payload = makePayload(activeFieldData);
+        if (activeField.data) {
+            auto payload = makePayload(activeField);
             m_renderer.markScalarDirty(payload);
             if (hasVolume()) {
                 m_renderer.markVolumeDirty(mesh);
@@ -2215,3 +2165,22 @@ void RenderSettings::onPostFieldsReady() {
     emit statusMessageChanged();
 }
 
+
+void RenderSettings::applyPostStatus(const std::string& status) {
+    // GUI thread only: the render-prep worker reports through CfdFrameSlot.
+    if (m_postStatus == status) return;
+    m_postStatus = status;
+    setStatus(QString::fromStdString(status));
+}
+
+postfields::SnapshotRequest RenderSettings::postSnapshotRequest() const {
+    postfields::SnapshotRequest req;
+    req.velocitySource = m_postVelocitySource;
+    req.pressureSource = m_postPressureSource;
+    req.wantVorticity = m_postWantVorticity;
+    req.wantHelicity = m_postWantHelicity;
+    req.wantQ = m_postWantQ;
+    req.wantGradP = m_postWantGradP;
+    req.autoReextract = m_postAutoReextract;
+    return req;
+}

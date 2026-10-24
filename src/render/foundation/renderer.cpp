@@ -154,15 +154,16 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
     if (!renderMesh) return;
 
     bool vectorChanged = true;
-    if (m_lastUploadedMesh) {
-        if (renderMesh->vectorHash != 0 && m_lastUploadedMesh->vectorHash == renderMesh->vectorHash
-            && m_lastUploadedMesh->pointVectorCount == renderMesh->pointVectorCount
-            && m_lastUploadedMesh->cellVectorCount == renderMesh->cellVectorCount) {
+    if (m_dataMesh) {
+        if (renderMesh->vectorHash != 0 && m_dataMesh->vectorHash == renderMesh->vectorHash
+            && m_dataMesh->pointVectorCount == renderMesh->pointVectorCount
+            && m_dataMesh->cellVectorCount == renderMesh->cellVectorCount) {
             vectorChanged = false;
         }
     }
     meshManager.upload(renderMesh);
     m_lastUploadedMesh = renderMesh;
+    m_dataMesh = renderMesh;
     if (vectorChanged) {
         vectorGlyph.rebuild(*renderMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement, m_state.computed.get());
     }
@@ -198,6 +199,23 @@ void Renderer::consumePendingMesh() {
         m_pendingMesh.reset();
         m_qualityOverlay.markDirty();
         m_streamlines.requestRecompute();
+    }
+    if (m_pendingVectorMesh) {
+        // Geometry did NOT change (that is why this branch exists) — only the
+        // data did. Never repoint m_lastUploadedMesh here: it must keep
+        // describing the buffers the GPU actually holds.
+        auto next = std::move(m_pendingVectorMesh);
+        m_pendingVectorMesh.reset();
+        const bool vectorsChanged = !m_dataMesh
+            || next->vectorHash == 0
+            || m_dataMesh->vectorHash != next->vectorHash
+            || m_dataMesh->pointVectorCount != next->pointVectorCount
+            || m_dataMesh->cellVectorCount != next->cellVectorCount;
+        m_dataMesh = std::move(next);
+        if (vectorsChanged) {
+            m_vectorCache.invalidateAll();
+            vectorGlyphDirty = true;
+        }
     }
     if (isosurfaceDirty.exchange(false)) {
         m_lastIsosurfaceMesh = m_pendingIsosurface;
@@ -360,7 +378,9 @@ void Renderer::clearGpuMeshes() {
     vectorGlyph.shutdown();
     streamlineSet.shutdown();
     m_lastUploadedMesh.reset();
+    m_dataMesh.reset();
     m_pendingMesh.reset();
+    m_pendingVectorMesh.reset();
     m_lastIsosurfaceMesh.reset();
     m_pendingIsosurface.reset();
     isosurfaceDirty.store(false);
@@ -444,12 +464,16 @@ void Renderer::reinitForNewContext() {
 }
 
 void Renderer::reinitMeshData() {
-    if (m_lastUploadedMesh) {
-        meshManager.upload(m_lastUploadedMesh);
-        vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride,
+    // Geometry comes from the mesh the GPU last received; field data from the
+    // newest mesh (they differ after a vector-only frame update).
+    const std::shared_ptr<const RenderMesh>& dataMesh =
+        m_dataMesh ? m_dataMesh : m_lastUploadedMesh;
+    if (dataMesh) {
+        if (m_lastUploadedMesh) meshManager.upload(m_lastUploadedMesh);
+        vectorGlyph.rebuild(*dataMesh, m_state.vectorStride,
                             m_state.vectorField, m_state.vectorMagTransform,
                             m_state.vectorPlacement, m_state.computed.get());
-        streamlineSet.rebuild(*m_lastUploadedMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.computed.get());
+        streamlineSet.rebuild(*dataMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.computed.get());
         for (int i = 0; i < 3; ++i) {
             m_state.streamlineCompMin[i] = streamlineSet.compMin[i];
             m_state.streamlineCompMax[i] = streamlineSet.compMax[i];
@@ -457,11 +481,9 @@ void Renderer::reinitMeshData() {
         streamlineSet.initParticles(m_state.particleCount);
         m_qualityOverlay.markDirty();
 
-        if (m_lastUploadedMesh->hasVolumeData()) {
+        if (dataMesh->hasVolumeData()) {
             m_volumeCache.invalidateAll();
         }
-
-
 
         if (m_state.showIsosurface && m_lastIsosurfaceMesh) {
             meshManager.uploadIsosurface(m_lastIsosurfaceMesh);
@@ -701,7 +723,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 ? applyVectorMagTransform(m_state.glyphMagRangeHi, m_state.vectorMagTransform)
                 : txMag(vectorGlyph.magMax);
             const float tRange = tMax - tMin;
-            makeBar("Vector", QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())),
+            makeBar("Vector", QString::fromStdString(vectorGlyphTitle(m_state, m_dataMesh.get())),
                     stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed),
                     [&](int i) {
                         const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
@@ -716,7 +738,7 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 ? m_state.glyphCompRangeHi[compIdx] : vectorGlyph.compMax[compIdx];
             const float cRange = cMax - cMin;
             const char* labels[3] = { " (X)", " (Y)", " (Z)" };
-            QString compTitle = QString::fromStdString(vectorGlyphTitle(m_state, m_lastUploadedMesh.get())) + labels[compIdx];
+            QString compTitle = QString::fromStdString(vectorGlyphTitle(m_state, m_dataMesh.get())) + labels[compIdx];
             makeBar("Vector", compTitle,
                     stopsFor(m_state.vectorColormapChoice, m_state.vectorColormapReversed),
                     [&](int i) {
@@ -862,7 +884,7 @@ QRectF Renderer::colorbarBarRect(float dpr, int deviceW, int deviceH, const Colo
 }
 
 void Renderer::updateSliceScalarRange() {
-    const RenderMesh* mesh = m_lastUploadedMesh.get();
+    const RenderMesh* mesh = m_dataMesh.get();
     if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0) {
         for (int a = 0; a < 3; ++a) { m_state.sliceScalarMin[a] = 0.0f; m_state.sliceScalarMax[a] = 1.0f; }
         return;
@@ -999,7 +1021,7 @@ void Renderer::renderFrame() {
     }
 
     if (vectorGlyphDirty.exchange(false)) {
-        if (m_lastUploadedMesh) vectorGlyph.rebuild(*m_lastUploadedMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement, m_state.computed.get());
+        if (m_dataMesh) vectorGlyph.rebuild(*m_dataMesh, m_state.vectorStride, m_state.vectorField, m_state.vectorMagTransform, m_state.vectorPlacement, m_state.computed.get());
         for (int i = 0; i < 3; ++i) {
             m_state.vectorCompMin[i] = vectorGlyph.compMin[i];
             m_state.vectorCompMax[i] = vectorGlyph.compMax[i];
@@ -1011,7 +1033,7 @@ void Renderer::renderFrame() {
     }
 
 
-    m_streamlines.dispatchCompute(m_state, m_lastUploadedMesh, streamlineSet);
+    m_streamlines.dispatchCompute(m_state, m_dataMesh, streamlineSet);
     m_streamlines.consumeResult(m_state, streamlineSet);
     m_streamlines.publishComponentRanges(m_state, streamlineSet);
 
@@ -1137,21 +1159,21 @@ void Renderer::renderFrame() {
     if (!drawList.empty() && meshPass.hasProgram()) {
         MeshPass::LicResources licRes;
         m_lastLicError.clear();
-        if (m_state.showLic && meshPass.hasLicProgram() && m_lastUploadedMesh) {
+        if (m_state.showLic && meshPass.hasLicProgram() && m_dataMesh) {
             if (m_state.vectorField.empty()) {
                 m_lastLicError = "LIC disabled: no vector field selected";
-            } else if (!m_lastUploadedMesh->meshHasVectors() && !m_lastUploadedMesh->meshHasCellVectors()) {
+            } else if (!m_dataMesh->meshHasVectors() && !m_dataMesh->meshHasCellVectors()) {
                 m_lastLicError = "LIC disabled: mesh has no vector data";
             } else {
-                glm::vec3 boxMinF(static_cast<float>(m_lastUploadedMesh->bounds.minX),
-                                  static_cast<float>(m_lastUploadedMesh->bounds.minY),
-                                  static_cast<float>(m_lastUploadedMesh->bounds.minZ));
-                glm::vec3 boxMaxF(static_cast<float>(m_lastUploadedMesh->bounds.maxX),
-                                  static_cast<float>(m_lastUploadedMesh->bounds.maxY),
-                                  static_cast<float>(m_lastUploadedMesh->bounds.maxZ));
+                glm::vec3 boxMinF(static_cast<float>(m_dataMesh->bounds.minX),
+                                  static_cast<float>(m_dataMesh->bounds.minY),
+                                  static_cast<float>(m_dataMesh->bounds.minZ));
+                glm::vec3 boxMaxF(static_cast<float>(m_dataMesh->bounds.maxX),
+                                  static_cast<float>(m_dataMesh->bounds.maxY),
+                                  static_cast<float>(m_dataMesh->bounds.maxZ));
                 ensureLicNoiseTexture(m_state.licNoiseGrain);
                 GLuint vecTex = m_vectorCache.textureForField(
-                    m_state.vectorField, m_lastUploadedMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.licBoundaryMode, m_state.computed.get());
+                    m_state.vectorField, m_dataMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.licBoundaryMode, m_state.computed.get());
                 if (vecTex == 0) {
                     m_lastLicError = "LIC disabled: vector field '" + m_state.vectorField + "' unavailable for placement " +
                         std::to_string(m_state.vectorPlacement) + " (check cellCenters)";
@@ -1160,7 +1182,7 @@ void Renderer::renderFrame() {
                 } else {
                     int tdx = 0, tdy = 0, tdz = 0;
                     if (m_vectorCache.getTextureDims(m_state.vectorField, m_state.vectorPlacement,
-                                                     m_state.licBoundaryMode, m_lastUploadedMesh.get(),
+                                                     m_state.licBoundaryMode, m_dataMesh.get(),
                                                      tdx, tdy, tdz) &&
                         tdx > 0 && tdy > 0 && tdz > 0) {
                         licRes.vectorTex = vecTex;
@@ -1171,7 +1193,7 @@ void Renderer::renderFrame() {
                         licRes.texDimY = tdy;
                         licRes.texDimZ = tdz;
                         licRes.maxMagnitude = m_vectorCache.getMaxMagnitude(
-                            m_state.vectorField, m_state.vectorPlacement, m_lastUploadedMesh.get());
+                            m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get());
                     } else {
                         m_lastLicError = "LIC disabled: vector texture dims unavailable (mode " + std::to_string(m_state.licBoundaryMode) + ")";
                     }
@@ -1241,12 +1263,12 @@ void Renderer::renderFrame() {
     float pixelFootprintScale = deviceH > 0 ? std::tan(m_state.fovY * 0.5f) * 2.0f / static_cast<float>(deviceH) : 1.0f;
 
     glm::vec3 boxMin(0.0f), boxMax(0.0f);
-    if (m_lastUploadedMesh) {
-        boxMin = glm::vec3(m_lastUploadedMesh->bounds.minX, m_lastUploadedMesh->bounds.minY, m_lastUploadedMesh->bounds.minZ);
-        boxMax = glm::vec3(m_lastUploadedMesh->bounds.maxX, m_lastUploadedMesh->bounds.maxY, m_lastUploadedMesh->bounds.maxZ);
+    if (m_dataMesh) {
+        boxMin = glm::vec3(m_dataMesh->bounds.minX, m_dataMesh->bounds.minY, m_dataMesh->bounds.minZ);
+        boxMax = glm::vec3(m_dataMesh->bounds.maxX, m_dataMesh->bounds.maxY, m_dataMesh->bounds.maxZ);
     }
 
-    GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_lastUploadedMesh.get(), boxMin, boxMax, m_state.scalarPlacement, m_state.computed.get());
+    GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_dataMesh.get(), boxMin, boxMax, m_state.scalarPlacement, m_state.computed.get());
     m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale, volTex, boxMin, boxMax);
 
 
@@ -1258,9 +1280,9 @@ void Renderer::renderFrame() {
         if (!m_state.slicePlaneEnabled[axis]) continue;
         const std::string& field = m_state.sliceScalarName[axis].empty()
             ? m_state.activeScalarName : m_state.sliceScalarName[axis];
-        sliceTex[axis] = m_volumeCache.textureForField(field, m_lastUploadedMesh.get(), boxMin, boxMax, m_state.scalarPlacement, m_state.computed.get());
+        sliceTex[axis] = m_volumeCache.textureForField(field, m_dataMesh.get(), boxMin, boxMax, m_state.scalarPlacement, m_state.computed.get());
     }
-    m_volumeSliceOverlay.draw(m_state, view, proj, colormap, sliceTex, boxMin, boxMax, m_lastUploadedMesh.get());
+    m_volumeSliceOverlay.draw(m_state, view, proj, colormap, sliceTex, boxMin, boxMax, m_dataMesh.get());
 
     if (m_state.showGizmo) drawGizmo(deviceW, deviceH);
 

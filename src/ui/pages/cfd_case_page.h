@@ -130,6 +130,8 @@ private:
 
     bool m_running = false;
     bool m_savedAnimGlobal = true;
+    QTimer* m_frameTimer = nullptr;
+    std::shared_ptr<const RenderMesh> m_lastFrame;
 };
 
 } // namespace sidebar

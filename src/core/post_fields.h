@@ -126,4 +126,36 @@ struct ComputedSnapshot {
     void clear() { vectors.clear(); scalars.clear(); scalarRanges.clear(); }
 };
 
+// ── Thread-safe one-shot extraction ────────────────────────────────────────
+// SnapshotRequest captures everything the extraction needs BY VALUE. Capture it
+// on the GUI thread (it reads RenderSettings) and hand the copy to a worker:
+// extractSnapshot() then touches no application state at all, so nothing has to
+// be synchronised with the GUI thread while frames are streaming.
+struct SnapshotRequest {
+    std::string velocitySource;
+    std::string pressureSource;
+    bool wantVorticity = true;
+    bool wantHelicity = true;
+    bool wantQ = true;
+    bool wantGradP = true;
+    // When false the caller wants the previously published snapshot carried
+    // forward instead of a new extraction (see SnapshotResult::keepExisting).
+    bool autoReextract = true;
+
+    bool needsVelocity() const { return wantVorticity || wantHelicity || wantQ; }
+    bool needsPressure() const { return wantGradP; }
+};
+
+struct SnapshotResult {
+    std::shared_ptr<const ComputedSnapshot> snapshot; // null on failure
+    std::string status;                               // empty on success
+    bool ok = false;
+    // Auto re-extract is disabled: republish the previous snapshot untouched.
+    bool keepExisting = false;
+};
+
+// Pure, reentrant, no globals, no Qt: safe to call from any thread, including
+// concurrently with the GUI thread publishing a different frame.
+SnapshotResult extractSnapshot(const RenderMesh& mesh, const SnapshotRequest& request);
+
 } // namespace postfields

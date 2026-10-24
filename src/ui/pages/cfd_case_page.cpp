@@ -170,7 +170,21 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     });
 
     // ── Frame streaming from transient runs ──────────────────────────────────
-    connect(m_ctrl, &CfdController::frameReady, this, &CfdCasePage::onTransientFrame);
+    m_frameTimer = new QTimer(this);
+    m_frameTimer->setInterval(16);
+    connect(m_frameTimer, &QTimer::timeout, this, [this]() {
+        if (!m_ctrl || !m_running) return;
+        if (m_ctrl->isCancelled()) return;
+        // One immutable slot per publish => mesh and snapshot always match.
+        auto slot = m_ctrl->latestFrameSlot();
+        if (!slot || !slot->mesh || slot->mesh == m_lastFrame) return;
+        m_lastFrame = slot->mesh;
+        // RenderSettings is GUI-thread state: the worker never writes it.
+        S()->setComputedSnapshot(slot->computed);
+        if (slot->postExtracted)
+            S()->applyPostStatus(slot->postStatus);
+        onTransientFrame(slot->mesh, slot->step, slot->time);
+    });
 
     // k / omega are only meaningful with turbulence enabled.
     auto syncTurbulence = [this]() {
@@ -687,19 +701,29 @@ void CfdCasePage::onEditBCs() {
 void CfdCasePage::onRun() {
     if (m_running) return;
     collectSettings();
+    // Capture the extraction config BY VALUE on the GUI thread. The render-prep
+    // worker then runs a pure function and never reads RenderSettings members
+    // while the GUI is publishing frames (that race was the streaming crash).
+    const postfields::SnapshotRequest postCfg = S()->postSnapshotRequest();
+    m_ctrl->setPostExtractor([postCfg](const RenderMesh& mesh) {
+        return postfields::extractSnapshot(mesh, postCfg);
+    });
     setRunning(true);
     log("Running...");
     m_iterValue->setText("0");
     m_contValue->setText("--");
     m_momValue->setText("--");
-// Use per-frame min/max during CFD transient streaming so each time step
-// shows its own full range instead of an accumulated union.
-m_savedAnimGlobal = S()->getAnimScaleGlobal();
-S()->setAnimScaleGlobal(false);
-// Reseed the colormap range on the first transient frame instead of
-// inheriting a stale range from a previous run/animation.
-S()->resetAnimationSequence();
-m_ctrl->run();
+    // Use per-frame min/max during CFD transient streaming so each time step
+    // shows its own full range instead of an accumulated union.
+    m_savedAnimGlobal = S()->getAnimScaleGlobal();
+    S()->setAnimScaleGlobal(false);
+    // Reseed the colormap range on the first transient frame instead of
+    // inheriting a stale range from a previous run/animation.
+    S()->resetAnimationSequence();
+    S()->clearPostFields();
+    m_ctrl->run();
+    // Only transient runs publish frames; a steady solve has no frame bus.
+    if (m_frameTimer && m_ctrl->settings().transient.enabled) m_frameTimer->start();
 }
 
 void CfdCasePage::onCancel() {
@@ -757,6 +781,7 @@ void CfdCasePage::onLoadCase() {
 
 void CfdCasePage::onCaseLoaded() {
     applySettings(m_ctrl->settings());
+    m_patchBCs = m_ctrl->patchBCs();
     auto rm = m_ctrl->resultMesh();
     if (rm) S()->applyLoadedMesh(rm, m_meshName.isEmpty() ? "CFD Result" : m_meshName);
     else onMeshLoaded();
@@ -786,14 +811,15 @@ void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int s
 }
 
 void CfdCasePage::onFinished(const QString& summary) {
+    if (m_frameTimer) m_frameTimer->stop();
+    m_lastFrame.reset();
     setRunning(false);
-    log(summary);
     S()->setAnimScaleGlobal(m_savedAnimGlobal);
     if (summary == "Cancelled") {
         auto rm = m_ctrl->resultMesh();
         if (!rm) { log(summary + " (no result mesh)"); return; }
         try {
-            S()->applyLoadedMesh(rm, "cfd_solution");
+            S()->applyLoadedMesh(rm, "cfd_solution", false);
             log(summary + " (visualized)");
         } catch (const std::exception& e) {
             log(QString("Visualize failed: %1").arg(e.what()));
