@@ -2,7 +2,7 @@
 // cell vector name lists must merge WITHOUT duplicates - a cell-only field
 // also exists as the extrapolated point copy under the same name
 // (extrapolateCellDataToPoints), so the raw lists commonly overlap. No Qt/GL.
-#include "core/FieldResolver.h"
+#include "core/FieldStore.h"
 #include "doctest/doctest.h"
 
 #include <string>
@@ -14,8 +14,8 @@ bool sameList(const std::vector<std::string>& a, const std::vector<std::string>&
     return a == b;
 }
 
-using FieldResolver::availableVectorNames;
-using FieldResolver::derivedScalarNames;
+using FieldStore::availableVectorNames;
+using FieldStore::derivedScalarNames;
 
 } // namespace
 

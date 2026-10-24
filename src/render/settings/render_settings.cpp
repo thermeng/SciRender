@@ -2,7 +2,6 @@
 #include "render/foundation/render_config.h"
 #include "render/settings/AnimationExporter.h"
 #include "core/Colormaps.h"
-#include "core/FieldResolver.h"
 #include "core/FieldStore.h"
 #include "core/mesh_loader.h"
 #include "core/mesh_quality.h"
@@ -899,10 +898,10 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     // live only in m_state.computed, so the continuity check must consult it —
     // without it any snapshot-selected field "resolves" down to a mesh field
     // on every frame and playback silently switches the visualization field.
-    const std::string resolvedScalar = FieldResolver::resolveActiveScalar(*mesh, m_state.activeScalarName, 0, m_state.computed.get());
+    const std::string resolvedScalar = FieldStore::resolveActiveScalar(*mesh, m_state.activeScalarName, FieldStore::Placement::Vertex, m_state.computed.get());
     if (!resolvedScalar.empty()) m_state.activeScalarName = resolvedScalar;
     // Iso contour field has its own continuity (independent of surface field).
-    const std::string resolvedIso = FieldResolver::resolveActiveScalar(*mesh, m_state.isosurfaceField, m_state.isosurfacePlacement, m_state.computed.get());
+    const std::string resolvedIso = FieldStore::resolveActiveScalar(*mesh, m_state.isosurfaceField, FieldStore::toPlacement(m_state.isosurfacePlacement), m_state.computed.get());
     if (!resolvedIso.empty()) m_state.isosurfaceField = resolvedIso;
     m_meshData.guiMeta.scalarName = m_state.activeScalarName;
     m_meshData.guiMeta.availableScalarNames = mesh->availableScalarNames;
@@ -912,7 +911,7 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
         if (m_state.vectorField.empty()
             || std::find(mesh->availableVectorNames.begin(), mesh->availableVectorNames.end(),
                          m_state.vectorField) == mesh->availableVectorNames.end())
-            m_state.vectorField = FieldResolver::resolveVectorName(*mesh, "", 0);
+            m_state.vectorField = FieldStore::resolveVectorName(*mesh, "", FieldStore::Placement::Vertex, m_state.computed.get());
         if (m_state.streamlineVectorField.empty()
             || std::find(mesh->availableVectorNames.begin(), mesh->availableVectorNames.end(),
                          m_state.streamlineVectorField) == mesh->availableVectorNames.end())
@@ -944,8 +943,8 @@ void RenderSettings::onAnimationFrame(std::shared_ptr<const RenderMesh> mesh, in
     if (!activeField.data) {
         // fallback to legacy resolver (covers cell->point extrapolated)
         float legacyMin = 0.0f, legacyMax = 1.0f;
-        if (const std::vector<float>* legacy =
-                FieldResolver::scalarData(*mesh, m_state.activeScalarName, legacyMin, legacyMax, m_state.scalarPlacement)) {
+if (const std::vector<float>* legacy =
+        FieldStore::scalarData(*mesh, m_state.activeScalarName, legacyMin, legacyMax, FieldStore::toPlacement(m_state.scalarPlacement), m_state.computed.get())) {
             activeField.data = legacy;
             activeField.range = {legacyMin, legacyMax};
         }
@@ -1131,7 +1130,7 @@ void RenderSettings::clearMeshes() {
     m_taskToken.reset();
     m_loadingPath.clear();
     m_loadingPath.shrink_to_fit();
-    FieldResolver::clearCache();
+    FieldStore::clearCache();
 
     m_meshData.loadedMesh.reset();
     m_meshData = MeshData{};
@@ -1526,7 +1525,7 @@ void RenderSettings::setScalarPlacement(int v) {
     // derived), so marching-cubes geometry updates on Vertex↔Cell toggles.
     if (m_state.showIsosurface && m_meshData.loadedMesh) {
         bool isDerived = false;
-        auto dNames = FieldResolver::derivedScalarNames(*m_meshData.loadedMesh);
+        auto dNames = FieldStore::derivedScalarNames(*m_meshData.loadedMesh);
         if (std::find(dNames.begin(), dNames.end(), m_state.isosurfaceField) != dNames.end()) isDerived = true;
         if (isDerived || m_state.isosurfaceField == m_state.activeScalarName) {
             if (m_state.isosurfacePlacement != p) {

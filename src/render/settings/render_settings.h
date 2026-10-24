@@ -25,8 +25,8 @@
 #include "render/settings/isosurface_controller.h"
 #include "render/settings/animation_controller.h"
 #include "render/settings/StateStore.h"
-#include "core/FieldResolver.h"
 #include "core/FieldStore.h"
+#include "render/settings/anim_range.h"
 #include "core/post_fields.h"
 
 #include <QElapsedTimer>
@@ -1223,8 +1223,8 @@ private:
     // Deferred isosurface refresh while playing — avoids O(numCells) per tick.
     bool m_pendingIsosurfaceRefresh = false;
     // Colormap range across frames: whole-sequence union (default) or
-    // per-frame rescale. Rules live in FieldResolver::AnimRangeState.
-    FieldResolver::AnimRangeState m_animRange;
+    // per-frame rescale. Rules live in AnimRangeState.
+    AnimRangeState m_animRange;
 };
 
 
