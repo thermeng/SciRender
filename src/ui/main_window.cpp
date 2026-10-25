@@ -646,9 +646,9 @@ QString MainWindow::sectionUnavailableReason(int section) const {
 
     if (available || !s.unavailableReason) return {};
 
-    // Unstructured data (including every 3D CFD result) has no structured grid
-    // to texture or march cubes through. Say that explicitly instead of asking
-    // the user to load a volume dataset when one is already loaded.
+    // Unstructured 3D meshes (the CFD path) support volume rendering, slices
+    // and isosurfaces through their cells. Reaching here for one means it has
+    // no scalar field (handled by the generic reason below) or no 3D cells.
     if (m_settings->getHasMeshLoaded() &&
         (s.capability == NavCapability::VolumeData ||
          s.capability == NavCapability::IsosurfaceData)) {
@@ -656,10 +656,10 @@ QString MainWindow::sectionUnavailableReason(int section) const {
         const bool unstructured =
             type.contains(QLatin1String("UNSTRUCTURED"), Qt::CaseInsensitive) ||
             type.compare(QLatin1String("CFD MESH"), Qt::CaseInsensitive) == 0;
-        if (unstructured) {
+        if (unstructured && !m_settings->hasUnstructuredVolumeCells()) {
             return tr("Volume rendering, slice planes and isosurfaces need a "
-                      "structured grid. The loaded mesh is unstructured; use the "
-                      "surface view or export the solution to VTK instead.");
+                      "3D volume mesh. The loaded mesh has no 3D cells "
+                      "(2D or surface data).");
         }
     }
 

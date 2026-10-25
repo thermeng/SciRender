@@ -9,6 +9,7 @@
 
 #include "cfd/cfd_mesh_adapter.h"
 
+#include "core/cell_topology.h"
 #include "core/mesh_loader.h"
 #include "mesh/Mesh.h"
 #include "support/test_support.h"
@@ -19,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <utility>
 
 namespace {
@@ -79,6 +81,41 @@ TEST_CASE("cfd.mesh_adapter.pipe_3d_loads_with_surface_and_topology") {
     CHECK(rm.cellTypes.size() == mesh.nCells());
     CHECK(rm.cellCenters.size() == mesh.nCells());
     CHECK(rm.cellVectorCount == mesh.nCells());
+    CHECK(rm.unstructuredVolumeCellCount == mesh.nCells());
+
+    // The pipe is an all-hexahedron mesh. Beyond the type, the corner order
+    // must be the canonical VTK layout: every edge of the hex template has to
+    // be a real edge of the reconstructed cell topology. A raw union-of-faces
+    // order fails this immediately.
+    std::size_t nonCanonical = 0;
+    std::size_t offset = 0;
+    for (std::size_t c = 0; c < mesh.nCells(); ++c) {
+        const std::size_t end = rm.cellOffsets[c];
+        REQUIRE(end >= offset);
+        CHECK(end - offset == 8);
+        REQUIRE(rm.cellTypes[c] == cell_topology::kHexahedron);
+
+        std::set<std::pair<std::uint32_t, std::uint32_t>> realEdges;
+        for (std::size_t f : mesh.cellFaces(c)) {
+            const auto& loop = mesh.faceVertices(f);
+            for (std::size_t i = 0; i < loop.size(); ++i) {
+                realEdges.insert(sortedEdge(static_cast<std::uint32_t>(loop[i]),
+                                            static_cast<std::uint32_t>(loop[(i + 1) % loop.size()])));
+            }
+        }
+        for (const auto& face : cell_topology::faces(cell_topology::kHexahedron)) {
+            for (std::size_t i = 0; i < face.size(); ++i) {
+                const std::uint32_t a = rm.cellConnectivity[offset + static_cast<std::size_t>(face[i])];
+                const std::uint32_t b = rm.cellConnectivity[offset + static_cast<std::size_t>(face[(i + 1) % face.size()])];
+                if (realEdges.count(sortedEdge(a, b)) == 0) {
+                    ++nonCanonical;
+                    break;
+                }
+            }
+        }
+        offset = end;
+    }
+    CHECK(nonCanonical == 0);
 
     float zmin = rm.vertices[2];
     float zmax = rm.vertices[2];

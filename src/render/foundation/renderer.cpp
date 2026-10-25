@@ -174,6 +174,9 @@ void Renderer::uploadMesh(std::shared_ptr<const RenderMesh> renderMesh) {
 
     m_volumeCache.invalidateAll();
     m_vectorCache.invalidateAll();
+    // New topology: the previous voxel grid describes the old mesh. A grid for
+    // this mesh arrives through consumePendingMesh() right after the upload.
+    m_derivedVolume.reset();
 
     if (m_state.showStreamlines) {
         m_streamlines.requestRecompute();
@@ -192,6 +195,12 @@ void Renderer::setPendingIsosurface(std::shared_ptr<const RenderMesh> isoMesh) {
     isosurfaceDirty = true;
 }
 
+void Renderer::setPendingDerivedVolume(std::shared_ptr<const volume::DerivedGrid> grid) {
+    std::lock_guard<std::mutex> lock(meshQueueMutex);
+    m_pendingDerivedVolume = std::move(grid);
+    derivedVolumeDirty = true;
+}
+
 void Renderer::consumePendingMesh() {
     std::lock_guard<std::mutex> lock(meshQueueMutex);
     if (m_pendingMesh) {
@@ -199,6 +208,11 @@ void Renderer::consumePendingMesh() {
         m_pendingMesh.reset();
         m_qualityOverlay.markDirty();
         m_streamlines.requestRecompute();
+    }
+    if (derivedVolumeDirty.exchange(false)) {
+        m_derivedVolume = std::move(m_pendingDerivedVolume);
+        m_pendingDerivedVolume.reset();
+        m_volumeCache.invalidateAll();
     }
     if (m_pendingVectorMesh) {
         // Geometry did NOT change (that is why this branch exists) — only the
@@ -387,6 +401,9 @@ void Renderer::clearGpuMeshes() {
 
     m_pendingVolumeMesh.reset();
     volumeDirty.store(false);
+    m_derivedVolume.reset();
+    m_pendingDerivedVolume.reset();
+    derivedVolumeDirty.store(false);
     m_pendingScalarSrc.reset();
     scalarDirty.store(false);
     m_licNoiseTex.reset();
@@ -481,7 +498,7 @@ void Renderer::reinitMeshData() {
         streamlineSet.initParticles(m_state.particleCount);
         m_qualityOverlay.markDirty();
 
-        if (dataMesh->hasVolumeData()) {
+        if (dataMesh->hasVolumeData() || volume::eligible(*dataMesh)) {
             m_volumeCache.invalidateAll();
         }
 
@@ -503,7 +520,9 @@ bool Renderer::consumeVolumeDirty() {
 void Renderer::uploadVolumeFromScalarDirty(const RenderRenderState& state,
     std::shared_ptr<const std::vector<float>> scalars,
     std::shared_ptr<const RenderMesh> mesh) {
-    if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0) return;
+    if (!mesh) return;
+    const bool structured = mesh->gridDimX > 0 && mesh->gridDimY > 0 && mesh->gridDimZ > 0;
+    if (!structured && !volume::eligible(*mesh)) return;
 
     m_volumeCache.invalidate(m_state.activeScalarName);
     for (int axis = 0; axis < 3; ++axis) {
@@ -883,8 +902,29 @@ QRectF Renderer::colorbarBarRect(float dpr, int deviceW, int deviceH, const Colo
     return colorbarOverlay.barRectAt(dpr, deviceW, deviceH, bar);
 }
 
-void Renderer::updateSliceScalarRange() {
+void Renderer::updateSliceScalarRange(const VolumeTexture* sliceTextures) {
     const RenderMesh* mesh = m_dataMesh.get();
+    const bool structured = mesh && mesh->gridDimX > 0 && mesh->gridDimY > 0 && mesh->gridDimZ > 0;
+
+    // Derived (unstructured) grids carry the per-slice ranges from the scatter.
+    if (sliceTextures && !structured) {
+        for (int axis = 0; axis < 3; ++axis) {
+            if (!m_state.slicePlaneEnabled[axis]) continue;
+            const auto& planes = sliceTextures[axis].planes;
+            float mn = 0.0f, mx = 1.0f;
+            if (planes && planes->range(axis, m_state.slicePlanePos[axis], mn, mx)) {
+                if (mx - mn < 1e-6f) mx = mn + 1.0f;
+                m_state.sliceScalarMin[axis] = mn;
+                m_state.sliceScalarMax[axis] = mx;
+            } else {
+                // Empty slice (plane misses the mesh) — keep the map stable.
+                m_state.sliceScalarMin[axis] = 0.0f;
+                m_state.sliceScalarMax[axis] = 1.0f;
+            }
+        }
+        return;
+    }
+
     if (!mesh || mesh->gridDimX <= 0 || mesh->gridDimY <= 0 || mesh->gridDimZ <= 0) {
         for (int a = 0; a < 3; ++a) { m_state.sliceScalarMin[a] = 0.0f; m_state.sliceScalarMax[a] = 1.0f; }
         return;
@@ -1268,21 +1308,29 @@ void Renderer::renderFrame() {
         boxMax = glm::vec3(m_dataMesh->bounds.maxX, m_dataMesh->bounds.maxY, m_dataMesh->bounds.maxZ);
     }
 
-    GLuint volTex = m_volumeCache.textureForField(m_state.activeScalarName, m_dataMesh.get(), boxMin, boxMax, m_state.scalarPlacement, m_state.computed.get());
-    m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale, volTex, boxMin, boxMax);
-
-
-
-    if (m_state.anySlicePlaneEnabled()) updateSliceScalarRange();
+    VolumeTexture volTex = m_volumeCache.textureFor(m_state.activeScalarName, m_dataMesh.get(),
+                                                   m_derivedVolume, boxMin, boxMax,
+                                                   m_state.scalarPlacement, m_state.computed.get());
+    m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale, volTex.scalar,
+                  volTex.occupancy, boxMin, boxMax);
 
     GLuint sliceTex[3] = {0, 0, 0};
+    GLuint sliceOcc[3] = {0, 0, 0};
+    VolumeTexture sliceTextures[3];
     for (int axis = 0; axis < 3; ++axis) {
         if (!m_state.slicePlaneEnabled[axis]) continue;
         const std::string& field = m_state.sliceScalarName[axis].empty()
             ? m_state.activeScalarName : m_state.sliceScalarName[axis];
-        sliceTex[axis] = m_volumeCache.textureForField(field, m_dataMesh.get(), boxMin, boxMax, m_state.scalarPlacement, m_state.computed.get());
+        sliceTextures[axis] = m_volumeCache.textureFor(field, m_dataMesh.get(), m_derivedVolume,
+                                                       boxMin, boxMax, m_state.scalarPlacement,
+                                                       m_state.computed.get());
+        sliceTex[axis] = sliceTextures[axis].scalar;
+        sliceOcc[axis] = sliceTextures[axis].occupancy;
     }
-    m_volumeSliceOverlay.draw(m_state, view, proj, colormap, sliceTex, boxMin, boxMax, m_dataMesh.get());
+    // Ranges come from the scatter for derived grids, so this must run after
+    // the textures are built.
+    if (m_state.anySlicePlaneEnabled()) updateSliceScalarRange(sliceTextures);
+    m_volumeSliceOverlay.draw(m_state, view, proj, colormap, sliceTex, sliceOcc, boxMin, boxMax, m_dataMesh.get());
 
     if (m_state.showGizmo) drawGizmo(deviceW, deviceH);
 

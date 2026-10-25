@@ -254,6 +254,12 @@ struct RenderMesh {
     std::vector<uint8_t>  cellTypes;
     bool hasUnstructuredTopology() const { return !cellOffsets.empty() && !cellConnectivity.empty(); }
 
+    // Number of 3D volume cells (tet/hex/wedge/pyramid). Zero for 2D and
+    // surface-only meshes, which also carry cell connectivity but cannot be
+    // volume rendered or contoured through cells.
+    std::size_t unstructuredVolumeCellCount = 0;
+    bool hasUnstructuredVolumeCells() const { return unstructuredVolumeCellCount > 0; }
+
     // Default constructor
     RenderMesh() = default;
 };

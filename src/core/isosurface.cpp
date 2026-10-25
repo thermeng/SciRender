@@ -1,12 +1,16 @@
 #include "core/isosurface.h"
 #include "core/mesh_loader.h"
+#include "core/cell_topology.h"
 #include "core/FieldStore.h"
+#include "core/unstructured_volume.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <unordered_map>
 #include <vector>
 
 namespace isosurface {
@@ -49,7 +53,10 @@ static int nodeIndexOf(int x, int y, int z, int dX, int dY, int /*dZ*/) {
 
 bool canExtract(const RenderMesh& volumeMesh, const std::string& field, int placement,
                 const postfields::ComputedSnapshot* snap) {
-    if (!volumeMesh.hasVolumeGrid() || volumeMesh.vertices.empty()) return false;
+    if (volumeMesh.vertices.empty()) return false;
+    // Structured grids use the IJK node layout; an unstructured mesh needs its
+    // volume cells (and a real 3D AABB) instead.
+    if (!volumeMesh.hasVolumeGrid() && !volume::eligible(volumeMesh)) return false;
     float mn, mx;
     auto p = placement == 1 ? FieldStore::Placement::CellCenter : FieldStore::Placement::Vertex;
     auto altP = placement == 1 ? FieldStore::Placement::Vertex : FieldStore::Placement::CellCenter;
@@ -215,6 +222,355 @@ static void triangulateFan(RenderMesh& out,
     }
 }
 
+
+namespace {
+
+// Shared tail for both extractors: weld coincident vertices, drop collapsed
+// triangles, derive smooth normals, compute bounds and name the surface.
+void finalizeSurface(RenderMesh& result, const std::string& inheritedScalarName,
+                     const std::string& field) {
+    if (result.vertices.empty()) return;
+
+    // Weld bitwise-identical vertices. Node-on-level degeneracy (a grid
+    // node whose value == iso) makes every incident crossed edge emit a
+    // vertex at the exact node position under distinct indices — identical
+    // coordinates that read as open edges. Exact matching is zero-risk
+    // (never merges legitimately distinct vertices); near-misses stay
+    // closed slivers topologically. Drops degenerate tris + compacts.
+    {
+        const size_t nv0 = result.vertices.size() / 3;
+        std::vector<uint32_t> remap(nv0);
+        {
+            struct Key { uint32_t x, y, z; uint32_t i; };
+            std::vector<Key> keys;
+            keys.reserve(nv0);
+            // Canonicalize -0.0 to +0.0: arithmetically identical positions
+            // must hash identically or the weld silently misses.
+            auto canon = [](uint32_t b) { return b == 0x80000000u ? 0u : b; };
+            for (uint32_t i = 0; i < nv0; ++i) {
+                uint32_t b[3];
+                std::memcpy(b, &result.vertices[i * 3], 12);
+                keys.push_back({canon(b[0]), canon(b[1]), canon(b[2]), i});
+            }
+            std::sort(keys.begin(), keys.end(), [](const Key& a, const Key& b) {
+                if (a.x != b.x) return a.x < b.x;
+                if (a.y != b.y) return a.y < b.y;
+                if (a.z != b.z) return a.z < b.z;
+                return a.i < b.i;
+            });
+            uint32_t rep = 0;
+            for (size_t k = 0; k < keys.size(); ++k) {
+                if (k > 0 && (keys[k].x != keys[k-1].x || keys[k].y != keys[k-1].y || keys[k].z != keys[k-1].z))
+                    ++rep;
+                remap[keys[k].i] = rep;
+            }
+            const uint32_t nUnique = keys.empty() ? 0 : rep + 1;
+            if (nUnique < nv0) {
+                std::vector<float> nv_(nUnique * 3), ns_(nUnique), nn_(nUnique * 3, 0.0f);
+                std::vector<char> seen(nUnique, 0);
+                for (uint32_t i = 0; i < nv0; ++i) {
+                    const uint32_t r = remap[i];
+                    if (!seen[r]) {
+                        seen[r] = 1;
+                        nv_[r*3] = result.vertices[i*3];
+                        nv_[r*3+1] = result.vertices[i*3+1];
+                        nv_[r*3+2] = result.vertices[i*3+2];
+                        ns_[r] = result.scalars[i];
+                    }
+                }
+                result.vertices.swap(nv_);
+                result.scalars.swap(ns_);
+                result.normals.assign(nUnique * 3, 0.0f);
+                std::vector<uint32_t> ni;
+                ni.reserve(result.indices.size());
+                for (size_t t = 0; t + 2 < result.indices.size(); t += 3) {
+                    const uint32_t a = remap[result.indices[t]];
+                    const uint32_t b = remap[result.indices[t+1]];
+                    const uint32_t c = remap[result.indices[t+2]];
+                    if (a == b || b == c || a == c) continue; // collapsed
+                    ni.push_back(a); ni.push_back(b); ni.push_back(c);
+                }
+                result.indices.swap(ni);
+            }
+        }
+    }
+
+    if (result.indices.empty()) { result.vertices.clear(); result.scalars.clear(); result.normals.clear(); return; }
+
+    {
+        const size_t nv = result.vertices.size() / 3;
+        const size_t nt = result.indices.size() / 3;
+        result.normals.assign(nv * 3, 0.0f);
+        for (size_t t = 0; t < nt; ++t) {
+            uint32_t i0 = result.indices[t*3], i1 = result.indices[t*3+1], i2 = result.indices[t*3+2];
+            float v0x = result.vertices[i0*3], v0y = result.vertices[i0*3+1], v0z = result.vertices[i0*3+2];
+            float v1x = result.vertices[i1*3], v1y = result.vertices[i1*3+1], v1z = result.vertices[i1*3+2];
+            float v2x = result.vertices[i2*3], v2y = result.vertices[i2*3+1], v2z = result.vertices[i2*3+2];
+            float e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
+            float e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
+            float nx = e1y*e2z - e1z*e2y, ny = e1z*e2x - e1x*e2z, nz = e1x*e2y - e1y*e2x;
+            float len = std::sqrt(nx*nx+ny*ny+nz*nz);
+            if (len < 1e-12f) continue;
+            nx/=len; ny/=len; nz/=len;
+            for (uint32_t idx : {i0,i1,i2}) { result.normals[idx*3]+=nx; result.normals[idx*3+1]+=ny; result.normals[idx*3+2]+=nz; }
+        }
+        for (size_t v = 0; v < nv; ++v) {
+            float nx = result.normals[v*3], ny = result.normals[v*3+1], nz = result.normals[v*3+2];
+            float len = std::sqrt(nx*nx+ny*ny+nz*nz);
+            if (len > 1e-12f) { result.normals[v*3]=nx/len; result.normals[v*3+1]=ny/len; result.normals[v*3+2]=nz/len; }
+            else { result.normals[v*3]=0; result.normals[v*3+1]=0; result.normals[v*3+2]=1; }
+        }
+        result.vertexSourceIndex.clear();
+        result.vertexSourceIndex.reserve(nv);
+        for (size_t i=0;i<nv;++i) result.vertexSourceIndex.push_back(static_cast<int>(i));
+    }
+    mesh_utils::computeBounds(result);
+
+    // Explicit field wins; otherwise inherit the source mesh's name (which
+    // the dual-grid path already set to the contoured cell field).
+    result.scalarName = field.empty() ? inheritedScalarName : field;
+    result.availableScalarNames = result.scalarName.empty()
+        ? std::vector<std::string>{}
+        : std::vector<std::string>{result.scalarName};
+    // Trim over-reserved capacity after extraction
+    result.vertices.shrink_to_fit();
+    result.indices.shrink_to_fit();
+    result.normals.shrink_to_fit();
+    result.scalars.shrink_to_fit();
+}
+
+// ---------------------------------------------------------------------------
+// Marching tetrahedra over an unstructured mesh's volume cells.
+//
+// Every cell is decomposed by cell_topology::tets(). Faces are triangulated
+// from the smallest *global* vertex id, so two incident cells split their
+// shared face identically. Together with welding crossing vertices by the
+// global id pair of their edge, that keeps the surface watertight across cell
+// boundaries. Centroid edges get a virtual id per cell, so they weld within a
+// cell (as they must) but never across cells.
+// ---------------------------------------------------------------------------
+RenderMesh extractUnstructured(const RenderMesh& volumeMesh,
+                               const std::vector<float>& isovalues,
+                               const std::string& field,
+                               int placement,
+                               const postfields::ComputedSnapshot* snap) {
+    RenderMesh result;
+    if (isovalues.empty()) return result;
+
+    const std::size_t nCells = volumeMesh.cellOffsets.size();
+    const std::size_t nVerts = volumeMesh.vertices.size() / 3;
+    if (nCells == 0 || nVerts == 0) return result;
+    const std::size_t virtualBase = volumeMesh.sourcePointCount > 0
+        ? static_cast<std::size_t>(volumeMesh.sourcePointCount)
+        : nVerts;
+
+    // Resolve the field into per-vertex values. Cell-centred data has no
+    // crossing inside a cell (it is constant there), so it is averaged to the
+    // nodes first -- the same approximation as the structured dual grid, made
+    // explicit here.
+    std::vector<float> pointValues;
+    std::vector<float> scratch;
+    const std::vector<float>* values = nullptr;
+    float mn = 0.0f, mx = 1.0f;
+
+    if (placement == 1) {
+        const std::string effField = field.empty()
+            ? FieldStore::resolveActiveScalar(volumeMesh, "", FieldStore::Placement::CellCenter, snap)
+            : field;
+        const std::vector<float>* cells = nullptr;
+        if (!effField.empty() && volumeMesh.attributes) {
+            auto it = volumeMesh.attributes->cellScalars.find(effField);
+            if (it != volumeMesh.attributes->cellScalars.end() && it->second.size() >= nCells) {
+                cells = &it->second;
+                auto rit = volumeMesh.attributes->cellScalarRanges.find(effField);
+                if (rit != volumeMesh.attributes->cellScalarRanges.end()) {
+                    mn = rit->second.first;
+                    mx = rit->second.second;
+                }
+            }
+        }
+        if (cells) {
+            pointValues = mesh_utils::extrapolateCellToPoints<float>(
+                volumeMesh, *cells, nCells, virtualBase);
+            values = &pointValues;
+        } else {
+            // No exact per-cell storage: fall back to the point copy.
+            placement = 0;
+        }
+    }
+
+    if (placement != 1) {
+        const std::vector<float>* cand =
+            FieldStore::scalarData(volumeMesh, field, mn, mx, FieldStore::Placement::Vertex, snap);
+        if ((!cand || cand->empty()) && !volumeMesh.scalars.empty()) cand = &volumeMesh.scalars;
+        if (!cand) return result;
+        if (!volume::sourcePointValues(volumeMesh, *cand, scratch, values) || !values) return result;
+    }
+    if (!values || values->size() < virtualBase) return result;
+
+    const float* verts = volumeMesh.vertices.data();
+
+    static const int kTetEdges[6][2] = {
+        {0, 1}, {1, 2}, {2, 0}, {0, 3}, {1, 3}, {2, 3},
+    };
+
+    // Edge -> extracted-vertex cache. The key is the unordered global id pair,
+    // so both incident cells hit the same entry.
+    std::unordered_map<uint64_t, uint32_t> vertexCache;
+
+    std::vector<std::array<std::uint32_t, 4>> tets;
+    std::array<std::uint32_t, 8> gid{};
+    std::array<float, 9> cval{};
+
+    for (float iso : isovalues) {
+        vertexCache.clear();
+
+        for (std::size_t c = 0; c < nCells; ++c) {
+            const std::uint8_t type = volumeMesh.cellTypes[c];
+            if (!cell_topology::isVolumeCell(type)) continue;
+
+            const std::uint32_t begin = (c == 0) ? 0u : volumeMesh.cellOffsets[c - 1];
+            const std::uint32_t end = volumeMesh.cellOffsets[c];
+            const int corners = cell_topology::cornerCount(type);
+            if (end <= begin) continue;
+            if (static_cast<std::size_t>(end - begin) < static_cast<std::size_t>(corners)) continue;
+
+            std::array<double, 3> centroid{0.0, 0.0, 0.0};
+            double cornerValueSum = 0.0;
+            bool ok = true;
+            for (int k = 0; k < corners; ++k) {
+                const std::uint32_t id =
+                    volumeMesh.cellConnectivity[begin + static_cast<std::size_t>(k)];
+                if (id >= virtualBase || id >= nVerts) { ok = false; break; }
+                gid[static_cast<std::size_t>(k)] = id;
+                cval[static_cast<std::size_t>(k)] = (*values)[id];
+                centroid[0] += verts[id * 3];
+                centroid[1] += verts[id * 3 + 1];
+                centroid[2] += verts[id * 3 + 2];
+                cornerValueSum += static_cast<double>((*values)[id]);
+            }
+            if (!ok) continue;
+            for (double& v : centroid) v /= static_cast<double>(corners);
+            cval[static_cast<std::size_t>(corners)] =
+                static_cast<float>(cornerValueSum / static_cast<double>(corners));
+
+            tets.clear();
+            cell_topology::tets(type,
+                std::span<const std::uint32_t>(
+                    volumeMesh.cellConnectivity.data() + begin,
+                    static_cast<std::size_t>(corners)),
+                tets);
+            if (tets.empty()) continue;
+
+            for (const auto& tet : tets) {
+                // Reconstruct the tet's four corners in global space. Slots
+                // point into the cell corner array; the centroid slot maps to
+                // a per-cell virtual id so it welds inside the cell only.
+                std::uint32_t tGid[4];
+                float tVal[4];
+                std::array<double, 3> tPos[4];
+                for (int j = 0; j < 4; ++j) {
+                    const std::uint32_t slot = tet[static_cast<std::size_t>(j)];
+                    if (slot < static_cast<std::uint32_t>(corners)) {
+                        tGid[j] = gid[slot];
+                        tVal[j] = cval[slot];
+                        tPos[j] = {verts[tGid[j] * 3], verts[tGid[j] * 3 + 1],
+                                   verts[tGid[j] * 3 + 2]};
+                    } else {
+                        tGid[j] = static_cast<std::uint32_t>(virtualBase + c);
+                        tVal[j] = cval[static_cast<std::size_t>(corners)];
+                        tPos[j] = centroid;
+                    }
+                }
+
+                bool inside[4];
+                int insideCount = 0;
+                for (int j = 0; j < 4; ++j) {
+                    inside[j] = (tVal[j] >= iso);
+                    if (inside[j]) ++insideCount;
+                }
+                if (insideCount == 0 || insideCount == 4) continue;
+
+                // Direction from the sub-iso region to the supra-iso region:
+                // always points along increasing scalar, so the emitted
+                // winding (and therefore the smooth normal) faces outward.
+                double gx = 0.0, gy = 0.0, gz = 0.0;
+                for (int j = 0; j < 4; ++j) {
+                    const double s = inside[j] ? 1.0 : -1.0;
+                    gx += s * tPos[j][0];
+                    gy += s * tPos[j][1];
+                    gz += s * tPos[j][2];
+                }
+                float gradN[3] = {static_cast<float>(gx), static_cast<float>(gy),
+                                  static_cast<float>(gz)};
+
+                uint32_t crossVerts[4];
+                int nCross = 0;
+                for (int e = 0; e < 6; ++e) {
+                    const int a = kTetEdges[e][0];
+                    const int b = kTetEdges[e][1];
+                    if (inside[a] == inside[b]) continue;
+
+                    std::uint32_t lo = tGid[a], hi = tGid[b];
+                    float vLo = tVal[a], vHi = tVal[b];
+                    std::array<double, 3> pLo = tPos[a], pHi = tPos[b];
+                    if (lo > hi) {
+                        std::swap(lo, hi);
+                        std::swap(vLo, vHi);
+                        std::swap(pLo, pHi);
+                    }
+                    const uint64_t key = (static_cast<uint64_t>(lo) << 32) | hi;
+
+                    auto it = vertexCache.find(key);
+                    if (it != vertexCache.end()) {
+                        crossVerts[nCross++] = it->second;
+                        continue;
+                    }
+
+                    float t = 0.5f;
+                    const float denom = vHi - vLo;
+                    if (std::fabs(denom) > 1e-12f) {
+                        t = (iso - vLo) / denom;
+                        t = std::clamp(t, 0.0f, 1.0f);
+                    }
+                    const size_t base = result.vertices.size();
+                    if (t <= 0.0f) {
+                        result.vertices.push_back(static_cast<float>(pLo[0]));
+                        result.vertices.push_back(static_cast<float>(pLo[1]));
+                        result.vertices.push_back(static_cast<float>(pLo[2]));
+                    } else if (t >= 1.0f) {
+                        result.vertices.push_back(static_cast<float>(pHi[0]));
+                        result.vertices.push_back(static_cast<float>(pHi[1]));
+                        result.vertices.push_back(static_cast<float>(pHi[2]));
+                    } else {
+                        result.vertices.push_back(static_cast<float>(pLo[0] + t * (pHi[0] - pLo[0])));
+                        result.vertices.push_back(static_cast<float>(pLo[1] + t * (pHi[1] - pLo[1])));
+                        result.vertices.push_back(static_cast<float>(pLo[2] + t * (pHi[2] - pLo[2])));
+                    }
+                    result.scalars.push_back(iso);
+                    result.normals.push_back(0.0f);
+                    result.normals.push_back(0.0f);
+                    result.normals.push_back(0.0f);
+                    const uint32_t vi = static_cast<uint32_t>(base / 3);
+                    vertexCache.emplace(key, vi);
+                    crossVerts[nCross++] = vi;
+                }
+                if (nCross < 3) continue;
+
+                // The intersection of a plane with a tetrahedron is a convex
+                // polygon (3 or 4 vertices), so the shared fan triangulator
+                // orders it exactly.
+                triangulateFan(result, crossVerts, nCross, gradN);
+            }
+        }
+    }
+
+    finalizeSurface(result, volumeMesh.scalarName, field);
+    return result;
+}
+
+} // namespace
+
 RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                              const std::vector<float>& isovalues,
                              const std::string& field,
@@ -222,6 +578,12 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                              const postfields::ComputedSnapshot* snap) {
     RenderMesh result;
     if (isovalues.empty() || !canExtract(volumeMesh, field, placement, snap)) return result;
+
+    // Unstructured meshes have no IJK node layout: contour their volume cells
+    // directly with marching tetrahedra.
+    if (!volumeMesh.hasVolumeGrid()) {
+        return extractUnstructured(volumeMesh, isovalues, field, placement, snap);
+    }
 
     // For Cell Center placement on a structured grid, contour the cell-
     // centered scalar field at cell centers (dual grid). Placement-aware
@@ -582,115 +944,7 @@ RenderMesh extractIsosurface(const RenderMesh& volumeMesh,
                 }
     }
 
-    if (result.vertices.empty()) return result;
-
-    // Weld bitwise-identical vertices. Node-on-level degeneracy (a grid
-    // node whose value == iso) makes every incident crossed edge emit a
-    // vertex at the exact node position under distinct indices — identical
-    // coordinates that read as open edges. Exact matching is zero-risk
-    // (never merges legitimately distinct vertices); near-misses stay
-    // closed slivers topologically. Drops degenerate tris + compacts.
-    {
-        const size_t nv0 = result.vertices.size() / 3;
-        std::vector<uint32_t> remap(nv0);
-        {
-            struct Key { uint32_t x, y, z; uint32_t i; };
-            std::vector<Key> keys;
-            keys.reserve(nv0);
-            // Canonicalize -0.0 to +0.0: arithmetically identical positions
-            // must hash identically or the weld silently misses.
-            auto canon = [](uint32_t b) { return b == 0x80000000u ? 0u : b; };
-            for (uint32_t i = 0; i < nv0; ++i) {
-                uint32_t b[3];
-                std::memcpy(b, &result.vertices[i * 3], 12);
-                keys.push_back({canon(b[0]), canon(b[1]), canon(b[2]), i});
-            }
-            std::sort(keys.begin(), keys.end(), [](const Key& a, const Key& b) {
-                if (a.x != b.x) return a.x < b.x;
-                if (a.y != b.y) return a.y < b.y;
-                if (a.z != b.z) return a.z < b.z;
-                return a.i < b.i;
-            });
-            uint32_t rep = 0;
-            for (size_t k = 0; k < keys.size(); ++k) {
-                if (k > 0 && (keys[k].x != keys[k-1].x || keys[k].y != keys[k-1].y || keys[k].z != keys[k-1].z))
-                    ++rep;
-                remap[keys[k].i] = rep;
-            }
-            const uint32_t nUnique = keys.empty() ? 0 : rep + 1;
-            if (nUnique < nv0) {
-                std::vector<float> nv_(nUnique * 3), ns_(nUnique), nn_(nUnique * 3, 0.0f);
-                std::vector<char> seen(nUnique, 0);
-                for (uint32_t i = 0; i < nv0; ++i) {
-                    const uint32_t r = remap[i];
-                    if (!seen[r]) {
-                        seen[r] = 1;
-                        nv_[r*3] = result.vertices[i*3];
-                        nv_[r*3+1] = result.vertices[i*3+1];
-                        nv_[r*3+2] = result.vertices[i*3+2];
-                        ns_[r] = result.scalars[i];
-                    }
-                }
-                result.vertices.swap(nv_);
-                result.scalars.swap(ns_);
-                result.normals.assign(nUnique * 3, 0.0f);
-                std::vector<uint32_t> ni;
-                ni.reserve(result.indices.size());
-                for (size_t t = 0; t + 2 < result.indices.size(); t += 3) {
-                    const uint32_t a = remap[result.indices[t]];
-                    const uint32_t b = remap[result.indices[t+1]];
-                    const uint32_t c = remap[result.indices[t+2]];
-                    if (a == b || b == c || a == c) continue; // collapsed
-                    ni.push_back(a); ni.push_back(b); ni.push_back(c);
-                }
-                result.indices.swap(ni);
-            }
-        }
-    }
-
-    if (result.indices.empty()) { result.vertices.clear(); result.scalars.clear(); result.normals.clear(); return result; }
-
-    {
-        const size_t nv = result.vertices.size() / 3;
-        const size_t nt = result.indices.size() / 3;
-        result.normals.assign(nv * 3, 0.0f);
-        for (size_t t = 0; t < nt; ++t) {
-            uint32_t i0 = result.indices[t*3], i1 = result.indices[t*3+1], i2 = result.indices[t*3+2];
-            float v0x = result.vertices[i0*3], v0y = result.vertices[i0*3+1], v0z = result.vertices[i0*3+2];
-            float v1x = result.vertices[i1*3], v1y = result.vertices[i1*3+1], v1z = result.vertices[i1*3+2];
-            float v2x = result.vertices[i2*3], v2y = result.vertices[i2*3+1], v2z = result.vertices[i2*3+2];
-            float e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
-            float e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
-            float nx = e1y*e2z - e1z*e2y, ny = e1z*e2x - e1x*e2z, nz = e1x*e2y - e1y*e2x;
-            float len = std::sqrt(nx*nx+ny*ny+nz*nz);
-            if (len < 1e-12f) continue;
-            nx/=len; ny/=len; nz/=len;
-            for (uint32_t idx : {i0,i1,i2}) { result.normals[idx*3]+=nx; result.normals[idx*3+1]+=ny; result.normals[idx*3+2]+=nz; }
-        }
-        for (size_t v = 0; v < nv; ++v) {
-            float nx = result.normals[v*3], ny = result.normals[v*3+1], nz = result.normals[v*3+2];
-            float len = std::sqrt(nx*nx+ny*ny+nz*nz);
-            if (len > 1e-12f) { result.normals[v*3]=nx/len; result.normals[v*3+1]=ny/len; result.normals[v*3+2]=nz/len; }
-            else { result.normals[v*3]=0; result.normals[v*3+1]=0; result.normals[v*3+2]=1; }
-        }
-        result.vertexSourceIndex.clear();
-        result.vertexSourceIndex.reserve(nv);
-        for (size_t i=0;i<nv;++i) result.vertexSourceIndex.push_back(static_cast<int>(i));
-    }
-    mesh_utils::computeBounds(result);
-
-    // Explicit field wins; otherwise inherit the source mesh's name (which
-    // the dual-grid path already set to the contoured cell field).
-    const std::string& outName = srcMesh->scalarName.empty() ? volumeMesh.scalarName : srcMesh->scalarName;
-    result.scalarName = field.empty() ? outName : field;
-    result.availableScalarNames = result.scalarName.empty()
-        ? std::vector<std::string>{}
-        : std::vector<std::string>{result.scalarName};
-    // Trim over-reserved capacity after extraction
-    result.vertices.shrink_to_fit();
-    result.indices.shrink_to_fit();
-    result.normals.shrink_to_fit();
-    result.scalars.shrink_to_fit();
+    finalizeSurface(result, srcMesh->scalarName.empty() ? volumeMesh.scalarName : srcMesh->scalarName, field);
     return result;
 }
 

@@ -24,6 +24,8 @@ void VolumePass::init(const ShaderSources& sources) {
         locBaseStepSize_    = glGetUniformLocation(program_, "uBaseStepSize");
         locPixelFootprintScale_ = glGetUniformLocation(program_, "uPixelFootprintScale");
         locVolumeTex_       = glGetUniformLocation(program_, "uVolumeTex");
+        locOccupancyTex_    = glGetUniformLocation(program_, "uOccupancyTex");
+        locHasOccupancy_    = glGetUniformLocation(program_, "uHasOccupancy");
         locBoxMin_          = glGetUniformLocation(program_, "uBoxMin");
         locBoxMax_          = glGetUniformLocation(program_, "uBoxMax");
         locLut_             = glGetUniformLocation(program_, "uColormapLUT");
@@ -50,7 +52,8 @@ void VolumePass::init(const ShaderSources& sources) {
 
 void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
                       const ColormapManager& colormap, float pixelFootprintScale,
-                      GLuint volumeTex, const glm::vec3& boxMin, const glm::vec3& boxMax) {
+                      GLuint volumeTex, GLuint occupancyTex, const glm::vec3& boxMin,
+                      const glm::vec3& boxMax) {
     if (!state.showVolume || !volumeTex || !program_.has()) return;
 
     boxMin_ = boxMin;
@@ -78,6 +81,16 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_3D, volumeTex);
     glUniform1i(locVolumeTex_, 0);
+
+    // Occupancy mask (unstructured meshes only). Unit 3 keeps 0..2 untouched.
+    if (occupancyTex) {
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_3D, occupancyTex);
+        if (locOccupancyTex_ != -1) glUniform1i(locOccupancyTex_, 3);
+        if (locHasOccupancy_ != -1) glUniform1i(locHasOccupancy_, 1);
+    } else if (locHasOccupancy_ != -1) {
+        glUniform1i(locHasOccupancy_, 0);
+    }
 
     glm::vec3 boxExtent = boxMax_ - boxMin_;
     glm::vec3 safeExtent = glm::vec3(
@@ -166,6 +179,7 @@ void VolumePass::shutdown() {
     lastBaked_.clear();
     vaoInitialized_ = false;
     locInvView_ = locInvProj_ = locCamPos_ = locOrtho_ = locVolumeTex_ = -1;
+    locOccupancyTex_ = locHasOccupancy_ = -1;
     locBoxMin_ = locBoxMax_ = locLut_ = locOpacity_ = -1;
     locScalarMin_ = locScalarMax_ = locClipEnabled_ = locSliceHeightX_ = -1;
     locSliceHeightY_ = locSliceHeightZ_ = locSliceEn_ = locInvert_ = locVolumeUseColormap_ = -1;

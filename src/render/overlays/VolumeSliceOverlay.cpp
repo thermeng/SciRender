@@ -12,6 +12,8 @@ void VolumeSliceOverlay::init(const ShaderSources& sources) {
     if (m_program.has()) {
         m_mvpLoc         = glGetUniformLocation(m_program, "uMVP");
         m_volumeTexLoc   = glGetUniformLocation(m_program, "uVolumeTex");
+        m_occupancyTexLoc = glGetUniformLocation(m_program, "uOccupancyTex");
+        m_hasOccupancyLoc = glGetUniformLocation(m_program, "uHasOccupancy");
         m_boxMinLoc      = glGetUniformLocation(m_program, "uBoxMin");
         m_boxMaxLoc      = glGetUniformLocation(m_program, "uBoxMax");
         m_lutLoc         = glGetUniformLocation(m_program, "uColormapLUT");
@@ -65,6 +67,7 @@ void VolumeSliceOverlay::buildQuad(float worldPos, int axis, const glm::vec3& bo
 
 void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
                               const ColormapManager& colormap, GLuint sliceTex[3],
+                              GLuint sliceOccupancy[3],
                               const glm::vec3& boxMin, const glm::vec3& boxMax,
                               const RenderMesh* mesh) {
     if (!state.anySlicePlaneEnabled() || !m_program.has()) return;
@@ -108,6 +111,14 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_3D, sliceTex[axis]);
         glUniform1i(m_volumeTexLoc, 0);
+        if (sliceOccupancy && sliceOccupancy[axis]) {
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_3D, sliceOccupancy[axis]);
+            if (m_occupancyTexLoc != -1) glUniform1i(m_occupancyTexLoc, 3);
+            if (m_hasOccupancyLoc != -1) glUniform1i(m_hasOccupancyLoc, 1);
+        } else if (m_hasOccupancyLoc != -1) {
+            glUniform1i(m_hasOccupancyLoc, 0);
+        }
         glBindVertexArray(m_vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glDrawArrays(GL_LINE_LOOP, 4, 4);

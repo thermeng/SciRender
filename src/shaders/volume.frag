@@ -3,6 +3,8 @@
 in vec2 vNdc;
 
 uniform sampler3D uVolumeTex;
+uniform sampler3D uOccupancyTex;
+uniform int uHasOccupancy = 0;   // 1 = mask the march to the real cells
 uniform sampler1D uColormapLUT;
 uniform sampler1D uTransferFunc;
 uniform int uTFEnabled = 0;
@@ -98,6 +100,7 @@ void main() {
 
     float t = 0.0;
     int steps = 0;
+    float emptyRun = 0.0;
     for (int i = 0; i < MAX_STEPS; ++i) {
         if (accumA > 0.9) break;
         if (t >= safeRayLength) break;
@@ -115,6 +118,19 @@ void main() {
         }
 
         vec3 uvw = clamp((pos - uBoxMin) / uSafeExtent, 0.0, 1.0);
+
+        // Unstructured meshes: the voxel grid spans the mesh AABB, so most of
+        // the box is empty. Skip those samples instead of integrating fog in
+        // front of the geometry, and spend the step budget inside the cells.
+        if (uHasOccupancy == 1) {
+            if (texture(uOccupancyTex, uvw).r < 0.5) {
+                emptyRun += 1.0;
+                t += max(minStep, uBaseStepSize) * (emptyRun > 4.0 ? 4.0 : 1.0);
+                continue;
+            }
+            emptyRun = 0.0;
+        }
+
         float val = texture(uVolumeTex, uvw).r;
 
         float tVal = clamp((val - uScalarMin) / scalarRange, 0.0, 1.0);
@@ -126,10 +142,18 @@ void main() {
         // 4 texture fetches per step instead of 7 (central differences plus a
         // separate center fetch). The magnitude feeds only the adaptive
         // step-size heuristic, so the accuracy change is imperceptible.
+        // With a mask, empty neighbours read as 0 and would fake a gradient, so
+        // their contribution is zeroed too.
         vec3 g;
-        g.x = texture(uVolumeTex, uvw + vec3(gradEps.x, 0.0, 0.0)).r - val;
-        g.y = texture(uVolumeTex, uvw + vec3(0.0, gradEps.y, 0.0)).r - val;
-        g.z = texture(uVolumeTex, uvw + vec3(0.0, 0.0, gradEps.z)).r - val;
+        vec3 gxUvw = uvw + vec3(gradEps.x, 0.0, 0.0);
+        vec3 gyUvw = uvw + vec3(0.0, gradEps.y, 0.0);
+        vec3 gzUvw = uvw + vec3(0.0, 0.0, gradEps.z);
+        bool gxEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gxUvw).r < 0.5);
+        bool gyEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gyUvw).r < 0.5);
+        bool gzEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gzUvw).r < 0.5);
+        g.x = gxEmpty ? 0.0 : texture(uVolumeTex, gxUvw).r - val;
+        g.y = gyEmpty ? 0.0 : texture(uVolumeTex, gyUvw).r - val;
+        g.z = gzEmpty ? 0.0 : texture(uVolumeTex, gzUvw).r - val;
         float gradMag = length(g);
         float featureScale = 1.0 / (gradMag * 10.0 + 1.0);
         float currentDist = length(pos - uCamPos);

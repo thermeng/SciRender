@@ -1,4 +1,7 @@
 #include "io/ANSYSMeshReader.h"
+
+#include "core/cell_topology.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -384,7 +387,8 @@ template<std::size_t Dim>
 std::vector<std::vector<std::size_t>>
 ANSYSMeshReader<Dim>::reconstructCells(
     const std::vector<FaceRecord>& faces,
-    std::size_t cellCount) {
+    std::size_t cellCount,
+    const std::vector<std::array<double, Dim>>& points) {
 
     std::vector<std::vector<std::size_t>> cellToFaces(cellCount);
 
@@ -410,11 +414,11 @@ ANSYSMeshReader<Dim>::reconstructCells(
 
         if constexpr (Dim == 3) {
             // In 3D a cell face is a polygon, not an edge, so the edge walk
-            // below cannot reconstruct a vertex loop. The cell vertices are
-            // simply the union of the vertices of its faces; the ORDER does not
-            // matter because the cell geometry is derived from the explicit
-            // face topology (see reconstructCellFaces) and the vertex list is
-            // only used as a set.
+            // below cannot reconstruct a vertex loop. The vertices are the
+            // union of the cell's face vertices; that order is arbitrary, so
+            // canonicalize it into the VTK corner order here. Everything
+            // downstream (VTU export, isosurface tets, volume voxelization)
+            // then sees a well-defined element layout.
             std::vector<std::size_t> verts;
             std::unordered_map<std::size_t, char> seen;
             for (std::size_t fi : cf) {
@@ -422,6 +426,12 @@ ANSYSMeshReader<Dim>::reconstructCells(
                     if (seen.emplace(v, 1).second) verts.push_back(v);
                 }
             }
+
+            std::vector<std::vector<std::size_t>> loops;
+            loops.reserve(cf.size());
+            for (std::size_t fi : cf) loops.push_back(faces[fi].vertices);
+            cell_topology::canonicalize(verts, loops, points);
+
             cells[c] = std::move(verts);
             continue;
         }
@@ -656,7 +666,7 @@ ANSYSMeshReader<Dim>::read(const std::string& filename) {
         throw std::runtime_error("ANSYSMeshReader: no cells found in '" + filename + "'");
     }
 
-    auto cellVerts = reconstructCells(state.faces, state.totalCells);
+    auto cellVerts = reconstructCells(state.faces, state.totalCells, state.vertices);
     auto cellFaces = reconstructCellFaces(state.faces, state.totalCells);
 
     // The explicit face topology keeps the element node order irrelevant: the

@@ -32,6 +32,7 @@
 #include <cstddef>
 
 #include "core/mesh_loader.h"
+#include "core/unstructured_volume.h"
 #include "render/overlays/gizmo.h"
 #include "render/overlays/light_markers.h"
 #include "render/overlays/colorbar_overlay.h"
@@ -532,6 +533,12 @@ public:
 
     void setPendingIsosurface(std::shared_ptr<const RenderMesh> isoMesh);
 
+    // Derived voxel grid for volume rendering / axis-aligned slices of an
+    // unstructured mesh. The GUI thread builds it asynchronously (topology-only)
+    // and hands the immutable result over; the render thread consumes it at the
+    // start of the next frame and drops the cached volume textures.
+    void setPendingDerivedVolume(std::shared_ptr<const volume::DerivedGrid> grid);
+
     void consumePendingMesh();
 
     void markCameraMoving();
@@ -604,7 +611,13 @@ public:
         std::lock_guard<std::mutex> lock(meshQueueMutex);
         return m_pendingVolumeMesh;
     }
-    bool hasVolumeData() const { return m_dataMesh && m_dataMesh->hasVolumeData(); }
+    bool hasVolumeData() const {
+        if (!m_dataMesh) return false;
+        if (m_dataMesh->hasVolumeData()) return true;
+        // Unstructured 3D CFD mesh: no IJK grid, but volume/slice can be derived
+        // from the cells as soon as a scalar exists.
+        return volume::eligible(*m_dataMesh) && m_dataMesh->hasScalarData();
+    }
     void uploadVolumeFromScalarDirty(const RenderRenderState& state,
         std::shared_ptr<const std::vector<float>> scalars,
         std::shared_ptr<const RenderMesh> mesh);
@@ -670,7 +683,7 @@ private:
     void drawColorbarLegends(int deviceW, int deviceH);
     static std::string vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
-    void updateSliceScalarRange();
+    void updateSliceScalarRange(const VolumeTexture* sliceTextures);
 
     void ensureLicNoiseTexture(int grain);
     void shutdownLic();
@@ -736,6 +749,11 @@ private:
     std::shared_ptr<const RenderMesh> m_pendingIsosurface;
     std::shared_ptr<const RenderMesh> m_lastIsosurfaceMesh;
     std::atomic<bool> isosurfaceDirty{false};
+
+    // Derived volume grid (unstructured meshes) + the pending handoff slot.
+    std::shared_ptr<const volume::DerivedGrid> m_derivedVolume;
+    std::shared_ptr<const volume::DerivedGrid> m_pendingDerivedVolume;
+    std::atomic<bool> derivedVolumeDirty{false};
 
     mutable std::mutex meshQueueMutex;
     std::shared_ptr<const std::vector<float>> m_pendingScalarSrc;

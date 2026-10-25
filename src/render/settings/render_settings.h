@@ -23,6 +23,7 @@
 #include "core/camera_math.h"
 #include "core/isosurface.h"
 #include "render/settings/isosurface_controller.h"
+#include "render/settings/derived_volume_controller.h"
 #include "render/settings/animation_controller.h"
 #include "render/settings/StateStore.h"
 #include "core/FieldStore.h"
@@ -934,10 +935,18 @@ public:
     bool hasMeshScalars() const { return m_state.meshHasScalars; }
     bool hasMeshVectors() const { return m_state.meshHasVectors; }
     bool hasMeshCellVectors() const { return m_state.meshHasCellVectors; }
+    // True when the loaded mesh carries 3D cells (tet/hex/wedge/pyramid).
+    // Volume/slice/isosurface support them even without an IJK grid.
+    bool hasUnstructuredVolumeCells() const {
+        return m_meshData.loadedMesh && m_meshData.loadedMesh->hasUnstructuredVolumeCells();
+    }
     bool hasVolumeData() const {
         if (!m_meshData.loadedMesh) return false;
-        if (!m_meshData.loadedMesh->hasVolumeGrid()) return false;
-        return FieldStore::hasAnyScalar(*m_meshData.loadedMesh, m_state.computed.get());
+        const RenderMesh& mesh = *m_meshData.loadedMesh;
+        // Structured grids use the IJK volume; unstructured 3D meshes derive a
+        // voxel grid from their cells.
+        if (!mesh.hasVolumeGrid() && !volume::eligible(mesh)) return false;
+        return FieldStore::hasAnyScalar(mesh, m_state.computed.get());
     }
     bool hasIsosurfaceCellScalars() const {
         if (!m_meshData.loadedMesh || !m_meshData.loadedMesh->attributes) return false;
@@ -1212,6 +1221,7 @@ private:
     // zero-copy shared_ptr handoff to the Renderer. RenderSettings delegates
     // the 3 isosurface Q_PROPERTYs to it via thin forwarders.
     IsosurfaceController m_isoController;
+    DerivedVolumeController m_derivedVolumeController;
 
     // ---- PVD animation ----
     AnimationController m_animController;

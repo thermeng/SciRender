@@ -59,6 +59,8 @@ scirender_add_test_suite(scirender_core_tests
     SOURCES
         core/parse_test.cpp
         core/isosurface_test.cpp
+        core/cell_topology_test.cpp
+        core/unstructured_volume_test.cpp
         core/pvd_test.cpp
         core/field_names_test.cpp
         core/anim_range_test.cpp
@@ -115,6 +117,7 @@ if(SCIRENDER_BUILD_APP)
         SOURCES
             ui/scfd_roundtrip_test.cpp
             ui/cfd_3d_mesh_test.cpp
+            ui/unstructured_render_test.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.h
         LIBRARIES

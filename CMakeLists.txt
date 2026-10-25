@@ -98,6 +98,8 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/core/post_fields.cpp
         src/core/gradient_estimator.cpp
         src/core/isosurface.cpp
+        src/core/cell_topology.cpp
+        src/core/unstructured_volume.cpp
         src/core/mesh_utils.cpp
         src/core/vtk_parser.cpp
         src/core/vtk_common.cpp
@@ -141,7 +143,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/json"
     )
     target_compile_features(FvmCore PUBLIC cxx_std_20)
-    target_link_libraries(FvmCore PUBLIC OpenMP::OpenMP_CXX)
+    target_link_libraries(FvmCore PUBLIC CoreLib OpenMP::OpenMP_CXX)
     target_compile_definitions(FvmCore PUBLIC
         EIGEN_PARALLELIZE_OPENMP
         FVM_ALIGNMENT=64
@@ -215,6 +217,7 @@ if(SCIRENDER_BUILD_APP)
         src/render/settings/render_settings.cpp
         src/render/settings/render_settings_apply.cpp
         src/render/settings/isosurface_controller.cpp
+        src/render/settings/derived_volume_controller.cpp
         src/render/settings/animation_controller.cpp
         src/render/settings/AnimationExporter.cpp
         src/render/foundation/LightingModel.cpp

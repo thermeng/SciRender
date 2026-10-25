@@ -11,9 +11,12 @@ class ColormapManager;
 class VolumePass {
 public:
     void init(const ShaderSources& sources);
+    // occupancyTex is optional (0 for structured grids): when non-zero the ray
+    // march skips samples outside the mesh instead of fogging the bounding box.
     void draw(const RenderRenderState& state, const glm::mat4& view, const glm::mat4& proj,
               const ColormapManager& colormap, float pixelFootprintScale,
-              GLuint volumeTex, const glm::vec3& boxMin, const glm::vec3& boxMax);
+              GLuint volumeTex, GLuint occupancyTex, const glm::vec3& boxMin,
+              const glm::vec3& boxMax);
     void shutdown();
     void clearVolume();
     const glm::vec3& boxMin() const { return boxMin_; }
@@ -28,6 +31,8 @@ private:
     GLint locCamPos_ = -1;
     GLint locOrtho_ = -1;
     GLint locVolumeTex_ = -1;
+    GLint locOccupancyTex_ = -1;
+    GLint locHasOccupancy_ = -1;
     GLint locBoxMin_ = -1;
     GLint locBoxMax_ = -1;
     GLint locLut_ = -1;

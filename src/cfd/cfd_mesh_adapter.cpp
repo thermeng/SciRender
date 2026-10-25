@@ -3,6 +3,7 @@
 #include "io/ANSYSMeshReader.h"
 #include "io/GmshReader.h"
 #include "mesh/Mesh.h"
+#include "core/cell_topology.h"
 #include "core/mesh_loader.h"
 
 #include <algorithm>
@@ -40,26 +41,21 @@ uint64_t edgeKey(std::uint32_t a, std::uint32_t b) {
     return (static_cast<uint64_t>(a) << 32) | static_cast<uint64_t>(b);
 }
 
-// VTK cell type from the reconstructed face topology. ANSYS writes arbitrary
-// element/node order, so the vertex count alone is not enough (a prism and a
-// pyramid both have 5+ vertices); the face count and face sizes are.
-int cellType3D(const fvm::Mesh<3>& m, std::size_t cell) {
-    const auto& faces = m.cellFaces(cell);
-    int tris = 0;
-    int quads = 0;
-    int other = 0;
-    for (std::size_t f : faces) {
-        const std::size_t n = m.faceVertices(f).size();
-        if (n == 3) ++tris;
-        else if (n == 4) ++quads;
-        else ++other;
-    }
-    if (faces.size() == 4 && tris == 4) return 10;                    // VTK_TETRA
-    if (faces.size() == 6 && quads == 6) return 12;                   // VTK_HEXAHEDRON
-    if (faces.size() == 5 && tris == 2 && quads == 3) return 13;      // VTK_WEDGE
-    if (faces.size() == 5 && tris == 4 && quads == 1) return 14;      // VTK_PYRAMID
-    (void)other;
-    return 42;                                                        // VTK_POLYHEDRON
+// Canonical VTK corner order for a 3D cell. The reader already canonicalizes
+// ANSYS cells; Gmsh files are canonical by construction. Re-canonicalizing
+// here keeps the RenderMesh independent of the source and, more importantly,
+// lets a cell that cannot be laid out as a tet/hex/wedge/pyramid be marked
+// unsupported (kPolyhedron) so the volume and isosurface paths skip it.
+void canonicalCell(const fvm::Mesh<3>& m, std::size_t cellIndex,
+                   std::vector<std::size_t>& out, std::uint8_t& type) {
+    const auto& faceIds = m.cellFaces(cellIndex);
+    std::vector<std::vector<std::size_t>> loops;
+    loops.reserve(faceIds.size());
+    for (std::size_t f : faceIds) loops.push_back(m.faceVertices(f));
+
+    out = m.cells()[cellIndex];
+    type = cell_topology::canonicalize(out, loops, m.vertices());
+    if (type == cell_topology::kPolyhedron) out = m.cells()[cellIndex];
 }
 
 template<std::size_t Dim>
@@ -121,14 +117,23 @@ std::shared_ptr<const RenderMesh> buildRenderMesh(const fvm::Mesh<Dim>& m) {
     // and the least-squares gradient neighbour builder).
     std::size_t cellIndex = 0;
     for (const auto& cell : m.cells()) {
-        for (std::size_t vi : cell) rm.cellConnectivity.push_back(static_cast<std::uint32_t>(vi));
-        rm.cellOffsets.push_back(static_cast<std::uint32_t>(rm.cellConnectivity.size()));
         if constexpr (Dim == 3) {
-            rm.cellTypes.push_back(static_cast<std::uint8_t>(cellType3D(m, cellIndex)));
+            std::vector<std::size_t> canonical;
+            std::uint8_t type = cell_topology::kPolyhedron;
+            canonicalCell(m, cellIndex, canonical, type);
+            for (std::size_t vi : canonical) {
+                rm.cellConnectivity.push_back(static_cast<std::uint32_t>(vi));
+            }
+            rm.cellTypes.push_back(type);
+            if (cell_topology::isVolumeCell(type)) ++rm.unstructuredVolumeCellCount;
         } else {
+            for (std::size_t vi : cell) {
+                rm.cellConnectivity.push_back(static_cast<std::uint32_t>(vi));
+            }
             rm.cellTypes.push_back(static_cast<std::uint8_t>(
                 cell.size() == 3 ? 5 : (cell.size() == 4 ? 9 : 7)));
         }
+        rm.cellOffsets.push_back(static_cast<std::uint32_t>(rm.cellConnectivity.size()));
         ++cellIndex;
     }
 
