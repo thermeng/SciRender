@@ -87,7 +87,8 @@ private:
 
     static std::vector<std::vector<std::size_t>> reconstructCells(
         const std::vector<FaceRecord>& faces,
-        std::size_t cellCount);
+        std::size_t cellCount,
+        const std::vector<std::array<double, Dim>>& points);
 
     // Builds, for every cell, the ordered vertex loop of each of its faces.
     // The ANSYS face records carry the face nodes in order around the face, so

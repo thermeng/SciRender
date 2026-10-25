@@ -20,7 +20,8 @@
 
 RenderSettings::RenderSettings(QObject* parent)
     : QObject(parent)
-    , m_isoController(m_renderer, this) {
+    , m_isoController(m_renderer, this)
+    , m_derivedVolumeController(m_renderer, this) {
     loadRecentFromSettings();
 
     m_animationExporter = new AnimationExporter(this);
@@ -84,6 +85,14 @@ RenderSettings::RenderSettings(QObject* parent)
                     markStateDirty();
                     emit viewChanged(ChangeFlag::Display);
                 }
+            });
+
+    // The derived voxel grid (unstructured volume/slice) is built off-thread,
+    // so repaint when it lands — nothing else marks the viewport dirty then.
+    connect(&m_derivedVolumeController, &DerivedVolumeController::built,
+            this, [this]() {
+                markStateDirty();
+                emit viewChanged(ChangeFlag::Display);
             });
 
     connect(&m_postWatcher, &QFutureWatcher<PostFieldsAsyncResult>::finished,
@@ -1069,6 +1078,12 @@ if (const std::vector<float>* legacy =
             float mn,mx;
             if (FieldStore::scalarData(*mesh, m_state.activeScalarName, mn, mx, FieldStore::Placement::Vertex, m_state.computed.get())) return true;
         }
+        // Unstructured 3D meshes: the volume texture is derived from the cells.
+        if (volume::eligible(*mesh)) {
+            if (mesh->hasScalarData()) return true;
+            float mn,mx;
+            if (FieldStore::scalarData(*mesh, m_state.activeScalarName, mn, mx, FieldStore::Placement::Vertex, m_state.computed.get())) return true;
+        }
         return false;
     };
     if (topologyUnchanged) {
@@ -1089,6 +1104,9 @@ if (const std::vector<float>* legacy =
     } else {
         // Full upload for topology-changing frames (adaptive mesh, first frame)
         m_renderer.setPendingMesh(mesh);
+        // Voxel topology changed too: rebuild the derived grid (no-op when the
+        // signature is unchanged).
+        m_derivedVolumeController.setCurrentMesh(mesh);
         if (activeField.data) {
             auto payload = makePayload(activeField);
             m_renderer.markScalarDirty(payload);
@@ -1216,6 +1234,7 @@ void RenderSettings::clearMeshes() {
     m_state.probePos = glm::vec3(m_state.worldCenterX, m_state.worldCenterY, m_state.worldCenterZ);
 
     m_isoController.clear();
+    m_derivedVolumeController.clear();
     markStateDirty();
     m_state.qualityDegenerateTris.reset(); m_state.qualityOpenEdges.reset(); m_state.qualityNonManifoldEdges.reset();
     emit meshLoadStateChanged();

@@ -281,6 +281,202 @@ TEST_CASE("core.isosurface.watertight_sweep") {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Unstructured meshes (CFD path): marching tetrahedra over volume cells.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// n^3 node grid carved into (n-1)^3 canonical VTK hexes, point scalar = squared
+// distance from (cx,cy,cz). Mirrors the topology the CFD adapter produces.
+RenderMesh makeUnstructuredHexGrid(int n, double cx, double cy, double cz) {
+    RenderMesh m;
+    m.datasetType = "CFD MESH";
+    m.sourcePointCount = n * n * n;
+    m.vertices.resize(static_cast<size_t>(n * n * n) * 3);
+    m.scalars.resize(static_cast<size_t>(n * n * n));
+    auto node = [n](int x, int y, int z) {
+        return static_cast<uint32_t>(x + y * n + z * n * n);
+    };
+    for (int z = 0; z < n; ++z)
+        for (int y = 0; y < n; ++y)
+            for (int x = 0; x < n; ++x) {
+                const uint32_t i = node(x, y, z);
+                m.vertices[i * 3 + 0] = static_cast<float>(x);
+                m.vertices[i * 3 + 1] = static_cast<float>(y);
+                m.vertices[i * 3 + 2] = static_cast<float>(z);
+                const double dx = x - cx, dy = y - cy, dz = z - cz;
+                m.scalars[i] = static_cast<float>(dx * dx + dy * dy + dz * dz);
+            }
+    for (int z = 0; z + 1 < n; ++z)
+        for (int y = 0; y + 1 < n; ++y)
+            for (int x = 0; x + 1 < n; ++x) {
+                const uint32_t c[8] = {
+                    node(x, y, z),         node(x + 1, y, z),
+                    node(x + 1, y + 1, z), node(x, y + 1, z),
+                    node(x, y, z + 1),     node(x + 1, y, z + 1),
+                    node(x + 1, y + 1, z + 1), node(x, y + 1, z + 1),
+                };
+                for (uint32_t v : c) m.cellConnectivity.push_back(v);
+                m.cellOffsets.push_back(static_cast<uint32_t>(m.cellConnectivity.size()));
+                m.cellTypes.push_back(12);
+                ++m.unstructuredVolumeCellCount;
+            }
+    m.scalarName = "d2";
+    m.availableScalarNames = {"d2"};
+    mesh_utils::computeBounds(m);
+    return m;
+}
+
+} // namespace
+
+TEST_CASE("core.isosurface.unstructured_single_hex_plane") {
+    // One hex, scalar = z, iso inside the bottom half. The extracted sheet is a
+    // quad at z = 0.25 lying strictly below the cell centroid.
+    RenderMesh m = makeUnstructuredHexGrid(2, 0.0, 0.0, 0.0);
+    REQUIRE(m.unstructuredVolumeCellCount == 1);
+    // Overwrite with the z field (the helper stores dist^2 from the origin).
+    m.scalars = {0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+
+    CHECK(isosurface::canExtract(m));
+    auto r = isosurface::extractIsosurface(m, {0.25f});
+    REQUIRE(!r.vertices.empty());
+    CHECK(r.indices.size() % 3 == 0);
+    CHECK(r.vertices.size() / 3 >= 4); // tet decomposition may split the quad
+    // The cell is split into face pyramids, so the crossing polygon is
+    // tessellated more finely, but it must still be the planar square at
+    // z = 0.25 with unit area.
+    double area = 0.0;
+    for (size_t t = 0; t + 2 < r.indices.size(); t += 3) {
+        const float* a = &r.vertices[r.indices[t] * 3];
+        const float* b = &r.vertices[r.indices[t + 1] * 3];
+        const float* c = &r.vertices[r.indices[t + 2] * 3];
+        CHECK(a[2] == doctest::Approx(0.25f));
+        CHECK(b[2] == doctest::Approx(0.25f));
+        CHECK(c[2] == doctest::Approx(0.25f));
+        const float ux = b[0] - a[0], uy = b[1] - a[1];
+        const float vx = c[0] - a[0], vy = c[1] - a[1];
+        area += 0.5 * std::abs(ux * vy - uy * vx);
+    }
+    CHECK(area == doctest::Approx(1.0).epsilon(1e-4));
+    for (size_t i = 0; i < r.vertices.size() / 3; ++i) {
+        CHECK(r.vertices[i * 3 + 0] >= -1e-4f);
+        CHECK(r.vertices[i * 3 + 0] <= 1.0f + 1e-4f);
+        CHECK(r.vertices[i * 3 + 1] >= -1e-4f);
+        CHECK(r.vertices[i * 3 + 1] <= 1.0f + 1e-4f);
+    }
+    for (float v : r.scalars) CHECK(v == doctest::Approx(0.25f));
+    CHECK(r.scalarName == "d2");
+
+    // A level the whole cell is above produces nothing.
+    CHECK(isosurface::extractIsosurface(m, {1.5f}).vertices.empty());
+    CHECK(isosurface::extractIsosurface(m, {-0.5f}).vertices.empty());
+}
+
+TEST_CASE("core.isosurface.unstructured_hex_stack_is_watertight") {
+    // A closed level set inside a 4^3-hex block. Extracted per cell with
+    // marching tets, so the surface must still be closed: shared faces are
+    // triangulated from the smallest global id and crossing vertices are keyed
+    // by the global edge, which makes adjacent cells agree exactly.
+    RenderMesh m = makeUnstructuredHexGrid(5, 2.0, 2.0, 2.0);
+    REQUIRE(m.unstructuredVolumeCellCount == 64);
+    CHECK(isosurface::canExtract(m));
+
+    auto r = isosurface::extractIsosurface(m, {1.5f});
+    REQUIRE(!r.vertices.empty());
+    CHECK(r.indices.size() % 3 == 0);
+    CHECK(r.normals.size() / 3 == r.vertices.size() / 3);
+    CHECK(r.scalars.size() == r.vertices.size() / 3);
+    for (uint32_t i : r.indices) REQUIRE(i < r.vertices.size() / 3);
+
+    const Closure cl = closureOf(r);
+    MESSAGE("unstructured sphere: verts=", r.vertices.size() / 3,
+            " idx=", r.indices.size(), " open=", cl.openEdges,
+            " nonManifold=", cl.nonManifoldEdges, " degen=", cl.degenerateFaces,
+            " euler=", eulerChi(r));
+    CHECK(cl.degenerateFaces == 0);
+    CHECK(cl.openEdges == 0);
+    CHECK(cl.nonManifoldEdges == 0);
+    CHECK(eulerChi(r) == 2);
+
+    // Every vertex lies inside the block.
+    for (size_t i = 0; i < r.vertices.size() / 3; ++i)
+        for (int a = 0; a < 3; ++a) {
+            CHECK(r.vertices[i * 3 + a] >= -1e-4f);
+            CHECK(r.vertices[i * 3 + a] <= 4.0f + 1e-4f);
+        }
+}
+
+TEST_CASE("core.isosurface.unstructured_cell_centered_field") {
+    // Per-cell values must reach the contour. FieldStore hands back the
+    // point-sized extrapolated copy for CellCenter, so the extractor reads the
+    // exact cell array and averages it to the nodes itself.
+    RenderMesh m = makeUnstructuredHexGrid(3, 1.0, 1.0, 1.0);
+    REQUIRE(m.unstructuredVolumeCellCount == 8);
+    auto& attrs = mesh_utils::ensureAttributes(m);
+    std::vector<float> cellValues(8);
+    for (int i = 0; i < 8; ++i) cellValues[static_cast<size_t>(i)] = static_cast<float>(i);
+    attrs.cellScalars["cellId"] = cellValues;
+    attrs.cellScalarRanges["cellId"] = {0.0f, 7.0f};
+
+    CHECK(isosurface::canExtract(m, "cellId", 1));
+    auto r = isosurface::extractIsosurface(m, {3.5f}, "cellId", 1);
+    CHECK(!r.vertices.empty());
+    CHECK(r.indices.size() % 3 == 0);
+    for (uint32_t i : r.indices) CHECK(i < r.vertices.size() / 3);
+    CHECK(r.scalarName == "cellId");
+
+    // A constant cell field has no crossing.
+    std::fill(cellValues.begin(), cellValues.end(), 2.0f);
+    attrs.cellScalars["cellId"] = cellValues;
+    CHECK(isosurface::extractIsosurface(m, {2.5f}, "cellId", 1).vertices.empty());
+}
+
+TEST_CASE("core.isosurface.unstructured_single_tet") {
+    RenderMesh m;
+    m.datasetType = "CFD MESH";
+    m.sourcePointCount = 4;
+    m.vertices = {0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1};
+    m.scalars = {0.0f, 0.0f, 0.0f, 1.0f};
+    m.scalarName = "s";
+    m.cellConnectivity = {0, 1, 2, 3};
+    m.cellOffsets = {4};
+    m.cellTypes = {10};
+    m.unstructuredVolumeCellCount = 1;
+    mesh_utils::computeBounds(m);
+
+    CHECK(isosurface::canExtract(m));
+    auto r = isosurface::extractIsosurface(m, {0.5f});
+    REQUIRE(r.indices.size() == 3); // one triangle
+    CHECK(r.vertices.size() / 3 == 3);
+    // Vertex 3 is the only high corner, so the sheet cuts the three edges
+    // meeting at it.
+    CHECK(hasPoint(r, 0.0f, 0.0f, 0.5f));
+    CHECK(hasPoint(r, 0.5f, 0.0f, 0.5f));
+    CHECK(hasPoint(r, 0.0f, 0.5f, 0.5f));
+
+    CHECK(isosurface::extractIsosurface(m, {2.0f}).vertices.empty());
+}
+
+TEST_CASE("core.isosurface.unstructured_rejects_2d") {
+    // A quad in z = 0 is not a volume mesh, even though it carries cell
+    // connectivity.
+    RenderMesh m;
+    m.datasetType = "CFD MESH";
+    m.sourcePointCount = 4;
+    m.vertices = {0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0};
+    m.scalars = {0.0f, 1.0f, 2.0f, 3.0f};
+    m.scalarName = "s";
+    m.cellConnectivity = {0, 1, 2, 3};
+    m.cellOffsets = {4};
+    m.cellTypes = {9};
+    m.unstructuredVolumeCellCount = 0;
+    mesh_utils::computeBounds(m);
+
+    CHECK_FALSE(isosurface::canExtract(m));
+    CHECK(isosurface::extractIsosurface(m, {1.5f}).vertices.empty());
+}
+
 TEST_CASE("core.isosurface.parsed_sample") {
     test_support::requireSample("IMAGE_DATA_xml_ascii.vti");
     const std::string path = test_support::samplePath("IMAGE_DATA_xml_ascii.vti").string();

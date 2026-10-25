@@ -1,4 +1,7 @@
 #include "io/VTKXMLWriter.h"
+
+#include "core/cell_topology.h"
+
 #include <iomanip>
 #include <algorithm>
 #include <cstdint>
@@ -103,7 +106,21 @@ void VTKXMLWriter<Dim>::writeCells_(std::ostream& out, const Mesh<Dim>& mesh) {
         if constexpr (Dim == 2) {
             vtkType = (nv == 3) ? 5 : 9;
         } else {
-            vtkType = (nv == 4) ? 10 : 12;
+            // Classify from the explicit face topology so wedges and pyramids
+            // are not exported as hexahedra. Polyhedra (42) need a `faces`
+            // array that this writer does not emit; keep the old fallback for
+            // them instead of writing an invalid cell.
+            const auto& cellFaces = mesh.cellFaces(i);
+            int tris = 0;
+            int quads = 0;
+            for (std::size_t f : cellFaces) {
+                const std::size_t fn = mesh.faceVertices(f).size();
+                if (fn == 3) ++tris;
+                else if (fn == 4) ++quads;
+            }
+            vtkType = static_cast<std::int32_t>(cell_topology::classifyShape(
+                static_cast<int>(cellFaces.size()), tris, quads));
+            if (vtkType == cell_topology::kPolyhedron) vtkType = (nv == 4) ? 10 : 12;
         }
         out << vtkType << "\n";
         if (i + 1 < cells.size()) out << "          ";

@@ -116,6 +116,16 @@ m_meshData.guiMeta.scalarName = m_state.activeScalarName;
         }
     }
 
+    // Keep the Isosurface page in sync after a run/case load (the mesh may not
+    // have changed, so nothing else would refresh it).
+    m_isoController.setCurrentMesh(loaded, m_state.isosurfaceField, m_state.isosurfacePlacement,
+                                   m_state.computed);
+    if (m_state.showIsosurface) m_isoController.recompute();
+
+    // Volume/slice: build the derived voxel grid for an unstructured 3D mesh
+    // (asynchronously; the renderer re-scatters the field into it each frame).
+    m_derivedVolumeController.setCurrentMesh(loaded);
+
     emit meshLoadStateChanged();
     markStateDirty(); emit meshDataUpdated();
 }
