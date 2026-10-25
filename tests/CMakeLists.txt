@@ -82,6 +82,7 @@ scirender_add_test_suite(scirender_fvm_tests
         fvm/cavity_msh_test.cpp
         fvm/channel_test.cpp
         fvm/transient_channel_test.cpp
+        fvm/cancellable_test.cpp
     LIBRARIES
         FvmCore
         CfdLib
@@ -100,6 +101,29 @@ scirender_add_test_suite(scirender_render_tests
         RenderCore
         CoreLib
         glad)
+
+# ---------------------------------------------------------------------------
+# ui — the Qt-only controller: .scfd v5 round-trip and continuation.
+#
+# Guarded on SCIRENDER_BUILD_APP because the Qt-free `tests` preset does not
+# find Qt at all. The binary is linked into the same directory as the deployed
+# Qt DLLs, so discovery and ctest can start it without extra environment.
+# ---------------------------------------------------------------------------
+if(SCIRENDER_BUILD_APP)
+    scirender_add_test_suite(scirender_ui_tests
+        SOURCES
+            ui/scfd_roundtrip_test.cpp
+            ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.cpp
+            ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.h
+        LIBRARIES
+            CfdLib
+            FvmCore
+            CoreLib
+            Qt6::Core)
+    # cfd_controller.h declares Q_OBJECT; there is no other target that builds
+    # it into a test binary, so AUTOMOC has to run here.
+    set_target_properties(scirender_ui_tests PROPERTIES AUTOMOC ON)
+endif()
 
 # ---------------------------------------------------------------------------
 # cfd — the CFD fundamentals suite

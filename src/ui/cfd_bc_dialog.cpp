@@ -113,9 +113,11 @@ QDoubleSpinBox* makeCoefficientSpin(double value, QWidget* parent) {
 } // namespace
 
 CfdBoundaryConditionsDialog::CfdBoundaryConditionsDialog(std::vector<cfd::PatchBC> patchBCs,
-                                                         std::vector<std::size_t> faceCounts,
-                                                         QWidget* parent)
-    : QDialog(parent), m_bcs(std::move(patchBCs)), m_faceCounts(std::move(faceCounts)) {
+                                                          std::vector<std::size_t> faceCounts,
+                                                          bool turbulenceEnabled,
+                                                          QWidget* parent)
+    : QDialog(parent), m_bcs(std::move(patchBCs)), m_faceCounts(std::move(faceCounts)),
+      m_turbulenceEnabled(turbulenceEnabled) {
     setWindowTitle("Boundary Conditions");
     setModal(true);
     setMinimumSize(760, 470);
@@ -284,22 +286,28 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
          velocityLay->addLayout(grid);
      }
      // Turbulence inlet values (velocity inlet only)
-     velocityLay->addWidget(fieldLabel("Turbulence inlet", m_velocitySection));
-     m_kInlet = makeCoefficientSpin(1e-3, m_velocitySection);
-     m_omegaInlet = makeCoefficientSpin(1.0, m_velocitySection);
+     m_turbulenceBox = new QWidget(m_velocitySection);
+     auto* turbLay = new QVBoxLayout(m_turbulenceBox);
+     turbLay->setContentsMargins(0, 0, 0, 0);
+     turbLay->setSpacing(4);
+     turbLay->addWidget(fieldLabel("Turbulence inlet", m_turbulenceBox));
+     m_kInlet = makeCoefficientSpin(1e-3, m_turbulenceBox);
+     m_omegaInlet = makeCoefficientSpin(1.0, m_turbulenceBox);
      {
          auto* grid = new QGridLayout;
          grid->setContentsMargins(0, 0, 0, 0);
          grid->setHorizontalSpacing(8);
          grid->setVerticalSpacing(4);
-         grid->addWidget(fieldLabel("k", m_velocitySection), 0, 0);
+         grid->addWidget(fieldLabel("k", m_turbulenceBox), 0, 0);
          grid->addWidget(m_kInlet, 0, 1);
-         grid->addWidget(fieldLabel("omega", m_velocitySection), 0, 2);
+         grid->addWidget(fieldLabel("omega", m_turbulenceBox), 0, 2);
          grid->addWidget(m_omegaInlet, 0, 3);
          grid->setColumnStretch(1, 1);
          grid->setColumnStretch(3, 1);
-         velocityLay->addLayout(grid);
+         turbLay->addLayout(grid);
      }
+     m_turbulenceBox->setVisible(m_turbulenceEnabled);
+     velocityLay->addWidget(m_turbulenceBox);
      lay->addWidget(m_velocitySection);
 
     // ── Pressure & backflow (pressure outlet) ──
@@ -397,8 +405,8 @@ void CfdBoundaryConditionsDialog::loadCurrent() {
     m_backflowW->setValue(bc.backflowW);
     m_backflowK->setValue(bc.backflowK);
     m_backflowOmega->setValue(bc.backflowOmega);
-    m_kInlet->setValue(bc.kInlet);
-    m_omegaInlet->setValue(bc.omegaInlet);
+    if (m_kInlet) m_kInlet->setValue(bc.kInlet);
+    if (m_omegaInlet) m_omegaInlet->setValue(bc.omegaInlet);
     m_syncing = false;
 
     updateConditionVisibility();
@@ -419,8 +427,8 @@ void CfdBoundaryConditionsDialog::commitCurrent() {
     bc.backflowW = m_backflowW->value();
     bc.backflowK = m_backflowK->value();
     bc.backflowOmega = m_backflowOmega->value();
-    bc.kInlet = m_kInlet->value();
-    bc.omegaInlet = m_omegaInlet->value();
+    if (m_kInlet) bc.kInlet = m_kInlet->value();
+    if (m_omegaInlet) bc.omegaInlet = m_omegaInlet->value();
 }
 
 void CfdBoundaryConditionsDialog::refreshConditionCell(int row) {
@@ -438,6 +446,9 @@ void CfdBoundaryConditionsDialog::updateConditionVisibility() {
     m_velocitySection->setVisible(hasVelocity);
     m_pressureSection->setVisible(hasPressure);
     if (m_backflowBox) m_backflowBox->setVisible(hasPressure && m_suppressBackflow->isChecked());
+    if (m_turbulenceBox) m_turbulenceBox->setVisible(m_turbulenceEnabled && hasVelocity && type == cfd::BCType::VelocityInlet);
+    if (m_backflowK) m_backflowK->setEnabled(m_turbulenceEnabled);
+    if (m_backflowOmega) m_backflowOmega->setEnabled(m_turbulenceEnabled);
 
     const QString hint = QString::fromUtf8(hintForType(type));
     m_hint->setText(hint);

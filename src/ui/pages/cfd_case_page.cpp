@@ -28,6 +28,7 @@
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace sidebar {
@@ -91,6 +92,8 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_initBtn = cfdUi.initBtn;
     m_runBtn = cfdUi.runBtn;
     m_cancelBtn = cfdUi.cancelBtn;
+    m_pauseBtn = cfdUi.pauseBtn;
+    m_stepBtn = cfdUi.stepBtn;
 
 
 
@@ -181,6 +184,35 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
         onTransientFrame(slot->mesh, slot->step, slot->time);
     });
 
+    // The solver only observes Pause at a step boundary, so the button text and
+    // the Step gating must follow the solver state rather than the click.
+    m_stateTimer = new QTimer(this);
+    m_stateTimer->setInterval(100);
+    connect(m_stateTimer, &QTimer::timeout, this, [this]() {
+        if (!m_running) { m_stateTimer->stop(); return; }
+        const bool paused = m_ctrl->isPaused();
+        const bool settled = m_ctrl->isPausedSettled();
+        if (m_pauseBtn) {
+            m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
+        }
+        if (m_stepBtn) m_stepBtn->setEnabled(settled);
+        if (m_cancelBtn && !m_ctrl->isCancelled())
+            m_cancelBtn->setEnabled(true);
+        if (!paused) {
+            m_pauseSettledLogged = false;
+        } else if (settled && !m_pauseSettledLogged) {
+            m_pauseSettledLogged = true;
+            const int step = m_ctrl->currentStep();
+            const double t = m_ctrl->currentTime();
+            if (m_ctrl->settings().transient.enabled) {
+                m_iterValue->setText(QString::number(step));
+                log(QString("Paused at step %1, t = %2 s").arg(step).arg(t, 0, 'g', 8));
+            } else {
+                log(QString("Paused at iteration %1").arg(m_iterValue->text()));
+            }
+        }
+    });
+
     // ── Advanced solver settings (dialog) ────────────────────────────────────
     // Built up front and kept hidden. Its fields are read by collectSettings(),
     // so they must exist from the start; creating them as children of the page
@@ -206,6 +238,8 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     connect(m_runBtn, &QPushButton::clicked, this, &CfdCasePage::onRun);
     connect(m_cancelBtn, &QPushButton::clicked, this, &CfdCasePage::onCancel);
     connect(m_initBtn, &QPushButton::clicked, this, &CfdCasePage::onInitialize);
+    connect(m_pauseBtn, &QPushButton::clicked, this, &CfdCasePage::onPause);
+    connect(m_stepBtn, &QPushButton::clicked, this, &CfdCasePage::onStep);
 
 
     log("No mesh loaded.");
@@ -515,17 +549,32 @@ void CfdCasePage::setRunning(bool running) {
     m_running = running;
     if (m_runBtn) m_runBtn->setEnabled(!running);
     if (m_initBtn) m_initBtn->setEnabled(!running);
-    if (m_cancelBtn) m_cancelBtn->setEnabled(running);
+    if (m_pauseBtn) m_pauseBtn->setEnabled(running);
+    if (m_stepBtn) m_stepBtn->setEnabled(running && m_ctrl && m_ctrl->isPausedSettled());
+    if (m_cancelBtn) {
+        m_cancelBtn->setText("Cancel");
+        m_cancelBtn->setEnabled(running);
+    }
     if (m_advancedBtn) m_advancedBtn->setEnabled(!running);
     if (m_bcEditBtn) m_bcEditBtn->setEnabled(!running && !m_patchBCs.empty());
+    if (!running) {
+        m_pauseSettledLogged = false;
+        if (m_pauseBtn) m_pauseBtn->setText("Pause");
+        if (m_stateTimer) m_stateTimer->stop();
+    } else if (m_stateTimer) {
+        m_stateTimer->start();
+    }
 }
 
 void CfdCasePage::onLoadMesh() {
+    if (m_running) {
+        log("Stop the current run before loading a mesh.");
+        return;
+    }
     const QString path = QFileDialog::getOpenFileName(
         this, "Load CFD Mesh", QString(), "Mesh (*.msh *.vtk *.vtu);;All files (*)");
     if (path.isEmpty()) return;
-    m_meshName = QFileInfo(path).fileName();
-    log("Loading " + m_meshName + "...");
+    log("Loading " + QFileInfo(path).fileName() + "...");
     m_ctrl->loadMesh(path); // emits meshLoaded() (or failed()) synchronously
 }
 
@@ -584,6 +633,7 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
 }
 
 void CfdCasePage::onMeshLoaded() {
+    if (!m_ctrl->meshName().isEmpty()) m_meshName = m_ctrl->meshName();
     rebuildPatchTable();
     const auto& res = m_ctrl->meshResult();
     if (res.renderMesh) {
@@ -675,7 +725,7 @@ void CfdCasePage::onEditBCs() {
     faceCounts.reserve(res.patches.size());
     for (const auto& patch : res.patches) faceCounts.push_back(patch.faceCount);
 
-    CfdBoundaryConditionsDialog dlg(m_patchBCs, faceCounts, this);
+    CfdBoundaryConditionsDialog dlg(m_patchBCs, faceCounts, m_turb->isChecked(), this);
     if (dlg.exec() != QDialog::Accepted) return;
 
     m_patchBCs = dlg.patchBCs();
@@ -692,11 +742,6 @@ void CfdCasePage::onRun() {
     m_ctrl->setPostExtractor([postCfg](const RenderMesh& mesh) {
         return postfields::extractSnapshot(mesh, postCfg);
     });
-    setRunning(true);
-    log("Running...");
-    m_iterValue->setText("0");
-    m_contValue->setText("--");
-    m_momValue->setText("--");
     // Use per-frame min/max during CFD transient streaming so each time step
     // shows its own full range instead of an accumulated union.
     m_savedAnimGlobal = S()->getAnimScaleGlobal();
@@ -705,15 +750,55 @@ void CfdCasePage::onRun() {
     // inheriting a stale range from a previous run/animation.
     S()->resetAnimationSequence();
     S()->clearPostFields();
-    m_ctrl->run();
+    m_lastFrame.reset();
+    m_pauseSettledLogged = false;
+
+    if (!m_ctrl->run()) {
+        // run() already emitted failed() (which restored the animation scale).
+        return;
+    }
+    setRunning(true);
+    m_iterValue->setText(QString::number(m_ctrl->currentStep()));
+    m_contValue->setText("--");
+    m_momValue->setText("--");
     // Only transient runs publish frames; a steady solve has no frame bus.
     if (m_frameTimer && m_ctrl->settings().transient.enabled) m_frameTimer->start();
+    log(m_ctrl->settings().transient.enabled ? "Running (transient)..." : "Running...");
 }
 
 void CfdCasePage::onCancel() {
     if (!m_running) return;
     m_ctrl->cancel();
-    log("Cancelling...");
+    if (m_cancelBtn) {
+        m_cancelBtn->setText("Cancelling...");
+        m_cancelBtn->setEnabled(false);
+    }
+    if (m_pauseBtn) m_pauseBtn->setEnabled(false);
+    if (m_stepBtn) m_stepBtn->setEnabled(false);
+    log("Cancelling... (the current step finishes first)");
+}
+
+void CfdCasePage::onPause() {
+    if (!m_running) return;
+    if (m_ctrl->isPaused()) {
+        m_ctrl->resume();
+        m_pauseSettledLogged = false;
+        log("Resumed.");
+    } else {
+        m_ctrl->pause();
+        log("Pause requested; stopping at the next step boundary.");
+    }
+}
+
+void CfdCasePage::onStep() {
+    if (!m_running) return;
+    if (!m_ctrl->isPaused()) {
+        log("Pause the run before stepping.");
+        return;
+    }
+    m_ctrl->step();
+    m_pauseSettledLogged = false;
+    log(m_ctrl->settings().transient.enabled ? "Stepping one time step." : "Stepping one iteration.");
 }
 
 void CfdCasePage::onInitialize() {
@@ -726,53 +811,116 @@ void CfdCasePage::onInitialize() {
         return;
     }
     collectSettings();
-    auto rm = m_ctrl->initialize();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Initialize Solution");
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout;
+    auto* ux = new QDoubleSpinBox(&dlg); ux->setRange(-1e6, 1e6); ux->setDecimals(4); ux->setValue(0.0);
+    auto* uy = new QDoubleSpinBox(&dlg); uy->setRange(-1e6, 1e6); uy->setDecimals(4); uy->setValue(0.0);
+    auto* p  = new QDoubleSpinBox(&dlg); p->setRange(-1e6, 1e6); p->setDecimals(4); p->setValue(0.0);
+    auto* k  = new QDoubleSpinBox(&dlg); k->setRange(1e-12, 1e3); k->setDecimals(4); k->setValue(1e-3);
+    auto* w  = new QDoubleSpinBox(&dlg); w->setRange(1e-6, 1e6); w->setDecimals(4); w->setValue(1.0);
+    form->addRow("U_x", ux);
+    form->addRow("U_y", uy);
+    form->addRow("p", p);
+    form->addRow("k", k);
+    form->addRow("omega", w);
+    lay->addLayout(form);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    lay->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    auto rm = m_ctrl->initialize(ux->value(), uy->value(), p->value(), k->value(), w->value());
     if (!rm) {
         log("No mesh loaded.");
         return;
     }
     S()->applyLoadedMesh(rm, "cfd_solution");
-    log("Initialized: U = 0, p = 0.");
+    log(QString("Initialized: U=(%1,%2), p=%3.").arg(ux->value()).arg(uy->value()).arg(p->value()));
     m_iterValue->setText("0");
     m_contValue->setText("--");
     m_momValue->setText("--");
 }
 
 void CfdCasePage::onExport() {
+    if (m_running && !(m_ctrl->isPaused() && m_ctrl->isPausedSettled())) {
+        log("Pause the run before exporting.");
+        return;
+    }
     const QString path = QFileDialog::getSaveFileName(this, "Export Solution", "cfd_solution.vtu",
                                                       "VTK (*.vtu)");
     if (path.isEmpty()) return;
     m_ctrl->exportVtu(path);
-    log("Exported " + QFileInfo(path).fileName());
+    // On failure the controller emits failed(), which onFailed() already logs.
+    if (m_ctrl->lastError().isEmpty()) log("Exported " + QFileInfo(path).fileName());
 }
 
 void CfdCasePage::onSaveCase() {
+    if (m_running && !(m_ctrl->isPaused() && m_ctrl->isPausedSettled())) {
+        log("Pause the run before saving; the file is written once the solver stops at a step boundary.");
+        return;
+    }
     const QString path = QFileDialog::getSaveFileName(this, "Save Case", "cfd_case.scfd",
                                                       "CFD Case (*.scfd)");
     if (path.isEmpty()) return;
-    collectSettings();
+    // While a run is active the inputs may have been edited but not applied:
+    // persist the settings the solver is actually using, not the edit buffer.
+    if (!m_running) collectSettings();
     if (m_ctrl->saveCase(path)) log("Saved " + QFileInfo(path).fileName());
-    else log("Save failed");
+    else log("Save failed: " + m_ctrl->lastError());
 }
 
 void CfdCasePage::onLoadCase() {
+    if (m_running) {
+        log("Stop the current run before loading a case.");
+        return;
+    }
     const QString path = QFileDialog::getOpenFileName(this, "Load Case", QString(),
                                                       "CFD Case (*.scfd)");
     if (path.isEmpty()) return;
-    if (m_ctrl->loadCase(path)) log("Loaded " + QFileInfo(path).fileName());
-    else log("Load failed");
+    if (m_ctrl->loadCase(path)) {
+        log("Loaded " + QFileInfo(path).fileName());
+    } else {
+        log("Load failed: " + m_ctrl->lastError());
+    }
 }
 
 void CfdCasePage::onCaseLoaded() {
-    applySettings(m_ctrl->settings());
+    m_meshName = m_ctrl->meshName();
     m_patchBCs = m_ctrl->patchBCs();
+    applySettings(m_ctrl->settings());
+
+    // loadCase() deliberately emits only caseLoaded(): apply the mesh exactly
+    // once here instead of once per signal.
     auto rm = m_ctrl->resultMesh();
-    if (rm) S()->applyLoadedMesh(rm, m_meshName.isEmpty() ? "CFD Result" : m_meshName);
-    else onMeshLoaded();
+    if (rm) {
+        S()->applyLoadedMesh(rm, m_meshName.isEmpty() ? "CFD Result" : m_meshName);
+    } else {
+        onMeshLoaded();
+    }
+
+    const auto& s = m_ctrl->settings();
+    if (s.transient.enabled) {
+        const int step = m_ctrl->currentStep();
+        const double t = m_ctrl->currentTime();
+        m_iterValue->setText(QString::number(step));
+        if (step > 0 || t > 0.0) {
+            log(QString("Loaded step %1, t = %2 s (Run continues from here)").arg(step).arg(t, 0, 'g', 8));
+        } else {
+            log("Loaded case (fresh transient start at t = 0).");
+        }
+    } else {
+        m_iterValue->setText("0");
+        m_contValue->setText("--");
+        m_momValue->setText("--");
+        log(QString("Loaded case: %1").arg(m_meshName));
+    }
+    setRunning(false);
 }
-
-
-
 
 void CfdCasePage::onProgress(int iteration, double continuity, double momentum) {
     m_iterValue->setText(QString::number(iteration));
@@ -799,28 +947,34 @@ void CfdCasePage::onFinished(const QString& summary) {
     m_lastFrame.reset();
     setRunning(false);
     S()->setAnimScaleGlobal(m_savedAnimGlobal);
-    if (summary == "Cancelled") {
-        auto rm = m_ctrl->resultMesh();
-        if (!rm) { log(summary + " (no result mesh)"); return; }
-        try {
-            S()->applyLoadedMesh(rm, "cfd_solution", false);
-            log(summary + " (visualized)");
-        } catch (const std::exception& e) {
-            log(QString("Visualize failed: %1").arg(e.what()));
+    // Show where the run actually stopped (a paused/cancelled transient may not
+    // have reached the last frame the monitor saw).
+    if (m_ctrl->settings().transient.enabled) {
+        const int step = m_ctrl->currentStep();
+        const double t = m_ctrl->currentTime();
+        if (step > 0 || t > 0.0) {
+            m_iterValue->setText(QString::number(step));
+            log(QString("%1 — step %2, t = %3 s").arg(summary).arg(step).arg(t, 0, 'g', 8));
+        } else {
+            log(summary);
         }
-        return;
+    } else {
+        log(summary);
     }
+    const bool cancelled = summary == "Cancelled";
     auto rm = m_ctrl->resultMesh();
-    if (!rm) { log(summary + " (no result mesh)"); return; }
+    if (!rm) { log("(no result mesh)"); return; }
     try {
-        S()->applyLoadedMesh(rm, "cfd_solution");
-        log(summary + " (visualized)");
+        S()->applyLoadedMesh(rm, "cfd_solution", !cancelled);
+        log(cancelled ? "Cancelled (visualized)" : "(visualized)");
     } catch (const std::exception& e) {
         log(QString("Visualize failed: %1").arg(e.what()));
     }
 }
 
 void CfdCasePage::onFailed(const QString& error) {
+    if (m_frameTimer) m_frameTimer->stop();
+    m_lastFrame.reset();
     setRunning(false);
     S()->setAnimScaleGlobal(m_savedAnimGlobal);
     log("Failed: " + error);

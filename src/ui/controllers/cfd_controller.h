@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QByteArray>
 #include <memory>
 #include <atomic>
 #include <cstdint>
@@ -9,6 +10,8 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <array>
+#include <vector>
 
 #include "core/mesh_loader.h"
 #include "cfd/cfd_types.h"
@@ -16,6 +19,9 @@
 #include "cfd/cfd_types.h"
 #include "cfd/transient_frame.h"
 #include "core/post_fields.h"
+
+class QTemporaryDir;
+template<typename T> class QFutureWatcher;
 
 namespace fvm {
 template<std::size_t Dim> class Mesh;
@@ -49,23 +55,48 @@ public:
     explicit CfdController(QObject* parent=nullptr);
     ~CfdController();
 
+    // File operations. All of them refuse while a solve is in flight (a Save
+    // is allowed once a pause has settled at a step boundary).
     bool loadMesh(const QString& path);
     bool saveCase(const QString& path);
     bool loadCase(const QString& path);
+    void exportVtu(const QString& path);
+
     const cfd::MeshLoadResult& meshResult() const { return m_mesh; }
     const cfd::CaseSettings& settings() const { return m_settings; }
     void setSettings(const cfd::CaseSettings& s) { m_settings = s; }
     void setPatchBCs(const std::vector<cfd::PatchBC>& bcs) { m_patchBCs = bcs; }
     const std::vector<cfd::PatchBC>& patchBCs() const { return m_patchBCs; }
-    void run();
+    // Display name of the loaded mesh (the embedded name for a .scfd file,
+    // never the temporary extraction path).
+    QString meshName() const { return m_meshName; }
+    QString casePath() const { return m_casePath; }
+    QString lastError() const { return m_lastError; }
+
+    // Starts a solve. Returns false (and emits failed()) when the request was
+    // refused, e.g. while another run is active or a restored time already
+    // reached the configured end time.
+    bool run();
     void cancel();
+    void pause();
+    void resume();
+    void step();
+
+    bool isRunning() const { return m_running.load(std::memory_order_acquire); }
+    bool isPaused() const;
+    // True when the solver is parked at an iteration/time-step boundary, i.e.
+    // the in-memory state is a consistent restart point.
+    bool isPausedSettled() const;
     bool isCancelled() const { return m_cancel.load(); }
+    int currentStep() const;
+    double currentTime() const;
+
     // Zero the velocity/pressure fields and return the freshly initialized
     // result mesh so the user can confirm a clean start before re-running.
-    // Returns nullptr when no mesh is loaded. Safe to call between runs; do
-    // not call while a solve is in flight.
-    std::shared_ptr<const RenderMesh> initialize();
-    void exportVtu(const QString& path);
+    // \"Initialize\" is the explicit reset in the Run-continues-from-state
+    // model. Returns nullptr when no mesh is loaded or a run is active.
+    std::shared_ptr<const RenderMesh> initialize(double ux = 0.0, double uy = 0.0, double p = 0.0,
+                                                 double k = 1e-3, double omega = 1.0);
     std::shared_ptr<const RenderMesh> resultMesh() const;
     // Frame bus (Phase 2): latest immutable frame produced off the UI thread.
     // The slot is the single publish point — mesh, snapshot and status always
@@ -104,18 +135,65 @@ signals:
     void failed(const QString& error);
 
 private:
+    // Everything Save needs to persist about the solution that is not already
+    // in m_velocity/m_pressure. Kept in sync when a run finishes or when a
+    // paused Save asks for a snapshot, so a load -> save round-trip is lossless
+    // even without a live solver.
+    struct TransientSnapshot {
+        bool valid = false;             // time/dt/history describe a real time step
+        double time = 0.0;
+        double dt = 0.0;
+        double dtPrev = 0.0;
+        int step = 0;
+        std::array<std::vector<double>, 2> velocityNM1{};
+        bool hasVelocityHistory = false;
+        std::vector<double> kNM1;
+        std::vector<double> omegaNM1;
+        bool hasTurbulenceHistory = false;
+
+        bool hasTurbulence = false;     // current k/omega/nut
+        std::vector<double> k;
+        std::vector<double> omega;
+        std::vector<double> nut;
+    };
+
+    // Lifecycle helpers (GUI thread only).
+    void stopWorkers();
+    void requestSolverCancel();
+    void resetSolutionState();
+    bool solverMatchesCurrentMesh() const;
+    void captureLiveState();
+    void setError(const QString& msg);
+
     cfd::MeshLoadResult m_mesh;
     cfd::CaseSettings m_settings;
     std::shared_ptr<const fvm::Mesh<2>> m_meshPtr;
     std::shared_ptr<fvm::VectorField<2>> m_velocity;
     std::shared_ptr<fvm::Field<2>> m_pressure;
-    std::shared_ptr<fvm::SSTModel<2>> m_turb;
+    // Turbulence of a loaded result (the live solver owns its own model).
+    std::shared_ptr<fvm::SSTModel<2>> m_turbulence;
+    // True when m_velocity/m_pressure match the current mesh and may be saved.
+    bool m_hasSolution = false;
+
+    // Persisted transient + turbulence state (see TransientSnapshot).
+    TransientSnapshot m_transient;
+
     std::shared_ptr<fvm::SIMPLE<2>> m_solver;
+    std::shared_ptr<const fvm::Mesh<2>> m_solverMesh; // mesh the solver was built for
     mutable std::mutex m_solverMutex;
     std::vector<cfd::PatchBC> m_patchBCs;
     std::atomic<bool> m_cancel{false};
+    std::atomic<bool> m_running{false};
     std::atomic<double> m_lastTime{0.0}; // simulated time reached, for the summary
-    QString m_meshPath;                  // dir used to resolve a relative .pvd
+    QString m_meshPath;                  // temp/current mesh source
+    QString m_meshName;                  // display name (never the temp path)
+    QByteArray m_embeddedMesh;           // exact .scfd mesh bytes, if loaded
+    QString m_casePath;                  // last loaded/saved .scfd
+    QString m_caseDir;                   // dir used to resolve relative .pvd paths
+    std::unique_ptr<QTemporaryDir> m_tempDir; // owns the extracted .scfd mesh
+    QString m_lastError;
+
+    QFutureWatcher<void>* m_solveWatcher = nullptr;
     // Read from the solver and both worker threads; must be atomic.
     std::atomic<uint64_t> m_gen{0};
     // Frame bus (Phase 2)

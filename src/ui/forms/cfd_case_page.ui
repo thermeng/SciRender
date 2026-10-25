@@ -722,7 +722,7 @@
      <item>
       <widget class="QPushButton" name="runBtn">
        <property name="text"><string>Run</string></property>
-       <property name="toolTip"><string>Start the steady-state SIMPLE solve.</string></property>
+       <property name="toolTip"><string>Run from the current solution (loaded or from the previous run). Use Initialize to reset.</string></property>
        <property name="sizePolicy">
         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
          <horstretch>1</horstretch>
@@ -731,24 +731,60 @@
        </property>
       </widget>
      </item>
-     <item>
-      <widget class="QPushButton" name="cancelBtn">
-       <property name="text"><string>Cancel</string></property>
-       <property name="toolTip"><string>Request the running solve to stop.</string></property>
-       <property name="sizePolicy">
-        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-         <horstretch>1</horstretch>
-         <verstretch>0</verstretch>
-        </sizepolicy>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-  </layout>
- </widget>
- <customwidgets>
-  <customwidget>
+      <item>
+       <widget class="QPushButton" name="cancelBtn">
+        <property name="text"><string>Cancel</string></property>
+        <property name="enabled"><bool>false</bool></property>
+        <property name="toolTip"><string>Stop the run at the next step boundary. The current step is completed so the saved state is a valid restart point.</string></property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="pauseRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QPushButton" name="pauseBtn">
+        <property name="text"><string>Pause</string></property>
+        <property name="enabled"><bool>false</bool></property>
+        <property name="toolTip"><string>Pause at the next iteration/time-step boundary, then resume from here.</string></property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="stepBtn">
+        <property name="text"><string>Step</string></property>
+        <property name="enabled"><bool>false</bool></property>
+        <property name="toolTip"><string>While paused, advance exactly one iteration/time step.</string></property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <customwidgets>
+   <customwidget>
    <class>ScientificDoubleSpinBox</class>
    <extends>QDoubleSpinBox</extends>
    <header>ui/widgets/scientific_spin_box.h</header>

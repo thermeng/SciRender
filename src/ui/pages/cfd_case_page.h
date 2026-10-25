@@ -15,6 +15,7 @@ class QDialog;
 class QDoubleSpinBox;
 class QRadioButton;
 class QLineEdit;
+class QTimer;
 class ScientificDoubleSpinBox;
 
 namespace sidebar {
@@ -33,6 +34,8 @@ public slots:
 private slots:
     void onRun();
     void onCancel();
+    void onPause();
+    void onStep();
     void onInitialize();
     void onEditBCs();
     void onProgress(int iteration, double continuity, double momentum);
@@ -87,6 +90,8 @@ private:
     QPushButton* m_initBtn = nullptr;
     QPushButton* m_runBtn = nullptr;
     QPushButton* m_cancelBtn = nullptr;
+    QPushButton* m_pauseBtn = nullptr;
+    QPushButton* m_stepBtn = nullptr;
 
     // Advanced solver settings live in one dialog, built up front and hidden.
     QDialog* m_advancedDlg = nullptr;
@@ -131,6 +136,10 @@ private:
     bool m_running = false;
     bool m_savedAnimGlobal = true;
     QTimer* m_frameTimer = nullptr;
+    // Polls the solver's pause state so the Pause/Step buttons reflect what the
+    // solver is actually doing instead of the last click.
+    QTimer* m_stateTimer = nullptr;
+    bool m_pauseSettledLogged = false;
     std::shared_ptr<const RenderMesh> m_lastFrame;
 };
 

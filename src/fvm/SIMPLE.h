@@ -224,6 +224,7 @@ struct Config {
     enum class Status {
         NotConverged,  // the iteration budget ran out before the tolerance
         Converged,     // the tolerance was met (and held) before the budget
+        Completed,     // a transient run reached its end time
         Aborted,       // NaN/Inf residual or a detected divergence
         Cancelled      // the user cancelled the run
     };
@@ -240,10 +241,50 @@ struct Config {
     Field<Dim>& boundPressure();
     const Field<Dim>& boundPressure() const;
 
+    // Everything needed to resume a run from a saved case. The solver's
+    // initializeSolve_ applies it *after* the turbulence model exists, so the
+    // restored k/omega/nut are not overwritten by the kInf/omegaInf defaults.
+    struct RestartState {
+        // Current fields (optional: a case may carry settings but no result).
+        bool hasVelocity = false;
+        std::array<std::vector<double>, Dim> velocity{};
+        std::vector<double> pressure;
+
+        // Current turbulence fields (optional).
+        bool hasTurbulence = false;
+        std::vector<double> k;
+        std::vector<double> omega;
+        std::vector<double> nut;
+
+        // Transient state.
+        bool hasTransient = false;
+        double time = 0.0;
+        double dt = 0.0;
+        double dtPrev = 0.0;
+        int step = 0;
+
+        // BDF2 history.
+        bool hasVelocityHistory = false;
+        std::array<std::vector<double>, Dim> velocityNM1{};
+        bool hasTurbulenceHistory = false;
+        std::vector<double> kNM1;
+        std::vector<double> omegaNM1;
+    };
+
+    // Queued for the next solve. initializeSolve_ consumes and clears it, so a
+    // later Initialize/Run can never re-apply a stale mid-run state.
+    void setRestartState(RestartState state) { restartState_ = std::move(state); }
+    bool hasRestartState() const { return restartState_.has_value(); }
+
     const Field<Dim>& pressure() const;
     double currentTime() const { return time_; }
     double currentDt() const { return dt_; }
+    double currentDtPrev() const { return dtPrev_; }
     int currentStep() const { return timeStep_; }
+    const VectorField<Dim>& velocityNM1() const { return velocityNM1_; }
+    bool hasTransientState() const { return hasRestoredTransientState_ || timeStep_ > 0 || time_ > 0.0; }
+    const Field<Dim>& kNM1() const { return kNM1_; }
+    const Field<Dim>& omegaNM1() const { return omegaNM1_; }
     int lastIterations() const;
     double finalContinuityResidual() const;
     double finalMomentumResidual() const;
@@ -323,7 +364,8 @@ private:
     // says nothing about whether the transient simulation is finished, so a
     // transient run must keep marching to tEnd (NaN/divergence and Cancel still
     // stop it in both modes).
-    bool checkConvergence_(std::size_t iter, bool checkTolerance = true);
+    bool checkConvergence_(std::size_t iter, bool checkTolerance = true,
+                           bool checkCancel = true);
     bool aborted() const { return aborted_; }
     void saveCheckpoint_(std::size_t iter);
     void saveCheckpoint_(std::size_t iter, const TransientBlock<Dim>* transient);
@@ -397,6 +439,8 @@ private:
     int convergedStreak_ = 0;
     bool momPatternAnalyzed_ = false;
     std::size_t startIteration_ = 0;
+    // Restart payload queued by setRestartState(), consumed by initializeSolve_.
+    std::optional<RestartState> restartState_;
     std::vector<double> residualHistory_;
     std::size_t divergenceCount_ = 0;
     double initialMassImbalance_ = 0.0;
@@ -462,6 +506,8 @@ private:
     // means "no usable history" and forces explicit Euler for this step.
     double dtPrev_ = 0.0;
     int timeStep_ = 0;
+    bool hasRestoredTransientState_ = false;
+    bool hasVelocityHistory_ = false;
     bool restarting_ = false;
     VectorField<Dim> velocityN_;
     VectorField<Dim> velocityNM1_;
