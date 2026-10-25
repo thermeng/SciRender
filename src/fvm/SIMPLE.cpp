@@ -13,6 +13,7 @@
 #include <fstream>
 #include <algorithm>
 #include <chrono>
+#include <thread>
 
 namespace fvm {
 
@@ -266,6 +267,67 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
         if (git == mesh_.boundaryGroups().end()) continue;
         turbulence_->setInletTurbulence(git->second, it.k, it.omega);
     }
+    }
+
+    // Apply a queued restart payload. This must happen HERE, after
+    // turbulence_ has been constructed: restoring k/omega/nut before that
+    // point would let initialize() overwrite them with kInf/omegaInf.
+    if (restartState_) {
+        const RestartState& rs = *restartState_;
+        const std::size_t n = mesh_.nCells();
+        if (rs.hasVelocity) {
+            for (std::size_t d = 0; d < Dim; ++d) {
+                const std::size_t m = std::min(n, rs.velocity[d].size());
+                for (std::size_t i = 0; i < m; ++i) velocity[d][i] = rs.velocity[d][i];
+            }
+            const std::size_t mp = std::min(n, rs.pressure.size());
+            for (std::size_t i = 0; i < mp; ++i) pressure[i] = rs.pressure[i];
+        }
+        if (turbulence_ && rs.hasTurbulence) {
+            const std::size_t mk = std::min(n, rs.k.size());
+            const std::size_t mo = std::min(n, rs.omega.size());
+            const std::size_t mn = std::min(n, rs.nut.size());
+            for (std::size_t i = 0; i < mk; ++i) turbulence_->k()[i] = rs.k[i];
+            for (std::size_t i = 0; i < mo; ++i) turbulence_->omega()[i] = rs.omega[i];
+            for (std::size_t i = 0; i < mn; ++i) turbulence_->nut()[i] = rs.nut[i];
+        }
+        if (rs.hasTransient) {
+            time_ = rs.time;
+            dt_ = rs.dt;
+            dtPrev_ = rs.dtPrev;
+            timeStep_ = rs.step;
+            hasRestoredTransientState_ = true;
+        }
+        if (rs.hasVelocityHistory) {
+            velocityNM1_ = VectorField<Dim>(mesh_, 0.0);
+            for (std::size_t d = 0; d < Dim; ++d) {
+                const std::size_t m = std::min(n, rs.velocityNM1[d].size());
+                for (std::size_t i = 0; i < m; ++i) velocityNM1_[d][i] = rs.velocityNM1[d][i];
+            }
+            hasVelocityHistory_ = true;
+        }
+        if (rs.hasTurbulenceHistory) {
+            kNM1_ = Field<Dim>(mesh_, 0.0);
+            omegaNM1_ = Field<Dim>(mesh_, 0.0);
+            const std::size_t mk = std::min(n, rs.kNM1.size());
+            const std::size_t mo = std::min(n, rs.omegaNM1.size());
+            for (std::size_t i = 0; i < mk; ++i) kNM1_[i] = rs.kNM1[i];
+            for (std::size_t i = 0; i < mo; ++i) omegaNM1_[i] = rs.omegaNM1[i];
+        }
+        restartState_.reset();
+    } else {
+        // No queued restart payload: this solver object starts a fresh run.
+        // Without this reset a second solve()/solveTransient() call on the same
+        // object would inherit the previous run's clock and BDF2 history.
+        // A checkpoint-based transient restart re-loads these in solveTransient().
+        time_ = 0.0;
+        timeStep_ = 0;
+        dtPrev_ = 0.0;
+        hasRestoredTransientState_ = false;
+        hasVelocityHistory_ = false;
+        velocityNM1_ = VectorField<Dim>();
+        kNM1_ = Field<Dim>();
+        omegaNM1_ = Field<Dim>();
     }
 
     velocityOld_ = VectorField<Dim>(mesh_, 0.0);
@@ -643,7 +705,8 @@ void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResidual
 }
 
 template<std::size_t Dim>
-bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance) {
+bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
+                                     bool checkCancel) {
     if (std::isnan(lastContResid_) || std::isinf(lastContResid_)) {
         aborted_ = true;
         std::cerr << "  WARNING: NaN/Inf continuity residual at iteration " << (iter + 1) << ", aborting\n";
@@ -653,7 +716,7 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance) {
         aborted_ = true;
         return true;
     }
-    if (cancelRequested_.load(std::memory_order_acquire)) {
+    if (checkCancel && cancelRequested_.load(std::memory_order_acquire)) {
         return true;
     }
     if (checkTolerance && !config_.runFixedIterations) {
@@ -786,7 +849,10 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     status_ = Status::NotConverged;
 
     for (std::size_t iter = startIteration_; iter < config_.maxIterations; ++iter) {
-        if (cancelRequested_.load(std::memory_order_acquire)) {
+        // Pause/step boundary. Placed before the iteration so a pause issued
+        // after the previous iteration is observed before doing more work, and
+        // the fields the UI published are always a completed iteration.
+        if (!waitIfPaused()) {
             status_ = Status::Cancelled;
             break;
         }
@@ -829,6 +895,7 @@ template<std::size_t Dim>
 const char* SIMPLE<Dim>::statusText() const {
     switch (status_) {
         case Status::Converged:   return "converged";
+        case Status::Completed:   return "completed (reached the end time)";
         case Status::Aborted:     return "aborted (diverged or non-finite residual)";
         case Status::Cancelled:   return "cancelled";
         case Status::NotConverged: break;
@@ -966,11 +1033,12 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     // BDF2 needs two levels of history. dtPrev_ == 0 additionally forces
     // explicit Euler for this step (handled inside the assembler), which is
     // what a restart from a fresh field must do.
-    if (config_.transient.scheme == TimeScheme::BDF2 && timeStep_ > 1 && dtPrev_ > 0.0) {
+    if (config_.transient.scheme == TimeScheme::BDF2 && timeStep_ > 1 && dtPrev_ > 0.0 && hasVelocityHistory_) {
         oldTimePrev = &velocityNM1_[d];
     }
     TimeScheme ts = config_.transient.scheme;
     if (timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
+    if (!hasVelocityHistory_ && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
 
     fvm::MomentumBCs momBCs;
     momBCs.slipWallMask = &bcDiscretization_.slipWallMask(d);
@@ -1435,6 +1503,18 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         }
     }
 
+    if (hasRestoredTransientState_) {
+        haveHistory = true;
+        velocityN_ = velocity;
+        if (velocityNM1_[0].size() == 0) velocityNM1_ = velocity;
+        if (turbulence_) {
+            kN_ = turbulence_->k();
+            omegaN_ = turbulence_->omega();
+            if (kNM1_.size() == 0) kNM1_ = kN_;
+            if (omegaNM1_.size() == 0) omegaNM1_ = omegaN_;
+        }
+    }
+
     time_ = haveHistory ? time_ : 0.0;
     timeStep_ = haveHistory ? timeStep_ : 0;
     if (!haveHistory) {
@@ -1501,10 +1581,13 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
     }
     // For adaptive we loop while time < tEnd
     while (time_ < tEnd - 1e-12) {
-        if (cancelRequested_.load(std::memory_order_acquire)) break;
         // A diverged run (NaN/inf or repeated residual growth) must stop, not
         // keep integrating garbage to tEnd while writing output.
         if (aborted_) break;
+        // Pause/step boundary: the state below (time_, timeStep_, velocityN_,
+        // velocityNM1_) always describes the previous COMPLETED step, so a
+        // Cancel/Save from here is a valid restart point.
+        if (!waitIfPaused()) break;
 
         if (config_.transient.adaptive && step > 0) {
             double newDt = computeAdaptiveDt_();
@@ -1534,15 +1617,16 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             // No under-relaxation, no adaptive alphaP reduction inside correctors
             performPISOPredictor_(velocity, pressure);
             for (int corr = 0; corr < nOuter; ++corr) {
-                if (cancelRequested_.load(std::memory_order_acquire)) break;
                 performPISOCorrector_(velocity, pressure);
                 updateResiduals_();
                 lastIterations_ = step * nOuter + corr + 1;
                 if (lastContResid_ < config_.tolerance && lastMomResid_ < config_.tolerance) break;
             }
             // checkConvergence_ detects NaN/inf divergence; act on it instead of
-            // discarding the result and marching on to tEnd.
-            if (checkConvergence_(static_cast<std::size_t>(step), false)) break;
+            // discarding the result and marching on to tEnd. Cancellation is
+            // deliberately NOT checked here: it is honoured at the step
+            // boundary, so the step we are in finishes consistently.
+            if (checkConvergence_(static_cast<std::size_t>(step), false, false)) break;
             // Turbulence updated once per time step after PISO correctors (frozen during correctors)
             if (turbulence_ && config_.transient.enabled && dt_ > 0) {
                 // One turbulence iteration with the corrected velocity
@@ -1565,19 +1649,20 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             }
         } else {
             for (int outer = 0; outer < nOuter; ++outer) {
-                if (cancelRequested_.load(std::memory_order_acquire)) break;
                 performTransientIteration_(velocity, pressure);
                 updateResiduals_();
                 lastIterations_ = step * nOuter + outer + 1;
                 if (lastContResid_ < config_.tolerance && lastMomResid_ < config_.tolerance) break;
             }
-            if (checkConvergence_(static_cast<std::size_t>(step), false)) break;
+            if (checkConvergence_(static_cast<std::size_t>(step), false, false)) break;
         }
         // Roll the BDF2 history forward. dtPrev_ records the step size that
         // produced velocityN_, which is what the next step's BDF2 coefficients
-        // are derived from.
-        if (cancelRequested_.load(std::memory_order_acquire)) break;
+        // are derived from. This must not be skipped on cancel: the time and
+        // step counters were already advanced above, so stopping earlier would
+        // leave the saved state describing a step that never happened.
         velocityNM1_ = velocityN_;
+        hasVelocityHistory_ = true;
         velocityN_ = velocity;
         pressureN_ = pressure;
         dtPrev_ = dt_;
@@ -1601,7 +1686,18 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         if (step >= 1000000) break; // safety
         if (!config_.transient.adaptive && step >= nSteps) break;
     }
-    std::cout << "Transient solve complete: steps=" << step << " time=" << time_ << " dt=" << dt_ << "\n";
+    hasRestoredTransientState_ = false;
+    if (aborted_) {
+        status_ = Status::Aborted;
+    } else if (cancelRequested_.load(std::memory_order_acquire)) {
+        status_ = Status::Cancelled;
+    } else if (time_ >= tEnd - 1e-12) {
+        status_ = Status::Completed;
+    } else {
+        status_ = Status::NotConverged;
+    }
+    std::cout << "Transient solve " << statusText()
+              << ": steps=" << step << " time=" << time_ << " dt=" << dt_ << "\n";
     if (pPrimeLimiterHits_ > 0) {
         std::cerr << "  WARNING: p' magnitude limiter fired " << pPrimeLimiterHits_
                   << " time(s). This imposes an effective alphaP=alphaU<1 and breaks the\n"

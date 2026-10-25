@@ -28,6 +28,7 @@ class CfdBoundaryConditionsDialog : public QDialog {
 public:
     CfdBoundaryConditionsDialog(std::vector<cfd::PatchBC> patchBCs,
                                 std::vector<std::size_t> faceCounts,
+                                bool turbulenceEnabled = false,
                                 QWidget* parent = nullptr);
 
     // Resolved per-patch conditions after the dialog is accepted.
@@ -46,6 +47,7 @@ private:
 
     std::vector<cfd::PatchBC> m_bcs;
     std::vector<std::size_t> m_faceCounts;
+    bool m_turbulenceEnabled = false;
 
     int m_current = -1;
     bool m_syncing = false; // guards widget signals while loading a patch
@@ -62,6 +64,7 @@ private:
     QDoubleSpinBox* m_w = nullptr;
     QDoubleSpinBox* m_kInlet = nullptr;
     QDoubleSpinBox* m_omegaInlet = nullptr;
+    QWidget* m_turbulenceBox = nullptr;
 
     QWidget* m_pressureSection = nullptr;
     QDoubleSpinBox* m_pressure = nullptr;
