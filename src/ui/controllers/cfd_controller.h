@@ -5,33 +5,21 @@
 #include <memory>
 #include <atomic>
 #include <cstdint>
-#include <mutex>
 #include <functional>
 #include <string>
 #include <thread>
 #include <chrono>
-#include <array>
-#include <vector>
 
 #include "core/mesh_loader.h"
 #include "cfd/cfd_types.h"
 #include "cfd/cfd_mesh_adapter.h"
-#include "cfd/cfd_types.h"
+#include "cfd/cfd_session.h"
+#include "cfd/solution_state.h"
 #include "cfd/transient_frame.h"
 #include "core/post_fields.h"
 
 class QTemporaryDir;
 template<typename T> class QFutureWatcher;
-
-namespace fvm {
-template<std::size_t Dim> class Mesh;
-template<std::size_t Dim> class SIMPLE;
-template<std::size_t Dim> class VectorField;
-template<std::size_t Dim> class Field;
-template<std::size_t Dim> class SSTModel;
-}
-
-namespace cfd { class CaseSettings; }
 
 // One immutable frame as published by the render-prep worker.
 //
@@ -93,10 +81,12 @@ public:
 
     // Zero the velocity/pressure fields and return the freshly initialized
     // result mesh so the user can confirm a clean start before re-running.
-    // \"Initialize\" is the explicit reset in the Run-continues-from-state
+    // "Initialize" is the explicit reset in the Run-continues-from-state
     // model. Returns nullptr when no mesh is loaded or a run is active.
     std::shared_ptr<const RenderMesh> initialize(double ux = 0.0, double uy = 0.0, double p = 0.0,
                                                  double k = 1e-3, double omega = 1.0);
+    // Dimension-aware form used by the 3D UI path (supplies uz as well).
+    std::shared_ptr<const RenderMesh> initialize(const cfd::InitConditions& ic);
     std::shared_ptr<const RenderMesh> resultMesh() const;
     // Frame bus (Phase 2): latest immutable frame produced off the UI thread.
     // The slot is the single publish point — mesh, snapshot and status always
@@ -135,52 +125,20 @@ signals:
     void failed(const QString& error);
 
 private:
-    // Everything Save needs to persist about the solution that is not already
-    // in m_velocity/m_pressure. Kept in sync when a run finishes or when a
-    // paused Save asks for a snapshot, so a load -> save round-trip is lossless
-    // even without a live solver.
-    struct TransientSnapshot {
-        bool valid = false;             // time/dt/history describe a real time step
-        double time = 0.0;
-        double dt = 0.0;
-        double dtPrev = 0.0;
-        int step = 0;
-        std::array<std::vector<double>, 2> velocityNM1{};
-        bool hasVelocityHistory = false;
-        std::vector<double> kNM1;
-        std::vector<double> omegaNM1;
-        bool hasTurbulenceHistory = false;
-
-        bool hasTurbulence = false;     // current k/omega/nut
-        std::vector<double> k;
-        std::vector<double> omega;
-        std::vector<double> nut;
-    };
-
     // Lifecycle helpers (GUI thread only).
     void stopWorkers();
-    void requestSolverCancel();
     void resetSolutionState();
-    bool solverMatchesCurrentMesh() const;
-    void captureLiveState();
     void setError(const QString& msg);
+    // Copies the live solver state into m_state so Save and a subsequent Run
+    // both see the state a paused/just-finished run wrote.
+    void captureLiveState();
 
     cfd::MeshLoadResult m_mesh;
     cfd::CaseSettings m_settings;
-    std::shared_ptr<const fvm::Mesh<2>> m_meshPtr;
-    std::shared_ptr<fvm::VectorField<2>> m_velocity;
-    std::shared_ptr<fvm::Field<2>> m_pressure;
-    // Turbulence of a loaded result (the live solver owns its own model).
-    std::shared_ptr<fvm::SSTModel<2>> m_turbulence;
-    // True when m_velocity/m_pressure match the current mesh and may be saved.
-    bool m_hasSolution = false;
-
-    // Persisted transient + turbulence state (see TransientSnapshot).
-    TransientSnapshot m_transient;
-
-    std::shared_ptr<fvm::SIMPLE<2>> m_solver;
-    std::shared_ptr<const fvm::Mesh<2>> m_solverMesh; // mesh the solver was built for
-    mutable std::mutex m_solverMutex;
+    // Dimension-dispatched solver ownership (2D or 3D).
+    std::unique_ptr<cfd::ICfdSession> m_session;
+    // Last known solution state (fields + transient clock + turbulence).
+    cfd::SolutionSnapshot m_state;
     std::vector<cfd::PatchBC> m_patchBCs;
     std::atomic<bool> m_cancel{false};
     std::atomic<bool> m_running{false};

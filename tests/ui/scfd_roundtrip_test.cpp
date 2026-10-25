@@ -1,4 +1,4 @@
-// End-to-end tests for the .scfd v5 case format.
+// End-to-end tests for the .scfd case format (v6, with a v5 read shim).
 //
 // These use the real CfdController (Qt), so they only build with the app build
 // (SCIRENDER_BUILD_APP): the Qt-free `tests` preset has no Qt at all. The
@@ -103,7 +103,7 @@ bool runThenCancelWhen(CfdController& ctrl, const std::function<bool()>& ready,
 
 TEST_SUITE("ui") {
 
-TEST_CASE("ui.scfd_v5_roundtrip_preserves_case_and_mesh_name") {
+TEST_CASE("ui.scfd_roundtrip_preserves_case_and_mesh_name") {
     app();
 
     QTemporaryDir dir;
@@ -150,7 +150,7 @@ TEST_CASE("ui.scfd_v5_roundtrip_preserves_case_and_mesh_name") {
     CHECK(fa.readAll() == fb.readAll());
 }
 
-TEST_CASE("ui.scfd_v5_transient_continuation_and_end_time_guard") {
+TEST_CASE("ui.scfd_transient_continuation_and_end_time_guard") {
     app();
 
     QTemporaryDir dir;
@@ -188,7 +188,7 @@ TEST_CASE("ui.scfd_v5_transient_continuation_and_end_time_guard") {
     CHECK(loaded.currentTime() == doctest::Approx(0.03).epsilon(1e-9));
 }
 
-TEST_CASE("ui.scfd_v5_cancel_leaves_a_restartable_state") {
+TEST_CASE("ui.scfd_cancel_leaves_a_restartable_state") {
     app();
 
     QTemporaryDir dir;
@@ -225,6 +225,32 @@ TEST_CASE("ui.scfd_v5_cancel_leaves_a_restartable_state") {
     INFO("last error: " << loaded.lastError().toStdString());
     CHECK(loaded.currentStep() == cancelledStep + 5);
     CHECK(loaded.currentTime() == doctest::Approx(cancelledTime + 0.05).epsilon(1e-9));
+}
+
+TEST_CASE("ui.scfd_v5_file_still_loads") {
+    app();
+
+    // A checked-in v5 file predates 3D support. It has no explicit dimension
+    // field, so the shim reads it as a 2D case; re-saving upgrades it to v6.
+    CfdController ctrl;
+    REQUIRE(ctrl.loadCase(QStringLiteral(SCIRENDER_SAMPLES_DIR "/cfd/CylinderFlow.scfd")));
+    INFO("last error: " << ctrl.lastError().toStdString());
+    CHECK(ctrl.meshResult().dim == 2);
+    REQUIRE(ctrl.meshResult().mesh2);
+    CHECK_FALSE(ctrl.meshResult().mesh3);
+    auto rm = ctrl.resultMesh();
+    CHECK(rm != nullptr);
+
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString file = dir.filePath("upgraded.scfd");
+    REQUIRE(ctrl.saveCase(file));
+
+    CfdController loaded;
+    REQUIRE(loaded.loadCase(file));
+    INFO("last error: " << loaded.lastError().toStdString());
+    CHECK(loaded.meshResult().dim == 2);
+    CHECK(loaded.resultMesh() != nullptr);
 }
 
 } // TEST_SUITE

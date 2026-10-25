@@ -589,6 +589,42 @@ ANSYSMeshReader<Dim>::extractBoundaryGroups(
 // ============================================================================
 
 template<std::size_t Dim>
+int ANSYSMeshReader<Dim>::detectDimension(const std::string& filename) {
+    std::ifstream in(filename, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("ANSYSMeshReader: cannot open file '" + filename + "'");
+    }
+
+    // The Fluent format starts with small top-level sections (comment, header,
+    // dimension) before the bulk data, so stopping at section 2 costs nothing.
+    Tokenizer tokenizer(in);
+    while (true) {
+        auto t = tokenizer.peek();
+        if (t.kind == Token::End) break;
+        if (t.kind == Token::LParen) {
+            Section sec = parseNode(tokenizer);
+            if (sec.code == 2) {
+                if (sec.values.empty()) {
+                    throw std::runtime_error(
+                        "ANSYSMeshReader: empty dimension section in '" + filename + "'");
+                }
+                const int dim = parseInt(sec.values[0]);
+                if (dim != 2 && dim != 3) {
+                    throw std::runtime_error(
+                        "ANSYSMeshReader: unsupported mesh dimension " + std::to_string(dim));
+                }
+                return dim;
+            }
+        } else {
+            tokenizer.next();
+        }
+    }
+
+    throw std::runtime_error(
+        "ANSYSMeshReader: no dimension section found in '" + filename + "'");
+}
+
+template<std::size_t Dim>
 typename ANSYSMeshReader<Dim>::Result
 ANSYSMeshReader<Dim>::read(const std::string& filename) {
     std::ifstream in(filename, std::ios::binary);

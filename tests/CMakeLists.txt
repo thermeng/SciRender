@@ -81,6 +81,7 @@ scirender_add_test_suite(scirender_fvm_tests
         fvm/ghia_cavity_test.cpp
         fvm/cavity_msh_test.cpp
         fvm/channel_test.cpp
+        fvm/channel_3d_test.cpp
         fvm/transient_channel_test.cpp
         fvm/cancellable_test.cpp
     LIBRARIES
@@ -103,7 +104,7 @@ scirender_add_test_suite(scirender_render_tests
         glad)
 
 # ---------------------------------------------------------------------------
-# ui — the Qt-only controller: .scfd v5 round-trip and continuation.
+# ui — the Qt-only controller: .scfd round-trip, continuation and 3D solve.
 #
 # Guarded on SCIRENDER_BUILD_APP because the Qt-free `tests` preset does not
 # find Qt at all. The binary is linked into the same directory as the deployed
@@ -113,6 +114,7 @@ if(SCIRENDER_BUILD_APP)
     scirender_add_test_suite(scirender_ui_tests
         SOURCES
             ui/scfd_roundtrip_test.cpp
+            ui/cfd_3d_mesh_test.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.h
         LIBRARIES
@@ -150,6 +152,7 @@ scirender_add_test_suite(scirender_cfd_tests
         cfd/boundary_conditions_test.cpp
         cfd/residual_test.cpp
         cfd/debug_coupling_test.cpp
+        cfd/mesh_adapter_test.cpp
         ${SCIRENDER_FVM_TEST_SUPPORT_SOURCES}
     LIBRARIES
         FvmCore

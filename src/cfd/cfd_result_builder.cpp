@@ -1,10 +1,8 @@
 #include "cfd/cfd_result_builder.h"
 
-#include "mesh/Mesh.h"
 #include "field/Field.h"
 #include "field/VectorField.h"
-#include "fvm/SSTModel.h"
-#include "core/mesh_loader.h"
+#include "mesh/Mesh.h"
 
 #include <algorithm>
 #include <utility>
@@ -22,14 +20,15 @@ std::pair<float, float> rangeOf(const std::vector<float>& v) {
 
 } // namespace
 
+template<std::size_t Dim>
 std::shared_ptr<const RenderMesh> buildResultMesh(
     const std::shared_ptr<const RenderMesh>& baseMesh,
-    const fvm::Mesh<2>& mesh,
-    const fvm::VectorField<2>& velocity,
-    const fvm::Field<2>& pressure,
-    const fvm::SSTModel<2>* turbulence,
+    const fvm::Mesh<Dim>& mesh,
+    const SolutionSnapshot& state,
     const CaseSettings& settings,
     const std::vector<PatchBC>& patchBCs) {
+
+    if (!baseMesh || !state.hasFields() || state.cells != mesh.nCells()) return nullptr;
 
     RenderMesh rm = *baseMesh; // copy geometry + cell topology CSRs
     auto& attrs = mesh_utils::ensureAttributes(rm);
@@ -65,7 +64,7 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     // extrapolated point copy is what the GPU actually shades.
     std::vector<float> cellPres(static_cast<std::size_t>(nCells));
     for (int c = 0; c < nCells; ++c)
-        cellPres[static_cast<std::size_t>(c)] = static_cast<float>(pressure[static_cast<std::size_t>(c)]);
+        cellPres[static_cast<std::size_t>(c)] = static_cast<float>(state.pressure[static_cast<std::size_t>(c)]);
 
     attrs.cellScalars["pressure"] = cellPres;
     attrs.cellScalarRanges["pressure"] = rangeOf(cellPres);
@@ -83,9 +82,11 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     std::vector<glm::vec3> cellVel(static_cast<std::size_t>(nCells));
     for (int c = 0; c < nCells; ++c) {
         const auto uc = static_cast<std::size_t>(c);
-        cellVel[uc] = glm::vec3(static_cast<float>(velocity[0][uc]),
-                                static_cast<float>(velocity[1][uc]),
-                                0.0f);
+        float z = 0.0f;
+        if constexpr (Dim >= 3) z = static_cast<float>(state.velocity[2][uc]);
+        cellVel[uc] = glm::vec3(static_cast<float>(state.velocity[0][uc]),
+                                static_cast<float>(state.velocity[1][uc]),
+                                z);
     }
 
     rm.cellVectorsData = cellVel;
@@ -137,18 +138,15 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     rm.pointVectorCount = static_cast<std::size_t>(nSrc);
 
     // ── Turbulence ──────────────────────────────────────────────────────────
-    if (settings.turbulence && turbulence) {
-        const auto& tk = turbulence->k();
-        const auto& tw = turbulence->omega();
-        const auto& tn = turbulence->nut();
+    if (settings.turbulence && state.hasTurbulence()) {
         std::vector<float> k(static_cast<std::size_t>(nCells));
         std::vector<float> om(static_cast<std::size_t>(nCells));
         std::vector<float> nt(static_cast<std::size_t>(nCells));
         for (int c = 0; c < nCells; ++c) {
             const auto uc = static_cast<std::size_t>(c);
-            k[uc] = static_cast<float>(tk[uc]);
-            om[uc] = static_cast<float>(tw[uc]);
-            nt[uc] = static_cast<float>(tn[uc]);
+            k[uc] = static_cast<float>(state.turbulence.k[uc]);
+            om[uc] = static_cast<float>(state.turbulence.omega[uc]);
+            nt[uc] = static_cast<float>(state.turbulence.nut[uc]);
         }
         const std::pair<const char*, const std::vector<float>*> fields[] = {
             {"k", &k}, {"omega", &om}, {"nut", &nt}
@@ -173,7 +171,7 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
 
     rm.availableScalarNames.clear();
     rm.availableScalarNames.push_back("pressure");
-    if (settings.turbulence) {
+    if (settings.turbulence && state.hasTurbulence()) {
         rm.availableScalarNames.push_back("k");
         rm.availableScalarNames.push_back("omega");
         rm.availableScalarNames.push_back("nut");
@@ -182,5 +180,19 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     mesh_utils::finalizeGeometrySignatures(rm);
     return std::make_shared<const RenderMesh>(std::move(rm));
 }
+
+template std::shared_ptr<const RenderMesh> buildResultMesh<2>(
+    const std::shared_ptr<const RenderMesh>&,
+    const fvm::Mesh<2>&,
+    const SolutionSnapshot&,
+    const CaseSettings&,
+    const std::vector<PatchBC>&);
+
+template std::shared_ptr<const RenderMesh> buildResultMesh<3>(
+    const std::shared_ptr<const RenderMesh>&,
+    const fvm::Mesh<3>&,
+    const SolutionSnapshot&,
+    const CaseSettings&,
+    const std::vector<PatchBC>&);
 
 } // namespace cfd

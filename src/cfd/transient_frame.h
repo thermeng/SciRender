@@ -1,19 +1,15 @@
 #pragma once
-#include <memory>
 #include <cstdint>
+#include <memory>
 
-#include "field/Field.h"
-#include "field/VectorField.h"
+#include "cfd/solution_state.h"
 
-namespace fvm {
-template<std::size_t Dim> class VectorField;
-template<std::size_t Dim> class Field;
-}
-
+// One published frame from the solve. The snapshot is complete (velocity,
+// pressure and turbulence), so the render-prep thread never has to reach back
+// into the solver while it is advancing.
 struct TransientStep {
     int step = 0;
     double time = 0.0;
-    std::shared_ptr<const fvm::VectorField<2>> velocity;
-    std::shared_ptr<const fvm::Field<2>> pressure;
+    std::shared_ptr<const cfd::SolutionSnapshot> state;
     uint64_t gen = 0;
 };

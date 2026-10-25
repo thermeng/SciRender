@@ -639,8 +639,9 @@ void CfdCasePage::onMeshLoaded() {
     if (res.renderMesh) {
         S()->applyLoadedMesh(res.renderMesh, m_meshName.isEmpty() ? "CFD Mesh" : m_meshName);
     }
-    log(QString("%1 — %2 patches")
+    log(QString("%1 — %2D, %3 patches")
                           .arg(m_meshName.isEmpty() ? "Mesh" : m_meshName)
+                          .arg(res.dim)
                           .arg(res.patches.size()));
     setRunning(m_running);
 }
@@ -806,10 +807,11 @@ void CfdCasePage::onInitialize() {
         log("Stop the current run before initializing.");
         return;
     }
-    if (!m_ctrl->meshResult().mesh2) {
+    if (!m_ctrl->meshResult().renderMesh) {
         log("Load a mesh first.");
         return;
     }
+    const int dim = m_ctrl->meshResult().dim;
     collectSettings();
 
     QDialog dlg(this);
@@ -818,11 +820,13 @@ void CfdCasePage::onInitialize() {
     auto* form = new QFormLayout;
     auto* ux = new QDoubleSpinBox(&dlg); ux->setRange(-1e6, 1e6); ux->setDecimals(4); ux->setValue(0.0);
     auto* uy = new QDoubleSpinBox(&dlg); uy->setRange(-1e6, 1e6); uy->setDecimals(4); uy->setValue(0.0);
+    auto* uz = new QDoubleSpinBox(&dlg); uz->setRange(-1e6, 1e6); uz->setDecimals(4); uz->setValue(0.0);
     auto* p  = new QDoubleSpinBox(&dlg); p->setRange(-1e6, 1e6); p->setDecimals(4); p->setValue(0.0);
     auto* k  = new QDoubleSpinBox(&dlg); k->setRange(1e-12, 1e3); k->setDecimals(4); k->setValue(1e-3);
     auto* w  = new QDoubleSpinBox(&dlg); w->setRange(1e-6, 1e6); w->setDecimals(4); w->setValue(1.0);
     form->addRow("U_x", ux);
     form->addRow("U_y", uy);
+    if (dim >= 3) form->addRow("U_z", uz);
     form->addRow("p", p);
     form->addRow("k", k);
     form->addRow("omega", w);
@@ -834,13 +838,24 @@ void CfdCasePage::onInitialize() {
 
     if (dlg.exec() != QDialog::Accepted) return;
 
-    auto rm = m_ctrl->initialize(ux->value(), uy->value(), p->value(), k->value(), w->value());
+    cfd::InitConditions ic;
+    ic.ux = ux->value();
+    ic.uy = uy->value();
+    ic.uz = dim >= 3 ? uz->value() : 0.0;
+    ic.pressure = p->value();
+    ic.k = k->value();
+    ic.omega = w->value();
+
+    auto rm = m_ctrl->initialize(ic);
     if (!rm) {
-        log("No mesh loaded.");
+        log(m_ctrl->lastError().isEmpty() ? "No mesh loaded." : m_ctrl->lastError());
         return;
     }
     S()->applyLoadedMesh(rm, "cfd_solution");
-    log(QString("Initialized: U=(%1,%2), p=%3.").arg(ux->value()).arg(uy->value()).arg(p->value()));
+    const QString velocity = dim >= 3
+        ? QString("U=(%1,%2,%3)").arg(ic.ux).arg(ic.uy).arg(ic.uz)
+        : QString("U=(%1,%2)").arg(ic.ux).arg(ic.uy);
+    log(QString("Initialized: %1, p=%2.").arg(velocity).arg(ic.pressure));
     m_iterValue->setText("0");
     m_contValue->setText("--");
     m_momValue->setText("--");
