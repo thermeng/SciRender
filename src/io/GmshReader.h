@@ -22,6 +22,11 @@ public:
 
     static Result read(const std::string& filename);
 
+    // Scans $Elements for element types and returns 3 when the file contains
+    // volume elements, 2 otherwise. Only MSH 2.2 is supported, so a file that
+    // read() would reject is rejected here with the same diagnostic.
+    static int detectDimension(const std::string& filename);
+
 private:
     using FaceKey = std::vector<std::size_t>;
 

@@ -179,6 +179,9 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/cfd/cfd_mesh_adapter.cpp
         src/cfd/cfd_result_builder.h
         src/cfd/cfd_result_builder.cpp
+        src/cfd/solution_state.h
+        src/cfd/cfd_session.h
+        src/cfd/cfd_session.cpp
     )
     target_include_directories(CfdLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
     target_link_libraries(CfdLib PUBLIC CoreLib FvmCore)

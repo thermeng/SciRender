@@ -20,6 +20,12 @@ public:
 
     static Result read(const std::string& filename);
 
+    // Reads only the leading dimension section and returns 2 or 3, so a caller
+    // can pick the right read<Dim>() instantiation before parsing the whole
+    // file. The tokenizer/parser do not depend on Dim, so call this as
+    // ANSYSMeshReader<2>::detectDimension(path) regardless of the mesh.
+    static int detectDimension(const std::string& filename);
+
 private:
     struct Token {
         enum Kind { LParen, RParen, Integer, Real, String, End };

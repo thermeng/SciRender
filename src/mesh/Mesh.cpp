@@ -646,7 +646,13 @@ void Mesh<Dim>::computeUnstructuredFaceData_() {
         const FaceRecord& rec = faces[f];
         owner_[f] = rec.owner;
         neighbor_[f] = rec.neighbor;
-        faceVertices_[f] = rec.key;
+        // Keep the ordered loop from the owner cell, not the sorted key: the
+        // key is only for identity. Callers that triangulate a face, extract
+        // its boundary edges or walk it as a polygon need the cyclic order,
+        // and a sorted vertex-id list is not a polygon (it produces a fan of
+        // chords instead of the face). Orientation is irrelevant here because
+        // faceNormal_ is oriented separately below.
+        faceVertices_[f] = rec.loop;
 
         if constexpr (Dim == 3) {
             double area = 0.0;

@@ -4,6 +4,75 @@
 namespace fvm {
 
 template<std::size_t Dim>
+int GmshReader<Dim>::detectDimension(const std::string& filename) {
+    std::ifstream in(filename);
+    if (!in) {
+        throw std::runtime_error("GmshReader: cannot open file '" + filename + "'");
+    }
+
+    std::string line;
+    while (std::getline(in, line)) {
+        trim_(line);
+        if (!line.empty() && line[0] != '#') break;
+    }
+    if (line != "$MeshFormat") {
+        throw std::runtime_error("GmshReader: expected $MeshFormat, got '" + line + "'");
+    }
+    if (!std::getline(in, line)) {
+        throw std::runtime_error("GmshReader: unexpected end of file in MeshFormat");
+    }
+    trim_(line);
+    const std::string version = line.substr(0, line.find_first_of(" \t"));
+    if (version != "2.2") {
+        throw std::runtime_error("GmshReader: only MSH 2.2 supported, got '" + version + "'");
+    }
+    skipTo_(in, "$EndMeshFormat");
+
+    // MSH 2.2 element types that describe a volume cell. Higher-order variants
+    // are listed too: the current reader rejects them later, but the dimension
+    // decision must still be 3D so the diagnostic names the real problem.
+    auto isVolumeType = [](int type) {
+        switch (type) {
+            case 4:  // tetrahedron
+            case 5:  // hexahedron
+            case 6:  // prism
+            case 7:  // pyramid
+            case 11: // 10-node tetrahedron
+            case 12: // 27-node hexahedron
+            case 13: // 18-node prism
+            case 14: // 14-node pyramid
+            case 17: // 20-node hexahedron
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    while (std::getline(in, line)) {
+        trim_(line);
+        if (line != "$Elements") continue;
+
+        if (!std::getline(in, line)) {
+            throw std::runtime_error("GmshReader: unexpected end of file in Elements");
+        }
+        const int totalElements = std::stoi(trimmed(line));
+        for (int i = 0; i < totalElements; ++i) {
+            if (!std::getline(in, line)) {
+                throw std::runtime_error("GmshReader: truncated Elements section");
+            }
+            trim_(line);
+            std::size_t pos = 0;
+            parseInt_(line, pos);              // element tag
+            const int type = parseInt_(line, pos);
+            if (isVolumeType(type)) return 3;
+        }
+        return 2;  // $Elements existed but held only lower-dimensional cells
+    }
+
+    throw std::runtime_error("GmshReader: no $Elements section found in '" + filename + "'");
+}
+
+template<std::size_t Dim>
 typename GmshReader<Dim>::Result
 GmshReader<Dim>::read(const std::string& filename) {
     std::ifstream in(filename);

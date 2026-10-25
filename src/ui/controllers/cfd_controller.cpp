@@ -1,20 +1,12 @@
 #include "ui/controllers/cfd_controller.h"
 
-#include "cfd/amg_settings_bridge.h"
-#include "cfd/cfd_mesh_adapter.h"
-#include "cfd/cfd_result_builder.h"
-#include "cfd/cfd_types.h"
 #include "cfd/case_codec.h"
-#include "cfd/transient_settings_bridge.h"
-#include "cfd/solver_config_bridge.h"
+#include "cfd/cfd_mesh_adapter.h"
+#include "cfd/cfd_session.h"
+#include "cfd/solution_state.h"
+#include "cfd/transient_frame.h"
 
 #include "mesh/Mesh.h"
-#include "field/Field.h"
-#include "field/VectorField.h"
-#include "fvm/SIMPLE.h"
-#include "fvm/SIMPLETypes.h"
-#include "fvm/SSTModel.h"
-#include "io/VTKXMLWriter.h"
 
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
@@ -26,14 +18,10 @@
 #include <QTemporaryDir>
 #include <QRegularExpression>
 #include <QStringList>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
-
 
 #include <memory>
-#include <mutex>
 #include <fstream>
+#include <iostream>
 
 #include <omp.h>
 #include <Eigen/Core>
@@ -44,7 +32,8 @@ namespace {
 
 constexpr qint64 kMaxMeshBytes = 1024LL * 1024 * 1024; // 1 GiB
 constexpr qint64 kMaxSettingsBytes = 16LL * 1024 * 1024;
-constexpr qint32 kScfdVersion = 5;
+constexpr qint32 kScfdVersion = 6;
+constexpr qint32 kScfdVersionReadMin = 5; // v5 files are read through a shim
 
 struct PvdEntry {
     std::string time;
@@ -116,7 +105,7 @@ CfdController::CfdController(QObject* parent) : QObject(parent) {}
 
 CfdController::~CfdController() {
     m_cancel.store(true);
-    requestSolverCancel();
+    if (m_session) m_session->requestCancel();
     // A QtConcurrent solve lambda captures `this`; it must be finished before
     // the members it reads go away.
     if (m_solveWatcher) {
@@ -136,38 +125,16 @@ void CfdController::stopWorkers() {
     if (m_diskWriterThread.joinable()) m_diskWriterThread.join();
 }
 
-void CfdController::requestSolverCancel() {
-    std::shared_ptr<fvm::SIMPLE<2>> solver;
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        solver = m_solver;
-    }
-    if (solver) solver->requestCancel();
-}
-
 void CfdController::resetSolutionState() {
     // Bump the generation first: any in-flight worker that still holds the old
     // generator must not publish into the new state.
     ++m_gen;
     stopWorkers();
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        m_solver.reset();
-        m_solverMesh.reset();
-    }
-    m_velocity.reset();
-    m_pressure.reset();
-    m_turbulence.reset();
-    m_transient = TransientSnapshot{};
-    m_hasSolution = false;
+    if (m_session) m_session->clear();
+    m_state.clear();
     m_lastTime.store(0.0);
     m_latestStep.store(nullptr);
     m_latestFrameSlot.store(nullptr);
-}
-
-bool CfdController::solverMatchesCurrentMesh() const {
-    std::lock_guard<std::mutex> lk(m_solverMutex);
-    return m_solver && m_meshPtr && m_solverMesh == m_meshPtr;
 }
 
 void CfdController::setError(const QString& msg) {
@@ -176,80 +143,10 @@ void CfdController::setError(const QString& msg) {
 }
 
 void CfdController::captureLiveState() {
-    std::shared_ptr<fvm::SIMPLE<2>> solver;
-    std::shared_ptr<const fvm::Mesh<2>> solverMesh;
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        solver = m_solver;
-        solverMesh = m_solverMesh;
-    }
-    if (!solver || !m_meshPtr || solverMesh != m_meshPtr) return;
-
-    const std::size_t n = m_meshPtr->nCells();
-
-    // Current turbulence is independent of the time mode: a steady run needs
-    // it just as much for a lossless Save.
-    const fvm::SSTModel<2>* turb = solver->turbulence();
-    if (turb) {
-        m_transient.hasTurbulence = true;
-        m_transient.k.resize(n);
-        m_transient.omega.resize(n);
-        m_transient.nut.resize(n);
-        for (std::size_t i = 0; i < n; ++i) {
-            m_transient.k[i] = turb->k()[i];
-            m_transient.omega[i] = turb->omega()[i];
-            m_transient.nut[i] = turb->nut()[i];
-        }
-    } else {
-        m_transient.hasTurbulence = false;
-        m_transient.k.clear();
-        m_transient.omega.clear();
-        m_transient.nut.clear();
-    }
-
-    if (!m_settings.transient.enabled) {
-        m_transient.valid = false;
-        return;
-    }
-
-    m_transient.valid = solver->hasTransientState();
-    m_transient.time = solver->currentTime();
-    m_transient.dt = solver->currentDt();
-    m_transient.dtPrev = solver->currentDtPrev();
-    m_transient.step = solver->currentStep();
-
-    const auto& vnm1 = solver->velocityNM1();
-    const bool haveV = vnm1.size() == n &&
-                       vnm1[0].size() == n && vnm1[1].size() == n;
-    m_transient.hasVelocityHistory = haveV;
-    if (haveV) {
-        for (std::size_t d = 0; d < 2; ++d) {
-            m_transient.velocityNM1[d].resize(n);
-            for (std::size_t i = 0; i < n; ++i) m_transient.velocityNM1[d][i] = vnm1[d][i];
-        }
-    } else {
-        m_transient.velocityNM1[0].clear();
-        m_transient.velocityNM1[1].clear();
-    }
-
-    if (turb) {
-        const auto& kn = solver->kNM1();
-        const auto& on = solver->omegaNM1();
-        m_transient.hasTurbulenceHistory = kn.size() == n && on.size() == n;
-        if (m_transient.hasTurbulenceHistory) {
-            m_transient.kNM1.resize(n);
-            m_transient.omegaNM1.resize(n);
-            for (std::size_t i = 0; i < n; ++i) {
-                m_transient.kNM1[i] = kn[i];
-                m_transient.omegaNM1[i] = on[i];
-            }
-        }
-    } else {
-        m_transient.hasTurbulenceHistory = false;
-        m_transient.kNM1.clear();
-        m_transient.omegaNM1.clear();
-    }
-    m_lastTime.store(m_transient.time);
+    if (!m_session) return;
+    cfd::SolutionSnapshot live = m_session->capture();
+    if (live.hasFields()) m_state = std::move(live);
+    m_lastTime.store(m_state.transientValid ? m_state.time : 0.0);
 }
 
 bool CfdController::loadMesh(const QString& path) {
@@ -259,14 +156,19 @@ bool CfdController::loadMesh(const QString& path) {
         return false;
     }
     auto res = cfd::loadMesh(path.toStdString());
-    if (!res.error.empty() || !res.mesh2) {
+    if (!res.error.empty() || (!res.mesh2 && !res.mesh3)) {
         setError(QString::fromStdString(res.error.empty() ? "Unsupported mesh" : res.error));
         return false;
     }
 
     resetSolutionState();
     m_mesh = std::move(res);
-    m_meshPtr = m_mesh.mesh2;
+    m_session = cfd::makeSession(m_mesh);
+    if (!m_session) {
+        m_mesh = cfd::MeshLoadResult{};
+        setError("Unsupported mesh.");
+        return false;
+    }
     m_meshPath = path;
     m_meshName = QFileInfo(path).fileName();
     m_embeddedMesh.clear();
@@ -292,15 +194,13 @@ bool CfdController::run() {
         setError("A solve is already running.");
         return false;
     }
-    if (!m_meshPtr || !m_mesh.renderMesh) {
+    if (!m_session || !m_mesh.renderMesh) {
         setError("No mesh loaded.");
         return false;
     }
 
     // Join the previous run's helper threads, then keep its final state (the
-    // fields are bound by reference and already hold it) before replacing the
-    // solver. Capture happens before the generation bump so the snapshot is
-    // still attributed to the completed run.
+    // session still owns it) before starting a new solver.
     stopWorkers();
     captureLiveState();
 
@@ -310,11 +210,10 @@ bool CfdController::run() {
 
     const uint64_t gen = ++m_gen;
 
-    auto meshPtr = m_meshPtr;
     auto settings = m_settings;
     auto base = m_mesh.renderMesh;
     auto patchBCs = m_patchBCs;
-    const std::size_t nCells = meshPtr->nCells();
+    auto* session = m_session.get();
 
     // Honor the user's thread-count choice (0 = OpenMP/Eigen default).
     const int requestedThreads = settings.numThreads;
@@ -334,184 +233,50 @@ bool CfdController::run() {
                 .toStdString();
     }
 
-    // Continue from the current solution when it belongs to this mesh;
-    // otherwise (fresh mesh / first run) start from zero. Initialize is the
-    // explicit reset.
-    const bool fieldsMatch = m_velocity && m_pressure &&
-        m_velocity->size() == nCells &&
-        m_velocity->operator[](0).size() == nCells &&
-        m_velocity->operator[](1).size() == nCells &&
-        m_pressure->size() == nCells;
-    if (!fieldsMatch) {
-        m_velocity = std::make_shared<fvm::VectorField<2>>(*meshPtr, 0.0);
-        m_pressure = std::make_shared<fvm::Field<2>>(*meshPtr, 0.0);
-        m_hasSolution = false;
-        m_transient = TransientSnapshot{};
-    }
-
-    if (settings.transient.enabled) {
-        if (!(settings.transient.tEnd > 0.0)) {
-            setError("End time must be greater than zero.");
-            return false;
-        }
-        if (m_transient.valid && m_transient.time >= settings.transient.tEnd - 1e-12) {
-            setError(QString("The saved state is already at t = %1 s (end time %2 s). "
-                             "Raise the end time to continue the run.")
-                         .arg(m_transient.time, 0, 'g', 8)
-                         .arg(settings.transient.tEnd, 0, 'g', 8));
-            return false;
-        }
-    } else {
-        // A steady run has no transient clock; do not persist a stale one.
-        m_transient.valid = false;
-    }
-
-    m_lastTime.store(settings.transient.enabled && m_transient.valid ? m_transient.time : 0.0);
-
-    // True when the fields are a previous result (loaded case or earlier run)
-    // rather than the zero initial condition of a fresh start. The solver only
-    // needs a restart payload in the former case.
-    const bool hadSolution = m_hasSolution;
-
-    // From here on the run is accepted, so the fields are a solution: they are
-    // either the loaded/previous result or the zero initial condition the solver
-    // is about to advance.
-    m_hasSolution = true;
-
-    fvm::SIMPLE<2>::Config sc = cfd::toFvmConfig<2>(settings);
-    if (settings.turbulence) {
-        for (const auto& pbc : patchBCs) {
-            if (pbc.type != cfd::BCType::VelocityInlet) continue;
-            fvm::SIMPLE<2>::InletTurbulence it;
-            it.patch = pbc.patchName;
-            it.k = pbc.kInlet;
-            it.omega = pbc.omegaInlet;
-            sc.inletTurbulence.push_back(it);
-        }
-    }
-    sc.iterationCallback = [this, gen](int iter, double cont, double mom) {
+    cfd::RunHooks hooks;
+    hooks.iteration = [this, gen](int iter, double cont, double mom) {
         if (gen != m_gen) return;
         if (m_cancel.load()) return;
         emit progress(iter, cont, mom);
     };
-    // Frame bus (Phase 2): solver stores an immutable step snapshot each
-    // iteration; render-prep thread builds the mesh off the UI thread.
+    // Frame bus (Phase 2): the solver publishes a self-contained snapshot each
+    // time step; the render-prep thread builds the mesh off the UI thread.
     if (settings.transient.enabled) {
-        sc.renderCallback = [this, gen](int step, double time,
-            const fvm::VectorField<2>& velocity, const fvm::Field<2>& pressure) {
+        hooks.frame = [this, gen](const cfd::SolutionSnapshot& snapshot) {
             if (gen != m_gen) return;
             if (m_cancel.load()) return;
-            m_lastTime.store(time);
-            auto v = std::make_shared<fvm::VectorField<2>>(velocity);
-            auto p = std::make_shared<fvm::Field<2>>(pressure);
-            auto ts = std::make_shared<TransientStep>();
-            ts->step = step;
-            ts->time = time;
-            ts->velocity = v;
-            ts->pressure = p;
-            ts->gen = gen;
-            m_latestStep.store(std::shared_ptr<const TransientStep>(ts));
+            m_lastTime.store(snapshot.time);
+            auto step = std::make_shared<TransientStep>();
+            step->step = snapshot.step;
+            step->time = snapshot.time;
+            step->state = std::make_shared<const cfd::SolutionSnapshot>(snapshot);
+            step->gen = gen;
+            m_latestStep.store(std::shared_ptr<const TransientStep>(step));
         };
     }
 
-    auto solver = std::make_shared<fvm::SIMPLE<2>>(*meshPtr, settings.rho, settings.nu, sc);
-    if (settings.turbulence) {
-        solver->enableTurbulence(settings.kInf, settings.omegaInf, settings.alphaK, settings.alphaOmega);
-    }
-    solver->bindVelocity(*m_velocity);
-    solver->bindPressure(*m_pressure);
-
-    // Apply per-patch BCs
-    for (const auto& pbc : patchBCs) {
-        auto it = meshPtr->boundaryGroups().find(pbc.patchName);
-        if (it == meshPtr->boundaryGroups().end()) continue;
-        const std::vector<std::size_t>& faces = it->second;
-        std::string typeStr;
-        switch (pbc.type) {
-            case cfd::BCType::VelocityInlet: typeStr = "inlet"; break;
-            case cfd::BCType::PressureOutlet: typeStr = "pressure_outlet"; break;
-            case cfd::BCType::Outlet: typeStr = "outlet"; break;
-            case cfd::BCType::WallNoSlip: typeStr = "wall"; break;
-            case cfd::BCType::SlipWall: typeStr = "slip_wall"; break;
-            case cfd::BCType::Symmetry: typeStr = "symmetry"; break;
-            case cfd::BCType::MovingWall: typeStr = "moving_wall"; break;
-        }
-        if (pbc.type == cfd::BCType::PressureOutlet) {
-            solver->setPressureOutletOnFacesWithBackflow(faces, pbc.pressure, pbc.suppressBackflow,
-                pbc.backflowU, pbc.backflowV, pbc.backflowW, pbc.backflowK, pbc.backflowOmega);
-        } else {
-            bool slip = (pbc.type == cfd::BCType::SlipWall || pbc.type == cfd::BCType::Symmetry);
-            solver->setVelocityBCOnFacesWithSlip(faces, typeStr, pbc.u, pbc.v, pbc.w, slip, pbc.pressure);
-        }
+    std::string startError;
+    if (!session->startRun(settings, patchBCs, m_state, hooks, startError)) {
+        setError(QString::fromStdString(startError.empty()
+                     ? "The run could not be started." : startError));
+        return false;
     }
 
-    // Queue the restart payload. initializeSolve_ applies it after the
-    // turbulence model exists, so restored k/omega/nut survive.
-    if (hadSolution || m_transient.hasTurbulence || m_transient.valid) {
-        fvm::SIMPLE<2>::RestartState rs;
-        if (hadSolution) {
-            rs.hasVelocity = true;
-            for (std::size_t d = 0; d < 2; ++d) {
-                rs.velocity[d].resize(nCells);
-                for (std::size_t i = 0; i < nCells; ++i)
-                    rs.velocity[d][i] = m_velocity->operator[](d)[i];
-            }
-            rs.pressure.resize(nCells);
-            for (std::size_t i = 0; i < nCells; ++i)
-                rs.pressure[i] = m_pressure->operator[](i);
-        }
-        if (m_transient.hasTurbulence) {
-            rs.hasTurbulence = true;
-            rs.k = m_transient.k;
-            rs.omega = m_transient.omega;
-            rs.nut = m_transient.nut;
-        }
-        if (settings.transient.enabled && m_transient.valid) {
-            rs.hasTransient = true;
-            rs.time = m_transient.time;
-            rs.dt = m_transient.dt;
-            rs.dtPrev = m_transient.dtPrev;
-            rs.step = m_transient.step;
-            if (m_transient.hasVelocityHistory) {
-                rs.hasVelocityHistory = true;
-                for (std::size_t d = 0; d < 2; ++d) rs.velocityNM1[d] = m_transient.velocityNM1[d];
-            }
-            if (m_transient.hasTurbulenceHistory) {
-                rs.hasTurbulenceHistory = true;
-                rs.kNM1 = m_transient.kNM1;
-                rs.omegaNM1 = m_transient.omegaNM1;
-            }
-        }
-        solver->setRestartState(std::move(rs));
-    }
-
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        m_solver = solver;
-        m_solverMesh = meshPtr;
-    }
+    m_lastTime.store(settings.transient.enabled && m_state.transientValid
+                         ? m_state.time : 0.0);
 
     if (settings.transient.enabled) {
         m_renderPrepRunning.store(true);
-        auto baseMesh = base;
-        auto meshP = meshPtr;
-        auto cfg = settings;
-        auto bcs = patchBCs;
-        m_renderPrepThread = std::thread([this, gen, baseMesh, meshP, cfg, bcs]() {
+        m_renderPrepThread = std::thread([this, gen, session, base, settings, patchBCs]() {
             std::shared_ptr<const TransientStep> last;
             while (m_renderPrepRunning.load() && gen == m_gen && !m_cancel.load()) {
                 auto step = m_latestStep.load();
-                if (!step || step == last) {
+                if (!step || step == last || step->gen != gen) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     continue;
                 }
                 if (m_cancel.load() || gen != m_gen) break;
-                const fvm::SSTModel<2>* turb = nullptr;
-                {
-                    std::lock_guard<std::mutex> lk(m_solverMutex);
-                    if (m_solver) turb = m_solver->turbulence();
-                }
-                auto rm = buildResultMesh(baseMesh, *meshP, *step->velocity, *step->pressure, turb, cfg, bcs);
+                auto rm = session->buildResult(base, *step->state, settings, patchBCs);
                 if (m_cancel.load() || gen != m_gen) break;
                 if (rm) {
                     // Publish mesh + post-field snapshot + status as ONE immutable
@@ -542,7 +307,6 @@ bool CfdController::run() {
 
     if (settings.transient.enabled && settings.transient.writeInterval > 0) {
         m_diskWriterRunning.store(true);
-        auto meshP = meshPtr;
 
         // One PVD path for the whole run; default next to the case/mesh. Carry
         // forward the entries of an existing .pvd so a continued run appends
@@ -555,43 +319,36 @@ bool CfdController::run() {
         const std::vector<PvdEntry> existing = readExistingPvd(pvdPath);
         const int wi = settings.transient.writeInterval;
 
-        m_diskWriterThread = std::thread([this, gen, meshP, baseName, pvdPath, existing, wi]() {
+        m_diskWriterThread = std::thread([this, gen, session, baseName, pvdPath,
+                                          existing, wi]() {
             std::vector<PvdEntry> entries = existing;
             int lastSeen = -1;
-            const std::string ext = meshP->isUnstructured()
-                ? ".vtu" : (meshP->isUniform() ? ".vti" : ".vtr");
+            const std::string ext = session->outputExtension();
             while (m_diskWriterRunning.load() && gen == m_gen && !m_cancel.load()) {
-                auto stepPtr = m_latestStep.load();
-                if (!stepPtr || stepPtr->gen != gen) {
+                auto step = m_latestStep.load();
+                if (!step || step->gen != gen) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     continue;
                 }
-                const int step = stepPtr->step;
-                if (step == lastSeen) {
+                const int stepIndex = step->step;
+                if (stepIndex == lastSeen) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     continue;
                 }
-                lastSeen = step;
-                if (step % wi != 0) continue;
+                lastSeen = stepIndex;
+                if (stepIndex % wi != 0) continue;
 
                 const std::string fname =
-                    (baseName + "_" + QString::number(step)).toStdString() + ext;
-                std::array<const fvm::Field<2>*, 2> velPtrs{};
-                for (std::size_t d = 0; d < 2; ++d) velPtrs[d] = &stepPtr->velocity->operator[](d);
-                fvm::VTKXMLWriter<2>::writeWithVelocity(fname, *meshP, *stepPtr->pressure, velPtrs, "Pressure");
-                entries.push_back({std::to_string(stepPtr->time), fname});
+                    (baseName + "_" + QString::number(stepIndex)).toStdString() + ext;
+                session->exportVtu(fname, *step->state);
+                entries.push_back({std::to_string(step->time), fname});
                 writePvd(pvdPath.toStdString(), entries);
                 std::cout << "  [transient] VTK written to: " << fname << " (pvd updated)\n";
 
-                const fvm::SSTModel<2>* turb = nullptr;
-                {
-                    std::lock_guard<std::mutex> lk(m_solverMutex);
-                    if (m_solver) turb = m_solver->turbulence();
-                }
-                if (turb) {
+                if (step->state->hasTurbulence()) {
                     std::string turbFile = baseName.toStdString() + "_turb_"
-                        + std::to_string(step) + ext;
-                    fvm::VTKXMLWriter<2>::writeTurbulence(turbFile, *meshP, turb->k(), turb->omega(), turb->nut());
+                        + std::to_string(stepIndex) + ext;
+                    session->exportTurbulence(turbFile, *step->state);
                 }
             }
         });
@@ -599,7 +356,8 @@ bool CfdController::run() {
 
     auto* w = new QFutureWatcher<void>(this);
     m_solveWatcher = w;
-    connect(w, &QFutureWatcher<void>::finished, this, [this, w, gen, solver, settings]() {
+    connect(w, &QFutureWatcher<void>::finished, this,
+            [this, w, gen, session, settings]() {
         if (m_solveWatcher == w) m_solveWatcher = nullptr;
         w->deleteLater();
         m_renderPrepRunning.store(false);
@@ -612,37 +370,37 @@ bool CfdController::run() {
         // The solve is no longer writing: snapshot the final state so Save and
         // a subsequent Run both see it.
         captureLiveState();
-        m_lastTime.store(solver->currentTime());
+        m_lastTime.store(session->currentTime());
 
-        const fvm::SIMPLE<2>::Status st = solver->status();
-        if (st == fvm::SIMPLE<2>::Status::Cancelled) {
+        const cfd::SessionStatus st = session->status();
+        if (st == cfd::SessionStatus::Cancelled) {
             emit finished("Cancelled");
             return;
         }
-        if (st == fvm::SIMPLE<2>::Status::Aborted) {
+        if (st == cfd::SessionStatus::Aborted) {
             emit finished("Solve aborted: the residual diverged or went non-finite");
             return;
         }
         if (settings.transient.enabled) {
-            if (st == fvm::SIMPLE<2>::Status::Completed) {
+            if (st == cfd::SessionStatus::Completed) {
                 emit finished(QString("Transient run complete (t = %1 s, step %2)")
-                                  .arg(solver->currentTime(), 0, 'g', 8)
-                                  .arg(solver->currentStep()));
+                                  .arg(session->currentTime(), 0, 'g', 8)
+                                  .arg(session->currentStep()));
             } else {
                 emit finished(QString("Transient run stopped before the end time (t = %1 s)")
-                                  .arg(solver->currentTime(), 0, 'g', 8));
+                                  .arg(session->currentTime(), 0, 'g', 8));
             }
             return;
         }
         // Steady: report the VERDICT, not just "the run ended".
-        const double cont = solver->finalContinuityResidual();
-        const int iters = solver->lastIterations();
+        const double cont = session->finalContinuityResidual();
+        const int iters = session->lastIterations();
         switch (st) {
-        case fvm::SIMPLE<2>::Status::Converged:
+        case cfd::SessionStatus::Converged:
             emit finished(QString("Converged in %1 iterations (continuity %2)")
                               .arg(iters).arg(cont, 0, 'g', 4));
             break;
-        case fvm::SIMPLE<2>::Status::NotConverged:
+        case cfd::SessionStatus::NotConverged:
             emit finished(QString("NOT converged: iteration limit (%1) reached, continuity %2")
                               .arg(iters).arg(cont, 0, 'g', 4));
             break;
@@ -652,14 +410,9 @@ bool CfdController::run() {
         }
     });
 
-    auto velocity = m_velocity;
-    auto pressure = m_pressure;
-    auto fut = QtConcurrent::run([this, gen, solver, settings, velocity, pressure]() {
+    auto fut = QtConcurrent::run([this, gen, session]() {
         if (gen != m_gen) return;
-        if (settings.transient.enabled)
-            solver->solveTransient(*velocity, *pressure);
-        else
-            solver->solve(*velocity, *pressure);
+        session->solve();
     });
     m_running.store(true);
     w->setFuture(fut);
@@ -668,48 +421,30 @@ bool CfdController::run() {
 
 std::shared_ptr<const RenderMesh> CfdController::initialize(double ux, double uy, double p,
                                                             double k, double omega) {
+    cfd::InitConditions ic;
+    ic.ux = ux;
+    ic.uy = uy;
+    ic.uz = 0.0;
+    ic.pressure = p;
+    ic.k = k;
+    ic.omega = omega;
+    return initialize(ic);
+}
+
+std::shared_ptr<const RenderMesh> CfdController::initialize(const cfd::InitConditions& ic) {
     if (m_running.load()) {
         setError("Stop the current run before initializing.");
         return nullptr;
     }
-    stopWorkers();
-    if (!m_meshPtr || !m_mesh.renderMesh) {
+    if (!m_session || !m_mesh.renderMesh) {
         setError("No mesh loaded.");
         return nullptr;
     }
+    stopWorkers();
 
     resetSolutionState();
-    m_velocity = std::make_shared<fvm::VectorField<2>>(*m_meshPtr, 0.0);
-    for (double& val : (*m_velocity)[0].values()) val = ux;
-    for (double& val : (*m_velocity)[1].values()) val = uy;
-    m_pressure = std::make_shared<fvm::Field<2>>(*m_meshPtr, p);
-    m_hasSolution = true;
-
-    const fvm::SSTModel<2>* turb = nullptr;
-    if (m_settings.turbulence) {
-        fvm::SSTModel<2>::Config sstCfg{};
-        sstCfg.kInf = k;
-        sstCfg.omegaInf = omega;
-        sstCfg.alphaK = m_settings.alphaK;
-        sstCfg.alphaOmega = m_settings.alphaOmega;
-        auto model = std::make_shared<fvm::SSTModel<2>>(*m_meshPtr, sstCfg);
-        model->initialize(m_settings.nu * m_settings.rho, m_settings.rho);
-        const std::size_t n = m_meshPtr->nCells();
-        m_transient.hasTurbulence = true;
-        m_transient.k.resize(n);
-        m_transient.omega.resize(n);
-        m_transient.nut.resize(n);
-        for (std::size_t i = 0; i < n; ++i) {
-            m_transient.k[i] = model->k()[i];
-            m_transient.omega[i] = model->omega()[i];
-            m_transient.nut[i] = model->nut()[i];
-        }
-        m_turbulence = std::move(model);
-        turb = m_turbulence.get();
-    }
-
-    return cfd::buildResultMesh(m_mesh.renderMesh, *m_meshPtr, *m_velocity, *m_pressure,
-                                turb, m_settings, m_patchBCs);
+    m_state = m_session->initialize(ic, m_settings);
+    return m_session->buildResult(m_mesh.renderMesh, m_state, m_settings, m_patchBCs);
 }
 
 void CfdController::cancel() {
@@ -719,112 +454,68 @@ void CfdController::cancel() {
     m_cancel.store(true);
     m_renderPrepRunning.store(false);
     m_diskWriterRunning.store(false);
-    requestSolverCancel();
+    if (m_session) m_session->requestCancel();
 }
 
 void CfdController::pause() {
-    std::shared_ptr<fvm::SIMPLE<2>> solver;
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        solver = m_solver;
-    }
-    if (solver) solver->requestPause();
+    if (m_session) m_session->requestPause();
 }
 
 void CfdController::resume() {
-    std::shared_ptr<fvm::SIMPLE<2>> solver;
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        solver = m_solver;
-    }
-    if (solver) solver->requestResume();
+    if (m_session) m_session->requestResume();
 }
 
 void CfdController::step() {
-    std::shared_ptr<fvm::SIMPLE<2>> solver;
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        solver = m_solver;
-    }
-    if (solver) solver->requestStep();
+    if (m_session) m_session->requestStep();
 }
 
 bool CfdController::isPaused() const {
-    std::shared_ptr<fvm::SIMPLE<2>> solver;
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        solver = m_solver;
-    }
-    return solver && solver->isPaused();
+    return m_session && m_session->isPaused();
 }
 
 bool CfdController::isPausedSettled() const {
-    std::shared_ptr<fvm::SIMPLE<2>> solver;
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        solver = m_solver;
-    }
-    return solver && solver->isPauseSettled();
+    return m_session && m_session->isPausedSettled();
 }
 
 int CfdController::currentStep() const {
-    if (m_running.load()) {
-        if (isPausedSettled()) {
-            std::shared_ptr<fvm::SIMPLE<2>> solver;
-            {
-                std::lock_guard<std::mutex> lk(m_solverMutex);
-                solver = m_solver;
-            }
-            if (solver) return solver->currentStep();
-        }
-        return latestStep();
-    }
-    return m_transient.valid ? m_transient.step : 0;
+    if (m_running.load() && !isPausedSettled()) return latestStep();
+    if (m_session) return m_session->currentStep();
+    return m_state.transientValid ? m_state.step : 0;
 }
 
 double CfdController::currentTime() const {
-    if (m_running.load()) {
-        if (isPausedSettled()) {
-            std::shared_ptr<fvm::SIMPLE<2>> solver;
-            {
-                std::lock_guard<std::mutex> lk(m_solverMutex);
-                solver = m_solver;
-            }
-            if (solver) return solver->currentTime();
-        }
-        return latestTime();
-    }
-    return m_transient.valid ? m_transient.time : 0.0;
+    if (m_running.load() && !isPausedSettled()) return latestTime();
+    if (m_session) return m_session->currentTime();
+    return m_state.transientValid ? m_state.time : 0.0;
 }
 
 void CfdController::exportVtu(const QString& path) {
     m_lastError.clear();
-    if (!m_hasSolution || !m_meshPtr || !m_velocity || !m_pressure) {
-        setError("No solution to export. Run the solver first.");
+    if (!m_session || !m_mesh.renderMesh) {
+        setError("No mesh loaded.");
         return;
     }
     if (m_running.load() && !(isPaused() && isPausedSettled())) {
         setError("Pause the run before exporting.");
         return;
     }
-    std::array<const fvm::Field<2>*, 2> vel{&m_velocity->operator[](0), &m_velocity->operator[](1)};
-    const fvm::SSTModel<2>* turb = nullptr;
-    if (solverMatchesCurrentMesh()) {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        if (m_solver) turb = m_solver->turbulence();
+    captureLiveState();
+    if (!m_state.hasFields()) {
+        setError("No solution to export. Run the solver first.");
+        return;
     }
-    if (!turb && m_turbulence) turb = m_turbulence.get();
-    const fvm::Field<2>* k = turb ? &turb->k() : nullptr;
-    const fvm::Field<2>* om = turb ? &turb->omega() : nullptr;
-    const fvm::Field<2>* nt = turb ? &turb->nut() : nullptr;
-    fvm::VTKXMLWriter<2>::writeWithVelocity(path.toStdString(), *m_meshPtr, *m_pressure, vel, "pressure", k, om, nt);
+    try {
+        m_session->exportVtu(path.toStdString(), m_state);
+    } catch (const std::exception& e) {
+        setError(QString::fromStdString(e.what()));
+    }
 }
 
 // --- Case I/O -------------------------------------------------------------
 
 bool CfdController::saveCase(const QString& path) {
     m_lastError.clear();
-    if (!m_meshPtr || !m_mesh.renderMesh) {
+    if (!m_session || !m_mesh.renderMesh) {
         setError("No mesh loaded.");
         return false;
     }
@@ -857,15 +548,10 @@ bool CfdController::saveCase(const QString& path) {
 
     const QByteArray settingsBytes = cfd::serializeCaseSettings(m_settings, m_patchBCs);
 
-    const std::size_t n = m_meshPtr->nCells();
-    const bool fieldsMatch = m_velocity && m_pressure &&
-                             m_velocity->operator[](0).size() == n &&
-                             m_velocity->operator[](1).size() == n &&
-                             m_pressure->size() == n;
-    const bool hasResult = m_hasSolution && fieldsMatch;
-    const bool hasTurb = hasResult && m_settings.turbulence && m_transient.hasTurbulence &&
-                         m_transient.k.size() == n && m_transient.omega.size() == n &&
-                         m_transient.nut.size() == n;
+    const int dim = m_session->dim();
+    const std::size_t n = m_session->cells();
+    const bool hasResult = m_state.hasFields() && m_state.dim == dim && m_state.cells == n;
+    const bool hasTurb = hasResult && m_settings.turbulence && m_state.hasTurbulence();
 
     QSaveFile out(path);
     if (!out.open(QIODevice::WriteOnly)) {
@@ -877,6 +563,7 @@ bool CfdController::saveCase(const QString& path) {
     ds << QString("SCFD");
     ds << kScfdVersion;
     ds << meshName;
+    ds << (qint32)dim;
     ds << (qint64)meshBytes.size();
     ds.writeRawData(meshBytes.constData(), meshBytes.size());
     ds << (qint64)settingsBytes.size();
@@ -884,41 +571,37 @@ bool CfdController::saveCase(const QString& path) {
     ds << hasResult;
     if (hasResult) {
         ds << (qint64)n;
-        for (std::size_t d = 0; d < 2; ++d)
-            for (std::size_t i = 0; i < n; ++i) ds << m_velocity->operator[](d)[i];
-        for (std::size_t i = 0; i < n; ++i) ds << m_pressure->operator[](i);
+        for (int d = 0; d < dim; ++d)
+            for (std::size_t i = 0; i < n; ++i) ds << m_state.velocity[d][i];
+        for (std::size_t i = 0; i < n; ++i) ds << m_state.pressure[i];
         ds << hasTurb;
         if (hasTurb) {
-            for (std::size_t i = 0; i < n; ++i) ds << m_transient.k[i];
-            for (std::size_t i = 0; i < n; ++i) ds << m_transient.omega[i];
-            for (std::size_t i = 0; i < n; ++i) ds << m_transient.nut[i];
+            for (std::size_t i = 0; i < n; ++i) ds << m_state.turbulence.k[i];
+            for (std::size_t i = 0; i < n; ++i) ds << m_state.turbulence.omega[i];
+            for (std::size_t i = 0; i < n; ++i) ds << m_state.turbulence.nut[i];
         }
     }
 
     // Only a transient case carries a transient clock. If the user switched the
     // mode after a transient run, do not persist a clock the settings deny.
-    const bool hasTransientState = m_settings.transient.enabled && m_transient.valid;
+    const bool hasTransientState = m_settings.transient.enabled && m_state.transientValid;
     ds << hasTransientState;
     if (hasTransientState) {
-        ds << m_transient.time;
-        ds << m_transient.dt;
-        ds << m_transient.dtPrev;
-        ds << (qint32)m_transient.step;
-        const bool hasTurbHistory = m_transient.hasTurbulenceHistory &&
-                                    m_transient.kNM1.size() == n &&
-                                    m_transient.omegaNM1.size() == n;
+        ds << m_state.time;
+        ds << m_state.dt;
+        ds << m_state.dtPrev;
+        ds << (qint32)m_state.step;
+        const bool hasTurbHistory = m_state.hasTurbulenceHistory();
         ds << hasTurbHistory;
         if (hasTurbHistory) {
-            for (std::size_t i = 0; i < n; ++i) ds << m_transient.kNM1[i];
-            for (std::size_t i = 0; i < n; ++i) ds << m_transient.omegaNM1[i];
+            for (std::size_t i = 0; i < n; ++i) ds << m_state.turbulence.kNM1[i];
+            for (std::size_t i = 0; i < n; ++i) ds << m_state.turbulence.omegaNM1[i];
         }
-        const bool hasVelocityHistory = m_transient.hasVelocityHistory &&
-                                        m_transient.velocityNM1[0].size() == n &&
-                                        m_transient.velocityNM1[1].size() == n;
+        const bool hasVelocityHistory = m_state.hasVelocityHistorySized();
         ds << hasVelocityHistory;
         if (hasVelocityHistory) {
-            for (std::size_t d = 0; d < 2; ++d)
-                for (std::size_t i = 0; i < n; ++i) ds << m_transient.velocityNM1[d][i];
+            for (int d = 0; d < dim; ++d)
+                for (std::size_t i = 0; i < n; ++i) ds << m_state.velocityNM1[d][i];
         }
     }
 
@@ -958,15 +641,30 @@ bool CfdController::loadCase(const QString& path) {
         setError("Not a SciRender CFD case file.");
         return false;
     }
-    if (version != kScfdVersion) {
-        setError(QString("Unsupported case format version %1 (this build reads version %2). "
+    if (version < kScfdVersionReadMin || version > kScfdVersion) {
+        setError(QString("Unsupported case format version %1 (this build reads versions %2 to %3). "
                          "Load the mesh and re-create the case.")
-                     .arg(version).arg(kScfdVersion));
+                     .arg(version).arg(kScfdVersionReadMin).arg(kScfdVersion));
         return false;
     }
 
     QString meshName;
     ds >> meshName;
+
+    // v6 adds an explicit dimension. A v5 file predates 3D support, so it is
+    // read as a 2D case; the mesh check below rejects a v5 file whose embedded
+    // mesh turns out to be 3D.
+    int fileDim = 2;
+    if (version >= 6) {
+        qint32 dimValue = 0;
+        ds >> dimValue;
+        if (ds.status() != QDataStream::Ok || (dimValue != 2 && dimValue != 3)) {
+            setError("Corrupt case file (invalid dimension).");
+            return false;
+        }
+        fileDim = dimValue;
+    }
+
     qint64 meshSz = 0;
     ds >> meshSz;
     if (ds.status() != QDataStream::Ok || meshSz <= 0 || meshSz > kMaxMeshBytes) {
@@ -1018,18 +716,27 @@ bool CfdController::loadCase(const QString& path) {
         }
     }
     cfd::MeshLoadResult newMesh = cfd::loadMesh(tempPath.toStdString());
-    if (!newMesh.error.empty() || !newMesh.mesh2 || !newMesh.renderMesh) {
+    if (!newMesh.error.empty() || (!newMesh.mesh2 && !newMesh.mesh3) || !newMesh.renderMesh) {
         setError(QString::fromStdString(newMesh.error.empty()
                      ? "The embedded mesh could not be loaded." : newMesh.error));
         return false;
     }
 
-    const std::size_t nCells = newMesh.mesh2->nCells();
+    // The case dimension must match the embedded mesh. This also rejects a v5
+    // file whose embedded mesh is 3D (v5 implied 2D).
+    const int meshDim = newMesh.mesh3 ? 3 : 2;
+    if (fileDim != meshDim) {
+        setError(QString("The case is %1D but its embedded mesh is %2D.")
+                     .arg(fileDim).arg(meshDim));
+        return false;
+    }
+    const std::size_t nCells = newMesh.mesh3 ? newMesh.mesh3->nCells()
+                                             : newMesh.mesh2->nCells();
 
-    // Result fields.
-    auto vel = std::make_shared<fvm::VectorField<2>>(*newMesh.mesh2, 0.0);
-    auto pres = std::make_shared<fvm::Field<2>>(*newMesh.mesh2, 0.0);
-    std::shared_ptr<fvm::SSTModel<2>> newTurbulence;
+    cfd::SolutionSnapshot state;
+    state.dim = fileDim;
+    state.cells = nCells;
+
     bool hasResult = false;
     ds >> hasResult;
     if (ds.status() != QDataStream::Ok) {
@@ -1044,9 +751,11 @@ bool CfdController::loadCase(const QString& path) {
                              "%2 in the mesh).").arg(n).arg(nCells));
             return false;
         }
-        for (std::size_t d = 0; d < 2; ++d)
-            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; (*vel)[d][i] = v; }
-        for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; (*pres)[i] = v; }
+        state.velocity.assign(fileDim, std::vector<double>(nCells, 0.0));
+        state.pressure.assign(nCells, 0.0);
+        for (int d = 0; d < fileDim; ++d)
+            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; state.velocity[d][i] = v; }
+        for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; state.pressure[i] = v; }
 
         bool hasTurb = false;
         ds >> hasTurb;
@@ -1055,21 +764,22 @@ bool CfdController::loadCase(const QString& path) {
             return false;
         }
         if (hasTurb) {
-            auto model = std::make_shared<fvm::SSTModel<2>>(*newMesh.mesh2, fvm::SSTModel<2>::Config{});
-            model->initialize(newSettings.nu * newSettings.rho, newSettings.rho);
-            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; model->k()[i] = v; }
-            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; model->omega()[i] = v; }
-            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; model->nut()[i] = v; }
+            state.turbulence.k.resize(nCells);
+            state.turbulence.omega.resize(nCells);
+            state.turbulence.nut.resize(nCells);
+            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; state.turbulence.k[i] = v; }
+            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; state.turbulence.omega[i] = v; }
+            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; state.turbulence.nut[i] = v; }
             if (ds.status() != QDataStream::Ok) {
                 setError("Corrupt case file (truncated turbulence block).");
                 return false;
             }
-            newTurbulence = std::move(model);
+            state.turbulence.valid = newSettings.turbulence;
+            if (!state.turbulence.valid) state.turbulence.clear();
         }
     }
 
     // Transient state.
-    TransientSnapshot snap;
     bool hasTransientState = false;
     ds >> hasTransientState;
     if (ds.status() != QDataStream::Ok) {
@@ -1083,42 +793,51 @@ bool CfdController::loadCase(const QString& path) {
         bool hasTurbHistory = false;
         ds >> hasTurbHistory;
         if (hasTurbHistory) {
-            snap.kNM1.resize(nCells);
-            snap.omegaNM1.resize(nCells);
-            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; snap.kNM1[i] = v; }
-            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; snap.omegaNM1[i] = v; }
-            snap.hasTurbulenceHistory = true;
+            state.turbulence.kNM1.resize(nCells);
+            state.turbulence.omegaNM1.resize(nCells);
+            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; state.turbulence.kNM1[i] = v; }
+            for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; state.turbulence.omegaNM1[i] = v; }
+            state.turbulence.hasHistory = true;
         }
         bool hasVelocityHistory = false;
         ds >> hasVelocityHistory;
         if (hasVelocityHistory) {
-            for (std::size_t d = 0; d < 2; ++d) snap.velocityNM1[d].resize(nCells);
-            for (std::size_t d = 0; d < 2; ++d)
-                for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; snap.velocityNM1[d][i] = v; }
-            snap.hasVelocityHistory = true;
+            state.velocityNM1.assign(fileDim, std::vector<double>(nCells, 0.0));
+            for (int d = 0; d < fileDim; ++d)
+                for (std::size_t i = 0; i < nCells; ++i) { double v; ds >> v; state.velocityNM1[d][i] = v; }
+            state.hasVelocityHistory = true;
         }
         if (ds.status() != QDataStream::Ok) {
             setError("Corrupt case file (truncated transient state).");
             return false;
         }
-        snap.valid = hasResult;
-        snap.time = t;
-        snap.dt = dt;
-        snap.dtPrev = dtPrev;
-        snap.step = step;
+        state.transientValid = hasResult;
+        state.time = t;
+        state.dt = dt;
+        state.dtPrev = dtPrev;
+        state.step = step;
+    }
+    if (!state.hasTurbulence()) {
+        state.turbulence.clear();
     }
 
     // --- Commit (nothing above mutated the controller) --------------------
     stopWorkers();
-    {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        m_solver.reset();
-        m_solverMesh.reset();
-    }
     ++m_gen;
 
     m_mesh = std::move(newMesh);
-    m_meshPtr = m_mesh.mesh2;
+    m_session = cfd::makeSession(m_mesh);
+    if (!m_session) {
+        setError("The embedded mesh could not be loaded.");
+        return false;
+    }
+    std::string stateError;
+    if (!m_session->setState(state, stateError)) {
+        setError(QString::fromStdString(stateError));
+        return false;
+    }
+    m_state = state.hasFields() ? state : cfd::SolutionSnapshot{};
+
     m_meshPath = tempPath;
     m_meshName = meshName.isEmpty() ? QFileInfo(path).fileName() : meshName;
     m_embeddedMesh = meshBytes;
@@ -1137,32 +856,7 @@ bool CfdController::loadCase(const QString& path) {
         }
     }
 
-    m_velocity = std::move(vel);
-    m_pressure = std::move(pres);
-    // A settings-only case carries zeros, not a solution: do not pretend the
-    // zero fields are a result (Export would otherwise write a bogus field).
-    m_hasSolution = hasResult;
-
-    m_turbulence = std::move(newTurbulence);
-    snap.hasTurbulence = (m_turbulence && m_settings.turbulence);
-    if (snap.hasTurbulence) {
-        snap.k.resize(nCells);
-        snap.omega.resize(nCells);
-        snap.nut.resize(nCells);
-        for (std::size_t i = 0; i < nCells; ++i) {
-            snap.k[i] = m_turbulence->k()[i];
-            snap.omega[i] = m_turbulence->omega()[i];
-            snap.nut[i] = m_turbulence->nut()[i];
-        }
-    } else {
-        m_turbulence.reset();
-        snap.k.clear();
-        snap.omega.clear();
-        snap.nut.clear();
-    }
-    m_transient = std::move(snap);
-
-    m_lastTime.store(m_transient.valid ? m_transient.time : 0.0);
+    m_lastTime.store(m_state.transientValid ? m_state.time : 0.0);
     m_latestStep.store(nullptr);
     m_latestFrameSlot.store(nullptr);
     m_cancel.store(false);
@@ -1173,14 +867,8 @@ bool CfdController::loadCase(const QString& path) {
 }
 
 std::shared_ptr<const RenderMesh> CfdController::resultMesh() const {
-    if (!m_meshPtr || !m_hasSolution || !m_velocity || !m_pressure || !m_mesh.renderMesh)
-        return nullptr;
-    const fvm::SSTModel<2>* turb = nullptr;
-    if (solverMatchesCurrentMesh()) {
-        std::lock_guard<std::mutex> lk(m_solverMutex);
-        if (m_solver) turb = m_solver->turbulence();
-    }
-    if (!turb && m_turbulence) turb = m_turbulence.get();
-    return buildResultMesh(m_mesh.renderMesh, *m_meshPtr, *m_velocity, *m_pressure,
-                           turb, m_settings, m_patchBCs);
+    if (!m_session || !m_mesh.renderMesh) return nullptr;
+    cfd::SolutionSnapshot state = m_session->capture();
+    if (!state.hasFields()) return nullptr;
+    return m_session->buildResult(m_mesh.renderMesh, state, m_settings, m_patchBCs);
 }
