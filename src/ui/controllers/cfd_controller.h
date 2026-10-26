@@ -118,6 +118,9 @@ signals:
     void meshLoaded();
     void caseLoaded();
     void progress(int iteration, double continuity, double momentum);
+    void pauseRequested();
+    void resumed();
+    void stepRequested();
     // Frames are NOT emitted from the worker: it publishes into latestFrameSlot()
     // and the page polls it on a timer. That keeps the whole GUI-side field
     // pipeline (RenderSettings + renderer) on the GUI thread.
