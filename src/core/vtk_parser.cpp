@@ -1,5 +1,6 @@
 #include "core/mesh_loader.h"
 #include "core/vtk_common.h"
+#include "core/cell_topology.h"
 #include <fstream>
 #include <iostream>
 #include <cstring>
@@ -1049,6 +1050,33 @@ private:
         }
         else if (datasetType == "UNSTRUCTURED_GRID" && !rawCellData.empty()) {
             globalCellToVertices = vtk_common::triangulateUnstructuredCells(mesh, rawCellData, cellTypes, numCells);
+
+            // Retain raw cell topology for derived volume/slice/isosurface paths.
+            mesh.cellConnectivity.clear();
+            mesh.cellOffsets.clear();
+            mesh.cellTypes.clear();
+            mesh.unstructuredVolumeCellCount = 0;
+            int idx = 0;
+            for (int c = 0; c < numCells; ++c) {
+                if (idx >= static_cast<int>(rawCellData.size())) break;
+                int n = static_cast<int>(rawCellData[idx++]);
+                if (n < 0 || idx + n > static_cast<int>(rawCellData.size())) break;
+                for (int i = 0; i < n; ++i) {
+                    mesh.cellConnectivity.push_back(static_cast<std::uint32_t>(rawCellData[idx + i]));
+                }
+                idx += n;
+                mesh.cellOffsets.push_back(static_cast<std::uint32_t>(mesh.cellConnectivity.size()));
+                std::uint8_t type = 0;
+                if (c < static_cast<int>(cellTypes.size())) type = static_cast<std::uint8_t>(cellTypes[c]);
+                if (type == 0) {
+                    if (n == 4) type = cell_topology::kTetra;
+                    else if (n == 5) type = cell_topology::kPyramid;
+                    else if (n == 6) type = cell_topology::kWedge;
+                    else if (n == 8) type = cell_topology::kHexahedron;
+                }
+                mesh.cellTypes.push_back(type);
+                if (cell_topology::isVolumeCell(type)) ++mesh.unstructuredVolumeCellCount;
+            }
         }
         else if (datasetType == "STRUCTURED_GRID") {
             if (!mesh.vertices.empty()) {

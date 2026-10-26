@@ -637,6 +637,12 @@ void CfdCasePage::onMeshLoaded() {
     rebuildPatchTable();
     const auto& res = m_ctrl->meshResult();
     if (res.renderMesh) {
+        // If a solved result mesh (with scalars) is already loaded, don't
+        // overwrite it with the geometry-only base mesh. The base mesh has no
+        // scalar attributes, which would empty the Scalar Field list and make
+        // hasVolumeData() return false for volume/slice rendering.
+        auto rm = m_ctrl->resultMesh();
+        if (rm && !rm->scalars.empty()) return;
         S()->applyLoadedMesh(res.renderMesh, m_meshName.isEmpty() ? "CFD Mesh" : m_meshName);
     }
     log(QString("%1 — %2D, %3 patches")

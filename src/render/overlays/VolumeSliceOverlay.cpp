@@ -79,6 +79,13 @@ void VolumeSliceOverlay::draw(const RenderRenderState& state, const glm::mat4& v
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Slice planes are an inspection overlay, so they ignore the depth buffer.
+    // On a solved CFD case the boundary surface is a closed, opaque wall drawn
+    // in front of every interior point; depth-testing the slice quad therefore
+    // discarded the whole plane and an enabled slice looked like a no-op. With
+    // depth testing off the cross-section is always visible, and the occupancy
+    // mask (uHasOccupancy) still confines it to the fluid cells rather than
+    // painting a rectangle across the whole AABB.
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_TRUE);

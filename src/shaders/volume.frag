@@ -123,7 +123,7 @@ void main() {
         // the box is empty. Skip those samples instead of integrating fog in
         // front of the geometry, and spend the step budget inside the cells.
         if (uHasOccupancy == 1) {
-            if (texture(uOccupancyTex, uvw).r < 0.5) {
+            if (texture(uOccupancyTex, uvw).r == 0.0) {    
                 emptyRun += 1.0;
                 t += max(minStep, uBaseStepSize) * (emptyRun > 4.0 ? 4.0 : 1.0);
                 continue;
@@ -148,9 +148,11 @@ void main() {
         vec3 gxUvw = uvw + vec3(gradEps.x, 0.0, 0.0);
         vec3 gyUvw = uvw + vec3(0.0, gradEps.y, 0.0);
         vec3 gzUvw = uvw + vec3(0.0, 0.0, gradEps.z);
-        bool gxEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gxUvw).r < 0.5);
-        bool gyEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gyUvw).r < 0.5);
-        bool gzEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gzUvw).r < 0.5);
+        
+        bool gxEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gxUvw).r == 0.0);
+        bool gyEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gyUvw).r == 0.0);
+        bool gzEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gzUvw).r == 0.0);
+        
         g.x = gxEmpty ? 0.0 : texture(uVolumeTex, gxUvw).r - val;
         g.y = gyEmpty ? 0.0 : texture(uVolumeTex, gyUvw).r - val;
         g.z = gzEmpty ? 0.0 : texture(uVolumeTex, gzUvw).r - val;

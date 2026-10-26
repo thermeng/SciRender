@@ -7,7 +7,7 @@ uniform int uAxis;
 
 out vec3 vWorldPos;
 
-const float kDepthBias = 1e-4;
+const float kDepthBias = 0.0;
 
 void main() {
     gl_Position = uMVP * vec4(aPos, 1.0);
