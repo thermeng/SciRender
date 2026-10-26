@@ -183,9 +183,134 @@
          </widget>
         </item>
        </layout>
-      </item>
-     </layout>
-    </widget>
+       </item>
+        <item>
+         <widget class="QLabel" name="volumeFilterHeader">
+          <property name="text">
+           <string>Filter</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="volumeFilterEnabledCb">
+          <property name="text">
+           <string>Enable Filter</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="volumeFilterMinRow">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="volumeFilterMinLabel">
+            <property name="minimumSize">
+             <size>
+              <width>72</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>72</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>Minimum</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSlider" name="volumeFilterMinSlider">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="volumeFilterMinField">
+            <property name="minimumSize">
+             <size>
+              <width>36</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>36</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>0.000</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="volumeFilterMaxRow">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="volumeFilterMaxLabel">
+            <property name="minimumSize">
+             <size>
+              <width>72</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>72</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>Maximum</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSlider" name="volumeFilterMaxSlider">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="volumeFilterMaxField">
+            <property name="minimumSize">
+             <size>
+              <width>36</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>36</width>
+              <height>16777215</height>
+             </size>
+            </property>
+            <property name="text">
+             <string>1.000</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPushButton" name="volumeFilterResetBtn">
+          <property name="text">
+           <string>Reset Filter</string>
+          </property>
+         </widget>
+        </item>
+      </layout>
+     </widget>
    </item>
    </layout>
  </widget>

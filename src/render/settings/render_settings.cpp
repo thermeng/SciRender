@@ -754,6 +754,8 @@ void RenderSettings::onMeshParsed() {
         recomputeScalarRange();
         m_state.filterEnabled = false;
         setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+        m_state.volumeFilterEnabled = false;
+        setVolumeFilterMin(m_state.dataScalarMin); setVolumeFilterMax(m_state.dataScalarMax);
         resetColorRangeOverride();
         resetVolumeColorRangeOverride();
         resetSliceColorRangeOverride();
@@ -783,6 +785,8 @@ void RenderSettings::onMeshParsed() {
             m_state.filterEnabled = false;
             // Ensure filter range matches derived range
             setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+            m_state.volumeFilterEnabled = false;
+            setVolumeFilterMin(m_state.dataScalarMin); setVolumeFilterMax(m_state.dataScalarMax);
             resetColorRangeOverride();
             resetVolumeColorRangeOverride();
             resetSliceColorRangeOverride();
@@ -818,6 +822,8 @@ void RenderSettings::onMeshParsed() {
             }
             m_state.filterEnabled = false;
             setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
+            m_state.volumeFilterEnabled = false;
+            setVolumeFilterMin(m_state.dataScalarMin); setVolumeFilterMax(m_state.dataScalarMax);
             resetColorRangeOverride();
             resetVolumeColorRangeOverride();
             resetSliceColorRangeOverride();
@@ -996,6 +1002,8 @@ if (const std::vector<float>* legacy =
         m_state.showScalarColorbar = m_state.meshHasScalars;
         m_state.filterEnabled = false;
         setFilterMin(effMin); setFilterMax(effMax);
+        m_state.volumeFilterEnabled = false;
+        setVolumeFilterMin(effMin); setVolumeFilterMax(effMax);
         { auto [isoLo, isoHi] = isosurfaceFieldRange(); m_isoController.reset(isoLo, isoHi); }
         resetColorRangeOverride(effMin, effMax);
         resetVolumeColorRangeOverride();
@@ -1199,6 +1207,8 @@ void RenderSettings::clearMeshes() {
     m_state.scalarMin = 0.0f; m_state.scalarMax = 1.0f;
     m_state.filterMin = 0.0f; m_state.filterMax = 1.0f;
     m_state.filterEnabled = false;
+    m_state.volumeFilterMin = 0.0f; m_state.volumeFilterMax = 1.0f;
+    m_state.volumeFilterEnabled = false;
     m_state.sliceScalarMin[0] = m_state.sliceScalarMin[1] = m_state.sliceScalarMin[2] = 0.0f;
     m_state.sliceScalarMax[0] = m_state.sliceScalarMax[1] = m_state.sliceScalarMax[2] = 1.0f;
     m_state.colorRangeOverrideEnabled = false;
@@ -1675,6 +1685,26 @@ void RenderSettings::setFilterMax(float v) {
 void RenderSettings::setFilterEnabled(bool v) {
     if (m_state.filterEnabled == v) return;
     m_state.filterEnabled = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+
+void RenderSettings::setVolumeFilterMin(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::min(v, m_state.volumeFilterMax);
+    if (m_state.volumeFilterMin == v) return;
+    m_state.volumeFilterMin = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+void RenderSettings::setVolumeFilterMax(float v) {
+    v = qBound(m_state.dataScalarMin, v, m_state.dataScalarMax);
+    v = std::max(v, m_state.volumeFilterMin);
+    if (m_state.volumeFilterMax == v) return;
+    m_state.volumeFilterMax = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Display);
+}
+void RenderSettings::setVolumeFilterEnabled(bool v) {
+    if (m_state.volumeFilterEnabled == v) return;
+    m_state.volumeFilterEnabled = v;
     markStateDirty(); emit viewChanged(ChangeFlag::Display);
 }
 

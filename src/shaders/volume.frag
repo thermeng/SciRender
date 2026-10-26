@@ -23,6 +23,9 @@ uniform float uClipHeightY;
 uniform float uClipHeightZ;
 uniform vec3 uClipEn;
 uniform vec3 uInvert;
+uniform int uVolumeFilterEnabled = 0;
+uniform float uVolumeFilterMin = 0.0;
+uniform float uVolumeFilterMax = 1.0;
 uniform float uPixelFootprintScale;
 uniform int uOrtho;
 uniform mat4 uInvView;
@@ -133,6 +136,16 @@ void main() {
 
         float val = texture(uVolumeTex, uvw).r;
 
+    if (uVolumeFilterEnabled == 1) {
+        float filterEps = 1e-5 * abs(uScalarMax - uScalarMin) + 1e-9;
+        if (val < uVolumeFilterMin - filterEps || val > uVolumeFilterMax + filterEps) {
+            emptyRun += 1.0;
+            t += max(minStep, uBaseStepSize) * (emptyRun > 4.0 ? 4.0 : 1.0);
+            continue;
+        }
+    }
+    emptyRun = 0.0;
+
         float tVal = clamp((val - uScalarMin) / scalarRange, 0.0, 1.0);
         if (uNumBands > 1.0) {
             tVal = floor(tVal * uNumBands) / (uNumBands - 1.0);
@@ -152,10 +165,18 @@ void main() {
         bool gxEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gxUvw).r == 0.0);
         bool gyEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gyUvw).r == 0.0);
         bool gzEmpty = (uHasOccupancy == 1 && texture(uOccupancyTex, gzUvw).r == 0.0);
-        
-        g.x = gxEmpty ? 0.0 : texture(uVolumeTex, gxUvw).r - val;
-        g.y = gyEmpty ? 0.0 : texture(uVolumeTex, gyUvw).r - val;
-        g.z = gzEmpty ? 0.0 : texture(uVolumeTex, gzUvw).r - val;
+        float gxVal = texture(uVolumeTex, gxUvw).r;
+        float gyVal = texture(uVolumeTex, gyUvw).r;
+        float gzVal = texture(uVolumeTex, gzUvw).r;
+        float filterEpsN = 1e-5 * abs(uScalarMax - uScalarMin) + 1e-9;
+        if (uVolumeFilterEnabled == 1) {
+            gxEmpty = gxEmpty || (gxVal < uVolumeFilterMin - filterEpsN || gxVal > uVolumeFilterMax + filterEpsN);
+            gyEmpty = gyEmpty || (gyVal < uVolumeFilterMin - filterEpsN || gyVal > uVolumeFilterMax + filterEpsN);
+            gzEmpty = gzEmpty || (gzVal < uVolumeFilterMin - filterEpsN || gzVal > uVolumeFilterMax + filterEpsN);
+        }
+        g.x = gxEmpty ? 0.0 : gxVal - val;
+        g.y = gyEmpty ? 0.0 : gyVal - val;
+        g.z = gzEmpty ? 0.0 : gzVal - val;
         float gradMag = length(g);
         float featureScale = 1.0 / (gradMag * 10.0 + 1.0);
         float currentDist = length(pos - uCamPos);

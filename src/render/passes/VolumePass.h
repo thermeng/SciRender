@@ -46,6 +46,9 @@ private:
     GLint locSliceEn_ = -1;
     GLint locInvert_ = -1;
     GLint locVolumeUseColormap_ = -1;
+    GLint locVolumeFilterEnabled_ = -1;
+    GLint locVolumeFilterMin_ = -1;
+    GLint locVolumeFilterMax_ = -1;
     GLint locSafeExtent_ = -1;
     GLint locBaseStepSize_ = -1;
     GLint locPixelFootprintScale_ = -1;
