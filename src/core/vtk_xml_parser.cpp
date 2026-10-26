@@ -1,5 +1,6 @@
 #include "core/mesh_loader.h"
 #include "core/vtk_common.h"
+#include "core/cell_topology.h"
 #include "pugixml.hpp"
 #include <lz4.h>
 #include <LzmaDec.h>
@@ -978,6 +979,25 @@ private:
             }
             int totalCells = static_cast<int>(offsets.size());
             globalCellToVertices = vtk_common::triangulateUnstructuredCells(mesh, legacyCells, cellTypes, totalCells);
+
+            // Retain the raw cell topology (VTK canonical order) so the derived
+            // volume / slice / isosurface paths can voxelize unstructured grids
+            // loaded from VTU (not just CFD .msh meshes).
+            mesh.cellConnectivity.clear();
+            mesh.cellOffsets.clear();
+            mesh.cellTypes.clear();
+            mesh.unstructuredVolumeCellCount = 0;
+            for (std::size_t c = 0; c < offsets.size(); ++c) {
+                const std::int64_t start = (c == 0) ? 0 : offsets[c - 1];
+                const std::int64_t end = offsets[c];
+                for (std::int64_t i = start; i < end; ++i) {
+                    mesh.cellConnectivity.push_back(static_cast<std::uint32_t>(connectivity[i]));
+                }
+                mesh.cellOffsets.push_back(static_cast<std::uint32_t>(mesh.cellConnectivity.size()));
+                const std::uint8_t type = static_cast<std::uint8_t>(cellTypes[c]);
+                mesh.cellTypes.push_back(type);
+                if (cell_topology::isVolumeCell(type)) ++mesh.unstructuredVolumeCellCount;
+            }
         } else if (datasetType == "STRUCTUREDGRID" && !points.empty()) {
             mesh.vertices = points;
             int dX = wholeExtent[1] - wholeExtent[0] + 1;

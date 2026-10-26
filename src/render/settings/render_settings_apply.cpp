@@ -2,8 +2,11 @@
 
 void RenderSettings::applyLoadedMesh(const std::shared_ptr<const RenderMesh>& loaded, const QString& name, bool resetCamera) {
     if (!loaded || loaded->vertices.empty()) { setStatus("Could not load result"); return; }
-    clearPostFields();
+    // Set the new mesh first so that clearPostFields()'s meshDataUpdated()
+    // emission (and any intermediate refreshFields() in the UI pages) sees the
+    // correct loadedMesh instead of the previous/stale one.
     m_meshData.loadedMesh = loaded;
+    clearPostFields();
     m_meshData.guiMeta = *loaded;
     m_meshData.guiMeta.vertices.clear(); m_meshData.guiMeta.vertices.shrink_to_fit();
     m_meshData.guiMeta.normals.clear(); m_meshData.guiMeta.normals.shrink_to_fit();

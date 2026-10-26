@@ -850,6 +850,12 @@ void RenderSettings::onMeshParsed() {
     // Hand the immutable payload to the render thread (shared_ptr, no copy).
     m_renderer.setPendingMesh(m_meshData.loadedMesh);
 
+    // Build the derived voxel grid for an unstructured 3D mesh (asynchronously;
+    // the renderer re-scatters the field into it each frame). Plain VTK loads
+    // go through this path rather than applyLoadedMesh, so it must be triggered
+    // here too.
+    m_derivedVolumeController.setCurrentMesh(m_meshData.loadedMesh);
+
     {
         QString absPath = QFileInfo(QString::fromStdString(m_loadingPath)).absoluteFilePath();
         recentFiles.removeAll(absPath);
@@ -1562,9 +1568,11 @@ void RenderSettings::setScalarPlacement(int v) {
 void RenderSettings::setSlicePlaneField(int axis, const QString& fieldName) {
     if (axis < 0 || axis > 2) return;
     std::string name = fieldName.toStdString();
-    if (m_state.sliceScalarName[axis] == name) return;
+    // Always propagate the selection: even re-selecting the current field must
+    // invalidate the cached slice texture and trigger a repaint, otherwise the
+    // plane can stay stale until an unrelated scalar upload happens.
     m_state.sliceScalarName[axis] = name;
-    m_renderer.markVolumeDirty(m_meshData.loadedMesh);
+    if (m_meshData.loadedMesh) m_renderer.markVolumeDirty(m_meshData.loadedMesh);
     markStateDirty();
     emit viewChanged(ChangeFlag::Display);
 }

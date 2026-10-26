@@ -5,6 +5,7 @@
 #include <QLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSlider>
 #include <QVBoxLayout>
 #include <cmath>
@@ -35,15 +36,33 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
     connect(m_showCb, &QCheckBox::toggled, this, [this](bool) { applyGating(); });
     applyGating();
 
+    // Volume rendering samples the inside of the domain. On a closed CFD mesh
+    // the opaque boundary surface is drawn in front of every interior sample,
+    // so an enabled volume looks inert until the surface is made translucent or
+    // hidden. Say so instead of leaving the user to guess why nothing appears.
+    {
+        auto* hint = new QLabel(tr("The outer surface hides an interior volume. "
+                                   "Lower Surface Opacity or turn Surface off in "
+                                   "View & Display to see inside."));
+        hint->setObjectName("volumeOcclusionHintLabel");
+        hint->setWordWrap(true);
+        if (auto* root = qobject_cast<QVBoxLayout*>(content->layout()))
+            root->insertWidget(1, hint);
+    }
+
     m_fieldCombo = volumeUi.volumeFieldCombo;
-    m_fieldCombo->addItems(s->getAvailableScalars());
-    m_fieldCombo->setCurrentText(s->getActiveScalarNameQml());
-    m_fieldCombo->setEnabled(s->hasMeshScalars());
     m_fieldCombo->setMinimumWidth(sb::kSidebarWidth - sb::kNavWidthApprox - 20);
     connect(m_fieldCombo, &QComboBox::activated, s, [this, s](int idx) {
+        if (idx < 0 || idx >= m_fieldCombo->count()) return;
+        const QString field = m_fieldCombo->itemText(idx);
+        if (field.isEmpty()) return;   // placeholder / empty list
         m_fieldCombo->setCurrentIndex(idx);
-        s->setActiveScalarField(m_fieldCombo->itemText(idx));
+        s->setActiveScalarField(field);
     });
+    // The page is constructed at startup, before any mesh exists, so populating
+    // the list here is not enough: a later solve/restore must refill it. Keeping
+    // this in one idempotent helper lets every data signal call it cheaply.
+    refreshFields();
 
     // Palette, bands, ticks, fixed range live in the Colorbar Style dialog.
     // "Use Colormap" stays here: it switches volume ray-march output between
@@ -185,6 +204,11 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
             }
             m_showCb->blockSignals(false);
         }
+        refreshFields();
+        applyGating();
+    });
+    connect(s, &RenderSettings::meshDataUpdated, this, [this]() {
+        refreshFields();
         applyGating();
     });
     connect(s, &RenderSettings::viewChanged, this, [this, s](ChangeFlags) {
@@ -195,9 +219,38 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
             m_showCb->setChecked(ok && s->getShowVolume());
             m_showCb->blockSignals(false);
         }
+        refreshFields();
         refreshVolumeTF();
         applyGating();
     });
+}
+
+// Rebuild the scalar list from the current mesh state. Called on construction
+// and on every meshLoadStateChanged / meshDataUpdated / viewChanged emission:
+// the combo is created before any mesh is loaded, and a CFD solve or .scfd
+// restore replaces the field set afterwards. Rebuilding only when the names
+// actually change keeps the popup from closing on unrelated view changes.
+void VolumePage::refreshFields() {
+    auto* s = S();
+    if (!m_fieldCombo) return;
+
+    const QStringList names = s->getAvailableScalars();
+    QStringList shown;
+    shown.reserve(m_fieldCombo->count());
+    for (int i = 0; i < m_fieldCombo->count(); ++i) shown << m_fieldCombo->itemText(i);
+    if (shown != names) {
+        QSignalBlocker block(m_fieldCombo);
+        m_fieldCombo->clear();
+        m_fieldCombo->addItems(names);
+    }
+
+    const QString active = s->getActiveScalarNameQml();
+    if (!active.isEmpty() && m_fieldCombo->currentText() != active
+        && m_fieldCombo->findText(active) >= 0) {
+        QSignalBlocker block(m_fieldCombo);
+        m_fieldCombo->setCurrentText(active);
+    }
+    m_fieldCombo->setEnabled(!names.isEmpty());
 }
 
 // The Volume page places both full-volume-rendering controls (Step Size, Opacity,

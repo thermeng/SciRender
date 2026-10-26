@@ -20,7 +20,8 @@ void main() {
     vec3 uvw = (vWorldPos - uBoxMin) / (uBoxMax - uBoxMin);
     // Unstructured meshes: the slice quad spans the mesh AABB, so discard where
     // no cell exists instead of showing a blank rectangle.
-    if (uHasOccupancy == 1 && texture(uOccupancyTex, uvw).r < 0.5) discard;
+    
+    if (uHasOccupancy == 1 && texture(uOccupancyTex, uvw).r == 0.0) discard;
     float val = texture(uVolumeTex, uvw).r;
 
     float scalarRange = max(uScalarMax - uScalarMin, 1e-6);

@@ -22,6 +22,7 @@ public:
 
 private:
     void applyGating();
+    void refreshFields();
     void refreshVolumeTF();
 
     QCheckBox* m_showCb = nullptr;
