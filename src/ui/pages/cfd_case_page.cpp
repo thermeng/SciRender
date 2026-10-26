@@ -184,20 +184,26 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
         onTransientFrame(slot->mesh, slot->step, slot->time);
     });
 
-    // The solver only observes Pause at a step boundary, so the button text and
-    // the Step gating must follow the solver state rather than the click.
-    m_stateTimer = new QTimer(this);
-    m_stateTimer->setInterval(100);
-    connect(m_stateTimer, &QTimer::timeout, this, [this]() {
-        if (!m_running) { m_stateTimer->stop(); return; }
+    // Solver state changes are driven by explicit controller signals instead of a
+    // polling timer. progress() refreshes the paused/settled state at each
+    // iteration boundary.
+    connect(m_ctrl, &CfdController::pauseRequested, this, [this]() {
+        if (m_pauseBtn) m_pauseBtn->setText("Pausing...");
+        if (m_stepBtn) m_stepBtn->setEnabled(false);
+    });
+    connect(m_ctrl, &CfdController::resumed, this, [this]() {
+        if (m_pauseBtn) m_pauseBtn->setText("Pause");
+        if (m_stepBtn) m_stepBtn->setEnabled(false);
+        log("Resumed.");
+    });
+    connect(m_ctrl, &CfdController::progress, this, [this](int, double, double) {
+        if (!m_running) return;
         const bool paused = m_ctrl->isPaused();
         const bool settled = m_ctrl->isPausedSettled();
-        if (m_pauseBtn) {
+        if (m_pauseBtn)
             m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
-        }
         if (m_stepBtn) m_stepBtn->setEnabled(settled);
-        if (m_cancelBtn && !m_ctrl->isCancelled())
-            m_cancelBtn->setEnabled(true);
+        if (m_cancelBtn && !m_ctrl->isCancelled()) m_cancelBtn->setEnabled(true);
         if (!paused) {
             m_pauseSettledLogged = false;
         } else if (settled && !m_pauseSettledLogged) {
@@ -549,8 +555,11 @@ void CfdCasePage::setRunning(bool running) {
     m_running = running;
     if (m_runBtn) m_runBtn->setEnabled(!running);
     if (m_initBtn) m_initBtn->setEnabled(!running);
-    if (m_pauseBtn) m_pauseBtn->setEnabled(running);
-    if (m_stepBtn) m_stepBtn->setEnabled(running && m_ctrl && m_ctrl->isPausedSettled());
+    if (m_pauseBtn) {
+        m_pauseBtn->setEnabled(running);
+        if (running) m_pauseBtn->setText("Pause");
+    }
+    if (m_stepBtn) m_stepBtn->setEnabled(false);
     if (m_cancelBtn) {
         m_cancelBtn->setText("Cancel");
         m_cancelBtn->setEnabled(running);
@@ -560,9 +569,6 @@ void CfdCasePage::setRunning(bool running) {
     if (!running) {
         m_pauseSettledLogged = false;
         if (m_pauseBtn) m_pauseBtn->setText("Pause");
-        if (m_stateTimer) m_stateTimer->stop();
-    } else if (m_stateTimer) {
-        m_stateTimer->start();
     }
 }
 

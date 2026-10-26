@@ -136,9 +136,6 @@ private:
     bool m_running = false;
     bool m_savedAnimGlobal = true;
     QTimer* m_frameTimer = nullptr;
-    // Polls the solver's pause state so the Pause/Step buttons reflect what the
-    // solver is actually doing instead of the last click.
-    QTimer* m_stateTimer = nullptr;
     bool m_pauseSettledLogged = false;
     std::shared_ptr<const RenderMesh> m_lastFrame;
 };

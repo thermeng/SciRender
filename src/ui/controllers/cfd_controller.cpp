@@ -459,14 +459,17 @@ void CfdController::cancel() {
 
 void CfdController::pause() {
     if (m_session) m_session->requestPause();
+    emit pauseRequested();
 }
 
 void CfdController::resume() {
     if (m_session) m_session->requestResume();
+    emit resumed();
 }
 
 void CfdController::step() {
     if (m_session) m_session->requestStep();
+    emit stepRequested();
 }
 
 bool CfdController::isPaused() const {
