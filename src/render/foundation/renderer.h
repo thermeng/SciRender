@@ -215,6 +215,10 @@ struct RenderRenderState {
     float filterMax = 1.0f;
     bool filterEnabled = false;
 
+    float volumeFilterMin = 0.0f;
+    float volumeFilterMax = 1.0f;
+    bool volumeFilterEnabled = false;
+
 
 
 

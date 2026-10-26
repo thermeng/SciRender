@@ -63,6 +63,7 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
     // the list here is not enough: a later solve/restore must refill it. Keeping
     // this in one idempotent helper lets every data signal call it cheaply.
     refreshFields();
+    refreshVolumeFilterRange();
 
     // Palette, bands, ticks, fixed range live in the Colorbar Style dialog.
     // "Use Colormap" stays here: it switches volume ray-march output between
@@ -99,9 +100,56 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
         });
     }
 
+    {
+        m_volumeFilterEnabledCb = volumeUi.volumeFilterEnabledCb;
+        m_volumeFilterMinSlider = volumeUi.volumeFilterMinSlider;
+        m_volumeFilterMinField = volumeUi.volumeFilterMinField;
+        m_volumeFilterMaxSlider = volumeUi.volumeFilterMaxSlider;
+        m_volumeFilterMaxField = volumeUi.volumeFilterMaxField;
+        m_volumeFilterResetBtn = volumeUi.volumeFilterResetBtn;
+
+        m_volumeFilterEnabledCb->setChecked(s->getVolumeFilterEnabled());
+        connect(m_volumeFilterEnabledCb, &QCheckBox::toggled, s, &RenderSettings::setVolumeFilterEnabled);
+        connect(m_volumeFilterEnabledCb, &QCheckBox::toggled, this, [this](bool) {
+            applyGating();
+            refreshVolumeFilterRange();
+        });
+
+        auto wireFilterSlider = [this, s](QSlider* slider, QLineEdit* field, bool isMin) {
+            connect(slider, &QSlider::valueChanged, this, [field, s, isMin](int raw) {
+                double v = raw / 1000.0;
+                field->setText(QString::number(v, 'f', 3));
+                if (isMin) s->setVolumeFilterMin(static_cast<float>(v));
+                else s->setVolumeFilterMax(static_cast<float>(v));
+            });
+            connect(field, &QLineEdit::editingFinished, this, [field, slider, s, isMin]() {
+                bool ok = false;
+                double v = field->text().toDouble(&ok);
+                if (!ok) v = isMin ? s->getVolumeFilterMin() : s->getVolumeFilterMax();
+                v = qBound(s->getDataScalarMinQml(), v, s->getDataScalarMaxQml());
+                if (isMin) v = std::min(v, static_cast<double>(s->getVolumeFilterMax()));
+                else v = std::max(v, static_cast<double>(s->getVolumeFilterMin()));
+                slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
+                if (isMin) s->setVolumeFilterMin(static_cast<float>(v));
+                else s->setVolumeFilterMax(static_cast<float>(v));
+            });
+        };
+        wireFilterSlider(m_volumeFilterMinSlider, m_volumeFilterMinField, true);
+        wireFilterSlider(m_volumeFilterMaxSlider, m_volumeFilterMaxField, false);
+
+        connect(m_volumeFilterResetBtn, &QPushButton::clicked, s, [s, this]() {
+            s->setVolumeFilterMin(s->getDataScalarMinQml());
+            s->setVolumeFilterMax(s->getDataScalarMaxQml());
+            refreshVolumeFilterRange();
+        });
+    }
+
     // Full-volume-rendering-only controls: greyed when "Enable Volume Rendering" is off.
     m_renderCtrls << volumeUi.stepLabel << volumeUi.stepSlider << volumeUi.stepValue
-                  << volumeUi.opacityLabel << volumeUi.opacitySlider << volumeUi.opacityValue;
+                  << volumeUi.opacityLabel << volumeUi.opacitySlider << volumeUi.opacityValue
+                  << volumeUi.volumeFilterEnabledCb << volumeUi.volumeFilterMinSlider
+                  << volumeUi.volumeFilterMinField << volumeUi.volumeFilterMaxSlider
+                  << volumeUi.volumeFilterMaxField << volumeUi.volumeFilterResetBtn;
     applyGating();
 
     // --- Transfer Function Editor ---
@@ -205,10 +253,12 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
             m_showCb->blockSignals(false);
         }
         refreshFields();
+        refreshVolumeFilterRange();
         applyGating();
     });
     connect(s, &RenderSettings::meshDataUpdated, this, [this]() {
         refreshFields();
+        refreshVolumeFilterRange();
         applyGating();
     });
     connect(s, &RenderSettings::viewChanged, this, [this, s](ChangeFlags) {
@@ -221,6 +271,7 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
         }
         refreshFields();
         refreshVolumeTF();
+        refreshVolumeFilterRange();
         applyGating();
     });
 }
@@ -288,6 +339,39 @@ void VolumePage::refreshVolumeTF() {
         m_tfEnableCb->blockSignals(true);
         m_tfEnableCb->setChecked(s->getVolumeTFEnabled());
         m_tfEnableCb->blockSignals(false);
+    }
+}
+
+void VolumePage::refreshVolumeFilterRange() {
+    auto* s = S();
+    if (!m_volumeFilterMinSlider || !m_volumeFilterMaxSlider) return;
+    const double minVal = s->getDataScalarMinQml();
+    const double maxVal = s->getDataScalarMaxQml();
+    const double lo = s->getVolumeFilterMin();
+    const double hi = s->getVolumeFilterMax();
+    {
+        QSignalBlocker block(m_volumeFilterMinSlider);
+        m_volumeFilterMinSlider->setRange(static_cast<int>(std::lround(minVal * 1000.0)),
+                                         static_cast<int>(std::lround(maxVal * 1000.0)));
+        m_volumeFilterMinSlider->setValue(static_cast<int>(std::lround(lo * 1000.0)));
+    }
+    if (m_volumeFilterMinField) m_volumeFilterMinField->setText(QString::number(lo, 'f', 3));
+    {
+        QSignalBlocker block(m_volumeFilterMaxSlider);
+        m_volumeFilterMaxSlider->setRange(static_cast<int>(std::lround(minVal * 1000.0)),
+                                         static_cast<int>(std::lround(maxVal * 1000.0)));
+        m_volumeFilterMaxSlider->setValue(static_cast<int>(std::lround(hi * 1000.0)));
+    }
+    if (m_volumeFilterMaxField) m_volumeFilterMaxField->setText(QString::number(hi, 'f', 3));
+    const bool en = s->getVolumeFilterEnabled() && s->hasVolumeData();
+    m_volumeFilterMinSlider->setEnabled(en);
+    m_volumeFilterMaxSlider->setEnabled(en);
+    m_volumeFilterMinField->setEnabled(en);
+    m_volumeFilterMaxField->setEnabled(en);
+    if (m_volumeFilterEnabledCb) {
+        QSignalBlocker block(m_volumeFilterEnabledCb);
+        m_volumeFilterEnabledCb->setChecked(s->getVolumeFilterEnabled());
+        m_volumeFilterEnabledCb->setEnabled(s->hasVolumeData());
     }
 }
 

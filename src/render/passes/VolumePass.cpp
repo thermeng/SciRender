@@ -39,6 +39,9 @@ void VolumePass::init(const ShaderSources& sources) {
         locSliceEn_         = glGetUniformLocation(program_, "uClipEn");
         locInvert_          = glGetUniformLocation(program_, "uInvert");
         locVolumeUseColormap_ = glGetUniformLocation(program_, "uVolumeUseColormap");
+    locVolumeFilterEnabled_ = glGetUniformLocation(program_, "uVolumeFilterEnabled");
+    locVolumeFilterMin_ = glGetUniformLocation(program_, "uVolumeFilterMin");
+    locVolumeFilterMax_ = glGetUniformLocation(program_, "uVolumeFilterMax");
         locNumBands_ = glGetUniformLocation(program_, "uNumBands");
         locTransferTex_ = glGetUniformLocation(program_, "uTransferFunc");
         locTFEnabled_ = glGetUniformLocation(program_, "uTFEnabled");
@@ -115,6 +118,9 @@ void VolumePass::draw(const RenderRenderState& state, const glm::mat4& view, con
     glUniform3fv(locBoxMax_, 1, glm::value_ptr(boxMax_));
 
     glUniform1i(locVolumeUseColormap_, state.volumeUseColormap ? 1 : 0);
+    if (locVolumeFilterEnabled_ != -1) glUniform1i(locVolumeFilterEnabled_, state.volumeFilterEnabled ? 1 : 0);
+    if (locVolumeFilterMin_ != -1) glUniform1f(locVolumeFilterMin_, state.volumeFilterMin);
+    if (locVolumeFilterMax_ != -1) glUniform1f(locVolumeFilterMax_, state.volumeFilterMax);
 
      if (locNumBands_ != -1) glUniform1f(locNumBands_, static_cast<float>(state.volumeColorBands));
     ensureTransferTex(state);

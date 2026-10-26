@@ -8,6 +8,10 @@
 
 class QCheckBox;
 class QComboBox;
+class QLabel;
+class QLineEdit;
+class QPushButton;
+class QSlider;
 class TransferFunctionWidget;
 
 namespace sidebar {
@@ -24,6 +28,7 @@ private:
     void applyGating();
     void refreshFields();
     void refreshVolumeTF();
+    void refreshVolumeFilterRange();
 
     QCheckBox* m_showCb = nullptr;
     QWidget* m_optionsGroup = nullptr;
@@ -31,6 +36,13 @@ private:
     QList<QWidget*> m_renderCtrls;  // greyed when volume rendering is off
     class TransferFunctionWidget* m_tfWidget = nullptr;
     QCheckBox* m_tfEnableCb = nullptr;
+
+    QCheckBox* m_volumeFilterEnabledCb = nullptr;
+    QSlider* m_volumeFilterMinSlider = nullptr;
+    QLineEdit* m_volumeFilterMinField = nullptr;
+    QSlider* m_volumeFilterMaxSlider = nullptr;
+    QLineEdit* m_volumeFilterMaxField = nullptr;
+    QPushButton* m_volumeFilterResetBtn = nullptr;
 };
 
 } // namespace sidebar

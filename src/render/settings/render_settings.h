@@ -229,6 +229,9 @@ class RenderSettings : public QObject {
     Q_PROPERTY(float filterMin READ getFilterMin WRITE setFilterMin NOTIFY viewChanged)
     Q_PROPERTY(float filterMax READ getFilterMax WRITE setFilterMax NOTIFY viewChanged)
     Q_PROPERTY(bool filterEnabled READ getFilterEnabled WRITE setFilterEnabled NOTIFY viewChanged)
+    Q_PROPERTY(float volumeFilterMin READ getVolumeFilterMin WRITE setVolumeFilterMin NOTIFY viewChanged)
+    Q_PROPERTY(float volumeFilterMax READ getVolumeFilterMax WRITE setVolumeFilterMax NOTIFY viewChanged)
+    Q_PROPERTY(bool volumeFilterEnabled READ getVolumeFilterEnabled WRITE setVolumeFilterEnabled NOTIFY viewChanged)
     Q_PROPERTY(bool colorRangeOverrideEnabled READ getColorRangeOverrideEnabled WRITE setColorRangeOverrideEnabled NOTIFY viewChanged)
     Q_PROPERTY(float colorRangeLo READ getColorRangeLo WRITE setColorRangeLo NOTIFY viewChanged)
     Q_PROPERTY(float colorRangeHi READ getColorRangeHi WRITE setColorRangeHi NOTIFY viewChanged)
@@ -987,6 +990,13 @@ public:
     void setFilterMax(float v);
     bool getFilterEnabled() const { return m_state.filterEnabled; }
     void setFilterEnabled(bool v);
+
+    float getVolumeFilterMin() const { return m_state.volumeFilterMin; }
+    void setVolumeFilterMin(float v);
+    float getVolumeFilterMax() const { return m_state.volumeFilterMax; }
+    void setVolumeFilterMax(float v);
+    bool getVolumeFilterEnabled() const { return m_state.volumeFilterEnabled; }
+    void setVolumeFilterEnabled(bool v);
 
     // Fixed custom colormap range (surface/point scalar coloring). Values
     // outside [lo, hi] clamp to the LUT ends. Setters clamp into the current
