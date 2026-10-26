@@ -107,6 +107,45 @@ TEST_CASE("ui.unstructured_render.pipe_3d_supports_volume_slice_isosurface") {
     for (std::uint32_t i : surface.indices) CHECK(i < surface.vertices.size() / 3);
 }
 
+TEST_CASE("ui.unstructured_render.vtu_volume_sample_supports_volume") {
+    RenderMesh mesh = parseVTKXML(samplePath("UNSTRUCTURED_GRID_volume_sample.vtu"));
+    CHECK(mesh.hasUnstructuredVolumeCells());
+    CHECK(volume::eligible(mesh));
+
+    volume::DerivedGrid grid;
+    REQUIRE(volume::build(mesh, volume::BuildOptions{}, grid));
+    REQUIRE_FALSE(grid.empty());
+
+    std::size_t occupied = 0;
+    for (std::uint32_t id : grid.cellId) {
+        if (id != volume::DerivedGrid::kEmpty) ++occupied;
+    }
+    CHECK(occupied > 0);
+
+    // point scalar "Density" is available and scatters into occupied voxels
+    volume::ScalarGrid scattered;
+    // Find the point scalar array via attributes
+    std::vector<float> values;
+    if (mesh.attributes && !mesh.attributes->pointScalars.empty()) {
+        values = mesh.attributes->pointScalars.begin()->second;
+    }
+    REQUIRE(!values.empty());
+    volume::scatter(mesh, grid, &values, false, scattered);
+    REQUIRE_FALSE(scattered.empty());
+    std::size_t scatteredOccupied = 0;
+    float mn = std::numeric_limits<float>::max();
+    float mx = std::numeric_limits<float>::lowest();
+    for (std::size_t i = 0; i < grid.voxelCount(); ++i) {
+        if (!scattered.occupancy[i]) continue;
+        ++scatteredOccupied;
+        mn = std::min(mn, scattered.value[i]);
+        mx = std::max(mx, scattered.value[i]);
+    }
+    CHECK(scatteredOccupied > 0);
+    CHECK(mn < mx);
+    float pmin = 0.0f, pmax = 1.0f;
+    CHECK(scattered.planeRange(0, grid.dimX / 2, pmin, pmax));
+}
 TEST_CASE("ui.unstructured_render.cavity_2d_is_not_a_volume_mesh") {
     const auto res = cfd::loadMesh(samplePath("cfd/CavityQuad_40x40.msh"));
     REQUIRE_MESSAGE(res.error.empty(), res.error);
