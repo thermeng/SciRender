@@ -63,7 +63,7 @@
           <string>Previous</string>
          </property>
          <property name="toolTip">
-          <string>Previous frame</string>
+          <string>Previous Frame</string>
          </property>
         </widget>
        </item>
@@ -80,7 +80,7 @@
           <string>Next</string>
          </property>
          <property name="toolTip">
-          <string>Next frame</string>
+          <string>Next Frame</string>
          </property>
         </widget>
        </item>
@@ -194,7 +194,7 @@
          <item>
           <widget class="QLabel" name="loopRangeLabel">
            <property name="text">
-            <string>Loop range</string>
+            <string>Loop Range</string>
            </property>
           </widget>
          </item>
@@ -288,7 +288,7 @@
       <item>
        <widget class="QLabel" name="scaleLabel">
         <property name="text">
-         <string>Colormap scale</string>
+         <string>Colormap Scale</string>
         </property>
         <property name="toolTip">
          <string>Whole sequence: one fixed range across all frames (no color flicker). Per frame: rescale to each frame's own min/max.</string>
@@ -302,12 +302,12 @@
         </property>
         <item>
          <property name="text">
-          <string>Whole sequence</string>
+          <string>Whole Sequence</string>
          </property>
         </item>
         <item>
          <property name="text">
-          <string>Per frame</string>
+          <string>Per Frame</string>
          </property>
         </item>
        </widget>

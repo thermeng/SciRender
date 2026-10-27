@@ -109,7 +109,7 @@ private:
     int m_navWidth = 140; // Dynamic width calculated from text content
 
     // Availability badges: a nav section whose backing data is missing gets a
-    // warning glyph appended to its nav label. `m_sectionBanners` holds the
+    // warning glyph shown on the right edge of its nav label. `m_sectionBanners` holds the
     // inline reason banner injected at the top of each visualizer page.
     void refreshSidebarCapabilityBadges();
     QString sectionUnavailableReason(int section) const;

@@ -219,7 +219,7 @@
      <item>
         <widget class="QLabel" name="openEdgesLabel">
          <property name="text">
-          <string>Open edges</string>
+          <string>Open Edges</string>
          </property>
          <property name="minimumSize">
           <size>
@@ -353,7 +353,7 @@
    <item>
     <widget class="QLabel" name="bboxHeader">
      <property name="text">
-      <string>Bounding box</string>
+      <string>Bounding Box</string>
      </property></widget>
    </item>
    <item>

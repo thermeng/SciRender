@@ -77,7 +77,7 @@
            <widget class="QLabel" name="timeSchemeLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>Time scheme</string></property>
+            <property name="text"><string>Time Scheme</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -100,7 +100,7 @@
            <widget class="QLabel" name="dtLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>Time step</string></property>
+            <property name="text"><string>Time Step</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -123,7 +123,7 @@
            <widget class="QLabel" name="tEndLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>End time</string></property>
+            <property name="text"><string>End Time</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -139,7 +139,7 @@
        <item>
         <widget class="QCheckBox" name="adaptiveCflCb">
          <property name="text"><string>Adaptive CFL</string></property>
-         <property name="toolTip"><string>Recompute dt each step from the CFL number. min/max dt still clamp the step even when this is off.</string></property>
+         <property name="toolTip"><string>Recompute dt each step from the CFL number. min/max Dt still clamp the step even when this is off.</string></property>
         </widget>
        </item>
 
@@ -153,7 +153,7 @@
            <widget class="QLabel" name="cflLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>CFL number</string></property>
+            <property name="text"><string>CFL Number</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -176,7 +176,7 @@
            <widget class="QLabel" name="minDtLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>Min dt</string></property>
+            <property name="text"><string>Min Dt</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -199,7 +199,7 @@
            <widget class="QLabel" name="maxDtLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>Max dt</string></property>
+            <property name="text"><string>Max Dt</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -222,7 +222,7 @@
            <widget class="QLabel" name="writeIntervalLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>Write interval</string></property>
+            <property name="text"><string>Write Interval</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -245,7 +245,7 @@
            <widget class="QLabel" name="outerCorrectorsLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>Outer correctors</string></property>
+            <property name="text"><string>Outer Correctors</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -268,7 +268,7 @@
            <widget class="QLabel" name="nonOrthLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>Non-orth correctors</string></property>
+            <property name="text"><string>Non-Orth Correctors</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -291,7 +291,7 @@
            <widget class="QLabel" name="pvdFileLabel">
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-            <property name="text"><string>PVD file</string></property>
+            <property name="text"><string>PVD File</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
            </widget>
           </item>
@@ -415,7 +415,7 @@
    <item>
     <widget class="QCheckBox" name="turbCb">
      <property name="text">
-      <string>SST turbulence</string>
+      <string>SST Turbulence</string>
      </property>
      <property name="toolTip">
       <string>Enable the k-omega SST turbulence model.</string>
@@ -472,7 +472,7 @@
        <widget class="QLabel" name="maxIterLabel">
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Max iterations</string></property>
+        <property name="text"><string>Max Iterations</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
       </item>
@@ -501,7 +501,7 @@
        <widget class="QLabel" name="alphaULabel">
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Velocity relax</string></property>
+        <property name="text"><string>Velocity Relax</string></property>
         <property name="toolTip"><string>alpha_u</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
@@ -531,7 +531,7 @@
        <widget class="QLabel" name="alphaPLabel">
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Pressure relax</string></property>
+        <property name="text"><string>Pressure Relax</string></property>
         <property name="toolTip"><string>alpha_p</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
