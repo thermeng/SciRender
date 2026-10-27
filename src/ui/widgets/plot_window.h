@@ -22,6 +22,14 @@ PlotPlacementAvail plotPlacementAvailability(RenderSettings* settings, const QSt
 // Canvas-only plots surface. All parameters (mode, field, placement, bins,
 // samples, P0/P1) live in RenderSettings and are edited from the sidebar
 // Plots page; PlotWindow just renders the active canvas and a status strip.
+// Unified series container shared by the monitor plot.
+struct PlotSeries {
+    QString name;
+    QColor color;
+    std::vector<float> xs;
+    std::vector<float> ys;
+    bool visible = true;
+};
 class PlotWindow : public QWidget {
     Q_OBJECT
 public:
@@ -88,13 +96,7 @@ private:
     MonitorPlotWidget* m_monitorPlot = nullptr;
     QLabel* m_residualStats = nullptr;
     QLabel* m_residualStatus = nullptr;
-    std::vector<float> m_residualIters;
-    std::vector<float> m_residualCont;
-    std::vector<float> m_residualMomU;
-    std::vector<float> m_residualMomV;
-    std::vector<float> m_residualMomW;
-    std::vector<float> m_residualK;
-    std::vector<float> m_residualOmega;
+    std::vector<PlotSeries> m_monitorSeries;
     int m_residualDim = 3;
     bool m_residualHasTurb = false;
     int m_monitorHistoryWindow = 0; // 0 = all

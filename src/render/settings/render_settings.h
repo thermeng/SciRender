@@ -856,7 +856,10 @@ public:
       void setProbePlacement(int v) { int p=std::clamp(v,0,1); if(m_state.probePlacement!=p){ m_state.probePlacement=p; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
       QStringList getProbePlacementOptions() const { return {"Vertex","Cell Center"}; }
 
-      // ---- Plots parameters (sidebar-owned; PlotWindow consumes) ----
+      // Plot viewport modes.
+enum class PlotMode { Histogram = 0, Line = 1, Monitor = 2 };
+
+// ---- Plots parameters (sidebar-owned; PlotWindow consumes) ----
       // Not render state: no markStateDirty(), they never reach the Renderer.
       int getPlotMode() const { return m_plotMode; }
        void setPlotMode(int v) { int m = (v >= 0 && v <= 2) ? v : 0; if (m_plotMode != m) { m_plotMode = m; emit plotSettingsChanged(); } }
