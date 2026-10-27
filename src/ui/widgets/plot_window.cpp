@@ -139,7 +139,7 @@ PlotWindow::PlotWindow(RenderSettings* settings, QWidget* parent)
 }
 
 void PlotWindow::exportMonitorCsv() {
-    if (m_residualIters.empty()) { QMessageBox::information(this, tr("Export CSV"), tr("No monitor data to export.")); return; }
+    if (m_monitorSeries.empty()) { QMessageBox::information(this, tr("Export CSV"), tr("No monitor data to export.")); return; }
     QString path = QFileDialog::getSaveFileName(this, tr("Export Monitor CSV"), QString(), tr("CSV (*.csv)"));
     if (path.isEmpty()) return;
     QFile f(path);
@@ -147,22 +147,15 @@ void PlotWindow::exportMonitorCsv() {
     QTextStream out(&f);
     QStringList cols;
     cols << "iteration";
-    cols << "Continuity";
-    cols << "Momentum X";
-    cols << "Momentum Y";
-    if (m_residualDim >= 3) cols << "Momentum Z";
-    if (m_residualHasTurb) { cols << "k"; cols << "omega"; }
+    for (const auto& s : m_monitorSeries) cols << s.name;
     out << cols.join(",") << "\n";
-    for (size_t i = 0; i < m_residualIters.size(); ++i) {
+    const size_t n = m_monitorSeries.front().xs.size();
+    for (size_t i = 0; i < n; ++i) {
         QStringList row;
-        row << QString::number(m_residualIters[i], 'g', 10);
-        row << QString::number(m_residualCont[i], 'g', 10);
-        row << QString::number(m_residualMomU[i], 'g', 10);
-        row << QString::number(m_residualMomV[i], 'g', 10);
-        if (m_residualDim >= 3 && i < m_residualMomW.size()) row << QString::number(m_residualMomW[i], 'g', 10);
-        if (m_residualHasTurb) {
-            if (i < m_residualK.size()) row << QString::number(m_residualK[i], 'g', 10);
-            if (i < m_residualOmega.size()) row << QString::number(m_residualOmega[i], 'g', 10);
+        row << QString::number(m_monitorSeries.front().xs[i], 'g', 10);
+        for (const auto& s : m_monitorSeries) {
+            if (i < s.ys.size()) row << QString::number(s.ys[i], 'g', 10);
+            else row << "";
         }
         out << row.join(",") << "\n";
     }
@@ -188,21 +181,11 @@ void PlotWindow::setMode(int mode) {
 }
 
 void PlotWindow::clearResiduals() {
-    m_residualIters.clear();
-    m_residualCont.clear();
-    m_residualMomU.clear();
-    m_residualMomV.clear();
-    m_residualMomW.clear();
-    m_residualK.clear();
-    m_residualOmega.clear();
-    m_residualHasTurb = false;
-    m_residualDim = 3;
-    if (!m_monitorAvailableSeries.isEmpty()) {
-        m_monitorAvailableSeries.clear();
-        emit monitorSeriesChanged();
-    }
+    m_monitorSeries.clear();
+    m_monitorAvailableSeries.clear();
+    emit monitorSeriesChanged();
     if (m_monitorPlot) m_monitorPlot->clear();
-        if (m_residualStats) m_residualStats->setText(tr("No monitor data"));
+    if (m_residualStats) m_residualStats->setText(tr("No monitor data"));
     if (m_residualStatus) m_residualStatus->setText(QString());
     if (m_mode == 2) updateResidualPlot();
 }
@@ -211,16 +194,35 @@ void PlotWindow::appendResidual(int iteration, int dim, double continuity,
                                double momU, double momV, double momW,
                                double k, double omega, bool hasTurb) {
     m_residualDim = dim;
-    m_residualIters.push_back(static_cast<float>(iteration));
-    m_residualCont.push_back(static_cast<float>(continuity));
-    m_residualMomU.push_back(static_cast<float>(momU));
-    m_residualMomV.push_back(static_cast<float>(momV));
-    if (dim >= 3) m_residualMomW.push_back(static_cast<float>(momW));
-    if (hasTurb) {
-        m_residualK.push_back(static_cast<float>(k));
-        m_residualOmega.push_back(static_cast<float>(omega));
-    }
     m_residualHasTurb = hasTurb;
+
+    const float x = static_cast<float>(iteration);
+
+    auto append = [this, x](const QString& name, QColor color, float y) {
+        for (auto& s : m_monitorSeries) {
+            if (s.name == name) {
+                s.xs.push_back(x);
+                s.ys.push_back(y);
+                return;
+            }
+        }
+        PlotSeries s;
+        s.name = name;
+        s.color = color;
+        s.xs.push_back(x);
+        s.ys.push_back(y);
+        m_monitorSeries.push_back(s);
+    };
+
+    append(tr("Continuity"), QColor(0x4a, 0x90, 0xe2), static_cast<float>(continuity));
+    append(tr("Momentum X"), QColor(0xB0, 0x54, 0x3A), static_cast<float>(momU));
+    append(tr("Momentum Y"), QColor(0x3A, 0xA0, 0x54), static_cast<float>(momV));
+    if (dim >= 3) append(tr("Momentum Z"), QColor(0xD0, 0x90, 0x30), static_cast<float>(momW));
+    if (hasTurb) {
+        append(tr("k"), QColor(0x8A, 0x54, 0xB0), static_cast<float>(k));
+        append(tr("omega"), QColor(0x30, 0xA0, 0xA0), static_cast<float>(omega));
+    }
+
     QStringList avail;
     avail << tr("Continuity") << tr("Momentum X") << tr("Momentum Y");
     if (m_residualDim >= 3) avail << tr("Momentum Z");
@@ -229,44 +231,31 @@ void PlotWindow::appendResidual(int iteration, int dim, double continuity,
         m_monitorAvailableSeries = avail;
         emit monitorSeriesChanged();
     }
+
     if (m_monitorHistoryWindow > 0) {
-        auto trim = [this](std::vector<float>& v) {
-            if ((int)v.size() > m_monitorHistoryWindow)
-                v.erase(v.begin(), v.end() - m_monitorHistoryWindow);
-        };
-        trim(m_residualIters);
-        trim(m_residualCont);
-        trim(m_residualMomU);
-        trim(m_residualMomV);
-        if (m_residualDim >= 3) trim(m_residualMomW);
-        if (hasTurb) { trim(m_residualK); trim(m_residualOmega); }
+        for (auto& s : m_monitorSeries) {
+            if ((int)s.xs.size() > m_monitorHistoryWindow) {
+                s.xs.erase(s.xs.begin(), s.xs.end() - m_monitorHistoryWindow);
+                s.ys.erase(s.ys.begin(), s.ys.end() - m_monitorHistoryWindow);
+            }
+        }
     }
+
     if (m_mode == 2) updateResidualPlot();
 }
 
 void PlotWindow::updateResidualPlot() {
     if (!m_monitorPlot) return;
-    if (m_residualIters.empty()) {
+    if (m_monitorSeries.empty()) {
         m_monitorPlot->clear();
         if (m_residualStats) m_residualStats->setText(tr("No monitor data"));
         return;
     }
     m_monitorPlot->clear();
-    // Continuity
-    {
-        std::vector<float> xs = m_residualIters;
-        m_monitorPlot->setSeries(tr("Continuity"), xs, m_residualCont);
+    for (const auto& s : m_monitorSeries) {
+        m_monitorPlot->setSeries(s.name, s.xs, s.ys);
     }
-    // Momentum components
-    m_monitorPlot->setSeries(tr("Momentum X"), m_residualIters, m_residualMomU);
-    m_monitorPlot->setSeries(tr("Momentum Y"), m_residualIters, m_residualMomV);
-    if (m_residualDim >= 3)
-        m_monitorPlot->setSeries(tr("Momentum Z"), m_residualIters, m_residualMomW);
-    if (m_residualHasTurb) {
-        m_monitorPlot->setSeries(tr("k"), m_residualIters, m_residualK);
-        m_monitorPlot->setSeries(tr("omega"), m_residualIters, m_residualOmega);
-    }
-    if (m_residualStats) m_residualStats->setText(tr("Monitor: %1 points").arg(m_residualIters.size()));
+    if (m_residualStats) m_residualStats->setText(tr("Monitor: %1 points").arg(m_monitorSeries.front().xs.size()));
     if (m_residualStatus) m_residualStatus->setText(QString());
 }
 
