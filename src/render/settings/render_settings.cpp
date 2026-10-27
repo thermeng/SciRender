@@ -343,6 +343,15 @@ void RenderSettings::clearRecentFiles() {
     saveRecentToSettings();
 }
 
+void RenderSettings::addRecentFile(const QString& filePath) {
+    if (filePath.isEmpty()) return;
+    QString absPath = QFileInfo(filePath).absoluteFilePath();
+    recentFiles.removeAll(absPath);
+    recentFiles.prepend(absPath);
+    while (recentFiles.size() > 8) recentFiles.removeLast();
+    saveRecentToSettings();
+}
+
 const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable() {
     static const std::vector<StateEntry> table = [] {
         std::vector<StateEntry> t;

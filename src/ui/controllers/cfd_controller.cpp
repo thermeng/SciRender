@@ -32,7 +32,7 @@ namespace {
 
 constexpr qint64 kMaxMeshBytes = 1024LL * 1024 * 1024; // 1 GiB
 constexpr qint64 kMaxSettingsBytes = 16LL * 1024 * 1024;
-constexpr qint32 kScfdVersion = 6;
+constexpr qint32 kScfdVersion = 7;
 constexpr qint32 kScfdVersionReadMin = 5; // v5 files are read through a shim
 
 struct PvdEntry {
@@ -189,6 +189,7 @@ bool CfdController::loadMesh(const QString& path) {
 }
 
 bool CfdController::run() {
+    m_monitorHistory.clear();
     m_lastError.clear();
     if (m_running.load()) {
         setError("A solve is already running.");
@@ -238,6 +239,28 @@ bool CfdController::run() {
         if (gen != m_gen) return;
         if (m_cancel.load()) return;
         emit progress(iter, cont, mom);
+        if (m_session) {
+            auto moms = m_session->finalMomentumResiduals();
+            int dim = m_session->dim();
+            bool hasTurb = m_session->hasTurbulence();
+            double k = m_session->finalKResidual();
+            double omega = m_session->finalOmegaResidual();
+            {
+                std::lock_guard<std::mutex> lock(m_monitorMutex);
+                MonitorPoint pt;
+                pt.iteration = iter;
+                pt.time = currentTime();
+                pt.continuity = cont;
+                pt.momU = moms[0]; pt.momV = moms[1]; pt.momW = moms[2];
+                pt.k = k; pt.omega = omega;
+                pt.hasTurbulence = hasTurb;
+                pt.dim = dim;
+                m_monitorHistory.push_back(pt);
+            }
+            emit residualsUpdated(iter, dim, cont,
+                                 moms[0], moms[1], moms[2],
+                                 k, omega, hasTurb);
+        }
     };
     // Frame bus (Phase 2): the solver publishes a self-contained snapshot each
     // time step; the render-prep thread builds the mesh off the UI thread.
@@ -420,7 +443,8 @@ bool CfdController::run() {
 }
 
 std::shared_ptr<const RenderMesh> CfdController::initialize(double ux, double uy, double p,
-                                                            double k, double omega) {
+                                                           double k, double omega) {
+    m_monitorHistory.clear();
     cfd::InitConditions ic;
     ic.ux = ux;
     ic.uy = uy;
@@ -432,6 +456,7 @@ std::shared_ptr<const RenderMesh> CfdController::initialize(double ux, double uy
 }
 
 std::shared_ptr<const RenderMesh> CfdController::initialize(const cfd::InitConditions& ic) {
+    m_monitorHistory.clear();
     if (m_running.load()) {
         setError("Stop the current run before initializing.");
         return nullptr;
@@ -605,6 +630,25 @@ bool CfdController::saveCase(const QString& path) {
         if (hasVelocityHistory) {
             for (int d = 0; d < dim; ++d)
                 for (std::size_t i = 0; i < n; ++i) ds << m_state.velocityNM1[d][i];
+        }
+    }
+
+    // Monitor/residual history.
+    {
+        std::lock_guard<std::mutex> lock(m_monitorMutex);
+        const bool hasMon = !m_monitorHistory.empty();
+        ds << hasMon;
+        if (hasMon) {
+            ds << (qint64)m_monitorHistory.size();
+            ds << (qint32)m_monitorHistory.front().dim;
+            for (const auto& pt : m_monitorHistory) {
+                ds << (qint32)pt.iteration;
+                ds << pt.time;
+                ds << pt.continuity;
+                ds << pt.momU; ds << pt.momV; ds << pt.momW;
+                ds << pt.k; ds << pt.omega;
+                ds << pt.hasTurbulence;
+            }
         }
     }
 
@@ -820,6 +864,37 @@ bool CfdController::loadCase(const QString& path) {
         state.dtPrev = dtPrev;
         state.step = step;
     }
+    std::vector<MonitorPoint> loadedMonitorHistory;
+    if (version >= 7) {
+        bool hasMonitorHistory = false;
+        ds >> hasMonitorHistory;
+        if (hasMonitorHistory) {
+            qint64 nmon = 0;
+            ds >> nmon;
+            qint32 monDim = 0;
+            ds >> monDim;
+            if (ds.status() != QDataStream::Ok || nmon < 0) {
+                setError("Corrupt case file (invalid monitor history).");
+                return false;
+            }
+            loadedMonitorHistory.reserve((std::size_t)nmon);
+            for (qint64 i = 0; i < nmon; ++i) {
+                MonitorPoint pt;
+                qint32 iter = 0;
+                ds >> iter;
+                pt.iteration = iter;
+                ds >> pt.time >> pt.continuity >> pt.momU >> pt.momV >> pt.momW >> pt.k >> pt.omega;
+                ds >> pt.hasTurbulence;
+                pt.dim = monDim;
+                loadedMonitorHistory.push_back(pt);
+                if (ds.status() != QDataStream::Ok) {
+                    setError("Corrupt case file (truncated monitor history).");
+                    return false;
+                }
+            }
+        }
+    }
+
     if (!state.hasTurbulence()) {
         state.turbulence.clear();
     }
@@ -864,6 +939,8 @@ bool CfdController::loadCase(const QString& path) {
     m_latestFrameSlot.store(nullptr);
     m_cancel.store(false);
     m_running.store(false);
+
+    m_monitorHistory = std::move(loadedMonitorHistory);
 
     emit caseLoaded();
     return true;

@@ -22,8 +22,18 @@ namespace sidebar {
 
 class CfdCasePage : public SidebarPage {
     Q_OBJECT
+signals:
+    void residualPoint(int iteration, double continuity, double momentum);
+    void residualSeriesUpdated(int iteration, int dim, double continuity,
+                              double momU, double momV, double momW,
+                              double k, double omega, bool hasTurbulence);
+    void residualsCleared();
+    void monitorHistoryRestored();
 public:
     explicit CfdCasePage(RenderSettings* settings, QWidget* parent = nullptr);
+    CfdController* controller() const { return m_ctrl; }
+    void loadMeshFromPath(const QString& path);
+    void loadCaseFromPath(const QString& path);
 
 public slots:
     void onLoadMesh();

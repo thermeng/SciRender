@@ -506,6 +506,7 @@ public slots:
     void loadRecentFromSettings();
     void saveRecentToSettings() const;
     void clearRecentFiles();
+    void addRecentFile(const QString& filePath);
     void saveStateToSettings() const;
     void restoreStateFromSettings();
     Q_INVOKABLE void setActiveScalarField(const QString& fieldName);
@@ -858,7 +859,7 @@ public:
       // ---- Plots parameters (sidebar-owned; PlotWindow consumes) ----
       // Not render state: no markStateDirty(), they never reach the Renderer.
       int getPlotMode() const { return m_plotMode; }
-      void setPlotMode(int v) { int m = (v == 1) ? 1 : 0; if (m_plotMode != m) { m_plotMode = m; emit plotSettingsChanged(); } }
+       void setPlotMode(int v) { int m = (v >= 0 && v <= 2) ? v : 0; if (m_plotMode != m) { m_plotMode = m; emit plotSettingsChanged(); } }
       QString getHistField() const { return m_histField; }
       void setHistField(const QString& v) { if (m_histField != v) { m_histField = v; emit plotSettingsChanged(); } }
       int getHistPlacement() const { return m_histPlacement; }

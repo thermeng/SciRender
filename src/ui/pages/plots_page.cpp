@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QLayout>
 #include <QListWidget>
+#include <QMap>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
@@ -61,8 +62,15 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
     m_modeLineBtn->setAutoExclusive(true);
     m_modeLineBtn->setFixedHeight(sb::kControlHeight + 2);
     m_modeLineBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_modeResidualBtn = new QToolButton(content);
+    m_modeResidualBtn->setText(tr("Monitor"));
+    m_modeResidualBtn->setCheckable(true);
+    m_modeResidualBtn->setAutoExclusive(true);
+    m_modeResidualBtn->setFixedHeight(sb::kControlHeight + 2);
+    m_modeResidualBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     modeRow->addWidget(m_modeHistBtn, 1);
     modeRow->addWidget(m_modeLineBtn, 1);
+    modeRow->addWidget(m_modeResidualBtn, 1);
     lay->addLayout(modeRow);
 
     // --- parameter stack: one pane per mode ---
@@ -271,10 +279,142 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
         ll->addStretch(1);
     }
 
+    auto* monitorPane = new QWidget;
+    {
+        auto* ml = new QVBoxLayout(monitorPane);
+        ml->setContentsMargins(0, 0, 0, 0);
+        ml->setSpacing(4);
+
+        auto* logCb = new QCheckBox(tr("Log scale"));
+        logCb->setChecked(true);
+        ml->addWidget(logCb);
+        auto* legendCb = new QCheckBox(tr("Legend"));
+        legendCb->setChecked(true);
+        ml->addWidget(legendCb);
+
+        auto* histRow = new QHBoxLayout;
+        histRow->setSpacing(6);
+        auto* histLabel = new QLabel(tr("History"));
+        histLabel->setFixedWidth(56);
+        auto* histCombo = new QComboBox;
+        histCombo->addItems({tr("All"), tr("Last N")});
+        histRow->addWidget(histLabel, 0, Qt::AlignVCenter);
+        histRow->addWidget(histCombo, 1);
+        ml->addLayout(histRow);
+
+        auto* nRow = new QHBoxLayout;
+        nRow->setSpacing(6);
+        auto* nLabel = new QLabel(tr("N"));
+        nLabel->setFixedWidth(56);
+        auto* nSpin = new QSpinBox;
+        nSpin->setRange(10, 100000);
+        nSpin->setValue(1000);
+        nSpin->setEnabled(false);
+        nRow->addWidget(nLabel, 0, Qt::AlignVCenter);
+        nRow->addWidget(nSpin, 1);
+        ml->addLayout(nRow);
+
+        auto* yminRow = new QHBoxLayout;
+        yminRow->setSpacing(6);
+        auto* yminLabel = new QLabel(tr("Y min"));
+        yminLabel->setFixedWidth(56);
+        auto* yminSpin = new QDoubleSpinBox;
+        yminSpin->setRange(1e-30, 1e6);
+        yminSpin->setValue(1e-6);
+        yminSpin->setEnabled(false);
+        yminRow->addWidget(yminLabel, 0, Qt::AlignVCenter);
+        yminRow->addWidget(yminSpin, 1);
+        ml->addLayout(yminRow);
+
+        auto* ymaxRow = new QHBoxLayout;
+        ymaxRow->setSpacing(6);
+        auto* ymaxLabel = new QLabel(tr("Y max"));
+        ymaxLabel->setFixedWidth(56);
+        auto* ymaxSpin = new QDoubleSpinBox;
+        ymaxSpin->setRange(1e-30, 1e6);
+        ymaxSpin->setValue(1);
+        ymaxSpin->setEnabled(false);
+        ymaxRow->addWidget(ymaxLabel, 0, Qt::AlignVCenter);
+        ymaxRow->addWidget(ymaxSpin, 1);
+        ml->addLayout(ymaxRow);
+
+        auto* autoYCb = new QCheckBox(tr("Auto Y"));
+        autoYCb->setChecked(true);
+        ml->addWidget(autoYCb);
+
+        // Series toggles
+        auto* seriesLabel = new QLabel(tr("Series"));
+        seriesLabel->setObjectName("monitorSeriesLabel");
+        ml->addWidget(seriesLabel);
+        const QStringList allSeries = {tr("Continuity"), tr("Momentum X"), tr("Momentum Y"),
+                                       tr("Momentum Z"), tr("k"), tr("omega")};
+        QMap<QString, QCheckBox*> seriesChecks;
+        for (const QString& name : allSeries) {
+            auto* cb = new QCheckBox(name);
+            cb->setChecked(true);
+            cb->setVisible(false); // shown when the series actually exists
+            ml->addWidget(cb);
+            seriesChecks.insert(name, cb);
+            QObject::connect(cb, &QCheckBox::toggled, this, [this, name](bool on) {
+                if (m_plotWindow) m_plotWindow->setMonitorSeriesVisible(name, on);
+            });
+        }
+
+        // Sync checkbox visibility with available monitor series.
+        auto syncSeriesVisibility = [this, seriesChecks]() {
+            if (!m_plotWindow) return;
+            const QStringList avail = m_plotWindow->monitorAvailableSeries();
+            for (auto it = seriesChecks.constBegin(); it != seriesChecks.constEnd(); ++it) {
+                it.value()->setVisible(avail.contains(it.key()));
+            }
+        };
+        syncSeriesVisibility();
+        if (m_plotWindow) {
+            QObject::connect(m_plotWindow, &PlotWindow::monitorSeriesChanged, this, syncSeriesVisibility);
+        }
+
+        ml->addStretch(1);
+
+        // Wiring
+        QObject::connect(logCb, &QCheckBox::toggled, this, [this](bool on) {
+            if (m_plotWindow) m_plotWindow->setMonitorLogScale(on);
+        });
+        QObject::connect(legendCb, &QCheckBox::toggled, this, [this](bool on) {
+            if (m_plotWindow) m_plotWindow->setMonitorLegendVisible(on);
+        });
+        QObject::connect(histCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, nSpin](int idx) {
+            if (m_plotWindow) m_plotWindow->setMonitorHistoryWindow(idx == 1 ? nSpin->value() : 0);
+        });
+        QObject::connect(nSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, histCombo](int v) {
+            if (histCombo->currentIndex() == 1 && m_plotWindow) m_plotWindow->setMonitorHistoryWindow(v);
+        });
+        QObject::connect(nSpin, &QSpinBox::valueChanged, nSpin, [nSpin, histCombo](int) {
+            nSpin->setEnabled(histCombo->currentIndex() == 1);
+        });
+        QObject::connect(histCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), nSpin, [nSpin](int idx) {
+            nSpin->setEnabled(idx == 1);
+        });
+        QObject::connect(autoYCb, &QCheckBox::toggled, this, [this, yminSpin, ymaxSpin](bool on) {
+            yminSpin->setEnabled(!on);
+            ymaxSpin->setEnabled(!on);
+            if (m_plotWindow) m_plotWindow->setMonitorYRange(on, static_cast<float>(yminSpin->value()),
+                                                             static_cast<float>(ymaxSpin->value()));
+        });
+        QObject::connect(yminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this, autoYCb, yminSpin, ymaxSpin](double) {
+            if (!autoYCb->isChecked() && m_plotWindow)
+                m_plotWindow->setMonitorYRange(false, static_cast<float>(yminSpin->value()), static_cast<float>(ymaxSpin->value()));
+        });
+        QObject::connect(ymaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this, autoYCb, yminSpin, ymaxSpin](double) {
+            if (!autoYCb->isChecked() && m_plotWindow)
+                m_plotWindow->setMonitorYRange(false, static_cast<float>(yminSpin->value()), static_cast<float>(ymaxSpin->value()));
+        });
+    }
+
     m_paramStack = new QStackedWidget(content);
     m_paramStack->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     m_paramStack->addWidget(histPane);
     m_paramStack->addWidget(linePane);
+    m_paramStack->addWidget(monitorPane);
     lay->addWidget(m_paramStack, 0);
 
     // --- export group ---
@@ -304,10 +444,12 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
         if (m_plotWindow) m_plotWindow->setMode(mode);
         if (m_modeHistBtn) { m_modeHistBtn->blockSignals(true); m_modeHistBtn->setChecked(mode == 0); m_modeHistBtn->blockSignals(false); }
         if (m_modeLineBtn) { m_modeLineBtn->blockSignals(true); m_modeLineBtn->setChecked(mode == 1); m_modeLineBtn->blockSignals(false); }
+    if (m_modeResidualBtn) { m_modeResidualBtn->blockSignals(true); m_modeResidualBtn->setChecked(mode == 2); m_modeResidualBtn->blockSignals(false); }
     });
 
     connect(m_modeHistBtn, &QToolButton::toggled, this, [this](bool on) { if (on && S()->getPlotMode() != 0) S()->setPlotMode(0); });
     connect(m_modeLineBtn, &QToolButton::toggled, this, [this](bool on) { if (on && S()->getPlotMode() != 1) S()->setPlotMode(1); });
+    connect(m_modeResidualBtn, &QToolButton::toggled, this, [this](bool on) { if (on && S()->getPlotMode() != 2) S()->setPlotMode(2); });
 
     connect(m_histFieldCombo, &QComboBox::currentTextChanged, this, [this](const QString& t) {
         if (t == tr("(no scalar fields)")) return;
@@ -369,6 +511,7 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
         if (m_plotWindow) m_plotWindow->setMode(mode);
         if (m_modeHistBtn) m_modeHistBtn->setChecked(mode == 0);
         if (m_modeLineBtn) m_modeLineBtn->setChecked(mode == 1);
+        if (m_modeResidualBtn) m_modeResidualBtn->setChecked(mode == 2);
     }
 
     setContent(content);

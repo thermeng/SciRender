@@ -269,8 +269,10 @@ if(SCIRENDER_BUILD_APP)
         src/ui/widgets/range_editor.h
         src/ui/widgets/plot_widget.cpp
         src/ui/widgets/plot_widget.h
-        src/ui/widgets/line_plot_widget.cpp
-        src/ui/widgets/line_plot_widget.h
+         src/ui/widgets/line_plot_widget.cpp
+         src/ui/widgets/line_plot_widget.h
+         src/ui/widgets/monitor_plot_widget.cpp
+         src/ui/widgets/monitor_plot_widget.h
         src/ui/widgets/plot_window.cpp
         src/ui/widgets/plot_window.h
         src/ui/widgets/transfer_function_widget.cpp

@@ -44,6 +44,7 @@ private:
     QPushButton* m_openBtn = nullptr;
     QToolButton* m_modeHistBtn = nullptr;
     QToolButton* m_modeLineBtn = nullptr;
+    QToolButton* m_modeResidualBtn = nullptr;
     QStackedWidget* m_paramStack = nullptr;
     QComboBox* m_histFieldCombo = nullptr;
     QComboBox* m_histPlacementCombo = nullptr;

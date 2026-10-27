@@ -2,7 +2,7 @@
 #include <QObject>
 #include <QString>
 #include <QByteArray>
-#include <memory>
+#include <mutex>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -35,6 +35,17 @@ struct CfdFrameSlot {
     int step = 0;
     double time = 0.0;
     uint64_t gen = 0;
+};
+
+// One monitor/residual sample captured during a run.
+struct MonitorPoint {
+    int iteration = 0;
+    double time = 0.0;
+    double continuity = 0.0;
+    double momU = 0.0, momV = 0.0, momW = 0.0;
+    double k = 0.0, omega = 0.0;
+    bool hasTurbulence = false;
+    int dim = 0;
 };
 
 class CfdController : public QObject {
@@ -71,6 +82,8 @@ public:
     void step();
 
     bool isRunning() const { return m_running.load(std::memory_order_acquire); }
+    const std::vector<MonitorPoint>& monitorHistory() const { return m_monitorHistory; }
+    void clearMonitorHistory() { m_monitorHistory.clear(); }
     bool isPaused() const;
     // True when the solver is parked at an iteration/time-step boundary, i.e.
     // the in-memory state is a consistent restart point.
@@ -118,6 +131,10 @@ signals:
     void meshLoaded();
     void caseLoaded();
     void progress(int iteration, double continuity, double momentum);
+    void residualsUpdated(int iteration, int dim, double continuity,
+                         double momU, double momV, double momW,
+                         double k, double omega, bool hasTurbulence);
+    void monitorHistoryLoaded(const std::vector<MonitorPoint>& history);
     void pauseRequested();
     void resumed();
     void stepRequested();
@@ -165,4 +182,6 @@ private:
     std::thread m_renderPrepThread;
     std::atomic<bool> m_diskWriterRunning{false};
     std::thread m_diskWriterThread;
+    std::vector<MonitorPoint> m_monitorHistory;
+    std::mutex m_monitorMutex;
 };

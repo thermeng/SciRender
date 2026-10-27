@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <array>
 
 namespace cfd {
 
@@ -90,6 +91,10 @@ public:
     virtual SessionStatus status() const = 0;
     virtual int lastIterations() const = 0;
     virtual double finalContinuityResidual() const = 0;
+    virtual std::array<double, 3> finalMomentumResiduals() const = 0;
+    virtual double finalKResidual() const = 0;
+    virtual double finalOmegaResidual() const = 0;
+    virtual bool hasTurbulence() const = 0;
 
     // Live state (solver fields if one exists, otherwise the installed state).
     // Safe to call at a pause boundary or after the run finished; it must not

@@ -79,6 +79,11 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
 
 
     connect(m_ctrl, &CfdController::progress, this, &CfdCasePage::onProgress);
+    connect(m_ctrl, &CfdController::residualsUpdated, this, [this](int iter, int dim, double cont,
+                                                                  double momU, double momV, double momW,
+                                                                  double k, double omega, bool hasTurb) {
+        emit residualSeriesUpdated(iter, dim, cont, momU, momV, momW, k, omega, hasTurb);
+    });
     connect(m_ctrl, &CfdController::finished, this, &CfdCasePage::onFinished);
     connect(m_ctrl, &CfdController::failed, this, &CfdCasePage::onFailed);
 
@@ -581,7 +586,9 @@ void CfdCasePage::onLoadMesh() {
         this, "Load CFD Mesh", QString(), "Mesh (*.msh *.vtk *.vtu);;All files (*)");
     if (path.isEmpty()) return;
     log("Loading " + QFileInfo(path).fileName() + "...");
-    m_ctrl->loadMesh(path); // emits meshLoaded() (or failed()) synchronously
+    if (m_ctrl->loadMesh(path)) {
+        if (S()) S()->addRecentFile(path);
+    }
 }
 
 void CfdCasePage::log(const QString& msg) {
@@ -748,6 +755,7 @@ void CfdCasePage::onEditBCs() {
 void CfdCasePage::onRun() {
     if (m_running) return;
     collectSettings();
+    emit residualsCleared();
     // Capture the extraction config BY VALUE on the GUI thread. The render-prep
     // worker then runs a pure function and never reads RenderSettings members
     // while the GUI is publishing frames (that race was the streaming crash).
@@ -825,6 +833,7 @@ void CfdCasePage::onInitialize() {
     }
     const int dim = m_ctrl->meshResult().dim;
     collectSettings();
+    // (residuals are cleared only after the user confirms initialization)
 
     QDialog dlg(this);
     dlg.setWindowTitle("Initialize Solution");
@@ -832,16 +841,24 @@ void CfdCasePage::onInitialize() {
     auto* form = new QFormLayout;
     auto* ux = new QDoubleSpinBox(&dlg); ux->setRange(-1e6, 1e6); ux->setDecimals(4); ux->setValue(0.0);
     auto* uy = new QDoubleSpinBox(&dlg); uy->setRange(-1e6, 1e6); uy->setDecimals(4); uy->setValue(0.0);
-    auto* uz = new QDoubleSpinBox(&dlg); uz->setRange(-1e6, 1e6); uz->setDecimals(4); uz->setValue(0.0);
+    QDoubleSpinBox* uz = nullptr;
+    if (dim >= 3) { uz = new QDoubleSpinBox(&dlg); uz->setRange(-1e6, 1e6); uz->setDecimals(4); uz->setValue(0.0); }
     auto* p  = new QDoubleSpinBox(&dlg); p->setRange(-1e6, 1e6); p->setDecimals(4); p->setValue(0.0);
-    auto* k  = new QDoubleSpinBox(&dlg); k->setRange(1e-12, 1e3); k->setDecimals(4); k->setValue(1e-3);
-    auto* w  = new QDoubleSpinBox(&dlg); w->setRange(1e-6, 1e6); w->setDecimals(4); w->setValue(1.0);
+    QDoubleSpinBox* k = nullptr;
+    QDoubleSpinBox* w = nullptr;
+    const bool turb = m_ctrl->settings().turbulence;
+    if (turb) {
+        k = new QDoubleSpinBox(&dlg); k->setRange(1e-12, 1e3); k->setDecimals(4); k->setValue(1e-3);
+        w = new QDoubleSpinBox(&dlg); w->setRange(1e-6, 1e6); w->setDecimals(4); w->setValue(1.0);
+    }
     form->addRow("U_x", ux);
     form->addRow("U_y", uy);
     if (dim >= 3) form->addRow("U_z", uz);
     form->addRow("p", p);
-    form->addRow("k", k);
-    form->addRow("omega", w);
+    if (turb) {
+        form->addRow("k", k);
+        form->addRow("omega", w);
+    }
     lay->addLayout(form);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     lay->addWidget(buttons);
@@ -850,13 +867,15 @@ void CfdCasePage::onInitialize() {
 
     if (dlg.exec() != QDialog::Accepted) return;
 
+    emit residualsCleared();
+
     cfd::InitConditions ic;
     ic.ux = ux->value();
     ic.uy = uy->value();
-    ic.uz = dim >= 3 ? uz->value() : 0.0;
+    ic.uz = (dim >= 3 && uz) ? uz->value() : 0.0;
     ic.pressure = p->value();
-    ic.k = k->value();
-    ic.omega = w->value();
+    ic.k = (turb && k) ? k->value() : m_ctrl->settings().kInf;
+    ic.omega = (turb && w) ? w->value() : m_ctrl->settings().omegaInf;
 
     auto rm = m_ctrl->initialize(ic);
     if (!rm) {
@@ -897,7 +916,10 @@ void CfdCasePage::onSaveCase() {
     // While a run is active the inputs may have been edited but not applied:
     // persist the settings the solver is actually using, not the edit buffer.
     if (!m_running) collectSettings();
-    if (m_ctrl->saveCase(path)) log("Saved " + QFileInfo(path).fileName());
+    if (m_ctrl->saveCase(path)) {
+        log("Saved " + QFileInfo(path).fileName());
+        if (S()) S()->addRecentFile(path);
+    }
     else log("Save failed: " + m_ctrl->lastError());
 }
 
@@ -911,11 +933,26 @@ void CfdCasePage::onLoadCase() {
     if (path.isEmpty()) return;
     if (m_ctrl->loadCase(path)) {
         log("Loaded " + QFileInfo(path).fileName());
+        if (S()) S()->addRecentFile(path);
     } else {
         log("Load failed: " + m_ctrl->lastError());
     }
 }
 
+void CfdCasePage::loadMeshFromPath(const QString& path) {
+    if (!m_ctrl || path.isEmpty()) return;
+    if (m_ctrl->loadMesh(path)) {
+        if (S()) S()->addRecentFile(path);
+    }
+}
+
+void CfdCasePage::loadCaseFromPath(const QString& path) {
+    if (!m_ctrl || path.isEmpty()) return;
+    if (m_ctrl->loadCase(path)) {
+        onCaseLoaded();
+        if (S()) S()->addRecentFile(path);
+    }
+}
 void CfdCasePage::onCaseLoaded() {
     m_meshName = m_ctrl->meshName();
     m_patchBCs = m_ctrl->patchBCs();
@@ -946,6 +983,7 @@ void CfdCasePage::onCaseLoaded() {
         m_momValue->setText("--");
         log(QString("Loaded case: %1").arg(m_meshName));
     }
+    emit monitorHistoryRestored();
     setRunning(false);
 }
 
@@ -953,6 +991,7 @@ void CfdCasePage::onProgress(int iteration, double continuity, double momentum) 
     m_iterValue->setText(QString::number(iteration));
     m_contValue->setText(QString::number(continuity, 'e', 3));
     m_momValue->setText(QString::number(momentum, 'e', 3));
+    emit residualPoint(iteration, continuity, momentum);
 }
 
 void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time) {

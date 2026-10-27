@@ -326,6 +326,31 @@ public:
     double finalContinuityResidual() const override {
         return withSolver([](const Solver& s) { return s.finalContinuityResidual(); });
     }
+    std::array<double, 3> finalMomentumResiduals() const override {
+        return withSolver([](const Solver& s) {
+            auto r = s.finalMomentumResiduals();
+            std::array<double, 3> out{};
+            out[0] = r[0];
+            if constexpr (Dim >= 2) out[1] = r[1];
+            if constexpr (Dim >= 3) out[2] = r[2];
+            return out;
+        });
+    }
+    double finalKResidual() const override {
+        return withSolver([](const Solver& s) {
+            const auto* t = s.turbulence();
+            return t ? t->finalKResid() : 0.0;
+        });
+    }
+    double finalOmegaResidual() const override {
+        return withSolver([](const Solver& s) {
+            const auto* t = s.turbulence();
+            return t ? t->finalOmegaResid() : 0.0;
+        });
+    }
+    bool hasTurbulence() const override {
+        return withSolver([](const Solver& s) { return s.turbulence() != nullptr; });
+    }
 
     SolutionSnapshot capture() const override {
         std::lock_guard<std::mutex> lock(m_mutex);
