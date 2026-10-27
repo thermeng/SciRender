@@ -102,9 +102,23 @@ PlotWindow::PlotWindow(RenderSettings* settings, QWidget* parent)
     lineInfo->addWidget(m_lineStats,1); lineInfo->addWidget(m_lineStatus);
     lineLay->addLayout(lineInfo);
 
+    // --- Monitor plot canvas page ---
+    auto* monitorPage = new QWidget;
+    auto* monitorLay = new QVBoxLayout(monitorPage);
+    monitorLay->setContentsMargins(0,0,0,0);
+    monitorLay->setSpacing(4);
+    m_monitorPlot = new MonitorPlotWidget(monitorPage);
+    monitorLay->addWidget(m_monitorPlot,1);
+    auto* monitorInfo = new QHBoxLayout;
+    m_residualStats = new QLabel(tr("No monitor data")); m_residualStats->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_residualStatus = new QLabel; m_residualStatus->setStyleSheet("color: palette(placeholderText);");
+    monitorInfo->addWidget(m_residualStats,1); monitorInfo->addWidget(m_residualStatus);
+    monitorLay->addLayout(monitorInfo);
+
     m_stack = new QStackedWidget(this);
     m_stack->addWidget(histPage);
     m_stack->addWidget(linePage);
+    m_stack->addWidget(monitorPage);
     root->addWidget(m_stack, 1);
 
     m_recomputeTimer = new QTimer(this);
@@ -124,14 +138,157 @@ PlotWindow::PlotWindow(RenderSettings* settings, QWidget* parent)
     setMode(m_settings ? m_settings->getPlotMode() : 0);
 }
 
-void PlotWindow::setMode(int mode) {
-    int m = (mode == 1) ? 1 : 0;
-    if (m_mode == m && m_stack && m_stack->currentIndex() == m) return;
-    m_mode = m;
-    if (m_stack) m_stack->setCurrentIndex(m);
+void PlotWindow::exportMonitorCsv() {
+    if (m_residualIters.empty()) { QMessageBox::information(this, tr("Export CSV"), tr("No monitor data to export.")); return; }
+    QString path = QFileDialog::getSaveFileName(this, tr("Export Monitor CSV"), QString(), tr("CSV (*.csv)"));
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) { QMessageBox::warning(this, tr("Export CSV"), tr("Cannot open file.")); return; }
+    QTextStream out(&f);
+    QStringList cols;
+    cols << "iteration";
+    cols << "Continuity";
+    cols << "Momentum X";
+    cols << "Momentum Y";
+    if (m_residualDim >= 3) cols << "Momentum Z";
+    if (m_residualHasTurb) { cols << "k"; cols << "omega"; }
+    out << cols.join(",") << "\n";
+    for (size_t i = 0; i < m_residualIters.size(); ++i) {
+        QStringList row;
+        row << QString::number(m_residualIters[i], 'g', 10);
+        row << QString::number(m_residualCont[i], 'g', 10);
+        row << QString::number(m_residualMomU[i], 'g', 10);
+        row << QString::number(m_residualMomV[i], 'g', 10);
+        if (m_residualDim >= 3 && i < m_residualMomW.size()) row << QString::number(m_residualMomW[i], 'g', 10);
+        if (m_residualHasTurb) {
+            if (i < m_residualK.size()) row << QString::number(m_residualK[i], 'g', 10);
+            if (i < m_residualOmega.size()) row << QString::number(m_residualOmega[i], 'g', 10);
+        }
+        out << row.join(",") << "\n";
+    }
+    f.close();
+}
+
+void PlotWindow::exportMonitorPng() {
+    if (!m_monitorPlot) return;
+    QString path = QFileDialog::getSaveFileName(this, tr("Export Monitor PNG"), QString(), tr("PNG (*.png)"));
+    if (path.isEmpty()) return;
+    QPixmap pm = m_monitorPlot->grab();
+    if (!pm.save(path)) QMessageBox::warning(this, tr("Export PNG"), tr("Cannot save file."));
 }
 
 void PlotWindow::onPlotParamsChanged() { scheduleRecompute(); }
+
+void PlotWindow::setMode(int mode) {
+    int m = (mode >= 0 && mode <= 2) ? mode : 0;
+    if (m_mode == m && m_stack && m_stack->currentIndex() == m) return;
+    m_mode = m;
+    if (m_stack) m_stack->setCurrentIndex(m);
+    if (m == 2) updateResidualPlot();
+}
+
+void PlotWindow::clearResiduals() {
+    m_residualIters.clear();
+    m_residualCont.clear();
+    m_residualMomU.clear();
+    m_residualMomV.clear();
+    m_residualMomW.clear();
+    m_residualK.clear();
+    m_residualOmega.clear();
+    m_residualHasTurb = false;
+    m_residualDim = 3;
+    if (!m_monitorAvailableSeries.isEmpty()) {
+        m_monitorAvailableSeries.clear();
+        emit monitorSeriesChanged();
+    }
+    if (m_monitorPlot) m_monitorPlot->clear();
+        if (m_residualStats) m_residualStats->setText(tr("No monitor data"));
+    if (m_residualStatus) m_residualStatus->setText(QString());
+    if (m_mode == 2) updateResidualPlot();
+}
+
+void PlotWindow::appendResidual(int iteration, int dim, double continuity,
+                               double momU, double momV, double momW,
+                               double k, double omega, bool hasTurb) {
+    m_residualDim = dim;
+    m_residualIters.push_back(static_cast<float>(iteration));
+    m_residualCont.push_back(static_cast<float>(continuity));
+    m_residualMomU.push_back(static_cast<float>(momU));
+    m_residualMomV.push_back(static_cast<float>(momV));
+    if (dim >= 3) m_residualMomW.push_back(static_cast<float>(momW));
+    if (hasTurb) {
+        m_residualK.push_back(static_cast<float>(k));
+        m_residualOmega.push_back(static_cast<float>(omega));
+    }
+    m_residualHasTurb = hasTurb;
+    QStringList avail;
+    avail << tr("Continuity") << tr("Momentum X") << tr("Momentum Y");
+    if (m_residualDim >= 3) avail << tr("Momentum Z");
+    if (hasTurb) { avail << tr("k") << tr("omega"); }
+    if (avail != m_monitorAvailableSeries) {
+        m_monitorAvailableSeries = avail;
+        emit monitorSeriesChanged();
+    }
+    if (m_monitorHistoryWindow > 0) {
+        auto trim = [this](std::vector<float>& v) {
+            if ((int)v.size() > m_monitorHistoryWindow)
+                v.erase(v.begin(), v.end() - m_monitorHistoryWindow);
+        };
+        trim(m_residualIters);
+        trim(m_residualCont);
+        trim(m_residualMomU);
+        trim(m_residualMomV);
+        if (m_residualDim >= 3) trim(m_residualMomW);
+        if (hasTurb) { trim(m_residualK); trim(m_residualOmega); }
+    }
+    if (m_mode == 2) updateResidualPlot();
+}
+
+void PlotWindow::updateResidualPlot() {
+    if (!m_monitorPlot) return;
+    if (m_residualIters.empty()) {
+        m_monitorPlot->clear();
+        if (m_residualStats) m_residualStats->setText(tr("No monitor data"));
+        return;
+    }
+    m_monitorPlot->clear();
+    // Continuity
+    {
+        std::vector<float> xs = m_residualIters;
+        m_monitorPlot->setSeries(tr("Continuity"), xs, m_residualCont);
+    }
+    // Momentum components
+    m_monitorPlot->setSeries(tr("Momentum X"), m_residualIters, m_residualMomU);
+    m_monitorPlot->setSeries(tr("Momentum Y"), m_residualIters, m_residualMomV);
+    if (m_residualDim >= 3)
+        m_monitorPlot->setSeries(tr("Momentum Z"), m_residualIters, m_residualMomW);
+    if (m_residualHasTurb) {
+        m_monitorPlot->setSeries(tr("k"), m_residualIters, m_residualK);
+        m_monitorPlot->setSeries(tr("omega"), m_residualIters, m_residualOmega);
+    }
+    if (m_residualStats) m_residualStats->setText(tr("Monitor: %1 points").arg(m_residualIters.size()));
+    if (m_residualStatus) m_residualStatus->setText(QString());
+}
+
+void PlotWindow::setMonitorLogScale(bool on) {
+    if (m_monitorPlot) m_monitorPlot->setLogScale(on);
+}
+
+void PlotWindow::setMonitorLegendVisible(bool on) {
+    if (m_monitorPlot) m_monitorPlot->setLegendVisible(on);
+}
+
+void PlotWindow::setMonitorHistoryWindow(int n) {
+    m_monitorHistoryWindow = n;
+}
+
+void PlotWindow::setMonitorYRange(bool autoRange, float ymin, float ymax) {
+    if (m_monitorPlot) m_monitorPlot->setManualYRange(autoRange, ymin, ymax);
+}
+
+void PlotWindow::setMonitorSeriesVisible(const QString& name, bool on) {
+    if (m_monitorPlot) m_monitorPlot->setSeriesVisible(name, on);
+}
 
 void PlotWindow::onSettingsMeshDataUpdated() {
     // Field list may have changed wholesale: clear stale canvases when the
@@ -301,11 +458,13 @@ void PlotWindow::recomputeHistogram() {
 
 void PlotWindow::exportCsv() {
     if (m_mode == 1) exportLineCsv();
+    else if (m_mode == 2) exportMonitorCsv();
     else exportHistogramCsv();
 }
 
 void PlotWindow::exportPng() {
     if (m_mode == 1) exportLinePng();
+    else if (m_mode == 2) exportMonitorPng();
     else exportHistogramPng();
 }
 

@@ -3,9 +3,11 @@
 #include <QLabel>
 #include <QTimer>
 #include <vector>
+#include <QStringList>
 #include <glm/glm.hpp>
 #include "plot_widget.h"
 #include "line_plot_widget.h"
+#include "monitor_plot_widget.h"
 
 class RenderSettings;
 class QStackedWidget;
@@ -27,20 +29,35 @@ public:
     ~PlotWindow() override = default;
 
     int mode() const { return m_mode; }
-    void setMode(int mode);            // 0 = histogram, 1 = line plot
+    void setMode(int mode);            // 0 = histogram, 1 = line plot, 2 = residuals
 
     void refreshData();                // recompute both canvases from settings
+    void clearResiduals();
+    void appendResidual(int iteration, int dim, double continuity,
+                       double momU, double momV, double momW,
+                       double k, double omega, bool hasTurb);
+    void setMonitorLogScale(bool on);
+    void setMonitorLegendVisible(bool on);
+    void setMonitorHistoryWindow(int n);
+    void setMonitorYRange(bool autoRange, float ymin, float ymax);
+    void setMonitorSeriesVisible(const QString& name, bool on);
+    MonitorPlotWidget* monitorPlot() const { return m_monitorPlot; }
+    QStringList monitorAvailableSeries() const { return m_monitorAvailableSeries; }
     void scheduleRecompute();          // debounced recompute (shared timer)
 
 public:
     // Mode-aware export entry points for the sidebar export buttons.
     void exportCsv();
     void exportPng();
+    void exportMonitorCsv();
+    void exportMonitorPng();
 
 Q_SIGNALS:
+signals:
     void requestCloseHistogram();
     void requestOpenControls();
     void pinnedListChanged();
+    void monitorSeriesChanged();
 
 public slots:
     void togglePinnedLine(int index);
@@ -53,6 +70,7 @@ private slots:
 private:
     void recomputeHistogram();
     void recomputeLine();
+    void updateResidualPlot();
     void updateStatsLabel();
     void exportHistogramCsv();
     void exportHistogramPng();
@@ -67,6 +85,20 @@ private:
     QLabel* m_statusLabel = nullptr;
     QLabel* m_lineStats = nullptr;
     QLabel* m_lineStatus = nullptr;
+    MonitorPlotWidget* m_monitorPlot = nullptr;
+    QLabel* m_residualStats = nullptr;
+    QLabel* m_residualStatus = nullptr;
+    std::vector<float> m_residualIters;
+    std::vector<float> m_residualCont;
+    std::vector<float> m_residualMomU;
+    std::vector<float> m_residualMomV;
+    std::vector<float> m_residualMomW;
+    std::vector<float> m_residualK;
+    std::vector<float> m_residualOmega;
+    int m_residualDim = 3;
+    bool m_residualHasTurb = false;
+    int m_monitorHistoryWindow = 0; // 0 = all
+    QStringList m_monitorAvailableSeries;
     QTimer* m_recomputeTimer = nullptr;
     int m_mode = 0;
     // cached line data for export (primary = user-selected placement;

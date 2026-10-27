@@ -525,6 +525,21 @@ void MainWindow::setupSidebar() {
     }
     m_cfdPage = m_cfdPage ? m_cfdPage : new sidebar::CfdCasePage(m_settings);
     addSectionPage(15, m_cfdPage);  // CFD
+    if (m_plotWindow) {
+        connect(m_cfdPage, &sidebar::CfdCasePage::residualSeriesUpdated, m_plotWindow,
+                &PlotWindow::appendResidual);
+        connect(m_cfdPage, &sidebar::CfdCasePage::residualsCleared, m_plotWindow,
+                &PlotWindow::clearResiduals);
+        connect(m_cfdPage, &sidebar::CfdCasePage::monitorHistoryRestored, this, [this]() {
+            if (!m_plotWindow || !m_cfdPage || !m_cfdPage->controller()) return;
+            m_plotWindow->clearResiduals();
+            for (const auto& pt : m_cfdPage->controller()->monitorHistory()) {
+                m_plotWindow->appendResidual(pt.iteration, pt.dim, pt.continuity,
+                                            pt.momU, pt.momV, pt.momW, pt.k, pt.omega,
+                                            pt.hasTurbulence);
+            }
+        });
+    }
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -690,7 +705,7 @@ void MainWindow::refreshSidebarCapabilityBadges() {
     if (!m_navList) return;
 
     for (int section = 0; section < kNavSectionCount; ++section) {
-        QListWidgetItem* item = m_navList->item(section);
+        auto* item = m_navList->item(section);
         if (!item) continue;
 
         const QString base = item->data(Qt::UserRole).toString();
@@ -949,7 +964,14 @@ void MainWindow::openMesh() {
 
 void MainWindow::openRecent(const QString& path) {
     m_currentFile = path;
-    m_settings->openRecent(path);
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == "scfd") {
+        if (m_cfdPage) m_cfdPage->loadCaseFromPath(path);
+    } else if (suffix == "msh") {
+        if (m_cfdPage) m_cfdPage->loadMeshFromPath(path);
+    } else {
+        m_settings->openRecent(path);
+    }
 }
 
 void MainWindow::clearRecentFiles() {

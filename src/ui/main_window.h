@@ -106,6 +106,8 @@ private:
 
     // Navigation list (replaces icon strip)
     QListWidget* m_navList = nullptr;
+    QVector<int> m_navRowToSection;   // maps list row -> nav section index (-1 for group headers)
+    QVector<int> m_navSectionToRow;   // maps nav section index -> list row
     int m_navWidth = 140; // Dynamic width calculated from text content
 
     // Availability badges: a nav section whose backing data is missing gets a
