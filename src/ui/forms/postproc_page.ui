@@ -44,7 +44,7 @@
        <item><widget class="QCheckBox" name="helicityCb"><property name="text"><string>Helicity</string></property><property name="checked"><bool>true</bool></property></widget></item>
        <item><widget class="QCheckBox" name="qCb"><property name="text"><string>Q-Criterion</string></property><property name="checked"><bool>true</bool></property></widget></item>
        <item><widget class="QCheckBox" name="gradPCb"><property name="text"><string>Pressure Gradient</string></property><property name="checked"><bool>true</bool></property></widget></item>
-       <item><widget class="QCheckBox" name="autoCb"><property name="text"><string>Auto re-extract per frame (PVD)</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="autoCb"><property name="text"><string>Auto Re-Extract Per Frame (PVD)</string></property><property name="checked"><bool>true</bool></property></widget></item>
        <item><widget class="QPushButton" name="extractBtn"><property name="text"><string>Extract</string></property></widget></item>
        <item><widget class="QLabel" name="statusLabel"><property name="text"><string>Cartesian structured grid required</string></property><property name="wordWrap"><bool>true</bool></property><property name="styleSheet"><string notr="true">color: palette(placeholderText); font-size: 11px;</string></property></widget></item>
       </layout>

@@ -37,7 +37,7 @@
 #include <QStyle>
 #include <algorithm>
 #include <QTimer>
-#include <QFontMetrics>
+#include <QStyledItemDelegate>
 // Helper: Does a widget want typing/navigation keys (so viewport shortcuts
 // must stay out of the way)?
 
@@ -51,6 +51,34 @@ static bool navFocusIsEditor(QWidget* w) {
 // Shared panel helpers live in ui/panel_helpers (used by every session page).
 using sb::kSidebarWidth;
 
+
+// Nav list delegate: keeps the label left-aligned and pins the warning badge
+// to the right edge of the (narrower) rail without reflowing on toggle.
+class NavListDelegate : public QStyledItemDelegate {
+public:
+    explicit NavListDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override {
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+        // Draw the standard background/selection/text (label only).
+        QStyle* style = opt.widget ? opt.widget->style() : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
+
+        const bool available = index.data(Qt::UserRole + 1).toBool();
+        if (available) return;
+
+        const QString badge = QString::fromUtf8("\u26A0");
+        painter->save();
+        painter->setFont(opt.font);
+        painter->setPen((opt.state & QStyle::State_Selected)
+                            ? opt.palette.color(QPalette::HighlightedText)
+                            : opt.palette.color(QPalette::WindowText));
+        const QRect badgeRect = opt.rect.adjusted(0, 0, -12, 0);
+        painter->drawText(badgeRect, Qt::AlignRight | Qt::AlignVCenter, badge);
+        painter->restore();
+    }
+};
 
 // MainWindow
 
@@ -283,6 +311,17 @@ void MainWindow::setupMenus() {
         connect(a, &QAction::triggered, this, [this, s = msaaSamples[i]]() { m_settings->setMsaaSamples(s); recreateViewport(); });
     }
 
+    viewMenu->addSeparator();
+    auto* solverOutputAction = viewMenu->addAction("&Solver Output");
+    solverOutputAction->setCheckable(true);
+    solverOutputAction->setChecked(m_solverOutputDock && m_solverOutputDock->isVisible());
+    connect(solverOutputAction, &QAction::triggered, this, [this](bool checked) {
+        if (m_solverOutputDock) m_solverOutputDock->setVisible(checked);
+    });
+    if (m_solverOutputDock) {
+        connect(m_solverOutputDock, &QDockWidget::visibilityChanged, solverOutputAction, &QAction::setChecked);
+    }
+
     // Help menu
     auto* helpMenu = ui->menuHelp;
     helpMenu->addAction("&Keyboard Shortcuts", this, &MainWindow::showShortcuts);
@@ -364,8 +403,8 @@ static const NavSection navSections[] = {
 };
 static constexpr int kNavSectionCount = int(sizeof(navSections) / sizeof(navSections[0]));
 
-// U+26A0 WARNING SIGN, appended to a nav label whose data is missing.
-static const char* const kUnavailableSuffix = " \u26A0";
+// U+26A0 WARNING SIGN, drawn by NavListDelegate on the right edge of the rail.
+
 
 void MainWindow::setupSidebar() {
     m_sidebarDock = ui->sidebarDock;
@@ -397,6 +436,7 @@ void MainWindow::setupSidebar() {
     m_navList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_navList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_navList->setFocusPolicy(Qt::NoFocus);
+    m_navList->setItemDelegate(new NavListDelegate(m_navList));
 
     // Calculate width dynamically based on longest text + padding. The warning
     // suffix is always reserved, so a badge appearing later never re-measures
@@ -406,18 +446,20 @@ void MainWindow::setupSidebar() {
     for (const auto& section : navSections) {
         maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(QString::fromUtf8(section.name)));
     }
-    const int badgeWidth = fm.horizontalAdvance(QString::fromUtf8(kUnavailableSuffix));
-    m_navWidth = maxTextWidth + badgeWidth + 48; // 24px padding each side
+    const int badgeWidth = fm.horizontalAdvance(QString::fromUtf8("\u26A0"));
+    m_navWidth = maxTextWidth + badgeWidth + 24; // 12px padding each side
 
     for (const auto& section : navSections) {
         const QString name = QString::fromUtf8(section.name);
         auto* item = new QListWidgetItem(name, m_navList);
         item->setData(Qt::UserRole, name); // pristine label, for badge toggling
+        item->setData(Qt::UserRole + 1, true); // availability badge state
         item->setSizeHint(QSize(m_navWidth, 36));
     }
     m_navList->setFixedWidth(m_navWidth);
 
-    connect(m_navList, &QListWidget::currentRowChanged, this, [this](int row) {
+    connect(m_navList, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+        const int row = m_navList->row(item);
         if (row >= 0) setSidebarSection(row);
     });
 
@@ -429,34 +471,6 @@ void MainWindow::setupSidebar() {
         rightLayout->setContentsMargins(0, 0, 0, 0);
         rightLayout->setSpacing(0);
     }
-
-    // Panel header (title bar for the expanded panel)
-    m_panelHeader = new QWidget;
-    m_panelHeader->setFixedHeight(32);
-    auto* headerLayout = new QHBoxLayout(m_panelHeader);
-    headerLayout->setContentsMargins(10, 0, 4, 0);
-    headerLayout->setSpacing(4);
-
-    m_panelTitle = new QLabel;
-    QFont titleFont = m_panelTitle->font();
-    titleFont.setBold(true);
-    m_panelTitle->setFont(titleFont);
-    m_panelTitle->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    headerLayout->addWidget(m_panelTitle, 1);
-
-    m_closeBtn = new QToolButton;
-    m_closeBtn->setText("\u00D7");
-    m_closeBtn->setFixedSize(24, 24);
-    m_closeBtn->setToolTip("Close panel");
-    connect(m_closeBtn, &QToolButton::clicked, this, [this]() {
-        if (m_sidebarExpanded) {
-            setSidebarSection(m_activeSection);
-        }
-    });
-    headerLayout->addWidget(m_closeBtn);
-
-    rightLayout->addWidget(m_panelHeader);
-    m_panelHeader->setVisible(false);
 
     // Stacked widget (section pages). Every page goes through addSectionPage so
     // each one gets the availability banner prepended in a single place, rather
@@ -675,7 +689,6 @@ QString MainWindow::sectionUnavailableReason(int section) const {
 void MainWindow::refreshSidebarCapabilityBadges() {
     if (!m_navList) return;
 
-    const QString suffix = QString::fromUtf8(kUnavailableSuffix);
     for (int section = 0; section < kNavSectionCount; ++section) {
         QListWidgetItem* item = m_navList->item(section);
         if (!item) continue;
@@ -684,7 +697,8 @@ void MainWindow::refreshSidebarCapabilityBadges() {
         const QString reason = sectionUnavailableReason(section);
         const bool available = reason.isEmpty();
 
-        item->setText(available ? base : base + suffix);
+        item->setText(base);
+        item->setData(Qt::UserRole + 1, available);
         item->setToolTip(available ? QString()
                                    : tr("Not available for the current dataset"));
 
@@ -713,15 +727,12 @@ void MainWindow::setSidebarSection(int section) {
         m_activeSection = -1;
         m_sidebarExpanded = false;
         m_sectionStack->setVisible(false);
-        m_panelHeader->setVisible(false);
         m_navList->clearSelection();
         m_navList->setCurrentRow(-1);
     } else if (section >= 0) {
         m_sidebarExpanded = true;
         m_sectionStack->setCurrentIndex(section);
         m_sectionStack->setVisible(true);
-        m_panelHeader->setVisible(true);
-        m_panelTitle->setText(QString::fromUtf8(navSections[section].name));
         m_navList->blockSignals(true);
         m_navList->setCurrentRow(section, QItemSelectionModel::ClearAndSelect);
         m_navList->blockSignals(false);

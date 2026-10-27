@@ -191,7 +191,7 @@ void applyPanelStyling(QWidget* root) {
             }
         }
 
-        if (!hasDivider) {
+        if (e.index > 0 && !hasDivider) {
             indicesByLayout[e.layout].append(e.index);
         }
     }
