@@ -82,6 +82,12 @@ public:
     const std::vector<char>& pressureMask() const { return pMask_; }
     const std::array<Field<Dim>, Dim>& pressureGradient() const { return pressureGrad_; }
 
+    // True when the assembled pressure operator contains the Rhie-Chow face
+    // flux. Residual diagnostics must add the same term only in that mode:
+    // the legacy composed operator never sees it, so reporting it would measure
+    // a mass imbalance the pressure solve neither created nor can remove.
+    bool usesCompactRhieChow() const { return config_.compactRhieChow; }
+
     // The number of cells that have no pressure equation at all (no interior
     // face: a detached cell). Such a cell is excluded from the pressure
     // unknowns and its mass balance can never be corrected, so the count is

@@ -689,7 +689,7 @@ void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResidual
                                              divBuffer_, bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
                                               &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
                                               &dCoeff_, &pressureBeforeCorrection_, &pressureGradBefore_, &pressureCorrection_.pressureMask(),
-                                              config_.rhieChow);
+                                              config_.rhieChow && pressureCorrection_.usesCompactRhieChow());
     if (!initialMassImbalanceSet_) {
         initialMassImbalance_ = resid.continuity;
         initialMassImbalanceSet_ = true;
