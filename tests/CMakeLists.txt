@@ -83,6 +83,9 @@ scirender_add_test_suite(scirender_fvm_tests
         fvm/ghia_cavity_test.cpp
         fvm/cavity_msh_test.cpp
         fvm/channel_test.cpp
+        cfd/mesh_flatplate_debug_test.cpp
+        cfd/mesh_flatplate_run_test.cpp
+        cfd/turbulent_flatplate_benchmark_test.cpp
         fvm/turbulent_flat_plate_test.cpp
         fvm/sst_test.cpp
         fvm/channel_3d_test.cpp

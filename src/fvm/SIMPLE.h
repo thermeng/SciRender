@@ -88,6 +88,7 @@ struct Config {
         std::size_t printFrequency = 1;
         std::size_t residualHistoryWindow = 20;
         bool turbulenceEnabled = false;
+    bool wallFunction = false;
     double kInf = 1e-3;
     double omegaInf = 1.0;
     double alphaK = 0.7;
@@ -208,7 +209,8 @@ struct Config {
                                               double k, double omega);
 
     void enableTurbulence(double kInf = 1e-3, double omegaInf = 1.0,
-                          double alphaK = 0.7, double alphaOmega = 0.7);
+                          double alphaK = 0.7, double alphaOmega = 0.7,
+                          bool wallFunction = false);
 
     void solve(VectorField<Dim>& velocity, Field<Dim>& pressure);
     void solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressure);

@@ -115,6 +115,58 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_rhie = cfdUi.rhieCb;
     m_turb = cfdUi.turbCb;
 
+    // Turbulence under-relaxation factors, gated by the turbulence checkbox.
+    // Turbulence under-relaxation factors + wall function, gated by turbulence.
+    if (QWidget* parent = m_turb->parentWidget()) {
+        if (auto* outer = qobject_cast<QVBoxLayout*>(parent->layout())) {
+            // no-op: layout is grid, handled below
+        }
+    }
+    if (auto* outer = qobject_cast<QVBoxLayout*>(content->layout())) {
+        auto makeRow = [&](const QString& label, double val, QDoubleSpinBox*& spin) {
+            auto* row = new QWidget(content);
+            auto* rl = new QHBoxLayout(row);
+            rl->setContentsMargins(0, 0, 0, 0);
+            rl->setSpacing(6);
+            auto* l = new QLabel(label, row);
+            l->setMinimumSize(60, 0);
+            l->setMaximumSize(60, QWIDGETSIZE_MAX);
+            spin = new QDoubleSpinBox(row);
+            spin->setRange(0.01, 1.0);
+            spin->setDecimals(3);
+            spin->setValue(val);
+            rl->addWidget(l, 0, Qt::AlignVCenter);
+            rl->addWidget(spin, 1);
+            int insertAt = outer->indexOf(m_turb) + 1;
+            if (insertAt < 0) insertAt = outer->count();
+            outer->insertWidget(insertAt++, row);
+            row->setVisible(m_turb->isChecked());
+        };
+        makeRow("alpha K", 0.7, m_alphaK);
+        makeRow("alpha W", 0.7, m_alphaW);
+
+        auto* wfRow = new QWidget(content);
+        auto* wfl = new QHBoxLayout(wfRow);
+        wfl->setContentsMargins(0, 0, 0, 0);
+        wfl->setSpacing(6);
+        auto* wflabel = new QLabel("Wall Func", wfRow);
+        wflabel->setMinimumSize(60, 0);
+        wflabel->setMaximumSize(60, QWIDGETSIZE_MAX);
+        m_wallFuncCb = new QCheckBox(wfRow);
+        m_wallFuncCb->setChecked(false);
+        wfl->addWidget(wflabel, 0, Qt::AlignVCenter);
+        wfl->addWidget(m_wallFuncCb, 1);
+            int wfInsert = outer->indexOf(m_turb) + 3;
+            if (wfInsert < 0 || wfInsert > outer->count()) wfInsert = outer->count();
+            outer->insertWidget(wfInsert, wfRow);
+        wfRow->setVisible(m_turb->isChecked());
+
+        connect(m_turb, &QCheckBox::toggled, this, [this, wfRow](bool on) {
+            if (m_alphaK && m_alphaK->parentWidget()) m_alphaK->parentWidget()->setVisible(on);
+            if (m_alphaW && m_alphaW->parentWidget()) m_alphaW->parentWidget()->setVisible(on);
+            wfRow->setVisible(on);
+        });
+    }
     // Turbulence freestream values are now edited in the Initialize dialog.
 
     // ── Time mode (steady / transient) ───────────────────────────────
@@ -192,6 +244,25 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
         onTransientFrame(slot->mesh, slot->step, slot->time);
     });
 
+    // Poll the solver's pause state so the Pause/Step buttons reflect what the
+    // solver is actually doing (pause settles asynchronously at a boundary).
+    m_stateTimer = new QTimer(this);
+    m_stateTimer->setInterval(100);
+    connect(m_stateTimer, &QTimer::timeout, this, [this]() {
+        if (!m_running) { m_stateTimer->stop(); return; }
+        const bool paused = m_ctrl->isPaused();
+        const bool settled = m_ctrl->isPausedSettled();
+        if (m_pauseBtn)
+            m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
+        if (m_stepBtn) m_stepBtn->setEnabled(settled);
+        if (m_cancelBtn && !m_ctrl->isCancelled()) m_cancelBtn->setEnabled(true);
+        if (!paused) {
+            m_pauseSettledLogged = false;
+        } else if (settled && !m_pauseSettledLogged) {
+            onPauseSettled();
+        }
+    });
+
     // Solver state changes are driven by explicit controller signals instead of a
     // polling timer. progress() refreshes the paused/settled state at each
     // iteration boundary.
@@ -212,19 +283,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
             m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
         if (m_stepBtn) m_stepBtn->setEnabled(settled);
         if (m_cancelBtn && !m_ctrl->isCancelled()) m_cancelBtn->setEnabled(true);
-        if (!paused) {
-            m_pauseSettledLogged = false;
-        } else if (settled && !m_pauseSettledLogged) {
-            m_pauseSettledLogged = true;
-            const int step = m_ctrl->currentStep();
-            const double t = m_ctrl->currentTime();
-            if (m_ctrl->settings().transient.enabled) {
-                m_iterValue->setText(QString::number(step));
-                log(QString("Paused at step %1, t = %2 s").arg(step).arg(t, 0, 'g', 8));
-            } else {
-                log(QString("Paused at iteration %1").arg(m_iterValue->text()));
-            }
-        }
+        if (!paused) m_pauseSettledLogged = false;
     });
 
     // ── Advanced solver settings (dialog) ────────────────────────────────────
@@ -577,6 +636,10 @@ void CfdCasePage::setRunning(bool running) {
     if (!running) {
         m_pauseSettledLogged = false;
         if (m_pauseBtn) m_pauseBtn->setText("Pause");
+        if (m_stateTimer) m_stateTimer->stop();
+        m_lastFrame.reset();
+    } else {
+        if (m_stateTimer) m_stateTimer->start();
     }
 }
 
@@ -604,7 +667,9 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_tol->setValue(s.tolerance);
     m_maxIter->setValue((int)s.maxIterations);
     m_alphaU->setValue(s.alphaU);
-    m_alphaP->setValue(s.alphaP);
+    if (m_alphaK) m_alphaK->setValue(s.alphaK);
+    if (m_alphaW) m_alphaW->setValue(s.alphaOmega);
+    if (m_wallFuncCb) m_wallFuncCb->setChecked(s.wallFunction);
     m_simplec->setChecked(s.simplec);
     m_scheme->setCurrentIndex(s.scheme);
     m_gradientScheme->setCurrentIndex(s.gradientScheme);
@@ -697,8 +762,9 @@ void CfdCasePage::collectSettings() {
     // the previous hardcoded 1e-3/1.0 reset every loaded case.
     s.kInf = m_kInf ? m_kInf->value() : m_ctrl->settings().kInf;
     s.omegaInf = m_wInf ? m_wInf->value() : m_ctrl->settings().omegaInf;
-    s.alphaK = m_ctrl->settings().alphaK;
-    s.alphaOmega = m_ctrl->settings().alphaOmega;
+    s.alphaK = m_alphaK ? m_alphaK->value() : m_ctrl->settings().alphaK;
+    s.alphaOmega = m_alphaW ? m_alphaW->value() : m_ctrl->settings().alphaOmega;
+    s.wallFunction = m_wallFuncCb ? m_wallFuncCb->isChecked() : m_ctrl->settings().wallFunction;
     // Advanced
     s.pressureCorrectors = m_pressureCorrectors->value();
     s.limitPressureCorrection = m_limitPressureCorrection->isChecked();
@@ -805,24 +871,26 @@ void CfdCasePage::onCancel() {
     }
     if (m_pauseBtn) m_pauseBtn->setEnabled(false);
     if (m_stepBtn) m_stepBtn->setEnabled(false);
+    m_lastFrame.reset();
     log("Cancelling... (the current step finishes first)");
 }
 
 void CfdCasePage::onPause() {
     if (!m_running) return;
-    if (m_ctrl->isPaused()) {
+    if (m_ctrl->isPausedSettled()) {
         m_ctrl->resume();
         m_pauseSettledLogged = false;
         log("Resumed.");
-    } else {
+    } else if (!m_ctrl->isPaused()) {
         m_ctrl->pause();
         log("Pause requested; stopping at the next step boundary.");
     }
+    // In-flight pause: ignore the click.
 }
 
 void CfdCasePage::onStep() {
     if (!m_running) return;
-    if (!m_ctrl->isPaused()) {
+    if (!m_ctrl->isPausedSettled()) {
         log("Pause the run before stepping.");
         return;
     }
@@ -857,8 +925,10 @@ void CfdCasePage::onInitialize() {
     QDoubleSpinBox* w = nullptr;
     const bool turb = m_ctrl->settings().turbulence;
     if (turb) {
-        k = new QDoubleSpinBox(&dlg); k->setRange(1e-12, 1e3); k->setDecimals(4); k->setValue(1e-3);
-        w = new QDoubleSpinBox(&dlg); w->setRange(1e-6, 1e6); w->setDecimals(4); w->setValue(1.0);
+            k = new QDoubleSpinBox(&dlg); k->setRange(0.0, 1e3); k->setDecimals(4); k->setValue(0.0);
+            k->setSpecialValueText("auto");
+            w = new QDoubleSpinBox(&dlg); w->setRange(0.0, 1e6); w->setDecimals(4); w->setValue(0.0);
+            w->setSpecialValueText("auto");
     }
     form->addRow("U_x", ux);
     form->addRow("U_y", uy);
@@ -1015,6 +1085,38 @@ void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int s
     S()->setMeshUseScalarColor(hadScalarColor);
     m_iterValue->setText(QString::number(step));
     log(QString("Transient: step %1, t = %2 s").arg(step).arg(time, 0, 'g', 6));
+}
+
+void CfdCasePage::onPauseSettled() {
+    if (!m_running || !m_ctrl) return;
+    if (!m_ctrl->isPausedSettled()) return;
+    if (m_pauseSettledLogged) return;
+    m_pauseSettledLogged = true;
+
+    const int step = m_ctrl->currentStep();
+    const double t = m_ctrl->currentTime();
+
+    if (m_ctrl->settings().transient.enabled) {
+        m_iterValue->setText(QString::number(step));
+        log(QString("Paused at step %1, t = %2 s").arg(step).arg(t, 0, 'g', 8));
+        if (auto slot = m_ctrl->latestFrameSlot()) {
+            if (slot->mesh && slot->mesh != m_lastFrame) {
+                m_lastFrame = slot->mesh;
+                S()->setComputedSnapshot(slot->computed);
+                const bool hadScalarColor = S()->getMeshUseScalarColor();
+                S()->onAnimationFrame(slot->mesh, slot->step, slot->time);
+                S()->setMeshUseScalarColor(hadScalarColor);
+            }
+        } else {
+            auto rm = m_ctrl->resultMesh();
+            if (rm) S()->applyLoadedMesh(rm, "cfd_solution", false);
+        }
+    } else {
+        m_iterValue->setText(QString::number(step));
+        log(QString("Paused at iteration %1").arg(m_iterValue->text()));
+        auto rm = m_ctrl->resultMesh();
+        if (rm) S()->applyLoadedMesh(rm, "cfd_solution", false);
+    }
 }
 
 void CfdCasePage::onFinished(const QString& summary) {

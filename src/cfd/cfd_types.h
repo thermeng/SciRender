@@ -123,6 +123,7 @@ struct CaseSettings {
     int gradientScheme = 0;
     bool rhieChow = true;
     bool turbulence = false;
+    bool wallFunction = false;
     double kInf = 1e-3, omegaInf = 1.0;
     double alphaK = 0.7, alphaOmega = 0.7;
 
