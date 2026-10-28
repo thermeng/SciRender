@@ -444,7 +444,7 @@ ANSYSMeshReader<Dim>::reconstructCells(
         }
 
         std::vector<std::size_t> orderedVerts;
-        std::vector<bool> used(cf.size(), false);
+        std::vector<char> used(cf.size(), false);
 
         std::size_t firstFaceIdx = cf[0];
         const FaceRecord& firstFace = faces[firstFaceIdx];

@@ -97,7 +97,7 @@ public:
         int dimX = 0, dimY = 0, dimZ = 0;
         const glm::vec3* data = nullptr;
         int count = 0;
-        std::vector<bool> cellActive;
+        std::vector<char> cellActive;
         const float* verts = nullptr;
         int vertCount = 0;
         float avgSpacing = 1.0f;

@@ -163,7 +163,7 @@ public:
     std::vector<std::array<double, Dim>> cellCenters_;
     std::vector<double> cellVolumes_;
     std::vector<std::vector<std::size_t>> faceVertices_;
-    std::vector<bool> isBoundary_;
+    std::vector<char> isBoundary_;
     bool unstructured_ = false;
     std::map<std::string, std::vector<std::size_t>> boundaryGroups_;
     // Optimized adjacency (O(1) neighbor lookup)

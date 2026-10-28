@@ -151,9 +151,24 @@ private:
                      const std::vector<double>& vals) const;
 
     void solveKTransport(const VectorField<Dim>& velocity,
-                         ConvectionScheme scheme);
+                          ConvectionScheme scheme);
     void solveOmegaTransport(const VectorField<Dim>& velocity,
-                             ConvectionScheme scheme);
+                            ConvectionScheme scheme);
+    void solveKTransportImpl(const VectorField<Dim>& velocity,
+                            ConvectionScheme scheme,
+                            double dt,
+                            double dtPrev,
+                            TimeScheme timeScheme,
+                            const Field<Dim>* kOld,
+                            const Field<Dim>* kOldPrev);
+    void solveOmegaTransportImpl(const VectorField<Dim>& velocity,
+                                ConvectionScheme scheme,
+                                double dt,
+                                double dtPrev,
+                                TimeScheme timeScheme,
+                                const Field<Dim>* omegaOld,
+                                const Field<Dim>* omegaOldPrev);
+
     void solveKTransportTransient(const VectorField<Dim>& velocity,
                                   ConvectionScheme scheme,
                                   double dt,
@@ -174,6 +189,7 @@ private:
     void sanitizeSolution_(Eigen::VectorXd& x) const;
 
     const Mesh<Dim>& mesh_;
+    mutable std::vector<double> invVol_;
     Config config_;
     double mu_ = 1e-5;
     double rho_ = 1.0;

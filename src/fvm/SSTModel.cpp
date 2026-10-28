@@ -49,6 +49,12 @@ SSTModel<Dim>::SSTModel(const Mesh<Dim>& mesh, Config config)
     for (auto& g : gradK_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : gradOmega_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : scalarGradBuffer_) g = Field<Dim>(mesh, 0.0);
+    const double* volPtr = mesh_.cellVolumePtr();
+    invVol_.resize(mesh_.nCells());
+    for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
+        double v = volPtr[i];
+        invVol_[i] = (v > 1e-30) ? 1.0 / v : 0.0;
+    }
     kSolver_.setMaxIterations(static_cast<int>(sstMaxIterations));
     kSolver_.setTolerance(sstTolerance);
     omegaSolver_.setMaxIterations(static_cast<int>(sstMaxIterations));
@@ -122,7 +128,7 @@ void SSTModel<Dim>::computeWallDistance(
         return;
     }
 
-    std::vector<bool> visited(n, false);
+    std::vector<char> visited(n, false);
     using Entry = std::pair<double, std::size_t>;
     std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> pq;
 
@@ -367,13 +373,7 @@ std::array<Field<Dim>, Dim> SSTModel<Dim>::computeScalarGradients(
 
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
-    // Precompute 1/vol to replace division in inner loop: O(n) once vs O(nF*Dim) divisions
-    std::vector<double> invVol(n);
-    const double* volPtr = mesh_.cellVolumePtr();
-    for (std::size_t i = 0; i < n; ++i) {
-        double v = volPtr[i];
-        invVol[i] = (v > 1e-30) ? 1.0 / v : 0.0;
-    }
+    // invVol_ is cached (mesh volumes are immutable for this model).
     const std::size_t* ownerPtr = mesh_.ownerPtr();
     const std::size_t* neighborPtr = mesh_.neighborPtr();
     const double* areaPtr = mesh_.faceAreaPtr();
@@ -409,8 +409,8 @@ std::array<Field<Dim>, Dim> SSTModel<Dim>::computeScalarGradients(
         double phiArea = phiFace * area;
         for (std::size_t d = 0; d < Dim; ++d) {
             double contrib = phiArea * fn[d];
-            scalarGradBuffer_[d][P] += contrib * invVol[P];
-            if (N != std::size_t(-1)) scalarGradBuffer_[d][N] -= contrib * invVol[N];
+            scalarGradBuffer_[d][P] += contrib * invVol_[P];
+            if (N != std::size_t(-1)) scalarGradBuffer_[d][N] -= contrib * invVol_[N];
         }
     }
     return scalarGradBuffer_;
@@ -436,13 +436,7 @@ void SSTModel<Dim>::computeStrainRate(const VectorField<Dim>& velocity) {
                 dUdx[i][j].assign(0.0);
     }
 
-    // Precompute 1/vol for inner loop
-    std::vector<double> invVol(n);
-    const double* volPtr = mesh_.cellVolumePtr();
-    for (std::size_t i = 0; i < n; ++i) {
-        double v = volPtr[i];
-        invVol[i] = (v > 1e-30) ? 1.0 / v : 0.0;
-    }
+    // invVol_ is cached (mesh volumes are immutable for this model).
     const std::size_t* ownerPtr = mesh_.ownerPtr();
     const std::size_t* neighborPtr = mesh_.neighborPtr();
     const double* areaPtr = mesh_.faceAreaPtr();
@@ -466,8 +460,8 @@ void SSTModel<Dim>::computeStrainRate(const VectorField<Dim>& velocity) {
         }
         const double* fn = mesh_.faceNormalPtr(f);
         double area = areaPtr[f];
-        double invVolP = invVol[P];
-        double invVolN = (N == std::size_t(-1)) ? 0.0 : invVol[N];
+        double invVolP = invVol_[P];
+        double invVolN = (N == std::size_t(-1)) ? 0.0 : invVol_[N];
         for (std::size_t i = 0; i < Dim; ++i) {
             double uAi = uFace[i] * area;
             for (std::size_t j = 0; j < Dim; ++j) {
@@ -702,91 +696,15 @@ void SSTModel<Dim>::applyUnderRelaxation_(SparseMatrix& A, Eigen::VectorXd& b,
 template<std::size_t Dim>
 void SSTModel<Dim>::solveKTransport(const VectorField<Dim>& velocity,
                                     ConvectionScheme scheme) {
-    const std::size_t n = mesh_.nCells();
-    const auto& c = config_.constants;
-
-    Field<Dim> diffCoeff(mesh_, 0.0);
-    Field<Dim> sourceK(mesh_, 0.0);
-    computeKDiffusionSource_(diffCoeff, sourceK);
-
-    SparseMatrix A;
-    Eigen::VectorXd b;
-    poisson_.discretize(A, b, diffCoeff, sourceK, kBCMask_, kBCVals_, &gradK_);
-
-    std::array<const Field<Dim>*, Dim> velPtrs{};
-    for (std::size_t d = 0; d < Dim; ++d)
-        velPtrs[d] = &velocity[d];
-    convection_.setScheme(scheme);
-    convection_.discretize(A, b, k_, velPtrs,
-                           ConvectionBCs{kBCMask_, kBCVals_, {}, {}},
-                           &gradK_);
-
-    A.makeCompressed();
-    for (std::size_t i = 0; i < n; ++i) {
-        if (kBCMask_[i]) continue;
-        double destroyCoeff = c.beta_star
-                            * std::max(omega_[i], config_.omegaMin)
-                            * mesh_.cellVolume(i);
-        if (double* diag = diagonalPtr(A, i)) *diag += destroyCoeff;
-    }
-
-    applyUnderRelaxation_(A, b, k_, config_.alphaK, kBCMask_);
-
-    Eigen::VectorXd x = solveKSystem_(A, b);
-
-    const double bnorm = b.lpNorm<2>();
-    kResidual_ = (bnorm > 1e-30)
-        ? (b - A * x).lpNorm<2>() / bnorm
-        : (b - A * x).lpNorm<2>();
-
-    for (std::size_t i = 0; i < n; ++i) k_[i] = x(static_cast<Eigen::Index>(i));
-    limitField_(k_, config_.kMin, config_.kMax, kBCMask_, kBCVals_);
+    solveKTransportImpl(velocity, scheme, 0.0, 0.0, TimeScheme::Euler,
+                        nullptr, nullptr);
 }
 
 template<std::size_t Dim>
 void SSTModel<Dim>::solveOmegaTransport(const VectorField<Dim>& velocity,
                                         ConvectionScheme scheme) {
-    const std::size_t n = mesh_.nCells();
-    const auto& c = config_.constants;
-
-    Field<Dim> diffCoeff(mesh_, 0.0);
-    Field<Dim> sourceOmega(mesh_, 0.0);
-    computeOmegaDiffusionSource_(diffCoeff, sourceOmega);
-
-    SparseMatrix A;
-    Eigen::VectorXd b;
-    poisson_.discretize(A, b, diffCoeff, sourceOmega,
-                        omegaBCMask_, omegaBCVals_, &gradOmega_);
-
-    std::array<const Field<Dim>*, Dim> velPtrs{};
-    for (std::size_t d = 0; d < Dim; ++d)
-        velPtrs[d] = &velocity[d];
-    convection_.setScheme(scheme);
-    convection_.discretize(A, b, omega_, velPtrs,
-                           ConvectionBCs{omegaBCMask_, omegaBCVals_, {}, {}},
-                           &gradOmega_);
-
-    A.makeCompressed();
-    for (std::size_t i = 0; i < n; ++i) {
-        if (omegaBCMask_[i]) continue;
-        double beta = F1_[i] * c.beta1 + (1.0 - F1_[i]) * c.beta2;
-        double w = std::max(omega_[i], config_.omegaMin);
-        double diagInc = beta * w * mesh_.cellVolume(i);
-        if (double* diag = diagonalPtr(A, i)) *diag += diagInc;
-    }
-
-    applyUnderRelaxation_(A, b, omega_, config_.alphaOmega, omegaBCMask_);
-
-    Eigen::VectorXd x = solveOmegaSystem_(A, b);
-
-    const double bnorm = b.lpNorm<2>();
-    omegaResidual_ = (bnorm > 1e-30)
-        ? (b - A * x).lpNorm<2>() / bnorm
-        : (b - A * x).lpNorm<2>();
-
-    for (std::size_t i = 0; i < n; ++i) omega_[i] = x(static_cast<Eigen::Index>(i));
-    limitField_(omega_, config_.omegaMin, config_.omegaMax,
-                omegaBCMask_, omegaBCVals_);
+    solveOmegaTransportImpl(velocity, scheme, 0.0, 0.0, TimeScheme::Euler,
+                            nullptr, nullptr);
 }
 
 template<std::size_t Dim>
@@ -813,13 +731,13 @@ void SSTModel<Dim>::solveIterationTransient(const VectorField<Dim>& velocity,
 }
 
 template<std::size_t Dim>
-void SSTModel<Dim>::solveKTransportTransient(const VectorField<Dim>& velocity,
-                                             ConvectionScheme scheme,
-                                             double dt,
-                                             double dtPrev,
-                                             TimeScheme timeScheme,
-                                             const Field<Dim>& kOld,
-                                             const Field<Dim>* kOldPrev) {
+void SSTModel<Dim>::solveKTransportImpl(const VectorField<Dim>& velocity,
+                                        ConvectionScheme scheme,
+                                        double dt,
+                                        double dtPrev,
+                                        TimeScheme timeScheme,
+                                        const Field<Dim>* kOld,
+                                        const Field<Dim>* kOldPrev) {
     const std::size_t n = mesh_.nCells();
     const auto& c = config_.constants;
 
@@ -849,8 +767,8 @@ void SSTModel<Dim>::solveKTransportTransient(const VectorField<Dim>& velocity,
     // Transient term. A non-positive dt means the caller did not provide a
     // usable step, which is an error: silently solving the steady equation
     // (the old fallback) hides a broken time configuration.
-    ImplicitTimeCoeffs tc;
-    const bool useTime = (dt > 0.0 && dt < 1e14);
+    ImplicitTimeCoeffs tc{};
+    const bool useTime = (kOld != nullptr && dt > 0.0 && dt < 1e14);
     if (useTime) {
         if (timeScheme == TimeScheme::BDF2 && kOldPrev != nullptr) {
             tc = implicitTimeCoeffs(dt, dtPrev);
@@ -860,8 +778,8 @@ void SSTModel<Dim>::solveKTransportTransient(const VectorField<Dim>& velocity,
             double vol = mesh_.cellVolume(i);
             const double coeff = tc.c0 * vol;
             const double rhs = tc.secondOrder
-                ? vol * (tc.cOld * kOld[i] + tc.cOldPrev * (*kOldPrev)[i])
-                : coeff * kOld[i];
+                ? vol * (tc.cOld * (*kOld)[i] + tc.cOldPrev * (*kOldPrev)[i])
+                : coeff * (*kOld)[i];
             if (double* diag = diagonalPtr(A, i)) *diag += coeff;
             b(static_cast<Eigen::Index>(i)) += rhs;
         }
@@ -884,13 +802,24 @@ void SSTModel<Dim>::solveKTransportTransient(const VectorField<Dim>& velocity,
 }
 
 template<std::size_t Dim>
-void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocity,
-                                                 ConvectionScheme scheme,
-                                                 double dt,
-                                                 double dtPrev,
-                                                 TimeScheme timeScheme,
-                                                 const Field<Dim>& omegaOld,
-                                                 const Field<Dim>* omegaOldPrev) {
+void SSTModel<Dim>::solveKTransportTransient(const VectorField<Dim>& velocity,
+                                            ConvectionScheme scheme,
+                                            double dt,
+                                            double dtPrev,
+                                            TimeScheme timeScheme,
+                                            const Field<Dim>& kOld,
+                                            const Field<Dim>* kOldPrev) {
+    solveKTransportImpl(velocity, scheme, dt, dtPrev, timeScheme, &kOld, kOldPrev);
+}
+
+template<std::size_t Dim>
+void SSTModel<Dim>::solveOmegaTransportImpl(const VectorField<Dim>& velocity,
+                                            ConvectionScheme scheme,
+                                            double dt,
+                                            double dtPrev,
+                                            TimeScheme timeScheme,
+                                            const Field<Dim>* omegaOld,
+                                            const Field<Dim>* omegaOldPrev) {
     const std::size_t n = mesh_.nCells();
     const auto& c = config_.constants;
 
@@ -918,8 +847,8 @@ void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocit
         if (double* diag = diagonalPtr(A, i)) *diag += diagInc;
     }
 
-    ImplicitTimeCoeffs tc;
-    const bool useTime = (dt > 0.0 && dt < 1e14);
+    ImplicitTimeCoeffs tc{};
+    const bool useTime = (omegaOld != nullptr && dt > 0.0 && dt < 1e14);
     if (useTime) {
         if (timeScheme == TimeScheme::BDF2 && omegaOldPrev != nullptr) {
             tc = implicitTimeCoeffs(dt, dtPrev);
@@ -929,8 +858,8 @@ void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocit
             double vol = mesh_.cellVolume(i);
             const double coeff = tc.c0 * vol;
             const double rhs = tc.secondOrder
-                ? vol * (tc.cOld * omegaOld[i] + tc.cOldPrev * (*omegaOldPrev)[i])
-                : coeff * omegaOld[i];
+                ? vol * (tc.cOld * (*omegaOld)[i] + tc.cOldPrev * (*omegaOldPrev)[i])
+                : coeff * (*omegaOld)[i];
             if (double* diag = diagonalPtr(A, i)) *diag += coeff;
             b(static_cast<Eigen::Index>(i)) += rhs;
         }
@@ -948,6 +877,18 @@ void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocit
     for (std::size_t i = 0; i < n; ++i) omega_[i] = x(static_cast<Eigen::Index>(i));
     limitField_(omega_, config_.omegaMin, config_.omegaMax,
                 omegaBCMask_, omegaBCVals_);
+}
+
+template<std::size_t Dim>
+void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocity,
+                                                ConvectionScheme scheme,
+                                                double dt,
+                                                double dtPrev,
+                                                TimeScheme timeScheme,
+                                                const Field<Dim>& omegaOld,
+                                                const Field<Dim>* omegaOldPrev) {
+    solveOmegaTransportImpl(velocity, scheme, dt, dtPrev, timeScheme, &omegaOld,
+                            omegaOldPrev);
 }
 
 template<std::size_t Dim>

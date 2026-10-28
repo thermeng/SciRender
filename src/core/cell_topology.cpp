@@ -64,8 +64,10 @@ bool hasVertex(const std::vector<std::size_t>& loop, std::size_t v) {
 }
 
 bool disjoint(const std::vector<std::size_t>& a, const std::vector<std::size_t>& b) {
+    std::vector<std::size_t> sb = b;
+    std::sort(sb.begin(), sb.end());
     for (std::size_t v : a) {
-        if (hasVertex(b, v)) return false;
+        if (std::binary_search(sb.begin(), sb.end(), v)) return false;
     }
     return true;
 }
@@ -113,7 +115,7 @@ bool pairLoops(const std::vector<std::size_t>& a, const std::vector<std::size_t>
     if (a.size() != b.size()) return false;
     paired.clear();
     paired.reserve(a.size());
-    std::vector<bool> used(b.size(), false);
+    std::vector<char> used(b.size(), false);
     for (std::size_t av : a) {
         std::size_t best = std::numeric_limits<std::size_t>::max();
         double bestD = std::numeric_limits<double>::infinity();
