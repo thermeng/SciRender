@@ -23,6 +23,7 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
@@ -113,6 +114,8 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_gradientScheme = cfdUi.gradientSchemeCombo;
     m_rhie = cfdUi.rhieCb;
     m_turb = cfdUi.turbCb;
+
+    // Turbulence freestream values are now edited in the Initialize dialog.
 
     // ── Time mode (steady / transient) ───────────────────────────────
     m_steadyRadio = cfdUi.steadyRadio;
@@ -607,6 +610,8 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_gradientScheme->setCurrentIndex(s.gradientScheme);
     m_rhie->setChecked(s.rhieChow);
     m_turb->setChecked(s.turbulence);
+    if (m_kInf) m_kInf->setValue(s.kInf);
+    if (m_wInf) m_wInf->setValue(s.omegaInf);
 
     m_pressureCorrectors->setValue(s.pressureCorrectors);
     m_limitPressureCorrection->setChecked(s.limitPressureCorrection);
@@ -688,8 +693,12 @@ void CfdCasePage::collectSettings() {
     s.gradientScheme = m_gradientScheme->currentIndex();
     s.rhieChow = m_rhie->isChecked();
     s.turbulence = m_turb->isChecked();
-    s.kInf = 1e-3;
-    s.omegaInf = 1.0;
+    // Preserve the loaded freestream values unless the user has edited them;
+    // the previous hardcoded 1e-3/1.0 reset every loaded case.
+    s.kInf = m_kInf ? m_kInf->value() : m_ctrl->settings().kInf;
+    s.omegaInf = m_wInf ? m_wInf->value() : m_ctrl->settings().omegaInf;
+    s.alphaK = m_ctrl->settings().alphaK;
+    s.alphaOmega = m_ctrl->settings().alphaOmega;
     // Advanced
     s.pressureCorrectors = m_pressureCorrectors->value();
     s.limitPressureCorrection = m_limitPressureCorrection->isChecked();
