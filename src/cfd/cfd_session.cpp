@@ -14,7 +14,7 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
-#include <memory>
+#include <cmath>
 #include <mutex>
 #include <string>
 #include <type_traits>
@@ -88,8 +88,21 @@ public:
         SolutionSnapshot state = snapshotFields();
         if (settings.turbulence) {
             typename fvm::SSTModel<Dim>::Config cfg{};
-            cfg.kInf = ic.k;
-            cfg.omegaInf = ic.omega;
+            double kInf = ic.k;
+            double omegaInf = ic.omega;
+            if (kInf <= 0.0 || omegaInf <= 0.0) {
+                double U = std::sqrt(ic.ux*ic.ux + ic.uy*ic.uy + ic.uz*ic.uz);
+                if (U < 1e-12) U = 1.0;
+                const double I = 0.05; // 5% turbulence intensity
+                kInf = 1.5 * I * I * U * U;
+                if (kInf < cfg.kMin) kInf = cfg.kMin;
+                const double nu = settings.nu;
+                const double L = 0.07 * 1.0; // characteristic length scale
+                omegaInf = std::sqrt(kInf) / (std::pow(0.09, 0.25) * std::max(L, 1e-6));
+                if (omegaInf < cfg.omegaMin) omegaInf = cfg.omegaMin;
+            }
+            cfg.kInf = kInf;
+            cfg.omegaInf = omegaInf;
             cfg.alphaK = settings.alphaK;
             cfg.alphaOmega = settings.alphaOmega;
             fvm::SSTModel<Dim> model(*m_mesh, cfg);

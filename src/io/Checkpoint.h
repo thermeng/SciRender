@@ -92,6 +92,12 @@ public:
         if (!out.is_open()) return false;
 
         const bool hasTransient = (transient != nullptr);
+        // All-or-none contract: the fields list below describes exactly what
+        // is written, so the reader never has to guess from pointer nullness.
+        const bool hasTurbulence = (k != nullptr && omega != nullptr && nut != nullptr);
+        const bool transientTurbulence = hasTransient &&
+            transient->kN && transient->kNM1 &&
+            transient->omegaN && transient->omegaNM1;
 
         std::ostringstream metadata;
         metadata << "{";
@@ -104,13 +110,15 @@ public:
         metadata << "\"adaptive_alpha_p\":" << std::scientific << adaptiveAlphaP << ",";
         metadata << "\"stall_count\":" << stallCount << ",";
         metadata << "\"prev_cont_resid\":" << std::scientific << prevContResid << ",";
-        metadata << "\"turbulence_enabled\":" << (k != nullptr ? "true" : "false") << ",";
+        metadata << "\"turbulence_enabled\":" << (hasTurbulence ? "true" : "false") << ",";
         metadata << "\"has_transient\":" << (hasTransient ? "true" : "false") << ",";
+        metadata << "\"transient_turbulence_enabled\":"
+                 << (transientTurbulence ? "true" : "false") << ",";
         metadata << "\"fields\":[\"u\"";
         if constexpr (Dim >= 2) metadata << ",\"v\"";
         if constexpr (Dim >= 3) metadata << ",\"w\"";
         metadata << ",\"p\"";
-        if (k != nullptr) metadata << ",\"k\",\"omega\",\"nut\"";
+        if (hasTurbulence) metadata << ",\"k\",\"omega\",\"nut\"";
         metadata << "]";
         metadata << "}";
 
@@ -126,9 +134,11 @@ public:
 
         writeFieldData(out, pressure);
 
-        if (k != nullptr) writeFieldData(out, *k);
-        if (omega != nullptr) writeFieldData(out, *omega);
-        if (nut != nullptr) writeFieldData(out, *nut);
+        if (hasTurbulence) {
+            writeFieldData(out, *k);
+            writeFieldData(out, *omega);
+            writeFieldData(out, *nut);
+        }
 
         if (hasTransient) {
             out.write(reinterpret_cast<const char*>(&transient->time), sizeof(double));
@@ -137,10 +147,12 @@ public:
             writeU32(out, transient->step);
             if (transient->velocityN)   for (std::size_t d = 0; d < Dim; ++d) writeFieldData(out, (*transient->velocityN)[d]);
             if (transient->velocityNM1) for (std::size_t d = 0; d < Dim; ++d) writeFieldData(out, (*transient->velocityNM1)[d]);
-            if (transient->kN)          writeFieldData(out, *transient->kN);
-            if (transient->kNM1)        writeFieldData(out, *transient->kNM1);
-            if (transient->omegaN)      writeFieldData(out, *transient->omegaN);
-            if (transient->omegaNM1)    writeFieldData(out, *transient->omegaNM1);
+            if (transientTurbulence) {
+                writeFieldData(out, *transient->kN);
+                writeFieldData(out, *transient->kNM1);
+                writeFieldData(out, *transient->omegaN);
+                writeFieldData(out, *transient->omegaNM1);
+            }
             writeU32(out, transient->pvdEntries.size());
             for (const auto& e : transient->pvdEntries) {
                 writeU32(out, e.size());
@@ -196,14 +208,38 @@ public:
 
         if (!readFieldData(in, pressure, nCells)) return false;
 
-        if (k != nullptr) {
-            if (!readFieldData(in, *k, nCells)) return false;
+        // Consume the remaining fields in the order the writer recorded them.
+        // Deciding from pointer nullness desynchronised the stream whenever a
+        // checkpoint written with turbulence was loaded without it (or the
+        // reverse): the transient block was then read from the middle of a
+        // field and produced garbage or a bogus "no transient state".
+        auto consumeTurbulenceField = [&](const std::string& name) -> bool {
+            Field<Dim>* dst = nullptr;
+            if (name == "k") dst = k;
+            else if (name == "omega") dst = omega;
+            else if (name == "nut") dst = nut;
+            else return true; // u/v/w/p are consumed above
+            if (dst != nullptr && dst->size() == nCells)
+                return readFieldData(in, *dst, nCells);
+            return skipFieldData(in, nCells);
+        };
+
+        std::vector<std::string> fields;
+        if (j.contains("fields") && j["fields"].is_array()) {
+            for (const auto& name : j["fields"]) {
+                if (name.is_string()) fields.push_back(name.get<std::string>());
+            }
         }
-        if (omega != nullptr) {
-            if (!readFieldData(in, *omega, nCells)) return false;
-        }
-        if (nut != nullptr) {
-            if (!readFieldData(in, *nut, nCells)) return false;
+        if (!fields.empty()) {
+            for (const auto& name : fields) {
+                if (name == "u" || name == "v" || name == "w" || name == "p") continue;
+                if (!consumeTurbulenceField(name)) return false;
+            }
+        } else if (j.value("turbulence_enabled", false)) {
+            // Legacy file without a field list.
+            for (const char* name : {"k", "omega", "nut"}) {
+                if (!consumeTurbulenceField(name)) return false;
+            }
         }
 
         if (transient != nullptr && j.value("has_transient", false)) {
@@ -219,10 +255,20 @@ public:
                 for (std::size_t d = 0; d < Dim; ++d)
                     if (!readFieldData(in, (*transient->velocityNM1)[d], nCells)) return false;
             }
-            if (transient->kN       && !readFieldData(in, *transient->kN, nCells))       return false;
-            if (transient->kNM1     && !readFieldData(in, *transient->kNM1, nCells))     return false;
-            if (transient->omegaN   && !readFieldData(in, *transient->omegaN, nCells))   return false;
-            if (transient->omegaNM1 && !readFieldData(in, *transient->omegaNM1, nCells)) return false;
+            // Same metadata-driven rule for the transient turbulence history.
+            const bool fileTransientTurbulence = j.value(
+                "transient_turbulence_enabled",
+                j.value("turbulence_enabled", false));
+            if (fileTransientTurbulence) {
+                auto consumeTB = [&](Field<Dim>* dst) -> bool {
+                    return dst ? readFieldData(in, *dst, nCells)
+                               : skipFieldData(in, nCells);
+                };
+                if (!consumeTB(transient->kN))       return false;
+                if (!consumeTB(transient->kNM1))     return false;
+                if (!consumeTB(transient->omegaN))   return false;
+                if (!consumeTB(transient->omegaNM1)) return false;
+            }
 
             transient->pvdEntries.clear();
             const std::size_t nEntries = readU32(in);
@@ -258,6 +304,12 @@ private:
         in.read(reinterpret_cast<char*>(vals.data()),
                 static_cast<std::streamsize>(expectedSize * sizeof(double)));
         return in.good();
+    }
+
+    // Consume a field the caller did not ask for, keeping the stream aligned.
+    static bool skipFieldData(std::ifstream& in, std::size_t nCells) {
+        in.ignore(static_cast<std::streamsize>(nCells * sizeof(double)));
+        return in.good() || in.eof();
     }
 };
 

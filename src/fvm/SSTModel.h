@@ -7,8 +7,7 @@
 #include "fvm/Types.h"
 #include "fvm/Poisson.h"
 #include "fvm/Convection.h"
-#include "fvm/Gradient.h"
-#include "mesh/BoundaryUtils.h"
+#include "fvm/SIMPLETypes.h"
 #include <Eigen/IterativeLinearSolvers>
 #include <array>
 #include <cmath>
@@ -32,129 +31,42 @@ public:
         double alphaOmega = 0.7;
         double kMin       = 1e-14;
         double omegaMin   = 1e-14;
+        double kMax       = 1e3;
+        double omegaMax   = 1e6;
+        // Cap on nut/nu. A numerical guard, not a physical model constant.
+        double nutMaxFactor = 1e5;
     };
 
     SSTModel(const Mesh<Dim>& mesh, Config config);
 
+    // Reset k/omega/nut to the freestream state and set the fluid properties.
     void initialize(double mu, double rho);
-    void computeWallDistance();
 
-    template<typename VelocityBCType>
-    void computeWallDistance(const std::array<VelocityBCType, 2 * Dim>& velBCs) {
-        const std::size_t n = mesh_.nCells();
-        for (std::size_t i = 0; i < n; ++i)
-            wallDist_[i] = std::numeric_limits<double>::max();
+    // Adopt a new configuration without touching the fields. Used when the
+    // caller reconfigures turbulence after the model already exists (the model
+    // instance must stay alive across solves because callers cache its pointer).
+    void setConfig(const Config& config) { config_ = config; }
+    const Config& config() const { return config_; }
 
-        // Seed propagation only from no-slip wall boundary faces
-        for (std::size_t d = 0; d < Dim; ++d) {
-            for (int sign : {-1, +1}) {
-                std::size_t idx = d * 2 + (sign < 0 ? 0 : 1);
-                auto bcType = velBCs[idx];
-                if (!isWallBC(bcType)) continue;
+    // Classify every boundary face from the momentum face BCs, rebuild the
+    // k/omega Dirichlet masks and recompute the wall distance from the faces
+    // that are actually walls. `faceBCs` is indexed by mesh face; interior
+    // entries are ignored. A boundary face without an entry is treated as a
+    // no-slip wall, matching the momentum discretization's own fallback.
+    void setBoundaryConditions(const std::vector<FaceVelocityBC>& faceBCs);
 
-                forEachBoundaryFace(mesh_, d, sign, [&](std::size_t f, std::size_t cell) {
-                    auto center = mesh_.cellCenter(cell);
-                    double dist2 = 0.0;
-                    for (std::size_t dd = 0; dd < Dim; ++dd) {
-                        double diff = mesh_.faceCenter(f)[dd] - center[dd];
-                        dist2 += diff * diff;
-                    }
-                    double d0 = std::sqrt(dist2);
-                    if (d0 < wallDist_[cell]) wallDist_[cell] = d0;
-                });
-            }
-        }
+    // Wall distance seeded only from faces classified as walls. Inlets,
+    // outlets and symmetry planes are not wall sources.
+    void computeWallDistance(const std::vector<FaceVelocityBC>& faceBCs);
 
-        std::vector<bool> visited(n, false);
-        using Entry = std::pair<double, std::size_t>;
-        std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> pq;
+    // Override the k/omega inlet values on explicit faces. Applied after
+    // setBoundaryConditions(), so a named inlet patch wins over kInf/omegaInf.
+    void setInletTurbulence(const std::vector<std::size_t>& faces, double k, double omega);
 
-        for (std::size_t i = 0; i < n; ++i) {
-            if (wallDist_[i] < std::numeric_limits<double>::max())
-                pq.push({wallDist_[i], i});
-        }
+    // Clamp interior cells into the configured bounds. Boundary cells keep
+    // their prescribed value: a cap must never silently rewrite a BC.
+    void clampFields();
 
-        while (!pq.empty()) {
-            auto [dist, cell] = pq.top();
-            pq.pop();
-            if (visited[cell]) continue;
-            visited[cell] = true;
-
-            for (std::size_t neighbor : mesh_.cellNeighbors(cell)) {
-                if (visited[neighbor]) continue;
-                auto cP = mesh_.cellCenter(cell);
-                auto cN = mesh_.cellCenter(neighbor);
-                double d2 = 0.0;
-                for (std::size_t dd = 0; dd < Dim; ++dd) {
-                    double diff = cN[dd] - cP[dd];
-                    d2 += diff * diff;
-                }
-                double newDist = dist + std::sqrt(d2);
-                if (newDist < wallDist_[neighbor]) {
-                    wallDist_[neighbor] = newDist;
-                    pq.push({newDist, neighbor});
-                }
-            }
-        }
-
-        for (std::size_t i = 0; i < n; ++i) {
-            if (wallDist_[i] == std::numeric_limits<double>::max())
-                wallDist_[i] = 0.0;
-        }
-    }
-
-    template<typename VelocityBCType>
-    void setBoundaryConditions(
-        const std::array<VelocityBCType, 2 * Dim>& velBCs) {
-
-        const std::size_t n = mesh_.nCells();
-        kBCMask_.assign(n, 0);
-        kBCVals_.assign(n, 0.0);
-        omegaBCMask_.assign(n, 0);
-        omegaBCVals_.assign(n, 0.0);
-
-        for (std::size_t d = 0; d < Dim; ++d) {
-            for (int sign : {-1, +1}) {
-                std::size_t idx = d * 2 + (sign < 0 ? 0 : 1);
-                auto bcType = velBCs[idx];
-
-                if (isWallBC(bcType)) {
-                    forEachBoundaryFace(mesh_, d, sign, [&](std::size_t f, std::size_t cell) {
-                        kBCMask_[cell] = 1;
-                        kBCVals_[cell] = 0.0;
-                        omegaBCMask_[cell] = 1;
-                        double y1 = wallDist_[cell];
-                        double om = 6.0 * mu_
-                                             / (rho_ * config_.constants.beta1 * y1 * y1 + 1e-30);
-                        if (om > 1e6) om = 1e6;
-                        omegaBCVals_[cell] = om;
-                    });
-                 } else if (isInletBC(bcType)) {
-                    forEachBoundaryFace(mesh_, d, sign, [&](std::size_t f, std::size_t cell) {
-                        kBCMask_[cell] = 1;
-                        kBCVals_[cell] = config_.kInf;
-                        omegaBCMask_[cell] = 1;
-                        omegaBCVals_[cell] = config_.omegaInf;
-                    });
-                } else {
-                    // Outlet, Symmetry, SlipWall, PressureOutlet: zero-gradient (natural BC)
-                    // No explicit BC needed — transport equation handles it
-                }
-            }
-        }
-    }
-
-    void setInletTurbulence(const std::vector<std::size_t>& faces, double k, double omega) {
-        for (std::size_t f : faces) {
-            std::size_t cell = mesh_.owner(f);
-            if (cell < kBCMask_.size()) {
-                kBCMask_[cell] = 1;
-                kBCVals_[cell] = k;
-                omegaBCMask_[cell] = 1;
-                omegaBCVals_[cell] = omega;
-            }
-        }
-    }
     void solveIteration(const VectorField<Dim>& velocity,
                         ConvectionScheme scheme);
     void solveIterationTransient(const VectorField<Dim>& velocity,
@@ -175,34 +87,71 @@ public:
     Field<Dim>& k();
     Field<Dim>& omega();
 
+    // Relative linear-solve residuals |b - A x| / |b| of the last k/omega
+    // transport solve, so they are comparable across meshes and source scales.
     double finalKResid() const { return kResidual_; }
     double finalOmegaResid() const { return omegaResidual_; }
 
+    // Largest y+ over the wall-adjacent cells. The model is a low-Re
+    // formulation: y+ should be O(1). A large value means the first cell is
+    // inside the log layer and the wall shear is not resolved (there is no
+    // wall function), so the caller should warn.
+    double maxYPlus() const { return maxYPlus_; }
+    double maxWallDistance() const { return maxWallDistance_; }
+
+    // Active Dirichlet masks and values, exposed for diagnostics and tests.
+    const std::vector<char>& kDirichletMask() const { return kBCMask_; }
+    const std::vector<double>& kDirichletValues() const { return kBCVals_; }
+    const std::vector<char>& omegaDirichletMask() const { return omegaBCMask_; }
+    const std::vector<double>& omegaDirichletValues() const { return omegaBCVals_; }
+
 private:
-    static bool isWallBC(auto bcType) {
-        using BC = std::decay_t<decltype(bcType)>;
-        return bcType == BC::NoSlip || bcType == BC::MovingWall;
+    static bool isWallType(VelocityBCType t) {
+        return t == VelocityBCType::NoSlip || t == VelocityBCType::MovingWall;
+    }
+    static bool isInletType(VelocityBCType t) {
+        return t == VelocityBCType::Inlet;
     }
 
-    static bool isInletBC(auto bcType) {
-        using BC = std::decay_t<decltype(bcType)>;
-        return bcType == BC::Inlet;
-    }
+    // Which faces the caller declared. `faceBCs` may be empty, in which case
+    // every boundary face keeps the historical no-slip fallback.
+    VelocityBCType faceBCType_(const std::vector<FaceVelocityBC>& faceBCs,
+                               std::size_t f) const;
 
-    static bool isOutletBC(auto bcType) {
-        using BC = std::decay_t<decltype(bcType)>;
-        return bcType == BC::Outlet || bcType == BC::PressureOutlet;
-    }
-
-    std::array<Field<Dim>, Dim> computeScalarGradients(const Field<Dim>& phi) const;
+    std::array<Field<Dim>, Dim> computeScalarGradients(
+        const Field<Dim>& phi,
+        const std::vector<char>& mask,
+        const std::vector<double>& vals) const;
 
     void computeStrainRate(const VectorField<Dim>& velocity);
+    void computeWallDiagnostics(const VectorField<Dim>& velocity);
+    // Rebuild the active masks from the fixed (wall/inlet) ones and add a
+    // Dirichlet k/omega condition on outlet faces that are actually ingesting
+    // fluid. Without this the backflow k/omega UI controls were dead and a
+    // reversed outlet fed the domain with no turbulence at all.
+    void updateBackflowBCs_(const VectorField<Dim>& velocity);
     void computeBlendingFunctions();
     void computeEddyViscosity();
+
+    // Shared by the steady and transient paths so the two formulations cannot
+    // drift apart again (the transient path used to lack the source caps).
+    void computeKDiffusionSource_(Field<Dim>& diff, Field<Dim>& src) const;
+    void computeOmegaDiffusionSource_(Field<Dim>& diff, Field<Dim>& src) const;
+
+    void applyUnderRelaxation_(SparseMatrix& A, Eigen::VectorXd& b,
+                               const Field<Dim>& phi, double alpha,
+                               const std::vector<char>& mask) const;
+
+    // Boundary cells are assigned their prescribed value; interior cells are
+    // clamped into [lo, hi].
+    void limitField_(Field<Dim>& phi, double lo, double hi,
+                     const std::vector<char>& mask,
+                     const std::vector<double>& vals) const;
+
     void solveKTransport(const VectorField<Dim>& velocity,
                          ConvectionScheme scheme);
     void solveOmegaTransport(const VectorField<Dim>& velocity,
-                            ConvectionScheme scheme);
+                             ConvectionScheme scheme);
     void solveKTransportTransient(const VectorField<Dim>& velocity,
                                   ConvectionScheme scheme,
                                   double dt,
@@ -220,12 +169,7 @@ private:
 
     Eigen::VectorXd solveKSystem_(const SparseMatrix& A, const Eigen::VectorXd& b);
     Eigen::VectorXd solveOmegaSystem_(const SparseMatrix& A, const Eigen::VectorXd& b);
-    Eigen::VectorXd biCGSTABSolve(const SparseMatrix& A,
-                                   const Eigen::VectorXd& b);
-
-    bool kPatternAnalyzed_ = false;
-    bool omegaPatternAnalyzed_ = false;
-    bool patternAnalyzed_ = false;
+    void sanitizeSolution_(Eigen::VectorXd& x) const;
 
     const Mesh<Dim>& mesh_;
     Config config_;
@@ -251,12 +195,33 @@ private:
     std::vector<char>   omegaBCMask_;
     std::vector<double> omegaBCVals_;
 
+    // Fixed wall/inlet conditions. The active masks above start from these
+    // every iteration and add the current outlet-backflow cells.
+    std::vector<char>   kFixedMask_;
+    std::vector<double> kFixedVals_;
+    std::vector<char>   omegaFixedMask_;
+    std::vector<double> omegaFixedVals_;
+    // Per-face outlet data (pressure outlet and plain outlet).
+    std::vector<char>   faceIsOutlet_;
+    std::vector<double> outletBackflowK_;
+    std::vector<double> outletBackflowOmega_;
+
+    // Per-face classification, used by the strain rate and the gradients so
+    // boundary faces use the prescribed velocity instead of the owner value.
+    std::vector<char> faceIsWall_;
+    std::vector<char> faceIsInlet_;
+    std::vector<std::array<double, Dim>> faceVelocity_;
+    // A cell may own both a wall face and an inlet face (a channel corner).
+    // Wall conditions win there, independently of the face iteration order.
+    std::vector<char> cellIsWall_;
+
     double kResidual_ = 0.0;
     double omegaResidual_ = 0.0;
+    double maxYPlus_ = 0.0;
+    double maxWallDistance_ = 0.0;
 
     Poisson<Dim>    poisson_;
     Convection<Dim> convection_;
-    Gradient<Dim>   gradient_;
 
     mutable Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> kSolver_;
     mutable Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> omegaSolver_;

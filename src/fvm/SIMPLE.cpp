@@ -162,11 +162,30 @@ void SIMPLE<Dim>::setPressureOutletOnFacesWithBackflow(const std::vector<std::si
 template<std::size_t Dim>
 void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
                                    double alphaK, double alphaOmega) {
+    // Reject the values that used to produce a silently wrong first momentum
+    // solve: kInf=0 makes the model laminar, omegaInf=0 makes nut infinite.
+    if (!(kInf > 0.0) || !std::isfinite(kInf)) kInf = 1e-3;
+    if (!(omegaInf > 0.0) || !std::isfinite(omegaInf)) omegaInf = 1.0;
+
     config_.turbulenceEnabled = true;
     config_.kInf = kInf;
     config_.omegaInf = omegaInf;
-    config_.alphaK = alphaK;
-    config_.alphaOmega = alphaOmega;
+    config_.alphaK = std::clamp(alphaK, 1e-3, 1.0);
+    config_.alphaOmega = std::clamp(alphaOmega, 1e-3, 1.0);
+
+    // Create the model HERE, not in initializeSolve_. The application caches
+    // turbulence() before solve() starts (cfd_session hands the pointer to the
+    // render callback), so it must already be valid. initializeSolve_ reuses
+    // this instance so that pointer stays stable for the whole run.
+    if (!turbulence_) {
+        typename SSTModel<Dim>::Config sstCfg;
+        sstCfg.kInf       = config_.kInf;
+        sstCfg.omegaInf   = config_.omegaInf;
+        sstCfg.alphaK     = config_.alphaK;
+        sstCfg.alphaOmega = config_.alphaOmega;
+        turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
+        turbulence_->initialize(nu_ * rho_, rho_);
+    }
 }
 
 template<std::size_t Dim>
@@ -187,7 +206,62 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     prevContResid_ = 0.0;
     stallCount_ = 0;
     headerCounter_ = 0;
+    // Cleared at the start of every run; only the checkpoint load below may
+    // set it again. Leaving it set from a previous run made solveTransient()
+    // re-read a checkpoint that no longer described this run.
+    restarting_ = false;
 
+    updateMaxInletSpeed_();
+
+    divBuffer_ = Field<Dim>(mesh_, 0.0);
+
+    for (std::size_t d = 0; d < Dim; ++d) {
+        dpdx_[d] = Field<Dim>(mesh_, 0.0);
+    }
+
+    gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_);
+    gradientCalc_->setScheme(config_.gradientScheme);
+    // The pressure operator is always least squares: the pressure matrix, the
+    // PISO corrector and the velocity correction are built from it.
+    pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
+        mesh_, GradientScheme::LeastSquares);
+    for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
+
+    // Build the boundary discretization before the turbulence model: the
+    // k/omega masks must come from the real per-face velocity BCs, not from
+    // the per-side velBCs_ list, which stays at its NoSlip default whenever the
+    // application configures boundaries face by face.
+    bcDiscretization_ = bc_.build();
+
+    if (config_.turbulenceEnabled) {
+        typename SSTModel<Dim>::Config sstCfg;
+        sstCfg.kInf       = config_.kInf;
+        sstCfg.omegaInf   = config_.omegaInf;
+        sstCfg.alphaK     = config_.alphaK;
+        sstCfg.alphaOmega = config_.alphaOmega;
+        if (!turbulence_) {
+            turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
+        } else {
+            // Reuse the instance created by enableTurbulence(), so any pointer
+            // the caller cached stays valid for the whole run.
+            turbulence_->setConfig(sstCfg);
+        }
+        turbulence_->initialize(nu_ * rho_, rho_);
+        turbulence_->setBoundaryConditions(bcDiscretization_.faceBCs());
+        for (const auto& it : config_.inletTurbulence) {
+            auto git = mesh_.boundaryGroups().find(it.patch);
+            if (git == mesh_.boundaryGroups().end()) {
+                std::cerr << "  [turbulence] WARNING: inlet patch '" << it.patch
+                          << "' not found; k/omega inlet values not applied\n";
+                continue;
+            }
+            turbulence_->setInletTurbulence(git->second, it.k, it.omega);
+        }
+    }
+
+    // Checkpoint load. It MUST run after the turbulence model exists, or a
+    // steady restart silently drops k/omega/nut and reseeds them from
+    // kInf/omegaInf.
     if (!config_.checkpoint.restartFrom.empty()) {
         std::size_t savedIter = 0;
         double savedCont = 0.0, savedMom = 0.0;
@@ -220,6 +294,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
             prevContResid_ = savedPrev;
             lastContResid_ = std::numeric_limits<double>::max();
             lastMomResid_ = std::numeric_limits<double>::max();
+            if (turbulence_) turbulence_->clampFields();
             std::cout << "  [checkpoint] loaded from " << config_.checkpoint.restartFrom
                       << " at iteration " << savedIter << "\n";
         } else {
@@ -229,44 +304,6 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
         }
     } else {
         startIteration_ = 0;
-    }
-
-    updateMaxInletSpeed_();
-
-    divBuffer_ = Field<Dim>(mesh_, 0.0);
-
-    for (std::size_t d = 0; d < Dim; ++d) {
-        dpdx_[d] = Field<Dim>(mesh_, 0.0);
-    }
-
-    gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_);
-    gradientCalc_->setScheme(config_.gradientScheme);
-    // The pressure operator is always least squares: the pressure matrix, the
-    // PISO corrector and the velocity correction are built from it.
-    pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
-        mesh_, GradientScheme::LeastSquares);
-    for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
-
-    if (config_.turbulenceEnabled) {
-        typename SSTModel<Dim>::Config sstCfg;
-        sstCfg.kInf       = config_.kInf;
-        sstCfg.omegaInf   = config_.omegaInf;
-        sstCfg.alphaK     = config_.alphaK;
-        sstCfg.alphaOmega = config_.alphaOmega;
-        turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
-        turbulence_->initialize(nu_ * rho_, rho_);
-
-        using BC = VelocityBCType;
-        std::array<BC, 2*Dim> velBCEnums{};
-        for (std::size_t i = 0; i < 2 * Dim; ++i)
-            velBCEnums[i] = bc_.velBCs()[i].type;
-    turbulence_->computeWallDistance(velBCEnums);
-    turbulence_->setBoundaryConditions(velBCEnums);
-    for (const auto& it : config_.inletTurbulence) {
-        auto git = mesh_.boundaryGroups().find(it.patch);
-        if (git == mesh_.boundaryGroups().end()) continue;
-        turbulence_->setInletTurbulence(git->second, it.k, it.omega);
-    }
     }
 
     // Apply a queued restart payload. This must happen HERE, after
@@ -286,10 +323,13 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
         if (turbulence_ && rs.hasTurbulence) {
             const std::size_t mk = std::min(n, rs.k.size());
             const std::size_t mo = std::min(n, rs.omega.size());
-            const std::size_t mn = std::min(n, rs.nut.size());
             for (std::size_t i = 0; i < mk; ++i) turbulence_->k()[i] = rs.k[i];
             for (std::size_t i = 0; i < mo; ++i) turbulence_->omega()[i] = rs.omega[i];
-            for (std::size_t i = 0; i < mn; ++i) turbulence_->nut()[i] = rs.nut[i];
+            // A snapshot may predate the current bounds (or be corrupt). Clamp
+            // the interior and re-derive nut from k/omega: a restored nut that
+            // disagrees with them would make the first momentum solve
+            // inconsistent with the turbulence equations.
+            turbulence_->clampFields();
         }
         if (rs.hasTransient) {
             time_ = rs.time;
@@ -676,6 +716,18 @@ void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResidual
     lastMomChange_ = std::max(resid.momU, resid.momV);
     if constexpr (Dim == 3) lastMomChange_ = std::max(lastMomChange_, resid.momW);
 
+    // A non-finite turbulence residual means the k/omega solve produced
+    // garbage. Treat it like a diverged flow residual instead of letting the
+    // run continue with NaN fields.
+    if (turbulence_) {
+        const double tk = turbulence_->finalKResid();
+        const double to = turbulence_->finalOmegaResid();
+        if (!std::isfinite(tk) || !std::isfinite(to)) {
+            aborted_ = true;
+            std::cerr << "  WARNING: non-finite turbulence residual, aborting\n";
+        }
+    }
+
     // PISO robustness: no adaptive alphaP reduction (Fluent keeps 1.0)
     bool isPISO = (config_.solverType == SolverType::PISO) ||
                   (config_.transient.enabled && config_.transient.piso);
@@ -720,7 +772,18 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
         return true;
     }
     if (checkTolerance && !config_.runFixedIterations) {
-        if (lastContResid_ < config_.tolerance && lastMomChange_ < config_.tolerance) {
+        // Turbulence must converge together with the flow. Ignoring its
+        // residual let a run report "converged" with k/omega still diverging.
+        // The transport residual is normalised (see SSTModel), so it is
+        // directly comparable to the continuity/momentum tolerance.
+        double turbResid = 0.0;
+        if (turbulence_) {
+            turbResid = std::max(turbulence_->finalKResid(),
+                                 turbulence_->finalOmegaResid());
+        }
+        if (lastContResid_ < config_.tolerance &&
+            lastMomChange_ < config_.tolerance &&
+            turbResid < config_.tolerance) {
             // The criterion must hold for `convergenceHoldIterations`
             // consecutive iterations before the run is declared converged: a
             // single lucky iteration is not a steady state.
@@ -839,6 +902,13 @@ void SIMPLE<Dim>::printFinalStats_() const {
                      "         continuity is no longer exactly satisfied at the end of a\n"
                      "         corrector. Raise simple.pressure_correction_limit or turn the\n"
                      "         limiter off if the run is well behaved.\n";
+    }
+    if (turbulence_ && turbulence_->maxYPlus() > 5.0) {
+        std::cerr << "  WARNING: max y+ = " << turbulence_->maxYPlus()
+                  << ". This is a low-Re k-omega SST formulation with no wall\n"
+                     "         function, so the first-cell wall shear is only meaningful for\n"
+                     "         y+ ~ 1. Refine the near-wall mesh (or accept that the wall\n"
+                     "         shear is mesh-dependent).\n";
     }
 }
 
@@ -1166,6 +1236,22 @@ double SIMPLE<Dim>::computeAdaptiveDt_() const {
     if (velRef < 1e-12) velRef = maxVel;
     double dtCFL = config_.transient.cfl * charDx / velRef;
     dtCFL = std::max(config_.transient.minDt, std::min(dtCFL, config_.transient.maxDt));
+
+    // Diffusive limit. The convective CFL alone ignores the k/omega diffusion
+    // time scale: with a large eddy viscosity an explicit-ish transport update
+    // can go unstable even though the flow CFL is small.
+    if (turbulence_) {
+        double maxNut = 0.0;
+        const auto& nut = turbulence_->nut();
+        for (std::size_t i = 0; i < n; ++i) maxNut = std::max(maxNut, nut[i]);
+        const double nuEff = nu_ + std::max(maxNut, 0.0);
+        if (nuEff > 1e-30) {
+            const double dtDiff = config_.transient.cfl * charDx * charDx / (2.0 * nuEff);
+            dtCFL = std::min(dtCFL, dtDiff);
+            dtCFL = std::max(config_.transient.minDt,
+                             std::min(dtCFL, config_.transient.maxDt));
+        }
+    }
     return dtCFL;
 }
 
@@ -1494,6 +1580,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             dt_ = (tb.dt > 0.0) ? tb.dt : config_.transient.dt;
             dtPrev_ = tb.dtPrev;
             pvdEntries_ = std::move(tb.pvdEntries);
+            if (turbulence_) turbulence_->clampFields();
             std::cout << "  [transient restart] resuming at t=" << time_
                       << " step=" << timeStep_ << " dt=" << dt_
                       << " dtPrev=" << dtPrev_ << "\n";

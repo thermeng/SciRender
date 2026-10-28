@@ -75,7 +75,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="timeSchemeLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>Time Scheme</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -98,7 +98,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="dtLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>Time Step</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -121,7 +121,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="tEndLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>End Time</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -151,7 +151,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="cflLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>CFL Number</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -174,7 +174,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="minDtLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>Min Dt</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -197,7 +197,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="maxDtLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>Max Dt</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -220,7 +220,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="writeIntervalLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>Write Interval</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -243,7 +243,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="outerCorrectorsLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>Outer Correctors</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -266,7 +266,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="nonOrthLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>Non-Orth Correctors</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -289,7 +289,7 @@
           <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QLabel" name="pvdFileLabel">
-            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>PVD File</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -318,18 +318,11 @@
 
 
    <!-- â”€â”€ Boundary Conditions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
-   <item>
-    <widget class="QLabel" name="bcHeader">
-     <property name="text">
-      <string>Boundary Conditions</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QPushButton" name="bcEditBtn">
-     <property name="text">
-      <string>Edit Boundaries...</string>
-     </property>
+    <item>
+     <widget class="QPushButton" name="bcEditBtn">
+      <property name="text">
+       <string>Boundary Conditions</string>
+      </property>
      <property name="toolTip">
       <string>Assign inlet, outlet and wall conditions to each mesh patch.</string>
      </property>
@@ -362,7 +355,7 @@
       <property name="bottomMargin"><number>0</number></property>
       <item>
        <widget class="QLabel" name="rhoLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Density</string></property>
         <property name="toolTip"><string>rho</string></property>
@@ -392,7 +385,7 @@
       <property name="bottomMargin"><number>0</number></property>
       <item>
        <widget class="QLabel" name="nuLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Viscosity</string></property>
         <property name="toolTip"><string>nu</string></property>
@@ -441,7 +434,7 @@
       <property name="bottomMargin"><number>0</number></property>
       <item>
        <widget class="QLabel" name="toleranceLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Tolerance</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -470,7 +463,7 @@
       <property name="bottomMargin"><number>0</number></property>
       <item>
        <widget class="QLabel" name="maxIterLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Max Iterations</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -499,7 +492,7 @@
       <property name="bottomMargin"><number>0</number></property>
       <item>
        <widget class="QLabel" name="alphaULabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Velocity Relax</string></property>
         <property name="toolTip"><string>alpha_u</string></property>
@@ -529,7 +522,7 @@
       <property name="bottomMargin"><number>0</number></property>
       <item>
        <widget class="QLabel" name="alphaPLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Pressure Relax</string></property>
         <property name="toolTip"><string>alpha_p</string></property>
@@ -559,7 +552,7 @@
       <property name="bottomMargin"><number>0</number></property>
       <item>
        <widget class="QLabel" name="schemeLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Convection</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
@@ -588,7 +581,7 @@
        <property name="bottomMargin"><number>0</number></property>
        <item>
         <widget class="QLabel" name="gradientSchemeLabel">
-         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+         <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
          <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
          <property name="text"><string>Gradient</string></property>
          <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
