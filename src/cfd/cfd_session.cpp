@@ -105,6 +105,7 @@ public:
             cfg.omegaInf = omegaInf;
             cfg.alphaK = settings.alphaK;
             cfg.alphaOmega = settings.alphaOmega;
+            cfg.wallFunction = settings.wallFunction;
             fvm::SSTModel<Dim> model(*m_mesh, cfg);
             model.initialize(settings.nu * settings.rho, settings.rho);
             fillTurbulence(state, model);
@@ -199,7 +200,8 @@ public:
         auto solver = std::make_shared<Solver>(*m_mesh, settings.rho, settings.nu, sc);
         if (settings.turbulence) {
             solver->enableTurbulence(settings.kInf, settings.omegaInf,
-                                     settings.alphaK, settings.alphaOmega);
+                                     settings.alphaK, settings.alphaOmega,
+                                     settings.wallFunction);
         }
         solver->bindVelocity(*m_velocity);
         solver->bindPressure(*m_pressure);

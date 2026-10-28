@@ -33,6 +33,7 @@ public:
         double omegaMin   = 1e-14;
         double kMax       = 1e3;
         double omegaMax   = 1e6;
+        bool wallFunction = false;   // enable wall-function (high-Re) treatment
         // Cap on nut/nu. A numerical guard, not a physical model constant.
         double nutMaxFactor = 1e5;
     };
@@ -125,6 +126,7 @@ private:
 
     void computeStrainRate(const VectorField<Dim>& velocity);
     void computeWallDiagnostics(const VectorField<Dim>& velocity);
+    void applyWallFunctions(const VectorField<Dim>& velocity);
     // Rebuild the active masks from the fixed (wall/inlet) ones and add a
     // Dirichlet k/omega condition on outlet faces that are actually ingesting
     // fluid. Without this the backflow k/omega UI controls were dead and a

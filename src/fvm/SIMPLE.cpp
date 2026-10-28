@@ -161,7 +161,8 @@ void SIMPLE<Dim>::setPressureOutletOnFacesWithBackflow(const std::vector<std::si
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
-                                   double alphaK, double alphaOmega) {
+                                    double alphaK, double alphaOmega,
+                                    bool wallFunction) {
     // Reject the values that used to produce a silently wrong first momentum
     // solve: kInf=0 makes the model laminar, omegaInf=0 makes nut infinite.
     if (!(kInf > 0.0) || !std::isfinite(kInf)) kInf = 1e-3;
@@ -172,6 +173,7 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
     config_.omegaInf = omegaInf;
     config_.alphaK = std::clamp(alphaK, 1e-3, 1.0);
     config_.alphaOmega = std::clamp(alphaOmega, 1e-3, 1.0);
+    config_.wallFunction = wallFunction;
 
     // Create the model HERE, not in initializeSolve_. The application caches
     // turbulence() before solve() starts (cfd_session hands the pointer to the
@@ -182,7 +184,8 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
         sstCfg.kInf       = config_.kInf;
         sstCfg.omegaInf   = config_.omegaInf;
         sstCfg.alphaK     = config_.alphaK;
-        sstCfg.alphaOmega = config_.alphaOmega;
+         sstCfg.alphaOmega = config_.alphaOmega;
+         sstCfg.wallFunction = config_.wallFunction;
         turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
         turbulence_->initialize(nu_ * rho_, rho_);
     }
@@ -238,7 +241,8 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
         sstCfg.kInf       = config_.kInf;
         sstCfg.omegaInf   = config_.omegaInf;
         sstCfg.alphaK     = config_.alphaK;
-        sstCfg.alphaOmega = config_.alphaOmega;
+         sstCfg.alphaOmega = config_.alphaOmega;
+         sstCfg.wallFunction = config_.wallFunction;
         if (!turbulence_) {
             turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
         } else {

@@ -104,12 +104,14 @@ void SSTModel<Dim>::computeWallDistance(
         ++wallFaceCount;
         const std::size_t P = mesh_.owner(f);
         auto center = mesh_.cellCenter(P);
-        double dist2 = 0.0;
+        const double* nrm = mesh_.faceNormalPtr(f);
+        double d0 = 0.0;
         for (std::size_t d = 0; d < Dim; ++d) {
-            double diff = mesh_.faceCenter(f)[d] - center[d];
-            dist2 += diff * diff;
+            double diff = center[d] - mesh_.faceCenter(f)[d];
+            d0 += diff * nrm[d];
         }
-        wallDist_[P] = std::min(wallDist_[P], std::sqrt(dist2));
+        d0 = std::abs(d0);
+        wallDist_[P] = std::min(wallDist_[P], d0);
     }
 
     if (wallFaceCount == 0) {
@@ -330,6 +332,7 @@ void SSTModel<Dim>::solveIteration(const VectorField<Dim>& velocity,
     solveOmegaTransport(velocity, scheme);
     computeEddyViscosity();
     computeWallDiagnostics(velocity);
+    if (config_.wallFunction) applyWallFunctions(velocity);
 }
 
 template<std::size_t Dim>
@@ -393,10 +396,13 @@ std::array<Field<Dim>, Dim> SSTModel<Dim>::computeScalarGradients(
             // boundary contribution of a Dirichlet wall entirely).
             phiFace = cellValue(P);
         } else {
-            // Exact linear interpolation between the cell centres. A plain
-            // 0.5 average is only correct on a uniform grid.
+            // Exact linear interpolation between the cell centres, limited to
+            // the adjacent cell values to avoid overshoots on stretched meshes.
             const double w = weightPtr[f];
-            phiFace = (1.0 - w) * cellValue(P) + w * cellValue(N);
+            double phiLin = (1.0 - w) * cellValue(P) + w * cellValue(N);
+            double lo = std::min(cellValue(P), cellValue(N));
+            double hi = std::max(cellValue(P), cellValue(N));
+            phiFace = std::clamp(phiLin, lo, hi);
         }
         const double* fn = mesh_.faceNormalPtr(f);
         double area = areaPtr[f];
@@ -486,6 +492,56 @@ void SSTModel<Dim>::computeStrainRate(const VectorField<Dim>& velocity) {
 }
 
 template<std::size_t Dim>
+void SSTModel<Dim>::applyWallFunctions(const VectorField<Dim>& velocity) {
+    const double nu = (rho_ > 1e-30) ? mu_ / rho_ : mu_;
+    const double kappa = config_.constants.kappa;
+    const double B = 5.0;
+    const double Cmu = 0.09;
+    const std::size_t n = mesh_.nCells();
+
+    for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
+        if (mesh_.neighbor(f) != std::size_t(-1)) continue;
+        if (f >= faceIsWall_.size() || !faceIsWall_[f]) continue;
+        const std::size_t P = mesh_.owner(f);
+        const double y = std::max(wallDist_[P], minFaceDist);
+        if (y < 1e-12) continue;
+
+        double uMag = 0.0;
+        const double* wallVel = faceVelocity_[f].data();
+        for (std::size_t d = 0; d < Dim; ++d) {
+            double diff = velocity[d][P] - wallVel[d];
+            uMag += diff * diff;
+        }
+        uMag = std::sqrt(uMag);
+        if (uMag < 1e-12) continue;
+
+        // Iterative solution of u+ = (1/kappa) ln(y+) + B
+        double uTau = std::max(uMag / 20.0, 1e-8);
+        for (int it = 0; it < 20; ++it) {
+            double yp = y * uTau / std::max(nu, 1e-30);
+            double up = (yp < 11.225) ? yp : (1.0 / kappa) * std::log(std::max(yp, 1e-12)) + B;
+            if (up > 1e-12) uTau = uMag / up;
+        }
+        double yp = y * uTau / std::max(nu, 1e-30);
+
+        double kVal, omegaVal, nutVal;
+        if (yp < 11.225) {
+            // Viscous sublayer
+            kVal = 0.0; // k=0 at wall
+            omegaVal = 6.0 * nu / (config_.constants.beta1 * y * y);
+            nutVal = 0.0;
+        } else {
+            kVal = uTau * uTau / std::sqrt(Cmu);
+            omegaVal = uTau / (std::sqrt(config_.constants.beta_star) * kappa * y);
+            nutVal = uTau * kappa * y;
+        }
+        k_[P] = std::clamp(kVal, config_.kMin, config_.kMax);
+        omega_[P] = std::clamp(omegaVal, config_.omegaMin, config_.omegaMax);
+        nut_[P] = std::max(nutVal, 0.0);
+    }
+}
+
+template<std::size_t Dim>
 void SSTModel<Dim>::computeWallDiagnostics(const VectorField<Dim>& velocity) {
     maxYPlus_ = 0.0;
     const double nu = (rho_ > 1e-30) ? mu_ / rho_ : mu_;
@@ -512,6 +568,10 @@ void SSTModel<Dim>::computeWallDiagnostics(const VectorField<Dim>& velocity) {
         const double uTau = std::sqrt(std::max(tau / rho_, 0.0));
         const double yPlus = y * uTau / nu;
         if (std::isfinite(yPlus)) maxYPlus_ = std::max(maxYPlus_, yPlus);
+    }
+    // Auto-switch to wall functions when the mesh is too coarse for low-Re.
+    if (!config_.wallFunction && maxYPlus_ > 30.0) {
+        config_.wallFunction = true;
     }
 }
 
@@ -749,6 +809,7 @@ void SSTModel<Dim>::solveIterationTransient(const VectorField<Dim>& velocity,
     solveOmegaTransportTransient(velocity, scheme, dt, dtPrev, timeScheme, omegaOld, omegaOldPrev);
     computeEddyViscosity();
     computeWallDiagnostics(velocity);
+    if (config_.wallFunction) applyWallFunctions(velocity);
 }
 
 template<std::size_t Dim>

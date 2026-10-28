@@ -55,6 +55,7 @@ private slots:
     void onMeshLoaded();
     void onCaseLoaded();
     void onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time);
+    void onPauseSettled();
 
 private:
     void buildAdvancedDialog();
@@ -83,6 +84,9 @@ private:
     QCheckBox* m_runFixedIterations = nullptr;
     QDoubleSpinBox* m_alphaU = nullptr;
     QDoubleSpinBox* m_alphaP = nullptr;
+    QDoubleSpinBox* m_alphaK = nullptr;
+    QDoubleSpinBox* m_alphaW = nullptr;
+    QCheckBox* m_wallFuncCb = nullptr;
     QCheckBox* m_simplec = nullptr;
     QComboBox* m_scheme = nullptr;
     QComboBox* m_gradientScheme = nullptr;
@@ -146,6 +150,7 @@ private:
     bool m_running = false;
     bool m_savedAnimGlobal = true;
     QTimer* m_frameTimer = nullptr;
+    QTimer* m_stateTimer = nullptr;
     bool m_pauseSettledLogged = false;
     std::shared_ptr<const RenderMesh> m_lastFrame;
 };
