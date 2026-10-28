@@ -16,6 +16,21 @@ inline double clampPositive(double v, double lo) {
     return (v > lo) ? v : lo;
 }
 
+// SparseMatrix is Eigen::SparseMatrix<double>, i.e. column-major. Iterating
+// InnerIterator(A, i) walks column i, not row i, so that idiom cannot be used
+// to find the diagonal of cell i. Locate it with the raw compressed storage:
+// scan column i for the inner index equal to i. A must be compressed.
+inline double* diagonalPtr(SparseMatrix& A, std::size_t i) {
+    const auto outer = A.outerIndexPtr();
+    const auto inner = A.innerIndexPtr();
+    const auto idx = static_cast<Eigen::Index>(i);
+    double* values = A.valuePtr();
+    for (auto k = outer[idx]; k < outer[idx + 1]; ++k) {
+        if (inner[k] == idx) return values + k;
+    }
+    return nullptr;
+}
+
 } // namespace
 
 template<std::size_t Dim>
@@ -614,15 +629,12 @@ void SSTModel<Dim>::applyUnderRelaxation_(SparseMatrix& A, Eigen::VectorXd& b,
     const std::size_t n = mesh_.nCells();
     for (std::size_t i = 0; i < n; ++i) {
         if (i < mask.size() && mask[i]) continue;
-        for (SparseMatrix::InnerIterator it(A, static_cast<Eigen::Index>(i)); it; ++it) {
-            if (it.col() == static_cast<Eigen::Index>(i)) {
-                const double aP = it.value();
-                if (aP > 1e-15) {
-                    b(static_cast<Eigen::Index>(i)) += relax * aP * phi[i];
-                    it.valueRef() = aP / a;
-                }
-                break;
-            }
+        double* diag = diagonalPtr(A, i);
+        if (diag == nullptr) continue;
+        const double aP = *diag;
+        if (aP > 1e-15) {
+            b(static_cast<Eigen::Index>(i)) += relax * aP * phi[i];
+            *diag = aP / a;
         }
     }
 }
@@ -649,17 +661,13 @@ void SSTModel<Dim>::solveKTransport(const VectorField<Dim>& velocity,
                            ConvectionBCs{kBCMask_, kBCVals_, {}, {}},
                            &gradK_);
 
+    A.makeCompressed();
     for (std::size_t i = 0; i < n; ++i) {
         if (kBCMask_[i]) continue;
         double destroyCoeff = c.beta_star
                             * std::max(omega_[i], config_.omegaMin)
                             * mesh_.cellVolume(i);
-        for (SparseMatrix::InnerIterator it(A, static_cast<Eigen::Index>(i)); it; ++it) {
-            if (it.col() == static_cast<Eigen::Index>(i)) {
-                it.valueRef() += destroyCoeff;
-                break;
-            }
-        }
+        if (double* diag = diagonalPtr(A, i)) *diag += destroyCoeff;
     }
 
     applyUnderRelaxation_(A, b, k_, config_.alphaK, kBCMask_);
@@ -698,17 +706,13 @@ void SSTModel<Dim>::solveOmegaTransport(const VectorField<Dim>& velocity,
                            ConvectionBCs{omegaBCMask_, omegaBCVals_, {}, {}},
                            &gradOmega_);
 
+    A.makeCompressed();
     for (std::size_t i = 0; i < n; ++i) {
         if (omegaBCMask_[i]) continue;
         double beta = F1_[i] * c.beta1 + (1.0 - F1_[i]) * c.beta2;
         double w = std::max(omega_[i], config_.omegaMin);
         double diagInc = beta * w * mesh_.cellVolume(i);
-        for (SparseMatrix::InnerIterator it(A, static_cast<Eigen::Index>(i)); it; ++it) {
-            if (it.col() == static_cast<Eigen::Index>(i)) {
-                it.valueRef() += diagInc;
-                break;
-            }
-        }
+        if (double* diag = diagonalPtr(A, i)) *diag += diagInc;
     }
 
     applyUnderRelaxation_(A, b, omega_, config_.alphaOmega, omegaBCMask_);
@@ -772,14 +776,13 @@ void SSTModel<Dim>::solveKTransportTransient(const VectorField<Dim>& velocity,
     convection_.discretize(A, b, k_, velPtrs,
                            ConvectionBCs{kBCMask_, kBCVals_, {}, {}}, &gradK_);
 
+    A.makeCompressed();
     for (std::size_t i = 0; i < n; ++i) {
         if (kBCMask_[i]) continue;
         double destroyCoeff = c.beta_star
                             * std::max(omega_[i], config_.omegaMin)
                             * mesh_.cellVolume(i);
-        for (SparseMatrix::InnerIterator it(A, static_cast<Eigen::Index>(i)); it; ++it) {
-            if (it.col() == static_cast<Eigen::Index>(i)) { it.valueRef() += destroyCoeff; break; }
-        }
+        if (double* diag = diagonalPtr(A, i)) *diag += destroyCoeff;
     }
 
     // Transient term. A non-positive dt means the caller did not provide a
@@ -798,9 +801,7 @@ void SSTModel<Dim>::solveKTransportTransient(const VectorField<Dim>& velocity,
             const double rhs = tc.secondOrder
                 ? vol * (tc.cOld * kOld[i] + tc.cOldPrev * (*kOldPrev)[i])
                 : coeff * kOld[i];
-            for (SparseMatrix::InnerIterator it(A, static_cast<Eigen::Index>(i)); it; ++it) {
-                if (it.col() == static_cast<Eigen::Index>(i)) { it.valueRef() += coeff; break; }
-            }
+            if (double* diag = diagonalPtr(A, i)) *diag += coeff;
             b(static_cast<Eigen::Index>(i)) += rhs;
         }
     }
@@ -847,14 +848,13 @@ void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocit
     convection_.discretize(A, b, omega_, velPtrs,
                            ConvectionBCs{omegaBCMask_, omegaBCVals_, {}, {}}, &gradOmega_);
 
+    A.makeCompressed();
     for (std::size_t i = 0; i < n; ++i) {
         if (omegaBCMask_[i]) continue;
         double beta = F1_[i] * c.beta1 + (1.0 - F1_[i]) * c.beta2;
         double w = std::max(omega_[i], config_.omegaMin);
         double diagInc = beta * w * mesh_.cellVolume(i);
-        for (SparseMatrix::InnerIterator it(A, static_cast<Eigen::Index>(i)); it; ++it) {
-            if (it.col() == static_cast<Eigen::Index>(i)) { it.valueRef() += diagInc; break; }
-        }
+        if (double* diag = diagonalPtr(A, i)) *diag += diagInc;
     }
 
     ImplicitTimeCoeffs tc;
@@ -870,9 +870,7 @@ void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocit
             const double rhs = tc.secondOrder
                 ? vol * (tc.cOld * omegaOld[i] + tc.cOldPrev * (*omegaOldPrev)[i])
                 : coeff * omegaOld[i];
-            for (SparseMatrix::InnerIterator it(A, static_cast<Eigen::Index>(i)); it; ++it) {
-                if (it.col() == static_cast<Eigen::Index>(i)) { it.valueRef() += coeff; break; }
-            }
+            if (double* diag = diagonalPtr(A, i)) *diag += coeff;
             b(static_cast<Eigen::Index>(i)) += rhs;
         }
     }
