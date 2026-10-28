@@ -150,7 +150,7 @@ GmshReader<Dim>::read(const std::string& filename) {
         }
 
         // Find all boundary faces not yet assigned to any group
-        std::vector<bool> assigned(mesh.nFaces(), false);
+        std::vector<char> assigned(mesh.nFaces(), false);
         for (const auto& [name, faces] : boundaryGroups) {
             for (auto f : faces) assigned[f] = true;
         }

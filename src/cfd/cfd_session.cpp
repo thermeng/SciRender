@@ -25,6 +25,48 @@ namespace cfd {
 
 namespace {
 
+// Scatter the turbulence fields from a snapshot into pre-allocated cell fields.
+// Shared by buildResult() and exportTurbulence() so the two cannot drift.
+template<std::size_t Dim>
+void scatterTurbulence(const cfd::SolutionSnapshot& state,
+                       fvm::Field<Dim>& kField,
+                       fvm::Field<Dim>& omegaField,
+                       fvm::Field<Dim>& nutField) {
+    for (std::size_t i = 0; i < state.cells; ++i) {
+        kField[i] = state.turbulence.k[i];
+        omegaField[i] = state.turbulence.omega[i];
+        nutField[i] = state.turbulence.nut[i];
+    }
+}
+
+// Copy velocity + pressure from a snapshot into the live fields.
+template<std::size_t Dim>
+void seedVelocityPressure(const cfd::SolutionSnapshot& state,
+                          fvm::VectorField<Dim>& velocity,
+                          fvm::Field<Dim>& pressure) {
+    for (std::size_t d = 0; d < Dim; ++d) {
+        const auto& source = state.velocity[d];
+        auto& target = velocity[d];
+        for (std::size_t i = 0; i < state.cells && i < target.size(); ++i)
+            target[i] = source[i];
+    }
+    for (std::size_t i = 0; i < state.cells && i < pressure.size(); ++i)
+        pressure[i] = state.pressure[i];
+}
+
+// Copy velocity + pressure from live fields into a snapshot.
+template<std::size_t Dim>
+void snapshotVelocityPressure(const fvm::VectorField<Dim>& velocity,
+                             const fvm::Field<Dim>& pressure,
+                             cfd::SolutionSnapshot& state) {
+    state.velocity.resize(Dim);
+    for (std::size_t d = 0; d < Dim; ++d) {
+        const auto values = velocity[d].values();
+        state.velocity[d].assign(values.begin(), values.end());
+    }
+    state.pressure.assign(pressure.values().begin(), pressure.values().end());
+}
+
 template<std::size_t Dim>
 class CfdSession final : public ICfdSession {
 public:
@@ -180,12 +222,7 @@ public:
                 SolutionSnapshot state;
                 state.dim = static_cast<int>(Dim);
                 state.cells = n;
-                state.velocity.resize(Dim);
-                for (std::size_t d = 0; d < Dim; ++d) {
-                    const auto values = velocity[d].values();
-                    state.velocity[d].assign(values.begin(), values.end());
-                }
-                state.pressure.assign(pressure.values().begin(), pressure.values().end());
+                snapshotVelocityPressure(velocity, pressure, state);
 
                 if (const auto* turb = turbSlot->load(std::memory_order_acquire)) {
                     fillTurbulence(state, *turb);
@@ -206,67 +243,9 @@ public:
         solver->bindVelocity(*m_velocity);
         solver->bindPressure(*m_pressure);
 
-        for (const auto& pbc : bcs) {
-            auto it = m_mesh->boundaryGroups().find(pbc.patchName);
-            if (it == m_mesh->boundaryGroups().end()) continue;
-            const std::vector<std::size_t>& faces = it->second;
-            std::string typeStr;
-            switch (pbc.type) {
-                case BCType::VelocityInlet: typeStr = "inlet"; break;
-                case BCType::PressureOutlet: typeStr = "pressure_outlet"; break;
-                case BCType::Outlet: typeStr = "outlet"; break;
-                case BCType::WallNoSlip: typeStr = "wall"; break;
-                case BCType::SlipWall: typeStr = "slip_wall"; break;
-                case BCType::Symmetry: typeStr = "symmetry"; break;
-                case BCType::MovingWall: typeStr = "moving_wall"; break;
-            }
-            if (pbc.type == BCType::PressureOutlet) {
-                solver->setPressureOutletOnFacesWithBackflow(
-                    faces, pbc.pressure, pbc.suppressBackflow, pbc.backflowU,
-                    pbc.backflowV, pbc.backflowW, pbc.backflowK, pbc.backflowOmega);
-            } else {
-                const bool slip = (pbc.type == BCType::SlipWall ||
-                                   pbc.type == BCType::Symmetry);
-                solver->setVelocityBCOnFacesWithSlip(faces, typeStr, pbc.u, pbc.v,
-                                                     pbc.w, slip, pbc.pressure);
-            }
-        }
+        configureBoundaryConditions(*solver, bcs);
 
-        // Queue the restart payload. initializeSolve_ applies it after the
-        // turbulence model exists, so restored k/omega/nut survive.
-        if (restart.hasFields() || restart.hasTurbulence() ||
-            (settings.transient.enabled && restart.transientValid)) {
-            typename Solver::RestartState rs;
-            if (restart.hasFields()) {
-                rs.hasVelocity = true;
-                for (std::size_t d = 0; d < Dim; ++d) rs.velocity[d] = restart.velocity[d];
-                rs.pressure = restart.pressure;
-            }
-            if (restart.hasTurbulence()) {
-                rs.hasTurbulence = true;
-                rs.k = restart.turbulence.k;
-                rs.omega = restart.turbulence.omega;
-                rs.nut = restart.turbulence.nut;
-            }
-            if (settings.transient.enabled && restart.transientValid) {
-                rs.hasTransient = true;
-                rs.time = restart.time;
-                rs.dt = restart.dt;
-                rs.dtPrev = restart.dtPrev;
-                rs.step = restart.step;
-                if (restart.hasVelocityHistorySized()) {
-                    rs.hasVelocityHistory = true;
-                    for (std::size_t d = 0; d < Dim; ++d)
-                        rs.velocityNM1[d] = restart.velocityNM1[d];
-                }
-                if (restart.hasTurbulenceHistory()) {
-                    rs.hasTurbulenceHistory = true;
-                    rs.kNM1 = restart.turbulence.kNM1;
-                    rs.omegaNM1 = restart.turbulence.omegaNM1;
-                }
-            }
-            solver->setRestartState(std::move(rs));
-        }
+        queueRestartState(*solver, restart, settings);
 
         *turbSlot = solver->turbulence();
         m_solver = std::move(solver);
@@ -393,9 +372,8 @@ public:
                         state.hasVelocityHistory = true;
                         state.velocityNM1.resize(Dim);
                         for (std::size_t d = 0; d < Dim; ++d) {
-                            state.velocityNM1[d].resize(m_mesh->nCells());
-                            for (std::size_t i = 0; i < m_mesh->nCells(); ++i)
-                                state.velocityNM1[d][i] = vnm1[d][i];
+                            state.velocityNM1[d].assign(vnm1[d].values().begin(),
+                                                       vnm1[d].values().begin() + m_mesh->nCells());
                         }
                     }
                     if (m_solver->turbulence()) {
@@ -403,12 +381,8 @@ public:
                         const auto& on = m_solver->omegaNM1();
                         if (kn.size() == m_mesh->nCells() && on.size() == m_mesh->nCells()) {
                             state.turbulence.hasHistory = true;
-                            state.turbulence.kNM1.resize(m_mesh->nCells());
-                            state.turbulence.omegaNM1.resize(m_mesh->nCells());
-                            for (std::size_t i = 0; i < m_mesh->nCells(); ++i) {
-                                state.turbulence.kNM1[i] = kn[i];
-                                state.turbulence.omegaNM1[i] = on[i];
-                            }
+                            state.turbulence.kNM1.assign(kn.values().begin(), kn.values().end());
+                            state.turbulence.omegaNM1.assign(on.values().begin(), on.values().end());
                         }
                     }
                 }
@@ -450,11 +424,7 @@ public:
             kField = Scalar(*m_mesh, 0.0);
             omegaField = Scalar(*m_mesh, 0.0);
             nutField = Scalar(*m_mesh, 0.0);
-            for (std::size_t i = 0; i < state.cells; ++i) {
-                kField[i] = state.turbulence.k[i];
-                omegaField[i] = state.turbulence.omega[i];
-                nutField[i] = state.turbulence.nut[i];
-            }
+            scatterTurbulence(state, kField, omegaField, nutField);
             kPtr = &kField;
             omegaPtr = &omegaField;
             nutPtr = &nutField;
@@ -470,11 +440,7 @@ public:
         Scalar kField(*m_mesh, 0.0);
         Scalar omegaField(*m_mesh, 0.0);
         Scalar nutField(*m_mesh, 0.0);
-        for (std::size_t i = 0; i < state.cells; ++i) {
-            kField[i] = state.turbulence.k[i];
-            omegaField[i] = state.turbulence.omega[i];
-            nutField[i] = state.turbulence.nut[i];
-        }
+        scatterTurbulence(state, kField, omegaField, nutField);
         fvm::VTKXMLWriter<Dim>::writeTurbulence(path, *m_mesh, kField, omegaField, nutField);
     }
 
@@ -487,27 +453,80 @@ private:
     void seedFields(const SolutionSnapshot& state) {
         m_velocity = std::make_shared<Velocity>(*m_mesh, 0.0);
         m_pressure = std::make_shared<Scalar>(*m_mesh, 0.0);
-        for (std::size_t d = 0; d < Dim; ++d) {
-            const auto& source = state.velocity[d];
-            auto& target = (*m_velocity)[d];
-            for (std::size_t i = 0; i < state.cells && i < target.size(); ++i)
-                target[i] = source[i];
-        }
-        for (std::size_t i = 0; i < state.cells && i < m_pressure->size(); ++i)
-            (*m_pressure)[i] = state.pressure[i];
+        seedVelocityPressure(state, *m_velocity, *m_pressure);
     }
 
     SolutionSnapshot snapshotFields() const {
         SolutionSnapshot state;
         state.dim = static_cast<int>(Dim);
         state.cells = m_mesh->nCells();
-        state.velocity.resize(Dim);
-        for (std::size_t d = 0; d < Dim; ++d) {
-            const auto values = (*m_velocity)[d].values();
-            state.velocity[d].assign(values.begin(), values.end());
-        }
-        state.pressure.assign(m_pressure->values().begin(), m_pressure->values().end());
+        snapshotVelocityPressure(*m_velocity, *m_pressure, state);
         return state;
+    }
+
+    void configureBoundaryConditions(Solver& solver,
+                                    const std::vector<PatchBC>& bcs) {
+        for (const auto& pbc : bcs) {
+            auto it = m_mesh->boundaryGroups().find(pbc.patchName);
+            if (it == m_mesh->boundaryGroups().end()) continue;
+            const std::vector<std::size_t>& faces = it->second;
+            std::string typeStr;
+            switch (pbc.type) {
+                case BCType::VelocityInlet: typeStr = "inlet"; break;
+                case BCType::PressureOutlet: typeStr = "pressure_outlet"; break;
+                case BCType::Outlet: typeStr = "outlet"; break;
+                case BCType::WallNoSlip: typeStr = "wall"; break;
+                case BCType::SlipWall: typeStr = "slip_wall"; break;
+                case BCType::Symmetry: typeStr = "symmetry"; break;
+                case BCType::MovingWall: typeStr = "moving_wall"; break;
+            }
+            if (pbc.type == BCType::PressureOutlet) {
+                solver.setPressureOutletOnFacesWithBackflow(
+                    faces, pbc.pressure, pbc.suppressBackflow, pbc.backflowU,
+                    pbc.backflowV, pbc.backflowW, pbc.backflowK, pbc.backflowOmega);
+            } else {
+                const bool slip = (pbc.type == BCType::SlipWall ||
+                                   pbc.type == BCType::Symmetry);
+                solver.setVelocityBCOnFacesWithSlip(faces, typeStr, pbc.u, pbc.v,
+                                                   pbc.w, slip, pbc.pressure);
+            }
+        }
+    }
+
+    void queueRestartState(Solver& solver, const SolutionSnapshot& restart,
+                           const CaseSettings& settings) {
+        if (!(restart.hasFields() || restart.hasTurbulence() ||
+              (settings.transient.enabled && restart.transientValid))) return;
+        typename Solver::RestartState rs;
+        if (restart.hasFields()) {
+            rs.hasVelocity = true;
+            for (std::size_t d = 0; d < Dim; ++d) rs.velocity[d] = restart.velocity[d];
+            rs.pressure = restart.pressure;
+        }
+        if (restart.hasTurbulence()) {
+            rs.hasTurbulence = true;
+            rs.k = restart.turbulence.k;
+            rs.omega = restart.turbulence.omega;
+            rs.nut = restart.turbulence.nut;
+        }
+        if (settings.transient.enabled && restart.transientValid) {
+            rs.hasTransient = true;
+            rs.time = restart.time;
+            rs.dt = restart.dt;
+            rs.dtPrev = restart.dtPrev;
+            rs.step = restart.step;
+            if (restart.hasVelocityHistorySized()) {
+                rs.hasVelocityHistory = true;
+                for (std::size_t d = 0; d < Dim; ++d)
+                    rs.velocityNM1[d] = restart.velocityNM1[d];
+            }
+            if (restart.hasTurbulenceHistory()) {
+                rs.hasTurbulenceHistory = true;
+                rs.kNM1 = restart.turbulence.kNM1;
+                rs.omegaNM1 = restart.turbulence.omegaNM1;
+            }
+        }
+        solver.setRestartState(std::move(rs));
     }
 
     static void fillTurbulence(SolutionSnapshot& state,
@@ -558,7 +577,7 @@ private:
     mutable std::mutex m_mutex;
 };
 
-} // namespace
+}
 
 std::unique_ptr<ICfdSession> makeSession(const MeshLoadResult& mesh) {
     if (mesh.mesh3) return std::make_unique<CfdSession<3>>(mesh.mesh3);

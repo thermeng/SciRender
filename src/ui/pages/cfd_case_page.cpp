@@ -115,58 +115,19 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_rhie = cfdUi.rhieCb;
     m_turb = cfdUi.turbCb;
 
-    // Turbulence under-relaxation factors, gated by the turbulence checkbox.
-    // Turbulence under-relaxation factors + wall function, gated by turbulence.
-    if (QWidget* parent = m_turb->parentWidget()) {
-        if (auto* outer = qobject_cast<QVBoxLayout*>(parent->layout())) {
-            // no-op: layout is grid, handled below
-        }
-    }
-    if (auto* outer = qobject_cast<QVBoxLayout*>(content->layout())) {
-        auto makeRow = [&](const QString& label, double val, QDoubleSpinBox*& spin) {
-            auto* row = new QWidget(content);
-            auto* rl = new QHBoxLayout(row);
-            rl->setContentsMargins(0, 0, 0, 0);
-            rl->setSpacing(6);
-            auto* l = new QLabel(label, row);
-            l->setMinimumSize(60, 0);
-            l->setMaximumSize(60, QWIDGETSIZE_MAX);
-            spin = new QDoubleSpinBox(row);
-            spin->setRange(0.01, 1.0);
-            spin->setDecimals(3);
-            spin->setValue(val);
-            rl->addWidget(l, 0, Qt::AlignVCenter);
-            rl->addWidget(spin, 1);
-            int insertAt = outer->indexOf(m_turb) + 1;
-            if (insertAt < 0) insertAt = outer->count();
-            outer->insertWidget(insertAt++, row);
-            row->setVisible(m_turb->isChecked());
-        };
-        makeRow("alpha K", 0.7, m_alphaK);
-        makeRow("alpha W", 0.7, m_alphaW);
+    m_alphaK = cfdUi.alphaKSpin;
+    m_alphaW = cfdUi.alphaWSpin;
+    m_wallFuncCb = cfdUi.wallFuncCb;
 
-        auto* wfRow = new QWidget(content);
-        auto* wfl = new QHBoxLayout(wfRow);
-        wfl->setContentsMargins(0, 0, 0, 0);
-        wfl->setSpacing(6);
-        auto* wflabel = new QLabel("Wall Func", wfRow);
-        wflabel->setMinimumSize(60, 0);
-        wflabel->setMaximumSize(60, QWIDGETSIZE_MAX);
-        m_wallFuncCb = new QCheckBox(wfRow);
-        m_wallFuncCb->setChecked(false);
-        wfl->addWidget(wflabel, 0, Qt::AlignVCenter);
-        wfl->addWidget(m_wallFuncCb, 1);
-            int wfInsert = outer->indexOf(m_turb) + 3;
-            if (wfInsert < 0 || wfInsert > outer->count()) wfInsert = outer->count();
-            outer->insertWidget(wfInsert, wfRow);
-        wfRow->setVisible(m_turb->isChecked());
+    if (m_alphaK && m_alphaK->parentWidget()) m_alphaK->parentWidget()->setVisible(m_turb->isChecked());
+    if (m_alphaW && m_alphaW->parentWidget()) m_alphaW->parentWidget()->setVisible(m_turb->isChecked());
+    if (m_wallFuncCb && m_wallFuncCb->parentWidget()) m_wallFuncCb->parentWidget()->setVisible(m_turb->isChecked());
 
-        connect(m_turb, &QCheckBox::toggled, this, [this, wfRow](bool on) {
-            if (m_alphaK && m_alphaK->parentWidget()) m_alphaK->parentWidget()->setVisible(on);
-            if (m_alphaW && m_alphaW->parentWidget()) m_alphaW->parentWidget()->setVisible(on);
-            wfRow->setVisible(on);
-        });
-    }
+    connect(m_turb, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_alphaK && m_alphaK->parentWidget()) m_alphaK->parentWidget()->setVisible(on);
+        if (m_alphaW && m_alphaW->parentWidget()) m_alphaW->parentWidget()->setVisible(on);
+        if (m_wallFuncCb && m_wallFuncCb->parentWidget()) m_wallFuncCb->parentWidget()->setVisible(on);
+    });
     // Turbulence freestream values are now edited in the Initialize dialog.
 
     // ── Time mode (steady / transient) ───────────────────────────────
