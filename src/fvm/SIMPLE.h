@@ -229,11 +229,25 @@ struct Config {
         Aborted,       // NaN/Inf residual or a detected divergence
         Cancelled      // the user cancelled the run
     };
+    // Why an aborted run stopped. `None` for every other status, so a caller
+    // can tell "ran out of iterations" from "the numerics broke" without
+    // scraping the log output.
+    enum class Failure {
+        None,
+        NonFiniteContinuity,   // the continuity residual became NaN/Inf
+        DivergingContinuity,   // the continuity residual grew for too long
+        NonFiniteTurbulence,   // the k/omega transport produced NaN/Inf
+        MomentumSolveFailed,   // a momentum linear solve broke down
+        PressureSolveFailed    // a pressure linear solve broke down
+    };
     Status status() const { return status_; }
     bool converged() const { return status_ == Status::Converged; }
+    Failure failure() const { return failure_; }
     // A short human-readable description of the status, for the UI and the
     // solver's own summary.
     const char* statusText() const;
+    // Human-readable description of failure(); empty for Failure::None.
+    const char* failureText() const;
 
     void bindVelocity(VectorField<Dim>& velocity);
     void bindPressure(Field<Dim>& pressure);
@@ -438,6 +452,17 @@ private:
     double lastMomChange_ = 0.0;
     std::unique_ptr<SSTModel<Dim>> turbulence_;
     bool aborted_ = false;
+    // First hard failure of the run; see Failure. A later failure never
+    // overwrites it, so the reported cause is the one that actually happened
+    // first rather than whichever check ran last.
+    Failure failure_ = Failure::None;
+    void fail_(Failure reason);
+    // Set when a momentum Krylov solve breaks down (non-finite error or
+    // solution, or a numerical issue). Eigen can return an all-zero vector in
+    // that case, so "the result looks finite" is not enough to call it a
+    // success. Reset at the start of every momentum solve and consumed by the
+    // component assemblers.
+    bool momSolveFailed_ = false;
     double adaptiveAlphaP_ = 0.0;
     double maxInletSpeed_ = 0.0;
     double prevContResid_ = 0.0;
