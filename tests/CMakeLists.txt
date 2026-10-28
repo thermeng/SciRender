@@ -80,6 +80,7 @@ scirender_add_test_suite(scirender_fvm_tests
     SOURCES
         fvm/amg_config_test.cpp
         fvm/face_state_test.cpp
+        fvm/failure_semantics_test.cpp
         fvm/transient_settings_test.cpp
         fvm/ghia_cavity_test.cpp
         fvm/cavity_msh_test.cpp

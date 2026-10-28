@@ -742,14 +742,24 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
-    #pragma omp parallel for schedule(static)
+    bool nonFinite = false;
+    #pragma omp parallel for schedule(static) reduction(||:nonFinite)
     for (std::size_t i = 0; i < n; ++i) {
-        if (std::isnan(x(static_cast<Eigen::Index>(i))) || std::isinf(x(static_cast<Eigen::Index>(i)))) {
+        const double val = x(static_cast<Eigen::Index>(i));
+        if (!std::isfinite(val)) {
             pPrime[i] = 0.0;
+            nonFinite = true;
         } else {
-            pPrime[i] = x(static_cast<Eigen::Index>(i));
+            pPrime[i] = val;
         }
     }
+    // Eigen can report a breakdown while returning an all-zero vector, so a
+    // finite result on its own is not proof of success. Any solver chain that
+    // ended without convergence *and* with a non-finite residual is a hard
+    // failure; a finite but inexact result keeps the historical behaviour.
+    if (!converged && (!std::isfinite(lastSolveResidual_) || !x.allFinite()))
+        nonFinite = true;
+    lastSolveProducedNonFinite_ = nonFinite;
 }
 
 template class PressureCorrection<2>;

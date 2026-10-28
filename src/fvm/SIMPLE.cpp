@@ -214,6 +214,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     lastMomResid_ = 0.0;
     convergedStreak_ = 0;
     aborted_ = false;
+    failure_ = Failure::None;
     adaptiveAlphaP_ = isPiso_() ? 1.0 : config_.alphaP;
     prevContResid_ = 0.0;
     stallCount_ = 0;
@@ -410,6 +411,8 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
                                  &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
                                  &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
                                  &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
+        if (pressureCorrection_.lastSolveProducedNonFinite())
+            fail_(Failure::PressureSolveFailed);
 
         // Scale p' only if extreme (configurable multiple of dynamic pressure).
         limitPressureCorrection_(pPrime_);
@@ -490,6 +493,15 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumILU_(std::size_t d, std::size_t& iters
         std::cerr << "  WARNING: momentum-" << (d == 0 ? "U" : d == 1 ? "V" : "W")
                   << " BiCGSTAB failed (iters=" << momSolver_.iterations()
                   << ", resid=" << momSolver_.error() << ")\n";
+        // A breakdown can return a finite (often zero) vector, so the solver's
+        // own status and error estimate decide whether the result is usable.
+        // A plain iteration-limit exit keeps the historical behaviour: the
+        // vector is still used and only the warning is emitted.
+        if (!std::isfinite(momSolver_.error()) || !x.allFinite() ||
+            momSolver_.info() == Eigen::NumericalIssue ||
+            momSolver_.info() == Eigen::InvalidInput) {
+            momSolveFailed_ = true;
+        }
     }
     return x;
 }
@@ -498,6 +510,7 @@ template <std::size_t Dim>
 Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
     const std::size_t n = mesh_.nCells();
     ++momStats_.solves;
+    momSolveFailed_ = false;
 
     const bool amgEligible =
         config_.useAMGMomentum &&
@@ -721,8 +734,7 @@ void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResidual
         const double tk = turbulence_->finalKResid();
         const double to = turbulence_->finalOmegaResid();
         if (!std::isfinite(tk) || !std::isfinite(to)) {
-            aborted_ = true;
-            std::cerr << "  WARNING: non-finite turbulence residual, aborting\n";
+            fail_(Failure::NonFiniteTurbulence);
         }
     }
 
@@ -741,10 +753,6 @@ void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResidual
         }
         if (diverging) {
             ++divergenceCount_;
-            if (divergenceCount_ >= divergenceAbortCount) {
-                std::cerr << "  WARNING: continuity residual increasing for "
-                          << divergenceCount_ << " iterations, aborting\n";
-            }
         } else {
             divergenceCount_ = 0;
         }
@@ -755,13 +763,18 @@ void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResidual
 template<std::size_t Dim>
 bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
                                      bool checkCancel) {
+    (void)iter; // kept for call-site symmetry; the failure carries no iteration
+    // Any check that already declared a hard failure ends the run on this
+    // iteration: without this, a breakdown detected during the iteration
+    // (e.g. a non-finite linear solve) was only reported when some other
+    // condition happened to stop the loop.
+    if (aborted_) return true;
     if (std::isnan(lastContResid_) || std::isinf(lastContResid_)) {
-        aborted_ = true;
-        std::cerr << "  WARNING: NaN/Inf continuity residual at iteration " << (iter + 1) << ", aborting\n";
+        fail_(Failure::NonFiniteContinuity);
         return true;
     }
     if (divergenceCount_ >= divergenceAbortCount) {
-        aborted_ = true;
+        fail_(Failure::DivergingContinuity);
         return true;
     }
     if (checkCancel && cancelRequested_.load(std::memory_order_acquire)) {
@@ -887,7 +900,7 @@ void SIMPLE<Dim>::printFinalStats_() const {
               << "  (iterations=" << lastIterations_
               << ", continuity=" << lastContResid_ << ")\n";
     if (aborted_) {
-        std::cerr << "  [final] ABORTED (diverged or NaN residuals)\n";
+        std::cerr << "  [final] ABORTED: " << failureText() << "\n";
     } else {
         std::cerr << "  [final] max|u|=" << maxU << "  max|v|=" << maxV << "\n";
     }
@@ -970,6 +983,31 @@ const char* SIMPLE<Dim>::statusText() const {
 }
 
 template<std::size_t Dim>
+const char* SIMPLE<Dim>::failureText() const {
+    switch (failure_) {
+        case Failure::None:                  return "";
+        case Failure::NonFiniteContinuity:   return "non-finite continuity residual";
+        case Failure::DivergingContinuity:   return "continuity residual kept increasing";
+        case Failure::NonFiniteTurbulence:   return "non-finite k/omega residual";
+        case Failure::MomentumSolveFailed: return "momentum linear solve broke down";
+        case Failure::PressureSolveFailed: return "pressure linear solve broke down";
+    }
+    return "";
+}
+
+template<std::size_t Dim>
+void SIMPLE<Dim>::fail_(Failure reason) {
+    if (failure_ == Failure::None) {
+        failure_ = reason;
+        // One line per run, at the point the numerics actually broke: the
+        // individual check sites used to print their own warnings, so the same
+        // failure could be reported twice with different wording.
+        std::cerr << "  WARNING: " << failureText() << ", aborting\n";
+    }
+    aborted_ = true;
+}
+
+template<std::size_t Dim>
 int SIMPLE<Dim>::lastIterations() const { return lastIterations_; }
 
 template<std::size_t Dim>
@@ -1047,6 +1085,7 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
                                     dCoeff_[d], config_.simplec);
 
     Eigen::VectorXd x = solveMomentumLinear_(d);
+    if (momSolveFailed_ || !x.allFinite()) fail_(Failure::MomentumSolveFailed);
 
     // Snapshot this component's operator: momA_/momB_ are reused by the next
     // component, so the residual pass needs its own copy.
@@ -1132,6 +1171,7 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     // For transient, matrix pattern identical, but values change with dt:
     // the linear-solver dispatch below re-factorizes / rebuilds as needed.
     Eigen::VectorXd x = solveMomentumLinear_(d);
+    if (momSolveFailed_ || !x.allFinite()) fail_(Failure::MomentumSolveFailed);
 
     momAsnap_[d] = momA_;
     momBsnap_[d] = momB_;
@@ -1263,6 +1303,8 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
                               &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
                               &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
                               &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
+    if (pressureCorrection_.lastSolveProducedNonFinite())
+        fail_(Failure::PressureSolveFailed);
     limitPressureCorrection_(pPrime_);
     pressureBeforeCorrection_ = boundPressure();
     pressureGradBefore_ = pressureCorrection_.pressureGradient();
@@ -1410,6 +1452,8 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
                                   &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
                                   &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
                                   &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
+        if (pressureCorrection_.lastSolveProducedNonFinite())
+            fail_(Failure::PressureSolveFailed);
         // No p' limiter here. Scaling p' would silently impose alphaP < 1 and
         // destroy the continuity the corrector just enforced; PISO's stability
         // comes from the corrector loop and dt, not from clipping the field.

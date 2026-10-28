@@ -98,6 +98,11 @@ public:
     // residual the solver ended with.
     std::size_t lastSolveIterations() const { return lastSolveIterations_; }
     double lastSolveResidual() const { return lastSolveResidual_; }
+    // True when the last solve produced a non-finite p'. Such a solve is a
+    // hard failure, not a slightly inaccurate one: the entries are zeroed to
+    // keep the field usable, but the caller must abort rather than continue
+    // from a correction that was never computed.
+    bool lastSolveProducedNonFinite() const { return lastSolveProducedNonFinite_; }
     const PressureSolverStats& pressureStats() const { return pressureStats_; }
     void resetPressureStats() { pressureStats_ = PressureSolverStats{}; }
     // The assembled system of the last solve (diagnostics).
@@ -155,6 +160,7 @@ private:
     // Diagnostics of the last linear solve.
     std::size_t lastSolveIterations_ = 0;
     double lastSolveResidual_ = 0.0;
+    bool lastSolveProducedNonFinite_ = false;
     mutable PressureSolverStats pressureStats_{};
 
     Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
