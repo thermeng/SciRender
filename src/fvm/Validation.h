@@ -25,6 +25,8 @@ inline void validateVelocityMask(std::size_t dim, std::size_t nCells,
     if (mask.empty()) return;
     if (mask.size() < dim)
         throw std::invalid_argument("computeDivergenceInto: the Dirichlet mask needs one entry per component");
+    if (!values.empty() && values.size() < dim)
+        throw std::invalid_argument("computeDivergenceInto: the Dirichlet values need one entry per component");
     for (std::size_t d = 0; d < dim; ++d) {
         if (mask[d].size() != nCells)
             throw std::invalid_argument("computeDivergenceInto: the Dirichlet mask needs one entry per cell");

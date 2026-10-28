@@ -5,6 +5,7 @@
 #include "field/Field.h"
 #include "field/VectorField.h"
 #include "fvm/Divergence.h"
+#include "fvm/FaceState.h"
 #include "fvm/RhieChow.h"
 #include "fvm/SIMPLETypes.h"
 #include <array>
@@ -54,62 +55,22 @@ inline ResidualResult computeResiduals(
         const std::size_t N = mesh.neighbor(f);
         const double* fn = mesh.faceNormalPtr(f);
         double area = mesh.faceArea(f);
-        double un = 0.0;
-        bool hasBC = faceBC && faceHasBC && f < faceBC->size() && f < faceHasBC->size() && (*faceHasBC)[f];
-        if (N == std::size_t(-1) && hasBC) {
-            const auto& fbc = (*faceBC)[f];
-            auto t = fbc.type;
-            if (t == VelocityBCType::NoSlip || t == VelocityBCType::Symmetry || t == VelocityBCType::SlipWall) {
-                un = 0.0;
-            } else if (t == VelocityBCType::MovingWall || t == VelocityBCType::Inlet) {
-                un = fbc.u * fn[0] + fbc.v * fn[1];
-                if constexpr (Dim==3) un += fbc.w * fn[2];
-            } else if (t == VelocityBCType::PressureOutlet || t == VelocityBCType::Outlet) {
-                for (std::size_t d = 0; d < Dim; ++d) un += velocity[d][P] * fn[d];
-                std::array<double, Dim> fnArr{};
-                for (std::size_t d = 0; d < Dim; ++d) fnArr[d] = fn[d];
-                un = applyBackflowCorrection<Dim>(un, fnArr, fbc);
-            } else {
-                for (std::size_t d = 0; d < Dim; ++d) un += velocity[d][P] * fn[d];
-            }
+        const bool hasBC = faceBC && faceHasBC &&
+                           f < faceBC->size() && f < faceHasBC->size() && (*faceHasBC)[f];
+        double un;
+        if (N == kNoNeighbor && hasBC) {
+            // The face BC owns the boundary value; the shared resolver applies
+            // the no-penetration, prescribed and backflow rules in one place.
+            un = boundaryFaceState<Dim>(velocity, P, fn, (*faceBC)[f]).normalVelocity;
         } else {
-            double w = mesh.faceWeight(f);
-            if (N == std::size_t(-1)) {
-                // Boundary without faceBC: use dirichletMask if available
-                // Check any component dirichlet
-                bool anyDirichlet = false;
-                for (std::size_t d = 0; d < Dim; ++d) if (!dirichletMask.empty() && d < dirichletMask.size() && !dirichletMask[d].empty() && dirichletMask[d][P]) { anyDirichlet = true; break; }
-                if (anyDirichlet) {
-                    for (std::size_t d = 0; d < Dim; ++d) {
-                        double uFace = (!dirichletMask.empty() && d < dirichletMask.size() && !dirichletMask[d].empty() && dirichletMask[d][P]) ? dirichletVals[d][P] : velocity[d][P];
-                        un += uFace * fn[d];
-                    }
-                } else {
-                    for (std::size_t d = 0; d < Dim; ++d) un += velocity[d][P] * fn[d];
-                }
-            } else {
-                // Interior: distance-weighted
-                for (std::size_t d = 0; d < Dim; ++d) {
-                    double uFace;
-                    const bool hasDirP = !dirichletMask.empty() && d < dirichletMask.size() && !dirichletMask[d].empty() && dirichletMask[d][P];
-                    const bool hasDirN = !dirichletMask.empty() && d < dirichletMask.size() && !dirichletMask[d].empty() && dirichletMask[d][N];
-                    // The SAME rule as the momentum assembly and the pressure
-                    // correction: a cell with a prescribed velocity owns the
-                    // whole face it shares with a neighbour and the NEIGHBOUR
-                    // takes priority. The residual has to be built from the
-                    // same face velocity as the operators it measures,
-                    // otherwise the number printed as "continuity" is not the
-                    // quantity the pressure correction drives to zero.
-                    if (hasDirN) {
-                        uFace = dirichletVals[d][N];
-                    } else if (hasDirP) {
-                        uFace = dirichletVals[d][P];
-                    } else {
-                        uFace = (1.0 - w) * velocity[d][P] + w * velocity[d][N];
-                    }
-                    un += uFace * fn[d];
-                }
-            }
+            // Interior, or a boundary without a face BC. A prescribed velocity
+            // is the value of its CELL and the neighbour takes priority; this
+            // is the same face value the momentum assembly and the pressure
+            // correction use, so the continuity residual measures exactly the
+            // imbalance the pressure correction drives to zero.
+            const double w = (N == kNoNeighbor) ? 0.0 : mesh.faceWeight(f);
+            un = dotNormal(interpolateFaceVelocity(velocity, P, N, w,
+                                                   &dirichletMask, &dirichletVals), fn);
         }
         if (rhieChow && N != std::size_t(-1) && dCoeff && pressure && pressureGrad) {
             un += rhieChowCorrection(mesh, f, *dCoeff, *pressure, *pressureGrad, maskRef);

@@ -31,7 +31,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <memory>
 
 namespace fvm {
 
@@ -339,6 +338,12 @@ private:
     // projection.
     void updatePisoPredictor_();
     bool isPiso_() const;
+    // Pin every pressure outlet to its prescribed reference pressure. The
+    // face-based list is exact per face; the cell list is the fallback for
+    // meshes whose outlets are described by cells only. All three pressure
+    // correction paths (steady corrector, transient iteration, PISO corrector)
+    // must apply the same rule, so they share this helper.
+    void applyPressureOutletReference_(Field<Dim>& pressure) const;
     void updateResiduals_();
     // Normalised linear residual |A u - b| / sum|b| of the momentum system
     // for component d, evaluated at the current velocity. Uses the

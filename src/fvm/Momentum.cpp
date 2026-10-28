@@ -1,6 +1,8 @@
 #include "fvm/Momentum.h"
+#include "fvm/FaceState.h"
 #include "fvm/Gradient.h"
 #include "fvm/SSTConstants.h"
+#include "fvm/Validation.h"
 #include "mesh/BoundaryUtils.h"
 #include <cmath>
 
@@ -80,6 +82,7 @@ Field<Dim> Momentum<Dim>::assemble(
     const std::size_t nF = mesh_.nFaces();
     const bool hasMask = !dirichletMask.empty();
     const bool hasGrad = (velGrad != nullptr);
+    validateDirichlet(n, dirichletMask, dirichletValues);
     const bool hasSource = source.size() > 0;
 
     ensureWorkspace_(n);
@@ -435,8 +438,8 @@ void Momentum<Dim>::assembleWithConvection(
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
     const bool hasMask = !dirichletMask.empty();
-    const bool hasMaskAll = bcs.dirichletMaskAll && !bcs.dirichletMaskAll->empty();
     const bool hasSource = source.size() > 0;
+    validateDirichlet(n, dirichletMask, dirichletValues);
 
     ensureWorkspace_(n);
     diagSum_.fill(0.0);
@@ -468,22 +471,27 @@ void Momentum<Dim>::assembleWithConvection(
                 double dotSfd = 0.0;
                 for (std::size_t dd = 0; dd < Dim; ++dd)
                     dotSfd += fn[dd] * (xF[dd] - xP[dd]);
+
+                // One face BC entry drives every boundary decision below: the
+                // diffusion classification and the convective face value.
+                const bool hasFaceBC = bcs.faceBC && bcs.faceHasBC &&
+                                       f < bcs.faceBC->size() && f < bcs.faceHasBC->size() &&
+                                       (*bcs.faceHasBC)[f];
+                const BoundaryFaceState<Dim> faceState =
+                    hasFaceBC ? boundaryFaceState<Dim>(velocity, P, fn, (*bcs.faceBC)[f])
+                              : BoundaryFaceState<Dim>{};
+
                 // Face-based slip handling (exact normal) — supersedes cell-based bcs.slipWallMask shim
                 bool isSlipFace = false;
                 bool isOutletFace = false;
-                if (bcs.faceBC && bcs.faceHasBC && f < bcs.faceBC->size() && f < bcs.faceHasBC->size() && (*bcs.faceHasBC)[f]) {
-                    auto t = (*bcs.faceBC)[f].type;
-                    if (t == VelocityBCType::SlipWall || t == VelocityBCType::Symmetry) {
-                        std::size_t maxD = 0;
-                        double maxAbs = 0.0;
-                        for (std::size_t dd = 0; dd < Dim; ++dd) {
-                            double a = std::abs(fn[dd]);
-                            if (a > maxAbs) { maxAbs = a; maxD = dd; }
-                        }
-                        // Only the dominant normal component is treated as Dirichlet
-                        // (u.n = 0); all other components are tangential (slip).
+                if (hasFaceBC) {
+                    const auto t = (*bcs.faceBC)[f].type;
+                    if (isSlipVelocityBC(t)) {
+                        // Only the dominant normal component is treated as
+                        // Dirichlet (u.n = 0); all others are tangential (slip).
+                        const std::size_t maxD = dominantNormalComponent<Dim>(fn);
                         isSlipFace = (d != maxD);
-                    } else if (t == VelocityBCType::PressureOutlet || t == VelocityBCType::Outlet) {
+                    } else if (isOutflowVelocityBC(t)) {
                         isOutletFace = true;
                     }
                 } else {
@@ -494,85 +502,37 @@ void Momentum<Dim>::assembleWithConvection(
                 if (!isSlipFace && !isOutletFace) {
                     const double diffCoeff = rho_ * nuEff_(P, P, nutField) * area * dotSfd / (dist * dist);
                     diagSum_[P] += diffCoeff;
-                    // General Dirichlet handling for face-based BCs (unstructured)
-                    if (bcs.faceBC && bcs.faceHasBC && f < bcs.faceBC->size() && f < bcs.faceHasBC->size() && (*bcs.faceHasBC)[f]) {
-                        auto t2 = (*bcs.faceBC)[f].type;
-                        if (t2 == VelocityBCType::NoSlip || t2 == VelocityBCType::MovingWall || t2 == VelocityBCType::Inlet) {
-                            double phiFace = 0.0;
-                            if (t2 == VelocityBCType::MovingWall || t2 == VelocityBCType::Inlet) {
-                                const auto &fbc2 = (*bcs.faceBC)[f];
-                                phiFace = (d == 0 ? fbc2.u : (d == 1 ? fbc2.v : fbc2.w));
-                            }
+                    // Dirichlet face: the known face value moves to the RHS. A
+                    // symmetry face is deliberately excluded: its dominant
+                    // component is a HOMOGENEOUS Dirichlet row, not a
+                    // projection of the interior value.
+                    if (hasFaceBC) {
+                        const auto t = (*bcs.faceBC)[f].type;
+                        if (t == VelocityBCType::NoSlip || isPrescribedVelocityBC(t)) {
                             if (!(hasMask && dirichletMask[P])) {
-                                b(P) += diffCoeff * phiFace;
+                                b(P) += diffCoeff * faceState.velocity[d];
                             }
                         }
                     }
                 }
 
                 if (!(hasMask && dirichletMask[P])) {
-                    // Determine if this is an outlet/pressure-outlet face for Fluent-like handling
-                    bool isOutlet = false;
-                    bool suppressBackflow = false;
-                    double backflowU[3] = {0,0,0};
-                    if (bcs.faceBC && bcs.faceHasBC && f < bcs.faceBC->size() && f < bcs.faceHasBC->size() && (*bcs.faceHasBC)[f]) {
-                        auto t = (*bcs.faceBC)[f].type;
-                        if (t == VelocityBCType::PressureOutlet || t == VelocityBCType::Outlet) {
-                            isOutlet = true;
-                            suppressBackflow = (*bcs.faceBC)[f].suppressBackflow;
-                            backflowU[0] = (*bcs.faceBC)[f].backflowU;
-                            backflowU[1] = (*bcs.faceBC)[f].backflowV;
-                            backflowU[2] = (*bcs.faceBC)[f].backflowW;
-                        }
-                    }
+                    // Convective face velocity from the shared policy layer:
+                    // walls are non-penetrating, inlets/moving walls carry the
+                    // prescribed velocity, outlets are zero-gradient with the
+                    // backflow rule already applied.
                     double un = 0.0;
-                    // First compute un with appropriate face velocity (for outlet: interior for outflow)
-                    for (std::size_t dd = 0; dd < Dim; ++dd) {
-                        double uFace;
-                        if (bcs.faceBC && bcs.faceHasBC && f < bcs.faceBC->size() && f < bcs.faceHasBC->size() && (*bcs.faceHasBC)[f]) {
-                            auto t = (*bcs.faceBC)[f].type;
-                            if (t == VelocityBCType::Inlet || t == VelocityBCType::MovingWall) {
-                                const auto &fbc = (*bcs.faceBC)[f];
-                                uFace = (dd == 0 ? fbc.u : (dd == 1 ? fbc.v : fbc.w));
-                            } else if (t == VelocityBCType::NoSlip) {
-                                uFace = 0.0;
-                            } else if (t == VelocityBCType::Symmetry || t == VelocityBCType::SlipWall) {
-                                double vn = 0.0;
-                                for (std::size_t k = 0; k < Dim; ++k) vn += velocity[k][P] * fn[k];
-                                double interior = velocity[dd][P];
-                                uFace = interior - vn * fn[dd];
-                            } else if (t == VelocityBCType::PressureOutlet || t == VelocityBCType::Outlet) {
-                                // Fluent outlet: zero-gradient for outflow, backflow Dirichlet for inflow
-                                // Use interior for now, corrected below if backflow
-                                uFace = velocity[dd][P];
-                            } else {
-                                if (bcs.dirichletMaskAll && !bcs.dirichletMaskAll->empty() && !(*bcs.dirichletMaskAll)[dd].empty() && (*bcs.dirichletMaskAll)[dd][P]) {
-                                    uFace = (*bcs.dirichletValsAll)[dd][P];
-                                } else {
-                                    uFace = velocity[dd][P];
-                                }
-                            }
-                        } else {
-                            if (bcs.dirichletMaskAll && !bcs.dirichletMaskAll->empty() && !(*bcs.dirichletMaskAll)[dd].empty() && (*bcs.dirichletMaskAll)[dd][P]) {
-                                uFace = (*bcs.dirichletValsAll)[dd][P];
-                            } else {
-                                uFace = velocity[dd][P];
-                            }
+                    if (hasFaceBC) {
+                        un = faceState.normalVelocity;
+                    } else {
+                        for (std::size_t dd = 0; dd < Dim; ++dd) {
+                            double uFace = velocity[dd][P];
+                            prescribedValue(bcs.dirichletMaskAll, bcs.dirichletValsAll, dd, P, uFace);
+                            un += uFace * fn[dd];
                         }
-                        un += uFace * fn[dd];
-                    }
-                    // Fluent backflow handling for outlet - use shared helper
-                    if (bcs.faceBC && bcs.faceHasBC && f < bcs.faceBC->size() && f < bcs.faceHasBC->size() && (*bcs.faceHasBC)[f]) {
-                        const auto& fbc = (*bcs.faceBC)[f];
-                        std::array<double, Dim> fnArr{};
-                        for (std::size_t dd = 0; dd < Dim; ++dd) fnArr[dd] = fn[dd];
-                        un = applyBackflowCorrection<Dim>(un, fnArr, fbc);
                     }
                     double F = rho_ * un * area;
-                    // For outlet with suppressed backflow, F==0, no contribution
-                    if (isOutlet && un == 0.0 && F == 0.0) {
-                        // No flux, nothing to add
-                    } else if (F >= 0.0) {
+                    if (F >= 0.0) {
                         diagInc_[P] += F;
                         // SOU outflow boundary: second-order extrapolation via gradient.
                         //
@@ -592,7 +552,8 @@ void Momentum<Dim>::assembleWithConvection(
                             double phiUp = velocity[d][P];
                             double phiMin = phiUp, phiMax = phiUp;
                             for (auto nb : mesh_.cellNeighbors(P)) {
-                                double v = (hasMask && dirichletMask[nb]) ? dirichletValues[nb] : velocity[d][nb];
+                                double v = velocity[d][nb];
+                                if (hasMask) prescribedValue(dirichletMask, dirichletValues, nb, v);
                                 if (v < phiMin) phiMin = v;
                                 if (v > phiMax) phiMax = v;
                             }
@@ -602,29 +563,16 @@ void Momentum<Dim>::assembleWithConvection(
                             b(P) -= F * (phiF - phiUp);
                         }
                     } else {
-                        double phiUpwind;
-                        if (bcs.faceBC && bcs.faceHasBC && f < bcs.faceBC->size() && f < bcs.faceHasBC->size() && (*bcs.faceHasBC)[f]) {
-                            auto t = (*bcs.faceBC)[f].type;
-                            if (t == VelocityBCType::Inlet || t == VelocityBCType::MovingWall) {
-                                const auto &fbc = (*bcs.faceBC)[f];
-                                phiUpwind = (d == 0 ? fbc.u : (d == 1 ? fbc.v : fbc.w));
-                            } else if (t == VelocityBCType::NoSlip) {
-                                phiUpwind = 0.0;
-                            } else if (t == VelocityBCType::Symmetry || t == VelocityBCType::SlipWall) {
-                                double vn = 0.0;
-                                for (std::size_t k = 0; k < Dim; ++k) vn += velocity[k][P] * fn[k];
-                                phiUpwind = velocity[d][P] - vn * fn[d];
-                            } else if (t == VelocityBCType::PressureOutlet || t == VelocityBCType::Outlet) {
-                                // Backflow Dirichlet - get from FaceVelocityBC
-                                const auto &fbc = (*bcs.faceBC)[f];
-                                phiUpwind = (d == 0 ? fbc.backflowU : (d == 1 ? fbc.backflowV : fbc.backflowW));
-                            } else {
-                                phiUpwind = (hasMaskAll && bcs.dirichletMaskAll && !bcs.dirichletMaskAll->empty() && !(*bcs.dirichletMaskAll)[d].empty() && (*bcs.dirichletMaskAll)[d][P])
-                                           ? (*bcs.dirichletValsAll)[d][P] : velocity[d][P];
-                            }
+                        // Inflow through this face: the upwind state is the
+                        // face value for a wall or an inlet, and the backflow
+                        // Dirichlet value for an outlet.
+                        double phiUpwind = velocity[d][P];
+                        if (hasFaceBC) {
+                            phiUpwind = (faceState.kind == FaceVelocityKind::Outflow)
+                                            ? faceState.inflowVelocity[d]
+                                            : faceState.velocity[d];
                         } else {
-                            phiUpwind = (hasMaskAll && bcs.dirichletMaskAll && !bcs.dirichletMaskAll->empty() && !(*bcs.dirichletMaskAll)[d].empty() && (*bcs.dirichletMaskAll)[d][P])
-                                       ? (*bcs.dirichletValsAll)[d][P] : velocity[d][P];
+                            prescribedValue(bcs.dirichletMaskAll, bcs.dirichletValsAll, d, P, phiUpwind);
                         }
                         b(P) -= F * phiUpwind;
                     }
@@ -698,14 +646,11 @@ void Momentum<Dim>::assembleWithConvection(
 
         {
             double w = mesh_.faceWeight(f);
-            double un = 0.0;
-            for (std::size_t dd = 0; dd < Dim; ++dd) {
-                double uFace;
-                if (hasMaskAll && bcs.dirichletMaskAll && !bcs.dirichletMaskAll->empty() && !(*bcs.dirichletMaskAll)[dd].empty() && (*bcs.dirichletMaskAll)[dd][N]) uFace = (*bcs.dirichletValsAll)[dd][N];
-                else if (hasMaskAll && bcs.dirichletMaskAll && !bcs.dirichletMaskAll->empty() && !(*bcs.dirichletMaskAll)[dd].empty() && (*bcs.dirichletMaskAll)[dd][P]) uFace = (*bcs.dirichletValsAll)[dd][P];
-                else uFace = (1.0 - w) * velocity[dd][P] + w * velocity[dd][N];
-                un += uFace * fn[dd];
-            }
+            // Neighbour priority, then owner: the same rule as the boundary
+            // branch and every other face consumer.
+            const auto face = interpolateFaceVelocity(
+                velocity, P, N, w, bcs.dirichletMaskAll, bcs.dirichletValsAll);
+            double un = dotNormal(face, fn);
             double F = rho_ * un * area;
             // The base assembly always carries the UPWIND face value. The
             // second-order reconstruction (SOU/QUICK) enters afterwards as a

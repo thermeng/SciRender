@@ -1,4 +1,5 @@
 #include "fvm/SIMPLEBoundaryConditions.h"
+#include "fvm/FaceState.h"
 #include "mesh/BoundaryUtils.h"
 
 #include <algorithm>
@@ -221,6 +222,7 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
     }
 
     for (const auto& [faceIdx, fbc] : spec.faceVelBCs) {
+        if (faceIdx >= mesh.nFaces()) continue;
         std::size_t cell = mesh.owner(faceIdx);
         if (fbc.type == VelocityBCType::Inlet) {
             disc.isPressureNeumannFace_[faceIdx] = 1;
@@ -229,15 +231,9 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
         } else if (fbc.type == VelocityBCType::Symmetry || fbc.type == VelocityBCType::SlipWall) {
             if (!mesh.isUnstructured()) {
                 const auto& fn = mesh.faceNormal(faceIdx);
-                std::size_t maxD = 0;
-                double maxAbs = 0.0;
-                for (std::size_t d = 0; d < Dim; ++d) {
-                    double absN = std::abs(fn[d]);
-                    if (absN > maxAbs) {
-                        maxAbs = absN;
-                        maxD = d;
-                    }
-                }
+                // Same "dominant normal component" rule the momentum assembly
+                // and the pressure correction apply to a slip face.
+                const std::size_t maxD = dominantNormalComponent<Dim>(fn.data());
                 for (std::size_t d = 0; d < Dim; ++d) {
                     if (d != maxD) disc.slipWallMask_[d][cell] = 1;
                 }
@@ -423,6 +419,7 @@ void SIMPLEBoundaryConditions<Dim>::setVelocityBCOnFaces(const std::vector<std::
     fbc.v = (type == VelocityBCType::Inlet || type == VelocityBCType::MovingWall) ? v : 0.0;
     fbc.w = (type == VelocityBCType::Inlet || type == VelocityBCType::MovingWall) ? w : 0.0;
     for (std::size_t f : faceIndices) {
+        if (f >= mesh_.nFaces()) continue;
         faceVelBCs_[f] = fbc;
     }
     dirty_ = true;
@@ -465,6 +462,7 @@ void SIMPLEBoundaryConditions<Dim>::setPressureOutletOnFaces(const std::vector<s
     fbc.w = 0.0;
     fbc.pressureValue = pressure;
     for (std::size_t f : faceIndices) {
+        if (f >= mesh_.nFaces()) continue;
         faceVelBCs_[f] = fbc;
     }
     dirty_ = true;
@@ -489,6 +487,7 @@ void SIMPLEBoundaryConditions<Dim>::setPressureOutletOnFacesWithBackflow(const s
     fbc.backflowK = backflowK;
     fbc.backflowOmega = backflowOmega;
     for (std::size_t f : faceIndices) {
+        if (f >= mesh_.nFaces()) continue;
         faceVelBCs_[f] = fbc;
     }
     dirty_ = true;

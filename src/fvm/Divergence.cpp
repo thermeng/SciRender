@@ -1,26 +1,12 @@
 #include "fvm/Divergence.h"
 #include "fvm/FaceOperator.h"
+#include "fvm/FaceState.h"
 #include "fvm/Validation.h"
 
 #include <algorithm>
 #include <stdexcept>
 
 namespace fvm {
-
-namespace {
-
-// The prescribed value of a component in a cell, when the cell prescribes it.
-inline bool prescribedValue(const std::vector<std::vector<char>>& mask,
-                            const std::vector<std::vector<double>>& values,
-                            std::size_t d, std::size_t cell, double& out) {
-    if (d >= mask.size() || mask[d].empty() || cell >= mask[d].size()) return false;
-    if (!mask[d][cell]) return false;
-    if (d >= values.size() || cell >= values[d].size()) return false;
-    out = values[d][cell];
-    return true;
-}
-
-} // namespace
 
 template<std::size_t Dim>
 void computeDivergenceInto(const Mesh<Dim>& mesh, const VectorField<Dim>& velocity, Field<Dim>& div,

@@ -183,11 +183,25 @@ TEST_CASE("fvm.channel.steady_state") {
 
     // The divergence must not keep shrinking: if it does, the state is still
     // developing and the large divergence is a transient, not a defect.
-    CHECK_MESSAGE(b.maxDivergence > 0.5 * a.maxDivergence,
+    //
+    // Below the floor the divergence is indistinguishable from the round-off
+    // of the flux sum: this channel converges to |div u| ~ 1e-15, so comparing
+    // two such values as a RATIO measures noise, not convergence. The plateau
+    // requirement therefore only applies while the field is numerically
+    // non-zero; a genuinely developing state sits orders of magnitude above
+    // the floor and still fails.
+    constexpr double kRoundOffFloor = 1e-10;
+    const bool numericallySteady =
+        a.maxDivergence < kRoundOffFloor && b.maxDivergence < kRoundOffFloor;
+
+    const bool plateaued =
+        numericallySteady || b.maxDivergence > 0.5 * a.maxDivergence;
+    CHECK_MESSAGE(plateaued,
                   "the divergence must have plateaued - a shrinking divergence means the state "
                   "is still developing");
-    CHECK_MESSAGE(std::abs(b.maxDivergence - a.maxDivergence) < 0.3 * a.maxDivergence,
-                  "the steady state must be reached");
+    const bool settled = numericallySteady ||
+                         std::abs(b.maxDivergence - a.maxDivergence) < 0.3 * a.maxDivergence;
+    CHECK_MESSAGE(settled, "the steady state must be reached");
 }
 
 } // TEST_SUITE("fvm")
