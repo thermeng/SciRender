@@ -22,6 +22,10 @@ backlog.txt
 *.*#
 core
 !core/
+# Eigen ships a header literally named Core. The core-dump rule above is
+# case-insensitive on Windows, so without this negation the file is silently
+# left out of the repository and every Eigen include fails on checkout.
+!vendor/eigen-3.4.0/Eigen/Core
 tags
 .DS_Store
 .directory
