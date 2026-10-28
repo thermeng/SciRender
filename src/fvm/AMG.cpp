@@ -553,19 +553,18 @@ SparseMatrix AMGHierarchy::galerkinProduct(const SparseMatrix& A, const SparseMa
 void AMGHierarchy::gaussSeidel(const SparseMatrixRM& ARM, const Eigen::VectorXd& b,
                                 Eigen::VectorXd& x, int numSweeps, bool forward) const {
     const int n = static_cast<int>(ARM.rows());
-    // Cache diagonal positions to avoid per-sweep scan
-    std::vector<int> diagPos(n, -1);
+    // Cache diagonal presence and value to avoid a per-sweep scan.
+    std::vector<char> hasDiag(n, 0);
     std::vector<double> diagVal(n, 0.0);
-    int missingDiagCount = 0;
     for (int i = 0; i < n; ++i) {
         for (SparseMatrixRM::InnerIterator it(ARM, i); it; ++it) {
-            if (static_cast<int>(it.col()) == i) { diagPos[i] = 1; diagVal[i] = it.value(); break; }
+            if (static_cast<int>(it.col()) == i) {
+                hasDiag[i] = 1;
+                diagVal[i] = it.value();
+                break;
+            }
         }
-        if (diagPos[i] < 0) ++missingDiagCount;
     }
-    // Structural hole (e.g., isolated Dirichlet coarse node) is expected for pressure
-    // reference cell and handled via damped Jacobi fallback — no warning.
-    (void)missingDiagCount;
 
     // Clamp omega into a range that keeps the standalone smoother convergent.
     double omega = config_.smootherOmega;
@@ -575,15 +574,20 @@ void AMGHierarchy::gaussSeidel(const SparseMatrixRM& ARM, const Eigen::VectorXd&
         for (int k = 0; k < n; ++k) {
             const int i = forward ? k : (n - 1 - k);
             double diag = diagVal[i];
-            if (diagPos[i] < 0 || std::abs(diag) < 1e-30) {
+            if (!hasDiag[i] || std::abs(diag) < 1e-30) {
+                // Structural hole (e.g. a Dirichlet reference cell). Rescan,
+                // then fall back to a damped Jacobi step on that row so the
+                // sweep stays convergent.
                 diag = 0.0;
-                for (SparseMatrixRM::InnerIterator it(ARM, i); it; ++it) if (static_cast<int>(it.col()) == i) { diag = it.value(); break; }
+                for (SparseMatrixRM::InnerIterator it(ARM, i); it; ++it) {
+                    if (static_cast<int>(it.col()) == i) { diag = it.value(); break; }
+                }
                 if (std::abs(diag) < 1e-30) {
                     x(i) = 0.5 * x(i) + 0.5 * b(i);
                     continue;
                 }
                 diagVal[i] = diag;
-                diagPos[i] = 1;
+                hasDiag[i] = 1;
             }
             double sigma = 0.0;
             for (SparseMatrixRM::InnerIterator it(ARM, i); it; ++it) {

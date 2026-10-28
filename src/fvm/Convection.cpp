@@ -22,7 +22,8 @@ inline double limitedSOUCorrection(
     const auto& neighbors = mesh.cellNeighbors(up);
     for (std::size_t nb : neighbors) {
         double val;
-        if (!dirichletMask.empty() && nb < dirichletMask.size() && dirichletMask[nb]) {
+        if (!dirichletMask.empty() && nb < dirichletMask.size() && dirichletMask[nb] &&
+            nb < dirichletValues.size()) {
             val = dirichletValues[nb];
         } else {
             val = phi[nb];

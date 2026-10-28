@@ -3,6 +3,7 @@
 #include "mesh/Mesh.h"
 #include "field/Field.h"
 #include "field/VectorField.h"
+#include "fvm/FaceState.h"
 #include "fvm/Gradient.h"
 #include "fvm/SIMPLETypes.h"
 #include <Eigen/Dense>
@@ -54,9 +55,11 @@ inline void correctVelocity(
             if (f >= faceBC->size() || f >= faceHasBC->size()) continue;
             if (!(*faceHasBC)[f]) continue;
             auto t = (*faceBC)[f].type;
-            if (t == VelocityBCType::Symmetry || t == VelocityBCType::SlipWall) {
+            if (isSlipVelocityBC(t)) {
                 std::size_t P = mesh.owner(f);
                 const auto& n = mesh.faceNormal(f);
+                // Same no-penetration projection the momentum assembly and the
+                // pressure correction use for a slip face.
                 double un = 0.0;
                 for (std::size_t d = 0; d < Dim; ++d) un += velocity[d][P] * n[d];
                 for (std::size_t d = 0; d < Dim; ++d) velocity[d][P] -= un * n[d];

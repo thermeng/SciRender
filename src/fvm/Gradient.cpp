@@ -21,8 +21,11 @@ double Gradient<Dim>::cellValue_(std::size_t cell, const Field<Dim>& phi,
                                  const std::vector<char>& dirichletMask,
                                  const std::vector<double>& dirichletValues) const {
     // A prescribed value is a CELL value: it replaces the value of the cell it
-    // belongs to. It is never used as the value at a face.
-    if (!dirichletMask.empty() && cell < dirichletMask.size() && dirichletMask[cell])
+    // belongs to. It is never used as the value at a face. The value buffer is
+    // checked independently of the mask: callers may pass a mask that is
+    // longer than the value list, and a masked index must never read past it.
+    if (!dirichletMask.empty() && cell < dirichletMask.size() && dirichletMask[cell] &&
+        cell < dirichletValues.size())
         return dirichletValues[cell];
     return phi.ptr()[cell];
 }

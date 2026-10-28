@@ -42,6 +42,19 @@ bool SIMPLE<Dim>::isPiso_() const {
 }
 
 template<std::size_t Dim>
+void SIMPLE<Dim>::applyPressureOutletReference_(Field<Dim>& pressure) const {
+    if (!bcDiscretization_.pressureOutletFaces().empty()) {
+        for (const auto& [face, pRef] : bcDiscretization_.pressureOutletFaces()) {
+            if (face < mesh_.nFaces()) pressure[mesh_.owner(face)] = pRef;
+        }
+    } else {
+        for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
+            if (cell < mesh_.nCells()) pressure[cell] = pRef;
+        }
+    }
+}
+
+template<std::size_t Dim>
 void SIMPLE<Dim>::applyPressureSolverConfig_() {
     typename PressureCorrection<Dim>::Config pcCfg;
     // The compact face-normal Laplacian + Rhie-Chow flux is the collocated
@@ -201,11 +214,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     lastMomResid_ = 0.0;
     convergedStreak_ = 0;
     aborted_ = false;
-    {
-        bool isPISO = (config_.solverType == SolverType::PISO) ||
-                      (config_.transient.enabled && config_.transient.piso);
-        adaptiveAlphaP_ = isPISO ? 1.0 : config_.alphaP;
-    }
+    adaptiveAlphaP_ = isPiso_() ? 1.0 : config_.alphaP;
     prevContResid_ = 0.0;
     stallCount_ = 0;
     headerCounter_ = 0;
@@ -289,11 +298,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
                              kPtr, omegaPtr, nutPtr)) {
             startIteration_ = savedIter;
             restarting_ = true;
-            {
-                bool isPISO = (config_.solverType == SolverType::PISO) ||
-                              (config_.transient.enabled && config_.transient.piso);
-                adaptiveAlphaP_ = isPISO ? 1.0 : savedAlphaP;
-            }
+            adaptiveAlphaP_ = isPiso_() ? 1.0 : savedAlphaP;
             stallCount_ = savedStall;
             prevContResid_ = savedPrev;
             lastContResid_ = std::numeric_limits<double>::max();
@@ -422,18 +427,7 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
         }
 
         // Face-based pressure outlet (exact per-face pRef, fixes cell dedup loss)
-        if (!bcDiscretization_.pressureOutletFaces().empty()) {
-            for (const auto& [face, pRef] : bcDiscretization_.pressureOutletFaces()) {
-                if (face < mesh_.nFaces()) {
-                    std::size_t cell = mesh_.owner(face);
-                    (boundPressure())[cell] = pRef;
-                }
-            }
-        } else {
-            for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
-                (boundPressure())[cell] = pRef;
-            }
-        }
+        applyPressureOutletReference_(boundPressure());
 
         // For second corrector, update uStar to corrected velocity for next div calculation
         if (corr + 1 < nCorr) {
@@ -733,9 +727,7 @@ void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResidual
     }
 
     // PISO robustness: no adaptive alphaP reduction (Fluent keeps 1.0)
-    bool isPISO = (config_.solverType == SolverType::PISO) ||
-                  (config_.transient.enabled && config_.transient.piso);
-    if (isPISO) adaptiveAlphaP_ = 1.0;
+    if (isPiso_()) adaptiveAlphaP_ = 1.0;
     prevContResid_ = lastContResid_;
 
     residualHistory_.push_back(lastContResid_);
@@ -1132,9 +1124,7 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     diag_[d] = momDiag_;
     // PISO: no momentum under-relaxation (alphaU=1). PIMPLE/SIMPLE use config.alphaU.
     // solverType is explicit; legacy piso bool kept for compat.
-    bool isPISO = (config_.solverType == SolverType::PISO) ||
-                  (config_.transient.enabled && config_.transient.piso);
-    double alphaU = isPISO ? 1.0 : config_.alphaU;
+    double alphaU = isPiso_() ? 1.0 : config_.alphaU;
     momentum_.computeDCoeffAndRelax(momA_, momB_, bcDiscretization_.dirichletMask(d),
                                     velocityOld[d], alphaU,
                                     dCoeff_[d], config_.simplec);
@@ -1262,9 +1252,7 @@ double SIMPLE<Dim>::computeAdaptiveDt_() const {
 template<std::size_t Dim>
 void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     // PISO: no pressure under-relaxation. PIMPLE keeps SIMPLE relaxation.
-    bool isPISO = (config_.solverType == SolverType::PISO) ||
-                  (config_.transient.enabled && config_.transient.piso);
-    if (isPISO) adaptiveAlphaP_ = 1.0;
+    if (isPiso_()) adaptiveAlphaP_ = 1.0;
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
@@ -1285,18 +1273,7 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         (boundPressure())[i] += adaptiveAlphaP_ * pPrime_[i];
     }
-    if (!bcDiscretization_.pressureOutletFaces().empty()) {
-        for (const auto& [face, pRef] : bcDiscretization_.pressureOutletFaces()) {
-            if (face < mesh_.nFaces()) {
-                std::size_t cell = mesh_.owner(face);
-                (boundPressure())[cell] = pRef;
-            }
-        }
-    } else {
-        for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
-            (boundPressure())[cell] = pRef;
-        }
-    }
+    applyPressureOutletReference_(boundPressure());
     if (turbulence_) {
         nutOld_ = turbulence_->nut();
         // Transient turbulence
@@ -1446,18 +1423,7 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
         for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
             (boundPressure())[i] += pPrime_[i]; // alphaP = 1 for PISO
         }
-        if (!bcDiscretization_.pressureOutletFaces().empty()) {
-            for (const auto& [face, pRef] : bcDiscretization_.pressureOutletFaces()) {
-                if (face < mesh_.nFaces()) {
-                    std::size_t cell = mesh_.owner(face);
-                    (boundPressure())[cell] = pRef;
-                }
-            }
-        } else {
-            for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
-                (boundPressure())[cell] = pRef;
-            }
-        }
+        applyPressureOutletReference_(boundPressure());
         // Do NOT copy boundVelocity() back into uStar_: the next inner pass
         // must reconstruct u~ from the corrected velocity, not reuse the
         // previous projection's input.
