@@ -175,13 +175,19 @@ void RenderSettings::snapToAxisView(int axis, bool flip) {
 }
 
 void RenderSettings::snapGizmoAxis(int axis) {
-    if (axis < 0 || axis > 2) return;
-// Triad semantics: clicking an arrowhead aligns the camera to view
-        // FROM that world axis; clicking it again flips to the opposite face.
-    static const glm::dvec3 axes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+    if (axis < 0 || axis > 5) return;
+    const int a = axis / 2;
+    static const glm::dvec3 units[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
     const glm::dvec3 d = glm::normalize(m_state.camera.position - m_state.camera.focalPoint);
-    const bool alreadyOnThisFace = glm::dot(d, axes[axis]) > 0.995;
-    snapToAxisView(axis, alreadyOnThisFace);
+    glm::dvec3 ad = glm::abs(d);
+    int ai = 0;
+    double maxc = ad.x;
+    if (ad.y > maxc) { maxc = ad.y; ai = 1; }
+    if (ad.z > maxc) { maxc = ad.z; ai = 2; }
+    double comp = (ai == 0) ? d.x : (ai == 1) ? d.y : d.z;
+    int currentFace = ai * 2 + (comp < 0 ? 1 : 0);
+    int target = (axis == currentFace) ? (axis ^ 1) : axis;
+    snapToAxisView(target / 2, (target % 2) == 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +414,7 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("filterEnabled",       [](const RenderSettings& r) { return QVariant(r.m_state.filterEnabled); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.filterEnabled = v.toBool(); });
         add("quickBarCollapsed",   [](const RenderSettings& r) { return QVariant(r.quickBarCollapsed); },                     [](RenderSettings& r, const QVariant& v) { r.quickBarCollapsed = v.toBool(); });
         add("showGizmo",           [](const RenderSettings& r) { return QVariant(r.m_state.showGizmo); },                     [](RenderSettings& r, const QVariant& v) { r.m_state.showGizmo = v.toBool(); });
+        add("showGizmoNegative", [](const RenderSettings& r) { return QVariant(r.m_state.showGizmoNegative); },            [](RenderSettings& r, const QVariant& v) { r.m_state.showGizmoNegative = v.toBool(); });
         add("showBounds",          [](const RenderSettings& r) { return QVariant(r.m_state.showBounds); },                    [](RenderSettings& r, const QVariant& v) { r.m_state.showBounds = v.toBool(); });
         add("showLightMarkers",    [](const RenderSettings& r) { return QVariant(r.m_state.lighting.showLightMarkers); },     [](RenderSettings& r, const QVariant& v) { r.m_state.lighting.showLightMarkers = v.toBool(); });
         add("colorRangeOverrideEnabled", [](const RenderSettings& r) { return QVariant(r.m_state.colorRangeOverrideEnabled); }, [](RenderSettings& r, const QVariant& v) { r.m_state.colorRangeOverrideEnabled = v.toBool(); });

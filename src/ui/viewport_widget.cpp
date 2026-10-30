@@ -11,6 +11,7 @@
 #include <QPaintEvent>
 #include <QStyle>
 #include <QWheelEvent>
+#include <QToolTip>
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
@@ -717,6 +718,13 @@ void ViewportWidget::updateGizmoHover(const QPoint& pos) {
         axis = scene->gizmoAxisAt(static_cast<int>(pos.x() * dpr),
                                   static_cast<int>(pos.y() * dpr));
     }
+    // Tooltip with axis name.
+    if (axis >= 0) {
+        static const char* kNames[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
+        QToolTip::showText(mapToGlobal(pos), QString(kNames[axis]), this);
+    } else {
+        QToolTip::hideText();
+    }
     if (axis == m_gizmoHoverAxis) return;
     m_gizmoHoverAxis = axis;
     if (scene) scene->setGizmoHoverAxis(axis);
@@ -739,6 +747,7 @@ void ViewportWidget::leaveEvent(QEvent* event) {
             if (::Renderer* scene = m_settings->backend()) scene->setGizmoHoverAxis(-1);
         }
         setCursor(Qt::ArrowCursor);
+        QToolTip::hideText();
         update();
     }
     QOpenGLWidget::leaveEvent(event);

@@ -159,8 +159,15 @@
            <property name="minimumSize"><size><width>36</width><height>0</height></size></property>
            <property name="maximumSize"><size><width>36</width><height>16777215</height></size></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
           </widget>
-         </item>
-        </layout>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="gizmoShowNegativeCb">
+         <property name="text">
+          <string>Show Negative Axes</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
        </widget>
       </item>
       <item>

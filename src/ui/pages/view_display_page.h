@@ -25,6 +25,7 @@ private:
     QCheckBox* m_defectsCb = nullptr;
     QCheckBox* m_scalarCb = nullptr;
     QCheckBox* m_gizmoCb = nullptr;
+    QCheckBox* m_gizmoShowNegativeCb = nullptr;
     QComboBox* m_gizmoSizeCombo = nullptr;
     QComboBox* m_gizmoCornerCombo = nullptr;
     QCheckBox* m_fpsCb = nullptr;

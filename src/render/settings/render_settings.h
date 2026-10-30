@@ -320,6 +320,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool volumeSliceColormapReversed READ getVolumeSliceColormapReversed WRITE setVolumeSliceColormapReversed NOTIFY viewChanged)
 
     Q_PROPERTY(bool isGizmoVisible READ isGizmoVisible WRITE setGizmoVisible NOTIFY viewChanged)
+    Q_PROPERTY(bool gizmoShowNegative READ getGizmoShowNegative WRITE setGizmoShowNegative NOTIFY viewChanged)
     Q_PROPERTY(int gizmoCorner READ getGizmoCorner WRITE setGizmoCorner NOTIFY viewChanged)
     Q_PROPERTY(int gizmoSizeChoice READ getGizmoSizeChoice WRITE setGizmoSizeChoice NOTIFY viewChanged)
     Q_PROPERTY(bool showPoints READ getShowPoints WRITE setShowPoints NOTIFY viewChanged)
@@ -551,6 +552,7 @@ public:
     void applyPostStatus(const std::string& status);
 
     STATE_PROP(isGizmoVisible, setGizmoVisible, bool, m_state.showGizmo, Display)
+    STATE_PROP(getGizmoShowNegative, setGizmoShowNegative, bool, m_state.showGizmoNegative, Display)
     STATE_PROP(getGizmoCorner, setGizmoCorner, int, m_state.gizmoCorner, Display)
     STATE_PROP(getGizmoSizeChoice, setGizmoSizeChoice, int, m_state.gizmoSizeChoice, Display)
     STATE_PROP(getAutoRotate, setAutoRotate, bool, m_state.autoRotate, Display)

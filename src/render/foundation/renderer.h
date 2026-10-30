@@ -148,6 +148,7 @@ struct RenderRenderState {
     bool showWireframe = false;
     bool showSurface = true;
     bool showGizmo = true;
+    bool showGizmoNegative = false;
     bool autoRotate = false;
     bool showFps = false;
     bool useLod = true;

@@ -552,8 +552,9 @@ void Renderer::drawGizmo(int deviceW, int deviceH) {
     const float dpr = static_cast<float>(devicePixelRatio);
     const int corner = m_state.gizmoCorner;
     const int foot = Gizmo::footprintFor(m_state.gizmoSizeChoice);
-    gizmo.draw(m_state.camera.getViewMatrix(), dpr, deviceW, deviceH, corner, foot,
-               m_gizmoHoverAxis.load(std::memory_order_relaxed));
+gizmo.draw(m_state.camera.getViewMatrix(), dpr, deviceW, deviceH, corner, foot,
+                m_gizmoHoverAxis.load(std::memory_order_relaxed),
+                m_state.showGizmoNegative);
     if (m_state.lighting.lightKitEnabled && m_state.lighting.showLightMarkers) {
         glm::vec3 kitDirs[5] = {
             LightingModel::kitDirection(m_state.lighting.lightKeyAzimuth,  m_state.lighting.lightKeyElevation),

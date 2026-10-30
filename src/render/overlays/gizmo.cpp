@@ -329,8 +329,9 @@ glm::ivec2 Gizmo::rectOrigin(int deviceW, int deviceH, float dpr, int foot, int 
 }
 
 void Gizmo::draw(const glm::mat4& mainView, float dpr,
-                 int deviceW, int deviceH,
-                 int corner, int foot, int hoverAxis) {
+                  int deviceW, int deviceH,
+                  int corner, int foot, int hoverAxis,
+                  bool showNegativeAxes) {
     if (!isInitialized()) return;
 
     // Save engine state we mutate; restored automatically on scope exit.
@@ -372,9 +373,9 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
 
     // Hover feedback: pull the axis color toward white so the hovered shaft,
     // cone, and label read as one active element.
-    auto axisColor = [&](int i) -> glm::vec3 {
-        glm::vec3 c(colors[i][0], colors[i][1], colors[i][2]);
-        if (i == hoverAxis) c = glm::min(c * 0.45f + 0.55f, glm::vec3(1.0f));
+    auto axisColor = [&](int axis) -> glm::vec3 {
+        glm::vec3 c(colors[axis][0], colors[axis][1], colors[axis][2]);
+        if (axis == hoverAxis / 2 && hoverAxis >= 0) c = glm::min(c * 0.45f + 0.55f, glm::vec3(1.0f));
         return c;
     };
 
@@ -433,10 +434,44 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
     glNamedBufferSubData(aaLineVBO, 0, sizeof(quadData), quadData);
     // One draw per axis: the hovered shaft uses a wider AA profile.
     for (int i = 0; i < 3; ++i) {
-        glUniform1f(aaLineHalfWidthLoc, i == hoverAxis ? 1.0f : halfWidth);
+        glUniform1f(aaLineHalfWidthLoc, i * 2 == hoverAxis ? 1.0f : halfWidth);
         glDrawArrays(GL_TRIANGLES, i * 6, 6);
     }
     glBindVertexArray(0);
+
+    // ---- Negative axes (shown on hover, or always when enabled) ----
+    for (int a = 0; a < 3; ++a) {
+        if (!(showNegativeAxes || (hoverAxis >= 0 && hoverAxis == a * 2 + 1))) continue;
+        glm::vec3 unit = (a == 0) ? glm::vec3(1,0,0) : (a == 1) ? glm::vec3(0,1,0) : glm::vec3(0,0,1);
+        glm::vec3 tip = -unit;
+        glm::vec4 cA = lineMVP * glm::vec4(0.0f,0.0f,0.0f,1.0f);
+        glm::vec4 cB = lineMVP * glm::vec4(tip,1.0f);
+        glm::vec2 aP(cA), bP(cB);
+        glm::vec2 dir = bP - aP;
+        float len = glm::length(dir);
+        if (len < 1e-4f) continue;
+        glm::vec2 perp(-dir.y / len, dir.x / len);
+        glm::vec2 aL = aP - perp * hwClip;
+        glm::vec2 aR = aP + perp * hwClip;
+        glm::vec2 bL = bP - perp * hwClip;
+        glm::vec2 bR = bP + perp * hwClip;
+        glm::vec3 col = axisColor(a);
+        float q[] = {
+            aL.x, aL.y, col.r, col.g, col.b, -halfWidth,
+            bL.x, bL.y, col.r, col.g, col.b, -halfWidth,
+            bR.x, bR.y, col.r, col.g, col.b,  halfWidth,
+            aL.x, aL.y, col.r, col.g, col.b, -halfWidth,
+            bR.x, bR.y, col.r, col.g, col.b,  halfWidth,
+            aR.x, aR.y, col.r, col.g, col.b,  halfWidth,
+        };
+        glUseProgram(aaLineProgram);
+        glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+        glUniform1f(aaLineHalfWidthLoc, (hoverAxis == a * 2 + 1) ? 1.0f : halfWidth);
+        glBindVertexArray(aaLineVAO);
+        glNamedBufferSubData(aaLineVBO, 0, sizeof(q), q);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+    }
 
     // ---- Axis tip cones (solid color) ----
     glUseProgram(capProgram);
@@ -448,6 +483,21 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
         glDrawArrays(GL_TRIANGLES, i * (capVertCount / 3), capVertCount / 3);
     }
     glBindVertexArray(0);
+
+    // ---- Negative axes cones ----
+    for (int a = 0; a < 3; ++a) {
+        if (!(showNegativeAxes || (hoverAxis >= 0 && hoverAxis == a * 2 + 1))) continue;
+        glm::mat4 reflect(1.0f);
+        reflect[a][a] = -1.0f;
+        glm::mat4 negMVP = lineMVP * reflect;
+        glUseProgram(capProgram);
+        glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(negMVP));
+        glBindVertexArray(capVAO);
+        const glm::vec3 col = axisColor(a);
+        glUniform3fv(capColorLoc, 1, glm::value_ptr(col));
+        glDrawArrays(GL_TRIANGLES, a * (capVertCount / 3), capVertCount / 3);
+        glBindVertexArray(0);
+    }
 
     // ---- Origin disc (solid white at pivot) ----
     glUseProgram(discProgram);
@@ -496,7 +546,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
     for (int i = 0; i < 3; ++i) {
         glm::vec4 clip = gizmoProj * gizmoView * glm::vec4(tips[i], 1.0f);
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
-        float f = 1.35f;
+        float f = 1.5f;
         ndc.x *= f; ndc.y *= f;
         float cx = (ndc.x * 0.5f + 0.5f) * foot;
         float cy = (ndc.y * 0.5f + 0.5f) * foot;
@@ -541,6 +591,44 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
     glBindVertexArray(textVAO);
     glNamedBufferSubData(textVBO, 0, sizeof(quads), quads);
     glDrawArrays(GL_TRIANGLES, 0, 3 * 6);  // 3 label quads
+
+    // ---- Negative axes labels ----
+    for (int a = 0; a < 3; ++a) {
+        if (!(showNegativeAxes || (hoverAxis >= 0 && hoverAxis == a * 2 + 1))) continue;
+        glm::vec3 unit = (a == 0) ? glm::vec3(1,0,0) : (a == 1) ? glm::vec3(0,1,0) : glm::vec3(0,0,1);
+        glm::vec4 clip = gizmoProj * gizmoView * glm::vec4(-unit, 1.0f);
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        float f = 1.40f;
+        ndc.x *= f; ndc.y *= f;
+        float cx = (ndc.x * 0.5f + 0.5f) * foot;
+        float cy = (ndc.y * 0.5f + 0.5f) * foot;
+        const float halfg = glyph * 0.5f;
+        cx = std::max(halfg, std::min(foot - halfg, cx));
+        cy = std::max(halfg, std::min(foot - halfg, cy));
+        bool isPole = std::abs(ndc.z) > 0.99f;
+        if (isPole) {
+            float offsetDist = glyph * 1.5f;
+            if (a == 2) { cx += offsetDist * 0.707f; cy += offsetDist * 0.707f; }
+            else if (a == 0) { cy += (ndc.y >= 0 ? offsetDist : -offsetDist); }
+            else { cx += (ndc.x >= 0 ? offsetDist : -offsetDist); }
+            cx = std::max(halfg, std::min(foot - halfg, cx));
+            cy = std::max(halfg, std::min(foot - halfg, cy));
+        }
+        float u0 = a * cellU, u1 = (a + 1) * cellU;
+        const float vTop = 0.0f, vBot = 1.0f;
+        const glm::vec3 labCol = axisColor(a);
+        float tri[6][7] = {
+            { cx - halfg, cy + halfg, u0, vTop, labCol.r, labCol.g, labCol.b },
+            { cx + halfg, cy + halfg, u1, vTop, labCol.r, labCol.g, labCol.b },
+            { cx - halfg, cy - halfg, u0, vBot, labCol.r, labCol.g, labCol.b },
+            { cx + halfg, cy + halfg, u1, vTop, labCol.r, labCol.g, labCol.b },
+            { cx + halfg, cy - halfg, u1, vBot, labCol.r, labCol.g, labCol.b },
+            { cx - halfg, cy - halfg, u0, vBot, labCol.r, labCol.g, labCol.b },
+        };
+        glNamedBufferSubData(textVBO, 0, sizeof(tri), tri);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+    }
+
     glBindVertexArray(0);
     glUseProgram(0);
 }
@@ -563,6 +651,10 @@ int Gizmo::hitTestAxis(const glm::mat4& mainView, float dpr,
     const float inv = (2.0f * kExtent) / static_cast<float>(s);
     const glm::vec2 click(gx * inv - kExtent, gy * inv - kExtent);
 
+    // Dead zone around the pivot: avoid unstable selection near the origin.
+    const float deadZoneClip = 8.0f * (2.0f * kExtent) / static_cast<float>(foot);
+    if (glm::length(click) < deadZoneClip) return -1;
+
     // Same matrices as draw(): rotation-only view + fixed ortho.
     const glm::mat4 mvp = glm::ortho(-kExtent, kExtent, -kExtent, kExtent, -10.0f, 10.0f)
                         * glm::mat4(glm::mat3(mainView));
@@ -570,18 +662,65 @@ int Gizmo::hitTestAxis(const glm::mat4& mainView, float dpr,
     // ~14 logical px of slack around each shaft/cone/label zone.
     const float thresh = 14.0f * (2.0f * kExtent) / static_cast<float>(foot);
 
-    const glm::vec3 tips[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+    const glm::vec3 tips[6] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
+    // Label geometry (logical px) mirrors draw(): glyph 24, f=1.40, clamp.
+    const float glyph = 24.0f;
+    const float halfG = glyph * 0.5f;
+    const float fLabel = 1.40f;
+
+    // Logical click coords for label tests.
+    const float lx = gx / dpr;
+    const float ly = gy / dpr;
+
+    // Label hit test first (point-in-quad), for all 6 directions.
+    for (int i = 0; i < 6; ++i) {
+        int a = i / 2;
+        glm::vec3 unit = (a == 0) ? glm::vec3(1,0,0) : (a == 1) ? glm::vec3(0,1,0) : glm::vec3(0,0,1);
+        glm::vec3 tip = (i % 2 == 0) ? unit : -unit;
+        glm::vec4 clip = mvp * glm::vec4(tip, 1.0f);
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        ndc.x *= fLabel; ndc.y *= fLabel;
+        float cx = (ndc.x * 0.5f + 0.5f) * foot;
+        float cy = (ndc.y * 0.5f + 0.5f) * foot;
+        cx = std::max(halfG, std::min(foot - halfG, cx));
+        cy = std::max(halfG, std::min(foot - halfG, cy));
+        bool isPole = std::abs(ndc.z) > 0.99f;
+        if (isPole) {
+            float offsetDist = glyph * 1.5f;
+            if (a == 2) { cx += offsetDist * 0.707f; cy += offsetDist * 0.707f; }
+            else if (a == 0) { cy += (ndc.y >= 0 ? offsetDist : -offsetDist); }
+            else { cx += (ndc.x >= 0 ? offsetDist : -offsetDist); }
+            cx = std::max(halfG, std::min(foot - halfG, cx));
+            cy = std::max(halfG, std::min(foot - halfG, cy));
+        }
+        if (lx >= cx - halfG && lx <= cx + halfG && ly >= cy - halfG && ly <= cy + halfG) {
+            return i;
+        }
+    }
+
+    // Shaft hit test with depth tie-break.
     int best = -1;
     float bestD = thresh;
-    for (int i = 0; i < 3; ++i) {
-        const glm::vec2 t(mvp * glm::vec4(tips[i], 1.0f));  // ortho: w == 1
-        // Distance from click to segment [origin, tip]; allow overshoot past
-        // the tip so the cone and billboarded label stay clickable.
+    float bestZ = 0.0f;
+    bool have = false;
+    for (int i = 0; i < 6; ++i) {
+        glm::vec4 oClip = mvp * glm::vec4(0.0f,0.0f,0.0f,1.0f);
+        glm::vec4 tClip = mvp * glm::vec4(tips[i], 1.0f);
+        glm::vec2 t(tClip.x, tClip.y); // w=1
         const float len2 = glm::dot(t, t);
         float u = (len2 > 1e-12f) ? glm::dot(click, t) / len2 : -1.0f;
         u = glm::clamp(u, 0.0f, 1.45f);
         const float d = glm::length(click - t * u);
-        if (d < bestD) { bestD = d; best = i; }
+        if (d >= thresh) continue;
+        float originZ = oClip.z; // w=1
+        float tipZ = tClip.z;
+        float pointZ = originZ + u * (tipZ - originZ);
+        if (!have || d < bestD - 1e-5f || (std::fabs(d - bestD) <= 1e-5f && pointZ < bestZ)) {
+            best = i;
+            bestD = d;
+            bestZ = pointZ;
+            have = true;
+        }
     }
     return best;
 }
