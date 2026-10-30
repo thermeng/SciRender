@@ -143,17 +143,12 @@ VectorsPage::VectorsPage(RenderSettings* settings, QWidget* parent)
     }
 
     auto* licGrainCombo = vectorsUi.licGrainCombo;
-    licGrainCombo->addItems({"64", "128", "256", "512"});
+    // The 3D noise texture is capped at 128^3 (2 MB). Offering 256/512 would
+    // silently render at 128, so only the supported sizes are exposed.
+    licGrainCombo->addItems({"64", "128"});
     licGrainCombo->setCurrentText(QString::number(s->getLicNoiseGrain()));
     connect(licGrainCombo, &QComboBox::activated, this, [s](int idx) {
-        int grain = 64;
-        switch (idx) {
-            case 0: grain = 64; break;
-            case 1: grain = 128; break;
-            case 2: grain = 256; break;
-            case 3: grain = 512; break;
-        }
-        s->setLicNoiseGrain(grain);
+        s->setLicNoiseGrain(idx == 0 ? 64 : 128);
     });
 
     auto* licEnhancedCb = vectorsUi.licEnhancedCb;

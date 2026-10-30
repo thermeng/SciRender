@@ -13,7 +13,7 @@ class VectorTextureCache {
 public:
     VectorTextureCache() = default;
 
-    // licBoundaryMode is deprecated (always Repeat/GL_REPEAT); kept in signature for API compat but ignored.
+    // licBoundaryMode is deprecated (always Clamp/GL_CLAMP_TO_EDGE); kept in signature for API compat but ignored.
     // snap: computed post-proc snapshot (null = mesh fields only).
     GLuint textureForField(const std::string& name, const RenderMesh* mesh,
                            const glm::vec3& boxMin, const glm::vec3& boxMax,
@@ -22,10 +22,12 @@ public:
 
     bool getTextureDims(const std::string& name, int& dimX, int& dimY, int& dimZ) const;
     // Strongest vector of the sampled field, or 0 when the field is unknown.
-    float getMaxMagnitude(const std::string& name, int placement = -1, const RenderMesh* mesh = nullptr) const;
+    float getMaxMagnitude(const std::string& name, int placement = -1, const RenderMesh* mesh = nullptr,
+                          const postfields::ComputedSnapshot* snap = nullptr) const;
     // Deprecated licBoundaryMode variants — forward to canonical; mode ignored.
     bool getTextureDims(const std::string& name, int licBoundaryMode, int& dimX, int& dimY, int& dimZ) const;
-    bool getTextureDims(const std::string& name, int placement, int licBoundaryMode, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ) const;
+    bool getTextureDims(const std::string& name, int placement, int licBoundaryMode, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ,
+                        const postfields::ComputedSnapshot* snap = nullptr) const;
 
     void invalidate(const std::string& name);
     void invalidateAll();
@@ -54,7 +56,10 @@ private:
         // Strongest vector of the sampled field (the LIC makes its magnitude
         // cut-off relative to it).
         float maxMagnitude = 0.0f;
+        // lruIt is only meaningful while hasLru is true; comparing a
+        // default-constructed (singular) iterator against m_lru.end() is UB.
         std::list<std::string>::iterator lruIt;
+        bool hasLru = false;
     };
 
     void touch(Entry& e, const std::string& key);

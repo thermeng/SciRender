@@ -5,6 +5,8 @@
 #include "render/passes/MeshGLManager.h"
 #include "render/passes/ColormapManager.h"
 
+#include <algorithm>
+
 void MeshPass::init(const ShaderSources& sources) {
     if (sources.meshVert.empty() || sources.meshFrag.empty()) return;
 
@@ -252,15 +254,31 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     if (boxMaxLocActive != -1) glUniform3fv(boxMaxLocActive, 1, &boxMax.x);
     // LIC steps: UI clamps [4..128]; GPU tolerates [0..128] but product floor is 4.
     // Use product limits here so legacy 0..3 persisted values auto-heal to 4.
-    if (stepsLocActive != -1) glUniform1i(stepsLocActive, std::clamp(state.licSteps, LicLimits::StepsMin, LicLimits::StepsMax));
+    if (stepsLocActive != -1) {
+        int taps = std::clamp(state.licSteps, LicLimits::StepsMin, LicLimits::StepsMax);
+        // Budget the per-fragment cost. One tap costs integratorSamples vector
+        // fetches, and enhanced LIC runs the whole kernel twice. Without this
+        // the UI maximum (128 RK4 + enhanced) is ~1024 vector fetches per
+        // direction per fragment, which can exceed the GPU watchdog at 4K.
+        const int integratorSamples = (state.licIntegrator >= 2) ? 4
+                                   : (state.licIntegrator == 1) ? 2 : 1;
+        const int frequencyPasses = state.licEnhanced ? 2 : 1;
+        const int budget = std::max(1, LicLimits::MaxTapsPerDirection / (integratorSamples * frequencyPasses));
+        taps = std::max(LicLimits::StepsMin, std::min(taps, budget));
+        glUniform1i(stepsLocActive, taps);
+    }
     if (stepSizeLocActive != -1) {
         glm::vec3 extent = boxMax - boxMin;
         float diag = glm::length(extent);
-        if (!(diag > LicLimits::WorldStepEps)) diag = 1.0f;
+        if (!(diag > 0.0f)) diag = 1.0f;
         // state.licStepSize is fraction of diagonal; clamp fraction first then scale for consistent upper bound
         float frac = std::clamp(state.licStepSize, LicLimits::StepSizeMin, LicLimits::StepSizeMax);
+        // Relative floor only: an absolute 1e-6 made a sub-micron scene step
+        // thousands of scene widths per tap. Purely relative keeps minStep
+        // below diag*2 even when diag is denormal.
+        const float minStep = diag * LicLimits::WorldStepMinFraction;
         float worldStep = frac * diag;
-        worldStep = std::clamp(worldStep, LicLimits::WorldStepEps, diag * LicLimits::WorldStepMaxFactor);
+        worldStep = std::clamp(worldStep, minStep, diag * LicLimits::WorldStepMaxFactor);
         glUniform1f(stepSizeLocActive, worldStep);
     }
     // Noise freq: UI [0.5..64]; clamp here as final guard before shader (shader multiplies UV)

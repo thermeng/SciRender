@@ -115,8 +115,15 @@ namespace LicLimits {
     constexpr float StepSizeMax = 2.0f;
     constexpr float NoiseFreqMin = 0.5f;
     constexpr float NoiseFreqMax = 64.0f;
-    constexpr float WorldStepEps = 1e-6f;
+    // Lower bound of the world-space step as a FRACTION of the scene diagonal.
+    // An absolute floor (the old 1e-6) made a sub-micron scene step thousands
+    // of scene widths per tap.
+    constexpr float WorldStepMinFraction = 1e-4f;
     constexpr float WorldStepMaxFactor = 2.0f; // cap worldStep at diag * factor
+    // Upper bound on integrator taps per direction. The LIC cost is
+    // steps * (integrator taps) * (2 when enhanced); UI max settings would
+    // otherwise reach ~1024 vector fetches per fragment per direction.
+    constexpr int   MaxTapsPerDirection = 256;
 }
 
 inline float applyVectorMagTransform(float m, int mode) {
@@ -309,8 +316,8 @@ struct RenderRenderState {
     // steps/frequency.
     float licStepSize = 0.005f;  // fraction of scene diagonal; MeshPass converts to worldStep = licStepSize*diag, clamped to [1e-6, diag*2]
     float licNoiseFreq = 8.0f;  // UI [0.5..64], upload clamped to same
-    int licNoiseGrain = 256;    // quantized to 64/128/256/512
-    int licBoundaryMode = 1;    // deprecated: fixed to Repeat (GL_REPEAT). Persisted values coerced to 1; not used for texture key.
+    int licNoiseGrain = 64;     // 3D noise resolution; supported set {64,128}
+    int licBoundaryMode = 1;    // deprecated: fixed to Clamp (GL_CLAMP_TO_EDGE). Persisted values coerced to 1; not used for texture key.
     bool licEnhanced = false;   // Enhanced LIC: 2-pass (second convolution sharpens coherence)
     bool licOnly = false;       // Skip PBR lighting, output unshaded LIC color
     int licIntegrator = 2;      // 0=Euler, 1=Midpoint, 2=RK4
@@ -793,7 +800,8 @@ private:
     VolumeSliceOverlay m_volumeSliceOverlay;
     GlTexture m_licNoiseTex;
     int m_licNoiseGrain = 0;
-    std::string m_lastLicError; // surfaced via getLastLicError() for status bar
+    std::string m_lastLicError;      // surfaced via getLastLicError() for status bar
+    std::string m_loggedLicError;    // last message sent to qWarning(), to stop per-frame log spam
 
 
     DepthPeelPass m_depthPeel;

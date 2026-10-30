@@ -645,16 +645,20 @@ public:
     }
     int getLicNoiseGrain() const { return m_state.licNoiseGrain; }
     void setLicNoiseGrain(int v) {
-        int g = (v <= 64) ? 64 : (v <= 128) ? 128 : (v <= 256) ? 256 : 512;
+        // Only 64 and 128 are supported for the 3D noise texture (128^3 = 2 MB).
+        // Larger requests are clamped here so the stored value always equals
+        // the grain that ensureLicNoiseTexture builds (otherwise it rebuilt
+        // the texture on every frame).
+        int g = (v <= 64) ? 64 : 128;
         if (m_state.licNoiseGrain != g) { m_state.licNoiseGrain = g; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
-    // Deprecated: fixed to Repeat (GL_REPEAT). Legacy setter coerces any persisted value to 1.
+    // Deprecated: fixed to Clamp (GL_CLAMP_TO_EDGE). Legacy setter coerces any persisted value to 1.
     // Texture key no longer includes boundary mode; VectorTextureCache ignores the argument.
     int getLicBoundaryMode() const { return 1; }
     void setLicBoundaryMode(int) {
         if (m_state.licBoundaryMode != 1) { m_state.licBoundaryMode = 1; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
-    QStringList getLicBoundaryModeOptions() const { return {"Clamp (Repeat)"}; }
+    QStringList getLicBoundaryModeOptions() const { return {"Clamp"}; }
     bool getLicEnhanced() const { return m_state.licEnhanced; }
     void setLicEnhanced(bool v) {
         if (m_state.licEnhanced != v) { m_state.licEnhanced = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); }

@@ -21,6 +21,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -179,6 +180,90 @@ TEST_CASE("render.lic.grid_dims_generic_slab") {
     CHECK_MESSAGE(d.x >= 16, "the resolution must not collapse below the old floor");
     CHECK_MESSAGE(d.y >= 16, "the resolution must not collapse below the old floor");
     CHECK_MESSAGE(d.x == d.y, "a square domain must give a square texture");
+}
+
+// A field with only a handful of samples spread over the domain (the shape
+// of a mesh whose cells are large compared to the texture resolution) must
+// still fill every texel. A zero texel is not "no flow": the shader reads it
+// as "no direction" and paints raw white noise, which is the speckle that was
+// visible inside big cells.
+TEST_CASE("render.lic.sparse_field_leaves_no_empty_texels") {
+    RenderMesh m;
+    m.datasetType = "CFD MESH";
+    m.gridDimX = m.gridDimY = m.gridDimZ = 0;   // unstructured: forces the resample path
+    m.bounds.minX = 0.0f; m.bounds.maxX = 1.0f;
+    m.bounds.minY = 0.0f; m.bounds.maxY = 1.0f;
+    m.bounds.minZ = 0.0f; m.bounds.maxZ = 0.0f;
+
+    // Irregular positions: not a regular grid, so chooseGridDims falls back
+    // to the generic estimate while the samples themselves stay sparse.
+    static const float xs[12] = {0.02f, 0.13f, 0.27f, 0.31f, 0.46f, 0.52f,
+                                 0.63f, 0.71f, 0.79f, 0.85f, 0.93f, 0.98f};
+    static const float ys[12] = {0.04f, 0.91f, 0.17f, 0.68f, 0.29f, 0.83f,
+                                 0.11f, 0.57f, 0.94f, 0.38f, 0.73f, 0.22f};
+    const size_t N = 12;
+    m.vertices.resize(N * 3);
+    std::vector<glm::vec3> vectors(N, glm::vec3(1.0f, 2.0f, 0.0f));
+    for (size_t k = 0; k < N; ++k) {
+        m.vertices[k * 3 + 0] = xs[k];
+        m.vertices[k * 3 + 1] = ys[k];
+        m.vertices[k * 3 + 2] = 0.0f;
+    }
+
+    VectorTextureCache cache;
+    std::vector<glm::vec3> grid;
+    int dx = 0, dy = 0, dz = 0;
+    REQUIRE(cache.buildGrid(m, vectors.data(), vectors.size(), false, grid, dx, dy, dz));
+    REQUIRE(dx > 0);
+    REQUIRE(dy > 0);
+    REQUIRE(grid.size() == static_cast<size_t>(dx) * dy * dz);
+
+    int empty = 0;
+    float maxDev = 0.0f;
+    for (const glm::vec3& v : grid) {
+        if (glm::length(v) < 1e-6f) ++empty;
+        maxDev = std::max(maxDev, glm::length(v - glm::vec3(1.0f, 2.0f, 0.0f)));
+    }
+    CHECK_MESSAGE(empty == 0,
+                  "every texel must carry a direction; a zero texel shows raw noise in the LIC");
+    // The source field is constant, so the filled field must be too.
+    CHECK(maxDev < 1e-4f);
+}
+
+// Same defect on the cell-centred path used by CFD meshes: large cells mean
+// sparse cell centres, and the texels between them used to stay zero.
+TEST_CASE("render.lic.sparse_cell_field_leaves_no_empty_texels") {
+    RenderMesh m;
+    m.datasetType = "CFD MESH";
+    m.gridDimX = m.gridDimY = m.gridDimZ = 0;
+    m.bounds.minX = 0.0f; m.bounds.maxX = 1.0f;
+    m.bounds.minY = 0.0f; m.bounds.maxY = 1.0f;
+    m.bounds.minZ = 0.0f; m.bounds.maxZ = 0.0f;
+
+    static const float xs[10] = {0.05f, 0.22f, 0.38f, 0.51f, 0.67f, 0.74f, 0.81f, 0.88f, 0.94f, 0.99f};
+    static const float ys[10] = {0.97f, 0.12f, 0.63f, 0.28f, 0.81f, 0.44f, 0.06f, 0.69f, 0.35f, 0.90f};
+    const size_t N = 10;
+    m.cellCenters.resize(N);
+    std::vector<glm::vec3> vectors(N, glm::vec3(0.0f, 0.0f, 3.0f));
+    for (size_t k = 0; k < N; ++k) {
+        m.cellCenters[k] = glm::vec3(xs[k], ys[k], 0.0f);
+    }
+
+    VectorTextureCache cache;
+    std::vector<glm::vec3> grid;
+    int dx = 0, dy = 0, dz = 0;
+    REQUIRE(cache.buildGrid(m, vectors.data(), vectors.size(), true, grid, dx, dy, dz));
+    REQUIRE(grid.size() == static_cast<size_t>(dx) * dy * dz);
+
+    int empty = 0;
+    float maxDev = 0.0f;
+    for (const glm::vec3& v : grid) {
+        if (glm::length(v) < 1e-6f) ++empty;
+        maxDev = std::max(maxDev, glm::length(v - glm::vec3(0.0f, 0.0f, 3.0f)));
+    }
+    CHECK_MESSAGE(empty == 0,
+                  "cell-centred texels between large cells must not fall back to zero/noise");
+    CHECK(maxDev < 1e-4f);
 }
 
 } // TEST_SUITE("render")
