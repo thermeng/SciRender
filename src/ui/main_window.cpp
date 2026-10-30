@@ -36,7 +36,6 @@
 #include <QAction>
 #include <QStyle>
 #include <algorithm>
-#include <QTimer>
 #include <QStyledItemDelegate>
 // Helper: Does a widget want typing/navigation keys (so viewport shortcuts
 // must stay out of the way)?
@@ -969,7 +968,6 @@ void MainWindow::openRecent(const QString& path) {
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix == "scfd") {
         if (m_cfdPage) m_cfdPage->loadCaseFromPath(path);
-        QTimer::singleShot(100, this, &MainWindow::clearMeshes);
     } else if (suffix == "msh") {
         if (m_cfdPage) m_cfdPage->loadMeshFromPath(path);
     } else {
