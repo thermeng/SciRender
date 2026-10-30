@@ -1,6 +1,7 @@
 #include "cfd/cfd_session.h"
 
 #include "cfd/cfd_result_builder.h"
+#include "cfd/field_utils.h"
 #include "cfd/solver_config_bridge.h"
 
 #include "field/Field.h"
@@ -25,47 +26,11 @@ namespace cfd {
 
 namespace {
 
-// Scatter the turbulence fields from a snapshot into pre-allocated cell fields.
-// Shared by buildResult() and exportTurbulence() so the two cannot drift.
-template<std::size_t Dim>
-void scatterTurbulence(const cfd::SolutionSnapshot& state,
-                       fvm::Field<Dim>& kField,
-                       fvm::Field<Dim>& omegaField,
-                       fvm::Field<Dim>& nutField) {
-    for (std::size_t i = 0; i < state.cells; ++i) {
-        kField[i] = state.turbulence.k[i];
-        omegaField[i] = state.turbulence.omega[i];
-        nutField[i] = state.turbulence.nut[i];
-    }
-}
-
 // Copy velocity + pressure from a snapshot into the live fields.
-template<std::size_t Dim>
-void seedVelocityPressure(const cfd::SolutionSnapshot& state,
-                          fvm::VectorField<Dim>& velocity,
-                          fvm::Field<Dim>& pressure) {
-    for (std::size_t d = 0; d < Dim; ++d) {
-        const auto& source = state.velocity[d];
-        auto& target = velocity[d];
-        for (std::size_t i = 0; i < state.cells && i < target.size(); ++i)
-            target[i] = source[i];
-    }
-    for (std::size_t i = 0; i < state.cells && i < pressure.size(); ++i)
-        pressure[i] = state.pressure[i];
-}
+// (handled by cfd::field_utils::copyVelocityToVectorField / copyToField)
 
 // Copy velocity + pressure from live fields into a snapshot.
-template<std::size_t Dim>
-void snapshotVelocityPressure(const fvm::VectorField<Dim>& velocity,
-                             const fvm::Field<Dim>& pressure,
-                             cfd::SolutionSnapshot& state) {
-    state.velocity.resize(Dim);
-    for (std::size_t d = 0; d < Dim; ++d) {
-        const auto values = velocity[d].values();
-        state.velocity[d].assign(values.begin(), values.end());
-    }
-    state.pressure.assign(pressure.values().begin(), pressure.values().end());
-}
+// (handled by cfd::field_utils::copyVelocityFromVectorField / copyFromField)
 
 template<std::size_t Dim>
 class CfdSession final : public ICfdSession {
@@ -150,7 +115,7 @@ public:
             cfg.wallFunction = settings.wallFunction;
             fvm::SSTModel<Dim> model(*m_mesh, cfg);
             model.initialize(settings.nu * settings.rho, settings.rho);
-            fillTurbulence(state, model);
+            cfd::field_utils::fillTurbulence<Dim>(model, state.turbulence, state.cells);
         }
         m_state = state;
         return state;
@@ -222,10 +187,11 @@ public:
                 SolutionSnapshot state;
                 state.dim = static_cast<int>(Dim);
                 state.cells = n;
-                snapshotVelocityPressure(velocity, pressure, state);
+                cfd::field_utils::copyVelocityFromVectorField<Dim>(velocity, state.velocity);
+                cfd::field_utils::copyFromField<Dim>(pressure, state.pressure);
 
                 if (const auto* turb = turbSlot->load(std::memory_order_acquire)) {
-                    fillTurbulence(state, *turb);
+                    cfd::field_utils::fillTurbulence<Dim>(*turb, state.turbulence, state.cells);
                 }
                 state.transientValid = true;
                 state.time = time;
@@ -351,7 +317,7 @@ public:
         if (m_solver && m_solverMesh == m_mesh && m_velocity && m_pressure) {
             SolutionSnapshot state = snapshotFields();
             if (const auto* turb = m_solver->turbulence()) {
-                fillTurbulence(state, *turb);
+                cfd::field_utils::fillTurbulence<Dim>(*turb, state.turbulence, state.cells);
             }
             if (m_transientRun) {
                 state.transientValid = m_solver->hasTransientState();
@@ -405,14 +371,14 @@ public:
         if (!state.hasFields() || state.cells != m_mesh->nCells()) return;
 
         Scalar pressure(*m_mesh, 0.0);
-        for (std::size_t i = 0; i < state.cells; ++i) pressure[i] = state.pressure[i];
+        cfd::field_utils::copyToField<Dim>(state.pressure, pressure);
 
         std::array<Scalar, Dim> velocity;
         std::array<const Scalar*, Dim> velocityPtrs{};
         for (std::size_t d = 0; d < Dim; ++d) {
             velocity[d] = Scalar(*m_mesh, 0.0);
-            for (std::size_t i = 0; i < state.cells; ++i)
-                velocity[d][i] = state.velocity[d][i];
+            // copy state.velocity[d] into velocity[d]
+            cfd::field_utils::copyToField<Dim>(state.velocity[d], velocity[d]);
             velocityPtrs[d] = &velocity[d];
         }
 
@@ -424,7 +390,7 @@ public:
             kField = Scalar(*m_mesh, 0.0);
             omegaField = Scalar(*m_mesh, 0.0);
             nutField = Scalar(*m_mesh, 0.0);
-            scatterTurbulence(state, kField, omegaField, nutField);
+            cfd::field_utils::scatterTurbulence<Dim>(state.turbulence, kField, omegaField, nutField);
             kPtr = &kField;
             omegaPtr = &omegaField;
             nutPtr = &nutField;
@@ -440,7 +406,7 @@ public:
         Scalar kField(*m_mesh, 0.0);
         Scalar omegaField(*m_mesh, 0.0);
         Scalar nutField(*m_mesh, 0.0);
-        scatterTurbulence(state, kField, omegaField, nutField);
+        cfd::field_utils::scatterTurbulence<Dim>(state.turbulence, kField, omegaField, nutField);
         fvm::VTKXMLWriter<Dim>::writeTurbulence(path, *m_mesh, kField, omegaField, nutField);
     }
 
@@ -453,14 +419,16 @@ private:
     void seedFields(const SolutionSnapshot& state) {
         m_velocity = std::make_shared<Velocity>(*m_mesh, 0.0);
         m_pressure = std::make_shared<Scalar>(*m_mesh, 0.0);
-        seedVelocityPressure(state, *m_velocity, *m_pressure);
+        cfd::field_utils::copyVelocityToVectorField<Dim>(state.velocity, *m_velocity);
+        cfd::field_utils::copyToField<Dim>(state.pressure, *m_pressure);
     }
 
     SolutionSnapshot snapshotFields() const {
         SolutionSnapshot state;
         state.dim = static_cast<int>(Dim);
         state.cells = m_mesh->nCells();
-        snapshotVelocityPressure(*m_velocity, *m_pressure, state);
+        cfd::field_utils::copyVelocityFromVectorField<Dim>(*m_velocity, state.velocity);
+        cfd::field_utils::copyFromField<Dim>(*m_pressure, state.pressure);
         return state;
     }
 
@@ -529,22 +497,7 @@ private:
         solver.setRestartState(std::move(rs));
     }
 
-    static void fillTurbulence(SolutionSnapshot& state,
-                               const fvm::SSTModel<Dim>& turbulence) {
-        const std::size_t n = state.cells;
-        state.turbulence.valid = true;
-        state.turbulence.k.resize(n);
-        state.turbulence.omega.resize(n);
-        state.turbulence.nut.resize(n);
-        const auto& k = turbulence.k();
-        const auto& omega = turbulence.omega();
-        const auto& nut = turbulence.nut();
-        for (std::size_t i = 0; i < n; ++i) {
-            state.turbulence.k[i] = k[i];
-            state.turbulence.omega[i] = omega[i];
-            state.turbulence.nut[i] = nut[i];
-        }
-    }
+// fillTurbulence now lives in cfd::field_utils.
 
     // Calls `fn` with the live solver, holding the session mutex only long
     // enough to take a reference. Returns a value-initialised result when no

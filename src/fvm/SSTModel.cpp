@@ -527,7 +527,7 @@ void SSTModel<Dim>::applyWallFunctions(const VectorField<Dim>& velocity) {
         } else {
             kVal = uTau * uTau / std::sqrt(Cmu);
             omegaVal = uTau / (std::sqrt(config_.constants.beta_star) * kappa * y);
-            nutVal = uTau * kappa * y;
+            nutVal = std::max(uTau * kappa * y - nu, 0.0);
         }
         k_[P] = std::clamp(kVal, config_.kMin, config_.kMax);
         omega_[P] = std::clamp(omegaVal, config_.omegaMin, config_.omegaMax);
@@ -772,6 +772,11 @@ void SSTModel<Dim>::solveKTransportImpl(const VectorField<Dim>& velocity,
     if (useTime) {
         if (timeScheme == TimeScheme::BDF2 && kOldPrev != nullptr) {
             tc = implicitTimeCoeffs(dt, dtPrev);
+        } else {
+            // Explicit Euler (or BDF2 without previous step): (phi^{n+1} - phi^n)/dt
+            tc.c0 = 1.0 / dt;
+            tc.cOld = 1.0 / dt;
+            tc.secondOrder = false;
         }
         for (std::size_t i = 0; i < n; ++i) {
             if (kBCMask_[i]) continue;
@@ -852,6 +857,11 @@ void SSTModel<Dim>::solveOmegaTransportImpl(const VectorField<Dim>& velocity,
     if (useTime) {
         if (timeScheme == TimeScheme::BDF2 && omegaOldPrev != nullptr) {
             tc = implicitTimeCoeffs(dt, dtPrev);
+        } else {
+            // Explicit Euler (or BDF2 without previous step): (phi^{n+1} - phi^n)/dt
+            tc.c0 = 1.0 / dt;
+            tc.cOld = 1.0 / dt;
+            tc.secondOrder = false;
         }
         for (std::size_t i = 0; i < n; ++i) {
             if (omegaBCMask_[i]) continue;

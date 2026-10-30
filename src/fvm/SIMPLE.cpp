@@ -5,6 +5,7 @@
 #include "fvm/VelocityCorrection.h"
 #include "fvm/SSTConstants.h"
 #include "io/VTKXMLWriter.h"
+#include "core/pvd_writer.h"
 
 #include <iomanip>
 #include <cmath>
@@ -1542,23 +1543,17 @@ void SIMPLE<Dim>::updatePVDFile_() {
         }
     }
 
-    std::ofstream out(pvdFile);
-    if (!out) {
-        std::cerr << "  WARNING: cannot write PVD file '" << pvdFile << "'\n";
-        return;
+    // Build the frame list from the "time|file" entries.
+    std::vector<core::PvdFrame> frames;
+    frames.reserve(pvdEntries_.size());
+    for (const auto& entry : pvdEntries_) {
+        const auto pos = entry.find('|');
+        core::PvdFrame fr;
+        fr.time = (pos == std::string::npos) ? std::string("0") : entry.substr(0, pos);
+        fr.file = (pos == std::string::npos) ? entry : entry.substr(pos + 1);
+        frames.push_back(std::move(fr));
     }
-    out << "<?xml version=\"1.0\"?>\n";
-    out << "<VTKFile type=\"Collection\" version=\"0.1\">\n";
-    out << "  <Collection>\n";
-    for (size_t i = 0; i < pvdEntries_.size(); ++i) {
-        // pvdEntries_ stores "time|file"
-        auto pos = pvdEntries_[i].find('|');
-        std::string t = (pos == std::string::npos) ? "0" : pvdEntries_[i].substr(0, pos);
-        std::string f = (pos == std::string::npos) ? pvdEntries_[i] : pvdEntries_[i].substr(pos+1);
-        out << "    <DataSet timestep=\"" << t << "\" file=\"" << f << "\"/>\n";
-    }
-    out << "  </Collection>\n";
-    out << "</VTKFile>\n";
+    core::writePvdCollection(pvdFile, frames);
 }
 
 template<std::size_t Dim>

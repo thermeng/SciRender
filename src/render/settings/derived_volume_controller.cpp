@@ -63,6 +63,12 @@ void DerivedVolumeController::launch() {
 }
 
 void DerivedVolumeController::onBuilt() {
+    // Guard against an empty/cleared future: clear() bumps the token and
+    // replaces the in-flight future with a default-constructed one, whose
+    // finished() signal can still be delivered to this slot. Calling result()
+    // on such a future dereferences a null result store.
+    const QFuture<BuildResult> future = m_watcher.future();
+    if (!future.isFinished() || future.resultCount() == 0) return;
     BuildResult result = m_watcher.result();
     if (result.token != m_token) return; // superseded by a newer mesh / clear
     m_renderer.setPendingDerivedVolume(std::move(result.grid));

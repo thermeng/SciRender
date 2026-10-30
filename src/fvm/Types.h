@@ -14,7 +14,7 @@ template<std::size_t Dim> class Mesh;
 using SparseMatrix = Eigen::SparseMatrix<double>;
 using Triplet = Eigen::Triplet<double>;
 
-enum class ConvectionScheme { Upwind, Central, SecondOrderUpwind, QUICK };
+enum class ConvectionScheme { Upwind, Central, SecondOrderUpwind };
 enum class TimeScheme { Euler, BDF2 };
 
 // Coefficients of the implicit time term

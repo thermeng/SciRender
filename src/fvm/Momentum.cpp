@@ -653,12 +653,11 @@ void Momentum<Dim>::assembleWithConvection(
             double un = dotNormal(face, fn);
             double F = rho_ * un * area;
             // The base assembly always carries the UPWIND face value. The
-            // second-order reconstruction (SOU/QUICK) enters afterwards as a
-            // deferred correction, so the base must stay plain upwind for those
-            // schemes too. QUICK shares the same base.
+            // second-order reconstruction (SOU) enters afterwards as a
+            // deferred correction, so the base must stay plain upwind for
+            // second-order too.
             const bool isUpwindBase = (scheme == ConvectionScheme::Upwind ||
-                                       scheme == ConvectionScheme::SecondOrderUpwind ||
-                                       scheme == ConvectionScheme::QUICK);
+                                       scheme == ConvectionScheme::SecondOrderUpwind);
             auto addConvFluxUnified = [&](double flux, std::size_t from, std::size_t to) {
                 if (isUpwindBase) {
                     if (flux >= 0.0) diagInc_[from] += flux;
@@ -676,7 +675,7 @@ void Momentum<Dim>::assembleWithConvection(
             addConvFluxUnified(F, P, N);
             addConvFluxUnified(-F, N, P);
 
-            // ---- deferred reconstruction (second order upwind / QUICK) ----
+            // ---- deferred reconstruction (second order upwind) ----
             //
             // The reconstructed face value is phi_f = phi_up + corr. The base
             // upwind assembly already carries phi_up on the two rows, so only
@@ -689,8 +688,7 @@ void Momentum<Dim>::assembleWithConvection(
             // an unbounded downwind one. This mirrors the scalar Convection
             // operator (src/fvm/Convection.cpp), which is the tested
             // reference for this contract.
-            if (scheme == ConvectionScheme::SecondOrderUpwind ||
-                scheme == ConvectionScheme::QUICK) {
+            if (scheme == ConvectionScheme::SecondOrderUpwind) {
                 const bool upIsP = (F >= 0.0);
                 const std::size_t upCell = upIsP ? P : N;
                 const std::size_t downCell = upIsP ? N : P;
@@ -701,42 +699,7 @@ void Momentum<Dim>::assembleWithConvection(
                 double corr = 0.0;
                 bool haveCorr = false;
 
-                if (scheme == ConvectionScheme::QUICK) {
-                    // Three-point quadratic reconstruction (unbounded by design -
-                    // the same reconstruction the scalar Convection operator
-                    // uses).
-                    std::array<double, Dim> fnArr{};
-                    for (std::size_t dd = 0; dd < Dim; ++dd) fnArr[dd] = fn[dd];
-                    auto upPair = secondOrderUpwindCells(mesh_, P, N, un, fnArr);
-                    const std::size_t up = upPair.first;
-                    const std::size_t up2 = upPair.second;
-                    if (up != up2 && up != downCell && up2 != downCell) {
-                        const double* xUp2 = mesh_.cellCenterPtr(up2);
-                        const double* xUp = mesh_.cellCenterPtr(up);
-                        const double* xDown = mesh_.cellCenterPtr(downCell);
-                        const double* xFp = mesh_.faceCenterPtr(f);
-                        auto coord = [&](const double* x) {
-                            double s = 0.0;
-                            for (std::size_t dd = 0; dd < Dim; ++dd) s += x[dd] * fnArr[dd];
-                            return s;
-                        };
-                        const double s2 = coord(xUp2), sUp = coord(xUp), sDown = coord(xDown), sF = coord(xFp);
-                        const double denomA = (s2 - sUp) * (s2 - sDown);
-                        const double denomB = (sUp - s2) * (sUp - sDown);
-                        const double denomC = (sDown - s2) * (sDown - sUp);
-                        if (std::abs(denomA) > 1e-30 && std::abs(denomB) > 1e-30 && std::abs(denomC) > 1e-30) {
-                            const double wa = (sF - sUp) * (sF - sDown) / denomA;
-                            const double wb = (sF - s2) * (sF - sDown) / denomB;
-                            const double wc = (sF - s2) * (sF - sUp) / denomC;
-                            auto cellVal = [&](std::size_t c) {
-                                return (hasMask && dirichletMask[c]) ? dirichletValues[c] : velocity[d][c];
-                            };
-                            const double phiF = wa * cellVal(up2) + wb * cellVal(up) + wc * cellVal(downCell);
-                            corr = phiF - cellVal(up);
-                            haveCorr = true;
-                        }
-                    }
-                } else if (phiGrad != nullptr) {
+                if (phiGrad != nullptr) {
                     // Gradient reconstruction, clamped to the bounds of the
                     // upwind cell's neighbours (Barth-Jespersen style).
                     const double* xF = mesh_.faceCenterPtr(f);

@@ -107,7 +107,7 @@ void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::Vect
         if (N == std::size_t(-1)) {
             // Boundary face. The base flux has to be added for EVERY scheme:
             // the previous code only handled it inside the SOU branch, so with
-            // plain upwind, central differencing or QUICK the convective flux
+            // plain upwind, central differencing or second-order upwind the convective flux
             // through the boundary was dropped entirely and the transported
             // quantity did not balance at the outlet.
             double un = 0.0;
@@ -189,50 +189,6 @@ void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::Vect
             } else {
                 if (!upPrescribed) b(N) -= (-F) * limited;
                 if (!downPrescribed) b(P) += (-F) * limited;
-            }
-        }
-        if (scheme_ == ConvectionScheme::QUICK) {
-            const auto& fn = mesh_.faceNormal(f);
-            std::array<double, Dim> fnArr{};
-            for (std::size_t dd = 0; dd < Dim; ++dd) fnArr[dd] = fn[dd];
-            auto [up, up2] = secondOrderUpwindCells(mesh_, P, N, un, fnArr);
-            std::size_t down = (F >= 0.0) ? N : P;
-            if (up != up2 && up != down && up2 != down) {
-                const double* xUp2 = mesh_.cellCenterPtr(up2);
-                const double* xUp = mesh_.cellCenterPtr(up);
-                const double* xDown = mesh_.cellCenterPtr(down);
-                const double* xFp = mesh_.faceCenterPtr(f);
-                auto coord = [&](const double* x) {
-                    double s = 0.0;
-                    for (std::size_t d = 0; d < Dim; ++d) s += x[d] * fn[d];
-                    return s;
-                };
-                double s2 = coord(xUp2), sUp = coord(xUp), sDown = coord(xDown), sF = coord(xFp);
-                double denomA = (s2 - sUp) * (s2 - sDown);
-                double denomB = (sUp - s2) * (sUp - sDown);
-                double denomC = (sDown - s2) * (sDown - sUp);
-                if (std::abs(denomA) > 1e-30 && std::abs(denomB) > 1e-30 && std::abs(denomC) > 1e-30) {
-                    double wa = (sF - sUp) * (sF - sDown) / denomA;
-                    double wb = (sF - s2) * (sF - sDown) / denomB;
-                    double wc = (sF - s2) * (sF - sUp) / denomC;
-                    auto cellVal = [&](std::size_t c) {
-                        return (hasMask && bcs.scalarMask[c]) ? bcs.scalarValues[c] : phi[c];
-                    };
-                    double phiF = wa * cellVal(up2) + wb * cellVal(up) + wc * cellVal(down);
-                    double corr = phiF - cellVal(up);
-                    // Same rule as the SOU branch: the downwind cell always
-                    // receives its share of the correction.
-                    const bool upIsP = (F >= 0.0);
-                    const bool upPrescribed = hasMask && bcs.scalarMask[upIsP ? P : N];
-                    const bool downPrescribed = hasMask && bcs.scalarMask[upIsP ? N : P];
-                    if (upIsP) {
-                        if (!upPrescribed) b(P) -= F * corr;
-                        if (!downPrescribed) b(N) += F * corr;
-                    } else {
-                        if (!upPrescribed) b(N) -= (-F) * corr;
-                        if (!downPrescribed) b(P) += (-F) * corr;
-                    }
-                }
             }
         }
     }

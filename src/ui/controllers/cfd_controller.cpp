@@ -130,9 +130,44 @@ void CfdController::resetSolutionState() {
     // generator must not publish into the new state.
     ++m_gen;
     stopWorkers();
-    if (m_session) m_session->clear();
+    // Don't clear the session while a solve is running: session->clear()
+    // deletes solver state on the GUI thread, racing with session->solve()
+    // on the background thread.  The solve completion handler will clear
+    // the session safely once the solve thread has exited.
+    if (!m_running.load(std::memory_order_acquire) && m_session) m_session->clear();
     m_state.clear();
     m_lastTime.store(0.0);
+    m_latestStep.store(nullptr);
+    m_latestFrameSlot.store(nullptr);
+}
+
+void CfdController::unload() {
+    m_cancel.store(true);
+    if (m_session) m_session->requestCancel();
+    // Disconnect and wait for any in-flight solve before touching anything else:
+    // the watcher callback (which may fire synchronously) assumes the solve
+    // thread has exited before calling session->clear() or emit finished().
+    if (m_solveWatcher) {
+        m_solveWatcher->disconnect(this);
+        if (m_solveWatcher->isRunning()) m_solveWatcher->waitForFinished();
+        m_solveWatcher = nullptr;
+    }
+    m_running.store(false);
+    m_cancel.store(false);
+    resetSolutionState();
+    m_session.reset();
+    m_mesh = cfd::MeshLoadResult{};
+    m_settings = cfd::CaseSettings{};
+    m_patchBCs.clear();
+    m_meshPath.clear();
+    m_meshName.clear();
+    m_embeddedMesh.clear();
+    m_casePath.clear();
+    m_caseDir.clear();
+    m_tempDir.reset();
+    m_lastError.clear();
+    m_monitorHistory.clear();
+    m_postExtractor = nullptr;
     m_latestStep.store(nullptr);
     m_latestFrameSlot.store(nullptr);
 }
@@ -161,7 +196,7 @@ bool CfdController::loadMesh(const QString& path) {
         return false;
     }
 
-    resetSolutionState();
+    unload();
     m_mesh = std::move(res);
     m_session = cfd::makeSession(m_mesh);
     if (!m_session) {
@@ -388,7 +423,16 @@ bool CfdController::run() {
         m_diskWriterRunning.store(false);
         if (m_diskWriterThread.joinable()) m_diskWriterThread.join();
         m_running.store(false);
-        if (gen != m_gen) return;
+        if (gen != m_gen) {
+            // The solve was interrupted by a reset/clear while running.
+            // session->clear() was intentionally skipped in resetSolutionState()
+            // to avoid a data race with the still-running solve().  The solve
+            // thread has now fully exited, so it is safe to clean up here, and
+            // we emit finished() so CfdCasePage can restore its UI state.
+            if (m_session) m_session->clear();
+            emit finished("Interrupted");
+            return;
+        }
 
         // The solve is no longer writing: snapshot the final state so Save and
         // a subsequent Run both see it.
@@ -900,8 +944,7 @@ bool CfdController::loadCase(const QString& path) {
     }
 
     // --- Commit (nothing above mutated the controller) --------------------
-    stopWorkers();
-    ++m_gen;
+    unload();
 
     m_mesh = std::move(newMesh);
     m_session = cfd::makeSession(m_mesh);

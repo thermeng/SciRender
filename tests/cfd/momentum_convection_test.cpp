@@ -141,68 +141,6 @@ TEST_CASE("cfd.momentum.sou_matches_central_on_linear_field") {
     }
 }
 
-// QUICK is a three point reconstruction: on a linear field it is exact too, so
-// it has to agree with the central operator. This also pins the QUICK branch:
-// when it silently fell through to the central branch the test would still
-// pass, which is why the quadratic case below exists.
-TEST_CASE("cfd.momentum.quick_matches_central_on_linear_field") {
-    const fvm::Mesh<2> mesh = uniform2D(6);
-    const double rho = 1.0;
-    fvm::Momentum<2> mom(mesh, rho, 0.0);
-    const fvm::VectorField<2> vel = linearDivergenceFree(mesh);
-    const auto grad = linearGradient(mesh);
-
-    const Assembled quick = assembleMomentum(mom, mesh, vel, grad,
-                                             fvm::ConvectionScheme::QUICK);
-    const Assembled central = assembleMomentum(mom, mesh, vel, grad,
-                                                fvm::ConvectionScheme::Central);
-    const Eigen::VectorXd rq = residual(quick, vel);
-    const Eigen::VectorXd rc = residual(central, vel);
-
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i)) continue;
-        // QUICK is a three point stencil: the up-up cell has to exist, so the
-        // two columns next to the upstream boundary fall back to plain upwind.
-        if (mesh.cellCoords(i)[0] < 2) continue;
-        CAPTURE(i);
-        CHECK_MESSAGE(std::abs(rq(static_cast<Eigen::Index>(i)) - rc(static_cast<Eigen::Index>(i))) < 1e-12,
-                      "QUICK must be exact for a linear field");
-    }
-}
-
-// QUICK must not degrade to the central operator. On a quadratic field the
-// three point reconstruction is exact while the central one is not, so the two
-// operators have to differ.
-TEST_CASE("cfd.momentum.quick_is_not_central") {
-    const fvm::Mesh<2> mesh = uniform2D(4);
-    fvm::Momentum<2> mom(mesh, 1.0, 0.0);
-
-    fvm::VectorField<2> vel(mesh, 0.0);
-    fillVector<2>(vel, [](double x, double, double) {
-        return std::array<double, 2>{x * x, 0.0};
-    });
-    std::array<fvm::Field<2>, 2> grad{fvm::Field<2>(mesh, 0.0), fvm::Field<2>(mesh, 0.0)};
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        const double x = mesh.cellCenter(i)[0];
-        grad[0][i] = 2.0 * x;   // d(u_x)/dx
-        grad[1][i] = 0.0;
-    }
-
-    const Assembled quick = assembleMomentum(mom, mesh, vel, grad,
-                                             fvm::ConvectionScheme::QUICK);
-    const Assembled central = assembleMomentum(mom, mesh, vel, grad,
-                                                fvm::ConvectionScheme::Central);
-    const Eigen::VectorXd rq = residual(quick, vel);
-    const Eigen::VectorXd rc = residual(central, vel);
-
-    double maxDiff = 0.0;
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i)) continue;
-        maxDiff = std::max(maxDiff, std::abs(rq(static_cast<Eigen::Index>(i)) - rc(static_cast<Eigen::Index>(i))));
-    }
-    CHECK_MESSAGE(maxDiff > 1e-9, "QUICK must not silently degrade to central differencing");
-}
-
 // The conservative flux form must annihilate a constant transported quantity
 // for a divergence free flow: the operator has to conserve the momentum.
 TEST_CASE("cfd.momentum.constant_is_conserved_by_divergence_free_flow") {
@@ -217,8 +155,7 @@ TEST_CASE("cfd.momentum.constant_is_conserved_by_divergence_free_flow") {
 
     for (const auto scheme : {fvm::ConvectionScheme::Upwind,
                               fvm::ConvectionScheme::Central,
-                              fvm::ConvectionScheme::SecondOrderUpwind,
-                              fvm::ConvectionScheme::QUICK}) {
+                              fvm::ConvectionScheme::SecondOrderUpwind}) {
         CAPTURE(static_cast<int>(scheme));
         const Assembled op = assembleMomentum(mom, mesh, vel, grad, scheme);
         const Eigen::VectorXd r = residual(op, vel);

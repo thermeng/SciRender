@@ -14,6 +14,7 @@
 
 #include <cstring>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <vector>
 #include <random>
@@ -95,14 +96,16 @@ void Renderer::initGLAD() {
         qWarning() << "[GL CAPABILITY] GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS ="
                    << maxSsboBindings << "(below minimum 12; GPU LOD compute may fail)";
     }
-    qDebug() << "[GL CAPABILITY] SSBO bindings:" << maxSsboBindings
-             << "| Max workgroup size:" << maxWorkGroupSize[0] << "x" << maxWorkGroupSize[1] << "x" << maxWorkGroupSize[2]
-             << "| Max invocations:" << maxInvocations;
+    if (std::getenv("SCIRENDER_DEBUG")) {
+        qDebug() << "[GL CAPABILITY] SSBO bindings:" << maxSsboBindings
+                 << "| Max workgroup size:" << maxWorkGroupSize[0] << "x" << maxWorkGroupSize[1] << "x" << maxWorkGroupSize[2]
+                 << "| Max invocations:" << maxInvocations;
 
-    qDebug() << "[GL DIAGNOSTIC] VERSION:" << (const char*)glGetString(GL_VERSION)
-             << "| RENDERER:" << (const char*)glGetString(GL_RENDERER)
-             << "| GLSL:" << (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION)
-             << "| CLIP_CONTROL:" << m_clipControlAvailable;
+        qDebug() << "[GL DIAGNOSTIC] VERSION:" << (const char*)glGetString(GL_VERSION)
+                 << "| RENDERER:" << (const char*)glGetString(GL_RENDERER)
+                 << "| GLSL:" << (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION)
+                 << "| CLIP_CONTROL:" << m_clipControlAvailable;
+    }
 }
 
 void Renderer::initShaders(const ShaderSources& sources) {

@@ -3,6 +3,7 @@
 #include <QIcon>
 #include <QFile>
 #include <QSurfaceFormat>
+#include <cstdlib>
 
 #include "ui/main_window.h"
 
@@ -15,7 +16,7 @@ int main(int argc, char *argv[]) {
         catch (...) { qCritical() << "  unknown exception"; }
         std::abort();
     });
-    qDebug() << "[LAUNCH DIAGNOSTIC 1/4] Main entry executed. Allocating resources...";
+    if (std::getenv("SCIRENDER_DEBUG")) qDebug() << "[LAUNCH DIAGNOSTIC 1/4] Main entry executed. Allocating resources...";
 
     // Stable QSettings scope (must be set before any QSettings access)
     QCoreApplication::setOrganizationName("SciRender");
@@ -30,7 +31,7 @@ int main(int argc, char *argv[]) {
     glFormat.setSamples(0);
     QSurfaceFormat::setDefaultFormat(glFormat);
 
-    qDebug() << "[LAUNCH DIAGNOSTIC 2/4] Graphics API bound to desktop OpenGL 4.6 Core.";
+    if (std::getenv("SCIRENDER_DEBUG")) qDebug() << "[LAUNCH DIAGNOSTIC 2/4] Graphics API bound to desktop OpenGL 4.6 Core.";
 
     QApplication app(argc, argv);
     app.setStyle("Fusion");
@@ -42,12 +43,12 @@ int main(int argc, char *argv[]) {
         if (!icon.isNull()) app.setWindowIcon(icon);
     }
 
-    qDebug() << "[LAUNCH DIAGNOSTIC 3/4] Ready.";
+    if (std::getenv("SCIRENDER_DEBUG")) qDebug() << "[LAUNCH DIAGNOSTIC 3/4] Ready.";
 
     MainWindow window;
     window.show();
 
-    qDebug() << "[LAUNCH DIAGNOSTIC 4/4] MainWindow created and shown.";
+    if (std::getenv("SCIRENDER_DEBUG")) qDebug() << "[LAUNCH DIAGNOSTIC 4/4] MainWindow created and shown.";
 
     int ret = 0;
     try { ret = app.exec(); }

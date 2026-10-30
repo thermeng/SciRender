@@ -1,5 +1,6 @@
 #include "cfd/cfd_mesh_adapter.h"
 
+#include "cfd/mesh_build_policy.h"
 #include "io/ANSYSMeshReader.h"
 #include "io/GmshReader.h"
 #include "mesh/Mesh.h"
@@ -33,13 +34,7 @@ std::string sniffFormat(const std::string& path) {
 }
 
 // Boundary faces are identified by their neighbour: the mesh's face list uses
-// npos for a face that has no second cell.
-constexpr std::size_t kNoNeighbor = static_cast<std::size_t>(-1);
-
-uint64_t edgeKey(std::uint32_t a, std::uint32_t b) {
-    if (a > b) std::swap(a, b);
-    return (static_cast<uint64_t>(a) << 32) | static_cast<uint64_t>(b);
-}
+// npos for a face that has no second cell (see cfd::mesh_build::kNoNeighbor).
 
 // Canonical VTK corner order for a 3D cell. The reader already canonicalizes
 // ANSYS cells; Gmsh files are canonical by construction. Re-canonicalizing
@@ -60,97 +55,31 @@ void canonicalCell(const fvm::Mesh<3>& m, std::size_t cellIndex,
 
 template<std::size_t Dim>
 std::shared_ptr<const RenderMesh> buildRenderMesh(const fvm::Mesh<Dim>& m) {
+    using Policy = cfd::mesh_build::MeshBuildPolicy<Dim>;
+
     RenderMesh rm;
     rm.datasetType = "CFD MESH";
     rm.fileFormat = "MSH";
 
-    const auto& verts = m.vertices();
-    rm.vertices.reserve(verts.size() * 3);
-    for (const auto& v : verts) {
-        rm.vertices.push_back(static_cast<float>(v[0]));
-        rm.vertices.push_back(static_cast<float>(v[1]));
-        if constexpr (Dim == 3) {
-            rm.vertices.push_back(static_cast<float>(v[2]));
-        } else {
-            rm.vertices.push_back(0.0f);  // 2D CFD lives in the z=0 plane
-        }
-    }
-
-    if constexpr (Dim == 2) {
-        // Every cell is a surface polygon: fan-triangulate it.
-        for (const auto& cell : m.cells()) {
-            if (cell.size() < 3) continue;
-            for (std::size_t i = 1; i + 1 < cell.size(); ++i) {
-                rm.indices.push_back(static_cast<std::uint32_t>(cell[0]));
-                rm.indices.push_back(static_cast<std::uint32_t>(cell[i]));
-                rm.indices.push_back(static_cast<std::uint32_t>(cell[i + 1]));
-            }
-        }
-    } else {
-        // A volume mesh must render its external surface: only faces without a
-        // neighbour on the other side. Using the solver's face topology (instead
-        // of a per-cell face-count heuristic) is exact for polyhedra.
-        std::vector<std::uint32_t> edges;
-        std::unordered_set<uint64_t> seenEdges;
-        for (std::size_t f = 0; f < m.nFaces(); ++f) {
-            if (m.neighbor(f) != kNoNeighbor) continue;
-            const auto& loop = m.faceVertices(f);
-            if (loop.size() < 3) continue;
-            for (std::size_t i = 1; i + 1 < loop.size(); ++i) {
-                rm.indices.push_back(static_cast<std::uint32_t>(loop[0]));
-                rm.indices.push_back(static_cast<std::uint32_t>(loop[i]));
-                rm.indices.push_back(static_cast<std::uint32_t>(loop[i + 1]));
-            }
-            for (std::size_t i = 0; i < loop.size(); ++i) {
-                const auto a = static_cast<std::uint32_t>(loop[i]);
-                const auto b = static_cast<std::uint32_t>(loop[(i + 1) % loop.size()]);
-                if (seenEdges.insert(edgeKey(a, b)).second) {
-                    edges.push_back(a);
-                    edges.push_back(b);
-                }
-            }
-        }
-        rm.cellEdgeIndices = std::move(edges);
-    }
+    Policy::buildVertices(rm, m);
+    Policy::buildSurface(rm, m);
 
     // Cell topology (shared by the post-field extrapolation, glyph placement
     // and the least-squares gradient neighbour builder).
-    std::size_t cellIndex = 0;
-    for (const auto& cell : m.cells()) {
+    auto canonicalCellFn = [](const fvm::Mesh<Dim>& mesh,
+                              std::size_t cellIndex,
+                              std::vector<std::size_t>& out,
+                              std::uint8_t& type) {
         if constexpr (Dim == 3) {
-            std::vector<std::size_t> canonical;
-            std::uint8_t type = cell_topology::kPolyhedron;
-            canonicalCell(m, cellIndex, canonical, type);
-            for (std::size_t vi : canonical) {
-                rm.cellConnectivity.push_back(static_cast<std::uint32_t>(vi));
-            }
-            rm.cellTypes.push_back(type);
-            if (cell_topology::isVolumeCell(type)) ++rm.unstructuredVolumeCellCount;
+            canonicalCell(mesh, cellIndex, out, type);
         } else {
-            for (std::size_t vi : cell) {
-                rm.cellConnectivity.push_back(static_cast<std::uint32_t>(vi));
-            }
-            rm.cellTypes.push_back(static_cast<std::uint8_t>(
-                cell.size() == 3 ? 5 : (cell.size() == 4 ? 9 : 7)));
+            (void)mesh; (void)cellIndex; (void)out; (void)type;
         }
-        rm.cellOffsets.push_back(static_cast<std::uint32_t>(rm.cellConnectivity.size()));
-        ++cellIndex;
-    }
+    };
+    Policy::buildCellTopology(rm, m, canonicalCellFn);
 
     // Cell centres
-    rm.cellCenters.reserve(m.nCells());
-    for (std::size_t c = 0; c < m.nCells(); ++c) {
-        const auto cc = m.cellCenter(c);
-        if constexpr (Dim == 3) {
-            rm.cellCenters.emplace_back(static_cast<float>(cc[0]),
-                                        static_cast<float>(cc[1]),
-                                        static_cast<float>(cc[2]));
-        } else {
-            rm.cellCenters.emplace_back(static_cast<float>(cc[0]),
-                                        static_cast<float>(cc[1]),
-                                        0.0f);
-        }
-    }
+    Policy::buildCellCenters(rm, m);
     rm.cellVectorCount = m.nCells();
 
     // Pre-normal-split point count (what the UI reports and what point fields

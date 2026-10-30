@@ -92,6 +92,7 @@ private:
     QAction* m_tbWireframe = nullptr;
     QAction* m_tbSurface = nullptr;
     QAction* m_tbVolume = nullptr;
+    QAction* m_clearAction = nullptr;
 
     // Sidebar
     QDockWidget* m_sidebarDock = nullptr;

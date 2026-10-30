@@ -92,7 +92,7 @@ TEST_CASE("cfd.convection.constant_field_annihilated") {
 
     const fvm::ConvectionScheme schemes[] = {
         fvm::ConvectionScheme::Upwind, fvm::ConvectionScheme::Central,
-        fvm::ConvectionScheme::SecondOrderUpwind, fvm::ConvectionScheme::QUICK};
+        fvm::ConvectionScheme::SecondOrderUpwind};
 
     for (const auto scheme : schemes) {
         CAPTURE(static_cast<int>(scheme));
@@ -265,39 +265,6 @@ TEST_CASE("cfd.convection.sou_limiter_bounds") {
             CHECK_MESSAGE(reconstructed <= hi + 1e-12, "the reconstruction must not overshoot");
         }
     }
-}
-
-// The three-point quadratic reconstruction reproduces a linear field.
-TEST_CASE("cfd.convection.quick_linear_exact") {
-    const int n = 6;
-    const fvm::Mesh<2> mesh = uniform2D(n);
-    fvm::Field<2> phi(mesh, 0.0);
-    fillScalar(phi, [](double x, double, double) { return x; });
-    fvm::VectorField<2> vel(mesh, 0.0);
-    vel[0].assign(1.0);
-
-    fvm::Convection<2> conv(mesh);
-    conv.setScheme(fvm::ConvectionScheme::QUICK);
-    const Assembled op = assembleSparse(conv, mesh, phi, vel);
-
-    const Eigen::VectorXd phiVec = Eigen::VectorXd::Map(phi.values().data(), phi.size());
-    const Eigen::VectorXd applied = op.A * phiVec;
-    int checked = 0;
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i))
-            continue;
-        // The quadratic reconstruction needs three distinct cells along the
-        // flow direction, so the upwind cell of the face must have a cell
-        // behind it as well.
-        const auto c = mesh.cellCoords(i);
-        if (c[0] < 2 || c[0] > static_cast<std::size_t>(n) - 2)
-            continue;
-        CAPTURE(i);
-        ++checked;
-        CHECK_MESSAGE(std::abs((applied[i] - op.b[static_cast<int>(i)]) - mesh.cellVolume(i)) < 1e-12,
-                      "the QUICK reconstruction must be exact for a linear field");
-    }
-    CHECK_MESSAGE(checked > 0, "the test must actually check some cells");
 }
 
 // The three entry points must assemble the same operator. The flow is
