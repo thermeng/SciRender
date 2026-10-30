@@ -236,7 +236,8 @@ void MainWindow::setupMenus() {
         recentMenu->addAction("Clear Recent Files", this, &MainWindow::clearRecentFiles);
     });
 
-    fileMenu->addAction("&Clear", this, &MainWindow::clearMeshes);
+    m_clearAction = fileMenu->addAction("&Clear", this, &MainWindow::clearMeshes);
+    if (m_clearAction) m_clearAction->setEnabled(m_settings->getHasMeshLoaded());
     fileMenu->addSeparator();
     if (!m_cfdPage) m_cfdPage = new sidebar::CfdCasePage(m_settings);
     fileMenu->addAction("Load CFD &Mesh...", m_cfdPage, &sidebar::CfdCasePage::onLoadMesh);
@@ -920,6 +921,7 @@ void MainWindow::connectSettings() {
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, &MainWindow::updateStatusBar);
     connect(m_settings, &RenderSettings::meshLoadStateChanged, this, [this]() {
         refreshSidebarCapabilityBadges();
+        if (m_clearAction) m_clearAction->setEnabled(m_settings->getHasMeshLoaded());
     });
     connect(m_settings, &RenderSettings::meshDataUpdated, this, [this]() {
         refreshSidebarCapabilityBadges();
@@ -967,6 +969,7 @@ void MainWindow::openRecent(const QString& path) {
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix == "scfd") {
         if (m_cfdPage) m_cfdPage->loadCaseFromPath(path);
+        QTimer::singleShot(100, this, &MainWindow::clearMeshes);
     } else if (suffix == "msh") {
         if (m_cfdPage) m_cfdPage->loadMeshFromPath(path);
     } else {
@@ -1045,14 +1048,26 @@ void MainWindow::onScreenshotCaptured(const QString& savedPath) {    QTimer::sin
 }
 
 void MainWindow::clearMeshes() {
+    if (m_settings && !m_settings->getHasMeshLoaded()) return;
+    bool glReady = false;
     if (m_viewport) {
         m_viewport->makeCurrent();
-        if (!QOpenGLContext::currentContext()) {
-            qWarning() << "clearMeshes: failed to make GL context current";
-        }
+        glReady = (QOpenGLContext::currentContext() != nullptr);
     }
-    m_settings->clearMeshes();
-    if (m_viewport) m_viewport->doneCurrent();
+    // Stop the CFD solve (if running) before clearing GPU resources, so
+    // background solve threads, hooks, and frame publishers cannot touch
+    // deleted GPU objects after clearGpuMeshes() runs.
+    if (m_cfdPage && m_cfdPage->controller()) {
+        m_cfdPage->controller()->unload();
+    }
+    if (glReady) {
+        m_settings->clearMeshes();
+        m_viewport->doneCurrent();
+    } else {
+        // Context is not current: clear CPU-side state only, skip GL cleanup.
+        m_settings->clearMeshes(/*skipGpu=*/true);
+    }
+    syncTopToolbar();
     updateStatusBar();
 }
 

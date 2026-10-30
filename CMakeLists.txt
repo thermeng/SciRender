@@ -107,6 +107,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/core/obj_parser.cpp
         src/core/vtk_xml_parser.cpp
         src/core/pvd_parser.cpp
+        src/core/pvd_writer.h
     )
     target_include_directories(CoreLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(CoreLib PUBLIC glm pugixml zlib lz4 lzma)
@@ -175,6 +176,9 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
 
     add_library(CfdLib STATIC
         src/cfd/cfd_types.h
+        src/cfd/case_codec.h
+        src/cfd/field_utils.h
+        src/cfd/mesh_build_policy.h
         src/cfd/amg_settings_bridge.h
         src/cfd/transient_settings_bridge.h
         src/cfd/cfd_mesh_adapter.h

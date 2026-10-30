@@ -1,6 +1,5 @@
 <h1 align="center">SciRender</h1>
 
-
 <p align="center">
 
   <img src="https://img.shields.io/badge/C%2B%2B-20-blue" />
@@ -23,47 +22,31 @@
   </tr>
 </table>
 
-Qt 6 + OpenGL 4.6 scientific rendering application supporting the VTK XML formats
-(`.vtu`, `.vts`, `.vti`, `.vtp`, `.vtr`, `.vtm` multi-block), VTK legacy
-(`.vtk`), STL, and OBJ files. Maps scalar data to surface colormaps, draws
-instanced vector-field arrow glyphs, integrated streamlines, particle traces,
-Line Integral Convolution (LIC), volume ray-marching, and isosurface extraction
-via marching cubes. Plays ParaView `.pvd` time-series collections as streamed
-animations and exports them to MJPEG AVI videos or PNG frame sequences.
+Qt 6 + OpenGL 4.6 scientific rendering application. Loads VTK XML (`.vtu`, `.vts`, `.vti`, `.vtp`, `.vtr`, `.vtm` multi-block), VTK legacy (`.vtk`), STL, and OBJ meshes, plus `.pvd` time-series collections. Maps scalar data to surface colormaps, draws instanced vector-field arrow glyphs, integrates streamlines, renders particle traces, Line Integral Convolution (LIC), volume ray-marching, and isosurface extraction via marching cubes. Streams `.pvd` animations and exports them to MJPEG AVI video or PNG frame sequences.
 
-Features include a 5-direction PBR-calibrated lighting kit, axis triad overlay
-with pole-view handling, axis-aligned clipping and slice planes, wireframe
-overlay, GPU-compute level-of-detail (LOD), depth-peel order-independent
-transparency (1–8 layers), orthographic/perspective projection, screenshot
-export, and a rich Qt Widgets sidebar with per-page control panels.
+Includes a CFD module: a steady/transient finite-volume (SIMPLE/PISO) solver with k-omega SST turbulence, 2D/3D unstructured mesh support, boundary conditions (velocity inlet, pressure outlet, walls, symmetry), transient restart, and `.scfd` case save/load with full field and clock preservation.
+
+Features include a 5-direction PBR-calibrated lighting kit, axis triad overlay with pole-view handling, axis-aligned clipping and slice planes, wireframe overlay, GPU-compute level-of-detail (LOD), depth-peel order-independent transparency (1–8 layers), orthographic/perspective projection, screenshot export, and a rich Qt Widgets sidebar with per-page control panels.
 
 ## Download (no build needed)
 
 For users who don't want to build from source:
 
-- **Installer (recommended):** `SciRender-Setup.exe` from the latest
-  [GitHub Release](../../releases) → Next → Finish → Start Menu `SciRender`.
-- **Portable (no install, no admin):** `SciRender-win64.zip` from the same
-  Release → Extract All → double-click `SciRender.exe`.
+- **Installer (recommended):** `SciRender-Setup.exe` from the latest [GitHub Release](../../releases) → Next → Finish → Start Menu `SciRender`.
+- **Portable (no install, no admin):** `SciRender-win64.zip` from the same Release → Extract All → double-click `SciRender.exe`.
 
-Then drag-drop a `.vtu`/`.vts`/`.vti`/`.vtp`/`.vtr`/`.vtm`/`.vtk`/`.stl`/`.obj`/`.pvd`
-file onto the window, or use `File > Open Mesh`. No Qt install required; all
-`Qt6` DLLs and `shaders/` are included via `windeployqt`.
+Then drag-drop a `.vtu`/`.vts`/`.vti`/`.vtp`/`.vtr`/`.vtm`/`.vtk`/`.stl`/`.obj`/`.pvd`/`.scfd` file onto the window, or use `File > Open Mesh`. No Qt install required; all `Qt6` DLLs and `shaders/` are included via `windeployqt`.
 
 ## Build (for developers)
 
-Requires **Qt 6** (Core, Gui, Widgets, OpenGLWidgets), **OpenGL 4.6**,
-a C++20 compiler, CMake ≥ 3.19, and **ZLIB** (system-installed or
-auto-detected via `ZLIB_ROOT`). GLAD, GLM, pugixml, LZ4, and LZMA are
-vendored under `vendor/`, no install needed.
+Requires **Qt 6** (Core, Gui, Widgets, OpenGLWidgets), **OpenGL 4.6**, a C++20 compiler, CMake ≥ 3.19, and **ZLIB** (system-installed or auto-detected via `ZLIB_ROOT`). GLAD, GLM, pugixml, LZ4, and LZMA are vendored under `vendor/`, no install needed.
 
 ```bash
 cmake -S . -B build -DCMAKE_PREFIX_PATH="<path-to-Qt6>"
 cmake --build build -j4
 ```
 
-The shaders in `src/shaders/` are copied next to the binary at build time, so
-the program can run from the build directory.
+The shaders in `src/shaders/` are copied next to the binary at build time, so the program can run from the build directory.
 
 To reproduce the Release package locally:
 
@@ -78,219 +61,110 @@ C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --compiler-runtime package/S
 
 ## Features
 
-- Loads VTK XML (`.vtu`/`.vts`/`.vti`/`.vtp`/`.vtr`/`.vtm` multiblock),
-  VTK legacy (`.vtk`), STL, and OBJ formats with auto-detected compression
-  (ZLIB/LZ4/LZMA, `UInt32`/`UInt64` headers, `ASCII`/`BINARY`/`APPENDED`
-  encodings, byte-order swap). `.vtm` merges `<DataSet file="..."/>` entries;
-  `.pvd` time-series are streamed via the animation controller, not as a single
-  mesh
-- Scalar surface coloring with GPU colormap textures; per-dataset **surface**
-  tessellation for curvilinear grids (boundary shell, not the full volume).
-  Palettes: Turbo, Viridis, Inferno, CoolWarm, MutedCoolWarm, BWR, Cividis,
-  Grayscale — each with reverse toggle and discrete bands (`0–32`)
-- Vector field arrow glyphs with user-controllable density (stride), scaling,
-  magnitude transform (linear/sqrt/log), and placement (vertex or cell-center).
-  Supports per-vertex and per-cell vector fields; glyph colormap with independent
-  magnitude and per-component (X/Y/Z) fixed-range windows and band counts
-- **Line Integral Convolution (LIC):** dense vector-field texture (`VectorTextureCache`,
-  3D `GL_RGB32F`, up to 4 entries LRU) convolved along streamlines in
-  `surface_lic.frag`. Modes: `vectorVisMode` off/glyphs/LIC, steps `4–128`,
-  step size `0.001–2.0`× diagonal, noise frequency `0.5–64`, grain
-  `64/128/256/512`, enhanced 2-pass, LIC-only (unshaded), integrators
-  Euler/Midpoint/RK4 (default RK4). `licNoiseTex` 3D, `GL_REPEAT`
-- **Streamline integration** with configurable step size, max steps, direction
-  (forward/backward/both), seeding modes (volume/surface/plane), plane counts
-  U/V, plane position, jitter, ribbon width, taper factor, opacity, PBR shading
-  (ambient/diffuse/specular/power), color modes (solid/magnitude/component X/Y/Z)
-  and arrowheads (spacing/size)
-- **Particle traces** with count, speed, size, and additive blending controls
-- **Volume ray-marching** with step size, opacity, and colormap controls; 3D
-  `GL_R32F` textures via `VolumeTextureCache` with PBO double-buffering and
-  Beer-Lambert opacity
-- **Volume slice overlay:** up to 3 axis-aligned textured quads (X/Y/Z) each with
-  independent position (`0–1`), opacity, scalar field, show-colorbar toggle,
-  and slice colormap (palette/reverse/bands + fixed-range window)
-- **Isosurface extraction** via marching cubes with debounced (150 ms) async
-  computation; isosurface surfaces are shaded by the colormap LUT with PBR
-  lighting and participate in depth-peel transparency and LOD (own LOD path)
-- **Colorbar legend:** GPU-composited colorbar overlay — sharp, borderless
-  gradient bar (optional rounded background panel) + tick labels + title
-  rendered into the viewport FBO so it is captured in screenshots.
-  User-controllable tick count (`colorbarTicks`, 2–20) across the live data range.
-  Independent colorbars for scalar, vector-magnitude/component, streamline
-  magnitude/component, volume, and volume-slice data. Palette, reverse,
-  fixed-range window and discrete bands are configured per colorbar via
-  right-click → **Style…** dialog. Bar position/orientation/visibility are
-  draggable and persisted per field; font family/bold/italic, scale, tick scale,
-  length/thickness, and panel opacity are global style controls
-- **Lighting system:** 5-direction light kit (key + fill + 2×back + head) that
-  tracks the camera; key intensity, 3 K-ratios (`KF`/`KB`/`KH` relative to key),
-  per-light azimuth/elevation, kit-wide warm tint (0 cold blue → 0.5 white →
-  1 warm amber), 3 presets (Studio/CADFlat/Soft) and PBR material parameters
-  (roughness, metallic, ambient/diffuse/specular)
-- **Clipping:** axis-aligned clip planes with master `clipEnabled`, per-axis
-  `clipEnabledX/Y/Z`, height sliders, per-axis invert toggles, and
-  `crinkleClipMode` (geometry-shader clip vs fragment discard)
-- **Slicing:** 3 independent slice planes (X/Y/Z) with bounds-aware sliders
-  (see above) — distinct from clipping which discards geometry, slicing draws
-  a textured quad
-- **Scalar filter:** threshold filter (`filterMin`/`filterMax` + `filterEnabled`)
-  via fragment discard, separate from clip planes
-- **Axis triad overlay:** X/Y/Z coordinate triad in a corner viewport tracking
-  camera rotation. Anti-aliased clip-space axis lines, solid-color conical tips,
-  solid origin disc, and texture-atlas text labels. Handles pole views (±X/±Y/±Z)
-  with end-on disc markers and label offset to avoid overlap. Configurable
-  corner (4 positions) and size (96/128/160 px footprints), show/hide toggle
-- **Viewport navigation:** left-drag orbit, right-drag pan (middle-drag alias
-  retained), inverted wheel zoom, triad click-to-snap, fly-to-face animated
-  transitions (400 ms ease-in-out), fit-all isometric framing
-- **Light-direction markers:** visual markers in the gizmo corner showing the
-  5 kit directions, tinted by the warm setting (toggle `showLightMarkers`)
-- **Bounding box overlay:** axis-aligned bounding box (AABB) wireframe toggle
-- **Quality overlays:** degenerate triangle, open-edge, and non-manifold edge
-  visualization with exact vertex welding at 1e-8 tolerance and counts/watertight
-  indicator
-- **Wireframe / display:** wireframe overlay (`WireframePass`), flat/smooth shading
-  toggle, cull modes (off/back/front), surface/point toggles, point size/opacity,
-  line width, surface opacity, depth-peel layer count (1–8), orthographic vs
-  perspective projection, auto-rotate
-- **Screenshot export** (PNG/JPEG/BMP) with optional transparency, 5 resolution
-  levels (Current/HD/FHD/2K/4K) and 3 AA presets (0/2/4 samples), colorbar and
-  gizmo are captured
-- **Recent files & Clear Mesh:** MRU list capped at 8 (persisted via `QSettings`);
-  `File → Clear` frees GPU meshes, isosurface, volume/vector caches, LIC noise,
-  streamline pending results, and `FieldResolver` derived-field cache, and resets
-  scalar range (`0–1`), world bounds (`-10–10`, radius `1`), filter windows,
-  and per-pass fixed-range overrides
-- **PVD animation playback:** streams `.pvd` collections through an async,
-  prefetching loader (3 concurrent parses, prefetch 8 ahead / keep 2 behind,
-  LRU capped at 14 frames / 512 MB); transport controls (play/pause, step,
-  timeline scrubbing with drag debouncing), FPS rate, loop toggle, speed
-  multiplier; fixed-topology sequences take a scalar-only fast upload path
-- **Animation colormap scaling:** *Whole sequence* holds one grow-only range
-  across frames so colors and the colorbar never flicker; *Per frame*
-  rescales to each frame's own extent. Ranges always describe the active
-  field resolved per frame (point/cell/legacy/derived), reseeding on field
-  switches mid-sequence
-- **Animation export:** renders the loaded sequence offscreen to an MJPEG
-  `.avi` video and/or numbered PNG frames with configurable resolution,
-  JPEG quality, fps, and frame range (first/last), 30 s timeout; encoding
-  overlaps capture on worker threads so exports stay fast regardless of viewport
-  size (playback pauses for the duration)
-- **Depth-peel transparency** for correct rendering of translucent surfaces
-  (1–8 layers, default 4, per-layer `GL_DEPTH32F_STENCIL8`/`GL_RGBA8` FBOs,
-  resolution-adaptive capping, UBO-driven composite)
-- **FPS Head-up Display** (HUD) with smoothed frame-rate counter and particles
-  animation time
-- **Robust mesh loading:** sort-based vertex deduplication at `1/4096` tolerance,
-  point-cloud support (`GL_POINTS` rendering via `renderAsPoints`), per-vertex
-  or per-cell vector field support with `cellCenters`, and quality analysis
-  (weld at `1e-8`)
-- **Level-of-Detail (LOD):** GPU compute-shader vertex clustering decimation
-  (3 dispatches: `lod.comp`/`lod_output.comp`/`lod_tris.comp`) that activates
-  only while the camera is moving, debounced `0.14 s`, snaps back after
-  `160 ms` settle; scalar field preservation on the decimated mesh.
-  Eligibility: volumetric grids and surface meshes, ≥4000 vertices,
-  `< 0.5×` triangles worthwhile, `kLodMaxCellsPerAxis 128`; multi-shell safety
-  (`≤64` components, within-one-cell merge test)
+**Mesh & visualization**
+- Loads VTK XML (`.vtu`/`.vts`/`.vti`/`.vtp`/`.vtr`/`.vtm` multiblock), VTK legacy (`.vtk`), STL, and OBJ with auto-detected compression (ZLIB/LZ4/LZMA) and encodings (ASCII/BINARY/APPENDED).
+- Scalar surface coloring with GPU colormap textures; palettes Turbo, Viridis, Inferno, CoolWarm, MutedCoolWarm, BWR, Cividis, Grayscale with reverse toggle and discrete bands.
+- Vector-field arrow glyphs with stride, scaling, magnitude transform (linear/sqrt/log), placement (vertex/cell-center), and per-component fixed-range windows.
+- Line Integral Convolution (LIC) dense vector-field texture with Euler/Midpoint/RK4 integration, step size, noise frequency, grain, and enhanced 2-pass modes.
+- Streamline integration with configurable step size, max steps, direction, seeding modes, ribbon width, taper, opacity, PBR shading, color modes, and arrowheads.
+- Particle traces with count, speed, size, and additive blending.
+- Volume ray-marching with step size, opacity, and colormap; 3D `GL_R32F` textures with PBO double-buffering and Beer-Lambert opacity.
+- Volume slice overlay: up to 3 axis-aligned textured quads (X/Y/Z) each with independent position, opacity, scalar field, and slice colormap.
+- Isosurface extraction via marching cubes (debounced async computation) shaded by the colormap LUT with PBR lighting; participates in depth-peel transparency and LOD.
+- Colorbar legend overlay (GPU-composited) with tick count, fixed-range window, palette/reverse/bands; independent colorbars per field.
+- Clipping (axis-aligned planes), slicing (textured quads), scalar threshold filter, wireframe overlay, flat/smooth shading, cull modes, surface/point toggles, point/line width, surface opacity, orthographic/perspective projection, auto-rotate.
+- Axis triad overlay with pole-view handling; bounding-box wireframe; quality overlays (degenerate triangle, open-edge, non-manifold edge).
+- Screenshot export (PNG/JPEG/BMP, 5 resolution levels, 3 AA presets) capturing colorbar and gizmo.
+- Recent files (MRU capped at 8) and Clear Mesh.
 
-### Level of Detail (LOD)
+**Animation**
+- `.pvd` time-series playback: async prefetching loader, transport controls (play/pause/step/scrub), FPS rate, loop, speed multiplier, fixed-topology fast upload path.
+- Colormap scaling: whole-sequence grow-only range (no flicker) or per-frame rescale.
+- Animation export: offscreen render to MJPEG `.avi` and/or numbered PNG frames with resolution, JPEG quality, fps, and frame range; overlaps capture on worker threads.
 
-LOD uses three GPU compute shaders (`lod.comp` / `lod_output.comp` / `lod_tris.comp`,
-HL `lod.comp` vertex clustering) to produce a coarser mesh only while the camera
-is moving, debounced `0.14 s` and snaps back to full detail `160 ms` after motion
-stops. It is used only when all of the following hold:
+**Transparency & performance**
+- Depth-peel order-independent transparency (1–8 layers) for translucent surfaces.
+- GPU-compute LOD vertex clustering decimating the mesh while the camera moves.
+- FPS head-up display with smoothed frame-rate counter.
 
-- **Dataset type:** volumetric grids (`STRUCTURED_GRID`, `RECTILINEAR_GRID`,
-  `STRUCTURED_POINTS`) and surface meshes (`STL`, `POLYDATA`,
-  `UNSTRUCTURED_GRID`).
-- **Size:** at least 4000 vertices (`lodMinVertices`).
-- **Worthwhile:** the decimated mesh has less than half the original triangles
-  (`lodDecimateRatio` = 0.5).
-- **Multi-shell safe:** a single connected solid is always supported. Meshes
-  with multiple disconnected parts (`≤64` components) are only decimated when the
-  parts are farther than one cluster cell (`kLodMaxCellsPerAxis 128`) apart;
-  otherwise full resolution is used. Isosurface meshes have their own LOD path.
+## CFD module
+
+SciRender includes a finite-volume CFD solver for steady and transient incompressible flow, exposed through the `File > Open Case` workflow (`.scfd` files) and a dedicated CFD page in the sidebar.
+
+**Solver**
+- SIMPLE (steady) and PISO (transient) pressure-velocity coupling on collocated unstructured grids, 2D and 3D.
+- Momentum convection schemes: upwind, central, second-order upwind.
+- Pressure correction with optional AMG or ILU/BiCGSTAB linear solvers; Rhie-Chow collocated interpolation; SIMPLEC option.
+- k-omega SST turbulence model with wall functions optional; turbulence intensity and inlet k/omega per velocity-inlet patch.
+- Transient: backward-Euler or BDF2 time stepping, adaptive CFL-limited dt, PISO outer correctors, non-orthogonal correctors, `.pvd`/`.vtu` per-step output.
+
+**Boundary conditions**
+- Velocity inlet, pressure outlet (with optional backflow suppression), outlet, no-slip wall, slip wall, symmetry, moving wall.
+- Per-patch velocity (u/v/w), pressure, backflow values, and turbulence inlet values.
+
+**Case I/O**
+- `.scfd` case files store the mesh, all solver settings, boundary conditions, and optional result fields (velocity, pressure, turbulence) together with the transient clock and history so a paused or finished run can be restarted exactly where it stopped. Save while paused captures the live solver state; load restores fields, turbulence, the transient clock (t, dt, dtPrev, step), BDF2 history, and the monitor/residual history. Older `.scfd` files written before 3D support are still read and upgraded on re-save.
+
+**Testing**
+- The CFD fundamentals suite (`tests/cfd/`) unit-tests every FVM operator — mesh geometry, gradient, divergence, Poisson, convection schemes, pressure/velocity correction, boundary conditions, and residuals — against hand-derived physics contracts with tight tolerances (`1e-12` relative). It needs neither Qt nor OpenGL.
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
 | `src/app/` | Application entry point (`main.cpp`, GPU preference) |
-| `src/core/` | VTK/STL/OBJ parsers, `.pvd` collection parser, mesh loading, mesh-quality analysis, field-name resolution (`FieldResolver`), camera, colormap definitions, isosurface extraction (marching cubes) |
-| `src/render/` | OpenGL renderer, lighting model (`LightingModel`, 5-dir kit), mesh/LOD upload (`MeshGLManager`/`LodScheduler`), vector glyphs, streamlines + `StreamlineController`, particles, volume pass + `VolumeTextureCache`/`VectorTextureCache`, LIC (`surface_lic.frag`), colormap manager, colorbar overlay, axis triad + light markers, bbox/quality overlays, wireframe pass, depth-peel transparency, screenshot capture, animation playback controller + AVI/PNG exporter |
-| `src/shaders/` | GLSL vertex/fragment/geometry/compute shaders — `mesh.{vert,frag,clip.geo}`, `glyph.{vert,frag}`, `wire.{vert,geo,frag}`, `bbox.{vert,frag}`, `streamline.{vert,frag}`, `seed.{vert,frag}`, `particle.{vert,frag}`, `volume.{vert,frag}`, `volume_slice.{vert,frag}`, `quality_overlay.{vert,frag}`, `depth_peel.{vert,frag}`/`composite.{vert,frag}`, `surface_lic.frag`, `pbr_common.glsl`, LOD `lod.comp`/`lod_output.comp`/`lod_tris.comp` |
-| `src/ui/` | Qt Widgets main window, 12 sidebar pages (lighting, clipping, slice planes, volume, scalar, vectors, streamlines, view/display, screenshot, mesh info, animation, isosurface), animation export dialog, viewport widget, colorbar style dialog with per-colorbar palette/fixed-range (sharp, borderless bar), recent-files (8) + Clear Mesh |
-| `tests/` | Regression suite (doctest + CTest) — parsers, PVD collections, marching-cubes isosurface, post-processing fields, camera math, AMG/transient configuration, streamline direction, and the **CFD fundamentals** (mesh geometry, gradient, divergence, Poisson, convection schemes, pressure/velocity correction, boundary conditions, residual). A CMake subdirectory of this project: it links the real `CoreLib`/`FvmCore`/`CfdLib`/`RenderCore` targets, so there is no separate test build system |
-| `tools/` | Developer CLI diagnostics (not part of the test suite), e.g. the cylinder-vorticity probe |
-| `samples/` | VTK/STL fixture files used by the regression suite |
+| `src/core/` | VTK/STL/OBJ parsers, `.pvd` collection parser, mesh loading, mesh-quality analysis, field-name resolution, camera, colormap definitions, isosurface extraction (marching cubes) |
+| `src/cfd/` | CFD module: solver session, case codec, mesh adapter, result builder, settings bridges, solution snapshot |
+| `src/fvm/` | Finite-volume solver core (SIMPLE/PISO, momentum, pressure correction, convection, diffusion, gradient, AMG, SST turbulence) |
+| `src/field/` | Cell fields (`Field`, `VectorField`) with aligned buffers |
+| `src/render/` | OpenGL renderer: lighting (5-dir kit), mesh/LOD upload, vector glyphs, streamlines, particles, volume pass, LIC, colormap manager, colorbar, axis triad, overlays, depth-peel, screenshot, animation playback + AVI/PNG exporter |
+| `src/shaders/` | GLSL vertex/fragment/geometry/compute shaders and LOD compute shaders |
+| `src/ui/` | Qt Widgets main window, 12 sidebar pages (including CFD case page), animation export dialog, viewport widget, colorbar style dialog |
+| `tests/` | Regression suite (doctest + CTest) against `CoreLib`/`FvmCore`/`CfdLib`/`RenderCore`; no Qt or OpenGL needed |
+| `tools/` | Developer CLI diagnostics (not part of the test suite) |
+| `samples/` | VTK/STL fixtures and `.scfd`/`.msh` CFD samples |
 | `assets/` | Application icon |
-| `vendor/` | GLAD (OpenGL loader), GLM (math), pugixml (XML parsing), LZ4 & LZMA (compression), doctest (test framework) |
+| `vendor/` | GLAD, GLM, pugixml, LZ4/LZMA, doctest |
 
 ## Tests
 
-The regression suite is part of the main CMake project, so the tests always run
-against the same sources as the application. The application itself is not
-built for a test-only configure, which means the suite needs **neither Qt nor
-an OpenGL context**.
+The regression suite is part of the main CMake project, so tests always run against the same sources as the application. A test-only configure builds neither the app nor Qt/OpenGL.
 
-See **[tests/README.md](tests/README.md)** for the full guide: the layout, the
-conventions, how to add a test, and how the known-failure registry works.
+See **[tests/README.md](tests/README.md)** for the full guide.
 
 ```bash
-cmake --preset tests                                     # configure build-tests
-cmake --build --preset tests                             # build the 4 test binaries
-ctest --preset tests --output-on-failure                 # run everything
+cmake --preset tests
+cmake --build --preset tests
+ctest --preset tests --output-on-failure
 ```
 
-Or, in one step (configure if needed, build, run):
+Or:
 
 ```bash
 tests/run_tests.bat        # Windows
 tests/run_tests.sh         # Linux / macOS / Git Bash
 ```
 
-Every doctest test case is registered as **its own CTest row**, so a failure
-names the behaviour that broke rather than "the binary failed":
+Every doctest test case is its own CTest row, so a failure names the behaviour that broke:
 
 ```
 12/81 Test #12: core.fields.overlapping_names_deduplicate ...........   Failed    0.01 sec
-tests/core/field_names_test.cpp:34: ERROR: CHECK_MESSAGE( sizes_match(merged, {"velocity"}), "point/cell name dedup" ) is NOT correct!
-  values: CHECK_MESSAGE( sizes_match(merged, {"velocity"}), "point/cell name dedup" )
+tests/core/field_names_test.cpp:34: ERROR: CHECK_MESSAGE(...) is NOT correct!
 ```
 
 Useful filters:
 
 | Command | Effect |
-|---|---|
-| `ctest --test-dir build-tests -L core` | only the `core` layer (parsers, fields, isosurface, camera) |
-| `ctest --test-dir build-tests -L fvm` | only the `fvm` layer (AMG, transient settings, CFD benchmark) |
-| `ctest --test-dir build-tests -L render` | only the render-layer tests |
-| `ctest --test-dir build-tests -L cfd` | only the CFD fundamentals suite |
-| `ctest --test-dir build-tests -L known-broken -V` | the outstanding CFD defects, with their diagnostics |
-| `ctest --test-dir build-tests -LE slow` | skip the slow CFD benchmark (`ctest --preset tests-fast`) |
-| `ctest --test-dir build-tests -R "core.parse"` | only the tests whose name matches |
-| `ctest --test-dir build-tests --output-on-failure` | print the failing assertion of every failed test |
+|---------|--------|
+| `ctest --test-dir build-tests -L core` | core layer (parsers, fields, isosurface, camera) |
+| `ctest --test-dir build-tests -L fvm` | fvm layer (AMG, transient settings, CFD benchmark) |
+| `ctest --test-dir build-tests -L cfd` | CFD fundamentals suite |
+| `ctest --test-dir build-tests -L render` | render-layer tests |
+| `ctest --test-dir build-tests -LE slow` | skip the slow CFD benchmark (`--preset tests-fast`) |
+| `ctest --test-dir build-tests -R "core.parse"` | name-matching tests only |
+| `ctest --test-dir build-tests --output-on-failure` | print every failing assertion |
 
-Build switches: `SCIRENDER_BUILD_APP` (default `ON`), `SCIRENDER_BUILD_TESTS`
-(default `ON`), `SCIRENDER_BUILD_TOOLS` (default `OFF`).
-
-### The CFD fundamentals suite
-
-`tests/cfd/` holds the unit tests for the FVM operators. Every test states one
-contract of the operator it covers; the contracts and the tolerance policy are
-documented in [`tests/cfd/README.md`](tests/cfd/README.md).
-
-The defects that are known and still open are listed in
-`tests/cfd/known_failures.txt`. Those rows pass while the defect is open and
-turn **red** as soon as the solver is fixed — that is the signal to remove the
-entry:
-
-```
-ctest --test-dir build-tests -L known-broken -V   # the worklist
-```
-
-
+Build switches: `SCIRENDER_BUILD_APP` (default `ON`), `SCIRENDER_BUILD_TESTS` (default `ON`), `SCIRENDER_BUILD_TOOLS` (default `OFF`).
 
 ## License
 

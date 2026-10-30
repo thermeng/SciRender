@@ -492,7 +492,7 @@ public slots:
     }
     void onPostFieldsReady();
     void openRecent(const QString& filePath);
-    void clearMeshes();
+    void clearMeshes(bool skipGpu = false);
     void resetCamera();
     void resetCameraInstant();   // no animation — used when the data itself changed (mesh load)
     void snapToOrthoView(int axis);

@@ -1155,20 +1155,26 @@ void RenderSettings::setQuickBarCollapsed(bool collapsed) {
     emit quickBarCollapsedChanged();
 }
 
-void RenderSettings::clearMeshes() {
+void RenderSettings::clearMeshes(bool skipGpu) {
     clearPostFields();
     m_animController.clear();
     m_animSequenceActive = false;
     m_animRange.invalidate();
-    m_renderer.clearGpuMeshes();
+    if (!skipGpu) m_renderer.clearGpuMeshes();
 
     // Release QFutureWatcher shared state that pins the last MeshLoadResult
     // (RenderMesh + MeshQuality vectors). Without this, Clear keeps the
     // previous mesh alive until the next load overwrites the future.
+    // Invalidate the load token BEFORE setFuture(): an empty future is already
+    // complete, so setFuture() may emit finished() synchronously, which would
+    // call onMeshParsed().  If the token hasn't been bumped yet, the stale-
+    // result guard in onMeshParsed() would pass and process a null result.
+    // (Same pattern as loadMesh() and IsosurfaceController::clear().)
+    ++m_loadToken;
+    if (m_taskToken) m_taskToken->store(m_loadToken);
+    m_taskToken.reset();
     if (m_meshWatcher.isRunning()) m_meshWatcher.cancel();
     m_meshWatcher.setFuture(QFuture<MeshLoadResult>());
-    if (m_taskToken) m_taskToken->store(m_loadToken + 1);
-    m_taskToken.reset();
     m_loadingPath.clear();
     m_loadingPath.shrink_to_fit();
     FieldStore::clearCache();
@@ -1249,8 +1255,6 @@ void RenderSettings::clearMeshes() {
     m_state.isovalues.shrink_to_fit();
     m_state.isosurfaceField.clear();
     m_state.isosurfaceField.shrink_to_fit();
-    // Post-processed fields belong to the mesh — clear on fresh load/clear.
-    clearPostFields();
     // Line probe overlay must be hidden on clear / fresh launch (not persisted)
     m_state.showLineProbe = false;
     m_state.lineP0 = glm::vec3(m_state.worldMinX, m_state.worldMinY, m_state.worldMinZ);
@@ -2033,10 +2037,10 @@ bool RenderSettings::canExtractPostFields() const {
 }
 
 void RenderSettings::clearPostFields() {
-    if (m_postWatcher.isRunning()) m_postWatcher.cancel();
-    m_postWatcher.setFuture(QFuture<PostFieldsAsyncResult>());
     if (m_postTaskToken) m_postTaskToken->store(m_postGen + 1);
     m_postTaskToken.reset();
+    if (m_postWatcher.isRunning()) m_postWatcher.cancel();
+    m_postWatcher.setFuture(QFuture<PostFieldsAsyncResult>());
     m_postSnapshot.reset();
     m_state.computed.reset();
     m_postStatus.clear();

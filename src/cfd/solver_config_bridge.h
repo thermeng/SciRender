@@ -25,7 +25,7 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     sc.rhieChow = settings.rhieChow;
     sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
                           : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind
-                             : (settings.scheme == 3 ? fvm::ConvectionScheme::QUICK : fvm::ConvectionScheme::Upwind));
+                             : fvm::ConvectionScheme::Upwind);
     sc.gradientScheme = settings.gradientScheme == 1 ? fvm::GradientScheme::GreenGaussCellBased
                        : (settings.gradientScheme == 2 ? fvm::GradientScheme::GreenGaussNodeBased : fvm::GradientScheme::LeastSquares);
     sc.printFrequency = settings.printFrequency;

@@ -95,7 +95,7 @@ formulation, not a defect of the operator.
   right-hand side (so the full balance is `(A phi) - b). It needs the cell
   gradient: a call without it is **rejected** rather than silently degrading to
   plain upwind;
-* central, second order upwind and QUICK are exact for a linear field;
+* central and second order upwind are exact for a linear field;
 * a constant transported quantity is conserved by a divergence-free flow;
 * the three entry points (the sparse matrix, the triplets with a separate
   diagonal and the triplets with the diagonal included) must assemble the same

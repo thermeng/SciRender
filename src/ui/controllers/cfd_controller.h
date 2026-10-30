@@ -80,6 +80,13 @@ public:
     void pause();
     void resume();
     void step();
+    // Clears the solver fields but keeps the loaded mesh/session, so the same
+    // case can be initialized and re-run. Used by Initialize().
+    void resetSolutionState();
+    // Releases the mesh, session and .scfd metadata as well, returning the
+    // controller to its post-construction state. Used by loadMesh(), loadCase(),
+    // File > Clear and the destructor.
+    void unload();
 
     bool isRunning() const { return m_running.load(std::memory_order_acquire); }
     const std::vector<MonitorPoint>& monitorHistory() const { return m_monitorHistory; }
@@ -147,7 +154,6 @@ signals:
 private:
     // Lifecycle helpers (GUI thread only).
     void stopWorkers();
-    void resetSolutionState();
     void setError(const QString& msg);
     // Copies the live solver state into m_state so Save and a subsequent Run
     // both see the state a paused/just-finished run wrote.
