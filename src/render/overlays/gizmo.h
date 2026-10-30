@@ -37,7 +37,8 @@ public:
     // brightened + thickened for pointer feedback.
     void draw(const glm::mat4& mainView, float dpr,
               int deviceW, int deviceH,
-              int corner = BottomLeft, int foot = 128, int hoverAxis = -1);
+              int corner = BottomLeft, int foot = 128, int hoverAxis = -1,
+              bool showNegativeAxes = false);
 
     bool isInitialized() const { return aaLineProgram.has() && textProgram.has(); }
 

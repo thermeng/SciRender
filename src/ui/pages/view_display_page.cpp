@@ -120,6 +120,13 @@ ViewDisplayPage::ViewDisplayPage(RenderSettings* settings, QWidget* parent)
     connect(gizmoCb, &QCheckBox::toggled, s, &RenderSettings::setGizmoVisible);
     m_gizmoCb = gizmoCb;
 
+    auto* gizmoNegCb = viewUi.gizmoShowNegativeCb;
+    if (gizmoNegCb) {
+        gizmoNegCb->setChecked(s->getGizmoShowNegative());
+        connect(gizmoNegCb, &QCheckBox::toggled, s, &RenderSettings::setGizmoShowNegative);
+    }
+    m_gizmoShowNegativeCb = gizmoNegCb;
+
     auto* gizmoSizeCombo = viewUi.gizmoSizeCombo;
     gizmoSizeCombo->setCurrentIndex(s->getGizmoSizeChoice());
     connect(gizmoSizeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -177,6 +184,7 @@ void ViewDisplayPage::syncPage() {
     if (m_defectsCb)   m_defectsCb->setChecked(s->getShowQualityOverlay());
     if (m_scalarCb)    m_scalarCb->setChecked(s->getPointUseScalar());
     if (m_gizmoCb)     m_gizmoCb->setChecked(s->isGizmoVisible());
+    if (m_gizmoShowNegativeCb) m_gizmoShowNegativeCb->setChecked(s->getGizmoShowNegative());
     if (m_gizmoSizeCombo)   m_gizmoSizeCombo->setCurrentIndex(s->getGizmoSizeChoice());
     if (m_gizmoCornerCombo) m_gizmoCornerCombo->setCurrentIndex(s->getGizmoCorner());
     if (m_fpsCb)       m_fpsCb->setChecked(s->getShowFps());
