@@ -41,7 +41,7 @@ uniform sampler3D uNoiseTex; // 3D white noise — isotropic, no planar projecti
 uniform vec3 uBoxMin;
 uniform vec3 uBoxMax;
 uniform int uLicSteps;          // half-kernel length; UI [4..128], GPU tolerates [0..128] (0 = single-sample fallback)
-uniform float uLicStepSize;     // world units (= clamp(RenderSettings licStepSize, 0.001..2.0) * diag), clamped to [1e-6, diag*2]
+uniform float uLicStepSize;     // world units (= clamp(RenderSettings licStepSize, 0.001..2.0) * diag), clamped to [diag*1e-4, diag*2]
 uniform float uLicNoiseFreq;    // noise UV scale, expected [0.5..64]
 uniform int uLicEnhanced;       // 0=single-pass, 1=enhanced 2-pass (sharpens coherence)
 uniform int uLicIntegrator;     // 0=Euler, 1=Midpoint, 2=RK4
@@ -58,7 +58,9 @@ out vec4 FragColor;
 
 vec3 worldToUVW(vec3 pos, vec3 boxMin, vec3 invRange, vec3 range) {
     float diag = max(max(abs(range.x), abs(range.y)), abs(range.z));
-    float eps = max(diag * 1e-7, 1e-7);
+    // Relative-only floor: an absolute 1e-7 collapsed every axis of a
+    // sub-micron scene to 0.5 (range <= eps), sampling a single texel.
+    float eps = max(diag * 1e-7, 1e-30);
     vec3 uvw = (pos - boxMin) * invRange;
     if (abs(range.x) <= eps) uvw.x = 0.5;
     if (abs(range.y) <= eps) uvw.y = 0.5;
@@ -90,10 +92,18 @@ float licNoiseSample3D_scaled(vec3 uvw, float freqScale) {
 vec3 licSampleDir(vec3 pos, vec3 boxMin, vec3 invRange, vec3 range, vec3 norm, float sign) {
     const float magThresh = uLicMagThresh;
     vec3 uvw = worldToUVW(pos, boxMin, invRange, range);
+    // Clamp semantics: a trace that has left the data domain stops here. The
+    // vector texture is GL_CLAMP_TO_EDGE; wrapping would mix noise from the
+    // opposite boundary into the same streak.
+    const float edgeTol = 1e-5;
+    if (any(lessThan(uvw, vec3(-edgeTol))) || any(greaterThan(uvw, vec3(1.0 + edgeTol))))
+        return vec3(0.0);
     vec3 v = texture(uVectorTex, uvw).rgb;
     vec3 vTan = v - dot(v, norm) * norm;
     float mTan = length(vTan);
-    if (mTan < magThresh) return vec3(0.0);
+    // !(>=) also rejects NaN; isinf rejects an infinite sample that would
+    // otherwise propagate NaN through every subsequent integration step.
+    if (!(mTan >= magThresh) || isinf(mTan)) return vec3(0.0);
     return sign * (vTan / mTan);
 }
 
@@ -104,8 +114,10 @@ float licEuler(vec3 startPos, vec3 startUVW, vec3 boxMin, vec3 boxMax,
                vec3 invRange, vec3 range, vec3 norm, vec3 absNorm,
                int steps, float worldStepSize, float freqScale, float sign) {
     const float h = worldStepSize;
-    float acc = licNoiseSample3D_scaled(startUVW, freqScale);
-    float w = 1.0;
+    // The centre tap is shared by the forward and backward passes; give it
+    // half weight here so the (fwd + bwd) / 2 average does not count it twice.
+    float acc = 0.5 * licNoiseSample3D_scaled(startUVW, freqScale);
+    float w = 0.5;
     vec3 pos = startPos;
     for (int i = 0; i < steps; ++i) {
         vec3 k1 = licSampleDir(pos, boxMin, invRange, range, norm, sign);
@@ -115,7 +127,7 @@ float licEuler(vec3 startPos, vec3 startUVW, vec3 boxMin, vec3 boxMax,
         acc += licNoiseSample3D_scaled(uvw, freqScale);
         w += 1.0;
     }
-    return acc / max(w, 1.0);
+    return acc / max(w, 0.5);
 }
 
 // Midpoint (2nd order Runge-Kutta): 2 vector samples per step per direction.
@@ -123,8 +135,10 @@ float licMidpoint(vec3 startPos, vec3 startUVW, vec3 boxMin, vec3 boxMax,
                    vec3 invRange, vec3 range, vec3 norm, vec3 absNorm,
                    int steps, float worldStepSize, float freqScale, float sign) {
     const float h = worldStepSize;
-    float acc = licNoiseSample3D_scaled(startUVW, freqScale);
-    float w = 1.0;
+    // The centre tap is shared by the forward and backward passes; give it
+    // half weight here so the (fwd + bwd) / 2 average does not count it twice.
+    float acc = 0.5 * licNoiseSample3D_scaled(startUVW, freqScale);
+    float w = 0.5;
     vec3 pos = startPos;
     for (int i = 0; i < steps; ++i) {
         vec3 k1 = licSampleDir(pos, boxMin, invRange, range, norm, sign);
@@ -137,7 +151,7 @@ float licMidpoint(vec3 startPos, vec3 startUVW, vec3 boxMin, vec3 boxMax,
         acc += licNoiseSample3D_scaled(uvw, freqScale);
         w += 1.0;
     }
-    return acc / max(w, 1.0);
+    return acc / max(w, 0.5);
 }
 
 // RK4: 4 vector samples per step per direction.
@@ -145,8 +159,10 @@ float licRK4(vec3 startPos, vec3 startUVW, vec3 boxMin, vec3 boxMax,
               vec3 invRange, vec3 range, vec3 norm, vec3 absNorm,
               int steps, float worldStepSize, float freqScale, float sign) {
     const float h = worldStepSize;
-    float acc = licNoiseSample3D_scaled(startUVW, freqScale);
-    float w = 1.0;
+    // The centre tap is shared by the forward and backward passes; give it
+    // half weight here so the (fwd + bwd) / 2 average does not count it twice.
+    float acc = 0.5 * licNoiseSample3D_scaled(startUVW, freqScale);
+    float w = 0.5;
     vec3 pos = startPos;
     for (int i = 0; i < steps; ++i) {
         vec3 k1 = licSampleDir(pos, boxMin, invRange, range, norm, sign);
@@ -162,7 +178,7 @@ float licRK4(vec3 startPos, vec3 startUVW, vec3 boxMin, vec3 boxMax,
         acc += licNoiseSample3D_scaled(uvw, freqScale);
         w += 1.0;
     }
-    return acc / max(w, 1.0);
+    return acc / max(w, 0.5);
 }
 
 // Single-pass dispatcher: choose integrator, run forward (+1) and backward (-1).
@@ -240,9 +256,11 @@ void main() {
 
     vec3 range = uBoxMax - uBoxMin;
     float diag = length(range);
-    if (!(diag > 1e-6)) diag = 1.0;
+    // Only a truly degenerate box (all extents zero) falls back to 1.0; a
+    // sub-micron scene must keep its own scale.
+    if (!(diag > 0.0)) diag = 1.0;
     float diagForInv = max(max(abs(range.x), abs(range.y)), abs(range.z));
-    float epsInv = max(diagForInv * 1e-7, 1e-7);
+    float epsInv = max(diagForInv * 1e-7, 1e-30);
     vec3 invRange;
     invRange.x = (abs(range.x) > epsInv) ? 1.0 / range.x : 0.0;
     invRange.y = (abs(range.y) > epsInv) ? 1.0 / range.y : 0.0;
@@ -267,7 +285,9 @@ void main() {
 
     float licGray = 0.5;
     const float magThresh = uLicMagThresh;
-    bool hasVector = mag > magThresh;
+    // NaN fails the comparison already; an infinite magnitude must not enter
+    // the integrator (unit direction of inf/inf is NaN).
+    bool hasVector = (mag > magThresh) && !isinf(mag);
 
     float normEps = max(diag * diag * 1e-14, 1e-12);
     float flatEps = max(diag * diag * 1e-16, 1e-20);
@@ -296,7 +316,10 @@ void main() {
 
     vec3 absNorm = abs(norm);
     int steps = clamp(uLicSteps, 0, 128);
-    float worldStepSize = clamp(uLicStepSize, 1e-6, diag * 2.0);
+    // Relative floor (matches MeshPass): absolute floors broke tiny scenes.
+    // Purely relative also guarantees minWorldStep < diag*2 for any diag > 0.
+    float minWorldStep = diag * 1e-4;
+    float worldStepSize = clamp(uLicStepSize, minWorldStep, diag * 2.0);
 
     if (hasVector) {
         if (uLicEnhanced != 0) {

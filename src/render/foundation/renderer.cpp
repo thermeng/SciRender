@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <memory>
+#include <new>
 #include <vector>
 #include <random>
 #include <algorithm>
@@ -412,6 +413,7 @@ void Renderer::clearGpuMeshes() {
     m_licNoiseTex.reset();
     m_licNoiseGrain = 0;
     m_lastLicError.clear();
+    m_loggedLicError.clear();
 
     // Free 3D texture caches (VRAM + PBO) — otherwise they survive Clear and
     // accumulate per-field entries across Load/Clear cycles.
@@ -993,14 +995,22 @@ void Renderer::updateSliceScalarRange(const VolumeTexture* sliceTextures) {
 void Renderer::ensureLicNoiseTexture(int grain) {
     // 3D isotropic noise — eliminates planar stretch on non-planar geometry (replaces 2D tri-planar).
     // Mesh-UV path reserved: if native UVs become available, shader can branch to uNoiseTex2D_Fallback.
-    if (m_licNoiseTex.has() && m_licNoiseGrain == grain) return;
+    //
+    // Clamp BEFORE the cache test. Comparing the raw requested grain against
+    // the clamped stored grain made the default (256) rebuild the texture on
+    // every frame after storing 64/128.
     if (grain <= 0) grain = 64; // 3D default smaller than 2D to bound VRAM (64^3=256KB, 128^3=2MB)
-    // Clamp 3D grain to avoid 256^3=16MB / 512^3=134MB blow-up; quantize UI 256/512 down to 64 for 3D
-    if (grain > 128) grain = 64;
+    // Cap 3D grain at 128 (2MB) instead of letting 256/512 through (16MB/134MB).
+    if (grain > 128) grain = 128;
+    if (m_licNoiseTex.has() && m_licNoiseGrain == grain) return;
     if (m_licNoiseTex.has()) m_licNoiseTex.reset();
     size_t total = static_cast<size_t>(grain) * grain * grain;
     std::vector<unsigned char> noise;
-    noise.resize(total);
+    try {
+        noise.resize(total);
+    } catch (const std::bad_alloc&) {
+        return;   // cannot build the noise; LIC falls back to the normal surface draw
+    }
     std::mt19937 rng(12345);
     std::uniform_int_distribution<int> dist(0, 255);
     for (size_t i = 0; i < noise.size(); ++i) {
@@ -1021,6 +1031,7 @@ void Renderer::shutdownLic() {
     m_licNoiseTex.reset();
     m_licNoiseGrain = 0;
     m_lastLicError.clear();
+    m_loggedLicError.clear();
 }
 
 void Renderer::renderFrame() {
@@ -1226,7 +1237,7 @@ void Renderer::renderFrame() {
                     int tdx = 0, tdy = 0, tdz = 0;
                     if (m_vectorCache.getTextureDims(m_state.vectorField, m_state.vectorPlacement,
                                                      m_state.licBoundaryMode, m_dataMesh.get(),
-                                                     tdx, tdy, tdz) &&
+                                                     tdx, tdy, tdz, m_state.computed.get()) &&
                         tdx > 0 && tdy > 0 && tdz > 0) {
                         licRes.vectorTex = vecTex;
                         licRes.noiseTex = m_licNoiseTex.get();
@@ -1236,14 +1247,21 @@ void Renderer::renderFrame() {
                         licRes.texDimY = tdy;
                         licRes.texDimZ = tdz;
                         licRes.maxMagnitude = m_vectorCache.getMaxMagnitude(
-                            m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get());
+                            m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(), m_state.computed.get());
                     } else {
                         m_lastLicError = "LIC disabled: vector texture dims unavailable (mode " + std::to_string(m_state.licBoundaryMode) + ")";
                     }
                 }
             }
             if (!m_lastLicError.empty() && m_lastLicError.find("LIC disabled") == 0) {
-                qWarning() << QString::fromStdString(m_lastLicError);
+                // Warn on transition only: this runs every frame while LIC is
+                // enabled, and a persistent error used to flood the log.
+                if (m_lastLicError != m_loggedLicError) {
+                    qWarning() << QString::fromStdString(m_lastLicError);
+                    m_loggedLicError = m_lastLicError;
+                }
+            } else {
+                m_loggedLicError.clear();
             }
         }
         if (licRes.valid()) {

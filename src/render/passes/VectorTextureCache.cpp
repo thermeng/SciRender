@@ -4,10 +4,17 @@
 #include <cstring>
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <limits>
+#include <new>
 #include <unordered_set>
 
 namespace {
+
+// Hard cap on the number of texels of the LIC vector texture (8M vec3 = 96 MB
+// on the CPU). Shared by the cache's expected-dims test and the grid builder:
+// if the two disagree, the texture is rebuilt on every frame.
+constexpr std::size_t kMaxGridTexels = 8u * 1024u * 1024u;
 
 // Per-axis cap for the LIC vector texture.
 // A 2D field (every CFD case) stays at its native resolution up to 512 per
@@ -55,7 +62,11 @@ bool VectorTextureCache::resolveField(const RenderMesh& mesh, const std::string&
     // Strict placement: when the UI explicitly asks for Cell placement (1),
     // do NOT silently fall back to point vectors. That would hide a missing
     // cellCenters / cell data error behind a dim/mode mismatch.
-    if ((!vf.data || vf.count == 0) && effPlacement != 1) {
+    // FieldStore::resolveVector itself falls through to the point field when
+    // the cell field is absent, so check isCell, not just presence.
+    if (effPlacement == 1) {
+        if (!vf.data || vf.count == 0 || !vf.isCell) return false;
+    } else if (!vf.data || vf.count == 0) {
         vf = FieldStore::resolveVector(mesh, name, FieldStore::Placement::Vertex, snap);
     }
     if (!vf.data || vf.count == 0) return false;
@@ -77,7 +88,10 @@ VectorTextureCache::GridDims VectorTextureCache::chooseGridDims(const RenderMesh
     }
     const float* verts = mesh.vertices.data();
     const std::size_t numVerts = mesh.vertices.size() / 3;
-    const std::size_t n = std::min(numVerts, count);
+    // A cell-centred field has one entry per CELL: clipping it to the vertex
+    // count (cells outnumber vertices on tri/tet meshes) drops most of the
+    // domain and leaves the texture empty where no sample survived.
+    const std::size_t n = isCell ? count : std::min(numVerts, count);
     if (n == 0) return d;
 
     auto posAt = [&](std::size_t v, std::size_t axis) -> float {
@@ -133,16 +147,27 @@ VectorTextureCache::GridDims VectorTextureCache::chooseGridDims(const RenderMesh
 
 bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data, size_t count, bool isCell,
                                     std::vector<glm::vec3>& outGrid, int& outDimX, int& outDimY, int& outDimZ) const {
-    constexpr size_t kMaxGridTexels = 8u * 1024u * 1024u; // 8M vec3 = 96MB cap
     int dimX = mesh.gridDimX, dimY = mesh.gridDimY, dimZ = mesh.gridDimZ;
     const size_t numVerts = mesh.vertices.size() / 3;
-    const size_t limit = std::min(numVerts, count);
+    // Cell-centred data is indexed by cell, not by vertex. Never clamp it to
+    // numVerts or a tri/tet mesh (cells > vertices) is silently truncated.
+    const size_t limit = isCell ? count : std::min(numVerts, count);
+
+    // Non-finite samples would propagate NaN through the whole integration,
+    // so they are scrubbed before they reach the texture.
+    auto sanitize = [](std::vector<glm::vec3>& grid) {
+        for (glm::vec3& v : grid) {
+            if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z))
+                v = glm::vec3(0.0f);
+        }
+    };
 
     if (dimX > 0 && dimY > 0 && dimZ > 0 && !isCell) {
         const size_t need = static_cast<size_t>(dimX) * static_cast<size_t>(dimY) * static_cast<size_t>(dimZ);
         if (need == limit && need <= kMaxGridTexels) {
             outGrid.resize(need);
             memcpy(outGrid.data(), data, outGrid.size() * sizeof(glm::vec3));
+            sanitize(outGrid);
             outDimX = dimX; outDimY = dimY; outDimZ = dimZ;
             return true;
         }
@@ -160,6 +185,7 @@ bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data
         if (need == count && need <= kMaxGridTexels) {
             outGrid.resize(need);
             memcpy(outGrid.data(), data, outGrid.size() * sizeof(glm::vec3));
+            sanitize(outGrid);
             outDimX = cDimX; outDimY = cDimY; outDimZ = cDimZ;
             return true;
         }
@@ -252,11 +278,73 @@ bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data
         grid[hashIndex(gx, gy, gz)].push_back(v);
     }
 
+    // Sparse regions (big cells) can leave texels farther than one hash cell
+    // from any sample. Such a texel used to become a zero vector; the shader
+    // then sees no direction and falls back to raw white noise, which reads as
+    // background speckle inside large cells. Precompute, once per hash cell,
+    // the nearest populated cell (multi-source BFS) so a texel with no local
+    // sample is extrapolated from real data instead of zero.
+    const int cellsXY = hashX * hashY;
+    std::vector<int> nearestCell(grid.size(), -1);
+    std::deque<int> bfs;
+    for (size_t c = 0; c < grid.size(); ++c) {
+        if (!grid[c].empty()) {
+            nearestCell[c] = static_cast<int>(c);
+            bfs.push_back(static_cast<int>(c));
+        }
+    }
+    while (!bfs.empty()) {
+        const int c = bfs.front();
+        bfs.pop_front();
+        const int cz = c / cellsXY;
+        const int rem = c % cellsXY;
+        const int cy = rem / hashX;
+        const int cx = rem % hashX;
+        for (int dz = -1; dz <= 1; ++dz) {
+            const int nz = cz + dz;
+            if (nz < 0 || nz >= hashZ) continue;
+            for (int dy = -1; dy <= 1; ++dy) {
+                const int ny = cy + dy;
+                if (ny < 0 || ny >= hashY) continue;
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const int nx = cx + dx;
+                    if (nx < 0 || nx >= hashX) continue;
+                    const int nc = static_cast<int>(hashIndex(nx, ny, nz));
+                    if (nearestCell[nc] < 0) {
+                        nearestCell[nc] = nearestCell[c];
+                        bfs.push_back(nc);
+                    }
+                }
+            }
+        }
+    }
+
     // Linear resampling: inverse-distance weighted (IDW) average over the
     // 27-cell neighborhood of the spatial hash replaces pure nearest-neighbor
     // Voronoi. Matches Streamline's trilinear philosophy and gives smooth
     // GL_LINEAR interpolation. eps avoids singularity at texel center.
     const float idwEps = 1e-6f * (rangeX*rangeX + rangeY*rangeY + rangeZ*rangeZ + 1.0f);
+    auto accumulateIdw = [&](int gx, int gy, int gz, float px, float py, float pz,
+                             glm::vec3& acc, float& wSum) {
+        for (int dz = -1; dz <= 1; ++dz) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const int nx = gx + dx, ny = gy + dy, nz = gz + dz;
+                    if (nx < 0 || nx >= hashX || ny < 0 || ny >= hashY || nz < 0 || nz >= hashZ) continue;
+                    const auto& cell = grid[hashIndex(nx, ny, nz)];
+                    for (size_t v : cell) {
+                        const auto& e = spatial[v];
+                        float ddx = e.x - px, ddy = e.y - py, ddz = e.z - pz;
+                        float d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+                        // IDW p=2: w = 1/(d2+eps) ; close samples dominate but neighbors blend
+                        float w = 1.0f / (d2 + idwEps);
+                        acc += (*e.vec) * w;
+                        wSum += w;
+                    }
+                }
+            }
+        }
+    };
     for (int iz = 0; iz < gd.z; ++iz) {
         for (int iy = 0; iy < gd.y; ++iy) {
             for (int ix = 0; ix < gd.x; ++ix) {
@@ -276,27 +364,24 @@ bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data
                 int gx = static_cast<int>(std::clamp((px - minX) / (rangeX > epsRange ? rangeX : epsRange), 0.0f, 0.999f) * hashX);
                 int gy = static_cast<int>(std::clamp((py - minY) / (rangeY > epsRange ? rangeY : epsRange), 0.0f, 0.999f) * hashY);
                 int gz = static_cast<int>(std::clamp((pz - minZ) / (rangeZ > epsRange ? rangeZ : epsRange), 0.0f, 0.999f) * hashZ);
-                for (int dz = -1; dz <= 1; ++dz) {
-                    for (int dy = -1; dy <= 1; ++dy) {
-                        for (int dx = -1; dx <= 1; ++dx) {
-                            const int nx = gx + dx, ny = gy + dy, nz = gz + dz;
-                            if (nx < 0 || nx >= hashX || ny < 0 || ny >= hashY || nz < 0 || nz >= hashZ) continue;
-                            const auto& cell = grid[hashIndex(nx, ny, nz)];
-                            for (size_t v : cell) {
-                                const auto& e = spatial[v];
-                                float ddx = e.x - px, ddy = e.y - py, ddz = e.z - pz;
-                                float d2 = ddx * ddx + ddy * ddy + ddz * ddz;
-                                // IDW p=2: w = 1/(d2+eps) ; close samples dominate but neighbors blend
-                                float w = 1.0f / (d2 + idwEps);
-                                acc += (*e.vec) * w;
-                                wSum += w;
-                            }
-                        }
+                accumulateIdw(gx, gy, gz, px, py, pz, acc, wSum);
+                if (wSum <= 0.0f) {
+                    // No sample in the local 27-cell block: extrapolate from the
+                    // nearest populated block. This is what keeps large cells
+                    // filled with a smooth direction instead of zero/noise.
+                    const int near = nearestCell[hashIndex(gx, gy, gz)];
+                    if (near >= 0) {
+                        const int ncz = near / cellsXY;
+                        const int nrem = near % cellsXY;
+                        accumulateIdw(nrem % hashX, nrem / hashX, ncz, px, py, pz, acc, wSum);
                     }
                 }
                 const size_t o = static_cast<size_t>(ix) + static_cast<size_t>(iy) * gd.x +
                                  static_cast<size_t>(iz) * gd.x * gd.y;
-                outGrid[o] = (wSum > 0.0f) ? (acc / wSum) : glm::vec3(0.0f);
+                glm::vec3 texel = (wSum > 0.0f) ? (acc / wSum) : glm::vec3(0.0f);
+                if (!std::isfinite(texel.x) || !std::isfinite(texel.y) || !std::isfinite(texel.z))
+                    texel = glm::vec3(0.0f);
+                outGrid[o] = texel;
             }
         }
     }
@@ -313,17 +398,20 @@ std::string VectorTextureCache::makeKey(const std::string& name, bool isCell, in
 }
 
 void VectorTextureCache::touch(Entry& e, const std::string& key) {
-    if (e.lruIt != m_lru.end()) {
+    if (e.hasLru) {
         m_lru.erase(e.lruIt);
+        e.hasLru = false;
     }
     m_lru.push_front(key);
     e.lruIt = m_lru.begin();
+    e.hasLru = true;
 }
 
 void VectorTextureCache::evictIfNeeded() {
-    while (m_entries.size() > kMaxEntries) {
-
-        const std::string& oldest = m_lru.back();
+    // hasLru keeps the list and the map in sync even if an allocation throws
+    // between entry insertion and the LRU update, so never pop an empty list.
+    while (m_entries.size() > kMaxEntries && !m_lru.empty()) {
+        const std::string oldest = m_lru.back();
         m_entries.erase(oldest);
         m_lru.pop_back();
     }
@@ -340,35 +428,46 @@ GLuint VectorTextureCache::textureForField(const std::string& name, const Render
     bool isCell = false;
     if (!resolveField(*mesh, name, placement, data, count, isCell, snap)) return 0;
 
-    int dimX = mesh->gridDimX, dimY = mesh->gridDimY, dimZ = mesh->gridDimZ;
+    // Only the cheap, exact structured-grid test runs per frame. The expensive
+    // data-driven grid detection (chooseGridDims scans every source position
+    // three times) stays in buildGrid, i.e. it runs only on a cache miss.
+    const int dimX = mesh->gridDimX, dimY = mesh->gridDimY, dimZ = mesh->gridDimZ;
     const size_t numVerts = mesh->vertices.size() / 3;
-    const size_t limit = std::min(numVerts, count);
-    int baseDimX = 0, baseDimY = 0, baseDimZ = 0;
-    if (!isCell && dimX > 0 && dimY > 0 && dimZ > 0 &&
-        static_cast<size_t>(dimX) * static_cast<size_t>(dimY) * static_cast<size_t>(dimZ) == limit) {
-        baseDimX = dimX; baseDimY = dimY; baseDimZ = dimZ;
+    const size_t limit = isCell ? count : std::min(numVerts, count);
+    int expectedDimX = 0, expectedDimY = 0, expectedDimZ = 0;
+    if (!isCell && dimX > 0 && dimY > 0 && dimZ > 0) {
+        const size_t need = static_cast<size_t>(dimX) * static_cast<size_t>(dimY) * static_cast<size_t>(dimZ);
+        // The builder refuses structured grids above kMaxGridTexels and falls
+        // back to chooseGridDims; mirror that here or the entry can never match.
+        if (need == limit && need <= kMaxGridTexels) {
+            expectedDimX = dimX; expectedDimY = dimY; expectedDimZ = dimZ;
+        }
     } else if (isCell && dimX > 0 && dimY > 0 && dimZ > 0) {
         int cDimX = (dimX > 1) ? dimX - 1 : 1;
         int cDimY = (dimY > 1) ? dimY - 1 : 1;
         int cDimZ = (dimZ > 1) ? dimZ - 1 : 1;
-        if (static_cast<size_t>(cDimX) * static_cast<size_t>(cDimY) * static_cast<size_t>(cDimZ) == count) {
-            baseDimX = cDimX; baseDimY = cDimY; baseDimZ = cDimZ;
+        const size_t need = static_cast<size_t>(cDimX) * static_cast<size_t>(cDimY) * static_cast<size_t>(cDimZ);
+        if (need == count && need <= kMaxGridTexels) {
+            expectedDimX = cDimX; expectedDimY = cDimY; expectedDimZ = cDimZ;
         }
     }
-    if (baseDimX <= 0) {
-        // Same resolution the builder will use - the two must agree or the
-        // texture is rebuilt on every frame.
-        const GridDims gd = chooseGridDims(*mesh, count, isCell);
-        baseDimX = gd.x; baseDimY = gd.y; baseDimZ = gd.z;
-    }
-    // Wrap mode is fixed to Repeat (GL_REPEAT); no mirror padding.
-    int expectedDimX = baseDimX, expectedDimY = baseDimY, expectedDimZ = baseDimZ;
+
+    // Wrap mode is fixed to Clamp (GL_CLAMP_TO_EDGE); traces that leave the
+    // domain terminate instead of wrapping to the opposite boundary.
     const std::string key = makeKey(name, isCell);
     auto it = m_entries.find(key);
-    if (it != m_entries.end() && it->second.tex.has()
-        && it->second.dimX == expectedDimX && it->second.dimY == expectedDimY && it->second.dimZ == expectedDimZ) {
-        touch(it->second, key);
-        return it->second.tex.get();
+    if (it != m_entries.end() && it->second.tex.has()) {
+        // Structured fields know their dims cheaply, so verify them. For an
+        // unstructured field the entry is authoritative: content changes are
+        // handled by invalidateAll(), never by re-scanning every frame.
+        const bool dimsMatch = expectedDimX <= 0 ||
+            (it->second.dimX == expectedDimX && it->second.dimY == expectedDimY &&
+             it->second.dimZ == expectedDimZ);
+        if (dimsMatch) {
+            try { touch(it->second, key); }
+            catch (const std::bad_alloc&) { /* LRU is best-effort; the texture is still valid */ }
+            return it->second.tex.get();
+        }
     }
 
     return buildTexture(name, mesh, boxMin, boxMax, placement, licBoundaryMode, snap);
@@ -386,33 +485,36 @@ GLuint VectorTextureCache::buildTexture(const std::string& name, const RenderMes
 
     std::vector<glm::vec3> grid;
     int dimX = 0, dimY = 0, dimZ = 0;
-    if (!buildGrid(*mesh, data, count, isCell, grid, dimX, dimY, dimZ)) return 0;
-
-
-
+    try {
+        if (!buildGrid(*mesh, data, count, isCell, grid, dimX, dimY, dimZ)) return 0;
+    } catch (const std::bad_alloc&) {
+        return 0;   // out of memory: LIC degrades to the normal surface draw
+    }
 
     int texDimX = dimX, texDimY = dimY, texDimZ = dimZ;
     const glm::vec3* texData = grid.data();
-    int wrapMode = GL_REPEAT; // fixed: Repeat (GL_REPEAT)
+    const int wrapMode = GL_CLAMP_TO_EDGE; // fixed: Clamp; a trace that leaves the domain stops
     (void)licBoundaryMode; // deprecated — ignored, kept for API compat
 
     if (texDimX <= 0 || texDimY <= 0 || texDimZ <= 0) return 0;
     {
-        constexpr size_t kMaxTexTexels = 8u * 1024u * 1024u;
         const size_t need =
             static_cast<size_t>(texDimX) * static_cast<size_t>(texDimY) * static_cast<size_t>(texDimZ);
-        if (need == 0 || need > kMaxTexTexels) return 0;
+        if (need == 0 || need > kMaxGridTexels) return 0;
     }
 
     GLuint raw = 0;
     glCreateTextures(GL_TEXTURE_3D, 1, &raw);
     if (raw == 0) return 0;
-    glTextureStorage3D(raw, 1, GL_RGB32F, texDimX, texDimY, texDimZ);
-    glTextureParameteri(raw, GL_TEXTURE_WRAP_S, wrapMode);
-    glTextureParameteri(raw, GL_TEXTURE_WRAP_T, wrapMode);
-    glTextureParameteri(raw, GL_TEXTURE_WRAP_R, wrapMode);
-    glTextureParameteri(raw, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTextureParameteri(raw, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // Own the texture from here on: any throw below deletes it instead of
+    // leaking the GL object.
+    GlTexture pending(raw);
+    glTextureStorage3D(pending, 1, GL_RGB32F, texDimX, texDimY, texDimZ);
+    glTextureParameteri(pending, GL_TEXTURE_WRAP_S, wrapMode);
+    glTextureParameteri(pending, GL_TEXTURE_WRAP_T, wrapMode);
+    glTextureParameteri(pending, GL_TEXTURE_WRAP_R, wrapMode);
+    glTextureParameteri(pending, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(pending, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
 
     size_t bytes = static_cast<size_t>(texDimX) * texDimY * texDimZ * 3 * sizeof(float);
@@ -432,33 +534,41 @@ GLuint VectorTextureCache::buildTexture(const std::string& name, const RenderMes
             GLint prevPbo = 0;
             glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &prevPbo);
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo.get());
-            glTextureSubImage3D(raw, 0, 0, 0, 0, texDimX, texDimY, texDimZ, GL_RGB, GL_FLOAT, nullptr);
+            glTextureSubImage3D(pending, 0, 0, 0, 0, texDimX, texDimY, texDimZ, GL_RGB, GL_FLOAT, nullptr);
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(prevPbo));
         } else {
-            glTextureSubImage3D(raw, 0, 0, 0, 0, texDimX, texDimY, texDimZ, GL_RGB, GL_FLOAT, texData);
+            glTextureSubImage3D(pending, 0, 0, 0, 0, texDimX, texDimY, texDimZ, GL_RGB, GL_FLOAT, texData);
         }
     } else {
-        glTextureSubImage3D(raw, 0, 0, 0, 0, texDimX, texDimY, texDimZ, GL_RGB, GL_FLOAT, texData);
+        glTextureSubImage3D(pending, 0, 0, 0, 0, texDimX, texDimY, texDimZ, GL_RGB, GL_FLOAT, texData);
     }
 
-    const std::string key = makeKey(name, isCell);
-    auto existing = m_entries.find(key);
-    if (existing != m_entries.end() && existing->second.lruIt != m_lru.end()) {
-        m_lru.erase(existing->second.lruIt);
-    }
     // Strongest vector of the sampled field: the LIC uses it to make its
     // "no direction here" cut-off relative to the field, so a flow in mm/s
     // behaves like a flow in m/s.
     float maxMag = 0.0f;
     for (const glm::vec3& v : grid) maxMag = std::max(maxMag, glm::length(v));
-    Entry& e = m_entries[key];
-    e.tex.reset(raw);
-    e.dimX = texDimX; e.dimY = texDimY; e.dimZ = texDimZ;
-    e.maxMagnitude = maxMag;
-    m_lru.push_front(key);
-    e.lruIt = m_lru.begin();
-    evictIfNeeded();
-    return raw;
+
+    const std::string key = makeKey(name, isCell);
+    try {
+        auto existing = m_entries.find(key);
+        if (existing != m_entries.end() && existing->second.hasLru) {
+            m_lru.erase(existing->second.lruIt);
+            existing->second.hasLru = false;
+        }
+        const GLuint texId = pending.get();
+        Entry& e = m_entries[key];
+        e.tex = std::move(pending);   // deletes the previous texture, if any
+        e.dimX = texDimX; e.dimY = texDimY; e.dimZ = texDimZ;
+        e.maxMagnitude = maxMag;
+        m_lru.push_front(key);
+        e.lruIt = m_lru.begin();
+        e.hasLru = true;
+        evictIfNeeded();
+        return texId;
+    } catch (const std::bad_alloc&) {
+        return 0;   // `pending` still owns the texture and deletes it
+    }
 }
 
 bool VectorTextureCache::getTextureDims(const std::string& name, int& dimX, int& dimY, int& dimZ) const {
@@ -491,12 +601,13 @@ bool VectorTextureCache::getTextureDims(const std::string& name, int /*licBounda
     return getTextureDims(name, dimX, dimY, dimZ);
 }
 
-float VectorTextureCache::getMaxMagnitude(const std::string& name, int placement, const RenderMesh* mesh) const {
+float VectorTextureCache::getMaxMagnitude(const std::string& name, int placement, const RenderMesh* mesh,
+                                          const postfields::ComputedSnapshot* snap) const {
     if (mesh) {
         const glm::vec3* d = nullptr;
         size_t cnt = 0;
         bool isCell = false;
-        if (resolveField(*mesh, name, placement, d, cnt, isCell, nullptr)) {
+        if (resolveField(*mesh, name, placement, d, cnt, isCell, snap)) {
             const std::string key = makeKey(name, isCell);
             auto it = m_entries.find(key);
             if (it != m_entries.end()) return it->second.maxMagnitude;
@@ -513,12 +624,13 @@ float VectorTextureCache::getMaxMagnitude(const std::string& name, int placement
     return 0.0f;
 }
 
-bool VectorTextureCache::getTextureDims(const std::string& name, int placement, int /*licBoundaryMode*/, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ) const {
+bool VectorTextureCache::getTextureDims(const std::string& name, int placement, int /*licBoundaryMode*/, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ,
+                                        const postfields::ComputedSnapshot* snap) const {
     if (mesh) {
         const glm::vec3* d = nullptr;
         size_t cnt = 0;
         bool isCell = false;
-        if (resolveField(*mesh, name, placement, d, cnt, isCell, nullptr)) {
+        if (resolveField(*mesh, name, placement, d, cnt, isCell, snap)) {
             const std::string key = makeKey(name, isCell);
             auto it = m_entries.find(key);
             if (it != m_entries.end()) {
@@ -537,7 +649,7 @@ void VectorTextureCache::invalidate(const std::string& name) {
         const std::string k = makeKey(name, cell != 0);
         auto it = m_entries.find(k);
         if (it != m_entries.end()) {
-            if (it->second.lruIt != m_lru.end())
+            if (it->second.hasLru)
                 m_lru.erase(it->second.lruIt);
             m_entries.erase(it);
         }
@@ -546,7 +658,7 @@ void VectorTextureCache::invalidate(const std::string& name) {
             const std::string legacy = name + (cell ? "#C" : "#P") + "#K" + "#B" + std::to_string(mode);
             auto jt = m_entries.find(legacy);
             if (jt != m_entries.end()) {
-                if (jt->second.lruIt != m_lru.end())
+                if (jt->second.hasLru)
                     m_lru.erase(jt->second.lruIt);
                 m_entries.erase(jt);
             }
@@ -555,7 +667,7 @@ void VectorTextureCache::invalidate(const std::string& name) {
     // Also drop a legacy bare-name entry if present.
     auto bare = m_entries.find(name);
     if (bare != m_entries.end()) {
-        if (bare->second.lruIt != m_lru.end())
+        if (bare->second.hasLru)
             m_lru.erase(bare->second.lruIt);
         m_entries.erase(bare);
     }
