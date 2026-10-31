@@ -18,6 +18,47 @@ float StreamlineSet::magSq(const glm::vec3& v) {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
+void StreamlineSet::samplePath(const StreamlinePath& path, float t, glm::vec3& outPos, float& outMag) {
+    outPos = path.points.empty() ? glm::vec3(0.0f) : path.points.front();
+    outMag = 0.0f;
+    if (path.points.size() < 2) return;
+
+    const auto& pts = path.points;
+    const auto& cum = path.cumulativeLength;
+    const int n = static_cast<int>(pts.size());
+
+    float total = std::max(path.totalLength, 1e-6f);
+    float s = std::clamp(t, 0.0f, 1.0f) * total;
+
+    int idx = 0;
+    if (cum.size() == static_cast<size_t>(n)) {
+        idx = static_cast<int>(std::upper_bound(cum.begin(), cum.end(), s) - cum.begin()) - 1;
+    } else {
+        idx = static_cast<int>(s / total * (n - 1));
+    }
+    idx = std::clamp(idx, 0, n - 2);
+
+    float segStart = 0.0f, segEnd = total;
+    if (cum.size() == static_cast<size_t>(n)) {
+        segStart = cum[idx];
+        segEnd = cum[idx + 1];
+    } else {
+        // Fallback: uniform parameterization by index.
+        segStart = static_cast<float>(idx) / static_cast<float>(n - 1) * total;
+        segEnd = static_cast<float>(idx + 1) / static_cast<float>(n - 1) * total;
+    }
+    float segLen = std::max(segEnd - segStart, 1e-12f);
+    float frac = std::clamp((s - segStart) / segLen, 0.0f, 1.0f);
+
+    outPos = glm::mix(pts[idx], pts[idx + 1], frac);
+
+    if (!path.speedAtPoint.empty()) {
+        int si = std::min(idx, static_cast<int>(path.speedAtPoint.size()) - 1);
+        int sj = std::min(idx + 1, static_cast<int>(path.speedAtPoint.size()) - 1);
+        outMag = path.speedAtPoint[si] * (1.0f - frac) + path.speedAtPoint[sj] * frac;
+    }
+}
+
 // Uniform-grid spatial index for O(1) average nearest-neighbor lookups.
 // Built once per mesh, reused across all streamline integations.
 struct UniformGrid {
@@ -33,6 +74,15 @@ struct UniformGrid {
         nx = std::max(1, static_cast<int>(std::ceil(extent.x / cellSize)));
         ny = std::max(1, static_cast<int>(std::ceil(extent.y / cellSize)));
         nz = std::max(1, static_cast<int>(std::ceil(extent.z / cellSize)));
+        // Cap resolution to avoid runaway allocations on extreme inputs.
+        nx = std::min(nx, 256); ny = std::min(ny, 256); nz = std::min(nz, 256);
+        // Cap total cell count (not just each axis) to bound memory.
+        constexpr size_t kMaxCells = 1u << 20;
+        while (static_cast<size_t>(nx) * ny * nz > kMaxCells && (nx > 1 || ny > 1 || nz > 1)) {
+            if (nx >= ny && nx >= nz && nx > 1) --nx;
+            else if (ny >= nz && ny > 1) --ny;
+            else if (nz > 1) --nz;
+        }
         cells.resize(static_cast<size_t>(nx) * ny * nz);
         for (int i = 0; i < count; ++i) {
             int cx = std::clamp(static_cast<int>((verts[i * 3 + 0] - origin.x) / cellSize), 0, nx - 1);
@@ -81,55 +131,98 @@ struct UniformGrid {
     }
 };
 
-glm::vec3 StreamlineSet::evalFieldNearest(const RenderMesh& mesh, const glm::vec3& pos, const glm::vec3* data, int count, int searchCount) {
+glm::vec3 StreamlineSet::evalFieldNearest(const RenderMesh& mesh, const glm::vec3& pos, const glm::vec3* data, int count, int searchCount,
+                                          const std::vector<glm::vec3>* positionsOverride) {
     if (!data || count <= 0) return glm::vec3(0.0f);
 
-    const float* verts = mesh.vertices.data();
-    const float vol = std::abs(static_cast<float>(
-        (mesh.bounds.maxX - mesh.bounds.minX) *
-        (mesh.bounds.maxY - mesh.bounds.minY) *
-        (mesh.bounds.maxZ - mesh.bounds.minZ)));
-    const float avgSpacing = (count > 0 && vol > 0.0f)
-        ? std::pow(vol / static_cast<float>(count), 1.0f / 3.0f)
-        : static_cast<float>(mesh.bounds.extent);
-    const float cutoffDistSq = 4.0f * avgSpacing * avgSpacing;
+    const std::vector<glm::vec3>* positions = positionsOverride;
+    int numPts = 0;
+    if (positions) numPts = static_cast<int>(positions->size());
+    else numPts = static_cast<int>(mesh.vertices.size() / 3);
+    if (numPts <= 0) return glm::vec3(0.0f);
+    int n = std::min(numPts, count);
 
-    glm::vec3 minB(static_cast<float>(mesh.bounds.minX), static_cast<float>(mesh.bounds.minY), static_cast<float>(mesh.bounds.minZ));
-    glm::vec3 maxB(static_cast<float>(mesh.bounds.maxX), static_cast<float>(mesh.bounds.maxY), static_cast<float>(mesh.bounds.maxZ));
-    const UniformGrid grid(verts, count, avgSpacing, minB, maxB);
+    float minX, minY, minZ, maxX, maxY, maxZ;
+    if (positions && !positions->empty()) {
+        minX = maxX = (*positions)[0].x; minY = maxY = (*positions)[0].y; minZ = maxZ = (*positions)[0].z;
+        for (const auto& p : *positions) {
+            minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
+            minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
+            minZ = std::min(minZ, p.z); maxZ = std::max(maxZ, p.z);
+        }
+    } else {
+        minX = static_cast<float>(mesh.bounds.minX); minY = static_cast<float>(mesh.bounds.minY); minZ = static_cast<float>(mesh.bounds.minZ);
+        maxX = static_cast<float>(mesh.bounds.maxX); maxY = static_cast<float>(mesh.bounds.maxY); maxZ = static_cast<float>(mesh.bounds.maxZ);
+    }
 
-    int bestIdx = grid.nearest(pos, verts, count, cutoffDistSq);
+    const float vol = std::abs((maxX - minX) * (maxY - minY) * (maxZ - minZ));
+    const float avgSpacing = (n > 0 && vol > 0.0f)
+        ? std::pow(vol / static_cast<float>(n), 1.0f / 3.0f)
+        : static_cast<float>(mesh.bounds.extent > 0 ? mesh.bounds.extent : 1.0);
+
+    const float cutoffDistSq = 9.0f * avgSpacing * avgSpacing;
+
+    glm::vec3 minB(minX, minY, minZ);
+    glm::vec3 maxB(maxX, maxY, maxZ);
+
+    std::vector<float> posFloat;
+    posFloat.reserve(static_cast<size_t>(n) * 3);
+    if (positions) {
+        for (int i = 0; i < n; ++i) {
+            posFloat.push_back((*positions)[i].x);
+            posFloat.push_back((*positions)[i].y);
+            posFloat.push_back((*positions)[i].z);
+        }
+    } else {
+        const float* verts = mesh.vertices.data();
+        for (int i = 0; i < n; ++i) {
+            posFloat.push_back(verts[i * 3 + 0]);
+            posFloat.push_back(verts[i * 3 + 1]);
+            posFloat.push_back(verts[i * 3 + 2]);
+        }
+    }
+
+    const UniformGrid grid(posFloat.data(), n, avgSpacing, minB, maxB);
+
+    int bestIdx = grid.nearest(pos, posFloat.data(), n, cutoffDistSq);
     if (bestIdx < 0) return glm::vec3(0.0f);
+    if (bestIdx >= count) return glm::vec3(0.0f);
     if (magSq(data[bestIdx]) < 1e-12f) return glm::vec3(0.0f);
     return data[bestIdx];
 }
 
 StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const RenderMesh& mesh, const glm::vec3* data, int count) {
+    std::vector<glm::vec3> positions;
+    positions.reserve(mesh.vertices.size() / 3);
+    for (size_t i = 0; i + 2 < mesh.vertices.size(); i += 3)
+        positions.emplace_back(mesh.vertices[i], mesh.vertices[i + 1], mesh.vertices[i + 2]);
+    return buildStructuredGridInfo(positions, mesh.gridDimX, mesh.gridDimY, mesh.gridDimZ, data, count);
+}
+
+StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const std::vector<glm::vec3>& positions, int dimX, int dimY, int dimZ,
+                                                                       const glm::vec3* data, int count) {
     StreamlineSet::StructuredGridInfo info;
     info.data = data;
     info.count = count;
 
-    int dimX = mesh.gridDimX;
-    int dimY = mesh.gridDimY;
-    int dimZ = mesh.gridDimZ;
     if (dimX <= 0 || dimY <= 0 || dimZ <= 0) return info;
+    if (positions.empty()) return info;
 
-    int numVerts = static_cast<int>(mesh.vertices.size() / 3);
-    int limit = std::min(numVerts, count);
-    if (limit <= 0 || dimX * dimY * dimZ != limit) return info;
-
-    const float* verts = mesh.vertices.data();
+    int limit = std::min(static_cast<int>(positions.size()), count);
+    if (limit <= 0 || static_cast<long long>(dimX) * dimY * dimZ != limit) return info;
+    // Guard against huge allocations.
+    if (static_cast<long long>(dimX) * dimY * dimZ > 4000000) return info;
 
     std::vector<float> allX, allY, allZ;
     allX.reserve(limit);
     allY.reserve(limit);
     allZ.reserve(limit);
     for (int i = 0; i < limit; ++i) {
-        allX.push_back(verts[i * 3 + 0]);
-        allY.push_back(verts[i * 3 + 1]);
-        allZ.push_back(verts[i * 3 + 2]);
+        allX.push_back(positions[i].x);
+        allY.push_back(positions[i].y);
+        allZ.push_back(positions[i].z);
     }
-    
+
     std::sort(allX.begin(), allX.end());
     std::sort(allY.begin(), allY.end());
     std::sort(allZ.begin(), allZ.end());
@@ -173,14 +266,12 @@ StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const R
     info.dimY = dimY;
     info.dimZ = dimZ;
 
-    // Build per-cell activity mask: a cell is active iff ALL 8 corner vertices
-    // have non-zero field magnitude.  This lets streamlines respect non-rectangular
-    // domain boundaries (cylinders, L-shapes, etc.) stored as structured grids.
+    // Build per-cell activity mask
     const int cX = dimX - 1, cY = dimY - 1, cZ = dimZ - 1;
+    if (cX <= 0 || cY <= 0 || cZ <= 0) return info;
     info.cellActive.resize(static_cast<size_t>(cX) * cY * cZ, false);
     auto cellIdx = [cX, cY](int i, int j, int k) { return i + j * cX + k * cX * cY; };
     auto vertIdx = [dimX, dimY](int i, int j, int k) { return i + j * dimX + k * dimX * dimY; };
-    const float magThreshSq = 1e-6f * 1e-6f;
     for (int k = 0; k < cZ; ++k) {
         for (int j = 0; j < cY; ++j) {
             for (int i = 0; i < cX; ++i) {
@@ -188,19 +279,42 @@ StreamlineSet::StructuredGridInfo StreamlineSet::buildStructuredGridInfo(const R
                 for (int dk = 0; dk <= 1 && active; ++dk)
                     for (int dj = 0; dj <= 1 && active; ++dj)
                         for (int di = 0; di <= 1 && active; ++di) {
-                            const glm::vec3& v = data[vertIdx(i + di, j + dj, k + dk)];
-                            if (magSq(v) < magThreshSq) active = false;
+                            int vi = vertIdx(i + di, j + dj, k + dk);
+                            if (vi < 0 || vi >= limit) { active = false; break; }
+                            const glm::vec3& v = data[vi];
+                            if (magSq(v) == 0.0f) active = false;
                         }
                 info.cellActive[cellIdx(i, j, k)] = active;
             }
         }
     }
 
+    info.posStorage.resize(static_cast<size_t>(limit) * 3);
+    for (int i = 0; i < limit; ++i) {
+        info.posStorage[i * 3 + 0] = positions[i].x;
+        info.posStorage[i * 3 + 1] = positions[i].y;
+        info.posStorage[i * 3 + 2] = positions[i].z;
+    }
+    info.verts = info.posStorage.data();
+    info.vertCount = limit;
+
+    // avgSpacing
+    glm::vec3 minB = positions[0], maxB = positions[0];
+    for (int i = 0; i < limit; ++i) {
+        minB = glm::min(minB, positions[i]);
+        maxB = glm::max(maxB, positions[i]);
+    }
+    const float vol = std::abs((maxB.x - minB.x) * (maxB.y - minB.y) * (maxB.z - minB.z));
+    info.avgSpacing = (limit > 0 && vol > 0.0f)
+        ? std::pow(vol / static_cast<float>(limit), 1.0f / 3.0f)
+        : 1.0f;
+
     return info;
 }
 
 glm::vec3 StreamlineSet::evalFieldTrilinear(const StreamlineSet::StructuredGridInfo& info, const glm::vec3& pos) {
     if (!info.data) return glm::vec3(0.0f);
+    if (info.xs.empty() || info.ys.empty() || info.zs.empty()) return glm::vec3(0.0f);
 
     if (info.dimX <= 1 || info.dimY <= 1 || info.dimZ <= 1) {
         // Degenerate dimension(s): fall back to nearest-neighbor sampling.
@@ -211,7 +325,9 @@ glm::vec3 StreamlineSet::evalFieldTrilinear(const StreamlineSet::StructuredGridI
         int k = std::clamp(static_cast<int>(
             std::upper_bound(info.zs.begin(), info.zs.end(), pos.z) - info.zs.begin()) - 1, 0, info.dimZ - 1);
         auto idx = [&](int ii, int jj, int kk) { return ii + jj * info.dimX + kk * info.dimX * info.dimY; };
-        return info.data[idx(i, j, k)];
+        int flat = idx(i, j, k);
+        if (flat < 0 || flat >= info.count || !info.data) return glm::vec3(0.0f);
+        return info.data[flat];
     }
 
     if (pos.x < info.xs.front() || pos.x > info.xs.back() ||
@@ -235,6 +351,12 @@ glm::vec3 StreamlineSet::evalFieldTrilinear(const StreamlineSet::StructuredGridI
     float fx = info.xs[i1] > info.xs[i0] ? (pos.x - info.xs[i0]) / (info.xs[i1] - info.xs[i0]) : 0.0f;
     float fy = info.ys[j1] > info.ys[j0] ? (pos.y - info.ys[j0]) / (info.ys[j1] - info.ys[j0]) : 0.0f;
     float fz = info.zs[k1] > info.zs[k0] ? (pos.z - info.zs[k0]) / (info.zs[k1] - info.zs[k0]) : 0.0f;
+
+    auto inRange = [&](int ii, int jj, int kk) -> bool {
+        int f = ii + jj * info.dimX + kk * info.dimX * info.dimY;
+        return f >= 0 && f < info.count && info.data != nullptr;
+    };
+    if (!inRange(i0, j0, k0) || !inRange(i1, j1, k1)) return glm::vec3(0.0f);
 
     auto idx = [&](int i, int j, int k) { return i + j * info.dimX + k * info.dimX * info.dimY; };
 
@@ -411,10 +533,15 @@ bool StreamlineSet::isInsideDomain(const StreamlineSet::StructuredGridInfo& info
 
     int cX = dX - 1;
     int cY = dY - 1;
-    return info.cellActive[static_cast<size_t>(ci) + cj * cX + ck * cX * cY];
+    size_t ciIdx = static_cast<size_t>(ci)
+                 + static_cast<size_t>(cj) * static_cast<size_t>(cX)
+                 + static_cast<size_t>(ck) * static_cast<size_t>(cX) * static_cast<size_t>(cY);
+    if (ciIdx >= info.cellActive.size()) return true;
+    return info.cellActive[ciIdx];
 }
 
-std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter, int planeCountU, int planeCountV) {
+std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int seedCount, const std::string& mode, double planePos, double jitter, int planeCountU, int planeCountV,
+                                                    const std::vector<glm::vec3>* positionsOverride) {
     std::vector<glm::vec3> seeds;
     if (seedCount <= 0) return seeds;
 
@@ -429,15 +556,25 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
     std::uniform_real_distribution<float> jitterDist(-1.0f, 1.0f);
 
     if (mode == "Surface") {
-        int numVerts = static_cast<int>(mesh.vertices.size() / 3);
+        int numVerts = positionsOverride ? static_cast<int>(positionsOverride->size())
+                                       : static_cast<int>(mesh.vertices.size() / 3);
         if (numVerts <= 0) return seeds;
         int actualCount = std::min(seedCount, numVerts);
         float stride = static_cast<float>(numVerts) / static_cast<float>(actualCount);
         for (int i = 0; i < actualCount; ++i) {
             int idx = static_cast<int>(i * stride);
-            float x = mesh.vertices[idx * 3 + 0];
-            float y = mesh.vertices[idx * 3 + 1];
-            float z = mesh.vertices[idx * 3 + 2];
+            if (idx < 0) idx = 0;
+            if (idx >= numVerts) idx = numVerts - 1;
+            float x, y, z;
+            if (positionsOverride) {
+                x = (*positionsOverride)[idx].x;
+                y = (*positionsOverride)[idx].y;
+                z = (*positionsOverride)[idx].z;
+            } else {
+                x = mesh.vertices[idx * 3 + 0];
+                y = mesh.vertices[idx * 3 + 1];
+                z = mesh.vertices[idx * 3 + 2];
+            }
             if (jitter > 0.0) {
                 float dx = (maxX - minX) * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
                 float dy = (maxY - minY) * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
@@ -452,34 +589,26 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
     }
 
     if (mode == "PlaneXY" || mode == "PlaneXZ" || mode == "PlaneYZ") {
-        float pos = static_cast<float>(planePos);
+float pos = static_cast<float>(planePos);
         int nU = std::max(1, planeCountU);
         int nV = std::max(1, planeCountV);
         int totalGrid = nU * nV;
-        int actualCount = std::min(seedCount, totalGrid);
+        int actualCount = totalGrid;
         if (actualCount <= 0) return seeds;
         float stride = static_cast<float>(totalGrid) / static_cast<float>(actualCount);
+
         float sx = maxX - minX;
         float sy = maxY - minY;
         float sz = maxZ - minZ;
 
-        int nUout = std::min(nU, static_cast<int>(std::ceil(std::sqrt(static_cast<double>(actualCount)))));
-        if (nUout < 1) nUout = 1;
-        int nVout = std::min(nV, static_cast<int>(std::ceil(static_cast<double>(actualCount) / nUout)));
-        if (nVout < 1) nVout = 1;
-
-        std::vector<int> ixs, iys;
-        for (int i = 0; i < nUout; ++i)
-            ixs.push_back((nUout == 1) ? (nU / 2) : (i * (nU - 1)) / (nUout - 1));
-        for (int i = 0; i < nVout; ++i)
-            iys.push_back((nVout == 1) ? (nV / 2) : (i * (nV - 1)) / (nVout - 1));
-
         int count = 0;
-        for (int iy : iys) {
-            for (int ix : ixs) {
-                if (count >= actualCount) break;
-                float tx = (ix + 0.5f) / nU;
-                float ty = (iy + 0.5f) / nV;
+        for (int iv = 0; iv < nV && count < actualCount; ++iv) {
+            for (int iu = 0; iu < nU && count < actualCount; ++iu) {
+                if ((iv * nU + iu) % std::max(1, static_cast<int>(stride)) != 0) continue;
+
+                float tx = (iu + 0.5f) / static_cast<float>(nU);
+                float ty = (iv + 0.5f) / static_cast<float>(nV);
+
                 float x = minX + tx * sx;
                 float y = minY + ty * sy;
                 float z = minZ + pos * sz;
@@ -494,18 +623,21 @@ std::vector<glm::vec3> StreamlineSet::generateSeeds(const RenderMesh& mesh, int 
                 }
 
                 if (jitter > 0.0) {
-                    float dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    float dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    float dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
-                    x = std::clamp(x + dx, minX, maxX);
-                    y = std::clamp(y + dy, minY, maxY);
-                    z = std::clamp(z + dz, minZ, maxZ);
+                    float dx = 0.0f, dy = 0.0f, dz = 0.0f;
+                    if (mode != "PlaneXZ" && mode != "PlaneYZ")
+                        dx = sx * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    if (mode != "PlaneXY" && mode != "PlaneYZ")
+                        dy = sy * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    if (mode != "PlaneXY" && mode != "PlaneXZ")
+                        dz = sz * 0.05f * jitterDist(rng) * static_cast<float>(jitter);
+                    if (dx != 0.0f) x = std::clamp(x + dx, minX, maxX);
+                    if (dy != 0.0f) y = std::clamp(y + dy, minY, maxY);
+                    if (dz != 0.0f) z = std::clamp(z + dz, minZ, maxZ);
                 }
 
                 seeds.emplace_back(x, y, z);
                 ++count;
             }
-            if (count >= actualCount) break;
         }
         return seeds;
     }
@@ -577,6 +709,7 @@ std::vector<float> StreamlineSet::generateArrowhead(const glm::vec3& pos, const 
     std::vector<float> verts;
     float dirLen = glm::length(dir);
     if (dirLen < 1e-8f || height <= 0.0f || radius <= 0.0f || segments < 3) return verts;
+    verts.reserve(static_cast<size_t>(segments) * 6 * 10);
 
     glm::mat3 frame = buildFrame(dir);
     glm::vec3 apex = pos + frame[2] * height;
@@ -654,11 +787,29 @@ std::vector<float> StreamlineSet::computeArrowPlacement(float pathLength, float 
 void StreamlineSet::initParticles(int count) {
     particles.clear();
     if (paths.empty() || count <= 0) return;
-    std::uniform_int_distribution<int> pathDist(0, static_cast<int>(paths.size()) - 1);
+    count = std::min(count, 2000);
+
+    // Weight path selection by arc length so longer paths get more particles.
+    std::vector<float> weights;
+    weights.reserve(paths.size());
+    float totalWeight = 0.0f;
+    for (const auto& p : paths) {
+        float w = std::max(p.totalLength, 1e-6f);
+        weights.push_back(w);
+        totalWeight += w;
+    }
+
     std::uniform_real_distribution<float> tDist(0.0f, 1.0f);
     particles.reserve(count);
     for (int i = 0; i < count; ++i) {
-        particles.push_back({ pathDist(particleRng), tDist(particleRng) });
+        float r = tDist(particleRng) * totalWeight;
+        int pathIndex = 0;
+        float acc = weights[0];
+        while (pathIndex + 1 < static_cast<int>(paths.size()) && r > acc) {
+            ++pathIndex;
+            acc += weights[pathIndex];
+        }
+        particles.push_back({ pathIndex, tDist(particleRng) });
     }
 }
 
@@ -667,59 +818,78 @@ void StreamlineSet::updateParticles(float dt, float speed) {
         if (p.pathIndex < 0 || p.pathIndex >= static_cast<int>(paths.size())) continue;
         const auto& path = paths[p.pathIndex];
         if (path.points.size() < 2) continue;
-        int n = static_cast<int>(path.points.size());
 
         if (p.t < 0.0f || p.t >= 1.0f) p.t = p.t - std::floor(p.t);
 
-        float scaledT = p.t * static_cast<float>(n - 1);
-        int idx = std::min(static_cast<int>(scaledT), n - 2);
-        if (idx < 0) idx = 0;
-        float frac = scaledT - static_cast<float>(idx);
-        if (frac < 0.0f) frac = 0.0f;
-        if (frac > 1.0f) frac = 1.0f;
-        float localSpeed = path.speedAtPoint[idx] * (1.0f - frac) + path.speedAtPoint[idx + 1] * frac;
-        p.t += (dt * speed * localSpeed) / std::max(path.totalLength, 1e-6f);
+        glm::vec3 dummyPos(0.0f);
+        float localSpeed = 0.0f;
+        samplePath(path, p.t, dummyPos, localSpeed);
+        if (path.speedAtPoint.empty()) localSpeed = 1.0f;
 
-        if (p.t >= 1.0f) p.t -= std::floor(p.t);
+        float dtNorm = (dt * speed * localSpeed) / std::max(path.totalLength, 1e-6f);
+        // Clamp per-frame advance to avoid teleporting/skipping path features.
+        dtNorm = std::clamp(dtNorm, -0.05f, 0.05f);
+        p.t += dtNorm;
+
+        p.t = p.t - std::floor(p.t);
     }
 }
 
 void StreamlineSet::buildParticleVertices(std::vector<float>& outVerts) {
     outVerts.clear();
-    outVerts.reserve(particles.size() * 5);
+    outVerts.reserve(particles.size() * 9);
     for (const auto& p : particles) {
         if (p.pathIndex < 0 || p.pathIndex >= static_cast<int>(paths.size())) continue;
         const auto& path = paths[p.pathIndex];
-        const auto& pts = path.points;
-        const auto& spd = path.speedAtPoint;
-        if (pts.size() < 2) continue;
+        if (path.points.size() < 2) continue;
 
-        float scaledT = p.t * static_cast<float>(pts.size() - 1);
-        int idx = static_cast<int>(scaledT);
-        float frac = scaledT - static_cast<float>(idx);
-        if (idx >= static_cast<int>(pts.size()) - 1) {
-            idx = static_cast<int>(pts.size()) - 2;
-            frac = 1.0f;
-        }
-        glm::vec3 pos = glm::mix(pts[idx], pts[idx + 1], frac);
-
+        glm::vec3 pos(0.0f);
         float mag = 0.0f;
-        if (!spd.empty()) {
-            float sA = spd[std::min(idx, static_cast<int>(spd.size()) - 1)];
-            float sB = spd[std::min(idx + 1, static_cast<int>(spd.size()) - 1)];
-            mag = sA + (sB - sA) * frac;
+        samplePath(path, p.t, pos, mag);
+
+        // Tangent along the path for oriented particles/cones.
+        glm::vec3 tangent(0.0f, 0.0f, 1.0f);
+        if (path.points.size() >= 2) {
+            const auto& cum = path.cumulativeLength;
+            const int n = static_cast<int>(path.points.size());
+            float total = std::max(path.totalLength, 1e-6f);
+            float s = std::clamp(p.t, 0.0f, 1.0f) * total;
+            int idx = 0;
+            if (cum.size() == static_cast<size_t>(n)) {
+                idx = static_cast<int>(std::upper_bound(cum.begin(), cum.end(), s) - cum.begin()) - 1;
+            } else {
+                idx = static_cast<int>(s / total * (n - 1));
+            }
+            idx = std::clamp(idx, 0, n - 2);
+            tangent = path.points[idx + 1] - path.points[idx];
+            float tlen = glm::length(tangent);
+            if (tlen > 1e-12f) tangent /= tlen;
         }
+
+        // Normalized radius factor matching tube generation.
+        float pathMaxMag = 0.0f;
+        for (float m : path.speedAtPoint) pathMaxMag = std::max(pathMaxMag, m);
+        if (pathMaxMag < 1e-12f) pathMaxMag = 1.0f;
+        float radiusFactor = std::clamp(mag / pathMaxMag, 0.15f, 2.0f);
 
         outVerts.push_back(pos.x);
         outVerts.push_back(pos.y);
         outVerts.push_back(pos.z);
         outVerts.push_back(mag);
         outVerts.push_back(p.t);   // path parameter for end-fade in particle.frag
+        outVerts.push_back(tangent.x);
+        outVerts.push_back(tangent.y);
+        outVerts.push_back(tangent.z);
+        outVerts.push_back(radiusFactor);
     }
 }
 
-void StreamlineSet::teardownParticles() {
+void StreamlineSet::clearParticles() {
     particles.clear();
+}
+
+void StreamlineSet::teardownParticles() {
+    clearParticles();
     paths.clear();
 }
 
@@ -733,6 +903,7 @@ void StreamlineSet::teardownGL() {
     lineCount = 0;
     seedCount = 0;
     arrowCount = 0;
+    renderAsLines = false;
 }
 
 void StreamlineSet::shutdown() {
@@ -741,11 +912,11 @@ void StreamlineSet::shutdown() {
 }
 
 StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
-                                 const std::string& fieldName, const std::string& mode, const std::string& direction,
-                                 double planePos, double jitter, int planeCountU, int planeCountV,
-                                 bool showArrows, float arrowSpacingFrac, float arrowSize,
-                                 float ribbonWidth, float taperFactor,
-                                 const postfields::ComputedSnapshot* snap) {
+                                  const std::string& fieldName, const std::string& mode, const std::string& direction,
+                                  double planePos, double jitter, int planeCountU, int planeCountV,
+                                  bool showArrows, float arrowSpacingFrac, float arrowSize,
+                                  float ribbonWidth, float taperFactor, int style, float maxPathLength,
+                                  const postfields::ComputedSnapshot* snap) {
     StreamlineResult result;
 
     // Respect streamline vector placement would require state; for now try Vertex then CellCenter
@@ -756,21 +927,50 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
     if (!field.data || field.count == 0) return result;
     const glm::vec3* data = field.data;
     size_t count = field.count;
+    const bool isCell = field.isCell;
 
-    int numVerts = static_cast<int>(mesh.vertices.size() / 3);
-    const int limit = std::min(numVerts, static_cast<int>(count));
+    std::vector<glm::vec3> cellPositions;
+    const std::vector<glm::vec3>* positionsOverride = nullptr;
+    if (isCell) {
+        cellPositions = mesh.cellCenters;
+        positionsOverride = &cellPositions;
+    }
+
+    int numPts = isCell ? static_cast<int>(mesh.cellCenters.size())
+                        : static_cast<int>(mesh.vertices.size() / 3);
+    const int limit = std::min(numPts, static_cast<int>(count));
     if (limit <= 0) return result;
 
     const float extent = static_cast<float>(mesh.bounds.extent);
     const float h = std::max(stepSize, 1e-8f);
-    const float magThresh = 1e-6f;
+    const float magThresh = 0.0f;
 
-    StructuredGridInfo grid = buildStructuredGridInfo(mesh, data, limit);
-    bool hasGrid = grid.dimX > 0;
+    int effectiveMaxSteps = maxSteps;
+    if (maxPathLength > 0.0f && h > 0.0f) {
+        effectiveMaxSteps = std::min(5000, static_cast<int>(std::ceil(maxPathLength / h)));
+        effectiveMaxSteps = std::max(1, effectiveMaxSteps);
+    }
+
+    StructuredGridInfo grid;
+    bool hasGrid = false;
     bool nonCartesianGrid = false;
 
-    if (!hasGrid && mesh.gridDimX > 0 && mesh.gridDimY > 0 && mesh.gridDimZ > 0
+    if (!isCell) {
+        grid = buildStructuredGridInfo(mesh, data, limit);
+        hasGrid = grid.dimX > 0;
+    } else {
+        if (mesh.gridDimX > 1 && mesh.gridDimY > 1 && mesh.gridDimZ > 1) {
+            int cdimX = mesh.gridDimX - 1;
+            int cdimY = mesh.gridDimY - 1;
+            int cdimZ = mesh.gridDimZ - 1;
+            grid = buildStructuredGridInfo(cellPositions, cdimX, cdimY, cdimZ, data, limit);
+            hasGrid = grid.dimX > 0;
+        }
+    }
+
+    if (!hasGrid && !isCell && mesh.gridDimX > 0 && mesh.gridDimY > 0 && mesh.gridDimZ > 0
         && mesh.gridDimX * mesh.gridDimY * mesh.gridDimZ == limit) {
+        // existing point non-Cartesian fallback
         grid.dimX = mesh.gridDimX;
         grid.dimY = mesh.gridDimY;
         grid.dimZ = mesh.gridDimZ;
@@ -780,46 +980,144 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
         grid.vertCount = limit;
 
         const int cX = grid.dimX - 1, cY = grid.dimY - 1, cZ = grid.dimZ - 1;
-        grid.cellActive.resize(static_cast<size_t>(cX) * cY * cZ, false);
-        auto vIdx = [dX = grid.dimX, dY = grid.dimY](int i, int j, int k) {
-            return i + j * dX + k * dX * dY;
-        };
-        const float magThreshSq = 1e-6f * 1e-6f;
-        for (int k = 0; k < cZ; ++k)
-            for (int j = 0; j < cY; ++j)
-                for (int i = 0; i < cX; ++i) {
-                    bool active = true;
-                    for (int dk = 0; dk <= 1 && active; ++dk)
-                        for (int dj = 0; dj <= 1 && active; ++dj)
-                            for (int di = 0; di <= 1 && active; ++di)
-                                if (magSq(data[vIdx(i + di, j + dj, k + dk)]) < magThreshSq)
-                                    active = false;
-                    grid.cellActive[i + j * cX + k * cX * cY] = active;
-                }
-        hasGrid = true;
-        nonCartesianGrid = true;
+        if (cX > 0 && cY > 0 && cZ > 0) {
+            grid.cellActive.resize(static_cast<size_t>(cX) * cY * cZ, false);
+            auto vIdx = [dX = grid.dimX, dY = grid.dimY](int i, int j, int k) {
+                return i + j * dX + k * dX * dY;
+            };
+            for (int k = 0; k < cZ; ++k)
+                for (int j = 0; j < cY; ++j)
+                    for (int i = 0; i < cX; ++i) {
+                        bool active = true;
+                        for (int dk = 0; dk <= 1 && active; ++dk)
+                            for (int dj = 0; dj <= 1 && active; ++dj)
+                                for (int di = 0; di <= 1 && active; ++di)
+                                    if (magSq(data[vIdx(i + di, j + dj, k + dk)]) == 0.0f)
+                                        active = false;
+                        grid.cellActive[i + j * cX + k * cX * cY] = active;
+                    }
+            hasGrid = true;
+            nonCartesianGrid = true;
 
-        const float vol = std::abs(static_cast<float>(
-            (mesh.bounds.maxX - mesh.bounds.minX) *
-            (mesh.bounds.maxY - mesh.bounds.minY) *
-            (mesh.bounds.maxZ - mesh.bounds.minZ)));
-        grid.avgSpacing = (limit > 0 && vol > 0.0f)
-            ? std::pow(vol / static_cast<float>(limit), 1.0f / 3.0f)
-            : 1.0f;
+            const float vol = std::abs(static_cast<float>(
+                (mesh.bounds.maxX - mesh.bounds.minX) *
+                (mesh.bounds.maxY - mesh.bounds.minY) *
+                (mesh.bounds.maxZ - mesh.bounds.minZ)));
+            grid.avgSpacing = (limit > 0 && vol > 0.0f)
+                ? std::pow(vol / static_cast<float>(limit), 1.0f / 3.0f)
+                : 1.0f;
+        }
     }
 
-    auto evalField = [&](const glm::vec3& pos) -> glm::vec3 {
-        if (hasGrid) {
-            if (!nonCartesianGrid)
-                return evalFieldTrilinear(grid, pos);
-            glm::vec3 v = evalFieldNearest(mesh, pos, data, limit, limit);
-            if (!isInsideDomain(grid, pos)) return glm::vec3(0.0f);
-            return v;
+    if (!hasGrid && isCell && mesh.gridDimX > 1 && mesh.gridDimY > 1 && mesh.gridDimZ > 1) {
+        int cdimX = mesh.gridDimX - 1, cdimY = mesh.gridDimY - 1, cdimZ = mesh.gridDimZ - 1;
+        if (cdimX * cdimY * cdimZ == limit) {
+            grid.dimX = cdimX;
+            grid.dimY = cdimY;
+            grid.dimZ = cdimZ;
+            grid.data = data;
+            grid.count = limit;
+
+            // store positions in posStorage
+            grid.posStorage.resize(static_cast<size_t>(limit) * 3);
+            for (int i = 0; i < limit; ++i) {
+                grid.posStorage[i * 3 + 0] = cellPositions[i].x;
+                grid.posStorage[i * 3 + 1] = cellPositions[i].y;
+                grid.posStorage[i * 3 + 2] = cellPositions[i].z;
+            }
+            grid.verts = grid.posStorage.data();
+            grid.vertCount = limit;
+
+            const int cX = grid.dimX - 1, cY = grid.dimY - 1, cZ = grid.dimZ - 1;
+            if (cX > 0 && cY > 0 && cZ > 0 && static_cast<long long>(cX) * cY * cZ <= 4000000) {
+                grid.cellActive.resize(static_cast<size_t>(cX) * cY * cZ, false);
+                auto vIdx = [dX = grid.dimX, dY = grid.dimY](int i, int j, int k) {
+                    return i + j * dX + k * dX * dY;
+                };
+                for (int k = 0; k < cZ; ++k)
+                    for (int j = 0; j < cY; ++j)
+                        for (int i = 0; i < cX; ++i) {
+                            bool active = true;
+                            for (int dk = 0; dk <= 1 && active; ++dk)
+                                for (int dj = 0; dj <= 1 && active; ++dj)
+                                    for (int di = 0; di <= 1 && active; ++di)
+                                        if (magSq(data[vIdx(i + di, j + dj, k + dk)]) == 0.0f)
+                                            active = false;
+                            grid.cellActive[i + j * cX + k * cX * cY] = active;
+                        }
+                hasGrid = true;
+                nonCartesianGrid = true;
+
+                glm::vec3 minB = cellPositions.empty() ? glm::vec3(0.0f) : cellPositions[0];
+                glm::vec3 maxB = minB;
+                for (int i = 0; i < limit; ++i) { minB = glm::min(minB, cellPositions[i]); maxB = glm::max(maxB, cellPositions[i]); }
+                const float vol = std::abs((maxB.x - minB.x) * (maxB.y - minB.y) * (maxB.z - minB.z));
+                grid.avgSpacing = (limit > 0 && vol > 0.0f)
+                    ? std::pow(vol / static_cast<float>(limit), 1.0f / 3.0f)
+                    : 1.0f;
+            }
         }
-        return evalFieldNearest(mesh, pos, data, limit, limit);
+    }
+
+    // Cached spatial index for nearest-neighbor fallback (avoid rebuilding per sample).
+    std::vector<float> cachedPosFloat;
+    cachedPosFloat.reserve(static_cast<size_t>(limit) * 3);
+    glm::vec3 cachedMinB(0.0f), cachedMaxB(0.0f);
+    float cachedAvgSpacing = 1.0f;
+    float cachedCutoffSq = 9.0f;
+    if (positionsOverride && !positionsOverride->empty()) {
+        cachedMinB = (*positionsOverride)[0]; cachedMaxB = cachedMinB;
+        for (int i = 0; i < limit; ++i) {
+            cachedPosFloat.push_back((*positionsOverride)[i].x);
+            cachedPosFloat.push_back((*positionsOverride)[i].y);
+            cachedPosFloat.push_back((*positionsOverride)[i].z);
+            cachedMinB = glm::min(cachedMinB, (*positionsOverride)[i]);
+            cachedMaxB = glm::max(cachedMaxB, (*positionsOverride)[i]);
+        }
+    } else {
+        const float* vv = mesh.vertices.data();
+        if (limit > 0) { cachedMinB = glm::vec3(vv[0], vv[1], vv[2]); cachedMaxB = cachedMinB; }
+        for (int i = 0; i < limit; ++i) {
+            cachedPosFloat.push_back(vv[i * 3 + 0]);
+            cachedPosFloat.push_back(vv[i * 3 + 1]);
+            cachedPosFloat.push_back(vv[i * 3 + 2]);
+            glm::vec3 p(vv[i*3+0], vv[i*3+1], vv[i*3+2]);
+            cachedMinB = glm::min(cachedMinB, p);
+            cachedMaxB = glm::max(cachedMaxB, p);
+        }
+    }
+    {
+        const float vol = std::abs((cachedMaxB.x - cachedMinB.x) * (cachedMaxB.y - cachedMinB.y) * (cachedMaxB.z - cachedMinB.z));
+        cachedAvgSpacing = (limit > 0 && vol > 0.0f)
+            ? std::pow(vol / static_cast<float>(limit), 1.0f / 3.0f)
+            : static_cast<float>(mesh.bounds.extent > 0 ? mesh.bounds.extent : 1.0);
+        cachedCutoffSq = 9.0f * cachedAvgSpacing * cachedAvgSpacing;
+    }
+    UniformGrid cachedGrid(cachedPosFloat.data(), limit, cachedAvgSpacing, cachedMinB, cachedMaxB);
+    auto cachedNearest = [&](const glm::vec3& pos) -> glm::vec3 {
+        if (!data || limit <= 0) return glm::vec3(0.0f);
+        int bestIdx = cachedGrid.nearest(pos, cachedPosFloat.data(), limit, cachedCutoffSq);
+        if (bestIdx < 0 || bestIdx >= count) return glm::vec3(0.0f);
+        if (magSq(data[bestIdx]) < 1e-12f) return glm::vec3(0.0f);
+        return data[bestIdx];
     };
 
-    std::vector<glm::vec3> seeds = generateSeeds(mesh, seedCountParam, mode, planePos, jitter, planeCountU, planeCountV);
+    auto evalField = [&](const glm::vec3& pos) -> glm::vec3 {
+        glm::vec3 v(0.0f);
+        if (hasGrid) {
+            if (!isInsideDomain(grid, pos)) return glm::vec3(0.0f);
+            if (!nonCartesianGrid)
+                v = evalFieldTrilinear(grid, pos);
+            else
+                v = cachedNearest(pos);
+        } else {
+            v = cachedNearest(pos);
+        }
+        if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z)) return glm::vec3(0.0f);
+        return v;
+    };
+
+    std::vector<glm::vec3> seeds = generateSeeds(mesh, seedCountParam, mode, planePos, jitter, planeCountU, planeCountV, positionsOverride);
     if (seeds.empty()) return result;
 
     if (hasGrid) {
@@ -828,18 +1126,18 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
             std::remove_if(seeds.begin(), seeds.end(), [&](const glm::vec3& s) {
                 if (!isInsideDomain(grid, s)) return true;
                 glm::vec3 v = evalField(s);
-                return magSq(v) < magThreshSq;
+                return magSq(v) <= magThreshSq;
             }),
             seeds.end());
         if (seeds.empty()) return result;
     } else {
         const float magThreshSq = magThresh * magThresh;
-        seeds.erase(
-            std::remove_if(seeds.begin(), seeds.end(), [&](const glm::vec3& s) {
-                glm::vec3 v = evalFieldNearest(mesh, s, data, limit, limit);
-                return magSq(v) < magThreshSq;
-            }),
-            seeds.end());
+            seeds.erase(
+                std::remove_if(seeds.begin(), seeds.end(), [&](const glm::vec3& s) {
+                    glm::vec3 v = cachedNearest(s);
+                    return magSq(v) <= magThreshSq;
+                }),
+                seeds.end());
         if (seeds.empty()) return result;
     }
 
@@ -861,7 +1159,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
         // minimum world spacing implied by the extent fraction.
         const float minSpacing = std::max(arrowSpacingFrac * extent, 2.0f * arrowSize * extent);
         const size_t arrowsPerPath = minSpacing > 1e-12f
-            ? static_cast<size_t>(static_cast<float>(2 * std::max(maxSteps, 1)) * h / minSpacing) + 1
+            ? static_cast<size_t>(static_cast<float>(2 * std::max(effectiveMaxSteps, 1)) * h / minSpacing) + 1
             : 0;
         const size_t estimatedArrows = seeds.size() * arrowsPerPath;
         arrowPositions.reserve(estimatedArrows);
@@ -885,35 +1183,47 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
             outPts.push_back(pos);
             outFieldVecs.push_back(evalField(pos));
 
-            for (int iter = 0; iter < maxSteps; ++iter) {
+            float hCur = h;
+            int iter = 0;
+            const float tol = 1e-3f;
+            const float hMin = h * 1e-4f;
+            while (iter < effectiveMaxSteps) {
                 auto stepDir = [&](const glm::vec3& p) -> glm::vec3 {
                     glm::vec3 v = evalField(p);
                     float m = std::sqrt(magSq(v));
-                    if (m < magThresh) return glm::vec3(0.0f);
+                    if (m <= 0.0f) return glm::vec3(0.0f);
                     return static_cast<float>(dir) * (v / m);
                 };
 
+                // Dormand-Prince RK4(5): one set of 6 stages gives both the
+                // 5th-order result and an embedded 4th-order error estimate.
                 glm::vec3 k1 = stepDir(pos);
                 if (glm::length(k1) < 1e-12f) break;
-
-                glm::vec3 p2 = pos + 0.5f * h * k1;
-                glm::vec3 k2 = stepDir(p2);
+                glm::vec3 k2 = stepDir(pos + hCur * (1.0f / 5.0f) * k1);
                 if (glm::length(k2) < 1e-12f) break;
-
-                glm::vec3 p3 = pos + 0.5f * h * k2;
-                glm::vec3 k3 = stepDir(p3);
+                glm::vec3 k3 = stepDir(pos + hCur * (3.0f / 40.0f * k1 + 9.0f / 40.0f * k2));
                 if (glm::length(k3) < 1e-12f) break;
-
-                glm::vec3 p4 = pos + h * k3;
-                glm::vec3 k4 = stepDir(p4);
+                glm::vec3 k4 = stepDir(pos + hCur * (44.0f / 45.0f * k1 - 56.0f / 15.0f * k2 + 32.0f / 9.0f * k3));
                 if (glm::length(k4) < 1e-12f) break;
+                glm::vec3 k5 = stepDir(pos + hCur * (19372.0f / 6561.0f * k1 - 25360.0f / 2187.0f * k2 + 64448.0f / 6561.0f * k3 - 212.0f / 729.0f * k4));
+                if (glm::length(k5) < 1e-12f) break;
+                glm::vec3 k6 = stepDir(pos + hCur * (9017.0f / 3168.0f * k1 - 355.0f / 33.0f * k2 + 46732.0f / 5247.0f * k3 + 49.0f / 176.0f * k4 - 5103.0f / 18656.0f * k5));
+                if (glm::length(k6) < 1e-12f) break;
 
-                glm::vec3 newPos = pos + (h / 6.0f) * (k1 + 2.0f * k2 + 2.0f * k3 + k4);
+                glm::vec3 pos5 = pos + hCur * (35.0f / 384.0f * k1 + 500.0f / 1113.0f * k3 + 125.0f / 192.0f * k4 - 2187.0f / 6784.0f * k5 + 11.0f / 84.0f * k6);
+                glm::vec3 pos4 = pos + hCur * (5179.0f / 57600.0f * k1 + 7571.0f / 16695.0f * k3 + 393.0f / 640.0f * k4 - 92097.0f / 339200.0f * k5 + 187.0f / 2100.0f * k6);
 
+                float err = glm::length(pos5 - pos4);
+                if (err > tol && hCur > hMin) {
+                    hCur *= 0.5f;
+                    continue;
+                }
+
+                glm::vec3 newPos = pos5;
                 {
                     glm::vec3 nv = evalField(newPos);
                     float nm = std::sqrt(magSq(nv));
-                    if (nm < magThresh) break;
+                    if (nm <= 0.0f) break;
 
                     if (newPos.x < mesh.bounds.minX || newPos.x > mesh.bounds.maxX ||
                         newPos.y < mesh.bounds.minY || newPos.y > mesh.bounds.maxY ||
@@ -928,11 +1238,16 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
 
                 outPts.push_back(newPos);
                 pos = newPos;
+                iter++;
+                if (err < tol * 0.2f) hCur = std::min(h, hCur * 1.5f);
             }
         };
 
-        bool doForward = (direction == "Forward" || direction == "Both");
-        bool doBackward = (direction == "Backward" || direction == "Both");
+const std::string dir = (direction == "Forward" || direction == "Backward" || direction == "Both")
+                            ? direction : "Both";
+
+        bool doForward = (dir == "Forward" || dir == "Both");
+        bool doBackward = (dir == "Backward" || dir == "Both");
 
         if (doForward) {
             integrateDir(+1, forwardPts, forwardFieldVecs);
@@ -945,7 +1260,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
         std::vector<float> mergedSpeeds;
         std::vector<glm::vec3> mergedFieldVecs;
 
-        if (direction == "Both" && !forwardPts.empty() && !backwardPts.empty()) {
+        if (dir == "Both" && !forwardPts.empty() && !backwardPts.empty()) {
             mergedPts.reserve(backwardPts.size() + forwardPts.size() - 1);
             mergedPts.insert(mergedPts.end(), backwardPts.rbegin() + 1, backwardPts.rend());
             mergedPts.insert(mergedPts.end(), forwardPts.begin(), forwardPts.end());
@@ -984,15 +1299,28 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
         if (mergedPts.size() < 3) continue;
 
         float totalLength = 0.0f;
+        std::vector<float> cumulativeLength;
+        cumulativeLength.reserve(mergedPts.size());
+        cumulativeLength.push_back(0.0f);
         for (size_t i = 0; i + 1 < mergedPts.size(); ++i) {
             totalLength += glm::length(mergedPts[i + 1] - mergedPts[i]);
+            cumulativeLength.push_back(totalLength);
         }
         if (totalLength < 1e-6f) totalLength = 1.0f;
+        if (cumulativeLength.size() < mergedPts.size())
+            cumulativeLength.push_back(totalLength);
 
-        result.paths.push_back({ mergedPts, mergedSpeeds, totalLength });
+        result.paths.push_back({ mergedPts, mergedSpeeds, cumulativeLength, totalLength });
 
         const float baseWidth = static_cast<float>(extent * ribbonWidth);
+        result.tubeBaseWidth = baseWidth;
+        result.style = style;
 
+        float pathMaxMag = 0.0f;
+        for (float m : mergedSpeeds) pathMaxMag = std::max(pathMaxMag, m);
+        if (pathMaxMag < 1e-12f) pathMaxMag = 1.0f;
+
+        const int tubeSegments = 8;
         for (size_t i = 0; i + 1 < mergedPts.size(); ++i) {
             glm::vec3 a = mergedPts[i];
             glm::vec3 b = mergedPts[i + 1];
@@ -1019,16 +1347,19 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
             float taperA = 1.0f - taperFactor * std::abs(2.0f * tA - 1.0f);
             float taperB = 1.0f - taperFactor * std::abs(2.0f * tB - 1.0f);
 
-            glm::vec3 va = a - side * (baseWidth * taperA);
-            glm::vec3 vb = a + side * (baseWidth * taperA);
-            glm::vec3 vc = b - side * (baseWidth * taperB);
-            glm::vec3 vd = b + side * (baseWidth * taperB);
+            auto radiusFactor = [&](float m) {
+                float r = m / pathMaxMag;
+                r = std::clamp(r, 0.15f, 2.0f);
+                return r;
+            };
+            float rA = baseWidth * taperA * radiusFactor(magA);
+            float rB = baseWidth * taperB * radiusFactor(magB);
 
-            auto pushQuadVertex = [&](const glm::vec3& p, float rawMag, const glm::vec3& rawComp) {
+            auto pushTubeVertex = [&](const glm::vec3& p, float rawMag, const glm::vec3& rawComp, const glm::vec3& nrm) {
                 result.verts.push_back(p.x); result.verts.push_back(p.y); result.verts.push_back(p.z);
                 result.verts.push_back(rawMag);
                 result.verts.push_back(rawComp.x); result.verts.push_back(rawComp.y); result.verts.push_back(rawComp.z);
-                result.verts.push_back(normal.x); result.verts.push_back(normal.y); result.verts.push_back(normal.z);
+                result.verts.push_back(nrm.x); result.verts.push_back(nrm.y); result.verts.push_back(nrm.z);
                 if (rawMag < mn) mn = rawMag;
                 if (rawMag > mx) mx = rawMag;
                 for (int c = 0; c < 3; ++c) {
@@ -1037,13 +1368,42 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
                 }
             };
 
-            pushQuadVertex(va, magA, mergedFieldVecs[i]);
-            pushQuadVertex(vb, magA, mergedFieldVecs[i]);
-            pushQuadVertex(vc, magB, mergedFieldVecs[i + 1]);
+            if (style == 0) { // Line: actual GL_LINES (2 vertices per segment)
+                pushTubeVertex(a, magA, mergedFieldVecs[i], tangent);
+                pushTubeVertex(b, magB, mergedFieldVecs[i + 1], tangent);
+            } else if (style == 1) { // Tube: circular cross-section
+                for (int s = 0; s < tubeSegments; ++s) {
+                    float ang0 = 2.0f * static_cast<float>(M_PI) * static_cast<float>(s) / static_cast<float>(tubeSegments);
+                    float ang1 = 2.0f * static_cast<float>(M_PI) * static_cast<float>(s + 1) / static_cast<float>(tubeSegments);
+                    glm::vec3 rad0 = side * std::cos(ang0) + normal * std::sin(ang0);
+                    glm::vec3 rad1 = side * std::cos(ang1) + normal * std::sin(ang1);
+                    glm::vec3 a0 = a + rad0 * rA;
+                    glm::vec3 a1 = a + rad1 * rA;
+                    glm::vec3 b0 = b + rad0 * rB;
+                    glm::vec3 b1 = b + rad1 * rB;
 
-            pushQuadVertex(vb, magA, mergedFieldVecs[i]);
-            pushQuadVertex(vd, magB, mergedFieldVecs[i + 1]);
-            pushQuadVertex(vc, magB, mergedFieldVecs[i + 1]);
+                    pushTubeVertex(a0, magA, mergedFieldVecs[i], rad0);
+                    pushTubeVertex(b0, magB, mergedFieldVecs[i + 1], rad0);
+                    pushTubeVertex(a1, magA, mergedFieldVecs[i], rad1);
+
+                    pushTubeVertex(a1, magA, mergedFieldVecs[i], rad1);
+                    pushTubeVertex(b0, magB, mergedFieldVecs[i + 1], rad0);
+                    pushTubeVertex(b1, magB, mergedFieldVecs[i + 1], rad1);
+                }
+            } else { // Line / Ribbon: flat strip
+                glm::vec3 aL = a - side * rA;
+                glm::vec3 aR = a + side * rA;
+                glm::vec3 bL = b - side * rB;
+                glm::vec3 bR = b + side * rB;
+
+                pushTubeVertex(aL, magA, mergedFieldVecs[i], normal);
+                pushTubeVertex(bL, magB, mergedFieldVecs[i + 1], normal);
+                pushTubeVertex(aR, magA, mergedFieldVecs[i], normal);
+
+                pushTubeVertex(aR, magA, mergedFieldVecs[i], normal);
+                pushTubeVertex(bL, magB, mergedFieldVecs[i + 1], normal);
+                pushTubeVertex(bR, magB, mergedFieldVecs[i + 1], normal);
+            }
         }
 
         if (showArrows && arrowSpacingFrac > 0.0f && mergedPts.size() >= 2) {
@@ -1080,6 +1440,7 @@ StreamlineSet::StreamlineResult StreamlineSet::compute(const RenderMesh& mesh, i
     result.magMin = mn;
     result.magMax = mx;
     for (int c = 0; c < 3; ++c) {
+        if (cMin[c] > cMax[c]) { cMin[c] = 0.0f; cMax[c] = 0.0f; }
         result.compMin[c] = cMin[c];
         result.compMax[c] = cMax[c];
     }
@@ -1114,7 +1475,9 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
         compMin[c] = res.compMin[c];
         compMax[c] = res.compMax[c];
     }
+    m_tubeBaseWidth = res.tubeBaseWidth;
     lineCount = res.lineCount;
+    renderAsLines = (res.style == 0);
     seedCount = res.seedCount;
     paths = std::move(res.paths);
     particles.clear();
@@ -1138,13 +1501,13 @@ void StreamlineSet::uploadGL(StreamlineSet::StreamlineResult&& res, bool showArr
 }
 
 void StreamlineSet::rebuild(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
-                                 const std::string& fieldName, const std::string& mode, const std::string& direction,
-                                 double planePos, double jitter, int planeCountU, int planeCountV,
-                                 bool showArrows, float arrowSpacingFrac, float arrowSize,
-                                 float ribbonWidth, float taperFactor,
-                                 const postfields::ComputedSnapshot* snap) {
+                                  const std::string& fieldName, const std::string& mode, const std::string& direction,
+                                  double planePos, double jitter, int planeCountU, int planeCountV,
+                                  bool showArrows, float arrowSpacingFrac, float arrowSize,
+                                  float ribbonWidth, float taperFactor, int style, float maxPathLength,
+                                  const postfields::ComputedSnapshot* snap) {
     auto result = compute(mesh, seedCountParam, stepSize, maxSteps, fieldName, mode, direction,
                           planePos, jitter, planeCountU, planeCountV,
-                          showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor, snap);
+                          showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor, style, maxPathLength, snap);
     uploadGL(std::move(result), showArrows, arrowSize);
 }

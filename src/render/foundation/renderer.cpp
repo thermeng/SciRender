@@ -495,13 +495,15 @@ void Renderer::reinitMeshData() {
         vectorGlyph.rebuild(*dataMesh, m_state.vectorStride,
                             m_state.vectorField, m_state.vectorMagTransform,
                             m_state.vectorPlacement, m_state.computed.get());
-        streamlineSet.rebuild(*dataMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.computed.get());
+        streamlineSet.rebuild(*dataMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineStyle, m_state.streamlineMaxPathLength, m_state.computed.get());
         for (int i = 0; i < 3; ++i) {
             m_state.streamlineCompMin[i] = streamlineSet.compMin[i];
             m_state.streamlineCompMax[i] = streamlineSet.compMax[i];
         }
         streamlineSet.initParticles(m_state.particleCount);
-        m_qualityOverlay.markDirty();
+        m_state.streamlineLastSeedCount = streamlineSet.seedCount;
+        m_state.streamlineLastPathCount = static_cast<int>(streamlineSet.paths.size());
+        m_state.streamlineLastTruncatedCount = std::max(0, m_state.streamlineLastSeedCount - m_state.streamlineLastPathCount);
 
         if (dataMesh->hasVolumeData() || volume::eligible(*dataMesh)) {
             m_volumeCache.invalidateAll();

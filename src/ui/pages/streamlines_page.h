@@ -20,6 +20,8 @@ signals:
     void viewportUpdateRequested();
 
 private:
+    void buildContent();
+
     QComboBox* m_streamlineCombo = nullptr;
     QComboBox* m_streamlineDirectionCombo = nullptr;
     QCheckBox* m_showCb = nullptr;

@@ -70,7 +70,7 @@ void main() {
 
     float colorT = vColorScalar;
     if (uNumBands > 1.0) {
-        colorT = floor(colorT * uNumBands) / (uNumBands - 1.0);
+        colorT = floor(colorT * (uNumBands - 1.0)) / (uNumBands - 1.0);
     }
     // [S5] Explicit LOD skips implicit derivatives on the mipless 1D LUT.
     vec3 baseColor = useColormap ? textureLod(uColormapLUT, colorT, 0.0).rgb : uColor_UseColormap.xyz;
