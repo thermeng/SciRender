@@ -16,7 +16,7 @@
 
 #include <doctest/doctest.h>
 
-#include <algorithm>
+#include <iostream>
 #include <cmath>
 #include <cstdint>
 #include <map>
@@ -29,7 +29,25 @@ std::pair<std::uint32_t, std::uint32_t> sortedEdge(std::uint32_t a, std::uint32_
     return a < b ? std::make_pair(a, b) : std::make_pair(b, a);
 }
 
-} // namespace
+TEST_CASE("cfd.mesh_adapter.obstacle_3d_loads") {
+    test_support::requireSample("cfd/3D_Obstacle.msh");
+    const auto res = cfd::loadMesh(test_support::samplePath("cfd/3D_Obstacle.msh").string());
+
+    REQUIRE_MESSAGE(res.error.empty(), res.error);
+    CHECK(res.dim == 3);
+    REQUIRE(res.mesh3);
+    CHECK(res.mesh3->nCells() > 0);
+    REQUIRE(res.renderMesh);
+    CHECK_FALSE(res.renderMesh->indices.empty());
+    CHECK(res.renderMesh->cellOffsets.size() == res.mesh3->nCells());
+    CHECK(res.patches.size() == 4);
+    CHECK(res.dim == 3);
+    REQUIRE(res.mesh3);
+    CHECK(res.mesh3->nCells() > 0);
+    REQUIRE(res.renderMesh);
+    CHECK_FALSE(res.renderMesh->indices.empty());
+    CHECK(res.renderMesh->cellOffsets.size() == res.mesh3->nCells());
+}
 
 TEST_CASE("cfd.mesh_adapter.cavity_2d_still_loads") {
     test_support::requireSample("cfd/CavityQuad_40x40.msh");
@@ -189,3 +207,5 @@ TEST_CASE("cfd.mesh_adapter.pipe_3d_loads_with_surface_and_topology") {
     CHECK(totalVolume > 0.0);
     CHECK(totalVolume <= bboxVolume * (1.0 + 1e-9));
 }
+
+} // namespace
