@@ -1897,6 +1897,31 @@ void RenderSettings::setStreamlineMagRangeHi(float v) {
     m_state.streamlineMagRangeHi = v;
     markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
+void RenderSettings::resetStreamlineDefaults() {
+    m_state.streamlineVectorField = "";
+    m_state.streamlineStepSize = 0.005f;
+    m_state.streamlineMaxSteps = 100;
+    m_state.streamlineMaxPathLength = 5.0f;
+    m_state.seedMode = "Volume";
+    m_state.streamlineDirection = "Both";
+    m_state.seedPlanePos = 0.5;
+    m_state.seedJitter = 0.0;
+    m_state.seedPlaneCountU = 10;
+    m_state.seedPlaneCountV = 10;
+    m_state.showStreamlineArrows = true;
+    m_state.streamlineArrowSpacingFrac = 0.15f;
+    m_state.streamlineArrowSize = 0.02f;
+    m_state.streamlineRibbonWidth = 0.0001f;
+    m_state.streamlineTaperFactor = 0.0f;
+    m_state.streamlineStyle = 0;
+    m_state.streamlineColorMode = 0;
+    m_state.streamlineOpacity = 1.0f;
+    m_state.streamlineShadingMode = 1;
+    m_renderer.markStreamlineDirty();
+    markStateDirty();
+    emit viewChanged(ChangeFlag::Display);
+}
+
 void RenderSettings::resetStreamlineMagRangeOverride() {
     const bool wasDirty = m_state.streamlineMagRangeOverrideEnabled
         || m_state.streamlineMagRangeHi >= m_state.streamlineMagRangeLo;

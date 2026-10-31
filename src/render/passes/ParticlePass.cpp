@@ -18,6 +18,7 @@ void ParticlePass::init(const ShaderSources& sources) {
         particleUseColormapLoc = glGetUniformLocation(particleProgram, "uUseColormap");
         particleMagRangeLoc = glGetUniformLocation(particleProgram, "uParticleMagRange");
         particleNumBandsLoc = glGetUniformLocation(particleProgram, "uNumBands");
+    particleTubeBaseWidthLoc = glGetUniformLocation(particleProgram, "uTubeBaseWidth");
     }
 }
 
@@ -26,7 +27,7 @@ void ParticlePass::draw(const RenderRenderState& state,
                         const glm::mat4& mvp,
                         StreamlineSet& streamlines,
                         const ColormapManager& colormap) {
-    if (!state.showParticles || !state.showStreamlines || streamlines.empty() || !particleProgram.has()) return;
+    if (!state.showStreamlines || !state.showParticles || streamlines.empty() || !particleProgram.has()) return;
     // [P3] Clamp dt so a window stall/resize cannot make particles leap.
     const float dt = (frameDt < 0.1f) ? frameDt : 0.1f;
     streamlines.updateParticles(dt, state.particleSpeed);
@@ -37,11 +38,11 @@ void ParticlePass::draw(const RenderRenderState& state,
     if (particleVerts.empty()) return;
 
     if (!particleVao.has()) {
-        setupVertexBuffer(particleVao, particleVbo, nullptr, 0, 5 * sizeof(float),
-                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 1, 4 * sizeof(float) } }, GL_DYNAMIC_DRAW);
+        setupVertexBuffer(particleVao, particleVbo, nullptr, 0, 9 * sizeof(float),
+                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 1, 4 * sizeof(float) }, { 3, 3, 5 * sizeof(float) }, { 4, 1, 8 * sizeof(float) } }, GL_DYNAMIC_DRAW);
     }
 
-    m_particleVertexCount = static_cast<int>(particleVerts.size() / 5);
+    m_particleVertexCount = static_cast<int>(particleVerts.size() / 9);
     glNamedBufferData(particleVbo, particleVerts.size() * sizeof(float), particleVerts.data(), GL_DYNAMIC_DRAW);
 
     glUseProgram(particleProgram);
@@ -53,6 +54,7 @@ void ParticlePass::draw(const RenderRenderState& state,
     else                        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_PROGRAM_POINT_SIZE);
     glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
     glDepthMask(GL_FALSE);
 
     // [P1] Own MVP uniform — no dependency on the streamline UBO binding.
@@ -79,6 +81,7 @@ void ParticlePass::draw(const RenderRenderState& state,
     const float magHi = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeHi : streamlines.magMax;
     glUniform2f(particleMagRangeLoc, magLo, magHi);
     if (particleNumBandsLoc != -1) glUniform1f(particleNumBandsLoc, static_cast<float>(state.streamlineColorBands));
+    if (particleTubeBaseWidthLoc != -1) glUniform1f(particleTubeBaseWidthLoc, streamlines.tubeBaseWidth());
 
     glBindVertexArray(particleVao);
     glDrawArrays(GL_POINTS, 0, m_particleVertexCount);
@@ -98,6 +101,7 @@ void ParticlePass::shutdown() {
     particleUseColormapLoc = -1;
     particleMagRangeLoc = -1;
     particleNumBandsLoc = -1;
+    particleTubeBaseWidthLoc = -1;
 }
 
 

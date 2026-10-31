@@ -20,6 +20,10 @@ namespace sidebar {
 
 StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     : SidebarPage(settings, parent) {
+    buildContent();
+}
+
+void StreamlinesPage::buildContent() {
     auto* content = new QWidget;
     Ui::StreamlinesPage slUi;
     slUi.setupUi(content);
@@ -51,14 +55,32 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     flowLay->addWidget(m_streamlineCombo);
 
     sb::addSliderRow(s, flowLay, "stepSizeLabel", "Step Size",
-                     s->getStreamlineStepSize(), 0.005, 0.1, 3,
-                     &RenderSettings::setStreamlineStepSize);
+                      s->getStreamlineStepSize(), 0.005, 0.1, 3,
+                      &RenderSettings::setStreamlineStepSize);
+
+    sb::addSliderRow(s, flowLay, "maxPathLengthLabel", "Max Path Length",
+                      s->getStreamlineMaxPathLength(), 0.1, 100.0, 2,
+                      &RenderSettings::setStreamlineMaxPathLength);
 
     auto* maxStepsSpin = new QSpinBox;
-    maxStepsSpin->setRange(10, 500);
+    maxStepsSpin->setRange(10, 5000);
     maxStepsSpin->setValue(s->getStreamlineMaxSteps());
+    maxStepsSpin->setKeyboardTracking(false);
+    maxStepsSpin->setCorrectionMode(QAbstractSpinBox::CorrectToNearestValue);
     connect(maxStepsSpin, &QSpinBox::valueChanged, s, &RenderSettings::setStreamlineMaxSteps);
-    sb::addCtlRow(flowLay, "maxStepsLabel", "Max Steps", maxStepsSpin, 1);
+    sb::addCtlRow(flowLay, "maxStepsLabel", "Max Steps (advanced)", maxStepsSpin, 1);
+
+    auto* summaryLabel = new QLabel;
+    summaryLabel->setObjectName("streamlineSummaryLabel");
+    auto updateSummary = [summaryLabel, s]() {
+        summaryLabel->setText(QString("Seeds: %1  Streamlines: %2  Truncated: %3")
+            .arg(s->getStreamlineLastSeedCount())
+            .arg(s->getStreamlineLastPathCount())
+            .arg(s->getStreamlineLastTruncatedCount()));
+    };
+    updateSummary();
+    connect(s, &RenderSettings::viewChanged, summaryLabel, [updateSummary](QFlags<ChangeFlag>) { updateSummary(); });
+    flowLay->addWidget(summaryLabel);
 
     auto* directionCombo = new QComboBox;
     directionCombo->addItems({"Forward", "Backward", "Both"});
@@ -74,6 +96,13 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     arrowsCb->setChecked(s->getShowStreamlineArrows());
     connect(arrowsCb, &QCheckBox::toggled, s, &RenderSettings::setShowStreamlineArrows);
     flowLay->addWidget(arrowsCb);
+
+    auto* resetBtn = new QPushButton("Reset to Defaults");
+    connect(resetBtn, &QPushButton::clicked, s, [this, s]() {
+        s->resetStreamlineDefaults();
+        buildContent();
+    });
+    flowLay->addWidget(resetBtn);
 
     auto* arrowSpacingSpin = new QDoubleSpinBox;
     arrowSpacingSpin->setToolTip("Distance between direction arrows as a fraction of the dataset extent");
@@ -169,8 +198,8 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     // Tab: Look
     auto* lookTab = new QWidget;
     auto* lookLay = new QVBoxLayout(lookTab);
+    lookLay->setSpacing(2);
     lookLay->setContentsMargins(4, 4, 4, 4);
-    lookLay->setSpacing(4);
 
     auto* streamlineBtn = sb::createSwatchButton("Line color", s->getStreamlineColorQml(), nullptr);
     connect(streamlineBtn, &QPushButton::clicked, this, [this, streamlineBtn, s]() {
@@ -186,9 +215,6 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     lookLay->addWidget(streamlineBtn);
 
     // ---- Streamline Color By (combo) ----
-    auto* slColorByLabel = new QLabel("Color By");
-    slColorByLabel->setObjectName("slColorByLabel");
-    lookLay->addWidget(slColorByLabel);
     auto* slColorModeCombo = new QComboBox;
     slColorModeCombo->setObjectName("streamlineColorModeCombo");
     slColorModeCombo->addItems({"Solid Color", "Magnitude", "X Component", "Y Component", "Z Component"});
@@ -196,38 +222,47 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     slColorModeCombo->setMinimumWidth(sb::kSidebarWidth - sb::kNavWidthApprox - 20);
     connect(slColorModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             s, &RenderSettings::setStreamlineColorMode);
-    lookLay->addWidget(slColorModeCombo);
+    sb::addCtlRow(lookLay, "slColorByLabel", "Color By", slColorModeCombo);
     // Palette now in Colorbar Style dialog — hide sidebar alias
     // Streamline Fixed Range now in Colorbar Style dialog — removed from sidebar
     sb::addSliderRow(s, lookLay, "opacityLabel", "Opacity",
                      s->getStreamlineOpacity(), 0.0, 1.0, 2,
                      &RenderSettings::setStreamlineOpacity);
+    auto* styleCombo = new QComboBox;
+    styleCombo->addItems({"Line", "Tube", "Ribbon"});
+    styleCombo->setCurrentIndex(s->getStreamlineStyle());
+    styleCombo->setFixedWidth(100);
+    connect(styleCombo, &QComboBox::activated, s, [s](int idx) {
+        s->setStreamlineStyle(idx);
+        if (idx == 0) { // Line
+            s->setStreamlineRibbonWidth(0.0001);
+            s->setStreamlineTaperFactor(0.0);
+            s->setStreamlineArrowSize(0.01);
+        } else if (idx == 1) { // Tube
+            s->setStreamlineRibbonWidth(0.001);
+            s->setStreamlineTaperFactor(0.0);
+            s->setStreamlineArrowSize(0.02);
+        } else { // Ribbon
+            s->setStreamlineRibbonWidth(0.002);
+            s->setStreamlineTaperFactor(0.3);
+            s->setStreamlineArrowSize(0.03);
+        }
+    });
+    sb::addCtlRow(lookLay, "streamlineStyleLabel", "Style", styleCombo);
+
     sb::addSliderRow(s, lookLay, "ribbonWidthLabel", "Ribbon Width",
-                     s->getStreamlineRibbonWidth(), 0.001, 0.05, 3,
-                     &RenderSettings::setStreamlineRibbonWidth);
+                      s->getStreamlineRibbonWidth(), 0.0001, 0.01, 4,
+                      &RenderSettings::setStreamlineRibbonWidth);
     sb::addSliderRow(s, lookLay, "taperFactorLabel", "Taper Factor",
                      s->getStreamlineTaperFactor(), 0.0, 0.8, 2,
                      &RenderSettings::setStreamlineTaperFactor);
 
-    auto* shadingHeader = new QLabel("Shading");
-    shadingHeader->setObjectName("slShadingHeader");
-    lookLay->addWidget(shadingHeader);
-
-    sb::addSliderRow(s, lookLay, "streamlineAmbientLabel", "Ambient",
-                     s->getStreamlineAmbient(), 0.0, 1.0, 2,
-                     &RenderSettings::setStreamlineAmbient);
-    sb::addSliderRow(s, lookLay, "streamlineDiffuseLabel", "Diffuse",
-                     s->getStreamlineDiffuse(), 0.0, 1.0, 2,
-                     &RenderSettings::setStreamlineDiffuse);
-    sb::addSliderRow(s, lookLay, "streamlineSpecularLabel", "Specular",
-                     s->getStreamlineSpecular(), 0.0, 1.0, 2,
-                     &RenderSettings::setStreamlineSpecular);
-
-    auto* specPowerSpin = new QSpinBox;
-    specPowerSpin->setRange(2, 128);
-    specPowerSpin->setValue(s->getStreamlineSpecularPower());
-    connect(specPowerSpin, &QSpinBox::valueChanged, s, &RenderSettings::setStreamlineSpecularPower);
-    sb::addCtlRow(lookLay, "specPowerLabel", "Specular Power", specPowerSpin, 1);
+    auto* autoFitBtn = new QPushButton("Auto-fit Ranges");
+    connect(autoFitBtn, &QPushButton::clicked, s, [s]() {
+        s->resetStreamlineMagRangeOverride();
+    });
+    lookLay->addWidget(autoFitBtn);
+    lookLay->addStretch();
     tabs->addTab(lookTab, tr("Look"));
 
     // Animate section (below the tabs so the tab bar stays arrow-free)
@@ -240,13 +275,13 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
 
     {
         auto row = sb::createLightSlider("Particle Count", s->getParticleCount(),
-                                         10.0, 5000.0, 1.0, 0,
+                                         10.0, 1000.0, 1.0, 0,
                                          [s](double v) { s->setParticleCount(static_cast<int>(v)); },
                                          "particleCountLabel");
         optionsLay->addWidget(row.slider->parentWidget());
     }
     sb::addSliderRow(s, optionsLay, "particleSpeedLabel", "Particle Speed",
-                     s->getParticleSpeed(), 0.1, 100.0, 1,
+                     s->getParticleSpeed(), 0.1, 10.0, 2,
                      &RenderSettings::setParticleSpeed);
     sb::addSliderRow(s, optionsLay, "particleSizeLabel", "Particle Size",
                      s->getParticleSize(), 1.0, 20.0, 1,

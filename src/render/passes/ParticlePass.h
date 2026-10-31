@@ -20,6 +20,7 @@ public:
               StreamlineSet& streamlines,
               const ColormapManager& colormap);
     void shutdown();
+    void release() { particleVao.reset(); particleVbo.reset(); m_particleVertexCount = 0; }
     void resetCount() { m_particleVertexCount = 0; }
 
 private:
@@ -35,6 +36,7 @@ private:
     GLint particleUseColormapLoc = -1;
     GLint particleMagRangeLoc = -1;
     GLint particleNumBandsLoc = -1;
+    GLint particleTubeBaseWidthLoc = -1;
 };
 
 

@@ -60,19 +60,22 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
     float arrowSize        = state.streamlineArrowSize;
         float ribbonWidth   = state.streamlineRibbonWidth;
         float taperFactor   = state.streamlineTaperFactor;
+        int   streamlineStyle = state.streamlineStyle;
+        float maxPathLength = state.streamlineMaxPathLength;
 
         m_computeRunning = true;
         // Snapshot shared_ptr captured by value: keeps computed post-proc
         // payloads alive for the worker even if the GUI thread re-extracts.
         auto snapCopy = state.computed;
+        StreamlineSet* streamlineSetPtr = &streamlineSet;
         m_worker = std::thread(
-            [this, &streamlineSet, meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
+            [this, streamlineSetPtr, meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
              planePos, jitter, planeCountU, planeCountV, showArrows, arrowSpacingFrac,
-             arrowSize, ribbonWidth, taperFactor, snapCopy]() {
-                auto result = streamlineSet.compute(
+             arrowSize, ribbonWidth, taperFactor, streamlineStyle, maxPathLength, snapCopy]() {
+                auto result = streamlineSetPtr->compute(
                     *meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
                     planePos, jitter, planeCountU, planeCountV,
-                    showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor,
+                    showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor, streamlineStyle, maxPathLength,
                     snapCopy.get());
 
                 if (m_cancelFlag.load()) {
@@ -143,7 +146,8 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
             ubo.compMin = glm::vec4(cMin, 0.0f);
             ubo.compMax = glm::vec4(cMax, 0.0f);
             ubo.colorMode = glm::vec4(static_cast<float>(state.streamlineColorMode), 0.0f, 0.0f, 0.0f);
-            ubo.material = glm::vec4(state.streamlineAmbient, state.streamlineDiffuse, state.streamlineSpecular, static_cast<float>(state.streamlineSpecularPower));
+            glm::vec4 material(1.0f, 0.0f, 0.0f, 1.0f);
+            ubo.material = material;
             ubo.ribbon = glm::vec4(state.streamlineRibbonWidth, state.streamlineTaperFactor, 0.0f, 0.0f);
             ubo.arrowParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
             ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
@@ -155,8 +159,9 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
                 glUniform1i(m_streamlineLutLoc, 1);
             }
             if (state.showStreamlines && !streamlineSet.empty()) {
+                GLenum mode = streamlineSet.renderAsLines ? GL_LINES : GL_TRIANGLES;
                 glBindVertexArray(streamlineSet.vao);
-                glDrawArrays(GL_TRIANGLES, 0, streamlineSet.lineCount);
+                glDrawArrays(mode, 0, streamlineSet.lineCount);
                 glBindVertexArray(0);
             }
             if (state.showStreamlineArrows && streamlineSet.arrowVao.has() && streamlineSet.arrowCount > 0) {

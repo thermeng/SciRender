@@ -331,8 +331,9 @@ struct RenderRenderState {
 
     bool showStreamlines = false;
     int streamlineSeedCount = 25;
-    float streamlineStepSize = 0.02f;
+    float streamlineStepSize = 0.005f;
     int streamlineMaxSteps = 100;
+    float streamlineMaxPathLength = 5.0f; // 0 = use maxSteps
     bool streamlineUseColormap = false;
     int streamlineColormapChoice = 3;
     bool streamlineColormapReversed = false;
@@ -340,8 +341,12 @@ struct RenderRenderState {
     int streamlineColorMode = 1;
 
     float streamlineOpacity = 1.0f;
-    float streamlineRibbonWidth = 0.005f;
-    float streamlineTaperFactor = 0.3f;
+    float streamlineRibbonWidth = 0.0001f;
+    float streamlineTaperFactor = 0.0f;
+    int streamlineStyle = 0; // 0 Line, 1 Tube, 2 Ribbon
+    int streamlineLastSeedCount = 0;
+    int streamlineLastPathCount = 0;
+    int streamlineLastTruncatedCount = 0;
     float streamlineAmbient = 0.35f;
     float streamlineDiffuse = 0.55f;
     float streamlineSpecular = 0.25f;
@@ -364,8 +369,10 @@ struct RenderRenderState {
     bool showParticles = false;
     int particleCount = 500;
     float particleSpeed = 1.0f;
-    float particleSize = 4.0f;
-    bool particleAdditive = true;
+    float particleSize = 3.0f;
+    int particleShape = 0; // 0 point, 1 2D cone, 2 3D cone
+    int streamlineShadingMode = 1; // 0 lit, 1 unlit (default unlit)
+    bool particleAdditive = false;
 
 
     bool showVolume = false;
@@ -556,7 +563,11 @@ public:
     void markCameraMoving();
     void markVectorGlyphDirty() { vectorGlyphDirty = true; }
     void markStreamlineDirty() { m_streamlines.streamlineDirty = true; }
+    int streamlineLastSeedCount() const { return m_state.streamlineLastSeedCount; }
+    int streamlineLastPathCount() const { return m_state.streamlineLastPathCount; }
+    int streamlineLastTruncatedCount() const { return m_state.streamlineLastTruncatedCount; }
     void markParticleCountDirty() { m_streamlines.particleCountDirty = true; }
+    void releaseParticleResources() { particlePass.release(); streamlineSet.clearParticles(); }
     void resizeViewport(int width, int height);
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }

@@ -268,6 +268,7 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int streamlineSeedCount READ getStreamlineSeedCount WRITE setStreamlineSeedCount NOTIFY viewChanged)
     Q_PROPERTY(double streamlineStepSize READ getStreamlineStepSize WRITE setStreamlineStepSize NOTIFY viewChanged)
     Q_PROPERTY(int streamlineMaxSteps READ getStreamlineMaxSteps WRITE setStreamlineMaxSteps NOTIFY viewChanged)
+    Q_PROPERTY(double streamlineMaxPathLength READ getStreamlineMaxPathLength WRITE setStreamlineMaxPathLength NOTIFY viewChanged)
     Q_PROPERTY(bool streamlineUseColormap READ getStreamlineUseColormap WRITE setStreamlineUseColormap NOTIFY viewChanged)
     Q_PROPERTY(int streamlineColorMode READ getStreamlineColorMode WRITE setStreamlineColorMode NOTIFY viewChanged)
     Q_PROPERTY(int streamlineColormapChoice READ getStreamlineColormapChoice WRITE setStreamlineColormapChoice NOTIFY viewChanged)
@@ -285,6 +286,9 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double streamlineOpacity READ getStreamlineOpacity WRITE setStreamlineOpacity NOTIFY viewChanged)
     Q_PROPERTY(double streamlineRibbonWidth READ getStreamlineRibbonWidth WRITE setStreamlineRibbonWidth NOTIFY viewChanged)
     Q_PROPERTY(double streamlineTaperFactor READ getStreamlineTaperFactor WRITE setStreamlineTaperFactor NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineLastSeedCount READ getStreamlineLastSeedCount NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineLastPathCount READ getStreamlineLastPathCount NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineLastTruncatedCount READ getStreamlineLastTruncatedCount NOTIFY viewChanged)
     Q_PROPERTY(QString streamlineDirection READ getStreamlineDirection WRITE setStreamlineDirection NOTIFY viewChanged)
     Q_PROPERTY(double streamlineAmbient READ getStreamlineAmbient WRITE setStreamlineAmbient NOTIFY viewChanged)
     Q_PROPERTY(double streamlineDiffuse READ getStreamlineDiffuse WRITE setStreamlineDiffuse NOTIFY viewChanged)
@@ -296,6 +300,8 @@ class RenderSettings : public QObject {
     Q_PROPERTY(int particleCount READ getParticleCount WRITE setParticleCount NOTIFY viewChanged)
     Q_PROPERTY(double particleSpeed READ getParticleSpeed WRITE setParticleSpeed NOTIFY viewChanged)
     Q_PROPERTY(double particleSize READ getParticleSize WRITE setParticleSize NOTIFY viewChanged)
+    Q_PROPERTY(int particleShape READ getParticleShape WRITE setParticleShape NOTIFY viewChanged)
+    Q_PROPERTY(int streamlineShadingMode READ getStreamlineShadingMode WRITE setStreamlineShadingMode NOTIFY viewChanged)
     Q_PROPERTY(bool particleAdditive READ getParticleAdditive WRITE setParticleAdditive NOTIFY viewChanged)
     Q_PROPERTY(bool showVolume READ getShowVolume WRITE setShowVolume NOTIFY viewChanged)
     Q_PROPERTY(bool volumeUseColormap READ getVolumeUseColormap WRITE setVolumeUseColormap NOTIFY viewChanged)
@@ -677,13 +683,15 @@ public:
     QColor getVectorColorQml() const { return QColor::fromRgbF(m_state.vectorColor[0], m_state.vectorColor[1], m_state.vectorColor[2]); }
     void setVectorColorQml(const QColor& c) { m_state.vectorColor[0] = c.redF(); m_state.vectorColor[1] = c.greenF(); m_state.vectorColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Vectors); }
     bool getShowStreamlines() const { return m_state.showStreamlines; }
-    void setShowStreamlines(bool v) { if (m_state.showStreamlines != v) { m_state.showStreamlines = v; if (v) { m_renderer.markStreamlineDirty(); m_renderer.markParticleCountDirty(); } markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setShowStreamlines(bool v) { if (m_state.showStreamlines != v) { m_state.showStreamlines = v; if (v) { m_renderer.markStreamlineDirty(); m_renderer.markParticleCountDirty(); } else { m_renderer.releaseParticleResources(); } markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getStreamlineSeedCount() const { return m_state.streamlineSeedCount; }
     void setStreamlineSeedCount(int v) { if (m_state.streamlineSeedCount != v) { m_state.streamlineSeedCount = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineStepSize() const { return m_state.streamlineStepSize; }
     void setStreamlineStepSize(double v) { if (m_state.streamlineStepSize != v) { m_state.streamlineStepSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getStreamlineMaxSteps() const { return m_state.streamlineMaxSteps; }
     void setStreamlineMaxSteps(int v) { if (m_state.streamlineMaxSteps != v) { m_state.streamlineMaxSteps = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    double getStreamlineMaxPathLength() const { return m_state.streamlineMaxPathLength; }
+    void setStreamlineMaxPathLength(double v) { if (m_state.streamlineMaxPathLength != static_cast<float>(v)) { m_state.streamlineMaxPathLength = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getStreamlineUseColormap, setStreamlineUseColormap, bool, m_state.streamlineUseColormap, Display)
     STATE_PROP(getStreamlineColormapChoice, setStreamlineColormapChoice, int, m_state.streamlineColormapChoice, Colormap)
     STATE_PROP(getStreamlineColormapReversed, setStreamlineColormapReversed, bool, m_state.streamlineColormapReversed, Colormap)
@@ -716,6 +724,11 @@ public:
     void setStreamlineRibbonWidth(double v) { if (m_state.streamlineRibbonWidth != v) { m_state.streamlineRibbonWidth = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineTaperFactor() const { return m_state.streamlineTaperFactor; }
     void setStreamlineTaperFactor(double v) { if (m_state.streamlineTaperFactor != v) { m_state.streamlineTaperFactor = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    int getStreamlineStyle() const { return m_state.streamlineStyle; }
+    void setStreamlineStyle(int v) { if (m_state.streamlineStyle != v) { m_state.streamlineStyle = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    int getStreamlineLastSeedCount() const { return m_renderer.streamlineLastSeedCount(); }
+    int getStreamlineLastPathCount() const { return m_renderer.streamlineLastPathCount(); }
+    int getStreamlineLastTruncatedCount() const { return m_renderer.streamlineLastTruncatedCount(); }
     QString getStreamlineDirection() const { return QString::fromStdString(m_state.streamlineDirection); }
     void setStreamlineDirection(const QString& v) { if (m_state.streamlineDirection != v.toStdString()) { m_state.streamlineDirection = v.toStdString(); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP_CAST(getStreamlineAmbient, setStreamlineAmbient, float, m_state.streamlineAmbient, Display)
@@ -727,9 +740,11 @@ public:
     void setSeedPointColorQml(const QColor& c) { m_state.seedPointColor[0] = c.redF(); m_state.seedPointColor[1] = c.greenF(); m_state.seedPointColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     STATE_PROP(getShowParticles, setShowParticles, bool, m_state.showParticles, Display)
     int getParticleCount() const { return m_state.particleCount; }
-    void setParticleCount(int v) { if (m_state.particleCount != v) { m_state.particleCount = v; m_renderer.markParticleCountDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setParticleCount(int v) { if (v < 0) v = 0; if (v > 2000) v = 2000; if (m_state.particleCount != v) { m_state.particleCount = v; m_renderer.markParticleCountDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP_CAST(getParticleSpeed, setParticleSpeed, float, m_state.particleSpeed, Display)
     STATE_PROP_CAST(getParticleSize, setParticleSize, float, m_state.particleSize, Display)
+    STATE_PROP(getParticleShape, setParticleShape, int, m_state.particleShape, Display)
+    STATE_PROP(getStreamlineShadingMode, setStreamlineShadingMode, int, m_state.streamlineShadingMode, Display)
     bool getParticleAdditive() const { return m_state.particleAdditive; }
     void setParticleAdditive(bool v) { if (m_state.particleAdditive != v) { m_state.particleAdditive = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getShowVolume, setShowVolume, bool, m_state.showVolume, Display)
@@ -1053,6 +1068,7 @@ enum class PlotMode { Histogram = 0, Line = 1, Monitor = 2 };
     void setStreamlineMagRangeLo(float v);
     float getStreamlineMagRangeHi() const { return m_state.streamlineMagRangeHi; }
     void setStreamlineMagRangeHi(float v);
+    void resetStreamlineDefaults();
     void resetStreamlineMagRangeOverride();
 
     int getStreamlineColorMode() const { return m_state.streamlineColorMode; }
