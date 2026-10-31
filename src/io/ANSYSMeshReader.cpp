@@ -332,35 +332,62 @@ void ANSYSMeshReader<Dim>::handleSection(const Section& sec, ParseState& state) 
 
             std::size_t nFaces = lastFaceIndex - firstFaceIndex + 1;
 
-            int nodesPerFace = 2;
-            switch (elemType) {
-                case 2: nodesPerFace = 2; break;
-                case 3: nodesPerFace = 3; break;
-                case 4: nodesPerFace = 4; break;
-                default: nodesPerFace = 2; break;
-            }
+            if (elemType == 0) {
+                const auto& data = sec.children[1].values;
+                // Mixed face zone: each face carries its own node count.
+                std::size_t offset = 0;
+                for (std::size_t i = 0; i < nFaces; ++i) {
+                    if (offset >= data.size()) break;
+                    int npf = parseInt(data[offset++]);
+                    if (npf < 2) npf = 2;
 
-            if (Dim == 2) nodesPerFace = 2;
-
-            const auto& data = sec.children[1].values;
-            std::size_t valuesPerFace = static_cast<std::size_t>(nodesPerFace) + 2;
-            std::size_t expected = nFaces * valuesPerFace;
-            if (data.size() < expected) {
-                throw std::runtime_error(
-                    "ANSYSMeshReader: face zone " + std::to_string(zoneId) +
-                    " expected " + std::to_string(expected) +
-                    " values, got " + std::to_string(data.size()));
-            }
-
-            for (std::size_t i = 0; i < nFaces; ++i) {
-                FaceRecord face;
-                face.zoneId = zoneId;
-                for (int n = 0; n < nodesPerFace; ++n) {
-                    face.vertices.push_back(parseHex(data[i * valuesPerFace + n]) - 1);
+                    FaceRecord face;
+                    face.zoneId = zoneId;
+                    bool ok = true;
+                    for (int n = 0; n < npf; ++n) {
+                        if (offset >= data.size()) { ok = false; break; }
+                        std::size_t vi = parseHex(data[offset++]);
+                        if (vi == 0) { ok = false; break; }
+                        face.vertices.push_back(vi - 1);
+                    }
+                    if (!ok || offset + 2 > data.size()) break;
+                    face.rightCell = static_cast<int>(parseHex(data[offset++])) - 1;
+                    face.leftCell = static_cast<int>(parseHex(data[offset++])) - 1;
+                    if (!face.vertices.empty()) state.faces.push_back(std::move(face));
                 }
-                face.rightCell = static_cast<int>(parseHex(data[i * valuesPerFace + nodesPerFace])) - 1;
-                face.leftCell = static_cast<int>(parseHex(data[i * valuesPerFace + nodesPerFace + 1])) - 1;
-                state.faces.push_back(std::move(face));
+            } else {
+                int nodesPerFace = 2;
+                switch (elemType) {
+                    case 2: nodesPerFace = 2; break;
+                    case 3: nodesPerFace = 3; break;
+                    case 4: nodesPerFace = 4; break;
+                    default: nodesPerFace = 2; break;
+                }
+                if (Dim == 2) nodesPerFace = 2;
+
+                const auto& data = sec.children[1].values;
+                std::size_t valuesPerFace = static_cast<std::size_t>(nodesPerFace) + 2;
+                std::size_t expected = nFaces * valuesPerFace;
+                if (data.size() < expected) {
+                    throw std::runtime_error(
+                        "ANSYSMeshReader: face zone " + std::to_string(zoneId) +
+                        " expected " + std::to_string(expected) +
+                        " values, got " + std::to_string(data.size()));
+                }
+
+                for (std::size_t i = 0; i < nFaces; ++i) {
+                    FaceRecord face;
+                    face.zoneId = zoneId;
+                    for (int n = 0; n < nodesPerFace; ++n) {
+                        std::size_t vi = parseHex(data[i * valuesPerFace + n]);
+                        if (vi == 0) { face.vertices.clear(); break; }
+                        face.vertices.push_back(vi - 1);
+                    }
+                    if (face.vertices.empty()) continue;
+                    face.rightCell = static_cast<int>(parseHex(data[i * valuesPerFace + nodesPerFace])) - 1;
+                    face.leftCell = static_cast<int>(parseHex(data[i * valuesPerFace + nodesPerFace + 1])) - 1;
+                    state.faces.push_back(std::move(face));
+                }
             }
             break;
         }
@@ -408,7 +435,10 @@ ANSYSMeshReader<Dim>::reconstructCells(
         if (cf.empty()) continue;
 
         if (cf.size() == 1) {
-            cells[c] = faces[cf[0]].vertices;
+            bool valid = !faces[cf[0]].vertices.empty();
+            for (std::size_t v : faces[cf[0]].vertices) if (v >= points.size()) { valid = false; break; }
+            if (valid) cells[c] = faces[cf[0]].vertices;
+            else cells[c].clear();
             continue;
         }
 
@@ -427,13 +457,16 @@ ANSYSMeshReader<Dim>::reconstructCells(
                 }
             }
 
-            std::vector<std::vector<std::size_t>> loops;
-            loops.reserve(cf.size());
-            for (std::size_t fi : cf) loops.push_back(faces[fi].vertices);
-            cell_topology::canonicalize(verts, loops, points);
+             std::vector<std::vector<std::size_t>> loops;
+             loops.reserve(cf.size());
+             for (std::size_t fi : cf) loops.push_back(faces[fi].vertices);
+             cell_topology::canonicalize(verts, loops, points);
 
-            cells[c] = std::move(verts);
-            continue;
+             bool valid = !verts.empty();
+             for (std::size_t v : verts) if (v >= points.size()) { valid = false; break; }
+             if (valid) cells[c] = std::move(verts);
+             else cells[c].clear();
+             continue;
         }
 
         std::unordered_map<std::size_t, std::vector<std::size_t>> vertToFaces;
@@ -446,9 +479,10 @@ ANSYSMeshReader<Dim>::reconstructCells(
         std::vector<std::size_t> orderedVerts;
         std::vector<char> used(cf.size(), false);
 
-        std::size_t firstFaceIdx = cf[0];
-        const FaceRecord& firstFace = faces[firstFaceIdx];
-        std::size_t startVert = firstFace.vertices[0];
+         std::size_t firstFaceIdx = cf[0];
+         const FaceRecord& firstFace = faces[firstFaceIdx];
+         if (firstFace.vertices.size() < 2) continue;
+         std::size_t startVert = firstFace.vertices[0];
         std::size_t currentVert = firstFace.vertices[1];
         orderedVerts.push_back(startVert);
         orderedVerts.push_back(currentVert);
@@ -479,11 +513,13 @@ ANSYSMeshReader<Dim>::reconstructCells(
             iterations++;
         }
 
-        if (orderedVerts.size() >= 3 && orderedVerts.back() == orderedVerts.front()) {
-            orderedVerts.pop_back();
-        }
+         if (orderedVerts.size() >= 3 && orderedVerts.back() == orderedVerts.front()) {
+             orderedVerts.pop_back();
+         }
 
-        cells[c] = std::move(orderedVerts);
+         bool valid = !orderedVerts.empty();
+         for (std::size_t v : orderedVerts) if (v >= points.size()) { valid = false; break; }
+         if (valid) cells[c] = std::move(orderedVerts);
     }
 
     return cells;

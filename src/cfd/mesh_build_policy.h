@@ -57,6 +57,11 @@ struct MeshBuildPolicy {
             // Every cell is a surface polygon: fan-triangulate it.
             for (const auto& cell : m.cells()) {
                 if (cell.size() < 3) continue;
+                bool inRange = true;
+                for (std::size_t v : cell) {
+                    if (v >= m.vertices().size()) { inRange = false; break; }
+                }
+                if (!inRange) continue;
                 for (std::size_t i = 1; i + 1 < cell.size(); ++i) {
                     rm.indices.push_back(static_cast<std::uint32_t>(cell[0]));
                     rm.indices.push_back(static_cast<std::uint32_t>(cell[i]));
@@ -72,6 +77,11 @@ struct MeshBuildPolicy {
                 if (m.neighbor(f) != kNoNeighbor) continue;
                 const auto& loop = m.faceVertices(f);
                 if (loop.size() < 3) continue;
+                bool inRange = true;
+                for (std::size_t v : loop) {
+                    if (v >= m.vertices().size()) { inRange = false; break; }
+                }
+                if (!inRange) continue;
                 for (std::size_t i = 1; i + 1 < loop.size(); ++i) {
                     rm.indices.push_back(static_cast<std::uint32_t>(loop[0]));
                     rm.indices.push_back(static_cast<std::uint32_t>(loop[i]));

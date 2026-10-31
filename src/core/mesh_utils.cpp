@@ -181,6 +181,13 @@ void computeNormals(RenderMesh& mesh) {
         int i1 = mesh.indices[t * 3 + 1];
         int i2 = mesh.indices[t * 3 + 2];
 
+        if (i0 < 0 || i1 < 0 || i2 < 0 ||
+            static_cast<size_t>(i0) >= numVerts ||
+            static_cast<size_t>(i1) >= numVerts ||
+            static_cast<size_t>(i2) >= numVerts) {
+            faceNormals[t] = {0.0f, 0.0f, 1.0f};
+            continue;
+        }
         float v0x = mesh.vertices[i0 * 3], v0y = mesh.vertices[i0 * 3 + 1], v0z = mesh.vertices[i0 * 3 + 2];
         float v1x = mesh.vertices[i1 * 3], v1y = mesh.vertices[i1 * 3 + 1], v1z = mesh.vertices[i1 * 3 + 2];
         float v2x = mesh.vertices[i2 * 3], v2y = mesh.vertices[i2 * 3 + 1], v2z = mesh.vertices[i2 * 3 + 2];
