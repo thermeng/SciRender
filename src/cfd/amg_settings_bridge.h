@@ -9,41 +9,13 @@ namespace cfd {
 //
 // cfd::AmgSettings exists so the UI never has to include Eigen; this header is
 // the single place the two representations meet. Every field is copied
-// explicitly, so a knob added to fvm::AMGHierarchy::Config shows up here as a
-// compile error rather than silently defaulting. The cfd::AmgSettings enums are
-// declared in the same order as their fvm counterparts, so the switch cases
-// read top-to-bottom.
+// explicitly (with enum switches rather than casts) so a knob added to
+// fvm::AMGHierarchy::Config shows up here as a compile error rather than
+// silently defaulting.
 inline fvm::AMGHierarchy::Config toFvmAmg(const AmgSettings& s) {
-    fvm::AMGHierarchy::Config c;
+    using F = fvm::AMGHierarchy::Config;
+    F c;
 
-    switch (s.coarseningType) {
-        case AmgSettings::CoarseningType::RS:
-            c.coarseningType = fvm::AMGHierarchy::CoarseningType::RS; break;
-        case AmgSettings::CoarseningType::PMIS:
-            c.coarseningType = fvm::AMGHierarchy::CoarseningType::PMIS; break;
-    }
-    switch (s.interpolationType) {
-        case AmgSettings::InterpolationType::Direct:
-            c.interpolationType = fvm::AMGHierarchy::InterpolationType::Direct; break;
-        case AmgSettings::InterpolationType::Extended:
-            c.interpolationType = fvm::AMGHierarchy::InterpolationType::Extended; break;
-    }
-    switch (s.cycleType) {
-        case AmgSettings::CycleType::V:
-            c.cycleType = fvm::AMGHierarchy::CycleType::V; break;
-        case AmgSettings::CycleType::F:
-            c.cycleType = fvm::AMGHierarchy::CycleType::F; break;
-    }
-    switch (s.smootherType) {
-        case AmgSettings::SmootherType::SymmetricGaussSeidel:
-            c.smootherType = fvm::AMGHierarchy::SmootherType::SymmetricGaussSeidel; break;
-        case AmgSettings::SmootherType::ForwardGaussSeidel:
-            c.smootherType = fvm::AMGHierarchy::SmootherType::ForwardGaussSeidel; break;
-        case AmgSettings::SmootherType::ForwardSOR:
-            c.smootherType = fvm::AMGHierarchy::SmootherType::ForwardSOR; break;
-    }
-
-    c.smootherOmega = s.smootherOmega;
     c.strengthThreshold = s.strengthThreshold;
     c.truncThreshold = s.truncThreshold;
     c.maxLevels = s.maxLevels;
@@ -52,11 +24,69 @@ inline fvm::AMGHierarchy::Config toFvmAmg(const AmgSettings& s) {
     c.postSweeps = s.postSweeps;
     c.maxIterations = s.maxIterations;
     c.tolerance = s.tolerance;
-    c.rngSeed = s.rngSeed;
+    c.epsilon = s.epsilon;
     c.stagnationFactor = s.stagnationFactor;
     c.stagnationMinIter = s.stagnationMinIter;
     c.stagnationLooseFactor = s.stagnationLooseFactor;
-    c.galerkinDropTol = s.galerkinDropTol;
+    c.nonsymmetric = s.nonsymmetric;
+
+    c.coarseEnough = s.coarseEnough;
+    c.directCoarse = s.directCoarse;
+    c.flexCoarsenRatio = s.flexCoarsenRatio;
+    c.flexLevelTolerance = s.flexLevelTolerance;
+
+    switch (s.coarsening) {
+        case AmgSettings::Coarsening::RugeStuben: c.coarsening = F::Coarsening::RugeStuben; break;
+        case AmgSettings::Coarsening::SmoothedAggregation:
+        default:                                  c.coarsening = F::Coarsening::SmoothedAggregation; break;
+    }
+    // Our pressure/momentum solves are scalar, so 's "Automatic"
+    // group size (2 in 2D, 4 in 3D) resolves to 1: block coarsening only makes
+    // sense for a genuinely blocked system.
+    c.groupSizeControl = (s.groupSizeControl == AmgSettings::GroupSizeControl::Manual)
+                             ? F::GroupSizeControl::Manual
+                             : F::GroupSizeControl::Automatic;
+    c.blockSize = (s.groupSizeControl == AmgSettings::GroupSizeControl::Manual)
+                      ? s.blockSize
+                      : 1;
+
+    switch (s.verbosity) {
+        case AmgSettings::Verbosity::Low:       c.verbosity = F::Verbosity::Low; break;
+        case AmgSettings::Verbosity::High:      c.verbosity = F::Verbosity::High; break;
+        case AmgSettings::Verbosity::Diagnosis: c.verbosity = F::Verbosity::Diagnosis; break;
+        case AmgSettings::Verbosity::None:
+        default:                                c.verbosity = F::Verbosity::None; break;
+    }
+
+    switch (s.cycleType) {
+        case AmgSettings::CycleType::WCycle:   c.cycleType = F::CycleType::WCycle; break;
+        case AmgSettings::CycleType::FCycle:   c.cycleType = F::CycleType::FCycle; break;
+        case AmgSettings::CycleType::Flexible: c.cycleType = F::CycleType::Flexible; break;
+        case AmgSettings::CycleType::VCycle:
+        default:                               c.cycleType = F::CycleType::VCycle; break;
+    }
+
+    switch (s.acceleration) {
+        case AmgSettings::Acceleration::None:              c.acceleration = F::Acceleration::None; break;
+        case AmgSettings::Acceleration::BiCGStab:          c.acceleration = F::Acceleration::BiCGStab; break;
+        case AmgSettings::Acceleration::GMRES:             c.acceleration = F::Acceleration::GMRES; break;
+        case AmgSettings::Acceleration::ConjugateGradient:
+        default:                                           c.acceleration = F::Acceleration::ConjugateGradient; break;
+    }
+
+    switch (s.smoother) {
+        case AmgSettings::Smoother::Jacobi:      c.smoother = F::Smoother::Jacobi; break;
+        case AmgSettings::Smoother::ILU:         c.smoother = F::Smoother::ILU0; break;
+        case AmgSettings::Smoother::GaussSeidel:
+        default:                                 c.smoother = F::Smoother::GaussSeidel; break;
+    }
+
+    switch (s.scaling) {
+        case AmgSettings::ProportionalScaling::Automatic: c.scaling = F::ProportionalScaling::Automatic; break;
+        case AmgSettings::ProportionalScaling::Disabled:
+        default:                                          c.scaling = F::ProportionalScaling::Disabled; break;
+    }
+
     return c;
 }
 

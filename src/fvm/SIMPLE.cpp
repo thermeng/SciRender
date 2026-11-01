@@ -1,6 +1,7 @@
 #include "fvm/SIMPLE.h"
 
 #include "fvm/PressureCorrection.h"
+#include "fvm/Gmres.h"
 #include "fvm/Residual.h"
 #include "fvm/VelocityCorrection.h"
 #include "fvm/SSTConstants.h"
@@ -59,14 +60,19 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::applyPressureSolverConfig_() {
     typename PressureCorrection<Dim>::Config pcCfg;
     // The compact face-normal Laplacian + Rhie-Chow flux is the collocated
-    // operator the PISO correctors need. The steady path keeps the legacy
-    // composed least-squares operator (and its exact-cancellation tests).
-    pcCfg.compactRhieChow = isPiso_() && config_.rhieChow;
+    // operator  uses. Its pressure matrix is symmetric positive
+    // definite, which is what makes the default Conjugate-gradient
+    // acceleration valid. The legacy composed least-squares operator is
+    // nonsymmetric and forced a BiCGSTAB solve regardless of the acceleration
+    // method chosen in the UI.
+    pcCfg.compactRhieChow = config_.rhieChow;
     pcCfg.rhieChow = config_.rhieChow;
     pcCfg.pressureRefCell = config_.pressureRefCell;
     pcCfg.useAMG = config_.pressureUseAMG;
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
     pcCfg.amgThreshold = config_.pressureAmgThreshold;
+    pcCfg.amgPreconditionerCycles = config_.pressureAmgCycles;
+    pcCfg.solveTolerance = config_.pressureSolveTolerance;
     pcCfg.amgConfig = config_.pressureAmgConfig;
     pressureCorrection_.setConfig(pcCfg);
 }
@@ -212,7 +218,18 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
 
     lastIterations_ = 0;
     lastContResid_ = 0.0;
+    lastContResidRaw_ = 0.0;
+    lastContResidPost_ = 0.0;
+    predictedContinuity_ = 0.0;
+    contResidRef_ = 0.0;
+    contResidRefSamples_ = 0;
+    momResidRaw_.fill(0.0);
+    momResidRef_.fill(0.0);
+    momResidRefSamples_ = 0;
     lastMomResid_ = 0.0;
+    lastMomResidU_ = 0.0;
+    lastMomResidV_ = 0.0;
+    lastMomResidW_ = 0.0;
     convergedStreak_ = 0;
     aborted_ = false;
     failure_ = Failure::None;
@@ -403,6 +420,11 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
     if (bc_.isDirty()) bcDiscretization_ = bc_.build();
 
     solveMomentum_(uStar_, velocityOld_);
+    // Measure the mass imbalance of the predictor BEFORE the pressure
+    // correction. After the corrector the discrete divergence is zero to
+    // linear-solver accuracy, so measuring it there (as this code used to)
+    // reports ~1e-15 for the whole run instead of the outer-iteration error.
+    capturePredictedContinuity_();
 
     int nCorr = static_cast<int>(config_.pressureCorrectors);
     if (nCorr < 1) nCorr = 1;
@@ -411,7 +433,7 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
                                  bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
                                  &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
                                  &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                                 &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
+                                 &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals(), &cancelRequested_);
         if (pressureCorrection_.lastSolveProducedNonFinite())
             fail_(Failure::PressureSolveFailed);
 
@@ -513,15 +535,26 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
     ++momStats_.solves;
     momSolveFailed_ = false;
 
+    // Threshold 0 means "always use AMG", matching .
+    const std::size_t momThreshold = config_.momentumAmgThreshold;
     const bool amgEligible =
         config_.useAMGMomentum &&
-        !momAmgDisabledReason_ &&
-        n >= config_.momentumAmgThreshold;
+        !momAmgDisabledReason_[d] &&
+        (momThreshold == 0 || n >= momThreshold);
 
     if (!amgEligible) {
-        if (config_.useAMGMomentum && !momAmgDisabledReason_ &&
-            n < config_.momentumAmgThreshold) {
-            momAmgDisabledReason_ = true;  // decision is permanent
+        if (config_.useAMGMomentum && !momAmgDisabledReason_[d] &&
+            momThreshold != 0 && n < momThreshold) {
+            momAmgDisabledReason_[d] = true;  // decision is permanent
+        }
+        if (!momAmgPathLogged_[d]) {
+            if (!config_.useAMGMomentum) {
+                std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W") << "]: AMG disabled by config; using BiCGSTAB+ILU.\n";
+            } else if (momThreshold != 0 && n < momThreshold) {
+                std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W") << "]: AMG skipped (n=" << n
+                          << " < threshold " << momThreshold << "); using BiCGSTAB+ILU.\n";
+            }
+            momAmgPathLogged_[d] = true;
         }
         std::size_t iters = 0;
         const auto t0 = std::chrono::steady_clock::now();
@@ -532,25 +565,33 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
         return x;
     }
 
-    // Central differencing puts positive entries on the outflow off-diagonals,
-    // which destroys the M-matrix property the interpolation relies on. Detect
-    // it from the assembled matrix rather than trusting the scheme enum, since
-    // the sign pattern also depends on BC configuration.
-    if (hasPositiveOffDiagonals_(momA_)) {
-        momAmgDisabledReason_ = true;
-        std::cerr << "  NOTE: momentum matrix has positive off-diagonal entries "
-                     "(not an M-matrix) — AMG preconditioning disabled, using ILU.\n";
-        std::size_t iters = 0;
-        Eigen::VectorXd x = solveMomentumILU_(d, iters);
-        ++momStats_.iluSolves;
-        momStats_.krylovIters += iters;
-        return x;
+    //  always drives momentum with AMG, including for the
+    // nonsymmetric (central-difference) operators that used to be routed to
+    // ILU. The two modes below mirror its log: either the hierarchy is used
+    // as a preconditioner inside BiCGSTAB, or (momentumAmgAsSolver) it is
+    // applied directly for a fixed number of cycles.
+    if (!momAmgPathLogged_[d]) {
+        const auto acc = config_.momentumAmgConfig.acceleration;
+        const bool standalone =
+            config_.momentumAmgAsSolver ||
+            acc == AMGHierarchy::Config::Acceleration::None;
+        std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W") << "]: using ";
+        if (standalone) {
+            std::cerr << "AMG cycles.";
+        } else if (acc == AMGHierarchy::Config::Acceleration::GMRES) {
+            std::cerr << "AMG-preconditioned GMRES.";
+        } else {
+            std::cerr << "AMG-preconditioned BiCGSTAB.";
+        }
+        std::cerr << "\n";
+        momAmgPathLogged_[d] = true;
     }
 
     const std::size_t hash = sparsityHash_(momA_);
     const bool needBuild = !momAmgBuilt_[d] || hash != momAmgPatternHash_[d];
 
     if (needBuild) {
+        momAmgPatternAnalyzed_[d] = false;
         const auto tb = std::chrono::steady_clock::now();
         momAmg_[d].setConfig(config_.momentumAmgConfig);
         momAmg_[d].build(momA_);
@@ -582,6 +623,51 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
         return x;
     }
 
+    const auto momAccel = config_.momentumAmgConfig.acceleration;
+    const bool standaloneAmg =
+        config_.momentumAmgAsSolver ||
+        momAccel == AMGHierarchy::Config::Acceleration::None;
+
+    if (standaloneAmg) {
+        //  mode: apply the hierarchy directly as the solver. The
+        // cycle count and stopping criterion come from momentumAmgConfig
+        // (maxIterations = 2, tolerance = 0.1 for the reference run). A loose
+        // momentum solve is intentional here: the outer SIMPLE loop converges
+        // the coupled system.
+        const auto t0 = std::chrono::steady_clock::now();
+        Eigen::VectorXd x = Eigen::VectorXd::Zero(momB_.size());
+        const bool ok = momAmg_[d].solve(momB_, x, &cancelRequested_);
+        momStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        momStats_.krylovIters += static_cast<std::size_t>(momAmg_[d].lastIterations());
+
+        if (cancelRequested_.load(std::memory_order_acquire)) {
+            momSolveFailed_ = true;
+            return Eigen::VectorXd::Zero(momB_.size());
+        }
+
+        // Unlike the preconditioned path, a large-but-finite residual is the
+        // expected outcome. Only a non-finite result is a hard failure.
+        if (!ok && (!x.allFinite() || !std::isfinite(momAmg_[d].lastResidual()))) {
+            std::size_t iters = 0;
+            x = solveMomentumILU_(d, iters);
+            momStats_.iluSolves++;
+            momStats_.krylovIters += iters;
+            ++momStats_.amgRejected;
+            if (!x.allFinite()) {
+                momSolveFailed_ = true;
+                return Eigen::VectorXd::Zero(momB_.size());
+            }
+            return x;
+        }
+
+        if (!x.allFinite()) {
+            momSolveFailed_ = true;
+            return Eigen::VectorXd::Zero(momB_.size());
+        }
+        ++momStats_.amgSolves;
+        return x;
+    }
+
     momAmgPrec_[d].setAMG(&momAmg_[d]);
     momAmgPrec_[d].setCycles(config_.momentumAmgCycles);
     if (!momAmgPatternAnalyzed_[d]) {
@@ -592,40 +678,109 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
     }
 
     const auto t0 = std::chrono::steady_clock::now();
-    momAmgSolver_[d].factorize(momA_);
-    Eigen::VectorXd x = momAmgSolver_[d].solve(momB_);
+    Eigen::VectorXd x = Eigen::VectorXd::Zero(momB_.size());
+    if (momAccel == AMGHierarchy::Config::Acceleration::GMRES) {
+        //  "Generalized minimum residual" acceleration. The momentum
+        // operator is nonsymmetric, which is exactly GMRES's use case.
+        const GmresResult gres = gmresRestarted(
+            momB_, x,
+            [this](const Eigen::VectorXd& v) { return momA_ * v; },
+            [this, d](const Eigen::VectorXd& v) { return momAmgPrec_[d].solve(v); },
+            config_.momentumAmgMaxResidual, 5000, 30, &cancelRequested_);
+        momStats_.krylovIters += static_cast<std::size_t>(gres.iterations);
+        if (cancelRequested_.load(std::memory_order_acquire)) {
+            momSolveFailed_ = true;
+            x.setZero();
+        }
+    } else {
+        // CG is only valid for an SPD operator; the momentum matrix is not, so
+        // a CG request falls back to BiCGSTAB here (the pressure equation is
+        // the one where CG is meaningful).
+        const int maxIt = 5000;
+        const double bnorm = momB_.norm();
+        const double tol = (bnorm > 0.0 ? bnorm : 1.0) * config_.momentumAmgMaxResidual;
+        Eigen::VectorXd r = momB_ - momA_ * x;
+        Eigen::VectorXd r0 = r;
+        Eigen::VectorXd v = Eigen::VectorXd::Zero(momB_.size());
+        Eigen::VectorXd p = Eigen::VectorXd::Zero(momB_.size());
+        double rho = 1.0, alpha = 1.0, omega = 1.0;
+        int iters = 0;
+        for (iters = 0; iters < maxIt; ++iters) {
+            if (cancelRequested_.load(std::memory_order_acquire)) {
+                momSolveFailed_ = true;
+                break;
+            }
+            const double rhoNew = r0.dot(r);
+            if (rhoNew == 0.0 || !std::isfinite(rhoNew)) break;
+            const double beta = (rhoNew / rho) * (alpha / omega);
+            p = r + beta * (p - omega * v);
+            Eigen::VectorXd phat = momAmgPrec_[d].solve(p);
+            if (!phat.allFinite()) break;
+            v = momA_ * phat;
+            const double denom = r0.dot(v);
+            if (denom == 0.0 || !std::isfinite(denom)) break;
+            const double alphaNew = rhoNew / denom;
+            if (!std::isfinite(alphaNew)) break;
+            Eigen::VectorXd s = r - alphaNew * v;
+            if (s.norm() < tol) {
+                x += alphaNew * phat;
+                r = s;
+                rho = rhoNew; alpha = alphaNew; omega = 1.0;
+                break;
+            }
+            Eigen::VectorXd shat = momAmgPrec_[d].solve(s);
+            if (!shat.allFinite()) break;
+            Eigen::VectorXd t = momA_ * shat;
+            const double tt = t.dot(t);
+            if (tt == 0.0 || !std::isfinite(tt)) break;
+            const double omegaNew = t.dot(s) / tt;
+            if (omegaNew == 0.0 || !std::isfinite(omegaNew)) break;
+            x += alphaNew * phat + omegaNew * shat;
+            r = s - omegaNew * t;
+            rho = rhoNew; alpha = alphaNew; omega = omegaNew;
+            if (r.norm() < tol) break;
+        }
+        momStats_.krylovIters += static_cast<std::size_t>(iters + 1);
+        if (cancelRequested_.load(std::memory_order_acquire)) {
+            momSolveFailed_ = true;
+            x.setZero();
+        }
+    }
     momStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
-    // Verify the true residual rather than trusting the Krylov solver's own
-    // estimate: BiCGSTAB can break down with a nonsymmetric preconditioner and
-    // return a plausible-looking wrong answer. The threshold has to be tight —
-    // a 1e-4-accurate velocity solve fed back into SIMPLE compounds over
-    // hundreds of outer iterations and saturates the velocity clamp.
     const double bnorm = momB_.norm();
-    const double rnorm = (momA_ * x - momB_).norm();
-    const double rel = bnorm > 0.0 ? rnorm / bnorm : rnorm;
+    double rnorm = (momA_ * x - momB_).norm();
+    double rel = bnorm > 0.0 ? rnorm / bnorm : rnorm;
 
-    // NaN-safe: `rel > tol` is FALSE when rel is NaN, so a diverged solve
-    // would slip through a naive comparison. Negating the `<=` catches it.
-    const bool residualOk = (rel <= config_.momentumAmgMaxResidual);
-    const bool bad =
-        !residualOk ||
-        !x.allFinite() ||
+    bool bad =
         !std::isfinite(rel) ||
-        (momAmgSolver_[d].info() != Eigen::Success);
+        !x.allFinite() ||
+        !std::isfinite(rnorm);
+
+    if (bad && !cancelRequested_.load(std::memory_order_acquire)) {
+        // Fallback to the robust ILU path when AMG fails to converge.
+        std::size_t iters = 0;
+        x = solveMomentumILU_(d, iters);
+        momStats_.iluSolves++;
+        momStats_.krylovIters += iters;
+        if (x.allFinite()) {
+            rnorm = (momA_ * x - momB_).norm();
+            rel = bnorm > 0.0 ? rnorm / bnorm : rnorm;
+            bad = !std::isfinite(rel) || !x.allFinite() || !std::isfinite(rnorm);
+        }
+    }
 
     if (bad) {
-        ++momStats_.amgRejected;
-        std::size_t iters = 0;
-        Eigen::VectorXd xf = solveMomentumILU_(d, iters);
-        ++momStats_.iluSolves;
-        momStats_.krylovIters += iters;
-        return xf;
+        if (!x.allFinite() || !std::isfinite(rel) || !std::isfinite(rnorm)) {
+            momSolveFailed_ = true;
+        }
+        if (!x.allFinite()) {
+            x = Eigen::VectorXd::Zero(momB_.size());
+        }
+        return x;
     }
 
     ++momStats_.amgSolves;
-    momStats_.amgKrylovIters += static_cast<std::size_t>(momAmgSolver_[d].iterations());
-    momStats_.krylovIters += static_cast<std::size_t>(momAmgSolver_[d].iterations());
     return x;
 }
 
@@ -648,6 +803,13 @@ void SIMPLE<Dim>::printMomentumSolverStats_() const {
     std::cerr << "    AMG build time:    " << momStats_.buildSeconds << " s\n";
     std::cerr << "    AMG solve time:    " << momStats_.amgSeconds << " s\n";
     std::cerr << "    ILU solve time:    " << momStats_.iluSeconds << " s\n";
+    for (std::size_t d = 0; d < Dim; ++d) {
+        if (!momAmg_[d].isBuilt()) continue;
+        std::cerr << "    momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W")
+                  << "] AMG levels: " << momAmg_[d].numLevels() << " (";
+        for (int size : momAmg_[d].levelSizes()) std::cerr << size << " ";
+        std::cerr << ")\n";
+    }
 }
 
 template <std::size_t Dim>
@@ -668,6 +830,12 @@ void SIMPLE<Dim>::printPressureSolverStats_() const {
     std::cerr << "    AMG build time:    " << s.buildSeconds << " s\n";
     std::cerr << "    AMG solve time:    " << s.amgSeconds << " s\n";
     std::cerr << "    ILU solve time:    " << s.iluSeconds << " s\n";
+    if (pressureCorrection_.amgBuilt()) {
+        std::cerr << "    pressure AMG levels: "
+                  << pressureCorrection_.amgLevels() << " (";
+        for (int size : pressureCorrection_.amgLevelSizes()) std::cerr << size << " ";
+        std::cerr << ")\n";
+    }
 }
 
 template<std::size_t Dim>
@@ -697,30 +865,99 @@ double SIMPLE<Dim>::momentumResidual_(std::size_t d) const {
 }
 
 template<std::size_t Dim>
-void SIMPLE<Dim>::updateResiduals_() {    ResidualResult resid = computeResiduals(mesh_, boundVelocity(), velocityOld_, diag_,
-                                             divBuffer_, bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
-                                              &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                                              &dCoeff_, &pressureBeforeCorrection_, &pressureGradBefore_, &pressureCorrection_.pressureMask(),
-                                              config_.rhieChow && pressureCorrection_.usesCompactRhieChow());
+void SIMPLE<Dim>::capturePredictedContinuity_() {
+    // The divergence here must use the same face value the pressure correction
+    // will use (boundaryFaceState / interpolateFaceVelocity), which
+    // computeResiduals does by construction. The compact Rhie-Chow term is only
+    // part of the pressure equation when PressureCorrection is in compact mode,
+    // so it is added only then. Its face flux needs the gradient of the CURRENT
+    // pressure, not the one left over from the previous (pre-correction) solve,
+    // and the pressure mask that solve() fills in. On the first iteration the
+    // pressure is zero, so the term is zero and there is nothing to refresh.
+    const bool compactRC = config_.rhieChow &&
+                           pressureCorrection_.usesCompactRhieChow() &&
+                           pressureCorrection_.pressureMask().size() == mesh_.nCells();
+    if (compactRC) pressureCorrection_.refreshPressureGradient(boundPressure());
+    ResidualResult r = computeResiduals(
+        mesh_, uStar_, velocityOld_, diag_, divBuffer_,
+        bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
+        &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+        &dCoeff_,
+        compactRC ? &boundPressure() : nullptr,
+        compactRC ? &pressureCorrection_.pressureGradient() : nullptr,
+        &pressureCorrection_.pressureMask(),
+        compactRC);
+    predictedContinuity_ = r.continuity;
+}
+
+template<std::size_t Dim>
+void SIMPLE<Dim>::updateResiduals_() {
+    // The reported continuity residual is the mass imbalance of the momentum
+    // predictor captured by capturePredictedContinuity_(), i.e. the quantity
+    // the pressure correction is about to remove. The OLD code measured the
+    // divergence of the CORRECTED field: that is the pressure linear-solver
+    // residual, and with the composed operator plus one corrector it is ~1e-8,
+    // with several correctors it is round-off (~1e-15). It therefore reported
+    // machine zero for the whole run and could never gate convergence.
+    lastContResidRaw_ = predictedContinuity_;
+
+    // Post-correction divergence. Diagnostic only: it shows how well the
+    // pressure solve closed the mass balance, NOT whether the outer iteration
+    // has converged.
+    ResidualResult resid = computeResiduals(mesh_, boundVelocity(), velocityOld_, diag_,
+                                            divBuffer_, bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
+                                             &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                                             &dCoeff_, &pressureBeforeCorrection_, &pressureGradBefore_, &pressureCorrection_.pressureMask(),
+                                             config_.rhieChow && pressureCorrection_.usesCompactRhieChow());
+    lastContResidPost_ = resid.continuity;
     if (!initialMassImbalanceSet_) {
-        initialMassImbalance_ = resid.continuity;
+        initialMassImbalance_ = lastContResidRaw_;
         initialMassImbalanceSet_ = true;
     }
-    // resid.continuity is ALREADY a normalised, scale-free mass imbalance
-    // (sum|div|*V / sum|flux|), exactly the quantity Fluent reports. Dividing it
-    // again by a reference captured after the first pressure corrector turned it
-    // into a ratio whose denominator is whatever the first corrector happened to
-    // leave behind. That made `tolerance` unreachable in practice, so every run
-    // ground on to maxIterations while printing an O(1) "residual".
-    lastContResid_ = resid.continuity;
-    if (std::getenv("CFDSOLVER_TRACE_RESID")) {
-        std::cerr << "  [trace] cont=" << resid.continuity
-                  << " momLin=" << momentumResidual_(0) << "\n";
+
+    for (std::size_t d = 0; d < Dim; ++d) {
+        momResidRaw_[d] = momentumResidual_(d);
     }
 
-    lastMomResidU_ = momentumResidual_(0);
-    lastMomResidV_ = (Dim >= 2) ? momentumResidual_(1) : 0.0;
-    lastMomResidW_ = (Dim >= 3) ? momentumResidual_(2) : 0.0;
+    // /Fluent normalization: divide each equation's raw residual by
+    // its maximum over the first `residualNormalizationIterations` iterations.
+    // The reference grows during that window, so iteration 1 prints 1 and a
+    // residual that is exactly zero on the first iteration (e.g. y-momentum
+    // from a rest state) prints 0 there and 1 on the first iteration that has
+    // a non-zero value - the same shape as a  residual plot.
+    const std::size_t window =
+        std::max<std::size_t>(1, config_.residualNormalizationIterations);
+    ++contResidRefSamples_;
+    if (contResidRefSamples_ <= window) {
+        contResidRef_ = std::max(contResidRef_, lastContResidRaw_);
+    }
+    ++momResidRefSamples_;
+    if (momResidRefSamples_ <= window) {
+        for (std::size_t d = 0; d < Dim; ++d) {
+            momResidRef_[d] = std::max(momResidRef_[d], momResidRaw_[d]);
+        }
+    }
+    const auto scaled = [](double raw, double ref) {
+        return (ref > 0.0 && std::isfinite(ref)) ? raw / ref : raw;
+    };
+    if (config_.normalizeResiduals) {
+        lastContResid_ = scaled(lastContResidRaw_, contResidRef_);
+        lastMomResidU_ = scaled(momResidRaw_[0], momResidRef_[0]);
+        lastMomResidV_ = (Dim >= 2) ? scaled(momResidRaw_[1], momResidRef_[1]) : 0.0;
+        lastMomResidW_ = (Dim >= 3) ? scaled(momResidRaw_[2], momResidRef_[2]) : 0.0;
+    } else {
+        lastContResid_ = lastContResidRaw_;
+        lastMomResidU_ = momResidRaw_[0];
+        lastMomResidV_ = (Dim >= 2) ? momResidRaw_[1] : 0.0;
+        lastMomResidW_ = (Dim >= 3) ? momResidRaw_[2] : 0.0;
+    }
+    if (std::getenv("CFDSOLVER_TRACE_RESID")) {
+        std::cerr << "  [trace] contRaw=" << lastContResidRaw_
+                  << " cont=" << lastContResid_
+                  << " contPost=" << lastContResidPost_
+                  << " momLin=" << momResidRaw_[0] << "\n";
+    }
+
     lastMomResid_ = std::max(lastMomResidU_, lastMomResidV_);
     if constexpr (Dim == 3) {
         lastMomResid_ = std::max(lastMomResid_, lastMomResidW_);
@@ -899,7 +1136,9 @@ void SIMPLE<Dim>::printFinalStats_() const {
     // result is a steady state.
     std::cerr << "  [final] status: " << statusText()
               << "  (iterations=" << lastIterations_
-              << ", continuity=" << lastContResid_ << ")\n";
+              << ", continuity=" << lastContResid_
+              << " normalized, " << lastContResidRaw_ << " raw, "
+              << lastContResidPost_ << " mass imbalance after correction)\n";
     if (aborted_) {
         std::cerr << "  [final] ABORTED: " << failureText() << "\n";
     } else {
@@ -1012,7 +1251,13 @@ template<std::size_t Dim>
 int SIMPLE<Dim>::lastIterations() const { return lastIterations_; }
 
 template<std::size_t Dim>
-double SIMPLE<Dim>::finalContinuityResidual() const { return lastContResid_; }
+double SIMPLE<Dim>::finalContinuityResidual() const { return lastContResidRaw_; }
+
+template<std::size_t Dim>
+double SIMPLE<Dim>::finalNormalizedContinuityResidual() const { return lastContResid_; }
+
+template<std::size_t Dim>
+double SIMPLE<Dim>::finalMassImbalance() const { return lastContResidPost_; }
 
 template<std::size_t Dim>
 double SIMPLE<Dim>::finalMomentumResidual() const { return lastMomResid_; }
@@ -1299,11 +1544,12 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
                   velocityOld_[d].values().begin());
     if (bc_.isDirty()) bcDiscretization_ = bc_.build();
     solveMomentumTransient_(uStar_, velocityOld_);
+    capturePredictedContinuity_();
     pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
                               bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
                               &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
                               &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                              &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
+                              &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals(), &cancelRequested_);
     if (pressureCorrection_.lastSolveProducedNonFinite())
         fail_(Failure::PressureSolveFailed);
     limitPressureCorrection_(pPrime_);
@@ -1358,6 +1604,7 @@ void SIMPLE<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& 
                   velocityOld_[d].values().begin());
     if (bc_.isDirty()) bcDiscretization_ = bc_.build();
     solveMomentumTransient_(uStar_, velocityOld_);
+    capturePredictedContinuity_();
 
     // The corrector reconstructs the explicit momentum residual at the
     // CURRENT velocity. For the first corrector that current velocity is the
@@ -1452,7 +1699,7 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
                                   bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
                                   &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
                                   &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                                  &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals());
+                                  &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals(), &cancelRequested_);
         if (pressureCorrection_.lastSolveProducedNonFinite())
             fail_(Failure::PressureSolveFailed);
         // No p' limiter here. Scaling p' would silently impose alphaP < 1 and
@@ -1705,7 +1952,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         // PISO robustness: force Rhie-Chow (like Fluent/StarCCM+ on collocated grids)
         if (isPISO && !config_.rhieChow) {
             config_.rhieChow = true;
-            applyPressureSolverConfig_();
+    applyPressureSolverConfig_();
         }
         int nOuter = std::max(1, config_.transient.maxOuterCorrectors);
         if (isPISO) {

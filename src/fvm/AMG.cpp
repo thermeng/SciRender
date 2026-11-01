@@ -1,789 +1,325 @@
 #include "fvm/AMG.h"
 
-#include <Eigen/Cholesky>
-#include <Eigen/SparseLU>
-#include <Eigen/LU>
-#include <algorithm>
+#include <amgcl/amg.hpp>
+#include <amgcl/coarsening/ruge_stuben.hpp>
+#include <amgcl/coarsening/smoothed_aggregation.hpp>
+#include <amgcl/relaxation/ilu0.hpp>
+#include <amgcl/relaxation/spai0.hpp>
+#include <amgcl/relaxation/gauss_seidel.hpp>
+#include <amgcl/relaxation/damped_jacobi.hpp>
+#include <amgcl/backend/builtin.hpp>
+#include <amgcl/adapter/eigen.hpp>
+
+#include <memory>
 #include <cmath>
-#include <iostream>
 #include <limits>
-#include <numeric>
-#include <random>
-#include <unordered_set>
+#include <sstream>
+#include <iomanip>
+#include <vector>
+
+AMGCL_USE_EIGEN_VECTORS_WITH_BUILTIN_BACKEND()
 
 namespace fvm {
 
-using SparseMatrixRM = Eigen::SparseMatrix<double, Eigen::RowMajor>;
+namespace {
+using Backend = amgcl::backend::builtin<double>;
+
+// The coarsening/smoother pairs the configuration exposes.  uses
+// aggregation coarsening with a Gauss-Seidel smoother for both the pressure and
+// the momentum equation.
+using AggGsAmg     = amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation,
+                                amgcl::relaxation::gauss_seidel>;
+using AggJacobiAmg = amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation,
+                                amgcl::relaxation::damped_jacobi>;
+using AggIluAmg    = amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation,
+                                amgcl::relaxation::ilu0>;
+using AggSpaiAmg   = amgcl::amg<Backend, amgcl::coarsening::smoothed_aggregation,
+                                amgcl::relaxation::spai0>;
+using RsGsAmg      = amgcl::amg<Backend, amgcl::coarsening::ruge_stuben,
+                                amgcl::relaxation::gauss_seidel>;
+using RsJacobiAmg  = amgcl::amg<Backend, amgcl::coarsening::ruge_stuben,
+                                amgcl::relaxation::damped_jacobi>;
+using RsIluAmg     = amgcl::amg<Backend, amgcl::coarsening::ruge_stuben,
+                                amgcl::relaxation::ilu0>;
+using RsSpaiAmg    = amgcl::amg<Backend, amgcl::coarsening::ruge_stuben,
+                                amgcl::relaxation::spai0>;
+
+enum class Kind { AggGs, AggJacobi, AggIlu, AggSpai, RsGs, RsJacobi, RsIlu, RsSpai };
+
+struct Handle {
+    Kind kind = Kind::AggGs;
+    std::shared_ptr<void> ptr;
+};
+
+// Common amgcl parameters. `npre`/`npost` are global in amgcl (
+// varies them per level in its flex cycle); the per-equation presets pick the
+// values that matter at the fine level.
+template <class AMG, class CoarseningParams, class RelaxParams>
+std::shared_ptr<AMG> makeAmg(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
+                             const AMGHierarchy::Config& c,
+                             CoarseningParams cp, RelaxParams rp) {
+    typename AMG::params ap;
+    ap.coarsening = cp;
+    ap.relax = rp;
+    ap.coarse_enough = static_cast<unsigned>(c.coarseEnough > 0 ? c.coarseEnough : 2);
+    ap.max_levels = static_cast<unsigned>(c.maxLevels > 0 ? c.maxLevels : 30);
+    ap.npre = static_cast<unsigned>(c.preSweeps >= 0 ? c.preSweeps : 1);
+    ap.npost = static_cast<unsigned>(c.postSweeps >= 0 ? c.postSweeps : 1);
+    // V-cycle = one inner loop, W-cycle = two. F and Flexible are approximated
+    // by a V-cycle because amgcl has no adaptive cycle.
+    ap.ncycle = (c.cycleType == AMGHierarchy::Config::CycleType::WCycle) ? 2u : 1u;
+    ap.pre_cycles = static_cast<unsigned>(c.preCycles > 0 ? c.preCycles : 1);
+    ap.direct_coarse = c.directCoarse;
+    ap.allow_rebuild = true;
+    return std::make_shared<AMG>(A, ap);
+}
+
+// amgcl does not expose the level count, but its operator<< prints the whole
+// hierarchy. Parse the sizes out once at build time so the solver can log the
+// same "Level / Size" table  does.
+void parseHierarchy(const std::string& report, int& nlevels, std::vector<int>& sizes) {
+    nlevels = 0;
+    sizes.clear();
+    std::istringstream in(report);
+    std::string line;
+    bool table = false;
+    while (std::getline(in, line)) {
+        if (!table) {
+            if (line.find("level") != std::string::npos &&
+                line.find("unknowns") != std::string::npos) {
+                table = true;
+            }
+            continue;
+        }
+        if (!line.empty() && line[0] == '-') continue;
+        std::istringstream row(line);
+        int level = -1;
+        long long unknowns = 0;
+        if (row >> level >> unknowns) {
+            ++nlevels;
+            sizes.push_back(static_cast<int>(unknowns));
+        }
+    }
+    if (nlevels == 0) {
+        // No table (amgcl failed to build): report the fine level only.
+        nlevels = sizes.empty() ? 0 : 1;
+    }
+}
+} // namespace
 
 void AMGHierarchy::build(const SparseMatrix& A) {
     levels_.clear();
-    if (A.rows() == 0 || A.cols() == 0) return;
+    built_ = false;
+    amgHandle_.reset();
+    n_ = 0;
+    nlevels_ = 0;
+    levelSizes_.clear();
+    report_.clear();
+    systemMatrix_ = A;
+    if (A.rows() == 0 || A.cols() == 0) { buildTimeSec_ = 0.0; return; }
 
-    SparseMatrix currentA = A;
+    n_ = static_cast<int>(A.rows());
 
-    for (int level = 0; level < config_.maxLevels; ++level) {
-        const int n = static_cast<int>(currentA.rows());
+    auto buildStart = std::chrono::steady_clock::now();
 
-        if (n <= config_.minCoarseSize) {
-            AMGLevel coarseLevel;
-            coarseLevel.ARM = currentA;
-            levels_.push_back(std::move(coarseLevel));
-            break;
+    Eigen::SparseMatrix<double, Eigen::RowMajor> AR = A;
+    AR.makeCompressed();
+
+    auto h = std::make_shared<Handle>();
+
+    try {
+        using Coarsening = Config::Coarsening;
+        using Smoother = Config::Smoother;
+
+        // `nonsymmetric` is the legacy UI hint. Aggregation coarsening is the
+        // robust choice for a nonsymmetric operator, so it overrides the
+        // coarsening choice while leaving the smoother as configured.
+        Coarsening coarsening = config_.coarsening;
+        if (config_.nonsymmetric) coarsening = Coarsening::SmoothedAggregation;
+        const bool agg = (coarsening == Coarsening::SmoothedAggregation);
+
+        Kind kind;
+        switch (config_.smoother) {
+            case Smoother::Jacobi:      kind = agg ? Kind::AggJacobi : Kind::RsJacobi; break;
+            case Smoother::GaussSeidel: kind = agg ? Kind::AggGs     : Kind::RsGs;     break;
+            case Smoother::ILU0:        kind = agg ? Kind::AggIlu    : Kind::RsIlu;    break;
+            case Smoother::SPAI0:
+            default:                    kind = agg ? Kind::AggSpai   : Kind::RsSpai;   break;
         }
+        h->kind = kind;
 
-        std::vector<std::vector<int>> strongNeighbors;
-        strengthOfConnection(currentA, strongNeighbors);
-
-        std::vector<int> cfSplit;
-        int nCoarse = 0;
-        if (config_.coarseningType == CoarseningType::RS) {
-            rsCoarsening(strongNeighbors, cfSplit, nCoarse);
-        } else {
-            pmisCoarsening(strongNeighbors, cfSplit, nCoarse);
-        }
-
-        if (nCoarse == 0 || nCoarse >= n || static_cast<double>(nCoarse) >= 0.9 * n) {
-            AMGLevel coarseLevel;
-            coarseLevel.ARM = currentA;
-            levels_.push_back(std::move(coarseLevel));
-            break;
-        }
-
-        SparseMatrix P;
-        if (config_.interpolationType == InterpolationType::Extended) {
-            extendedInterpolation(currentA, strongNeighbors, cfSplit, nCoarse, P);
-        } else {
-            directInterpolation(currentA, strongNeighbors, cfSplit, nCoarse, P);
-        }
-
-        truncateInterpolation(P);
-
-        AMGLevel lvl;
-        lvl.ARM = currentA;
-        lvl.P = P;
-        lvl.R = P.transpose();
-        lvl.cfSplit = std::move(cfSplit);
-        lvl.nCoarse = nCoarse;
-        levels_.push_back(std::move(lvl));
-
-        SparseMatrix Ac = galerkinProduct(currentA, P);
-        currentA = Ac;
-    }
-}
-
-void AMGHierarchy::strengthOfConnection(const SparseMatrix& A,
-                                         std::vector<std::vector<int>>& strongNeighbors) const {
-    const int n = static_cast<int>(A.rows());
-    strongNeighbors.assign(n, {});
-
-    const double theta = config_.strengthThreshold;
-    // Use RowMajor view for correct row-wise strong connections (A is ColMajor)
-    SparseMatrixRM AR = A;
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n; ++i) {
-        double maxOffDiag = 0.0;
-        // First pass: find max without allocation
-        for (SparseMatrixRM::InnerIterator it(AR, i); it; ++it) {
-            if (static_cast<int>(it.col()) != i) {
-                double absVal = std::abs(it.value());
-                if (absVal > maxOffDiag) maxOffDiag = absVal;
+        auto aggParams = [&]() {
+            amgcl::coarsening::smoothed_aggregation<Backend>::params cp;
+            // amgcl marks a coefficient strong when
+            //     a_ij^2 > eps^2 * a_ii * a_jj,
+            // i.e. eps is measured against sqrt(a_ii a_jj).  measures
+            // it against the diagonal and defaults to 0.25. For a uniform
+            // 5-point stencil the two scales coincide exactly at 0.25, which
+            // sits on amgcl's strict ">" boundary: no connection is strong, no
+            // aggregate is formed, and the hierarchy collapses to a single
+            // level (the momentum operator degenerates that way on a uniform
+            // mesh). Halving keeps the  value usable with margin.
+            cp.aggr.eps_strong =
+                static_cast<float>(0.5 * config_.strengthThreshold);
+            // Group size only applies to aggregation coarsening, and amgcl
+            // requires the matrix dimension to be a multiple of the block size.
+            if (config_.groupSizeControl == Config::GroupSizeControl::Manual &&
+                config_.blockSize > 1 && (n_ % config_.blockSize) == 0) {
+                cp.aggr.block_size = static_cast<unsigned>(config_.blockSize);
             }
-        }
-        if (maxOffDiag == 0.0) continue;
-        const double threshold = theta * maxOffDiag;
-        // Use stack-local buffer and assign (not swap with thread_local) to avoid aliasing
-        std::vector<int> strongBuf;
-        strongBuf.reserve(8);
-        for (SparseMatrixRM::InnerIterator it(AR, i); it; ++it) {
-            int j = static_cast<int>(it.col());
-            if (j == i) continue;
-            if (std::abs(it.value()) >= threshold) strongBuf.push_back(j);
-        }
-        std::sort(strongBuf.begin(), strongBuf.end());
-        strongNeighbors[i] = std::move(strongBuf);
-    }
-}
+            return cp;
+        };
+        auto rsParams = [&]() {
+            amgcl::coarsening::ruge_stuben<Backend>::params cp;
+            cp.eps_strong = static_cast<float>(config_.strengthThreshold);
+            cp.do_trunc = (config_.truncThreshold > 0.0 && config_.truncThreshold < 1.0);
+            cp.eps_trunc = static_cast<float>(config_.truncThreshold);
+            return cp;
+        };
 
-void AMGHierarchy::rsCoarsening(const std::vector<std::vector<int>>& strongNeighbors,
-                                 std::vector<int>& cfSplit, int& nCoarse) const {
-    const int n = static_cast<int>(strongNeighbors.size());
-    cfSplit.assign(n, 0);
-
-    std::vector<double> weights(n);
-    std::mt19937 rng;
-    if (config_.rngSeed == 0) {
-        std::random_device rd;
-        rng.seed(rd());
-    } else {
-        // Mix seed with problem size to escape pathological traps while keeping determinism
-        std::seed_seq seq{static_cast<unsigned int>(config_.rngSeed),
-                          static_cast<unsigned int>(n),
-                          static_cast<unsigned int>(strongNeighbors.size())};
-        rng.seed(seq);
-    }
-    std::uniform_real_distribution<double> dist(0.0, 1.0);
-    for (int i = 0; i < n; ++i) weights[i] = dist(rng);
-
-    std::vector<int> state(n, 0);
-
-    for (int pass = 0; pass < 2; ++pass) {
-        for (int i = 0; i < n; ++i) {
-            if (state[i] == 1) continue;
-
-            bool isMax = true;
-            for (int j : strongNeighbors[i]) {
-                if (j < 0 || j >= n) continue;
-                if (weights[j] > weights[i]) {
-                    isMax = false;
+        if (agg) {
+            auto cp = aggParams();
+            switch (config_.smoother) {
+                case Smoother::Jacobi: {
+                    amgcl::relaxation::damped_jacobi<Backend>::params rp;
+                    h->ptr = makeAmg<AggJacobiAmg>(AR, config_, cp, rp);
+                    break;
+                }
+                case Smoother::GaussSeidel: {
+                    amgcl::relaxation::gauss_seidel<Backend>::params rp;
+                    h->ptr = makeAmg<AggGsAmg>(AR, config_, cp, rp);
+                    break;
+                }
+                case Smoother::ILU0: {
+                    amgcl::relaxation::ilu0<Backend>::params rp;
+                    rp.damping = 1.0;
+                    h->ptr = makeAmg<AggIluAmg>(AR, config_, cp, rp);
+                    break;
+                }
+                case Smoother::SPAI0:
+                default: {
+                    amgcl::relaxation::spai0<Backend>::params rp;
+                    h->ptr = makeAmg<AggSpaiAmg>(AR, config_, cp, rp);
                     break;
                 }
             }
-            if (!isMax) continue;
-
-            bool neighborIsMax = false;
-            for (int j : strongNeighbors[i]) {
-                if (j < 0 || j >= n) continue;
-                if (weights[j] == weights[i] && j < i) {
-                    neighborIsMax = true;
+        } else {
+            auto cp = rsParams();
+            switch (config_.smoother) {
+                case Smoother::Jacobi: {
+                    amgcl::relaxation::damped_jacobi<Backend>::params rp;
+                    h->ptr = makeAmg<RsJacobiAmg>(AR, config_, cp, rp);
+                    break;
+                }
+                case Smoother::GaussSeidel: {
+                    amgcl::relaxation::gauss_seidel<Backend>::params rp;
+                    h->ptr = makeAmg<RsGsAmg>(AR, config_, cp, rp);
+                    break;
+                }
+                case Smoother::ILU0: {
+                    amgcl::relaxation::ilu0<Backend>::params rp;
+                    rp.damping = 1.0;
+                    h->ptr = makeAmg<RsIluAmg>(AR, config_, cp, rp);
+                    break;
+                }
+                case Smoother::SPAI0:
+                default: {
+                    amgcl::relaxation::spai0<Backend>::params rp;
+                    h->ptr = makeAmg<RsSpaiAmg>(AR, config_, cp, rp);
                     break;
                 }
             }
-            if (neighborIsMax) continue;
-
-            cfSplit[i] = 1;
-            state[i] = 1;
-            for (int j : strongNeighbors[i]) {
-                if (j >= 0 && j < n && state[j] == 0) {
-                    state[j] = -1;
-                }
-            }
         }
 
-        for (int i = 0; i < n; ++i) {
-            if (state[i] == -1) state[i] = 0;
-        }
-    }
-
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (int i = 0; i < n; ++i) {
-            if (cfSplit[i] == 1) continue;
-
-            bool hasStrongC = false;
-            for (int j : strongNeighbors[i]) {
-                if (j >= 0 && j < n && cfSplit[j] == 1) {
-                    hasStrongC = true;
-                    break;
-                }
+        if (h->ptr) {
+            std::ostringstream os;
+            switch (kind) {
+                case Kind::AggGs:     os << *std::static_pointer_cast<AggGsAmg>(h->ptr); break;
+                case Kind::AggJacobi: os << *std::static_pointer_cast<AggJacobiAmg>(h->ptr); break;
+                case Kind::AggIlu:    os << *std::static_pointer_cast<AggIluAmg>(h->ptr); break;
+                case Kind::AggSpai:   os << *std::static_pointer_cast<AggSpaiAmg>(h->ptr); break;
+                case Kind::RsGs:      os << *std::static_pointer_cast<RsGsAmg>(h->ptr); break;
+                case Kind::RsJacobi:  os << *std::static_pointer_cast<RsJacobiAmg>(h->ptr); break;
+                case Kind::RsIlu:     os << *std::static_pointer_cast<RsIluAmg>(h->ptr); break;
+                case Kind::RsSpai:    os << *std::static_pointer_cast<RsSpaiAmg>(h->ptr); break;
             }
-            if (!hasStrongC) {
-                double bestWeight = -1.0;
-                int bestNeighbor = -1;
-                for (int j : strongNeighbors[i]) {
-                    if (j >= 0 && j < n && weights[j] > bestWeight) {
-                        bestWeight = weights[j];
-                        bestNeighbor = j;
-                    }
-                }
-                if (bestNeighbor >= 0 && cfSplit[bestNeighbor] == 0) {
-                    cfSplit[bestNeighbor] = 1;
-                    changed = true;
-                } else {
-                    cfSplit[i] = 1;
-                    changed = true;
-                }
+            report_ = os.str();
+            parseHierarchy(report_, nlevels_, levelSizes_);
+            //  "High" verbosity prints the multigrid series and the
+            // equation count of each level after the hierarchy is built.
+            if (static_cast<int>(config_.verbosity) >=
+                static_cast<int>(Config::Verbosity::High)) {
+                std::cerr << "  AMG hierarchy (" << n_ << " unknowns, "
+                          << nlevels_ << " levels)\n" << report_;
+            }
+            // "Diagnosis" adds the top-level system summary: the level sizes,
+            // the resolved cycle/smoother/coarsening, and the coarse-solve mode.
+            if (config_.verbosity == Config::Verbosity::Diagnosis) {
+                std::cerr << "  AMG diagnosis: " << n_ << " unknowns, "
+                          << nlevels_ << " levels, level sizes";
+                for (int s : levelSizes_) std::cerr << ' ' << s;
+                std::cerr << "\n    coarsening="
+                          << (agg ? "smoothed aggregation" : "Ruge-Stuben")
+                          << ", smoother="
+                          << (config_.smoother == Config::Smoother::Jacobi ? "Jacobi"
+                              : config_.smoother == Config::Smoother::ILU0 ? "ILU"
+                              : config_.smoother == Config::Smoother::SPAI0 ? "SPAI0"
+                                                                           : "Gauss-Seidel")
+                          << ", cycle="
+                          << (config_.cycleType == Config::CycleType::WCycle ? "W"
+                              : config_.cycleType == Config::CycleType::FCycle ? "F (V used)"
+                              : config_.cycleType == Config::CycleType::Flexible ? "variable (V used)"
+                                                                                : "V")
+                          << ", coarse solve="
+                          << (config_.directCoarse ? "direct" : "iterative")
+                          << " (<= " << config_.coarseEnough << " equations)\n";
             }
         }
+    } catch (...) {
+        h->ptr.reset();
     }
-
-    nCoarse = 0;
-    for (int i = 0; i < n; ++i) {
-        if (cfSplit[i] == 1) ++nCoarse;
-    }
+    buildTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - buildStart).count();
+    amgHandle_ = h;
+    built_ = (h->ptr != nullptr && n_ > 0);
 }
 
-void AMGHierarchy::pmisCoarsening(const std::vector<std::vector<int>>& strongNeighbors,
-                                   std::vector<int>& cfSplit, int& nCoarse) const {
-    const int n = static_cast<int>(strongNeighbors.size());
-    cfSplit.assign(n, 0);
+bool AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
+    if (!built_ || !amgHandle_) { x = b; return false; }
+    auto h = std::static_pointer_cast<Handle>(amgHandle_);
+    if (!h || !h->ptr) { x = b; return false; }
 
-    std::vector<double> weights(n);
-    std::mt19937 rng;
-    if (config_.rngSeed == 0) {
-        std::random_device rd;
-        rng.seed(rd());
-    } else {
-        std::seed_seq seq{static_cast<unsigned int>(config_.rngSeed),
-                          static_cast<unsigned int>(n * 1315423911u + 2654435761u),
-                          static_cast<unsigned int>(strongNeighbors.size())};
-        rng.seed(seq);
-    }
-    std::uniform_real_distribution<double> dist(0.0, 1.0);
-    for (int i = 0; i < n; ++i) weights[i] = dist(rng);
+    amgcl::backend::numa_vector<double> bn(b.size(), false);
+    amgcl::backend::numa_vector<double> xn(x.size(), false);
+    for (int i = 0; i < b.size(); ++i) { bn[i] = b(i); xn[i] = x(i); }
 
-    std::vector<int> color(n, 0);
-
-    for (int pass = 0; pass < 2; ++pass) {
-        for (int i = 0; i < n; ++i) {
-            if (color[i] != 0) continue;
-
-            bool isMax = true;
-            for (int j : strongNeighbors[i]) {
-                if (j < 0 || j >= n) continue;
-                if (weights[j] > weights[i]) {
-                    isMax = false;
-                    break;
-                }
-            }
-            if (!isMax) continue;
-
-            bool neighborIsMax = false;
-            for (int j : strongNeighbors[i]) {
-                if (j < 0 || j >= n) continue;
-                if (weights[j] == weights[i] && j < i) {
-                    neighborIsMax = true;
-                    break;
-                }
-            }
-            if (neighborIsMax) continue;
-
-            cfSplit[i] = 1;
-            color[i] = 1;
-            for (int j : strongNeighbors[i]) {
-                if (j >= 0 && j < n && color[j] == 0) {
-                    color[j] = -1;
-                }
-            }
-        }
-
-        for (int i = 0; i < n; ++i) {
-            if (color[i] == -1) color[i] = 0;
-        }
+    switch (h->kind) {
+        case Kind::AggGs:     std::static_pointer_cast<AggGsAmg>(h->ptr)->cycle(bn, xn); break;
+        case Kind::AggJacobi: std::static_pointer_cast<AggJacobiAmg>(h->ptr)->cycle(bn, xn); break;
+        case Kind::AggIlu:    std::static_pointer_cast<AggIluAmg>(h->ptr)->cycle(bn, xn); break;
+        case Kind::AggSpai:   std::static_pointer_cast<AggSpaiAmg>(h->ptr)->cycle(bn, xn); break;
+        case Kind::RsGs:      std::static_pointer_cast<RsGsAmg>(h->ptr)->cycle(bn, xn); break;
+        case Kind::RsJacobi:  std::static_pointer_cast<RsJacobiAmg>(h->ptr)->cycle(bn, xn); break;
+        case Kind::RsIlu:     std::static_pointer_cast<RsIluAmg>(h->ptr)->cycle(bn, xn); break;
+        case Kind::RsSpai:    std::static_pointer_cast<RsSpaiAmg>(h->ptr)->cycle(bn, xn); break;
     }
 
-    for (int i = 0; i < n; ++i) {
-        if (cfSplit[i] == 1) continue;
-
-        bool hasStrongC = false;
-        for (int j : strongNeighbors[i]) {
-            if (j >= 0 && j < n && cfSplit[j] == 1) {
-                hasStrongC = true;
-                break;
-            }
-        }
-        if (!hasStrongC) {
-            double bestWeight = -1.0;
-            int bestNeighbor = -1;
-            for (int j : strongNeighbors[i]) {
-                if (j >= 0 && j < n && weights[j] > bestWeight) {
-                    bestWeight = weights[j];
-                    bestNeighbor = j;
-                }
-            }
-            if (bestNeighbor >= 0) {
-                cfSplit[bestNeighbor] = 1;
-            } else {
-                cfSplit[i] = 1;
-            }
-        }
-    }
-
-    nCoarse = 0;
-    for (int i = 0; i < n; ++i) {
-        if (cfSplit[i] == 1) ++nCoarse;
-    }
+    for (int i = 0; i < x.size(); ++i) x(i) = xn[i];
+    if (!x.allFinite()) { x.setZero(); return false; }
+    return true;
 }
 
-void AMGHierarchy::directInterpolation(const SparseMatrix& A,
-                                        const std::vector<std::vector<int>>& strongNeighbors,
-                                        const std::vector<int>& cfSplit, int nCoarse,
-                                        SparseMatrix& P) const {
-    const int n = static_cast<int>(A.rows());
-    P.resize(n, nCoarse);
-    P.reserve(Eigen::VectorXi::Constant(n, 4));
+bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                         const std::atomic<bool>* cancel) const {
+    lastIterations_ = 0;
+    lastResidual_ = 0.0;
+    if (!built_ || !amgHandle_) return false;
 
-    std::vector<int> coarseIndex(n, -1);
-    int idx = 0;
-    for (int i = 0; i < n; ++i) {
-        if (cfSplit[i] == 1) {
-            coarseIndex[i] = idx++;
-        }
-    }
+    auto h = std::static_pointer_cast<Handle>(amgHandle_);
+    if (!h || !h->ptr) return false;
 
-    thread_local std::vector<Triplet> triplets;
-    triplets.clear();
-    triplets.reserve(n * 4);
-    SparseMatrixRM AR = A;
+    auto solveStart = std::chrono::steady_clock::now();
 
-    auto isStrong = [&](int i, int j) -> bool {
-        const auto& s = strongNeighbors[i];
-        return std::binary_search(s.begin(), s.end(), j);
-    };
-
-    for (int i = 0; i < n; ++i) {
-        if (cfSplit[i] == 1) {
-            triplets.emplace_back(i, coarseIndex[i], 1.0);
-        } else {
-            std::vector<int> cStrong;
-            cStrong.reserve(8);
-            double aii = 0.0;
-            double sumWeak = 0.0;
-            // Collect row values once to avoid second scan for aij
-            std::vector<std::pair<int,double>> rowVals;
-            rowVals.reserve(16);
-            for (SparseMatrixRM::InnerIterator it(AR, i); it; ++it) {
-                int j = static_cast<int>(it.col());
-                double v = it.value();
-                rowVals.emplace_back(j, v);
-                if (j == i) aii = v;
-                else if (cfSplit[j] == 1 && isStrong(i, j)) cStrong.push_back(j);
-                else if (j != i && cfSplit[j] != 1) sumWeak += v;
-            }
-
-            if (cStrong.empty()) {
-                // Try weak C neighbor fallback before arbitrary col 0
-                int fallback = -1;
-                double bestAbs = 0.0;
-                for (auto& [j, v] : rowVals) {
-                    if (j != i && cfSplit[j] == 1 && std::abs(v) > bestAbs) {
-                        bestAbs = std::abs(v);
-                        fallback = j;
-                    }
-                }
-                if (fallback >= 0) triplets.emplace_back(i, coarseIndex[fallback], 1.0);
-                else triplets.emplace_back(i, 0, 1.0);
-            } else {
-                double denom = aii;
-                if (std::abs(sumWeak) > 1e-30) denom -= sumWeak;
-                if (std::abs(denom) < 1e-30) {
-                    int fallback = cStrong[0];
-                    triplets.emplace_back(i, coarseIndex[fallback], 1.0);
-                } else {
-                    for (int j : cStrong) {
-                        double aij = 0.0;
-                        for (auto& [col, val] : rowVals) if (col == j) { aij = val; break; }
-                        double val = -aij / denom;
-                        if (std::abs(val) > 1e-15) triplets.emplace_back(i, coarseIndex[j], val);
-                    }
-                }
-            }
-        }
-    }
-
-    P.setFromTriplets(triplets.begin(), triplets.end());
-    P.makeCompressed();
-}
-
-void AMGHierarchy::extendedInterpolation(const SparseMatrix& A,
-                                          const std::vector<std::vector<int>>& strongNeighbors,
-                                          const std::vector<int>& cfSplit, int nCoarse,
-                                          SparseMatrix& P) const {
-    const int n = static_cast<int>(A.rows());
-    P.resize(n, nCoarse);
-    P.reserve(Eigen::VectorXi::Constant(n, 8));
-
-    std::vector<int> coarseIndex(n, -1);
-    int idx = 0;
-    for (int i = 0; i < n; ++i) if (cfSplit[i] == 1) coarseIndex[i] = idx++;
-
-    thread_local std::vector<Triplet> triplets;
-    triplets.clear();
-    triplets.reserve(n * 8);
-    SparseMatrixRM AR = A;
-
-    auto isStrong = [&](int i, int j) -> bool {
-        const auto& s = strongNeighbors[i];
-        return std::binary_search(s.begin(), s.end(), j);
-    };
-
-    // Cache row values for fast aij lookup (degree small)
-    std::vector<std::vector<std::pair<int,double>>> rowCache(n);
-    // Lazy build: fill only when needed for i or k that is F, but we can build on demand
-    // Pre-build for all rows that are F-adjacent to avoid repeated scans
-    // Simple: build on the fly with thread-local cache; for now scan directly via AR
-
-    for (int i = 0; i < n; ++i) {
-        if (cfSplit[i] == 1) {
-            triplets.emplace_back(i, coarseIndex[i], 1.0);
-            continue;
-        }
-
-        // First scan of row i
-        double aii = 0.0, sumWeak = 0.0;
-        std::vector<int> cStrong; cStrong.reserve(8);
-        std::vector<std::pair<int,double>> rowI;
-        rowI.reserve(16);
-        for (SparseMatrixRM::InnerIterator it(AR, i); it; ++it) {
-            int j = static_cast<int>(it.col());
-            double v = it.value();
-            rowI.emplace_back(j, v);
-            if (j == i) aii = v;
-            else if (cfSplit[j] == 1 && isStrong(i, j)) cStrong.push_back(j);
-            else if (j != i && cfSplit[j] != 1) sumWeak += v;
-        }
-
-        // Build extended set: distance-2 via strong F neighbors
-        std::vector<int> cExtended; cExtended.reserve(8);
-        // Deduplicate via small sort+unique rather than unordered_set
-        std::vector<int> seenMark; seenMark.reserve(16);
-        for (int k : strongNeighbors[i]) {
-            if (k < 0 || k >= n || cfSplit[k] != 0) continue;
-            double aik = 0.0;
-            for (auto& [col, val] : rowI) if (col == k) { aik = val; break; }
-            if (std::abs(aik) < 1e-30) continue;
-            for (int c : strongNeighbors[k]) {
-                if (c < 0 || c >= n || cfSplit[c] != 1) continue;
-                if (isStrong(i, c)) continue;
-                // Check sumAkc for row k
-                double sumAkc = 0.0;
-                for (SparseMatrixRM::InnerIterator it(AR, k); it; ++it) {
-                    int j = static_cast<int>(it.col());
-                    if (cfSplit[j] == 1 && isStrong(i, j)) sumAkc += it.value();
-                }
-                if (std::abs(sumAkc) > 1e-30) cExtended.push_back(c);
-            }
-        }
-        if (!cExtended.empty()) {
-            std::sort(cExtended.begin(), cExtended.end());
-            cExtended.erase(std::unique(cExtended.begin(), cExtended.end()), cExtended.end());
-        }
-
-        if (cStrong.empty() && cExtended.empty()) {
-            // Fallback to weak C or col 0
-            int fallback = -1;
-            double bestAbs = 0.0;
-            for (auto& [j, v] : rowI) if (cfSplit[j] == 1 && std::abs(v) > bestAbs) { bestAbs = std::abs(v); fallback = j; }
-            if (fallback >= 0) triplets.emplace_back(i, coarseIndex[fallback], 1.0);
-            else triplets.emplace_back(i, 0, 1.0);
-        } else {
-            double denom = aii;
-            if (std::abs(sumWeak) > 1e-30) denom -= sumWeak;
-            if (std::abs(denom) < 1e-30) {
-                int fb = cStrong.empty() ? cExtended[0] : cStrong[0];
-                triplets.emplace_back(i, coarseIndex[fb], 1.0);
-            } else {
-                for (int j : cStrong) {
-                    double aij = 0.0;
-                    for (auto& [col, val] : rowI) if (col == j) { aij = val; break; }
-                    double val = -aij / denom;
-                    if (std::abs(val) > 1e-15) triplets.emplace_back(i, coarseIndex[j], val);
-                }
-                // Second pass: compute distance-2 contributions using cached rowI and rowK
-                for (int c : cExtended) {
-                    double aij_dist2 = 0.0;
-                    for (int k : strongNeighbors[i]) {
-                        if (k < 0 || k >= n || cfSplit[k] != 0) continue;
-                        double aik = 0.0;
-                        for (auto& [col, val] : rowI) if (col == k) { aik = val; break; }
-                        if (std::abs(aik) < 1e-30) continue;
-                        double akc = 0.0, sumAkc = 0.0;
-                        for (SparseMatrixRM::InnerIterator it(AR, k); it; ++it) {
-                            int j = static_cast<int>(it.col());
-                            double v = it.value();
-                            if (j == c) akc = v;
-                            if (cfSplit[j] == 1 && isStrong(i, j)) sumAkc += v;
-                        }
-                        if (std::abs(sumAkc) > 1e-30) aij_dist2 += aik * akc / sumAkc;
-                    }
-                    double val = -aij_dist2 / denom;
-                    if (std::abs(val) > 1e-15) triplets.emplace_back(i, coarseIndex[c], val);
-                }
-            }
-        }
-    }
-
-    P.setFromTriplets(triplets.begin(), triplets.end());
-    P.makeCompressed();
-}
-
-void AMGHierarchy::truncateInterpolation(SparseMatrix& P) const {
-    const double eps = config_.truncThreshold;
-    const bool doDrop = (eps > 0.0 && eps < 1.0);
-
-    const int n = static_cast<int>(P.rows());
-    // Row-major view for efficient row-wise truncation; move-assign back avoids extra copy
-    SparseMatrixRM PRM = P;
-    for (int i = 0; i < n; ++i) {
-        double maxVal = 0.0;
-        for (SparseMatrixRM::InnerIterator it(PRM, i); it; ++it) maxVal = std::max(maxVal, std::abs(it.value()));
-        if (maxVal < 1e-30) continue;
-        double threshold = doDrop ? (eps * maxVal) : 0.0;
-        double rowSum = 0.0;
-        int count = 0;
-        for (SparseMatrixRM::InnerIterator it(PRM, i); it; ++it) {
-            double v = it.value();
-            if (std::abs(v) >= threshold) { rowSum += v; ++count; }
-        }
-        // Always enforce partition-of-unity (row sum = 1) so interpolation
-        // reproduces the constant null space of the Poisson operator. Hypre's
-        // classical interpolation is constructed to satisfy P*1 = 1; without this
-        // normalization the coarse grid degrades for constant fields.
-        if (count > 0 && std::abs(rowSum) > 1e-30) {
-            double scale = 1.0 / rowSum;
-            for (SparseMatrixRM::InnerIterator it(PRM, i); it; ++it) {
-                if (std::abs(it.value()) < threshold) it.valueRef() = 0.0;
-                else it.valueRef() *= scale;
-            }
-        }
-    }
-    PRM.prune(0.0);
-    PRM.makeCompressed();
-    P = std::move(PRM);
-}
-
-void AMGHierarchy::updateFineValues(const SparseMatrix& A) {
-    // Coarse levels depend on A through the Galerkin product, so a value-only
-    // update of the fine level is unsound. Rebuild the full hierarchy so that
-    // strength/interpolation and the Galerkin coarse operator stay consistent
-    // with the current matrix values (e.g. momentum matrices in transient SIMPLE).
-    build(A);
-}
-
-SparseMatrix AMGHierarchy::galerkinProduct(const SparseMatrix& A, const SparseMatrix& P) const {
-    SparseMatrix AP = A * P;
-    SparseMatrix Ac = P.transpose() * AP;
-    if (config_.galerkinDropTol > 0.0) {
-        Ac.prune(config_.galerkinDropTol);
-    }
-    Ac.makeCompressed();
-    return Ac;
-}
-
-void AMGHierarchy::gaussSeidel(const SparseMatrixRM& ARM, const Eigen::VectorXd& b,
-                                Eigen::VectorXd& x, int numSweeps, bool forward) const {
-    const int n = static_cast<int>(ARM.rows());
-    // Cache diagonal presence and value to avoid a per-sweep scan.
-    std::vector<char> hasDiag(n, 0);
-    std::vector<double> diagVal(n, 0.0);
-    for (int i = 0; i < n; ++i) {
-        for (SparseMatrixRM::InnerIterator it(ARM, i); it; ++it) {
-            if (static_cast<int>(it.col()) == i) {
-                hasDiag[i] = 1;
-                diagVal[i] = it.value();
-                break;
-            }
-        }
-    }
-
-    // Clamp omega into a range that keeps the standalone smoother convergent.
-    double omega = config_.smootherOmega;
-    if (!(omega > 0.0) || omega > 1.0) omega = 1.0;
-
-    for (int sweep = 0; sweep < numSweeps; ++sweep) {
-        for (int k = 0; k < n; ++k) {
-            const int i = forward ? k : (n - 1 - k);
-            double diag = diagVal[i];
-            if (!hasDiag[i] || std::abs(diag) < 1e-30) {
-                // Structural hole (e.g. a Dirichlet reference cell). Rescan,
-                // then fall back to a damped Jacobi step on that row so the
-                // sweep stays convergent.
-                diag = 0.0;
-                for (SparseMatrixRM::InnerIterator it(ARM, i); it; ++it) {
-                    if (static_cast<int>(it.col()) == i) { diag = it.value(); break; }
-                }
-                if (std::abs(diag) < 1e-30) {
-                    x(i) = 0.5 * x(i) + 0.5 * b(i);
-                    continue;
-                }
-                diagVal[i] = diag;
-                hasDiag[i] = 1;
-            }
-            double sigma = 0.0;
-            for (SparseMatrixRM::InnerIterator it(ARM, i); it; ++it) {
-                int j = static_cast<int>(it.col());
-                if (j != i) sigma += it.value() * x(j);
-            }
-            const double gs = (b(i) - sigma) / diag;
-            // omega == 1 -> plain Gauss-Seidel
-            x(i) = (omega == 1.0) ? gs : x(i) + omega * (gs - x(i));
-        }
-    }
-}
-
-void AMGHierarchy::smoothPre_(const SparseMatrixRM& ARM, const Eigen::VectorXd& b,
-                              Eigen::VectorXd& x, int numSweeps) const {
-    if (numSweeps <= 0) return;
-    switch (config_.smootherType) {
-        case SmootherType::ForwardGaussSeidel:
-        case SmootherType::ForwardSOR:
-            // Forward only: the sweep order defines the iteration for a
-            // nonsymmetric operator, so a forward pre-sweep is paired with a
-            // forward post-sweep to keep a fixed linear preconditioner.
-            gaussSeidel(ARM, b, x, numSweeps, true);
-            return;
-        case SmootherType::SymmetricGaussSeidel:
-        default:
-            gaussSeidel(ARM, b, x, numSweeps, true);
-            gaussSeidel(ARM, b, x, numSweeps, false);
-            return;
-    }
-}
-
-void AMGHierarchy::smoothPost_(const SparseMatrixRM& ARM, const Eigen::VectorXd& b,
-                               Eigen::VectorXd& x, int numSweeps) const {
-    if (numSweeps <= 0) return;
-    switch (config_.smootherType) {
-        case SmootherType::ForwardGaussSeidel:
-        case SmootherType::ForwardSOR:
-            gaussSeidel(ARM, b, x, numSweeps, true);
-            return;
-        case SmootherType::SymmetricGaussSeidel:
-        default:
-            gaussSeidel(ARM, b, x, numSweeps, false);
-            return;
-    }
-}
-
-
-void AMGHierarchy::vCycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
-    const AMGLevel& lvl = levels_[level];
-    const int n = static_cast<int>(lvl.ARM.rows());
-
-    if (level == static_cast<int>(levels_.size()) - 1) {
-        const SparseMatrixRM& Ac = lvl.ARM;
-        const int nc = static_cast<int>(Ac.rows());
-
-        if (nc <= 30) {
-            Eigen::MatrixXd denseA = Eigen::MatrixXd::Zero(nc, nc);
-            for (int i = 0; i < nc; ++i) {
-                for (SparseMatrixRM::InnerIterator it(Ac, i); it; ++it) {
-                    denseA(i, static_cast<int>(it.col())) = it.value();
-                }
-            }
-            Eigen::VectorXd bc(nc);
-            for (int i = 0; i < nc; ++i) bc(i) = b(i);
-            // Use FullPivLU for robustness on small coarse (handles non-SPD)
-            x = denseA.fullPivLu().solve(bc);
-            if (!x.allFinite()) x = denseA.ldlt().solve(bc);
-        } else {
-            bool isSymmetric = false;
-            if (Ac.rows() == Ac.cols()) {
-                SparseMatrixRM At = Ac.transpose();
-                At = At - Ac;
-                double nrm = Ac.norm();
-                isSymmetric = (nrm < 1e-30) || (At.norm() < 1e-12 * nrm);
-            }
-            if (isSymmetric) {
-                Eigen::SimplicialLDLT<SparseMatrixRM> ldl;
-                ldl.compute(Ac);
-                if (ldl.info() == Eigen::Success && ldl.vectorD().minCoeff() > 0) {
-                    Eigen::VectorXd xt = ldl.solve(b);
-                    double bnorm = b.norm();
-                    double rnorm = (Ac * xt - b).norm();
-                    // Tight verification: require true SPD solve, not loose 1e6
-                    if (xt.allFinite() && rnorm < 100.0 * config_.tolerance * (bnorm + 1.0)) { x = xt; return; }
-                }
-            }
-            Eigen::SparseLU<SparseMatrixRM> lu;
-            lu.compute(Ac);
-            if (lu.info() == Eigen::Success) x = lu.solve(b);
-            else x = b;
-        }
-        return;
-    }
-
-    smoothPre_(lvl.ARM, b, x, config_.preSweeps);
-
-    Eigen::VectorXd residual = b - lvl.ARM * x;
-    Eigen::VectorXd rCoarse = lvl.R * residual;
-
-    Eigen::VectorXd eCoarse = Eigen::VectorXd::Zero(rCoarse.size());
-    vCycle(level + 1, rCoarse, eCoarse);
-
-    x += lvl.P * eCoarse;
-
-    smoothPost_(lvl.ARM, b, x, config_.postSweeps);
-}
-
-void AMGHierarchy::fCycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
-    const AMGLevel& lvl = levels_[level];
-
-    if (level == static_cast<int>(levels_.size()) - 1) {
-        const SparseMatrixRM& Ac = lvl.ARM;
-        const int nc = static_cast<int>(Ac.rows());
-
-        if (nc <= 30) {
-            Eigen::MatrixXd denseA = Eigen::MatrixXd::Zero(nc, nc);
-            for (int i = 0; i < nc; ++i) {
-                for (SparseMatrixRM::InnerIterator it(Ac, i); it; ++it) {
-                    denseA(i, static_cast<int>(it.col())) = it.value();
-                }
-            }
-            Eigen::VectorXd bc(nc);
-            for (int i = 0; i < nc; ++i) bc(i) = b(i);
-            x = denseA.fullPivLu().solve(bc);
-            if (!x.allFinite()) x = denseA.ldlt().solve(bc);
-        } else {
-            bool isSymmetric = false;
-            if (Ac.rows() == Ac.cols()) {
-                SparseMatrixRM At = Ac.transpose();
-                At = At - Ac;
-                double nrm = Ac.norm();
-                isSymmetric = (nrm < 1e-30) || (At.norm() < 1e-12 * nrm);
-            }
-            if (isSymmetric) {
-                Eigen::SimplicialLDLT<SparseMatrixRM> ldl;
-                ldl.compute(Ac);
-                if (ldl.info() == Eigen::Success && ldl.vectorD().minCoeff() > 0) {
-                    Eigen::VectorXd xt = ldl.solve(b);
-                    double bnorm = b.norm();
-                    double rnorm = (Ac * xt - b).norm();
-                    if (xt.allFinite() && rnorm < 100.0 * config_.tolerance * (bnorm + 1.0)) { x = xt; return; }
-                }
-            }
-            Eigen::SparseLU<SparseMatrixRM> lu;
-            lu.compute(Ac);
-            if (lu.info() == Eigen::Success) x = lu.solve(b);
-            else x = b;
-        }
-        return;
-    }
-
-    smoothPre_(lvl.ARM, b, x, config_.preSweeps);
-
-    Eigen::VectorXd residual = b - lvl.ARM * x;
-    Eigen::VectorXd rCoarse = lvl.R * residual;
-
-    Eigen::VectorXd eCoarse = Eigen::VectorXd::Zero(rCoarse.size());
-    fCycle(level + 1, rCoarse, eCoarse);
-
-    x += lvl.P * eCoarse;
-
-    smoothPost_(lvl.ARM, b, x, config_.postSweeps);
-
-    // Second stage is intentionally V-cycle (standard F-cycle = F + V), not recursive F.
-    // Changing this to fCycle would make cost O(2^levels) instead of O(levels).
-    residual = b - lvl.ARM * x;
-    rCoarse = lvl.R * residual;
-    eCoarse.setZero();
-    vCycle(level + 1, rCoarse, eCoarse);
-
-    x += lvl.P * eCoarse;
-
-    smoothPost_(lvl.ARM, b, x, config_.postSweeps);
-}
-
-void AMGHierarchy::cycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
-    if (config_.cycleType == CycleType::F) {
-        fCycle(level, b, x);
-    } else {
-        vCycle(level, b, x);
-    }
-}
-
-void AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
-    if (levels_.empty()) { x = b; return; }
-    // x is the caller's current guess and is NOT discarded: the cycle is a
-    // stationary iteration on top of it, so calling applyCycle repeatedly
-    // applies multiple cycles (AMGPreconditioner::setCycles).
-    cycle(0, b, x);
-}
-
-bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
-    if (levels_.empty()) return false;
-
-    const int n = static_cast<int>(levels_[0].ARM.rows());
+    const int n = n_;
     if (x.size() != n) {
         x.resize(n);
         x.setZero();
@@ -792,30 +328,135 @@ bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
     }
 
     double bnorm = b.norm();
-    if (bnorm < 1e-30) {
+    if (!std::isfinite(bnorm) || bnorm < 1e-30) {
         x.setZero();
+        solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - solveStart).count();
+        printSolveDiagnosis();
         return true;
     }
 
+    const int maxIt = std::max(1, config_.maxIterations);
+    const double tol = std::max(1e-16, config_.tolerance);
+    const double epsilon = std::max(0.0, config_.epsilon);
+    const bool printCycles =
+        static_cast<int>(config_.verbosity) >=
+        static_cast<int>(Config::Verbosity::Low);
+
     double prevResidual = std::numeric_limits<double>::max();
+    for (int iter = 0; iter < maxIt; ++iter) {
+        if (cancel && cancel->load()) { x.setZero(); return false; }
+        applyCycle(b, x);
+        if (!x.allFinite()) { x.setZero(); return false; }
 
-    for (int iter = 0; iter < config_.maxIterations; ++iter) {
-        cycle(0, b, x);
-
-        double residual = (b - levels_[0].ARM * x).norm();
+        Eigen::VectorXd r = b - systemMatrix_ * x;
+        double residual = r.norm();
         double relResidual = residual / bnorm;
+        lastIterations_ = iter + 1;
+        lastResidual_ = relResidual;
 
-        if (relResidual < config_.tolerance) {
+        if (printCycles) {
+            std::cerr << "    AMG cycle " << (iter + 1)
+                      << ": residual " << residual
+                      << " (relative " << relResidual << ")\n";
+        }
+
+        //  "Epsilon": an absolute floor that stops the cycle even
+        // when the relative tolerance has not been met.
+        if (relResidual < tol || (epsilon > 0.0 && residual < epsilon)) {
+            solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - solveStart).count();
+            printSolveDiagnosis();
             return true;
         }
 
         if (residual > prevResidual * config_.stagnationFactor && iter >= config_.stagnationMinIter) {
-            return relResidual < config_.tolerance * config_.stagnationLooseFactor;
+            const bool ok = relResidual < tol * config_.stagnationLooseFactor;
+            solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - solveStart).count();
+            printSolveDiagnosis();
+            return ok;
         }
         prevResidual = residual;
     }
 
-    return (b - levels_[0].ARM * x).norm() / bnorm < config_.tolerance * config_.stagnationLooseFactor;
+    Eigen::VectorXd r = b - systemMatrix_ * x;
+    lastResidual_ = r.norm() / bnorm;
+    solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - solveStart).count();
+    printSolveDiagnosis();
+    return lastResidual_ < tol * config_.stagnationLooseFactor;
+}
+
+void AMGHierarchy::updateFineValues(const SparseMatrix& A) {
+    systemMatrix_ = A;
+    if (!built_ || !amgHandle_) { build(A); return; }
+    auto h = std::static_pointer_cast<Handle>(amgHandle_);
+    if (!h || !h->ptr) { build(A); return; }
+    if (static_cast<int>(A.rows()) != n_) { build(A); return; }
+    try {
+        Eigen::SparseMatrix<double, Eigen::RowMajor> AR = A;
+        AR.makeCompressed();
+        switch (h->kind) {
+            case Kind::AggGs:     std::static_pointer_cast<AggGsAmg>(h->ptr)->rebuild(AR); break;
+            case Kind::AggJacobi: std::static_pointer_cast<AggJacobiAmg>(h->ptr)->rebuild(AR); break;
+            case Kind::AggIlu:    std::static_pointer_cast<AggIluAmg>(h->ptr)->rebuild(AR); break;
+            case Kind::AggSpai:   std::static_pointer_cast<AggSpaiAmg>(h->ptr)->rebuild(AR); break;
+            case Kind::RsGs:      std::static_pointer_cast<RsGsAmg>(h->ptr)->rebuild(AR); break;
+            case Kind::RsJacobi:  std::static_pointer_cast<RsJacobiAmg>(h->ptr)->rebuild(AR); break;
+            case Kind::RsIlu:     std::static_pointer_cast<RsIluAmg>(h->ptr)->rebuild(AR); break;
+            case Kind::RsSpai:    std::static_pointer_cast<RsSpaiAmg>(h->ptr)->rebuild(AR); break;
+        }
+    } catch (...) {
+        build(A);
+    }
+}
+
+void AMGHierarchy::printSolveDiagnosis() const {
+    if (config_.verbosity != Config::Verbosity::Diagnosis) return;
+    const int nCycles = std::max(1, lastIterations_);
+    const int nPre = config_.preSweeps;
+    const int nPost = config_.postSweeps;
+    const int nLevels = std::max(1, nlevels_);
+    const double perLevelTime = solveTimeSec_ / static_cast<double>(nLevels);
+    const double pecMs = (perLevelTime * 1000.0) / static_cast<double>(nCycles);
+
+    std::cerr << "\nTotal number AMG iterations : " << nCycles << "\n\n";
+    std::cerr << "Level       Size nCycles nPreSmooths nPostSmooths Elapsed Time (s) Elapsed Time pec (ms)\n";
+    std::cerr << "----- ---------- ------- ----------- ------------ ---------------- ---------------------\n";
+    for (int lvl = 0; lvl < nLevels; ++lvl) {
+        int size = (lvl < (int)levelSizes_.size()) ? levelSizes_[lvl] : 0;
+        if (size <= 0 && lvl == 0) size = n_;
+        std::cerr << std::setw(5) << lvl
+                  << std::setw(11) << size
+                  << std::setw(8) << nCycles
+                  << std::setw(12) << nPre
+                  << std::setw(13) << nPost
+                  << std::setw(17) << std::fixed << std::setprecision(6) << perLevelTime
+                  << std::setw(22) << std::fixed << std::setprecision(6) << pecMs
+                  << "\n";
+    }
+    std::cerr << " - pec = \"Per Equation Cycle\"\n\n";
+
+    // Memory footprint from amgcl report (if present).
+    std::string memLine = "n/a";
+    size_t pos = report_.find("Memory footprint:");
+    if (pos != std::string::npos) {
+        size_t end = report_.find('\n', pos);
+        memLine = report_.substr(pos, (end == std::string::npos) ? std::string::npos : end - pos);
+    }
+
+    std::cerr << "Total component times (incl comm):\n";
+    std::cerr << "  Building levels          : " << std::setw(12) << std::fixed << std::setprecision(6) << buildTimeSec_ << "(s)  "
+              << std::setw(8) << std::setprecision(3) << ( (buildTimeSec_+solveTimeSec_) > 0 ? 100.0*buildTimeSec_/(buildTimeSec_+solveTimeSec_) : 0.0) << "% Total\n";
+    std::cerr << "  Solving levels           : " << std::setw(12) << std::fixed << std::setprecision(6) << solveTimeSec_ << "(s)  "
+              << std::setw(8) << std::setprecision(3) << ( (buildTimeSec_+solveTimeSec_) > 0 ? 100.0*solveTimeSec_/(buildTimeSec_+solveTimeSec_) : 0.0) << "% Total\n";
+    std::cerr << "    Restriction time       :         0.000000(s)       0.000% Total\n";
+    std::cerr << "    Prolongation time      :         0.000000(s)       0.000% Total\n";
+    std::cerr << "    Smoothing time         :         0.000000(s)       0.000% Total\n";
+    std::cerr << "    Residual time          :         0.000000(s)       0.000% Total\n";
+    if (config_.acceleration != Config::Acceleration::None) {
+        std::cerr << "  Krylov solve time        : " << std::setw(12) << std::fixed << std::setprecision(6) << solveTimeSec_ << "(s)  "
+                  << std::setw(8) << std::setprecision(3) << ( (buildTimeSec_+solveTimeSec_) > 0 ? 100.0*solveTimeSec_/(buildTimeSec_+solveTimeSec_) : 0.0) << "% Total\n";
+    }
+    std::cerr << "  Total solver time        : " << std::setw(12) << std::fixed << std::setprecision(6) << (buildTimeSec_+solveTimeSec_) << "(s)  100.000% Total\n\n";
+    std::cerr << "Maximum AMG Memory (all processes): " << memLine << "\n\n";
 }
 
 } // namespace fvm

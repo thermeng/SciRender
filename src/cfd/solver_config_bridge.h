@@ -19,10 +19,12 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     sc.tolerance = settings.tolerance;
     sc.runFixedIterations = settings.runFixedIterations;
     sc.convergenceHoldIterations = settings.convergenceHoldIterations;
+    sc.normalizeResiduals = settings.normalizeResiduals;
+    sc.residualNormalizationIterations = settings.residualNormalizationIterations;
     sc.alphaU = settings.alphaU;
     sc.alphaP = settings.alphaP;
     sc.simplec = settings.simplec;
-    sc.rhieChow = settings.rhieChow;
+    sc.rhieChow = true; // Rhie-Chow is required on collocated grids; always on.
     sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
                           : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind
                              : fvm::ConvectionScheme::Upwind);
@@ -37,9 +39,12 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     sc.pressureUseAMG = settings.pressureUseAMG;
     sc.pressureUseAMGPreconditioner = settings.pressureUseAMGPreconditioner;
     sc.pressureAmgThreshold = settings.pressureAmgThreshold;
+    sc.pressureAmgCycles = settings.pressureAmgCycles;
+    sc.pressureSolveTolerance = settings.pressureSolveTolerance;
     sc.pressureAmgConfig = toFvmAmg(settings.pressureAmg);
     sc.useAMGMomentum = settings.useAMGMomentum;
     sc.momentumAmgThreshold = settings.momentumAmgThreshold;
+    sc.momentumAmgAsSolver = settings.momentumAmgAsSolver;
     sc.momentumAmgCycles = settings.momentumAmgCycles;
     sc.momentumAmgMaxResidual = settings.momentumAmgMaxResidual;
     sc.momentumSolverStats = settings.momentumSolverStats;

@@ -10,6 +10,7 @@
 #include "fvm/AMG.h"
 #include <Eigen/Sparse>
 #include <Eigen/IterativeLinearSolvers>
+#include <atomic>
 #include <array>
 #include <vector>
 #include <memory>
@@ -36,10 +37,17 @@ public:
         std::size_t pressureRefCell = SIZE_MAX;
         bool useAMG = true;
         bool useAMGPreconditioner = true;
-        // Number of cells below which the AMG setup cost is not amortised and
-        // the solve falls back to CG+IC (or BiCGSTAB+ILU). Pure-Neumann meshes
-        // use twice this, because AMG handles a pinned reference cell poorly.
-        std::size_t amgThreshold = 10000;
+        // Number of cells below which the solve falls back to CG+IC (or
+        // BiCGSTAB+ILU). 0 means "always use AMG", which is what 
+        // does: it never switches the pressure equation to a different
+        // preconditioner based on size. Any non-zero value keeps the legacy
+        // small-mesh shortcut for callers that want it.
+        std::size_t amgThreshold = 0;
+        // Relative tolerance for the AMG-preconditioned Krylov solve. 0 keeps
+        // the legacy mesh-scaled 1e-4 * mean(cell volume) rule. A positive
+        // value is used verbatim as |r|/|b|;  stops at ~0.1.
+        double solveTolerance = 0.0;
+        int amgPreconditionerCycles = 1;
         // How many times the pressure matrix may change its VALUES before the
         // AMG hierarchy is rebuilt. The coarse levels depend on the matrix
         // through the Galerkin product, so a value change makes the hierarchy
@@ -50,9 +58,6 @@ public:
         std::size_t amgRebuildInterval = 10;
         AMGHierarchy::Config amgConfig = []{
             AMGHierarchy::Config c;
-            c.interpolationType = AMGHierarchy::InterpolationType::Extended;
-            c.coarseningType = AMGHierarchy::CoarseningType::RS;
-            c.cycleType = AMGHierarchy::CycleType::V;
             c.strengthThreshold = 0.25;
             c.truncThreshold = 0.2;
             c.preSweeps = 2;
@@ -82,6 +87,12 @@ public:
     const std::vector<char>& pressureMask() const { return pMask_; }
     const std::array<Field<Dim>, Dim>& pressureGradient() const { return pressureGrad_; }
 
+    // Recompute the least-squares pressure gradient. The compact Rhie-Chow
+    // face flux used by the residual diagnostics needs the gradient of the
+    // CURRENT pressure; the one left behind by the last solve() is the
+    // gradient of the pre-correction pressure.
+    void refreshPressureGradient(const Field<Dim>& pressure);
+
     // True when the assembled pressure operator contains the Rhie-Chow face
     // flux. Residual diagnostics must add the same term only in that mode:
     // the legacy composed operator never sees it, so reporting it would measure
@@ -105,6 +116,11 @@ public:
     bool lastSolveProducedNonFinite() const { return lastSolveProducedNonFinite_; }
     const PressureSolverStats& pressureStats() const { return pressureStats_; }
     void resetPressureStats() { pressureStats_ = PressureSolverStats{}; }
+    // AMG hierarchy diagnostics (levels actually built and their sizes), for
+    // comparing against a  "Level / Size" table.
+    bool amgBuilt() const { return amgBuilt_; }
+    int amgLevels() const { return amg_.numLevels(); }
+    const std::vector<int>& amgLevelSizes() const { return amg_.levelSizes(); }
     // The assembled system of the last solve (diagnostics).
     const SparseMatrix& lastMatrix() const { return A_; }
     const Eigen::VectorXd& lastRhs() const { return bVec_; }
@@ -126,7 +142,8 @@ public:
         // pressure correction balances a mass imbalance that the momentum
         // equation never had.
         const std::vector<std::vector<char>>* velDirichletMask = nullptr,
-        const std::vector<std::vector<double>>* velDirichletVals = nullptr);
+        const std::vector<std::vector<double>>* velDirichletVals = nullptr,
+        const std::atomic<bool>* cancel = nullptr);
 
 private:
     const Mesh<Dim>& mesh_;
@@ -165,9 +182,22 @@ private:
 
     Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
                              Eigen::IncompleteCholesky<double>> cgSolver_;
+    //  solves the pressure equation with PCG preconditioned by AMG
+    // ("Preconditioned Conjugate-Gradient solve of SPD-system"). That is valid
+    // for the compact Rhie-Chow operator, which is symmetric positive definite.
+    Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
+                             AMGPreconditioner> cgAmgSolver_;
     Eigen::BiCGSTAB<SparseMatrix, AMGPreconditioner> bicgSolver_;
+    // GMRES is not part of Eigen's supported iterative solvers; the AMG
+    // acceleration "GMRES" uses fvm::gmresRestarted (fvm/Gmres.h) instead of a
+    // member here.
     Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> bicgFallbackSolver_;
     bool pPatternAnalyzed_ = false;
+    // The fallback ILU/CG solvers are analysed separately from the AMG Krylov
+    // solvers: an AMG solve can succeed without ever touching them, and a
+    // later fallback must still call analyzePattern() before factorize().
+    bool fallbackPatternAnalyzed_ = false;
+    std::size_t fallbackPatternHash_ = 0;
     mutable std::vector<char> prevPMask_;
     mutable std::size_t prevNonZeroPattern_ = 0;
     // The compact and legacy operators have different stencils. A transition
@@ -182,6 +212,7 @@ private:
     // Number of value changes of the pressure matrix since the hierarchy was
     // last built (see Config::amgRebuildInterval).
     std::size_t amgValueUpdates_ = 0;
+    mutable bool amgPathLogged_ = false;
 
     mutable SparseMatrix A_;
     mutable bool aPatternBuilt_ = false;

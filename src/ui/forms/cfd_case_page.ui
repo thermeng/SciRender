@@ -798,16 +798,6 @@
     </widget>
    </item>
    <item>
-    <widget class="QCheckBox" name="rhieCb">
-     <property name="text">
-      <string>Rhie-Chow</string>
-     </property>
-     <property name="toolTip">
-      <string>Add Rhie-Chow pressure smoothing to suppress checkerboard modes.</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QPushButton" name="advancedBtn">
      <property name="text">
       <string>Advanced...</string>

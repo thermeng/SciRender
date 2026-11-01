@@ -24,52 +24,68 @@ struct PatchBC {
 // translation to the solver type lives in cfd/amg_settings_bridge.h. Field
 // names and defaults are intentionally identical to AMGHierarchy::Config so the
 // two stay easy to compare.
+//
+// The property names in comments are the  AMG linear solver labels
+// this dialog mirrors.
 struct AmgSettings {
-    enum class CoarseningType { RS, PMIS };
-    enum class InterpolationType { Direct, Extended };
-    enum class CycleType { V, F };
-    enum class SmootherType { SymmetricGaussSeidel, ForwardGaussSeidel, ForwardSOR };
+    // --- Solver ----------------------------------------------------------
+    enum class Coarsening { RugeStuben, SmoothedAggregation };
+    enum class Verbosity { None, Low, High, Diagnosis };
+    enum class CycleType { VCycle, WCycle, FCycle, Flexible };
+    enum class Acceleration { None, ConjugateGradient, BiCGStab, GMRES };
+    enum class Smoother { Jacobi, GaussSeidel, ILU };
+    enum class ProportionalScaling { Automatic, Disabled };
+    enum class GroupSizeControl { Automatic, Manual };
 
-    CoarseningType coarseningType = CoarseningType::RS;
-    InterpolationType interpolationType = InterpolationType::Extended;
-    CycleType cycleType = CycleType::F;
-    SmootherType smootherType = SmootherType::SymmetricGaussSeidel;
-    // Relaxation for ForwardSOR. 1.0 degenerates to plain Gauss-Seidel.
-    double smootherOmega = 1.0;
+    Coarsening coarsening = Coarsening::SmoothedAggregation;
+    int maxIterations = 100;     // Maximum cycle
+    double tolerance = 1e-8;     // Convergence tolerance
+    double epsilon = 1e-8;       // Epsilon
+    Verbosity verbosity = Verbosity::None;
+    CycleType cycleType = CycleType::VCycle;
+    Acceleration acceleration = Acceleration::ConjugateGradient;
+    Smoother smoother = Smoother::GaussSeidel;
+    ProportionalScaling scaling = ProportionalScaling::Disabled;
+    GroupSizeControl groupSizeControl = GroupSizeControl::Automatic;
+    int blockSize = 1;           // Group size (Manual)
+
+    // --- Smoothing / hierarchy -------------------------------------------
+    int preSweeps = 2;           // Pre-smooths
+    int postSweeps = 2;          // Post-smooths
+    int maxLevels = 30;          // Maximum number of levels
+    bool directCoarse = true;    // Enable the direct solver
+    int coarseEnough = 2;        // Maximum direct solver equations
+    int minCoarseSize = 10;
+
+    // --- Variable / flexible cycle ---------------------------------------
+    double flexCoarsenRatio = 0.5;    // Residual ratio to go coarser
+    double flexLevelTolerance = 0.1;  // Extended tolerance
+
+    // --- Expert -----------------------------------------------------------
     double strengthThreshold = 0.25;
     double truncThreshold = 0.2;
-    int maxLevels = 30;
-    int minCoarseSize = 10;
-    int preSweeps = 2;
-    int postSweeps = 2;
-    // Only used by a standalone AMG solve, i.e. when AMG is configured as the
-    // pressure solver rather than as a Krylov preconditioner.
-    int maxIterations = 100;
-    double tolerance = 1e-8;
-    // Hardening options (address silent-failure observations)
-    int rngSeed = 42; // 0 = nondeterministic (random_device)
     double stagnationFactor = 1.05;
     int stagnationMinIter = 10;
     double stagnationLooseFactor = 5.0;
-    double galerkinDropTol = 1e-12;
+    // Non-symmetric operator (momentum). Forces aggregation coarsening, which
+    // is the robust choice for a nonsymmetric matrix.
+    bool nonsymmetric = false;
 
-    // Defaults the solver applies per hierarchy, so "Reset" lands on the
-    // values the application ships with. Pressure uses a V-cycle with direct
-    // interpolation; momentum additionally needs a forward-only smoother
-    // because its operator is nonsymmetric.
     static AmgSettings pressureDefaults() {
         AmgSettings s;
-        s.interpolationType = InterpolationType::Direct;
-        s.cycleType = CycleType::V;
+        s.cycleType = CycleType::VCycle;
+        s.smoother = Smoother::GaussSeidel;
+        s.acceleration = Acceleration::ConjugateGradient;
         return s;
     }
     static AmgSettings momentumDefaults() {
         AmgSettings s;
-        s.interpolationType = InterpolationType::Direct;
-        s.cycleType = CycleType::V;
-        s.smootherType = SmootherType::ForwardGaussSeidel;
-        s.preSweeps = 1;
-        s.postSweeps = 1;
+        s.preSweeps = 2;
+        s.postSweeps = 2;
+        s.nonsymmetric = true;
+        s.cycleType = CycleType::Flexible;
+        s.smoother = Smoother::GaussSeidel;
+        s.acceleration = Acceleration::None;
         return s;
     }
 };
@@ -116,6 +132,13 @@ struct CaseSettings {
     // Consecutive iterations the residual criterion must hold before the run
     // is declared converged.
     int convergenceHoldIterations = 3;
+    // /Fluent-style residual reporting: continuity is measured on the
+    // momentum predictor (before the pressure correction) and every residual is
+    // normalized by its maximum over the first `residualNormalizationIterations`
+    // iterations. With this on, the monitor curve starts at ~1 and is directly
+    // comparable to a  residual plot.
+    bool normalizeResiduals = true;
+    std::size_t residualNormalizationIterations = 5;
     double alphaU = 0.7, alphaP = 0.3;
     bool simplec = false;
     int scheme = 0; // 0 upwind, 1 central, 2 second-order upwind
@@ -141,13 +164,20 @@ struct CaseSettings {
     // Pressure-correction linear solver (see fvm::PressureCorrection::Config)
     bool pressureUseAMG = true;
     bool pressureUseAMGPreconditioner = true;
-    std::size_t pressureAmgThreshold = 10000;
+    // 0 = always use AMG ( behaviour).
+    std::size_t pressureAmgThreshold = 0;
+    // 0 = legacy mesh-scaled tolerance; >0 = |r|/|b| ( uses ~0.1).
+    double pressureSolveTolerance = 0.0;
+    int pressureAmgCycles = 1;
     AmgSettings pressureAmg = AmgSettings::pressureDefaults();
 
     // Momentum linear solver (see fvm::SIMPLE::Config)
-    bool useAMGMomentum = false;
-    std::size_t momentumAmgThreshold = 20000;
-    int momentumAmgCycles = 1;
+    bool useAMGMomentum = true;
+    // 0 = always use AMG ( behaviour).
+    std::size_t momentumAmgThreshold = 0;
+    // Apply the AMG hierarchy directly as the momentum solver ().
+    bool momentumAmgAsSolver = false;
+    int momentumAmgCycles = 2;
     double momentumAmgMaxResidual = 1e-8;
     bool momentumSolverStats = false;
     AmgSettings momentumAmg = AmgSettings::momentumDefaults();
@@ -157,3 +187,4 @@ struct CaseSettings {
 };
 
 } // namespace cfd
+
