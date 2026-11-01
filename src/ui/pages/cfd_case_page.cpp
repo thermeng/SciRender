@@ -65,6 +65,17 @@ QLabel* dialogSectionHeader(const QString& text) {
     return label;
 }
 
+// Muted explanatory text under a group of controls.
+QLabel* dialogNote(const QString& text) {
+    auto* label = new QLabel(text);
+    label->setWordWrap(true);
+    label->setStyleSheet("color: palette(mid);");
+    QFont f = label->font();
+    f.setPixelSize(10);
+    label->setFont(f);
+    return label;
+}
+
 } // namespace
 
 CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
@@ -112,7 +123,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_simplec = cfdUi.simplecCb;
     m_scheme = cfdUi.schemeCombo;
     m_gradientScheme = cfdUi.gradientSchemeCombo;
-    m_rhie = cfdUi.rhieCb;
+    // Rhie-Chow is always on for collocated grids (no UI toggle).
     m_turb = cfdUi.turbCb;
 
     m_alphaK = cfdUi.alphaKSpin;
@@ -165,7 +176,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_scheme->setMinimumContentsLength(8);
     m_gradientScheme->addItems({"Least Squares", "Green-Gauss Cell", "Green-Gauss Node"});
     m_gradientScheme->setCurrentIndex(0);
-    m_rhie->setChecked(true);
+    // Rhie-Chow is always on (no toggle).
 
     // ── Time mode defaults ───────────────────────────────────────────────────
     m_timeSchemeCombo->addItems({"Backward Euler", "BDF2"});
@@ -287,7 +298,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
 void CfdCasePage::buildAdvancedDialog() {
     m_advancedDlg = new QDialog(this);
     m_advancedDlg->setWindowTitle("Advanced solver settings");
-    m_advancedDlg->resize(660, 560);
+    m_advancedDlg->resize(780, 620);
 
     auto* tabs = new QTabWidget(m_advancedDlg);
     auto* outer = new QVBoxLayout(m_advancedDlg);
@@ -370,8 +381,8 @@ void CfdCasePage::buildAdvancedDialog() {
 
     m_pressureUseAMGPreconditioner = new QCheckBox("Use AMG as preconditioner");
     m_pressureUseAMGPreconditioner->setToolTip(
-        "On: BiCGSTAB preconditioned by one AMG cycle per iteration.\n"
-        "Off: a standalone AMG solve, terminated by the max iterations and\n"
+        "On: AMG preconditions the acceleration method chosen on the Pressure AMG tab.\n"
+        "Off: a standalone AMG solve, terminated by the maximum cycle and convergence\n"
         "tolerance on the Pressure AMG tab.");
     pressureSolveForm->addRow(m_pressureUseAMGPreconditioner);
 
@@ -381,16 +392,25 @@ void CfdCasePage::buildAdvancedDialog() {
     m_pressureAmgThreshold->setSpecialValueText("always");
     m_pressureAmgThreshold->setToolTip(
         "Cell count below which AMG is skipped because its setup cost is not amortised.\n"
-        "Closed (pure-Neumann) meshes use twice this value. 0 = always build it.");
+        "0 = always build it, which is what  does.");
     pressureSolveForm->addRow("Minimum cells", m_pressureAmgThreshold);
+
+    m_pressureAmgCycles = styleSpin(new QSpinBox);
+    m_pressureAmgCycles->setRange(1, 100);
+    m_pressureAmgCycles->setToolTip("AMG cycles per preconditioner application (pressure).");
+    pressureSolveForm->addRow("Cycles", m_pressureAmgCycles);
 
     pressureLay->addStretch(1);
 
     // ── Pressure AMG ─────────────────────────────────────────────────────────
     // The tab name already scopes these, so no caption is needed.
     auto* pressureAmgLay = addScrollPage("Pressure AMG");
-    m_pressureAmgWidget = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults());
+    m_pressureAmgWidget = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults(), nullptr, true);
     pressureAmgLay->addWidget(m_pressureAmgWidget);
+    pressureAmgLay->addWidget(dialogNote(
+        "The steady pressure operator is non-symmetric, so a Conjugate-gradient request\n"
+        "falls back to BiCGStab there. The PISO (compact Rhie-Chow) operator is SPD and\n"
+        "uses CG as requested."));
     pressureAmgLay->addStretch(1);
 
     // ── Momentum ─────────────────────────────────────────────────────────────
@@ -401,8 +421,8 @@ void CfdCasePage::buildAdvancedDialog() {
 
     m_useAMGMomentum = new QCheckBox("Use AMG for momentum");
     m_useAMGMomentum->setToolTip(
-        "Momentum is a nonsymmetric convection-diffusion operator. Below the threshold\n"
-        "BiCGSTAB+ILU wins, so this is off by default even though AMG scales better.");
+        "Momentum is a nonsymmetric convection-diffusion operator. AMG scales better\n"
+        "than ILU on fine meshes; turn this off to fall back to BiCGSTAB+ILU.");
     momentumForm->addRow(m_useAMGMomentum);
 
     m_momentumAmgThreshold = styleSpin(new QSpinBox);
@@ -525,6 +545,7 @@ void CfdCasePage::syncDialogDependencies() {
     const bool pressureAmg = m_pressureUseAMG->isChecked();
     m_pressureUseAMGPreconditioner->setEnabled(pressureAmg);
     m_pressureAmgThreshold->setEnabled(pressureAmg);
+    m_pressureAmgCycles->setEnabled(pressureAmg);
     m_pressureAmgWidget->setEnabled(pressureAmg);
 
     m_pressureCorrectionLimit->setEnabled(m_limitPressureCorrection->isChecked());
@@ -554,16 +575,12 @@ void CfdCasePage::syncTimeDependencies() {
     const bool steady = !transient;
     m_alphaU->setEnabled(steady);
     m_alphaP->setEnabled(steady);
-    m_rhie->setEnabled(steady);
     if (transient) {
-        m_rhie->setChecked(true);
         m_alphaU->setToolTip("Forced to 1.0 by PISO in transient mode.");
         m_alphaP->setToolTip("Forced to 1.0 by PISO in transient mode.");
-        m_rhie->setToolTip("Forced on by PISO in transient mode.");
     } else {
         m_alphaU->setToolTip("");
         m_alphaP->setToolTip("");
-        m_rhie->setToolTip("");
     }
     m_maxIter->setEnabled(steady);
     m_maxIter->setToolTip(transient
@@ -634,7 +651,7 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_simplec->setChecked(s.simplec);
     m_scheme->setCurrentIndex(s.scheme);
     m_gradientScheme->setCurrentIndex(s.gradientScheme);
-    m_rhie->setChecked(s.rhieChow);
+    // Rhie-Chow is always on (no toggle).
     m_turb->setChecked(s.turbulence);
     if (m_kInf) m_kInf->setValue(s.kInf);
     if (m_wInf) m_wInf->setValue(s.omegaInf);
@@ -650,6 +667,7 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_pressureUseAMG->setChecked(s.pressureUseAMG);
     m_pressureUseAMGPreconditioner->setChecked(s.pressureUseAMGPreconditioner);
     m_pressureAmgThreshold->setValue((int)s.pressureAmgThreshold);
+    m_pressureAmgCycles->setValue(s.pressureAmgCycles);
     m_pressureAmgWidget->setConfig(s.pressureAmg);
 
     m_useAMGMomentum->setChecked(s.useAMGMomentum);
@@ -717,7 +735,7 @@ void CfdCasePage::collectSettings() {
     s.simplec = m_simplec->isChecked();
     s.scheme = m_scheme->currentIndex();
     s.gradientScheme = m_gradientScheme->currentIndex();
-    s.rhieChow = m_rhie->isChecked();
+    s.rhieChow = true; // Rhie-Chow is always on for collocated grids.
     s.turbulence = m_turb->isChecked();
     // Preserve the loaded freestream values unless the user has edited them;
     // the previous hardcoded 1e-3/1.0 reset every loaded case.
@@ -739,6 +757,7 @@ void CfdCasePage::collectSettings() {
     s.pressureUseAMG = m_pressureUseAMG->isChecked();
     s.pressureUseAMGPreconditioner = m_pressureUseAMGPreconditioner->isChecked();
     s.pressureAmgThreshold = static_cast<std::size_t>(m_pressureAmgThreshold->value());
+    s.pressureAmgCycles = m_pressureAmgCycles->value();
     s.pressureAmg = m_pressureAmgWidget->config();
 
     // Momentum linear solver

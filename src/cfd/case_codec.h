@@ -135,6 +135,51 @@ inline void deserializeTransient(const QJsonObject& o, TransientSettings& s) {
     readObject(s, o, transientFields());
 }
 
+// ---------- AmgSettings ----------
+//
+// Stored as a nested object under "pressureAmg" / "momentumAmg". A missing key
+// keeps the struct's current value (the field factories default to it), so
+// case files written before the AMG properties existed still load.
+
+inline const std::vector<Field<AmgSettings>>& amgFields() {
+    using F = detail::Field<AmgSettings>;
+    static const std::vector<F> fields{
+        enm("coarsening", &AmgSettings::coarsening),
+        i32("maxIterations", &AmgSettings::maxIterations),
+        dbl("tolerance", &AmgSettings::tolerance),
+        dbl("epsilon", &AmgSettings::epsilon),
+        enm("verbosity", &AmgSettings::verbosity),
+        enm("cycleType", &AmgSettings::cycleType),
+        enm("acceleration", &AmgSettings::acceleration),
+        enm("smoother", &AmgSettings::smoother),
+        enm("scaling", &AmgSettings::scaling),
+        enm("groupSizeControl", &AmgSettings::groupSizeControl),
+        i32("blockSize", &AmgSettings::blockSize),
+        i32("preSweeps", &AmgSettings::preSweeps),
+        i32("postSweeps", &AmgSettings::postSweeps),
+        i32("maxLevels", &AmgSettings::maxLevels),
+        flg("directCoarse", &AmgSettings::directCoarse),
+        i32("coarseEnough", &AmgSettings::coarseEnough),
+        i32("minCoarseSize", &AmgSettings::minCoarseSize),
+        dbl("flexCoarsenRatio", &AmgSettings::flexCoarsenRatio),
+        dbl("flexLevelTolerance", &AmgSettings::flexLevelTolerance),
+        dbl("strengthThreshold", &AmgSettings::strengthThreshold),
+        dbl("truncThreshold", &AmgSettings::truncThreshold),
+        dbl("stagnationFactor", &AmgSettings::stagnationFactor),
+        i32("stagnationMinIter", &AmgSettings::stagnationMinIter),
+        dbl("stagnationLooseFactor", &AmgSettings::stagnationLooseFactor),
+        flg("nonsymmetric", &AmgSettings::nonsymmetric)
+    };
+    return fields;
+}
+inline QJsonObject serializeAmg(const AmgSettings& s) {
+    return writeObject(s, amgFields());
+}
+
+inline void deserializeAmg(const QJsonObject& o, AmgSettings& s) {
+    readObject(s, o, amgFields());
+}
+
 // ---------- PatchBC ----------
 
 inline const std::vector<Field<PatchBC>>& patchBCFields() {
@@ -169,6 +214,8 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
         num("maxIterations", &CaseSettings::maxIterations),
         flg("runFixedIterations", &CaseSettings::runFixedIterations),
         i32("convergenceHoldIterations", &CaseSettings::convergenceHoldIterations),
+        flg("normalizeResiduals", &CaseSettings::normalizeResiduals),
+        num("residualNormalizationIterations", &CaseSettings::residualNormalizationIterations),
         dbl("alphaU", &CaseSettings::alphaU),
         dbl("alphaP", &CaseSettings::alphaP),
         flg("simplec", &CaseSettings::simplec),
@@ -190,8 +237,11 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
         flg("pressureUseAMG", &CaseSettings::pressureUseAMG),
         flg("pressureUseAMGPreconditioner", &CaseSettings::pressureUseAMGPreconditioner),
         num("pressureAmgThreshold", &CaseSettings::pressureAmgThreshold),
+        dbl("pressureSolveTolerance", &CaseSettings::pressureSolveTolerance),
+        i32("pressureAmgCycles", &CaseSettings::pressureAmgCycles),
         flg("useAMGMomentum", &CaseSettings::useAMGMomentum),
         num("momentumAmgThreshold", &CaseSettings::momentumAmgThreshold),
+        flg("momentumAmgAsSolver", &CaseSettings::momentumAmgAsSolver),
         i32("momentumAmgCycles", &CaseSettings::momentumAmgCycles),
         dbl("momentumAmgMaxResidual", &CaseSettings::momentumAmgMaxResidual),
         flg("momentumSolverStats", &CaseSettings::momentumSolverStats),
@@ -200,6 +250,20 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
             [](const CaseSettings& s) { return serializeTransient(s.transient); },
             [](CaseSettings& s, const QJsonValue& v) {
                 deserializeTransient(v.toObject(), s.transient);
+            },
+        },
+        Field<CaseSettings>{
+            "pressureAmg",
+            [](const CaseSettings& s) { return serializeAmg(s.pressureAmg); },
+            [](CaseSettings& s, const QJsonValue& v) {
+                deserializeAmg(v.toObject(), s.pressureAmg);
+            },
+        },
+        Field<CaseSettings>{
+            "momentumAmg",
+            [](const CaseSettings& s) { return serializeAmg(s.momentumAmg); },
+            [](CaseSettings& s, const QJsonValue& v) {
+                deserializeAmg(v.toObject(), s.momentumAmg);
             },
         },
     };

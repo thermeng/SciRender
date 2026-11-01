@@ -71,6 +71,16 @@ struct Config {
         // Consecutive iterations the residual criterion must hold before the run
         // is declared converged.
         int convergenceHoldIterations = 3;
+        // Report residuals the way  (and Fluent) do: the continuity
+        // residual is the mass imbalance of the MOMENTUM PREDICTOR - the field
+        // the pressure correction is about to project - and each equation's
+        // residual is divided by its maximum over the first
+        // `residualNormalizationIterations` iterations. With this on the first
+        // table row is ~1 and the values can be read directly against a
+        //  residual plot. With it off the printed values are the raw
+        // (physical) mass imbalance and linear momentum residual.
+        bool normalizeResiduals = true;
+        std::size_t residualNormalizationIterations = 5;
         double alphaP = 0.3;
         double alphaU = 0.7;
         std::size_t pressureRefCell = SIZE_MAX;
@@ -95,20 +105,24 @@ struct Config {
     std::vector<InletTurbulence> inletTurbulence;
 
         // --- Pressure-correction linear solver ---------------------------
-        // The pressure Poisson system is symmetric, so AMG is a good fit. It
-        // is only built once the mesh exceeds pressureAmgThreshold cells;
-        // below that CG+IC / BiCGSTAB+ILU are cheaper.
+        // The pressure Poisson system is symmetric, so AMG is a good fit.
+        //  always uses it, so AMG is on by default and
+        // pressureAmgThreshold = 0 means "no size cut-off".
         bool pressureUseAMG = true;
-        // true  -> AMG used as a preconditioner inside BiCGSTAB.
+        // true  -> AMG used as a preconditioner inside a Krylov solver.
         // false -> a standalone AMG solve (then pressureAmgConfig's
         //          maxIterations/tolerance below decide convergence).
         bool pressureUseAMGPreconditioner = true;
-        std::size_t pressureAmgThreshold = 10000;
+        // 0 = always build and use AMG ( behaviour).
+        std::size_t pressureAmgThreshold = 0;
+        // Relative tolerance for the AMG-preconditioned pressure Krylov solve.
+        // 0 keeps the legacy mesh-scaled 1e-4 * mean(cell volume) rule; a
+        // positive value is used verbatim as |r|/|b|.  stops at ~0.1
+        // and lets the outer SIMPLE loop do the rest.
+        double pressureSolveTolerance = 0.0;
+        int pressureAmgCycles = 1;
         AMGHierarchy::Config pressureAmgConfig = []{
             AMGHierarchy::Config c;
-            c.interpolationType = AMGHierarchy::InterpolationType::Direct;
-            c.coarseningType = AMGHierarchy::CoarseningType::RS;
-            c.cycleType = AMGHierarchy::CycleType::V;
             c.strengthThreshold = 0.25;
             c.truncThreshold = 0.2;
             c.preSweeps = 2;
@@ -120,17 +134,23 @@ struct Config {
 
         // --- Momentum linear solver -------------------------------------
         // The momentum (convection-diffusion) matrix is nonsymmetric and, for
-        // upwind/SOU/TVD, an M-matrix. It is default-solved with
-        // BiCGSTAB + IncompleteLUT. Optionally an AMG-preconditioned solve is
-        // used instead, which scales far better on large meshes but pays an
-        // O(nnz) setup per rebuild.
+        // upwind/SOU/TVD, an M-matrix.  always solves it with AMG, so
+        // that is the default here too. Set useAMGMomentum = false to fall
+        // back to BiCGSTAB + IncompleteLUT.
         //
-        // Disabled by default: below the threshold ILU wins, and on steady
-        // problems the hierarchy is built once so the cost is amortised, but
-        // on transient problems the convective coefficients change every time
-        // step. Measure before enabling (simple.momentum_solver_stats).
-        bool useAMGMomentum = false;
-        std::size_t momentumAmgThreshold = 20000;
+        // The hierarchy is rebuilt when the matrix pattern changes and
+        // refreshed every momentumAmgRebuildInterval solves, because the
+        // convective coefficients change every outer iteration.
+        bool useAMGMomentum = true;
+        // 0 = always build and use AMG ( behaviour).
+        std::size_t momentumAmgThreshold = 0;
+        // When true, the momentum equation is advanced by applying the AMG
+        // hierarchy directly as the solver (a fixed number of V-cycles), with
+        // no outer Krylov method.  logs exactly this: "Total number
+        // of AMG iterations: 2" on a single fine level. When false (default)
+        // the hierarchy is used as a preconditioner inside BiCGSTAB, which is
+        // more robust and keeps the momentum residual tight.
+        bool momentumAmgAsSolver = false;
         // How many momentum solves may reuse the same AMG hierarchy before it
         // is rebuilt. The coarse levels depend on the momentum matrix through
         // the Galerkin product and the matrix changes every solve (convective
@@ -140,7 +160,7 @@ struct Config {
         std::size_t momentumAmgRebuildInterval = 5;
         // Number of AMG cycles per preconditioner application. >1 makes the
         // preconditioner stronger at linear cost.
-        int momentumAmgCycles = 1;
+        int momentumAmgCycles = 2;
         // Relative residual above which the AMG result is rejected and the
         // solve is redone with ILU. Guards against the BiCGSTAB breakdown
         // anomaly, which can otherwise return a silently wrong answer.
@@ -150,19 +170,21 @@ struct Config {
         // Emit per-run momentum linear-solver statistics.
         bool momentumSolverStats = false;
         // Full multigrid configuration for the momentum hierarchy. Defaults
-        // keep the forward-only Gauss-Seidel smoother the nonsymmetric operator
-        // requires; see AMGHierarchy::Config for the individual knobs.
+        // use aggregation coarsening and Gauss-Seidel sweeps, matching the
+        //  momentum solver; see AMGHierarchy::Config for the knobs.
         AMGHierarchy::Config momentumAmgConfig = []{
             AMGHierarchy::Config c;
-            c.interpolationType = AMGHierarchy::InterpolationType::Direct;
-            c.coarseningType = AMGHierarchy::CoarseningType::RS;
-            c.cycleType = AMGHierarchy::CycleType::V;
             c.strengthThreshold = 0.25;
             c.truncThreshold = 0.2;
-            c.preSweeps = 1;
-            c.postSweeps = 1;
-            // Momentum operator is nonsymmetric: forward-only sweep.
-            c.smootherType = AMGHierarchy::SmootherType::ForwardGaussSeidel;
+            c.preSweeps = 2;
+            c.postSweeps = 2;
+            c.nonsymmetric = true;
+            //  momentum defaults: Gauss-Seidel smoothing, a variable
+            // (flex) cycle and no Krylov acceleration - the hierarchy itself is
+            // the solver.
+            c.smoother = AMGHierarchy::Config::Smoother::GaussSeidel;
+            c.cycleType = AMGHierarchy::Config::CycleType::Flexible;
+            c.acceleration = AMGHierarchy::Config::Acceleration::None;
             return c;
         }();
 
@@ -171,6 +193,43 @@ struct Config {
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> transientCallback;
         CheckpointConfig checkpoint;
         TransientConfig transient;
+
+        // A configuration that mirrors the  129x129 cavity run:
+        // one pressure corrector, AMG for both equations, a V cycle with CG
+        // acceleration for the pressure system and a variable (flex) cycle with
+        // Gauss-Seidel smoothing for momentum, and loose linear tolerances (0.1)
+        // that leave the outer loop to converge the solution. Use it as a
+        // starting point and override the physics settings (rho, nu, BCs) as
+        // needed.
+        static Config starCcmPlusLike() {
+            Config c;
+            c.pressureCorrectors = 1;
+            c.pressureUseAMG = true;
+            c.pressureUseAMGPreconditioner = true;
+            c.pressureAmgThreshold = 0;
+            c.pressureSolveTolerance = 0.1;
+            c.pressureAmgCycles = 1;
+            c.pressureAmgConfig.preSweeps = 1;
+            c.pressureAmgConfig.postSweeps = 5;
+            c.pressureAmgConfig.coarsening = AMGHierarchy::Config::Coarsening::SmoothedAggregation;
+            c.pressureAmgConfig.smoother = AMGHierarchy::Config::Smoother::GaussSeidel;
+            c.pressureAmgConfig.coarseEnough = 2;
+            c.pressureAmgConfig.cycleType = AMGHierarchy::Config::CycleType::VCycle;
+            c.pressureAmgConfig.acceleration = AMGHierarchy::Config::Acceleration::ConjugateGradient;
+            c.useAMGMomentum = true;
+            c.momentumAmgThreshold = 0;
+            c.momentumAmgAsSolver = true;
+            c.momentumAmgConfig.preSweeps = 2;
+            c.momentumAmgConfig.postSweeps = 2;
+            c.momentumAmgConfig.maxIterations = 30;
+            c.momentumAmgConfig.tolerance = 0.1;
+            c.momentumAmgConfig.coarsening = AMGHierarchy::Config::Coarsening::SmoothedAggregation;
+            c.momentumAmgConfig.smoother = AMGHierarchy::Config::Smoother::GaussSeidel;
+            c.momentumAmgConfig.coarseEnough = 2;
+            c.momentumAmgConfig.cycleType = AMGHierarchy::Config::CycleType::Flexible;
+            c.momentumAmgConfig.acceleration = AMGHierarchy::Config::Acceleration::None;
+            return c;
+        }
     };
 
     using VelocityBCType = ::fvm::VelocityBCType;
@@ -301,7 +360,19 @@ struct Config {
     const Field<Dim>& kNM1() const { return kNM1_; }
     const Field<Dim>& omegaNM1() const { return omegaNM1_; }
     int lastIterations() const;
+    // Raw (un-normalized) continuity residual: the mass imbalance of the
+    // momentum predictor, sum|div|*V / sum|flux|. This is the quantity the
+    // pressure correction has to remove, not the post-correction divergence
+    // (which is a linear-solver residual and is ~1e-15).
     double finalContinuityResidual() const;
+    // The residual as printed in the iteration table: divided by the maximum
+    // over the first `residualNormalizationIterations` iterations when
+    // Config::normalizeResiduals is on.
+    double finalNormalizedContinuityResidual() const;
+    // Post-correction divergence diagnostic: how much mass imbalance is left
+    // AFTER the pressure correction. Near machine precision by construction,
+    // so it is NOT a convergence measure.
+    double finalMassImbalance() const;
     double finalMomentumResidual() const;
     // Per-direction momentum linear residuals, in the same order as the
     // "x-velocity"/"y-velocity" columns of the iteration table. The summary
@@ -313,6 +384,11 @@ struct Config {
         if constexpr (Dim >= 3) r[2] = lastMomResidW_;
         return r;
     }
+
+    // Momentum AMG diagnostics (for tests / profiling).
+    std::size_t momentumAmgSolves() const { return momStats_.amgSolves; }
+    std::size_t momentumAmgRejected() const { return momStats_.amgRejected; }
+    std::size_t momentumAmgBuilds() const { return momStats_.amgBuilds; }
     // Per-outer-iteration relative velocity change. Diagnostic only: it tracks
     // iteration progress rather than equation satisfaction.
     double finalMomentumChange() const { return lastMomChange_; }
@@ -359,6 +435,10 @@ private:
     // must apply the same rule, so they share this helper.
     void applyPressureOutletReference_(Field<Dim>& pressure) const;
     void updateResiduals_();
+    // Capture the mass imbalance of the momentum predictor u* (the field the
+    // pressure correction is about to project). Called by every predictor path
+    // right after the momentum solve, before the correctors touch the field.
+    void capturePredictedContinuity_();
     // Normalised linear residual |A u - b| / sum|b| of the momentum system
     // for component d, evaluated at the current velocity. Uses the
     // per-direction snapshot, not the shared (last-component) momA_/momB_.
@@ -442,7 +522,23 @@ private:
     BCDiscretization bcDiscretization_;
 
     int lastIterations_ = 0;
-    double lastContResid_ = 0.0;
+    double lastContResid_ = 0.0;      // reported (normalized when enabled)
+    double lastContResidRaw_ = 0.0;   // pre-correction mass imbalance
+    double lastContResidPost_ = 0.0;  // post-correction mass imbalance
+    // Mass imbalance of u* captured right after the momentum predictor and
+    // consumed by updateResiduals_(). Measuring it here is what makes the
+    // continuity residual a nonlinear convergence measure: after the pressure
+    // corrector the discrete divergence is zero to linear-solver accuracy
+    // (with more than one corrector: to machine precision), which is why the
+    // old post-correction value sat at ~1e-15 for the whole run.
+    double predictedContinuity_ = 0.0;
+    // Normalization references: max raw residual over the first N iterations,
+    // exactly the /Fluent convention (iteration 1 is ~1).
+    double contResidRef_ = 0.0;
+    std::size_t contResidRefSamples_ = 0;
+    std::array<double, Dim> momResidRaw_{};
+    std::array<double, Dim> momResidRef_{};
+    std::size_t momResidRefSamples_ = 0;
     double lastMomResid_ = 0.0;
     double lastMomResidU_ = 0.0;
     double lastMomResidV_ = 0.0;
@@ -511,7 +607,8 @@ private:
     mutable std::array<bool, Dim> momAmgPatternAnalyzed_{};
     // Set once we have decided the momentum operator is unsuitable for AMG, so
     // we do not rescan for positive off-diagonals every iteration.
-    mutable bool momAmgDisabledReason_ = false;
+    mutable std::array<bool, Dim> momAmgDisabledReason_{};
+    mutable std::array<bool, Dim> momAmgPathLogged_{};
 
     struct MomentumSolverStats {
         std::size_t solves = 0;
@@ -526,8 +623,6 @@ private:
         double buildSeconds = 0.0;
     };
     mutable MomentumSolverStats momStats_{};
-
-    // Reusable buffers to avoid per-iteration allocation
     VectorField<Dim> velocityOld_;
     Field<Dim> nutOld_;
 
@@ -565,3 +660,5 @@ extern template class SIMPLE<2>;
 extern template class SIMPLE<3>;
 
 } // namespace fvm
+
+

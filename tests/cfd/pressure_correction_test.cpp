@@ -562,4 +562,36 @@ TEST_CASE("cfd.pressure.compact_rhie_chow_cancels_checkerboard") {
                   "the correction must actually act on the checkerboard");
 }
 
+TEST_CASE("cfd.pressure.amg_path_builds_and_stays_finite") {
+    const std::size_t N = 12;
+    fvm::Mesh<2> mesh(std::array<std::size_t, 2>{N, N}, std::array<double, 2>{1.0, 1.0});
+
+    fvm::VectorField<2> uStar(mesh, 0.0);
+    fillVector(uStar, [](double x, double y, double) {
+        return std::array<double, 2>{std::sin(2.0 * M_PI * x) * std::cos(2.0 * M_PI * y),
+                                     -std::cos(2.0 * M_PI * x) * std::sin(2.0 * M_PI * y)};
+    });
+
+    fvm::PressureCorrection<2>::Config cfg;
+    cfg.useAMG = true;
+    cfg.useAMGPreconditioner = true;
+    cfg.amgThreshold = 0;
+    cfg.amgPreconditionerCycles = 2;
+    fvm::PressureCorrection<2> pc(mesh, cfg);
+
+    fvm::Field<2> pressure(mesh, 0.0);
+    fvm::Field<2> pPrime(mesh, 0.0);
+    std::vector<char> isNeumann(mesh.nCells(), 1);
+    isNeumann[mesh.nCells() - 1] = 0;
+    std::vector<std::pair<std::size_t, double>> outlets = { {mesh.nCells() - 1, 0.0} };
+
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, outlets, isNeumann);
+
+    CHECK(pc.pressureStats().amgBuilds >= 1);
+    bool finite = true;
+    for (std::size_t i = 0; i < mesh.nCells(); ++i)
+        if (!std::isfinite(pPrime[i])) finite = false;
+    CHECK(finite);
+}
+
 } // TEST_SUITE("cfd")

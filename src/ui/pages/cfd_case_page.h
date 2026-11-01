@@ -90,7 +90,7 @@ private:
     QCheckBox* m_simplec = nullptr;
     QComboBox* m_scheme = nullptr;
     QComboBox* m_gradientScheme = nullptr;
-    QCheckBox* m_rhie = nullptr;
+    // Rhie-Chow is always on (no toggle).
     QCheckBox* m_turb = nullptr;
     QDoubleSpinBox* m_kInf = nullptr;
     QDoubleSpinBox* m_wInf = nullptr;
@@ -116,6 +116,7 @@ private:
     QCheckBox* m_pressureUseAMG = nullptr;
     QCheckBox* m_pressureUseAMGPreconditioner = nullptr;
     QSpinBox* m_pressureAmgThreshold = nullptr;
+    QSpinBox* m_pressureAmgCycles = nullptr;
     AmgConfigWidget* m_pressureAmgWidget = nullptr;
     QSpinBox* m_printFrequency = nullptr;
     QSpinBox* m_residualHistoryWindow = nullptr;

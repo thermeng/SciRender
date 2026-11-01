@@ -142,6 +142,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/eigen-3.4.0"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/amgcl"
     )
     target_compile_features(FvmCore PUBLIC cxx_std_20)
     target_link_libraries(FvmCore PUBLIC CoreLib OpenMP::OpenMP_CXX)
@@ -149,6 +150,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         EIGEN_PARALLELIZE_OPENMP
         FVM_ALIGNMENT=64
         FVM_CACHE_LINE_SIZE=64
+        AMGCL_NO_BOOST
     )
     # NOTE: no -ffast-math / /fp:fast here.
     #

@@ -4,63 +4,73 @@
 
 #include "cfd/cfd_types.h"
 
+class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
-class QFormLayout;
 class QSpinBox;
-class QVBoxLayout;
 
-// Editor for one complete multigrid hierarchy configuration
-// (fvm::AMGHierarchy::Config, mirrored by cfd::AmgSettings).
+// -style AMG linear solver properties.
 //
-// Used twice by the CFD page: once for the pressure Poisson hierarchy and once
-// for the momentum hierarchy. Both hierarchies expose the same knobs, so a
-// single shared widget keeps the two from drifting apart and means a new
-// AMGHierarchy::Config field only has to be added here once.
-//
-// The knobs are grouped the way they are reasoned about: how the hierarchy is
-// built (coarsening), how a level is relaxed (cycle & smoother), how the
-// standalone solver terminates, and the robustness guards.
+// The widget is a pure view over cfd::AmgSettings: every control maps to one
+// field, so the dialog, the case file and the solver cannot drift apart.
 class AmgConfigWidget : public QWidget {
     Q_OBJECT
 public:
-    // `defaults` is the preset the Reset button restores; see
-    // cfd::AmgSettings::pressureDefaults()/momentumDefaults().
-    explicit AmgConfigWidget(const cfd::AmgSettings& defaults, QWidget* parent = nullptr);
+    explicit AmgConfigWidget(const cfd::AmgSettings& defaults, QWidget* parent = nullptr, bool lockNonsymmetric = false);
 
     void setConfig(const cfd::AmgSettings& settings);
     cfd::AmgSettings config() const;
 
-    // Restore the preset passed to the constructor. Exposed as a method rather
-    // than an in-widget button so the host dialog owns a single, unambiguous
-    // "restore defaults" scope covering every tab.
     void resetToDefaults();
 
 signals:
-    // Emitted on any edit, so the host dialog can re-evaluate dependencies.
     void changed();
 
 private:
     void buildUi();
     void syncDependencies();
 
+    bool m_lockNonsymmetric = false;
     cfd::AmgSettings m_defaults;
 
-    QComboBox* m_coarsening = nullptr;
-    QComboBox* m_interpolation = nullptr;
-    QComboBox* m_cycle = nullptr;
-    QComboBox* m_smoother = nullptr;
-    QDoubleSpinBox* m_smootherOmega = nullptr;
-    QDoubleSpinBox* m_strength = nullptr;
-    QDoubleSpinBox* m_truncation = nullptr;
-    QDoubleSpinBox* m_galerkinDrop = nullptr;
-    QSpinBox* m_maxLevels = nullptr;
-    QSpinBox* m_minCoarse = nullptr;
+    // AMG linear solver
+    QSpinBox* m_maxCycles = nullptr;
+    QComboBox* m_verbosity = nullptr;
+    QDoubleSpinBox* m_tolerance = nullptr;
+    QComboBox* m_cycleType = nullptr;
     QSpinBox* m_preSweeps = nullptr;
     QSpinBox* m_postSweeps = nullptr;
-    QSpinBox* m_maxIterations = nullptr;
-    QDoubleSpinBox* m_tolerance = nullptr;
-    QSpinBox* m_rngSeed = nullptr;
+    QSpinBox* m_maxLevels = nullptr;
+
+    // Variable (flexible) cycle
+    QDoubleSpinBox* m_flexRatio = nullptr;
+    QDoubleSpinBox* m_flexTolerance = nullptr;
+
+    // Coarse solve
+    QCheckBox* m_directSolver = nullptr;
+    QSpinBox* m_directMaxEquations = nullptr;
+    QDoubleSpinBox* m_epsilon = nullptr;
+
+    // Smoother / acceleration
+    QComboBox* m_smoother = nullptr;
+    QComboBox* m_acceleration = nullptr;
+    QComboBox* m_scaling = nullptr;
+
+    // Aggregation
+    QComboBox* m_groupSizeControl = nullptr;
+    QSpinBox* m_groupSize = nullptr;
+    // Last value entered while Manual was active, so switching Automatic ->
+    // Manual restores it instead of resetting to 1.
+    int m_manualGroupSize = 1;
+
+    // Coarsening (expert)
+    QComboBox* m_coarsening = nullptr;
+    QDoubleSpinBox* m_strength = nullptr;
+    QDoubleSpinBox* m_truncation = nullptr;
+    QSpinBox* m_minCoarse = nullptr;
+    QCheckBox* m_nonsymmetric = nullptr;
+
+    // Robustness (expert)
     QDoubleSpinBox* m_stagnationFactor = nullptr;
     QSpinBox* m_stagnationMinIter = nullptr;
     QDoubleSpinBox* m_stagnationLoose = nullptr;

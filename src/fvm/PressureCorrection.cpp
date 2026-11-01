@@ -1,5 +1,6 @@
 #include "fvm/PressureCorrection.h"
 #include "fvm/FaceState.h"
+#include "fvm/Gmres.h"
 #include "fvm/SSTConstants.h"
 #include "mesh/BoundaryUtils.h"
 
@@ -18,7 +19,16 @@ PressureCorrection<Dim>::PressureCorrection(const Mesh<Dim>& mesh, const Config&
 template<std::size_t Dim>
 PressureCorrection<Dim>::PressureCorrection(const Mesh<Dim>& mesh)
     : mesh_(mesh), config_{}, divU_(mesh, 0.0) {
-    config_.amgConfig.interpolationType = AMGHierarchy::InterpolationType::Direct;
+    config_.amgConfig.tolerance = 1e-8;
+}
+
+template<std::size_t Dim>
+void PressureCorrection<Dim>::refreshPressureGradient(const Field<Dim>& pressure) {
+    if (!gradientCalc_) {
+        gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_, GradientScheme::LeastSquares);
+        for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
+    }
+    gradientCalc_->compute(pressure, pressureGrad_);
 }
 
 template<std::size_t Dim>
@@ -34,7 +44,8 @@ void PressureCorrection<Dim>::solve(
     const std::vector<FaceVelocityBC>* faceBC,
     const std::vector<char>* faceHasBC,
     const std::vector<std::vector<char>>* velDirichletMask,
-    const std::vector<std::vector<double>>* velDirichletVals) {
+    const std::vector<std::vector<double>>* velDirichletVals,
+    const std::atomic<bool>* cancel) {
 
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
@@ -50,7 +61,7 @@ void PressureCorrection<Dim>::solve(
     if (config_.compactRhieChow) {
         // Least-squares pressure gradient: the operator the velocity
         // correction applies and the one the compact Rhie-Chow flux needs.
-        gradientCalc_->compute(pressure, pressureGrad_);
+        refreshPressureGradient(pressure);
     } else {
         // Green-Gauss gradient is the diagnostic the legacy residuals report
         // (the matrix and the velocity correction are built from the
@@ -609,23 +620,49 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
-    // Adaptive threshold: use AMG only for larger systems where setup cost is amortized.
-    // For pressure Poisson, CG+IC is faster for n < ~10k; AMG overhead dominates and
-    // pure Neumann (cavity) is difficult for AMG due to pinned reference cell.
-    // Use AMG only for n >= the configured threshold where it actually pays off.
+    // AMG selection. A threshold of 0 means "always use AMG", which is what
+    //  does: it never swaps the pressure equation to a different
+    // preconditioner based on mesh size. Pure-Neumann systems (lid-driven
+    // cavity) are safe here because the assembly pins one reference cell, so
+    // the matrix handed to amgcl is non-singular.
     const std::size_t amgThreshold = config_.amgThreshold;
-    // For pure Neumann cavity, prefer CG even for larger sizes until AMG is hardened
-    bool isPureNeumann = true;
-    for (char v : isPressureOutlet_) if (v) { isPureNeumann = false; break; }
-    if (isPureNeumann) {
-        for (std::size_t i = 0; i < n; ++i) if (mesh_.isBoundary(i) && !isPressureNeumann[i]) { isPureNeumann = false; break; }
-    }
-    const std::size_t effectiveThreshold = isPureNeumann ? 20000 : amgThreshold;
-    if (config_.useAMG && config_.useAMGPreconditioner && n >= effectiveThreshold) {
+    const bool amgEligible =
+        config_.useAMG && (amgThreshold == 0 || n >= amgThreshold);
+    //  "Acceleration method": None runs the hierarchy on its own,
+    // everything else wraps it in a Krylov method. The legacy
+    // useAMGPreconditioner=false switch still forces the standalone path.
+    const auto accel = config_.amgConfig.acceleration;
+    const bool standaloneAmg =
+        !config_.useAMGPreconditioner ||
+        accel == AMGHierarchy::Config::Acceleration::None;
+
+    if (amgEligible && !standaloneAmg) {
+        // CG is only valid for the SPD compact operator. Anything else
+        // (including an explicit CG request on the legacy operator) uses the
+        // nonsymmetric solver so the request cannot silently produce garbage.
+        const bool spd = config_.compactRhieChow;
+        const bool useCg =
+            (accel == AMGHierarchy::Config::Acceleration::ConjugateGradient) && spd;
+        const bool useGmres =
+            accel == AMGHierarchy::Config::Acceleration::GMRES;
+        if (!amgPathLogged_) {
+            std::cerr << "  pressure: using AMG-preconditioned "
+                      << (useCg ? "CG (SPD)." : useGmres ? "GMRES." : "BiCGSTAB.")
+                      << "\n";
+            if (!spd &&
+                accel == AMGHierarchy::Config::Acceleration::ConjugateGradient) {
+                std::cerr << "  pressure: Conjugate gradient requested, but the pressure\n"
+                             "            operator is not symmetric (Rhie-Chow is off);\n"
+                             "            using BiCGSTAB.\n";
+            }
+            amgPathLogged_ = true;
+        }
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
             amg_.invalidate();
             auto amgCfg = config_.amgConfig;
-            amgCfg.tolerance *= volScale;
+            amgCfg.tolerance = (config_.solveTolerance > 0.0)
+                                   ? config_.solveTolerance
+                                   : amgCfg.tolerance * volScale;
             amg_.setConfig(amgCfg);
             auto tBuild = std::chrono::steady_clock::now();
             amg_.build(A_);
@@ -639,33 +676,88 @@ void PressureCorrection<Dim>::solve(
         }
 
         if (amg_.isBuilt()) {
+            const double krylovTol =
+                (config_.solveTolerance > 0.0) ? config_.solveTolerance
+                                               : 1e-4 * volScale;
             if (!pPatternAnalyzed_ || compactChanged) {
                 bicgSolver_.setMaxIterations(1000);
-                bicgSolver_.setTolerance(1e-4 * volScale);
+                bicgSolver_.setTolerance(krylovTol);
                 bicgSolver_.analyzePattern(A_);
+                cgAmgSolver_.setMaxIterations(1000);
+                cgAmgSolver_.setTolerance(krylovTol);
+                cgAmgSolver_.analyzePattern(A_);
                 pPatternAnalyzed_ = true;
                 prevCompact_ = config_.compactRhieChow;
+            } else {
+                // A tolerance change must reach the already-analysed solvers.
+                bicgSolver_.setTolerance(krylovTol);
+                cgAmgSolver_.setTolerance(krylovTol);
             }
-            bicgSolver_.factorize(A_);
-            bicgSolver_.preconditioner().setAMG(&amg_);
             auto tSolve = std::chrono::steady_clock::now();
-            x = bicgSolver_.solve(bVec_);
-            pressureStats_.amgSolves++;
-            pressureStats_.amgKrylovIters += bicgSolver_.iterations();
-            pressureStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tSolve).count();
-            converged = (bicgSolver_.info() == Eigen::Success);
-            if (!converged) {
-                pressureStats_.amgRejected++;
-                std::cerr << "  WARNING: AMG-preconditioned BiCGSTAB did not converge (iters="
-                          << bicgSolver_.iterations() << ", resid=" << bicgSolver_.error()
-                          << "), falling back to CG+IC\n";
+            if (useCg) {
+                cgAmgSolver_.factorize(A_);
+                cgAmgSolver_.preconditioner().setAMG(&amg_);
+                cgAmgSolver_.preconditioner().setCycles(config_.amgPreconditionerCycles);
+                x = cgAmgSolver_.solve(bVec_);
+                pressureStats_.amgKrylovIters += cgAmgSolver_.iterations();
+                converged = (cgAmgSolver_.info() == Eigen::Success) ||
+                            (cgAmgSolver_.error() < krylovTol);
+                lastSolveIterations_ = cgAmgSolver_.iterations();
+                lastSolveResidual_ = cgAmgSolver_.error();
+                if (!converged) {
+                    pressureStats_.amgRejected++;
+                    std::cerr << "  WARNING: AMG-preconditioned CG did not converge (iters="
+                              << cgAmgSolver_.iterations() << ", resid=" << cgAmgSolver_.error()
+                              << "), falling back to CG+IC\n";
+                }
+            } else if (useGmres) {
+                const GmresResult gres = gmresRestarted(
+                    bVec_, x,
+                    [this](const Eigen::VectorXd& v) { return A_ * v; },
+                    [this](const Eigen::VectorXd& v) {
+                        return amgPrec_.solve(v);
+                    },
+                    krylovTol, 1000, 30);
+                pressureStats_.amgKrylovIters += static_cast<std::size_t>(gres.iterations);
+                converged = gres.converged;
+                lastSolveIterations_ = static_cast<std::size_t>(gres.iterations);
+                lastSolveResidual_ = gres.residual;
+                if (!converged) {
+                    pressureStats_.amgRejected++;
+                    std::cerr << "  WARNING: AMG-preconditioned GMRES did not converge (iters="
+                              << gres.iterations << ", resid=" << gres.residual
+                              << "), falling back to CG+IC\n";
+                }
+            } else {
+                bicgSolver_.factorize(A_);
+                bicgSolver_.preconditioner().setAMG(&amg_);
+                bicgSolver_.preconditioner().setCycles(config_.amgPreconditionerCycles);
+                x = bicgSolver_.solve(bVec_);
+                pressureStats_.amgKrylovIters += bicgSolver_.iterations();
+                converged = (bicgSolver_.info() == Eigen::Success);
+                lastSolveIterations_ = bicgSolver_.iterations();
+                lastSolveResidual_ = bicgSolver_.error();
+                if (!converged) {
+                    pressureStats_.amgRejected++;
+                    std::cerr << "  WARNING: AMG-preconditioned BiCGSTAB did not converge (iters="
+                              << bicgSolver_.iterations() << ", resid=" << bicgSolver_.error()
+                              << "), falling back to CG+IC\n";
+                }
             }
+            pressureStats_.amgSolves++;
+            pressureStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tSolve).count();
         }
-    } else if (config_.useAMG && n >= effectiveThreshold) {
+    } else if (amgEligible) {
+        if (!amgPathLogged_) {
+            std::cerr << "  pressure: using standalone AMG solve.\n";
+            amgPathLogged_ = true;
+        }
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
             amg_.invalidate();
             auto amgCfg = config_.amgConfig;
-            amgCfg.tolerance *= volScale;
+            amgCfg.tolerance = (config_.solveTolerance > 0.0)
+                                   ? config_.solveTolerance
+                                   : amgCfg.tolerance * volScale;
             amg_.setConfig(amgCfg);
             auto tBuild = std::chrono::steady_clock::now();
             amg_.build(A_);
@@ -682,26 +774,35 @@ void PressureCorrection<Dim>::solve(
             converged = amg_.solve(bVec_, x);
             pressureStats_.amgSolves++;
             pressureStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tSolve).count();
+            lastSolveIterations_ = static_cast<std::size_t>(amg_.lastIterations());
+            lastSolveResidual_ = amg_.lastResidual();
             if (!converged) {
                 pressureStats_.amgRejected++;
                 std::cerr << "  WARNING: AMG solve did not converge, falling back to CG+IC\n";
             }
         }
     }
+    if (!amgPathLogged_) {
+        if (!config_.useAMG) {
+            std::cerr << "  pressure: AMG disabled by config; using CG+IC/ILU.\n";
+        } else if (!amgEligible) {
+            std::cerr << "  pressure: AMG skipped (n=" << n << " < threshold "
+                      << amgThreshold << "); using CG+IC/ILU.\n";
+        }
+        amgPathLogged_ = true;
+    }
 
     if (!converged) {
         std::size_t nz = triplets_.size();
-        if (!pPatternAnalyzed_ || maskChanged || compactChanged || nz != prevNonZeroPattern_) {
+        if (!fallbackPatternAnalyzed_ || maskChanged || compactChanged || patternHash != fallbackPatternHash_) {
             bicgFallbackSolver_.setMaxIterations(10000);
             bicgFallbackSolver_.setTolerance(1e-8 * volScale);
             bicgFallbackSolver_.analyzePattern(A_);
-            bicgSolver_.setMaxIterations(1000);
-            bicgSolver_.setTolerance(1e-4 * volScale);
-            bicgSolver_.analyzePattern(A_);
             cgSolver_.setMaxIterations(10000);
             cgSolver_.setTolerance(1e-8 * volScale);
             cgSolver_.analyzePattern(A_);
-            pPatternAnalyzed_ = true;
+            fallbackPatternAnalyzed_ = true;
+            fallbackPatternHash_ = patternHash;
             prevPMask_ = pMask_;
             prevNonZeroPattern_ = nz;
             prevCompact_ = config_.compactRhieChow;

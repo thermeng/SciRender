@@ -434,11 +434,32 @@ private:
 
     void configureBoundaryConditions(Solver& solver,
                                     const std::vector<PatchBC>& bcs) {
-        for (const auto& pbc : bcs) {
-            auto it = m_mesh->boundaryGroups().find(pbc.patchName);
-            if (it == m_mesh->boundaryGroups().end()) continue;
-            const std::vector<std::size_t>& faces = it->second;
-            std::string typeStr;
+    for (const auto& pbc : bcs) {
+        auto it = m_mesh->boundaryGroups().find(pbc.patchName);
+        if (it == m_mesh->boundaryGroups().end()) {
+            // Fall back to a case-insensitive, whitespace-trimmed match so a
+            // saved patch name that differs only in casing/spacing still binds.
+            std::string needle = pbc.patchName;
+            // trim + lowercase
+            auto trimLower = [](std::string s) {
+                auto notSpace = [](unsigned char c){ return !std::isspace(c); };
+                s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
+                s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
+                std::transform(s.begin(), s.end(), s.begin(),
+                               [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+                return s;
+            };
+            const std::string key = trimLower(needle);
+            for (const auto& kv : m_mesh->boundaryGroups()) {
+                if (trimLower(kv.first) == key) { it = m_mesh->boundaryGroups().find(kv.first); break; }
+            }
+        }
+        if (it == m_mesh->boundaryGroups().end()) {
+            std::cerr << "  BC: patch '" << pbc.patchName << "' not found in mesh boundary groups (skipped)\n";
+            continue;
+        }
+        const std::vector<std::size_t>& faces = it->second;
+        std::string typeStr;
             switch (pbc.type) {
                 case BCType::VelocityInlet: typeStr = "inlet"; break;
                 case BCType::PressureOutlet: typeStr = "pressure_outlet"; break;
