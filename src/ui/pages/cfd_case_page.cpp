@@ -106,18 +106,20 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
 
     m_bcEditBtn = cfdUi.bcEditBtn;
     m_advancedBtn = cfdUi.advancedBtn;
+    m_stoppingBtn = cfdUi.stoppingBtn;
     m_initBtn = cfdUi.initBtn;
     m_runBtn = cfdUi.runBtn;
     m_cancelBtn = cfdUi.cancelBtn;
     m_pauseBtn = cfdUi.pauseBtn;
     m_stepBtn = cfdUi.stepBtn;
 
-
-
     m_rho = cfdUi.rhoSpin;
     m_nu = cfdUi.nuSpin;
-    m_tol = cfdUi.tolSpin;
-    m_maxIter = cfdUi.maxIterSpin;
+    // Constrain density and viscosity to finite positive numbers.
+    auto* posDoubleVal = new QDoubleValidator(1e-12, 1e12, 10, m_rho);
+    posDoubleVal->setNotation(QDoubleValidator::StandardNotation);
+    m_rho->setValidator(posDoubleVal);
+    m_nu->setValidator(posDoubleVal);
     m_alphaU = cfdUi.alphaUSpin;
     m_alphaP = cfdUi.alphaPSpin;
     m_simplec = cfdUi.simplecCb;
@@ -162,13 +164,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_rho->setText("1.0");
     m_nu->setText("0.01");
     // ── Solver defaults ──────────────────────────────────────────────────────
-    // The tolerance spin box displays scientific notation (see
-    // ScientificDoubleSpinBox) but keeps a high decimal precision so values
-    // below 1e-3 stay representable and the 1e-6 arrow step stays visible.
-    m_tol->setRange(1e-7, 1e-1);   m_tol->setDecimals(9);  m_tol->setValue(1e-3);
-    m_tol->setSingleStep(1e-6);
-    m_tol->setCorrectionMode(QDoubleSpinBox::CorrectToPreviousValue);
-    m_maxIter->setRange(1, 100000); m_maxIter->setValue(500);
     m_alphaU->setRange(0.01, 1.0); m_alphaU->setDecimals(2); m_alphaU->setValue(0.7);
     m_alphaP->setRange(0.01, 1.0); m_alphaP->setDecimals(2); m_alphaP->setValue(0.3);
     m_scheme->addItems({"Upwind", "Central", "Second-Order Upwind"});
@@ -203,7 +198,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_frameTimer = new QTimer(this);
     m_frameTimer->setInterval(16);
     connect(m_frameTimer, &QTimer::timeout, this, [this]() {
-        if (!m_ctrl || !m_running) return;
+        if (!S() || !m_ctrl || !m_running) return;
         if (m_ctrl->isCancelled()) return;
         // One immutable slot per publish => mesh and snapshot always match.
         auto slot = m_ctrl->latestFrameSlot();
@@ -247,16 +242,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
         if (m_stepBtn) m_stepBtn->setEnabled(false);
         log("Resumed.");
     });
-    connect(m_ctrl, &CfdController::progress, this, [this](int, double, double) {
-        if (!m_running) return;
-        const bool paused = m_ctrl->isPaused();
-        const bool settled = m_ctrl->isPausedSettled();
-        if (m_pauseBtn)
-            m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
-        if (m_stepBtn) m_stepBtn->setEnabled(settled);
-        if (m_cancelBtn && !m_ctrl->isCancelled()) m_cancelBtn->setEnabled(true);
-        if (!paused) m_pauseSettledLogged = false;
-    });
+    // progress() -> onProgress() (line 93) already refreshes pause/step button state.
 
     // ── Advanced solver settings (dialog) ────────────────────────────────────
     // Built up front and kept hidden. Its fields are read by collectSettings(),
@@ -265,6 +251,8 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     // top-left corner of the panel (a parented widget with no layout floats).
     buildAdvancedDialog();
     connect(m_advancedBtn, &QPushButton::clicked, this, [this] { m_advancedDlg->exec(); });
+    connect(m_stoppingBtn, &QPushButton::clicked, this, &CfdCasePage::onStoppingCriteria);
+
     syncTime(); // depends on dialog widgets; must run after buildAdvancedDialog()
     // ── Read-out boxes ───────────────────────────────────────────────────────
     QWidget* monitor = cfdUi.solveMonitor;
@@ -285,7 +273,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     connect(m_initBtn, &QPushButton::clicked, this, &CfdCasePage::onInitialize);
     connect(m_pauseBtn, &QPushButton::clicked, this, &CfdCasePage::onPause);
     connect(m_stepBtn, &QPushButton::clicked, this, &CfdCasePage::onStep);
-
 
     log("No mesh loaded.");
     setRunning(false);
@@ -582,15 +569,6 @@ void CfdCasePage::syncTimeDependencies() {
         m_alphaU->setToolTip("");
         m_alphaP->setToolTip("");
     }
-    m_maxIter->setEnabled(steady);
-    m_maxIter->setToolTip(transient
-        ? "Not used in transient mode: the run marches to \"End time\"."
-        : "");
-
-    // Max iterations / tolerance labels: tolerance is the per-step corrector target.
-    m_tol->setToolTip(transient
-        ? "Per-step corrector convergence target in transient (PISO) mode."
-        : "");
 
     // Keep the dialog's gating in sync too.
     syncDialogDependencies();
@@ -642,8 +620,6 @@ void CfdCasePage::log(const QString& msg) {
 void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_rho->setText(QString::number(s.rho));
     m_nu->setText(QString::number(s.nu));
-    m_tol->setValue(s.tolerance);
-    m_maxIter->setValue((int)s.maxIterations);
     m_alphaU->setValue(s.alphaU);
     if (m_alphaK) m_alphaK->setValue(s.alphaK);
     if (m_alphaW) m_alphaW->setValue(s.alphaOmega);
@@ -690,13 +666,16 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_nonOrthCorrectorsSpin->setValue(s.transient.nonOrthogonalCorrectors);
     m_pvdFileEdit->setText(QString::fromStdString(s.transient.pvdFile));
 
+    // Keep the stopping-criteria dialog in sync with the settings object.
+    if (m_stoppingDlg) m_stoppingDlg->setFrom(s);
+
     syncDialogDependencies();
     syncTimeDependencies();
 }
 
 void CfdCasePage::onMeshLoaded() {
+    if (!S() || !m_ctrl) return;
     if (!m_ctrl->meshName().isEmpty()) m_meshName = m_ctrl->meshName();
-    rebuildPatchTable();
     const auto& res = m_ctrl->meshResult();
     if (res.renderMesh) {
         // If a solved result mesh (with scalars) is already loaded, don't
@@ -726,10 +705,13 @@ void CfdCasePage::rebuildPatchTable() {
 
 void CfdCasePage::collectSettings() {
     cfd::CaseSettings s;
-    s.rho = m_rho->text().toDouble();
-    s.nu = m_nu->text().toDouble();
-    s.tolerance = m_tol->value();
-    s.maxIterations = static_cast<std::size_t>(m_maxIter->value());
+    bool okRho, okNu;
+    s.rho = m_rho->text().toDouble(&okRho);
+    s.nu = m_nu->text().toDouble(&okNu);
+    if (!okRho || !okNu || s.rho <= 0.0 || s.nu <= 0.0) {
+        log("Density and viscosity must be positive numbers.");
+        return;
+    }
     s.alphaU = m_alphaU->value();
     s.alphaP = m_alphaP->value();
     s.simplec = m_simplec->isChecked();
@@ -737,13 +719,22 @@ void CfdCasePage::collectSettings() {
     s.gradientScheme = m_gradientScheme->currentIndex();
     s.rhieChow = true; // Rhie-Chow is always on for collocated grids.
     s.turbulence = m_turb->isChecked();
-    // Preserve the loaded freestream values unless the user has edited them;
-    // the previous hardcoded 1e-3/1.0 reset every loaded case.
-    s.kInf = m_kInf ? m_kInf->value() : m_ctrl->settings().kInf;
-    s.omegaInf = m_wInf ? m_wInf->value() : m_ctrl->settings().omegaInf;
-    s.alphaK = m_alphaK ? m_alphaK->value() : m_ctrl->settings().alphaK;
-    s.alphaOmega = m_alphaW ? m_alphaW->value() : m_ctrl->settings().alphaOmega;
-    s.wallFunction = m_wallFuncCb ? m_wallFuncCb->isChecked() : m_ctrl->settings().wallFunction;
+    // Only read turbulence sub-values when turbulence is enabled; otherwise
+    // preserve the controller's defaults so stale widget values are not
+    // leaked into the settings object.
+    if (m_turb->isChecked()) {
+        s.kInf = m_kInf ? m_kInf->value() : m_ctrl->settings().kInf;
+        s.omegaInf = m_wInf ? m_wInf->value() : m_ctrl->settings().omegaInf;
+        s.alphaK = m_alphaK ? m_alphaK->value() : m_ctrl->settings().alphaK;
+        s.alphaOmega = m_alphaW ? m_alphaW->value() : m_ctrl->settings().alphaOmega;
+        s.wallFunction = m_wallFuncCb ? m_wallFuncCb->isChecked() : m_ctrl->settings().wallFunction;
+    } else {
+        s.kInf = m_ctrl->settings().kInf;
+        s.omegaInf = m_ctrl->settings().omegaInf;
+        s.alphaK = m_ctrl->settings().alphaK;
+        s.alphaOmega = m_ctrl->settings().alphaOmega;
+        s.wallFunction = m_ctrl->settings().wallFunction;
+    }
     // Advanced
     s.pressureCorrectors = m_pressureCorrectors->value();
     s.limitPressureCorrection = m_limitPressureCorrection->isChecked();
@@ -783,6 +774,10 @@ void CfdCasePage::collectSettings() {
     s.transient.maxOuterCorrectors = m_outerCorrectorsSpin->value();
     s.transient.nonOrthogonalCorrectors = m_nonOrthCorrectorsSpin->value();
     s.transient.pvdFile = m_pvdFileEdit->text().toStdString();
+
+    // If the stopping-criteria dialog has been opened, its per-equation
+    // tolerances and fixed-iteration cap override the spinbox defaults.
+    if (m_stoppingDlg) m_stoppingDlg->applyTo(s);
 
     m_ctrl->setSettings(s);
     m_ctrl->setPatchBCs(m_patchBCs);
@@ -877,6 +872,19 @@ void CfdCasePage::onStep() {
     m_ctrl->step();
     m_pauseSettledLogged = false;
     log(m_ctrl->settings().transient.enabled ? "Stepping one time step." : "Stepping one iteration.");
+}
+
+void CfdCasePage::onStoppingCriteria() {
+    if (!m_stoppingDlg) {
+        m_stoppingDlg = new StoppingCriteriaDialog(this);
+        m_stoppingDlg->setWindowModality(Qt::ApplicationModal);
+    }
+    m_stoppingDlg->setFrom(m_ctrl->settings());
+    if (m_stoppingDlg->exec() != QDialog::Accepted) return;
+    auto s = m_ctrl->settings();
+    m_stoppingDlg->applyTo(s);
+    m_ctrl->setSettings(s);
+    log("Stopping criteria updated.");
 }
 
 void CfdCasePage::onInitialize() {
@@ -1008,11 +1016,12 @@ void CfdCasePage::loadMeshFromPath(const QString& path) {
 void CfdCasePage::loadCaseFromPath(const QString& path) {
     if (!m_ctrl || path.isEmpty()) return;
     if (m_ctrl->loadCase(path)) {
-        onCaseLoaded();
+        // onCaseLoaded() is invoked via the caseLoaded() signal — do NOT call it directly.
         if (S()) S()->addRecentFile(path);
     }
 }
 void CfdCasePage::onCaseLoaded() {
+    if (!S() || !m_ctrl) return;
     m_meshName = m_ctrl->meshName();
     m_patchBCs = m_ctrl->patchBCs();
     applySettings(m_ctrl->settings());
@@ -1051,10 +1060,18 @@ void CfdCasePage::onProgress(int iteration, double continuity, double momentum) 
     m_contValue->setText(QString::number(continuity, 'e', 3));
     m_momValue->setText(QString::number(momentum, 'e', 3));
     emit residualPoint(iteration, continuity, momentum);
+    // Also refresh the pause/step button state on each iteration boundary so the
+    // UI stays in sync with the solver's paused/settled state.
+    if (!m_running) return;
+    const bool paused = m_ctrl->isPaused();
+    const bool settled = m_ctrl->isPausedSettled();
+    if (m_pauseBtn)
+        m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
+    if (m_stepBtn) m_stepBtn->setEnabled(settled);
 }
 
 void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time) {
-    if (m_ctrl && m_ctrl->isCancelled()) return;
+    if (!S() || !m_ctrl || m_ctrl->isCancelled()) return;
     if (!mesh) return;
     // Preserve the user's scalar-color toggle: onAnimationFrame's first-frame
     // block disables it by default (animation UX), which would blank the
@@ -1068,7 +1085,7 @@ void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int s
 }
 
 void CfdCasePage::onPauseSettled() {
-    if (!m_running || !m_ctrl) return;
+    if (!S() || !m_running || !m_ctrl) return;
     if (!m_ctrl->isPausedSettled()) return;
     if (m_pauseSettledLogged) return;
     m_pauseSettledLogged = true;
@@ -1100,6 +1117,7 @@ void CfdCasePage::onPauseSettled() {
 }
 
 void CfdCasePage::onFinished(const QString& summary) {
+    if (!S() || !m_ctrl) return;
     if (m_frameTimer) m_frameTimer->stop();
     m_lastFrame.reset();
     setRunning(false);
@@ -1130,6 +1148,7 @@ void CfdCasePage::onFinished(const QString& summary) {
 }
 
 void CfdCasePage::onFailed(const QString& error) {
+    if (!S() || !m_ctrl) return;
     if (m_frameTimer) m_frameTimer->stop();
     m_lastFrame.reset();
     setRunning(false);

@@ -17,7 +17,26 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
 
     sc.maxIterations = settings.maxIterations;
     sc.tolerance = settings.tolerance;
+    sc.contTol = settings.contTol;
+    sc.momUTol = settings.momUTol;
+    sc.momVTol = settings.momVTol;
+    sc.momWTol = settings.momWTol;
+    sc.turbKTol = settings.turbKTol;
+    sc.turbOmegaTol = settings.turbOmegaTol;
+    sc.gateContinuity = settings.gateContinuity;
+    sc.gateMomU = settings.gateMomU;
+    sc.gateMomV = settings.gateMomV;
+    sc.gateMomW = settings.gateMomW;
+    sc.gateTurbK = settings.gateTurbK;
+    sc.gateTurbOmega = settings.gateTurbOmega;
+    sc.fixedIterations = settings.fixedIterations;
     sc.runFixedIterations = settings.runFixedIterations;
+    // A fixed iteration cap overrides maxIterations and disables tolerance
+    // gating (equivalent to runFixedIterations).
+    if (settings.fixedIterations) {
+        sc.maxIterations = *settings.fixedIterations;
+        sc.runFixedIterations = true;
+    }
     sc.convergenceHoldIterations = settings.convergenceHoldIterations;
     sc.normalizeResiduals = settings.normalizeResiduals;
     sc.residualNormalizationIterations = settings.residualNormalizationIterations;

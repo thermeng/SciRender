@@ -3,6 +3,7 @@
 #include "ui/controllers/cfd_controller.h"
 #include "ui/widgets/amg_config_widget.h"
 #include "cfd/cfd_types.h"
+#include "ui/widgets/stopping_criteria_dialog.h"
 
 #include <QString>
 
@@ -48,6 +49,7 @@ private slots:
     void onStep();
     void onInitialize();
     void onEditBCs();
+    void onStoppingCriteria();
     void onProgress(int iteration, double continuity, double momentum);
     void onFinished(const QString& summary);
     void onFailed(const QString& error);
@@ -78,10 +80,6 @@ private:
 
     QLineEdit* m_rho = nullptr;
     QLineEdit* m_nu = nullptr;
-    QDoubleSpinBox* m_tol = nullptr;
-    QSpinBox* m_maxIter = nullptr;
-    // Run exactly "Max iterations" iterations, ignoring the residual tolerance.
-    QCheckBox* m_runFixedIterations = nullptr;
     QDoubleSpinBox* m_alphaU = nullptr;
     QDoubleSpinBox* m_alphaP = nullptr;
     QDoubleSpinBox* m_alphaK = nullptr;
@@ -106,9 +104,11 @@ private:
     QPushButton* m_cancelBtn = nullptr;
     QPushButton* m_pauseBtn = nullptr;
     QPushButton* m_stepBtn = nullptr;
+    QPushButton* m_stoppingBtn = nullptr;
 
     // Advanced solver settings live in one dialog, built up front and hidden.
     QDialog* m_advancedDlg = nullptr;
+    StoppingCriteriaDialog* m_stoppingDlg = nullptr;
     QSpinBox* m_pressureCorrectors = nullptr;
     QCheckBox* m_limitPressureCorrection = nullptr;
     QDoubleSpinBox* m_pressureCorrectionLimit = nullptr;
