@@ -91,13 +91,17 @@ float licNoiseSample3D_scaled(vec3 uvw, float freqScale) {
 // Returns sign * v/|v| if |v| > magThresh else vec3(0) signalling termination (matches StreamlineSet RK4).
 vec3 licSampleDir(vec3 pos, vec3 boxMin, vec3 invRange, vec3 range, vec3 norm, float sign) {
     const float magThresh = uLicMagThresh;
-    vec3 uvw = worldToUVW(pos, boxMin, invRange, range);
-    // Clamp semantics: a trace that has left the data domain stops here. The
-    // vector texture is GL_CLAMP_TO_EDGE; wrapping would mix noise from the
-    // opposite boundary into the same streak.
+    // Domain-exit test is performed on the raw [0,1] UVW (before uUvwScale /
+    // uUvwOffset shifts it to texel-center space) so the tolerance is
+    // symmetric and semantically correct at every boundary.
+    vec3 uvwRaw = (pos - boxMin) * invRange;
+    if (abs(range.x) <= 1e-30f) uvwRaw.x = 0.5;
+    if (abs(range.y) <= 1e-30f) uvwRaw.y = 0.5;
+    if (abs(range.z) <= 1e-30f) uvwRaw.z = 0.5;
     const float edgeTol = 1e-5;
-    if (any(lessThan(uvw, vec3(-edgeTol))) || any(greaterThan(uvw, vec3(1.0 + edgeTol))))
+    if (any(lessThan(uvwRaw, vec3(-edgeTol))) || any(greaterThan(uvwRaw, vec3(1.0 + edgeTol))))
         return vec3(0.0);
+    vec3 uvw = uvwRaw * uUvwScale + uUvwOffset;
     vec3 v = texture(uVectorTex, uvw).rgb;
     vec3 vTan = v - dot(v, norm) * norm;
     float mTan = length(vTan);

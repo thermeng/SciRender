@@ -30,6 +30,7 @@ inline std::uint32_t floatBits(float f) {
     std::uint32_t b = 0;
     std::memcpy(&b, &f, sizeof(b));
     if (b == 0x80000000u) return 0u;   // -0.0 -> +0.0 so both hash the same
+    if (std::isnan(f)) return 0u;      // NaN -> 0, never counts as distinct
     return b;
 }
 
@@ -336,6 +337,12 @@ bool VectorTextureCache::buildGrid(const RenderMesh& mesh, const glm::vec3* data
                         const auto& e = spatial[v];
                         float ddx = e.x - px, ddy = e.y - py, ddz = e.z - pz;
                         float d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+                        // Clamp d2 so an exact-match sample (e.g. a no-slip wall
+                        // vertex at the corner texel) cannot acquire effectively
+                        // infinite IDW weight and swamp its neighbours. The
+                        // strongest weight is then bounded at 1/(2*idwEps),
+                        // keeping the IDW a true local blend.
+                        d2 = std::max(d2, idwEps);
                         // IDW p=2: w = 1/(d2+eps) ; close samples dominate but neighbors blend
                         float w = 1.0f / (d2 + idwEps);
                         acc += (*e.vec) * w;
@@ -549,6 +556,24 @@ GLuint VectorTextureCache::buildTexture(const std::string& name, const RenderMes
     float maxMag = 0.0f;
     for (const glm::vec3& v : grid) maxMag = std::max(maxMag, glm::length(v));
 
+    // Robust per-field floor: 5th percentile of non-zero sampled magnitudes.
+    // Captures the boundary-layer velocity scale so slow near-wall flow is not
+    // rejected by a maxMagnitude-relative cut-off dominated by a fast lid.
+    float robustFloor = 0.0f;
+    {
+        std::vector<float> mags;
+        mags.reserve(grid.size());
+        for (const glm::vec3& v : grid) {
+            float m = glm::length(v);
+            if (m > 1e-30f) mags.push_back(m);
+        }
+        if (!mags.empty()) {
+            const size_t idx = static_cast<size_t>(0.05 * (mags.size() - 1));
+            std::nth_element(mags.begin(), mags.begin() + idx, mags.end());
+            robustFloor = mags[idx];
+        }
+    }
+
     const std::string key = makeKey(name, isCell);
     try {
         auto existing = m_entries.find(key);
@@ -561,6 +586,7 @@ GLuint VectorTextureCache::buildTexture(const std::string& name, const RenderMes
         e.tex = std::move(pending);   // deletes the previous texture, if any
         e.dimX = texDimX; e.dimY = texDimY; e.dimZ = texDimZ;
         e.maxMagnitude = maxMag;
+        e.robustFloor = robustFloor;
         m_lru.push_front(key);
         e.lruIt = m_lru.begin();
         e.hasLru = true;
@@ -618,6 +644,29 @@ float VectorTextureCache::getMaxMagnitude(const std::string& name, int placement
             if (key == makeKey(name, cell != 0)) {
                 auto jt = m_entries.find(key);
                 if (jt != m_entries.end()) return jt->second.maxMagnitude;
+            }
+        }
+    }
+    return 0.0f;
+}
+
+float VectorTextureCache::getRobustFloor(const std::string& name, int placement, const RenderMesh* mesh,
+                                         const postfields::ComputedSnapshot* snap) const {
+    if (mesh) {
+        const glm::vec3* d = nullptr;
+        size_t cnt = 0;
+        bool isCell = false;
+        if (resolveField(*mesh, name, placement, d, cnt, isCell, snap)) {
+            const std::string key = makeKey(name, isCell);
+            auto it = m_entries.find(key);
+            if (it != m_entries.end()) return it->second.robustFloor;
+        }
+    }
+    for (const auto& key : m_lru) {
+        for (int cell = 0; cell <= 1; ++cell) {
+            if (key == makeKey(name, cell != 0)) {
+                auto jt = m_entries.find(key);
+                if (jt != m_entries.end()) return jt->second.robustFloor;
             }
         }
     }
