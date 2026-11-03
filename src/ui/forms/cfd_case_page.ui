@@ -612,64 +612,6 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="tolRow" native="true">
-     <layout class="QHBoxLayout" name="tolRowLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="toleranceLabel">
-        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Tolerance</string></property>
-        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="ScientificDoubleSpinBox" name="tolSpin">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-          <horstretch>1</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QWidget" name="maxIterRow" native="true">
-     <layout class="QHBoxLayout" name="maxIterRowLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="maxIterLabel">
-        <property name="minimumSize"><size><width>60</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Max Iterations</string></property>
-        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QSpinBox" name="maxIterSpin">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-          <horstretch>1</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
     <widget class="QWidget" name="alphaURow" native="true">
      <layout class="QHBoxLayout" name="alphaURowLayout">
       <property name="spacing"><number>6</number></property>
@@ -811,10 +753,26 @@
        <verstretch>0</verstretch>
       </sizepolicy>
      </property>
+     </widget>
+    </item>
+   <item>
+    <widget class="QPushButton" name="stoppingBtn">
+     <property name="text">
+      <string>Stopping Criteria</string>
+     </property>
+     <property name="toolTip">
+      <string>Configure per-equation residual tolerances and fixed iteration limit for the convergence test.</string>
+     </property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
     </widget>
    </item>
 
-   <!-- â”€â”€ Run â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+   <!-- â”€â”€ Run â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
    <item>
     <widget class="QLabel" name="runHeader">
      <property name="text">

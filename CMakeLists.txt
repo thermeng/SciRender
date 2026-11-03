@@ -271,6 +271,8 @@ if(SCIRENDER_BUILD_APP)
         src/ui/widgets/wheel_guard.h
         src/ui/widgets/amg_config_widget.cpp
         src/ui/widgets/amg_config_widget.h
+        src/ui/widgets/stopping_criteria_dialog.cpp
+        src/ui/widgets/stopping_criteria_dialog.h
         src/ui/widgets/range_editor.cpp
         src/ui/widgets/range_editor.h
         src/ui/widgets/plot_widget.cpp

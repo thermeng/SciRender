@@ -66,6 +66,22 @@ struct Config {
     SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
         std::size_t maxIterations = 100;
         double tolerance = 1e-3;
+        // Per-equation residual tolerances (std::nullopt = inherit from `tolerance`).
+        std::optional<double> contTol;
+        std::optional<double> momUTol;
+        std::optional<double> momVTol;
+        std::optional<double> momWTol;
+        std::optional<double> turbKTol;
+        std::optional<double> turbOmegaTol;
+        // Whether each equation participates in the convergence gate.
+        bool gateContinuity = true;
+        bool gateMomU = true;
+        bool gateMomV = true;
+        bool gateMomW = true;
+        bool gateTurbK = true;
+        bool gateTurbOmega = true;
+        // Fixed iteration cap override (std::nullopt = use maxIterations).
+        std::optional<std::size_t> fixedIterations;
         // Ignore the residual tolerance and run exactly maxIterations iterations.
         bool runFixedIterations = false;
         // Consecutive iterations the residual criterion must hold before the run
@@ -469,6 +485,9 @@ private:
     // stop it in both modes).
     bool checkConvergence_(std::size_t iter, bool checkTolerance = true,
                            bool checkCancel = true);
+    // True when every gated equation's scaled residual is below its own
+    // tolerance (inheriting `tolerance` when the per-equation value is nullopt).
+    bool residualsConverged_() const;
     bool aborted() const { return aborted_; }
     void saveCheckpoint_(std::size_t iter);
     void saveCheckpoint_(std::size_t iter, const TransientBlock<Dim>* transient);

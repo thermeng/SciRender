@@ -1038,6 +1038,30 @@ void SIMPLE<Dim>::updateResiduals_() {
 }
 
 template<std::size_t Dim>
+bool SIMPLE<Dim>::residualsConverged_() const {
+    // Per-equation tolerance, inheriting the global `tolerance` when nullopt.
+    auto tolFor = [this](std::optional<double> v) {
+        return v.value_or(config_.tolerance);
+    };
+    // Each gated equation must be below its tolerance.
+    if (config_.gateContinuity && lastContResid_ >= tolFor(config_.contTol)) return false;
+    if (config_.gateMomU && lastMomResidU_ >= tolFor(config_.momUTol)) return false;
+    if (config_.gateMomV && lastMomResidV_ >= tolFor(config_.momVTol)) return false;
+    if constexpr (Dim == 3) {
+        if (config_.gateMomW && lastMomResidW_ >= tolFor(config_.momWTol)) return false;
+    }
+    if (turbulence_ && config_.gateTurbK) {
+        double kResid = turbulence_->finalKResid();
+        if (kResid >= tolFor(config_.turbKTol)) return false;
+    }
+    if (turbulence_ && config_.gateTurbOmega) {
+        double oResid = turbulence_->finalOmegaResid();
+        if (oResid >= tolFor(config_.turbOmegaTol)) return false;
+    }
+    return true;
+}
+
+template<std::size_t Dim>
 bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
                                      bool checkCancel) {
     (void)iter; // kept for call-site symmetry; the failure carries no iteration
@@ -1057,30 +1081,13 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
     if (checkCancel && cancelRequested_.load(std::memory_order_acquire)) {
         return true;
     }
-    if (checkTolerance && !config_.runFixedIterations) {
-        // Turbulence must converge together with the flow. Ignoring its
-        // residual let a run report "converged" with k/omega still diverging.
-        // The transport residual is normalised (see SSTModel), so it is
-        // directly comparable to the continuity/momentum tolerance.
-        double turbResid = 0.0;
-        if (turbulence_) {
-            turbResid = std::max(turbulence_->finalKResid(),
-                                 turbulence_->finalOmegaResid());
-        }
-        // Fluent/STAR-CCM+ parity: every transported equation's SCALED
-        // residual must fall below the criterion. lastMomResid_ is the linear
-        // momentum residual |A u - b|_1 / sum|b|_1, i.e. exactly the number in
-        // the printed x/y-velocity columns, normalized the same way as the
-        // continuity column. lastMomChange_ (the per-iteration velocity
-        // change) is a diagnostic, NOT a residual: gating on it let a run
-        // whose velocity had stalled but whose momentum residual was still
-        // 4.6e-2 be reported as converged.
-        if (lastContResid_ < config_.tolerance &&
-            lastMomResid_ < config_.tolerance &&
-            turbResid < config_.tolerance) {
+    if (checkTolerance && !config_.runFixedIterations && !config_.fixedIterations) {
+        // Per-equation residuals must each be below their own tolerance for
+        // `convergenceHoldIterations` consecutive iterations. A single lucky
+        // iteration is not a steady state.
+        if (residualsConverged_()) {
             // The criterion must hold for `convergenceHoldIterations`
-            // consecutive iterations before the run is declared converged: a
-            // single lucky iteration is not a steady state.
+            // consecutive iterations before the run is declared converged.
             if (++convergedStreak_ >= std::max(1, config_.convergenceHoldIterations))
                 return true;
         } else {
@@ -2031,7 +2038,23 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                 performPISOCorrector_(velocity, pressure);
                 updateResiduals_();
                 lastIterations_ = step * nOuter + corr + 1;
-                if (lastContResid_ < config_.tolerance && lastMomResid_ < config_.tolerance) break;
+                {
+                    auto tolFor = [this](std::optional<double> v) {
+                        return v.value_or(config_.tolerance);
+                    };
+                    bool contOk = !config_.gateContinuity ||
+                                  lastContResid_ < tolFor(config_.contTol);
+                    bool momOk = true;
+                    if (config_.gateMomU &&
+                        lastMomResidU_ >= tolFor(config_.momUTol)) momOk = false;
+                    if (config_.gateMomV &&
+                        lastMomResidV_ >= tolFor(config_.momVTol)) momOk = false;
+                    if constexpr (Dim == 3) {
+                        if (config_.gateMomW &&
+                            lastMomResidW_ >= tolFor(config_.momWTol)) momOk = false;
+                    }
+                    if (contOk && momOk) break;
+                }
             }
             // checkConvergence_ detects NaN/inf divergence; act on it instead of
             // discarding the result and marching on to tEnd. Cancellation is
@@ -2063,7 +2086,23 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                 performTransientIteration_(velocity, pressure);
                 updateResiduals_();
                 lastIterations_ = step * nOuter + outer + 1;
-                if (lastContResid_ < config_.tolerance && lastMomResid_ < config_.tolerance) break;
+                {
+                    auto tolFor = [this](std::optional<double> v) {
+                        return v.value_or(config_.tolerance);
+                    };
+                    bool contOk = !config_.gateContinuity ||
+                                  lastContResid_ < tolFor(config_.contTol);
+                    bool momOk = true;
+                    if (config_.gateMomU &&
+                        lastMomResidU_ >= tolFor(config_.momUTol)) momOk = false;
+                    if (config_.gateMomV &&
+                        lastMomResidV_ >= tolFor(config_.momVTol)) momOk = false;
+                    if constexpr (Dim == 3) {
+                        if (config_.gateMomW &&
+                            lastMomResidW_ >= tolFor(config_.momWTol)) momOk = false;
+                    }
+                    if (contOk && momOk) break;
+                }
             }
             if (checkConvergence_(static_cast<std::size_t>(step), false, false)) break;
         }
