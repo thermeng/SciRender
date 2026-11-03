@@ -52,13 +52,13 @@ public:
         // AMG hierarchy is rebuilt. The coarse levels depend on the matrix
         // through the Galerkin product, so a value change makes the hierarchy
         // stale - but rebuilding it on every outer iteration costs more than
-        // the solve it accelerates. The matrix moves by a few percent per
-        // iteration, so a hierarchy a few iterations old is still a good
-        // preconditioner.
-        std::size_t amgRebuildInterval = 10;
+        // the solve it accelerates. At high Reynolds numbers the matrix changes
+        // quickly, so a value of 1 (rebuild every iteration) keeps the
+        // preconditioner effective.
+        std::size_t amgRebuildInterval = 1;
         AMGHierarchy::Config amgConfig = []{
             AMGHierarchy::Config c;
-            c.strengthThreshold = 0.16;
+            c.strengthThreshold = 0.05;
             c.truncThreshold = 0.2;
             c.preSweeps = 1;
             c.postSweeps = 2;

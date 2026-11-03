@@ -108,8 +108,10 @@ struct Config {
         // Number of pressure correctors per SIMPLE iteration (>=1).
         int pressureCorrectors = 3;
         // Bound on |p'| as a multiple of rho*U_ref^2. See limitPressureCorrection_.
+        // Set high enough that the limiter rarely fires for well-posed flows;
+        // the limiter is a safety net, not a convergence aid.
         bool limitPressureCorrection = true;
-        double pressureCorrectionLimit = 5.0;
+        double pressureCorrectionLimit = 1e6;
         std::size_t printFrequency = 1;
         std::size_t residualHistoryWindow = 20;
         bool turbulenceEnabled = false;
@@ -119,6 +121,10 @@ struct Config {
     double alphaK = 0.7;
     double alphaOmega = 0.7;
     std::vector<InletTurbulence> inletTurbulence;
+
+    // Velocity correction damping limits.
+    double velocityCorrectionMaxUnlimitedSpeed = 20.0;
+    double velocityCorrectionMaxGrowthRate = 0.15;
 
         // --- Pressure-correction linear solver ---------------------------
         // The pressure Poisson system is symmetric, so AMG is a good fit.
@@ -135,7 +141,7 @@ struct Config {
         // 0 keeps the legacy mesh-scaled 1e-4 * mean(cell volume) rule; a
         // positive value is used verbatim as |r|/|b|.  stops at ~0.1
         // and lets the outer SIMPLE loop do the rest.
-        double pressureSolveTolerance = 0.0;
+        double pressureSolveTolerance = 0.1;
         int pressureAmgCycles = 1;
         AMGHierarchy::Config pressureAmgConfig = []{
             AMGHierarchy::Config c;
@@ -197,8 +203,10 @@ struct Config {
             c.postSweeps = 2;
             c.nonsymmetric = true;
             //  momentum defaults: Gauss-Seidel smoothing, a variable
-            // (flex) cycle and no Krylov acceleration - the hierarchy itself is
-            // the solver.
+            // (flex) cycle and no inner Krylov acceleration. This only
+            // configures the hierarchy; whether it is used as the outer solver
+            // or as a BiCGSTAB preconditioner is decided by
+            // momentumAmgAsSolver above.
             c.smoother = AMGHierarchy::Config::Smoother::GaussSeidel;
             c.cycleType = AMGHierarchy::Config::CycleType::Flexible;
             c.acceleration = AMGHierarchy::Config::Acceleration::None;
@@ -405,6 +413,11 @@ struct Config {
 
     // Momentum AMG diagnostics (for tests / profiling).
     std::size_t momentumAmgSolves() const { return momStats_.amgSolves; }
+    // Number of momentum solves that used the hierarchy directly as the solver
+    // (momentumAmgAsSolver=true). Zero for the default preconditioned path.
+    std::size_t momentumAmgStandaloneSolves() const {
+        return momStats_.amgStandaloneSolves;
+    }
     std::size_t momentumAmgRejected() const { return momStats_.amgRejected; }
     std::size_t momentumAmgBuilds() const { return momStats_.amgBuilds; }
     // Per-outer-iteration relative velocity change. Diagnostic only: it tracks
@@ -580,13 +593,15 @@ private:
     // success. Reset at the start of every momentum solve and consumed by the
     // component assemblers.
     bool momSolveFailed_ = false;
+    // Per-component flag: the ILU pattern analysis must be redone for each
+    // velocity component because U, V, W have different sparsity patterns.
+    std::array<bool, Dim> momPatternAnalyzed_{};
     double adaptiveAlphaP_ = 0.0;
     double maxInletSpeed_ = 0.0;
     double prevContResid_ = 0.0;
     std::size_t stallCount_ = 0;
     // Number of consecutive iterations the residual criterion has held.
     int convergedStreak_ = 0;
-    bool momPatternAnalyzed_ = false;
     std::size_t startIteration_ = 0;
     // Restart payload queued by setRestartState(), consumed by initializeSolve_.
     std::optional<RestartState> restartState_;
@@ -641,6 +656,7 @@ private:
     struct MomentumSolverStats {
         std::size_t solves = 0;
         std::size_t amgSolves = 0;
+        std::size_t amgStandaloneSolves = 0;
         std::size_t iluSolves = 0;
         std::size_t amgBuilds = 0;
         std::size_t amgRejected = 0;

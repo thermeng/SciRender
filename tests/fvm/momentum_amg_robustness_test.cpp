@@ -94,3 +94,50 @@ TEST_CASE("fvm.momentum_amg.robustness") {
               << " rejected=" << solver.momentumAmgRejected()
               << " builds=" << solver.momentumAmgBuilds() << "\n";
 }
+
+// The default config must run AMG as a BiCGSTAB preconditioner, not as the
+// outer solver. `momentumAmgConfig.acceleration == None` only says the
+// hierarchy has no inner Krylov acceleration; it must not silently switch on
+// the standalone mode. At Re=1000 on the 129x129 cavity the standalone cycles
+// are not a contraction for the changing nonsymmetric operator: the momentum
+// residual grows within one AMG-rebuild window and the velocity diverges to
+// 1e150. This test pins the contract so that regression cannot come back.
+TEST_CASE("fvm.momentum_amg.default_config_uses_preconditioner") {
+    const Setup setup = loadCavity();
+
+    auto runOnce = [&setup](bool asSolver) {
+        fvm::SIMPLE<2>::Config cfg;
+        cfg.maxIterations = 1;
+        cfg.runFixedIterations = true;
+        cfg.printFrequency = 1000000;
+        cfg.useAMGMomentum = true;
+        cfg.momentumAmgThreshold = 0;
+        cfg.momentumAmgAsSolver = asSolver;
+        // Keep the shipped acceleration: None means "no inner acceleration",
+        // not "standalone solve".
+        REQUIRE(cfg.momentumAmgConfig.acceleration ==
+                fvm::AMGHierarchy::Config::Acceleration::None);
+
+        fvm::SIMPLE<2> solver(setup.mesh, 1.0, 1.0 / 400.0, cfg);
+        for (const auto& [name, faces] : setup.mesh.boundaryGroups()) {
+            if (faces.empty()) continue;
+            if (name == setup.lidGroup)
+                solver.setVelocityBCOnFacesWithSlip(faces, "moving_wall", 1.0, 0.0, 0.0,
+                                                    false, 0.0);
+            else
+                solver.setVelocityBCOnFacesWithSlip(faces, "wall", 0.0, 0.0, 0.0, false, 0.0);
+        }
+
+        fvm::VectorField<2> velocity(setup.mesh, 0.0);
+        fvm::Field<2> pressure(setup.mesh, 0.0);
+        solver.solve(velocity, pressure);
+
+        CHECK(solver.momentumAmgBuilds() >= 1);
+        return solver.momentumAmgStandaloneSolves();
+    };
+
+    CHECK_MESSAGE(runOnce(false) == 0,
+                  "the default config must not use the standalone AMG solver");
+    CHECK_MESSAGE(runOnce(true) > 0,
+                  "momentumAmgAsSolver=true must still run the hierarchy as the solver");
+}

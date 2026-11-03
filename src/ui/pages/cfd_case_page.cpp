@@ -460,6 +460,25 @@ void CfdCasePage::buildAdvancedDialog() {
         "Iterations inspected when watching for a continuity residual that keeps growing.");
     diagForm->addRow("Residual window", m_residualHistoryWindow);
 
+    m_velocityCorrectionMaxUnlimitedSpeed = styleSpin(new QDoubleSpinBox);
+    m_velocityCorrectionMaxUnlimitedSpeed->setRange(0.0, 1e6);
+    m_velocityCorrectionMaxUnlimitedSpeed->setDecimals(2);
+    m_velocityCorrectionMaxUnlimitedSpeed->setValue(20.0);
+    m_velocityCorrectionMaxUnlimitedSpeed->setSuffix(" m/s");
+    m_velocityCorrectionMaxUnlimitedSpeed->setToolTip(
+        "Retained for API compatibility. Growth-rate limiting (next field) "
+        "applies at all speeds.");
+    diagForm->addRow("Max unlimited speed", m_velocityCorrectionMaxUnlimitedSpeed);
+
+    m_velocityCorrectionMaxGrowthRate = styleSpin(new QDoubleSpinBox);
+    m_velocityCorrectionMaxGrowthRate->setRange(0.0, 1.0);
+    m_velocityCorrectionMaxGrowthRate->setDecimals(3);
+    m_velocityCorrectionMaxGrowthRate->setSingleStep(0.01);
+    m_velocityCorrectionMaxGrowthRate->setValue(0.15);
+    m_velocityCorrectionMaxGrowthRate->setToolTip(
+        "Maximum per-iteration velocity amplitude growth rate from pressure correction.");
+    diagForm->addRow("Acceptable speed growth rate", m_velocityCorrectionMaxGrowthRate);
+
     auto* perfForm = addGroup(diagLay, "Performance");
     m_numThreads = styleSpin(new QSpinBox);
     m_numThreads->setRange(0, 1024);
@@ -638,6 +657,8 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_pressureRefCell->setValue((int)s.pressureRefCell);
     m_printFrequency->setValue((int)s.printFrequency);
     m_residualHistoryWindow->setValue((int)s.residualHistoryWindow);
+    m_velocityCorrectionMaxUnlimitedSpeed->setValue(s.velocityCorrectionMaxUnlimitedSpeed);
+    m_velocityCorrectionMaxGrowthRate->setValue(s.velocityCorrectionMaxGrowthRate);
     m_numThreads->setValue(s.numThreads);
 
     m_pressureUseAMG->setChecked(s.pressureUseAMG);
@@ -677,6 +698,11 @@ void CfdCasePage::onMeshLoaded() {
     if (!S() || !m_ctrl) return;
     if (!m_ctrl->meshName().isEmpty()) m_meshName = m_ctrl->meshName();
     const auto& res = m_ctrl->meshResult();
+
+    // Populate the page's patch BCs from the loaded mesh so the
+    // "Edit Boundary Conditions" button becomes enabled.
+    rebuildPatchTable();
+
     if (res.renderMesh) {
         // If a solved result mesh (with scalars) is already loaded, don't
         // overwrite it with the geometry-only base mesh. The base mesh has no
@@ -742,6 +768,8 @@ void CfdCasePage::collectSettings() {
     s.pressureRefCell = static_cast<std::size_t>(m_pressureRefCell->value());
     s.printFrequency = static_cast<std::size_t>(m_printFrequency->value());
     s.residualHistoryWindow = static_cast<std::size_t>(m_residualHistoryWindow->value());
+    s.velocityCorrectionMaxUnlimitedSpeed = m_velocityCorrectionMaxUnlimitedSpeed->value();
+    s.velocityCorrectionMaxGrowthRate = m_velocityCorrectionMaxGrowthRate->value();
     s.numThreads = m_numThreads->value();
 
     // Pressure linear solver

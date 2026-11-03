@@ -43,7 +43,7 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     sc.alphaU = settings.alphaU;
     sc.alphaP = settings.alphaP;
     sc.simplec = settings.simplec;
-    sc.rhieChow = true; // Rhie-Chow is required on collocated grids; always on.
+    sc.rhieChow = settings.rhieChow;
     sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
                           : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind
                              : fvm::ConvectionScheme::Upwind);
@@ -51,6 +51,8 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
                        : (settings.gradientScheme == 2 ? fvm::GradientScheme::GreenGaussNodeBased : fvm::GradientScheme::LeastSquares);
     sc.printFrequency = settings.printFrequency;
     sc.residualHistoryWindow = settings.residualHistoryWindow;
+    sc.velocityCorrectionMaxUnlimitedSpeed = settings.velocityCorrectionMaxUnlimitedSpeed;
+    sc.velocityCorrectionMaxGrowthRate = settings.velocityCorrectionMaxGrowthRate;
     sc.pressureCorrectors = settings.pressureCorrectors;
     sc.limitPressureCorrection = settings.limitPressureCorrection;
     sc.pressureCorrectionLimit = settings.pressureCorrectionLimit;

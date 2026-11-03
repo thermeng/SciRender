@@ -455,7 +455,10 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
         auto tCorrection = std::chrono::steady_clock::now();
         correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
                     bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
-                    &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
+                    &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                    config_.velocityCorrectionMaxUnlimitedSpeed,
+                    config_.velocityCorrectionMaxGrowthRate,
+                    adaptiveAlphaP_);
         steadyVelocityCorrectionSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tCorrection).count();
 
         #pragma omp parallel for schedule(static)
@@ -514,11 +517,11 @@ bool SIMPLE<Dim>::hasPositiveOffDiagonals_(const SparseMatrix& A) {
 
 template <std::size_t Dim>
 Eigen::VectorXd SIMPLE<Dim>::solveMomentumILU_(std::size_t d, std::size_t& itersOut) {
-    if (!momPatternAnalyzed_) {
+    if (!momPatternAnalyzed_[d]) {
         momSolver_.setMaxIterations(50000);
         momSolver_.setTolerance(1e-8);
         momSolver_.analyzePattern(momA_);
-        momPatternAnalyzed_ = true;
+        momPatternAnalyzed_[d] = true;
     }
     momSolver_.factorize(momA_);
     Eigen::VectorXd x = momSolver_.solve(momB_);
@@ -600,15 +603,21 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
     //  always drives momentum with AMG, including for the
     // nonsymmetric (central-difference) operators that used to be routed to
     // ILU. The two modes below mirror its log: either the hierarchy is used
-    // as a preconditioner inside BiCGSTAB, or (momentumAmgAsSolver) it is
-    // applied directly for a fixed number of cycles.
+    // as a preconditioner inside BiCGSTAB (the default), or
+    // momentumAmgAsSolver applies it directly for a fixed number of cycles.
+    //
+    // `momentumAmgConfig.acceleration == None` is NOT a request for the
+    // standalone mode: it only means the AMG hierarchy itself has no inner
+    // Krylov acceleration. Treating it as standalone silently ignored
+    // momentumAmgAsSolver=false and ran 30 V-cycles as the whole solve; at
+    // Re=1000 on the 129x129 cavity that cycle is not a contraction for the
+    // changing nonsymmetric operator, the momentum residual grows from 0.05 to
+    // 1.4 within one AMG-rebuild window and the field diverges to 1e150.
+    const bool standaloneAmg = config_.momentumAmgAsSolver;
     if (!momAmgPathLogged_[d]) {
         const auto acc = config_.momentumAmgConfig.acceleration;
-        const bool standalone =
-            config_.momentumAmgAsSolver ||
-            acc == AMGHierarchy::Config::Acceleration::None;
         std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W") << "]: using ";
-        if (standalone) {
+        if (standaloneAmg) {
             std::cerr << "AMG cycles.";
         } else if (acc == AMGHierarchy::Config::Acceleration::GMRES) {
             std::cerr << "AMG-preconditioned GMRES.";
@@ -660,9 +669,6 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
     }
 
     const auto momAccel = config_.momentumAmgConfig.acceleration;
-    const bool standaloneAmg =
-        config_.momentumAmgAsSolver ||
-        momAccel == AMGHierarchy::Config::Acceleration::None;
 
     if (standaloneAmg) {
         //  mode: apply the hierarchy directly as the solver. The
@@ -703,6 +709,7 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
             return Eigen::VectorXd::Zero(momB_.size());
         }
         ++momStats_.amgSolves;
+        ++momStats_.amgStandaloneSolves;
         return x;
     }
 
@@ -1632,7 +1639,10 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
     pressureGradBefore_ = pressureCorrection_.pressureGradient();
     correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
                     bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
-                    &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
+                    &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                    config_.velocityCorrectionMaxUnlimitedSpeed,
+                    config_.velocityCorrectionMaxGrowthRate,
+                    adaptiveAlphaP_);
     #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         (boundPressure())[i] += adaptiveAlphaP_ * pPrime_[i];
@@ -1785,7 +1795,10 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
 
         correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
                         bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
-                        &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
+                        &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                        config_.velocityCorrectionMaxUnlimitedSpeed,
+                        config_.velocityCorrectionMaxGrowthRate,
+                        adaptiveAlphaP_);
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
             (boundPressure())[i] += pPrime_[i]; // alphaP = 1 for PISO

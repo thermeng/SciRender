@@ -182,7 +182,7 @@ struct CaseSettings {
     int scheme = 0; // 0 upwind, 1 central, 2 second-order upwind
     // 0 least squares, 1 green-gauss cell based, 2 green-gauss node based
     int gradientScheme = 0;
-    bool rhieChow = true;
+    bool rhieChow = true; // compact operator with Rhie-Chow: two-point stencil, stable at high Re
     bool turbulence = false;
     bool wallFunction = false;
     double kInf = 1e-3, omegaInf = 1.0;
@@ -195,6 +195,17 @@ struct CaseSettings {
     double pressureCorrectionLimit = 5.0;
     std::size_t printFrequency = 1;
     std::size_t residualHistoryWindow = 20;
+
+    // Velocity correction damping limits.
+    // Per-iteration growth rate is capped at maxGrowthRate (e.g. 0.15 = 15%).
+    // This limit always applies regardless of absolute speed: even at low
+    // speeds, pressure correction can inject explosive growth (as seen at
+    // Re=1000 where speed jumped 0.77 -> 1790 m/s in one iteration).
+    // Reduction rate is unlimited.
+    // maxUnlimitedSpeed is retained for API compatibility but no longer gates
+    // the growth-rate limiter.
+    double velocityCorrectionMaxUnlimitedSpeed = 20.0;
+    double velocityCorrectionMaxGrowthRate = 0.15;
 
     // Number of OpenMP threads used by the solver (matrix assembly, AMG,
     // residuals). 0 = auto (OpenMP runtime default / OMP_NUM_THREADS).
