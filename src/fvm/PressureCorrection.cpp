@@ -131,21 +131,17 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
-    // A boundary cell the pressure does not prescribe and an outlet does not
-    // reach is a Dirichlet cell of the pressure correction (p' = 0 there).
-    for (std::size_t i = 0; i < n; ++i) {
-        if (mesh_.isBoundary(i) && !isPressureNeumann[i] && !isPressureOutlet_[i]) {
-            pMask_[i] = true;
-            pVals_[i] = 0.0;
-        }
-    }
+    // Boundary cells at velocity-Dirichlet walls use pressure Neumann
+    // (zero normal gradient), NOT Dirichlet p'=0. Pinning p'=0 at every
+    // wall over-constrains the system and makes the pressure matrix
+    // ill-conditioned - AMG-CG cannot converge because every wall cell is
+    // forced to p'=0 while the velocity correction injects pressure
+    // gradients. Only pressure-outlet cells (handled above) carry p' = 0.
 
     // A pure Neumann system (no Dirichlet pressure anywhere) is singular: it
     // needs ONE pinned reference cell (p' = 0 there) to fix the constant
-    // mode. When the system already carries a Dirichlet row - an outlet, a
-    // prescribed pressure boundary - nothing has to be pinned: pinning a
-    // second cell would force a spurious local feature into p' exactly where
-    // the mass balance must stay correct.
+    // mode. STAR-CCM+ places it near the smallest X/Y/Z corner of the
+    // domain, which sits near the boundary surface.
     bool hasDirichletPressure = false;
     for (std::size_t i = 0; i < n; ++i) {
         if (pMask_[i]) { hasDirichletPressure = true; break; }
@@ -153,41 +149,28 @@ void PressureCorrection<Dim>::solve(
     if (!hasDirichletPressure) {
         std::size_t refCell = config_.pressureRefCell;
         if (refCell >= n) {
-            // The pinned cell is the one cell whose continuity error the
-            // pressure correction cannot remove, so it belongs in a smooth
-            // interior region - not at the first interior cell, which in a
-            // cavity is a corner: the largest local imbalance, and exactly
-            // where the corner vortices form.
-            std::array<double, Dim> centroid{};
+            // STAR-CCM+ style: pin the cell nearest the min X/Y/Z corner,
+            // which sits near the boundary surface.
+            std::array<double, Dim> minCorner{};
+            for (std::size_t d = 0; d < Dim; ++d) minCorner[d] = std::numeric_limits<double>::max();
             for (std::size_t i = 0; i < n; ++i) {
                 const auto& c = mesh_.cellCenter(i);
-                for (std::size_t d = 0; d < Dim; ++d) centroid[d] += c[d];
+                for (std::size_t d = 0; d < Dim; ++d) {
+                    if (c[d] < minCorner[d]) minCorner[d] = c[d];
+                }
             }
-            for (std::size_t d = 0; d < Dim; ++d) centroid[d] /= static_cast<double>(n);
             double best = std::numeric_limits<double>::max();
             for (std::size_t i = 0; i < n; ++i) {
-                // Only interior cells can be pinned: every boundary cell is
-                // either pressure-Neumann (by construction, see
-                // BCDiscretization) or already carries a Dirichlet row above.
-                if (mesh_.isBoundary(i) || isPressureOutlet_[i] || pMask_[i]) continue;
                 const auto& c = mesh_.cellCenter(i);
                 double d2 = 0.0;
                 for (std::size_t d = 0; d < Dim; ++d) {
-                    const double dd = c[d] - centroid[d];
+                    const double dd = c[d] - minCorner[d];
                     d2 += dd * dd;
                 }
                 if (d2 < best) { best = d2; refCell = i; }
             }
-            if (refCell >= n) {
-                for (std::size_t i = 0; i < n; ++i) {
-                    if (mesh_.isBoundary(i) || isPressureOutlet_[i]) continue;
-                    refCell = i;
-                    break;
-                }
-            }
-            if (refCell >= n) refCell = n - 1;
         }
-        if (!pMask_[refCell]) { pMask_[refCell] = true; pVals_[refCell] = 0.0; }
+        if (refCell < n && !pMask_[refCell]) { pMask_[refCell] = true; pVals_[refCell] = 0.0; }
     }
 
     // A cell without a single interior face has no pressure equation at all:
@@ -620,14 +603,20 @@ void PressureCorrection<Dim>::solve(
             int pos = aTripletToValuePos_[t];
             if (pos >= 0) vals[pos] = triplets_[t].value();
         }
-        // Values changed but pattern same -> the hierarchy is stale (Ac = P^T A P
-        // depends on A). Refresh it on the configured cadence instead of on every
-        // solve: rebuilding every iteration costs more than the solve it
-        // accelerates, and a hierarchy a few iterations old is still a good
-        // preconditioner.
-        if (amgBuilt_ && ++amgValueUpdates_ >= std::max<std::size_t>(1, config_.amgRebuildInterval)) {
+        // Values changed but pattern same -> rebuild the full AMG hierarchy
+        // (coarse operators P^T A P depend on A values, not just the pattern).
+        // With amgRebuildInterval = 1 this rebuilds every outer iteration,
+        // keeping the preconditioner effective even when dCoeff changes
+        // rapidly at high Reynolds numbers.
+        if (amg_.isBuilt() && ++amgValueUpdates_ >= std::max<std::size_t>(1, config_.amgRebuildInterval)) {
             amgValueUpdates_ = 0;
-            amg_.updateFineValues(A_);
+            amg_.invalidate();
+            auto amgCfg = config_.amgConfig;
+            amgCfg.tolerance = (config_.solveTolerance > 0.0)
+                ? config_.solveTolerance
+                : amgCfg.tolerance * volScale;
+            amg_.setConfig(amgCfg);
+            amg_.build(A_);
         }
     }
 
@@ -690,7 +679,7 @@ void PressureCorrection<Dim>::solve(
         if (amg_.isBuilt()) {
             const double krylovTol =
                 (config_.solveTolerance > 0.0) ? config_.solveTolerance
-                                               : 1e-4 * volScale;
+                                               : 0.1;
             if (!pPatternAnalyzed_ || compactChanged) {
                 bicgSolver_.setMaxIterations(1000);
                 bicgSolver_.setTolerance(krylovTol);

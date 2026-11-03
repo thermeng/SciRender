@@ -120,6 +120,8 @@ private:
     AmgConfigWidget* m_pressureAmgWidget = nullptr;
     QSpinBox* m_printFrequency = nullptr;
     QSpinBox* m_residualHistoryWindow = nullptr;
+    QDoubleSpinBox* m_velocityCorrectionMaxUnlimitedSpeed = nullptr;
+    QDoubleSpinBox* m_velocityCorrectionMaxGrowthRate = nullptr;
     // Consecutive iterations the residual criterion must hold before the run
     // is declared converged.
     QSpinBox* m_convergenceHold = nullptr;

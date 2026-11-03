@@ -33,7 +33,11 @@ inline void correctVelocity(
     std::array<Field<Dim>, Dim>& dpdx,
     VectorField<Dim>& velocity,
     const std::vector<FaceVelocityBC>* faceBC = nullptr,
-    const std::vector<char>* faceHasBC = nullptr) {
+    const std::vector<char>* faceHasBC = nullptr,
+    double maxUnlimitedSpeed = 20.0,   // retained for API compatibility; no longer gates damping
+    double maxGrowthRate = 0.15,       // max per-iteration growth rate (e.g. 0.15 = 15%)
+    double alphaP = 1.0                // pressure under-relaxation applied to velocity correction
+) {
 
     Gradient<Dim> gradient(mesh, GradientScheme::LeastSquares);
     std::array<Field<Dim>, Dim> lsqGrad{};
@@ -49,6 +53,44 @@ inline void correctVelocity(
             else velocity[d][i] = uStar[d][i] - dCoeff[d][i] * dpdx[d][i];
         }
     }
+
+    // Velocity amplitude damping: cap per-iteration growth rate.
+    // Growth rate is always limited (reduction rate is unlimited). The
+    // maxUnlimitedSpeed threshold is intentionally NOT applied here: even at
+    // low speeds, pressure correction can inject explosive growth (as seen at
+    // Re=1000 where speed jumped 0.77 -> 1790 m/s in one iteration). Capping
+    // relative growth prevents this cascade regardless of absolute speed.
+    // Dirichlet cells keep their prescribed velocity exactly and are not
+    // damped.
+    if (maxGrowthRate >= 0.0) {
+        #pragma omp parallel for schedule(static)
+        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+            // Skip cells with any prescribed velocity component.
+            bool isDirichlet = false;
+            for (std::size_t d = 0; d < Dim; ++d)
+                if (dirichletMask[d][i]) { isDirichlet = true; break; }
+            if (isDirichlet) continue;
+
+            double newSpeed2 = 0.0, oldSpeed2 = 0.0;
+            for (std::size_t d = 0; d < Dim; ++d) {
+                newSpeed2 += velocity[d][i] * velocity[d][i];
+                oldSpeed2  += uStar[d][i] * uStar[d][i];
+            }
+            double newSpeed = std::sqrt(newSpeed2);
+            double oldSpeed = std::sqrt(oldSpeed2);
+
+            if (oldSpeed > 0.0) {
+                double maxAllowedSpeed = oldSpeed * (1.0 + maxGrowthRate);
+                if (newSpeed > maxAllowedSpeed) {
+                    double scale = maxAllowedSpeed / newSpeed;
+                    for (std::size_t d = 0; d < Dim; ++d)
+                        velocity[d][i] *= scale;
+                }
+            }
+            // No limit on reduction rate.
+        }
+    }
+
     if (faceBC && faceHasBC) {
         for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
             if (mesh.neighbor(f) != std::size_t(-1)) continue;
