@@ -96,11 +96,11 @@ TEST_CASE("fvm.amg.settings_translation") {
     // The presets must land on the values the solver shipped with, otherwise
     // Reset in the dialog would silently change solver behaviour.
     const fvm::AMGHierarchy::Config p = cfd::toFvmAmg(cfd::AmgSettings::pressureDefaults());
-    const bool pressureSweeps = (p.preSweeps == 2) && (p.postSweeps == 2);
+    const bool pressureSweeps = (p.preSweeps == 1) && (p.postSweeps == 1);
     CHECK_MESSAGE(pressureSweeps, "pressure preset sweeps");
 
     const fvm::AMGHierarchy::Config m = cfd::toFvmAmg(cfd::AmgSettings::momentumDefaults());
-    const bool momentumSweeps = (m.preSweeps == 2) && (m.postSweeps == 2);
+    const bool momentumSweeps = (m.preSweeps == 1) && (m.postSweeps == 1);
     CHECK_MESSAGE(momentumSweeps, "momentum preset sweeps");
 }
 

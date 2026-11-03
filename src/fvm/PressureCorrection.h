@@ -46,7 +46,7 @@ public:
         // Relative tolerance for the AMG-preconditioned Krylov solve. 0 keeps
         // the legacy mesh-scaled 1e-4 * mean(cell volume) rule. A positive
         // value is used verbatim as |r|/|b|;  stops at ~0.1.
-        double solveTolerance = 0.0;
+        double solveTolerance = 0.1;
         int amgPreconditionerCycles = 1;
         // How many times the pressure matrix may change its VALUES before the
         // AMG hierarchy is rebuilt. The coarse levels depend on the matrix
@@ -58,12 +58,14 @@ public:
         std::size_t amgRebuildInterval = 10;
         AMGHierarchy::Config amgConfig = []{
             AMGHierarchy::Config c;
-            c.strengthThreshold = 0.25;
+            c.strengthThreshold = 0.16;
             c.truncThreshold = 0.2;
-            c.preSweeps = 2;
+            c.preSweeps = 1;
             c.postSweeps = 2;
             c.maxIterations = 100;
+            c.scaling = AMGHierarchy::Config::ProportionalScaling::Automatic;
             c.tolerance = 1e-8;
+            c.verbosity = AMGHierarchy::Config::Verbosity::High;
             return c;
         }();
     };
@@ -168,6 +170,7 @@ private:
     mutable std::vector<double> pVals_;
     mutable std::vector<char> isPressureOutlet_;
     mutable Field<Dim> divU_;
+    mutable std::vector<std::vector<std::pair<std::size_t, double>>> rowAcc_;
 
     // The number of cells that have no pressure equation at all (no interior
     // face: a detached cell). Such a cell is excluded from the pressure

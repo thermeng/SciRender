@@ -90,7 +90,15 @@ public:
     virtual double currentTime() const = 0;
     virtual SessionStatus status() const = 0;
     virtual int lastIterations() const = 0;
+    // Raw continuity residual (the mass imbalance the pressure correction must
+    // remove). Not the value the tolerance is compared against.
     virtual double finalContinuityResidual() const = 0;
+    // Scaled continuity residual as printed in the iteration table; this is
+    // the quantity the convergence test compares with the tolerance.
+    virtual double finalNormalizedContinuityResidual() const = 0;
+    // Scaled per-direction momentum linear residuals, in the same order as the
+    // "x-velocity"/"y-velocity" columns of the iteration table. The summary
+    // "momentum residual" is the max of these.
     virtual std::array<double, 3> finalMomentumResiduals() const = 0;
     virtual double finalKResidual() const = 0;
     virtual double finalOmegaResidual() const = 0;

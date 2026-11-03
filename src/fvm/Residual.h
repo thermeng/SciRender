@@ -46,6 +46,8 @@ inline ResidualResult computeResiduals(
     // This mirrors PressureCorrection's divergence for consistency
     const std::size_t nF = mesh.nFaces();
     const std::size_t n = mesh.nCells();
+    const char* isBnd = mesh.isBoundaryPtr();
+    const double* volPtr = mesh.cellVolumePtr();
     std::vector<char> emptyMask;
     const std::vector<char>& maskRef = pMask ? *pMask : emptyMask;
     for (std::size_t i = 0; i < n; ++i) divBuffer[i] = 0.0;
@@ -89,11 +91,11 @@ inline ResidualResult computeResiduals(
     double totalVol = 0.0;
     #pragma omp parallel for reduction(max:maxDiv) reduction(+:sumAbsDivVol,totalVol) schedule(static)
     for (std::size_t i = 0; i < n; ++i) {
-        if (mesh.isBoundary(i)) continue;
+        if (isBnd[i]) continue;
         double ad = std::abs(divBuffer[i]);
         if (ad > maxDiv) maxDiv = ad;
-        sumAbsDivVol += ad * mesh.cellVolume(i);
-        totalVol += mesh.cellVolume(i);
+        sumAbsDivVol += ad * volPtr[i];
+        totalVol += volPtr[i];
     }
     // Primary residual: sumAbsDivVol normalized by sumFlux (mass imbalance / total flux)
     // Fallback to maxDiv * L / Uchar if sumFlux is tiny (e.g., all walls)
@@ -102,7 +104,7 @@ inline ResidualResult computeResiduals(
         contResid = sumAbsDivVol / sumFlux;
     } else {
         double maxUmag = 0.0;
-        for (std::size_t i = 0; i < n; ++i) if (!mesh.isBoundary(i)) {
+        for (std::size_t i = 0; i < n; ++i) if (!isBnd[i]) {
             double um2 = 0.0;
             for (std::size_t d = 0; d < Dim; ++d) um2 += velocity[d][i]*velocity[d][i];
             double um = std::sqrt(um2);
@@ -117,7 +119,7 @@ inline ResidualResult computeResiduals(
     double maxU = 0.0, maxV = 0.0, maxW = 0.0;
     #pragma omp parallel for reduction(max:maxUChange,maxVChange,maxWChange,maxU,maxV,maxW) schedule(static)
     for (std::size_t i = 0; i < n; ++i) {
-        if (mesh.isBoundary(i)) continue;
+        if (isBnd[i]) continue;
         double du = std::abs(velocity[0][i] - velocityOld[0][i]);
         if (du > maxUChange) maxUChange = du;
         double dv = std::abs(velocity[1][i] - velocityOld[1][i]);

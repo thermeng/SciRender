@@ -286,6 +286,9 @@ public:
     double finalContinuityResidual() const override {
         return withSolver([](const Solver& s) { return s.finalContinuityResidual(); });
     }
+    double finalNormalizedContinuityResidual() const override {
+        return withSolver([](const Solver& s) { return s.finalNormalizedContinuityResidual(); });
+    }
     std::array<double, 3> finalMomentumResiduals() const override {
         return withSolver([](const Solver& s) {
             auto r = s.finalMomentumResiduals();
@@ -411,6 +414,7 @@ public:
     }
 
     std::string outputExtension() const override {
+        if (!m_mesh) return ".vtu";
         if (m_mesh->isUnstructured()) return ".vtu";
         return m_mesh->isUniform() ? ".vti" : ".vtr";
     }

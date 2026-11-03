@@ -125,6 +125,29 @@ void AMGHierarchy::build(const SparseMatrix& A) {
     Eigen::SparseMatrix<double, Eigen::RowMajor> AR = A;
     AR.makeCompressed();
 
+    // Auto scaling: symmetric diagonal equilibration (STAR-CCM+-style).
+    scale_.clear();
+    if (config_.scaling == AMGHierarchy::Config::ProportionalScaling::Automatic) {
+        const int n = static_cast<int>(A.rows());
+        scale_.assign(n, 1.0);
+        for (int i = 0; i < n; ++i) {
+            double diag = A.coeff(i, i);
+            if (std::abs(diag) > 0.0) scale_[i] = 1.0 / std::sqrt(std::abs(diag));
+        }
+        // Apply D A D to AR.
+        const int* outer = AR.outerIndexPtr();
+        const int* inner = AR.innerIndexPtr();
+        double* vals = AR.valuePtr();
+        for (int col = 0; col < n; ++col) {
+            for (int k = outer[col]; k < outer[col + 1]; ++k) {
+                int row = inner[k];
+                vals[k] *= scale_[row] * scale_[col];
+            }
+        }
+    } else {
+        scale_.clear();
+    }
+
     auto h = std::make_shared<Handle>();
 
     try {
@@ -187,6 +210,15 @@ void AMGHierarchy::build(const SparseMatrix& A) {
                 }
                 case Smoother::GaussSeidel: {
                     amgcl::relaxation::gauss_seidel<Backend>::params rp;
+                    // amgcl defaults `serial` to false and then switches to its
+                    // level-scheduled parallel_sweep whenever OpenMP reports >= 4
+                    // threads. That sweep inserts an OpenMP barrier per
+                    // dependency level (hundreds per V-cycle on a structured
+                    // grid), which on MinGW/Windows costs ~50 ms per cycle at 4
+                    // threads and ~100 ms at 8 - roughly 300x the serial sweep.
+                    // Gauss-Seidel is inherently sequential here, so keep the
+                    // fast, deterministic serial sweep on every level.
+                    rp.serial = true;
                     h->ptr = makeAmg<AggGsAmg>(AR, config_, cp, rp);
                     break;
                 }
@@ -213,6 +245,9 @@ void AMGHierarchy::build(const SparseMatrix& A) {
                 }
                 case Smoother::GaussSeidel: {
                     amgcl::relaxation::gauss_seidel<Backend>::params rp;
+                    // See the aggregation branch: force the serial sweep so the
+                    // OpenMP level-scheduled sweep (>=4 threads) is never used.
+                    rp.serial = true;
                     h->ptr = makeAmg<RsGsAmg>(AR, config_, cp, rp);
                     break;
                 }
@@ -288,9 +323,18 @@ bool AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) cons
     auto h = std::static_pointer_cast<Handle>(amgHandle_);
     if (!h || !h->ptr) { x = b; return false; }
 
-    amgcl::backend::numa_vector<double> bn(b.size(), false);
-    amgcl::backend::numa_vector<double> xn(x.size(), false);
-    for (int i = 0; i < b.size(); ++i) { bn[i] = b(i); xn[i] = x(i); }
+    const bool hasScale = (static_cast<int>(scale_.size()) == b.size());
+    if (bn_work_.size() != static_cast<std::size_t>(b.size()) ||
+        xn_work_.size() != static_cast<std::size_t>(x.size())) {
+        bn_work_.resize(b.size());
+        xn_work_.resize(x.size());
+    }
+    amgcl::backend::numa_vector<double>& bn = bn_work_;
+    amgcl::backend::numa_vector<double>& xn = xn_work_;
+    for (int i = 0; i < b.size(); ++i) {
+        bn[i] = hasScale ? b(i) * scale_[i] : b(i);
+        xn[i] = hasScale ? x(i) / scale_[i] : x(i);
+    }
 
     switch (h->kind) {
         case Kind::AggGs:     std::static_pointer_cast<AggGsAmg>(h->ptr)->cycle(bn, xn); break;
@@ -303,7 +347,10 @@ bool AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) cons
         case Kind::RsSpai:    std::static_pointer_cast<RsSpaiAmg>(h->ptr)->cycle(bn, xn); break;
     }
 
-    for (int i = 0; i < x.size(); ++i) x(i) = xn[i];
+    const bool hasScale2 = (static_cast<int>(scale_.size()) == x.size());
+    for (int i = 0; i < x.size(); ++i) {
+        x(i) = hasScale2 ? xn[i] * scale_[i] : xn[i];
+    }
     if (!x.allFinite()) { x.setZero(); return false; }
     return true;
 }
@@ -391,8 +438,32 @@ void AMGHierarchy::updateFineValues(const SparseMatrix& A) {
     if (!h || !h->ptr) { build(A); return; }
     if (static_cast<int>(A.rows()) != n_) { build(A); return; }
     try {
+        // Mirror build(): when proportional scaling is active the hierarchy is
+        // built on the scaled operator D A D, so the rebuilt matrix must be
+        // scaled the same way and scale_ must track the current diagonal.
+        // Otherwise applyCycle() transforms b/x with a stale D and the solve
+        // satisfies the wrong equation.
         Eigen::SparseMatrix<double, Eigen::RowMajor> AR = A;
         AR.makeCompressed();
+        if (config_.scaling == Config::ProportionalScaling::Automatic) {
+            const int n = static_cast<int>(A.rows());
+            scale_.assign(n, 1.0);
+            for (int i = 0; i < n; ++i) {
+                double diag = A.coeff(i, i);
+                if (std::abs(diag) > 0.0) scale_[i] = 1.0 / std::sqrt(std::abs(diag));
+            }
+            const int* outer = AR.outerIndexPtr();
+            const int* inner = AR.innerIndexPtr();
+            double* vals = AR.valuePtr();
+            for (int col = 0; col < n; ++col) {
+                for (int k = outer[col]; k < outer[col + 1]; ++k) {
+                    int row = inner[k];
+                    vals[k] *= scale_[row] * scale_[col];
+                }
+            }
+        } else {
+            scale_.clear();
+        }
         switch (h->kind) {
             case Kind::AggGs:     std::static_pointer_cast<AggGsAmg>(h->ptr)->rebuild(AR); break;
             case Kind::AggJacobi: std::static_pointer_cast<AggJacobiAmg>(h->ptr)->rebuild(AR); break;

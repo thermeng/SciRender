@@ -8,7 +8,7 @@
 #include <iostream>
 #include <cmath>
 #include <limits>
-#include <chrono>
+#include <algorithm>
 
 namespace fvm {
 
@@ -212,10 +212,12 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
-    divU_.assign(0.0);
-
-    #pragma omp parallel for schedule(static)
-    for (std::size_t f = 0; f < nF; ++f) {
+    std::vector<double> divU(n, 0.0);
+    #pragma omp parallel
+    {
+        std::vector<double> local(n, 0.0);
+        #pragma omp for schedule(static)
+        for (std::size_t f = 0; f < nF; ++f) {
         const std::size_t P = ownerPtr[f];
         const std::size_t N = neighborPtr[f];
         const double* fn = mesh_.faceNormalPtr(f);
@@ -271,13 +273,15 @@ void PressureCorrection<Dim>::solve(
         }
 
         double flux = un * area;
-        #pragma omp atomic
-        divU_[P] += flux;
+        local[P] += flux;
         if (N != std::size_t(-1)) {
-            #pragma omp atomic
-            divU_[N] -= flux;
+            local[N] -= flux;
         }
     }
+    #pragma omp critical
+    for (std::size_t i = 0; i < n; ++i) divU[i] += local[i];
+    }
+    for (std::size_t i = 0; i < n; ++i) divU_[i] = divU[i];
 
     // ------------------------------------------------------------------
     // Two pressure operators share the divergence above.
@@ -337,7 +341,13 @@ void PressureCorrection<Dim>::solve(
     // column lists. Entries are summed on emit below so every
     // (row, column) pair lands in triplets_ exactly once and the A_ value
     // scatter map stays a bijection.
-    std::vector<std::vector<std::pair<std::size_t, double>>> rowAcc(n);
+    // Reuse the per-row accumulator to avoid per-solve allocations.
+    if (rowAcc_.size() != n) {
+        rowAcc_.assign(n, {});
+    } else {
+        for (auto& r : rowAcc_) r.clear();
+    }
+    for (auto& r : rowAcc_) r.reserve(2 * Dim + 2);
 
     if (config_.compactRhieChow) {
         // Collocated-grid PISO operator: the two-point face-normal Laplacian.
@@ -379,10 +389,10 @@ void PressureCorrection<Dim>::solve(
             // the right-hand side is negated to match. Solving -A p' = -b
             // gives the same p' as A p' = b but lets CG/AMG operate on a
             // positive-definite system.
-            rowAcc[P].emplace_back(P, +coeff);
-            rowAcc[P].emplace_back(N, -coeff);
-            rowAcc[N].emplace_back(N, +coeff);
-            rowAcc[N].emplace_back(P, -coeff);
+            rowAcc_[P].emplace_back(P, +coeff);
+            rowAcc_[P].emplace_back(N, -coeff);
+            rowAcc_[N].emplace_back(N, +coeff);
+            rowAcc_[N].emplace_back(P, -coeff);
         }
     } else {
         if (!gradientRowsBuilt_) {
@@ -431,7 +441,7 @@ void PressureCorrection<Dim>::solve(
                     const double local = -dCoeff[d][P] * fn[d] * area;
                     if (local != 0.0) {
                         for (const auto& [col, k] : gradientRows_[d][P])
-                            rowAcc[P].emplace_back(col, local * k);
+                            rowAcc_[P].emplace_back(col, local * k);
                     }
                 }
                 continue;
@@ -459,14 +469,14 @@ void PressureCorrection<Dim>::solve(
                 // the same bookkeeping the divergence of u* uses above.
                 if (faceP != 0.0) {
                     for (const auto& [col, k] : gradientRows_[d][P]) {
-                        rowAcc[P].emplace_back(col, faceP * k);
-                        rowAcc[N].emplace_back(col, -faceP * k);
+                        rowAcc_[P].emplace_back(col, faceP * k);
+                        rowAcc_[N].emplace_back(col, -faceP * k);
                     }
                 }
                 if (faceN != 0.0) {
                     for (const auto& [col, k] : gradientRows_[d][N]) {
-                        rowAcc[P].emplace_back(col, faceN * k);
-                        rowAcc[N].emplace_back(col, -faceN * k);
+                        rowAcc_[P].emplace_back(col, faceN * k);
+                        rowAcc_[N].emplace_back(col, -faceN * k);
                     }
                 }
             }
@@ -479,10 +489,10 @@ void PressureCorrection<Dim>::solve(
             // isolated or degenerate cell).
             triplets_.emplace_back(r, r, 1.0);
             bVec_(r) = pVals_[r];
-            rowAcc[r].clear();
+            rowAcc_[r].clear();
             continue;
         }
-        auto& entries = rowAcc[r];
+        auto& entries = rowAcc_[r];
         std::sort(entries.begin(), entries.end(),
                   [](const std::pair<std::size_t, double>& lhs, const std::pair<std::size_t, double>& rhs) {
                       return lhs.first < rhs.first;
@@ -585,9 +595,8 @@ void PressureCorrection<Dim>::solve(
             int col = static_cast<int>(triplets_[t].col());
             int row = static_cast<int>(triplets_[t].row());
             int pos = -1;
-            for (int k = outer[col]; k < outer[col + 1]; ++k) {
-                if (inner[k] == row) { pos = k; break; }
-            }
+            const int* lb = std::lower_bound(inner + outer[col], inner + outer[col + 1], row);
+            if (lb < inner + outer[col + 1] && *lb == row) pos = static_cast<int>(lb - inner);
             aTripletToValuePos_[t] = pos;
         }
     } else {
@@ -601,9 +610,8 @@ void PressureCorrection<Dim>::solve(
                 int col = static_cast<int>(triplets_[t].col());
                 int row = static_cast<int>(triplets_[t].row());
                 int pos = -1;
-                for (int k = outer[col]; k < outer[col + 1]; ++k) {
-                    if (inner[k] == row) { pos = k; break; }
-                }
+                const int* lb = std::lower_bound(inner + outer[col], inner + outer[col + 1], row);
+                if (lb < inner + outer[col + 1] && *lb == row) pos = static_cast<int>(lb - inner);
                 aTripletToValuePos_[t] = pos;
             }
         }
@@ -612,11 +620,14 @@ void PressureCorrection<Dim>::solve(
             int pos = aTripletToValuePos_[t];
             if (pos >= 0) vals[pos] = triplets_[t].value();
         }
-        // Values changed but pattern same -> coarse hierarchy is stale (Ac = P^T A P depends on A).
-        // Updating only fine level is insufficient; force rebuild of full hierarchy next use.
-        if (amgBuilt_) {
-            amg_.invalidate();
-            amgBuilt_ = false;
+        // Values changed but pattern same -> the hierarchy is stale (Ac = P^T A P
+        // depends on A). Refresh it on the configured cadence instead of on every
+        // solve: rebuilding every iteration costs more than the solve it
+        // accelerates, and a hierarchy a few iterations old is still a good
+        // preconditioner.
+        if (amgBuilt_ && ++amgValueUpdates_ >= std::max<std::size_t>(1, config_.amgRebuildInterval)) {
+            amgValueUpdates_ = 0;
+            amg_.updateFineValues(A_);
         }
     }
 
@@ -670,6 +681,7 @@ void PressureCorrection<Dim>::solve(
             pressureStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tBuild).count();
             amgPrec_.setAMG(&amg_);
             amgBuilt_ = true;
+            amgValueUpdates_ = 0;
             amgPatternHash_ = patternHash;
             prevPMask_ = pMask_;
             prevNonZeroPattern_ = triplets_.size();
@@ -764,6 +776,7 @@ void PressureCorrection<Dim>::solve(
             pressureStats_.amgBuilds++;
             pressureStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tBuild).count();
             amgBuilt_ = true;
+            amgValueUpdates_ = 0;
             amgPatternHash_ = patternHash;
             prevPMask_ = pMask_;
             prevNonZeroPattern_ = triplets_.size();

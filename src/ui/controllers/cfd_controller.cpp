@@ -20,6 +20,7 @@
 #include <QStringList>
 
 #include <memory>
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -459,17 +460,23 @@ bool CfdController::run() {
             }
             return;
         }
-        // Steady: report the VERDICT, not just "the run ended".
-        const double cont = session->finalContinuityResidual();
+        // Steady: report the VERDICT, not just "the run ended". The residuals
+        // quoted are the SCALED values the tolerance was applied to. The old
+        // message printed the raw continuity (which the gate never used) and
+        // omitted momentum entirely, so a stalled run whose momentum residual
+        // was still > tolerance looked converged.
+        const double cont = session->finalNormalizedContinuityResidual();
+        const auto moms = session->finalMomentumResiduals();
+        const double mom = std::max(moms[0], std::max(moms[1], moms[2]));
         const int iters = session->lastIterations();
         switch (st) {
         case cfd::SessionStatus::Converged:
-            emit finished(QString("Converged in %1 iterations (continuity %2)")
-                              .arg(iters).arg(cont, 0, 'g', 4));
+            emit finished(QString("Converged in %1 iterations (scaled continuity %2, momentum %3)")
+                              .arg(iters).arg(cont, 0, 'g', 4).arg(mom, 0, 'g', 4));
             break;
         case cfd::SessionStatus::NotConverged:
-            emit finished(QString("NOT converged: iteration limit (%1) reached, continuity %2")
-                              .arg(iters).arg(cont, 0, 'g', 4));
+            emit finished(QString("NOT converged: iteration limit (%1) reached (scaled continuity %2, momentum %3)")
+                              .arg(iters).arg(cont, 0, 'g', 4).arg(mom, 0, 'g', 4));
             break;
         default:
             emit finished("Solve finished");
@@ -477,7 +484,16 @@ bool CfdController::run() {
         }
     });
 
-    auto fut = QtConcurrent::run([this, gen, session]() {
+    auto fut = QtConcurrent::run([this, gen, session, threadCount]() {
+        // omp_set_num_threads() sets the ICV of the *calling* thread only, so
+        // applying it above (on the controller thread) never reached the
+        // OpenMP regions inside session->solve(). Re-apply it here, on the
+        // worker that actually runs the solver, or the Threads setting is
+        // silently ignored and amgcl/Eigen use the runtime default.
+        if (threadCount > 0) {
+            omp_set_num_threads(threadCount);
+            Eigen::setNbThreads(threadCount);
+        }
         if (gen != m_gen) return;
         session->solve();
     });
