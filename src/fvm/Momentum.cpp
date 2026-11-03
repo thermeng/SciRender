@@ -4,7 +4,7 @@
 #include "fvm/SSTConstants.h"
 #include "fvm/Validation.h"
 #include "mesh/BoundaryUtils.h"
-#include <cmath>
+#include <algorithm>
 
 namespace fvm {
 
@@ -32,10 +32,8 @@ void Momentum<Dim>::buildMomentumScatterMap_(SparseMatrix& A, std::size_t d) con
     for (std::size_t t = 0; t < nt; ++t) {
         int col = static_cast<int>(triplets_[t].col());
         int row = static_cast<int>(triplets_[t].row());
-        int p = -1;
-        for (int k = outer[col]; k < outer[col + 1]; ++k) {
-            if (inner[k] == row) { p = k; break; }
-        }
+        const int* lb = std::lower_bound(inner + outer[col], inner + outer[col + 1], row);
+        int p = (lb < inner + outer[col + 1] && *lb == row) ? static_cast<int>(lb - inner) : -1;
         pos[t] = p;
     }
     // Build diagonal position cache for O(n) dCoeff

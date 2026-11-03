@@ -125,9 +125,8 @@ public:
     const std::vector<std::size_t>& faceVertices(std::size_t f) const;
     const std::vector<std::size_t>& cellNeighbors(std::size_t idx) const;
     const std::vector<std::size_t>& cellFaces(std::size_t idx) const;
-
-    // Hot-path optimized accessors for inner loops
     const std::size_t* ownerPtr() const noexcept { return owner_.data(); }
+    const char* isBoundaryPtr() const noexcept { return isBoundary_.data(); }
     const std::size_t* neighborPtr() const noexcept { return neighbor_.data(); }
     const double* faceAreaPtr() const noexcept { return faceArea_.data(); }
     const double* faceDistPtr() const noexcept { return faceDist_.data(); }

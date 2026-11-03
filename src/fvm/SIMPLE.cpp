@@ -13,7 +13,7 @@
 #include <limits>
 #include <cctype>
 #include <fstream>
-#include <algorithm>
+#include <utility>
 #include <chrono>
 #include <thread>
 
@@ -403,6 +403,12 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     initialMassImbalance_ = 0.0;
     initialMassImbalanceSet_ = false;
     residualHistory_.clear();
+    steadyTotalSeconds_ = 0.0;
+    steadyMomentumSeconds_ = 0.0;
+    steadyPredictedContinuitySeconds_ = 0.0;
+    steadyPressureSeconds_ = 0.0;
+    steadyVelocityCorrectionSeconds_ = 0.0;
+    steadyResidualSeconds_ = 0.0;
     divergenceCount_ = 0;
     stallCount_ = 0;
     prevContResid_ = 0.0;
@@ -419,21 +425,24 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
     // six per-cell vectors (and their allocations) for nothing.
     if (bc_.isDirty()) bcDiscretization_ = bc_.build();
 
+    auto tMomentum = std::chrono::steady_clock::now();
     solveMomentum_(uStar_, velocityOld_);
-    // Measure the mass imbalance of the predictor BEFORE the pressure
-    // correction. After the corrector the discrete divergence is zero to
-    // linear-solver accuracy, so measuring it there (as this code used to)
-    // reports ~1e-15 for the whole run instead of the outer-iteration error.
+    steadyMomentumSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tMomentum).count();
+
+    auto tPred = std::chrono::steady_clock::now();
     capturePredictedContinuity_();
+    steadyPredictedContinuitySeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tPred).count();
 
     int nCorr = static_cast<int>(config_.pressureCorrectors);
     if (nCorr < 1) nCorr = 1;
     for (int corr = 0; corr < nCorr; ++corr) {
+        auto tPressure = std::chrono::steady_clock::now();
         pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
                                  bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
                                  &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
                                  &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
                                  &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals(), &cancelRequested_);
+        steadyPressureSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tPressure).count();
         if (pressureCorrection_.lastSolveProducedNonFinite())
             fail_(Failure::PressureSolveFailed);
 
@@ -443,9 +452,11 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
         pressureBeforeCorrection_ = boundPressure();
         pressureGradBefore_ = pressureCorrection_.pressureGradient();
 
+        auto tCorrection = std::chrono::steady_clock::now();
         correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
                     bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
                     &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs());
+        steadyVelocityCorrectionSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tCorrection).count();
 
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
@@ -535,6 +546,27 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
     ++momStats_.solves;
     momSolveFailed_ = false;
 
+    // Warm start every iterative momentum solve from the current velocity, as
+    // Fluent/STAR-CCM+ do. The linear system is the under-relaxed one, whose
+    // right-hand side already contains the old velocity, so the current field
+    // is the natural initial guess. Starting from zero instead means a loose
+    // solve (one V-cycle at tolerance 0.1) leaves an error of the cycle's
+    // contraction (~1%) in the returned field; that error is
+    // exactly what |A u - b| / sum|b| then measures, so the printed momentum
+    // residual stalls at ~5e-2 no matter how long the run continues and the
+    // convergence test can never be met.
+    const auto warmStart = [this, d]() -> Eigen::VectorXd {
+        const Eigen::Index size = momB_.size();
+        if (std::getenv("CFD_MOMENTUM_COLD_START")) {
+            return Eigen::VectorXd::Zero(size);
+        }
+        const auto& u = boundVelocity()[d].values();
+        if (size > 0 && static_cast<Eigen::Index>(u.size()) == size) {
+            return Eigen::Map<const Eigen::VectorXd>(u.data(), size);
+        }
+        return Eigen::VectorXd::Zero(size);
+    };
+
     // Threshold 0 means "always use AMG", matching .
     const std::size_t momThreshold = config_.momentumAmgThreshold;
     const bool amgEligible =
@@ -600,6 +632,10 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
         momAmgValueUpdates_[d] = 0;
         ++momStats_.amgBuilds;
         momStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tb).count();
+        if (momAmg_[d].isBuilt() && hasPositiveOffDiagonals_(momA_)) {
+            std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W")
+                      << "]: WARNING: matrix has positive off-diagonals; AMG robustness may suffer\n";
+        }
     } else if (++momAmgValueUpdates_[d] >= std::max<std::size_t>(1, config_.momentumAmgRebuildInterval)) {
         // The momentum matrix VALUES change every solve (convective flux,
         // pressure gradient, under-relaxation, rho*V/dt), unlike the pressure
@@ -633,9 +669,11 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
         // cycle count and stopping criterion come from momentumAmgConfig
         // (maxIterations = 2, tolerance = 0.1 for the reference run). A loose
         // momentum solve is intentional here: the outer SIMPLE loop converges
-        // the coupled system.
+        // the coupled system. The solve is warm-started from the current
+        // velocity (see warmStart above); with a zero start the cycle's own
+        // truncation error becomes the floor of the reported residual.
         const auto t0 = std::chrono::steady_clock::now();
-        Eigen::VectorXd x = Eigen::VectorXd::Zero(momB_.size());
+        Eigen::VectorXd x = warmStart();
         const bool ok = momAmg_[d].solve(momB_, x, &cancelRequested_);
         momStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         momStats_.krylovIters += static_cast<std::size_t>(momAmg_[d].lastIterations());
@@ -678,7 +716,7 @@ Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
     }
 
     const auto t0 = std::chrono::steady_clock::now();
-    Eigen::VectorXd x = Eigen::VectorXd::Zero(momB_.size());
+    Eigen::VectorXd x = warmStart();
     if (momAccel == AMGHierarchy::Config::Acceleration::GMRES) {
         //  "Generalized minimum residual" acceleration. The momentum
         // operator is nonsymmetric, which is exactly GMRES's use case.
@@ -822,6 +860,7 @@ void SIMPLE<Dim>::printPressureSolverStats_() const {
     std::cerr << "    AMG builds:        " << s.amgBuilds << "\n";
     std::cerr << "    AMG rejected:      " << s.amgRejected << "  (fell back to ILU/CG)\n";
     std::cerr << "    Krylov iters:      " << s.krylovIters << "\n";
+    std::cerr << "    AMG Krylov iters:  " << s.amgKrylovIters << "\n";
     if (s.solves > 0) {
         std::cerr << "    Krylov iters/solve:"
                   << "  " << (static_cast<double>(s.krylovIters) /
@@ -986,16 +1025,16 @@ void SIMPLE<Dim>::updateResiduals_() {
         for (std::size_t h = 1; h < residualHistory_.size(); ++h) {
             if (residualHistory_[h] <= residualHistory_[h-1]) {
                 diverging = false;
-                break;
-            }
-        }
-        if (diverging) {
+                 break;
+             }
+         }
+         if (diverging) {
             ++divergenceCount_;
         } else {
             divergenceCount_ = 0;
         }
-        residualHistory_.clear();
-    }
+    residualHistory_.clear();
+}
 }
 
 template<std::size_t Dim>
@@ -1028,8 +1067,16 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
             turbResid = std::max(turbulence_->finalKResid(),
                                  turbulence_->finalOmegaResid());
         }
+        // Fluent/STAR-CCM+ parity: every transported equation's SCALED
+        // residual must fall below the criterion. lastMomResid_ is the linear
+        // momentum residual |A u - b|_1 / sum|b|_1, i.e. exactly the number in
+        // the printed x/y-velocity columns, normalized the same way as the
+        // continuity column. lastMomChange_ (the per-iteration velocity
+        // change) is a diagnostic, NOT a residual: gating on it let a run
+        // whose velocity had stalled but whose momentum residual was still
+        // 4.6e-2 be reported as converged.
         if (lastContResid_ < config_.tolerance &&
-            lastMomChange_ < config_.tolerance &&
+            lastMomResid_ < config_.tolerance &&
             turbResid < config_.tolerance) {
             // The criterion must hold for `convergenceHoldIterations`
             // consecutive iterations before the run is declared converged: a
@@ -1133,12 +1180,20 @@ void SIMPLE<Dim>::printFinalStats_() const {
         maxV = std::max(maxV, std::abs((boundVelocity())[1][i]));
     }
     // The verdict comes first: "max|u|" alone says nothing about whether the
-    // result is a steady state.
+    // result is a steady state. Report the quantities the convergence test
+    // actually graded (scaled, same as the iteration table) next to the
+    // un-normalized values, so "converged" is auditable against the tolerance.
     std::cerr << "  [final] status: " << statusText()
               << "  (iterations=" << lastIterations_
               << ", continuity=" << lastContResid_
               << " normalized, " << lastContResidRaw_ << " raw, "
               << lastContResidPost_ << " mass imbalance after correction)\n";
+    std::cerr << "  [final] scaled residuals: continuity=" << lastContResid_
+              << " momentum=" << lastMomResid_
+              << " (u=" << lastMomResidU_ << " v=" << lastMomResidV_;
+    if constexpr (Dim == 3) std::cerr << " w=" << lastMomResidW_;
+    std::cerr << ") velocityChange=" << lastMomChange_
+              << " tolerance=" << config_.tolerance << "\n";
     if (aborted_) {
         std::cerr << "  [final] ABORTED: " << failureText() << "\n";
     } else {
@@ -1156,8 +1211,16 @@ void SIMPLE<Dim>::printFinalStats_() const {
         std::cerr << "  WARNING: max y+ = " << turbulence_->maxYPlus()
                   << ". This is a low-Re k-omega SST formulation with no wall\n"
                      "         function, so the first-cell wall shear is only meaningful for\n"
-                     "         y+ ~ 1. Refine the near-wall mesh (or accept that the wall\n"
-                     "         shear is mesh-dependent).\n";
+                      "         y+ ~ 1. Refine the near-wall mesh (or accept that the wall\n"
+                      "         shear is mesh-dependent).\n";
+    }
+    if (steadyTotalSeconds_ > 0.0) {
+        std::cerr << "  [timing] steady SIMPLE total=" << steadyTotalSeconds_ << " s"
+                  << " momentum=" << steadyMomentumSeconds_ << " s"
+                  << " predictedContinuity=" << steadyPredictedContinuitySeconds_ << " s"
+                  << " pressure=" << steadyPressureSeconds_ << " s"
+                  << " velocityCorrection=" << steadyVelocityCorrectionSeconds_ << " s"
+                  << " residuals=" << steadyResidualSeconds_ << " s\n";
     }
 }
 
@@ -1166,6 +1229,8 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     initializeSolve_(velocity, pressure);
 
     status_ = Status::NotConverged;
+
+    const auto steadyTotalStart = std::chrono::steady_clock::now();
 
     for (std::size_t iter = startIteration_; iter < config_.maxIterations; ++iter) {
         // Pause/step boundary. Placed before the iteration so a pause issued
@@ -1178,7 +1243,9 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
 
         performIteration_(velocity, pressure, iter);
 
+        auto tResid = std::chrono::steady_clock::now();
         updateResiduals_();
+        steadyResidualSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tResid).count();
 
         lastIterations_ = static_cast<int>(iter + 1);
 
@@ -1207,6 +1274,7 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
 
     printMomentumSolverStats_();
     printPressureSolverStats_();
+    steadyTotalSeconds_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - steadyTotalStart).count();
     printFinalStats_();
 }
 
@@ -1335,8 +1403,8 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
 
     // Snapshot this component's operator: momA_/momB_ are reused by the next
     // component, so the residual pass needs its own copy.
-    momAsnap_[d] = momA_;
-    momBsnap_[d] = momB_;
+    momAsnap_[d] = std::move(momA_);
+    momBsnap_[d] = std::move(momB_);
 
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         double val = x(static_cast<Eigen::Index>(i));
@@ -1419,8 +1487,8 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     Eigen::VectorXd x = solveMomentumLinear_(d);
     if (momSolveFailed_ || !x.allFinite()) fail_(Failure::MomentumSolveFailed);
 
-    momAsnap_[d] = momA_;
-    momBsnap_[d] = momB_;
+    momAsnap_[d] = std::move(momA_);
+    momBsnap_[d] = std::move(momB_);
 
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         double val = x(static_cast<Eigen::Index>(i));

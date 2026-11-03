@@ -123,12 +123,13 @@ struct Config {
         int pressureAmgCycles = 1;
         AMGHierarchy::Config pressureAmgConfig = []{
             AMGHierarchy::Config c;
-            c.strengthThreshold = 0.25;
+            c.strengthThreshold = 0.16;
             c.truncThreshold = 0.2;
-            c.preSweeps = 2;
+            c.preSweeps = 1;
             c.postSweeps = 2;
             c.maxIterations = 100;
             c.tolerance = 1e-8;
+            c.verbosity = AMGHierarchy::Config::Verbosity::High;
             return c;
         }();
 
@@ -174,9 +175,9 @@ struct Config {
         //  momentum solver; see AMGHierarchy::Config for the knobs.
         AMGHierarchy::Config momentumAmgConfig = []{
             AMGHierarchy::Config c;
-            c.strengthThreshold = 0.25;
+            c.strengthThreshold = 0.16;
             c.truncThreshold = 0.2;
-            c.preSweeps = 2;
+            c.preSweeps = 1;
             c.postSweeps = 2;
             c.nonsymmetric = true;
             //  momentum defaults: Gauss-Seidel smoothing, a variable
@@ -185,6 +186,7 @@ struct Config {
             c.smoother = AMGHierarchy::Config::Smoother::GaussSeidel;
             c.cycleType = AMGHierarchy::Config::CycleType::Flexible;
             c.acceleration = AMGHierarchy::Config::Acceleration::None;
+            c.verbosity = AMGHierarchy::Config::Verbosity::High;
             return c;
         }();
 
@@ -570,6 +572,13 @@ private:
     // Restart payload queued by setRestartState(), consumed by initializeSolve_.
     std::optional<RestartState> restartState_;
     std::vector<double> residualHistory_;
+    // Steady-path wall-time accumulators (seconds).
+    double steadyTotalSeconds_ = 0.0;
+    double steadyMomentumSeconds_ = 0.0;
+    double steadyPredictedContinuitySeconds_ = 0.0;
+    double steadyPressureSeconds_ = 0.0;
+    double steadyVelocityCorrectionSeconds_ = 0.0;
+    double steadyResidualSeconds_ = 0.0;
     std::size_t divergenceCount_ = 0;
     double initialMassImbalance_ = 0.0;
     bool initialMassImbalanceSet_ = false;

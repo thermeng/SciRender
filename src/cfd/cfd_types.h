@@ -38,21 +38,21 @@ struct AmgSettings {
     enum class GroupSizeControl { Automatic, Manual };
 
     Coarsening coarsening = Coarsening::SmoothedAggregation;
-    int maxIterations = 100;     // Maximum cycle
-    double tolerance = 1e-8;     // Convergence tolerance
-    double epsilon = 1e-8;       // Epsilon
+    int maxIterations = 30;     // Maximum cycle
+    double tolerance = 0.1;     // Convergence tolerance
+    double epsilon = 0.0;       // Epsilon
     Verbosity verbosity = Verbosity::None;
     CycleType cycleType = CycleType::VCycle;
     Acceleration acceleration = Acceleration::ConjugateGradient;
     Smoother smoother = Smoother::GaussSeidel;
-    ProportionalScaling scaling = ProportionalScaling::Disabled;
+    ProportionalScaling scaling = ProportionalScaling::Automatic;
     GroupSizeControl groupSizeControl = GroupSizeControl::Automatic;
     int blockSize = 1;           // Group size (Manual)
 
     // --- Smoothing / hierarchy -------------------------------------------
-    int preSweeps = 2;           // Pre-smooths
-    int postSweeps = 2;          // Post-smooths
-    int maxLevels = 30;          // Maximum number of levels
+    int preSweeps = 1;           // Pre-smooths
+    int postSweeps = 1;          // Post-smooths
+    int maxLevels = 50;          // Maximum number of levels
     bool directCoarse = true;    // Enable the direct solver
     int coarseEnough = 2;        // Maximum direct solver equations
     int minCoarseSize = 10;
@@ -73,19 +73,35 @@ struct AmgSettings {
 
     static AmgSettings pressureDefaults() {
         AmgSettings s;
+        s.maxIterations = 30;
+        s.tolerance = 0.1;
+        s.epsilon = 0.0;
         s.cycleType = CycleType::VCycle;
+        s.preSweeps = 1;
+        s.postSweeps = 1;
+        s.maxLevels = 50;
         s.smoother = Smoother::GaussSeidel;
         s.acceleration = Acceleration::ConjugateGradient;
+        s.scaling = ProportionalScaling::Automatic;
+        s.strengthThreshold = 0.25;
+        s.truncThreshold = 0.2;
         return s;
     }
     static AmgSettings momentumDefaults() {
         AmgSettings s;
-        s.preSweeps = 2;
-        s.postSweeps = 2;
+        s.maxIterations = 30;
+        s.tolerance = 0.1;
+        s.epsilon = 0.0;
+        s.preSweeps = 1;
+        s.postSweeps = 1;
+        s.maxLevels = 50;
         s.nonsymmetric = true;
         s.cycleType = CycleType::Flexible;
         s.smoother = Smoother::GaussSeidel;
         s.acceleration = Acceleration::None;
+        s.scaling = ProportionalScaling::Automatic;
+        s.strengthThreshold = 0.25;
+        s.truncThreshold = 0.5;
         return s;
     }
 };

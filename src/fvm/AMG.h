@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fvm/Types.h"
+#include <amgcl/backend/builtin.hpp>
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
 #include <Eigen/LU>
@@ -27,14 +28,14 @@ struct AmgHandleBase { virtual ~AmgHandleBase() = default; };
 class AMGHierarchy {
 public:
     struct Config {
-        double strengthThreshold = 0.25;
+        double strengthThreshold = 0.16;
         double truncThreshold = 0.2;
-        int maxLevels = 30;
+        int maxLevels = 50;
         int minCoarseSize = 10;
-        int preSweeps = 2;
-        int postSweeps = 2;
-        int maxIterations = 100;
-        double tolerance = 1e-8;
+        int preSweeps = 1;
+        int postSweeps = 1;
+        int maxIterations = 30;
+        double tolerance = 0.1;
         double stagnationFactor = 1.05;
         int stagnationMinIter = 10;
         double stagnationLooseFactor = 5.0;
@@ -82,7 +83,7 @@ public:
         bool directCoarse = true;
         // Absolute residual floor ( "Epsilon"). Below this the cycle
         // stops regardless of the relative convergence tolerance.
-        double epsilon = 1e-8;
+        double epsilon = 0.0;
         // Block size for aggregation coarsening (1 for scalar equations).
         int blockSize = 1;
         // Flexible/variable-cycle controls (stored for round-tripping; amgcl
@@ -108,7 +109,7 @@ public:
     bool applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const;
 
     bool isBuilt() const { return built_; }
-    void invalidate() { built_ = false; amgHandle_.reset(); levels_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); }
+    void invalidate() { built_ = false; amgHandle_.reset(); levels_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; }
     void setConfig(Config config) { config_ = config; }
     const Config& config() const { return config_; }
     void updateFineValues(const SparseMatrix& A);
@@ -135,9 +136,12 @@ private:
     bool built_ = false;
     int n_ = 0;
     SparseMatrix systemMatrix_;
+    std::vector<double> scale_;
     int nlevels_ = 0;
     std::vector<int> levelSizes_;
     std::string report_;
+    mutable amgcl::backend::numa_vector<double> bn_work_;
+    mutable amgcl::backend::numa_vector<double> xn_work_;
     mutable int lastIterations_ = 0;
     mutable double lastResidual_ = 0.0;
     mutable double buildTimeSec_ = 0.0;
@@ -195,7 +199,15 @@ class AMGPreconditioner {
 public:
     AMGPreconditioner() : amg_(nullptr) {}
 
-    void setAMG(const AMGHierarchy* amg) { amg_ = amg; }
+    void setAMG(const AMGHierarchy* amg) {
+        amg_ = amg;
+        if (amg_ && amg_->isBuilt()) {
+            const int n = amg_->fineSize();
+            workspace_b_.resize(n);
+            workspace_x_.resize(n);
+            workspace_x_.setZero();
+        }
+    }
 
     // Multigrid cycles applied per preconditioner application. More cycles
     // make the preconditioner stronger at proportional cost; 1 (a single
@@ -216,31 +228,45 @@ public:
 
     template<typename Rhs>
     inline const Rhs solve(const Rhs& b) const {
-        Eigen::VectorXd b_vec = b;
-        Eigen::VectorXd x_vec = Eigen::VectorXd::Zero(b_vec.rows());
-        if (amg_ && amg_->isBuilt()) {
-            for (int i = 0; i < cycles_; ++i) amg_->applyCycle(b_vec, x_vec);
-            if (!x_vec.allFinite()) x_vec.setZero();
+        ensureWorkspace_(b.size());
+        if (!amg_ || !amg_->isBuilt()) {
+            return Eigen::VectorXd::Zero(b.size());
         }
-        return x_vec;
+        workspace_b_ = b;
+        workspace_x_.setZero();
+        for (int i = 0; i < cycles_; ++i) amg_->applyCycle(workspace_b_, workspace_x_);
+        if (!workspace_x_.allFinite()) workspace_x_.setZero();
+        return workspace_x_;
     }
 
     template<typename Rhs>
     inline void solveInPlace(Rhs& x) const {
-        if (amg_ && amg_->isBuilt()) {
-            Rhs b = x;
-            x.setZero();
-            for (int i = 0; i < cycles_; ++i) amg_->applyCycle(b, x);
-            if (!x.allFinite()) x.setZero();
-        }
+        ensureWorkspace_(x.size());
+        if (!amg_ || !amg_->isBuilt()) return;
+        workspace_b_ = x;
+        workspace_x_.setZero();
+        for (int i = 0; i < cycles_; ++i) amg_->applyCycle(workspace_b_, workspace_x_);
+        if (!workspace_x_.allFinite()) workspace_x_.setZero();
+        x = workspace_x_;
     }
 
     inline int rows() const { return amg_ ? amg_->fineSize() : 0; }
     inline int cols() const { return amg_ ? amg_->fineSize() : 0; }
 
 private:
+    void ensureWorkspace_(std::size_t n) const {
+        if (workspace_b_.size() != static_cast<Eigen::Index>(n))
+            workspace_b_.resize(n);
+        if (workspace_x_.size() != static_cast<Eigen::Index>(n)) {
+            workspace_x_.resize(n);
+            workspace_x_.setZero();
+        }
+    }
+
     const AMGHierarchy* amg_;
     int cycles_ = 1;
+    mutable Eigen::VectorXd workspace_b_;
+    mutable Eigen::VectorXd workspace_x_;
 };
 
 } // namespace fvm
