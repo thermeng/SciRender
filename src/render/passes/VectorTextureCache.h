@@ -24,6 +24,11 @@ public:
     // Strongest vector of the sampled field, or 0 when the field is unknown.
     float getMaxMagnitude(const std::string& name, int placement = -1, const RenderMesh* mesh = nullptr,
                           const postfields::ComputedSnapshot* snap = nullptr) const;
+    // Robust per-field floor: 5th percentile of non-zero sampled magnitudes.
+    // Captures the boundary-layer velocity scale so slow near-wall flow is not
+    // rejected by a maxMagnitude-relative cut-off dominated by a fast lid.
+    float getRobustFloor(const std::string& name, int placement = -1, const RenderMesh* mesh = nullptr,
+                         const postfields::ComputedSnapshot* snap = nullptr) const;
     // Deprecated licBoundaryMode variants — forward to canonical; mode ignored.
     bool getTextureDims(const std::string& name, int licBoundaryMode, int& dimX, int& dimY, int& dimZ) const;
     bool getTextureDims(const std::string& name, int placement, int licBoundaryMode, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ,
@@ -56,6 +61,10 @@ private:
         // Strongest vector of the sampled field (the LIC makes its magnitude
         // cut-off relative to it).
         float maxMagnitude = 0.0f;
+        // Robust per-field floor: 5th percentile of non-zero sampled magnitudes.
+        // Captures the boundary-layer velocity scale so slow near-wall flow is
+        // not rejected by a maxMagnitude-relative cut-off dominated by a fast lid.
+        float robustFloor = 0.0f;
         // lruIt is only meaningful while hasLru is true; comparing a
         // default-constructed (singular) iterator against m_lru.end() is UB.
         std::list<std::string>::iterator lruIt;

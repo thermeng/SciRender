@@ -65,6 +65,10 @@ public:
         // "no direction here" cut-off relative to the field instead of
         // absolute, so a flow in mm/s is treated like a flow in m/s.
         float maxMagnitude = 0.0f;
+        // Robust per-field floor: 5th percentile of non-zero sampled magnitudes.
+        // Captures the boundary-layer velocity scale so slow near-wall flow is
+        // not rejected by a maxMagnitude-relative cut-off dominated by a fast lid.
+        float robustFloor = 0.0f;
         bool valid() const { return vectorTex != 0 && noiseTex != 0; }
     };
     MeshPassResult drawLic(const RenderRenderState& state,
@@ -92,7 +96,7 @@ private:
                             GLuint vectorTex, GLuint noiseTex,
                             const glm::vec3& boxMin, const glm::vec3& boxMax,
                             int texDimX, int texDimY, int texDimZ,
-                            float vectorMaxMagnitude = 0.0f);
+                            float vectorMaxMagnitude = 0.0f, float robustFloor = 0.0f);
     MeshUBOData makeUbo(const RenderRenderState& state,
                          const glm::mat4& view,
                          const glm::mat4& proj,

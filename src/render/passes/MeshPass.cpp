@@ -219,7 +219,7 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
                                     GLuint vectorTex, GLuint noiseTex,
                                     const glm::vec3& boxMin, const glm::vec3& boxMax,
                                     int texDimX, int texDimY, int texDimZ,
-                                    float vectorMaxMagnitude) {
+                                    float vectorMaxMagnitude, float robustFloor) {
     const bool useCrinkleClip = state.crinkleClipMode && licClipShaderProgram.has();
     GlProgram& prog = useCrinkleClip ? licClipShaderProgram : licShaderProgram;
     glUseProgram(prog);
@@ -286,13 +286,18 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     if (enhancedLocActive != -1) glUniform1i(enhancedLocActive, state.licEnhanced ? 1 : 0);
     if (onlyLocActive != -1) glUniform1i(onlyLocActive, state.licOnly ? 1 : 0);
     if (integratorLocActive != -1) glUniform1i(integratorLocActive, std::clamp(state.licIntegrator, 0, 2));
-    // Magnitude below which the flow direction counts as undefined. Relative
-    // to the strongest vector of the field (1e-4 of it) so the cut-off does
-    // not depend on the unit the field happens to be in; the absolute floor
-    // keeps a field that is at rest everywhere from producing a direction.
+    // Magnitude below which the flow direction counts as undefined. Two relative
+    // floors guard against unit dependence and dynamic-range extremes:
+    //   * maxMag * 1e-6  — scales with the strongest vector in the field
+    //   * robustFloor * 1e-3 — scales with the 5th-percentile (boundary-layer)
+    //     magnitude, so slow near-wall flow is not rejected by a cut-off
+    //     dominated by a fast lid. Whichever is larger wins.
+    // The absolute floor keeps a field that is at rest everywhere from
+    // producing a direction at all.
     if (magThreshLocActive != -1) {
-        const float relThresh = vectorMaxMagnitude > 0.0f ? vectorMaxMagnitude * 1e-4f : 0.0f;
-        glUniform1f(magThreshLocActive, std::max(relThresh, 1e-30f));
+        const float relThreshMax = vectorMaxMagnitude > 0.0f ? vectorMaxMagnitude * 1e-6f : 0.0f;
+        const float relThreshFloor = robustFloor > 0.0f ? robustFloor * 1e-3f : 0.0f;
+        glUniform1f(magThreshLocActive, std::max({relThreshMax, relThreshFloor, 1e-30f}));
     }
     // General-purpose UVW mapping: interior dims map [0,1] to texel centers to avoid half-texel bleeding;
     // degenerate slab (dim<=1) has no extent — shader collapses that axis to 0.5 via range-relative epsilon, so no scale needed.
@@ -334,7 +339,7 @@ MeshPassResult MeshPass::drawLic(const RenderRenderState& state,
     return drawCommon(state, view, proj, model, drawList, drawVerts, edgeDrawList,
                       meshManager, colormap,
                            [&](const RenderRenderState& s, const ColormapManager& c) {
-                           activateLicProgram(s, c, licRes.vectorTex, licRes.noiseTex, licRes.boxMin, licRes.boxMax, licRes.texDimX, licRes.texDimY, licRes.texDimZ, licRes.maxMagnitude);
+                           activateLicProgram(s, c, licRes.vectorTex, licRes.noiseTex, licRes.boxMin, licRes.boxMax, licRes.texDimX, licRes.texDimY, licRes.texDimZ, licRes.maxMagnitude, licRes.robustFloor);
                        },
                       true);
 }

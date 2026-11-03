@@ -1251,6 +1251,8 @@ void Renderer::renderFrame() {
                         licRes.texDimZ = tdz;
                         licRes.maxMagnitude = m_vectorCache.getMaxMagnitude(
                             m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(), m_state.computed.get());
+                        licRes.robustFloor = m_vectorCache.getRobustFloor(
+                            m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(), m_state.computed.get());
                     } else {
                         m_lastLicError = "LIC disabled: vector texture dims unavailable (mode " + std::to_string(m_state.licBoundaryMode) + ")";
                     }
