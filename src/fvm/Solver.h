@@ -29,8 +29,7 @@ public:
     AdvectionDiffusionSolver(const Mesh<Dim>& mesh, double k);
 
     void setScheme(ConvectionScheme scheme);
-    void setUniformVelocity(double u, double v);
-    void setUniformVelocity(double u, double v, double w);
+    void setUniformVelocity(double u, double v, double w = 0.0);
     void setSource(const Field<Dim>& source);
 
     BoundaryConditions<Dim>& bc();

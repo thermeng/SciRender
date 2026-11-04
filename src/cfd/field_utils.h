@@ -11,12 +11,25 @@
 
 namespace cfd {
 namespace field_utils {
+namespace detail {
+
+// Copy up to `n` elements from `src` to `dst`, clamped to both sizes.
+// Requires `size()` and `operator[]` on both arguments. Centralizes the
+// element-wise copy loop previously repeated across copyToField,
+// copyFromField, copyVelocityToVectorField, scatterTurbulence and
+// fillTurbulence.
+template<typename Src, typename Dst>
+inline void copyN(const Src& src, Dst& dst, std::size_t n) {
+    const std::size_t m = std::min({src.size(), dst.size(), n});
+    for (std::size_t i = 0; i < m; ++i) dst[i] = src[i];
+}
+
+} // namespace detail
 
 // Copy a std::vector<double> into a fvm::Field<Dim>, clamped to the smaller size.
 template<std::size_t Dim>
 inline void copyToField(const std::vector<double>& src, fvm::Field<Dim>& dst) {
-    const std::size_t n = std::min(src.size(), dst.size());
-    for (std::size_t i = 0; i < n; ++i) dst[i] = src[i];
+    detail::copyN(src, dst, std::min(src.size(), dst.size()));
 }
 
 // Copy a fvm::Field<Dim> into a std::vector<double> (resized to the field size).
@@ -30,10 +43,9 @@ inline void copyFromField(const fvm::Field<Dim>& src, std::vector<double>& dst) 
 template<std::size_t Dim>
 inline void copyFromField(const fvm::Field<Dim>& src, std::vector<double>& dst,
                          std::size_t n) {
-    dst.resize(n);
     const auto vals = src.values();
-    const std::size_t m = std::min(n, vals.size());
-    for (std::size_t i = 0; i < m; ++i) dst[i] = vals[i];
+    dst.resize(n);
+    detail::copyN(vals, dst, std::min(n, vals.size()));
 }
 
 // Copy velocity rows: std::vector<std::vector<double>> -> VectorField<Dim>.
@@ -42,8 +54,7 @@ inline void copyVelocityToVectorField(const std::vector<std::vector<double>>& sr
                                      fvm::VectorField<Dim>& dst) {
     for (std::size_t d = 0; d < Dim; ++d) {
         if (d >= src.size()) break;
-        const std::size_t m = std::min(dst[d].size(), src[d].size());
-        for (std::size_t i = 0; i < m; ++i) dst[d][i] = src[d][i];
+        detail::copyN(src[d], dst[d], std::min(dst[d].size(), src[d].size()));
     }
 }
 
@@ -66,11 +77,9 @@ inline void scatterTurbulence(const cfd::TurbulenceState& state,
                              fvm::Field<Dim>& nutField) {
     const std::size_t m = std::min({state.k.size(), state.omega.size(), state.nut.size(),
                                      kField.size(), omegaField.size(), nutField.size()});
-    for (std::size_t i = 0; i < m; ++i) {
-        kField[i] = state.k[i];
-        omegaField[i] = state.omega[i];
-        nutField[i] = state.nut[i];
-    }
+    detail::copyN(state.k, kField, m);
+    detail::copyN(state.omega, omegaField, m);
+    detail::copyN(state.nut, nutField, m);
     // Zero out any destination cells not covered by the saved state so stale
     // values cannot survive into the live field.
     for (std::size_t i = m; i < kField.size(); ++i) kField[i] = 0.0;
@@ -94,11 +103,9 @@ inline void fillTurbulence(const fvm::SSTModel<Dim>& model,
     const auto ov = omega.values();
     const auto nv = nut.values();
     const std::size_t m = std::min({n, kv.size(), ov.size(), nv.size()});
-    for (std::size_t i = 0; i < m; ++i) {
-        state.k[i] = kv[i];
-        state.omega[i] = ov[i];
-        state.nut[i] = nv[i];
-    }
+    detail::copyN(kv, state.k, m);
+    detail::copyN(ov, state.omega, m);
+    detail::copyN(nv, state.nut, m);
 }
 
 } // namespace field_utils

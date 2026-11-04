@@ -137,12 +137,11 @@ public:
             }
             if (restart.transientValid &&
                 restart.time >= settings.transient.tEnd - 1e-12) {
-                char buf[320];
-                std::snprintf(buf, sizeof(buf),
-                              "The saved state is already at t = %g s (end time %g s). "
-                              "Raise the end time to continue the run.",
-                              restart.time, settings.transient.tEnd);
-                error = buf;
+                error = "The saved state is already at t = " +
+                        std::to_string(restart.time) +
+                        " s (end time " +
+                        std::to_string(settings.transient.tEnd) +
+                        " s). Raise the end time to continue the run.";
                 return false;
             }
         }

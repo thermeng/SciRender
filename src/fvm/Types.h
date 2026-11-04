@@ -209,4 +209,26 @@ inline double computeSecondOrderUpwindFaceValueWeighted(
     return phiUp + w * (phiUp - phiUp2);
 }
 
+namespace detail {
+
+// FNV-1a hash of the sparse-matrix sparsity pattern (row/col indices only,
+// values excluded). Used to decide whether a preconditioner's pattern analysis
+// can be reused across solve calls when only matrix values change.
+inline std::size_t sparsityHash(const SparseMatrix& A) {
+    std::size_t h = 1469598103934665603ull;
+    auto mix = [&h](std::size_t v) {
+        h ^= v;
+        h *= 1099511628211ull;
+    };
+    for (Eigen::Index j = 0; j < A.outerSize(); ++j) {
+        for (SparseMatrix::InnerIterator it(A, j); it; ++it) {
+            mix(static_cast<std::size_t>(it.row()));
+            mix(static_cast<std::size_t>(it.col()));
+        }
+    }
+    return h;
+}
+
+} // namespace detail
+
 } // namespace fvm

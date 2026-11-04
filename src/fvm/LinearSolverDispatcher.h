@@ -115,7 +115,6 @@ private:
     };
     mutable Stats stats_{};
 
-    static std::size_t sparsityHash_(const SparseMatrix& A);
     static bool hasPositiveOffDiagonals_(const SparseMatrix& A);
     Eigen::VectorXd solveILU_(std::size_t d, const SparseMatrix& A, const Eigen::VectorXd& b,
                               std::size_t& itersOut);

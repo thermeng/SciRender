@@ -1,32 +1,10 @@
 #include "fvm/Solver.h"
+#include "fvm/Types.h"
 #include <iostream>
 #include <cmath>
 #include <memory>
 
 namespace fvm {
-
-namespace {
-
-// FNV-1a hash of the sparse-matrix sparsity pattern (row/col indices only,
-// values excluded). Used to decide whether the ILU preconditioner's pattern
-// analysis can be reused across solveSteady() calls when only matrix values
-// change.
-std::size_t sparsityHash(const SparseMatrix& A) {
-    std::size_t h = 1469598103934665603ull;
-    auto mix = [&h](std::size_t v) {
-        h ^= v;
-        h *= 1099511628211ull;
-    };
-    for (Eigen::Index j = 0; j < A.outerSize(); ++j) {
-        for (SparseMatrix::InnerIterator it(A, j); it; ++it) {
-            mix(static_cast<std::size_t>(it.row()));
-            mix(static_cast<std::size_t>(it.col()));
-        }
-    }
-    return h;
-}
-
-} // namespace
 
 namespace detail {
 
@@ -61,18 +39,10 @@ void AdvectionDiffusionSolver<Dim>::setScheme(ConvectionScheme scheme) {
 }
 
 template<std::size_t Dim>
-void AdvectionDiffusionSolver<Dim>::setUniformVelocity(double u, double v) {
-    if constexpr (Dim == 2) {
-        velocities_[0].assign(u);
-        velocities_[1].assign(v);
-    }
-}
-
-template<std::size_t Dim>
 void AdvectionDiffusionSolver<Dim>::setUniformVelocity(double u, double v, double w) {
+    velocities_[0].assign(u);
+    velocities_[1].assign(v);
     if constexpr (Dim == 3) {
-        velocities_[0].assign(u);
-        velocities_[1].assign(v);
         velocities_[2].assign(w);
     }
 }
@@ -136,7 +106,7 @@ Eigen::VectorXd AdvectionDiffusionSolver<Dim>::solveSteady() {
         // unchanged; only the factorization is recomputed because matrix values
         // change every outer iteration. This avoids the O(nnz log nnz)
         // ILU pattern-analysis cost on every call.
-        const std::size_t patternHash = sparsityHash(A);
+        const std::size_t patternHash = detail::sparsityHash(A);
         if (!advectionPatternAnalyzed_ || patternHash != advectionPatternHash_) {
             advectionSolver_.setMaxIterations(50000);
             advectionSolver_.setTolerance(1e-10);

@@ -80,7 +80,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         amgPathLogged_[component] = true;
     }
 
-    const std::size_t hash = sparsityHash_(A);
+    const std::size_t hash = detail::sparsityHash(A);
     const bool needBuild = !amgBuilt_[component] || hash != amgPatternHash_[component];
 
     if (needBuild) {
@@ -275,22 +275,6 @@ Eigen::VectorXd LinearSolverDispatcher<Dim>::solveILU_(std::size_t d, const Spar
         }
     }
     return x;
-}
-
-template<std::size_t Dim>
-std::size_t LinearSolverDispatcher<Dim>::sparsityHash_(const SparseMatrix& A) {
-    std::size_t h = 1469598103934665603ull;
-    auto mix = [&h](std::size_t v) {
-        h ^= v;
-        h *= 1099511628211ull;
-    };
-    for (Eigen::Index j = 0; j < A.outerSize(); ++j) {
-        for (SparseMatrix::InnerIterator it(A, j); it; ++it) {
-            mix(static_cast<std::size_t>(it.row()));
-            mix(static_cast<std::size_t>(it.col()));
-        }
-    }
-    return h;
 }
 
 template<std::size_t Dim>
