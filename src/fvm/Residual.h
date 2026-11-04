@@ -35,7 +35,6 @@ inline ResidualResult computeResiduals(
     const std::vector<std::vector<char>>& dirichletMask,
     const std::vector<std::vector<double>>& dirichletVals,
     const std::vector<FaceVelocityBC>* faceBC = nullptr,
-    const std::vector<char>* faceHasBC = nullptr,
     const std::array<std::vector<double>, Dim>* dCoeff = nullptr,
     const Field<Dim>* pressure = nullptr,
     const std::array<Field<Dim>, Dim>* pressureGrad = nullptr,
@@ -57,8 +56,7 @@ inline ResidualResult computeResiduals(
         const std::size_t N = mesh.neighbor(f);
         const double* fn = mesh.faceNormalPtr(f);
         double area = mesh.faceArea(f);
-        const bool hasBC = faceBC && faceHasBC &&
-                           f < faceBC->size() && f < faceHasBC->size() && (*faceHasBC)[f];
+        const bool hasBC = faceBC && f < faceBC->size() && (*faceBC)[f].type != VelocityBCType::NoSlip;
         double un;
         if (N == kNoNeighbor && hasBC) {
             // The face BC owns the boundary value; the shared resolver applies

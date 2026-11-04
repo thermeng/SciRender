@@ -47,14 +47,8 @@ bool SIMPLE<Dim>::isPiso_() const {
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::applyPressureOutletReference_(Field<Dim>& pressure) const {
-    if (!bcDiscretization_.pressureOutletFaces().empty()) {
-        for (const auto& [face, pRef] : bcDiscretization_.pressureOutletFaces()) {
-            if (face < mesh_.nFaces()) pressure[mesh_.owner(face)] = pRef;
-        }
-    } else {
-        for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
-            if (cell < mesh_.nCells()) pressure[cell] = pRef;
-        }
+    for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
+        if (cell < mesh_.nCells()) pressure[cell] = pRef;
     }
 }
 
@@ -454,7 +448,7 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
         auto tCorrection = std::chrono::steady_clock::now();
         correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
                     bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
-                    &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                    &bcDiscretization_.faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
                     adaptiveAlphaP_);
@@ -556,7 +550,7 @@ void SIMPLE<Dim>::capturePredictedContinuity_() {
     ResidualResult r = computeResiduals(
         mesh_, uStar_, velocityOld_, diag_, divBuffer_,
         bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
-        &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+        &bcDiscretization_.faceBCs(),
         &dCoeff_,
         compactRC ? &boundPressure() : nullptr,
         compactRC ? &pressureCorrection_.pressureGradient() : nullptr,
@@ -581,9 +575,9 @@ void SIMPLE<Dim>::updateResiduals_() {
     // has converged.
     ResidualResult resid = computeResiduals(mesh_, boundVelocity(), velocityOld_, diag_,
                                             divBuffer_, bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
-                                             &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                                             &dCoeff_, &pressureBeforeCorrection_, &pressureGradBefore_, &pressureCorrection_.pressureMask(),
-                                             config_.rhieChow && pressureCorrection_.usesCompactRhieChow());
+                                            &bcDiscretization_.faceBCs(),
+                                            &dCoeff_, &pressureBeforeCorrection_, &pressureGradBefore_, &pressureCorrection_.pressureMask(),
+                                            config_.rhieChow && pressureCorrection_.usesCompactRhieChow());
     lastContResidPost_ = resid.continuity;
     if (!initialMassImbalanceSet_) {
         initialMassImbalance_ = lastContResidRaw_;
@@ -1024,7 +1018,6 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
     momBCs.dirichletMaskAll = &bcDiscretization_.dirichletMask();
     momBCs.dirichletValsAll = &bcDiscretization_.dirichletVals();
     momBCs.faceBC = &bcDiscretization_.faceBCs();
-    momBCs.faceHasBC = &bcDiscretization_.faceHasBCs();
 
     momentum_.assembleWithConvection(d, boundVelocity(), pressureGrad,
                                      zeroSource_(),
@@ -1110,7 +1103,6 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     momBCs.dirichletMaskAll = &bcDiscretization_.dirichletMask();
     momBCs.dirichletValsAll = &bcDiscretization_.dirichletVals();
     momBCs.faceBC = &bcDiscretization_.faceBCs();
-    momBCs.faceHasBC = &bcDiscretization_.faceHasBCs();
 
     momentum_.assembleWithConvectionTransient(d, boundVelocity(), pressureGrad,
                                              zeroSource_(),
@@ -1273,7 +1265,7 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
     pressureGradBefore_ = pressureCorrection_.pressureGradient();
     correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
                     bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
-                    &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                    &bcDiscretization_.faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
                     adaptiveAlphaP_);
@@ -1426,7 +1418,7 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
 
         correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
                         bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
-                        &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
+                        &bcDiscretization_.faceBCs(),
                         config_.velocityCorrectionMaxUnlimitedSpeed,
                         config_.velocityCorrectionMaxGrowthRate,
                         adaptiveAlphaP_);

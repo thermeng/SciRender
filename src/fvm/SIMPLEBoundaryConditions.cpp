@@ -90,10 +90,8 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
         disc.slipWallMask_[d].assign(mesh.nCells(), false);
     }
     disc.isPressureNeumann_.assign(mesh.nCells(), false);
-    disc.isPressureNeumannFace_.assign(mesh.nFaces(), false);
-    disc.faceBC_.assign(mesh.nFaces(), FaceVelocityBC{});
+    disc.faceBCs_.assign(mesh.nFaces(), FaceVelocityBC{});
     disc.faceHasBC_.assign(mesh.nFaces(), 0);
-    disc.isPressureDirichletFace_.assign(mesh.nFaces(), 0);
 
     std::vector<std::pair<std::size_t, int>> faceToWallMap;
     buildFaceToWallMap(mesh, faceToWallMap);
@@ -208,9 +206,8 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                     bc.type == VelocityBCType::Inlet ||
                     bc.type == VelocityBCType::NoSlip ||
                     bc.type == VelocityBCType::MovingWall) {
-                    forEachBoundaryFace(mesh, wall_d, sign, [&](std::size_t f, std::size_t) {
-                        disc.isPressureNeumannFace_[f] = 1;
-                    });
+                    // These faces get their faceBCs_ entry in the boundary
+                    // face loop below; no separate Neumann flag needed.
                 } else if (bc.type == VelocityBCType::PressureOutlet) {
                     forEachBoundaryFace(mesh, wall_d, sign, [&](std::size_t f, std::size_t cell) {
                         (void)f;
@@ -224,24 +221,9 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
     for (const auto& [faceIdx, fbc] : spec.faceVelBCs) {
         if (faceIdx >= mesh.nFaces()) continue;
         std::size_t cell = mesh.owner(faceIdx);
-        if (fbc.type == VelocityBCType::Inlet) {
-            disc.isPressureNeumannFace_[faceIdx] = 1;
-        } else if (fbc.type == VelocityBCType::NoSlip || fbc.type == VelocityBCType::MovingWall) {
-            disc.isPressureNeumannFace_[faceIdx] = 1;
-        } else if (fbc.type == VelocityBCType::Symmetry || fbc.type == VelocityBCType::SlipWall) {
-            if (!mesh.isUnstructured()) {
-                const auto& fn = mesh.faceNormal(faceIdx);
-                // Same "dominant normal component" rule the momentum assembly
-                // and the pressure correction apply to a slip face.
-                const std::size_t maxD = dominantNormalComponent<Dim>(fn.data());
-                for (std::size_t d = 0; d < Dim; ++d) {
-                    if (d != maxD) disc.slipWallMask_[d][cell] = 1;
-                }
-            }
-            disc.isPressureNeumannFace_[faceIdx] = 1;
-        } else if (fbc.type == VelocityBCType::Outlet) {
-            disc.isPressureNeumannFace_[faceIdx] = 1;
-        } else if (fbc.type == VelocityBCType::PressureOutlet) {
+        disc.faceBCs_[faceIdx] = fbc;
+        disc.faceHasBC_[faceIdx] = 1;
+        if (fbc.type == VelocityBCType::PressureOutlet) {
             disc.pressureOutletCells_.emplace_back(cell, fbc.pressureValue);
         }
     }
@@ -257,12 +239,8 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
         if (mesh.neighbor(f) != std::size_t(-1)) continue;
         auto it = spec.faceVelBCs.find(f);
         if (it != spec.faceVelBCs.end()) {
-            disc.faceBC_[f] = it->second;
+            disc.faceBCs_[f] = it->second;
             disc.faceHasBC_[f] = 1;
-            if (it->second.type == VelocityBCType::PressureOutlet) {
-                disc.isPressureDirichletFace_[f] = 1;
-                disc.pressureOutletFaces_.emplace_back(f, it->second.pressureValue);
-            }
             continue;
         }
         if (!mesh.isUnstructured()) {
@@ -272,20 +250,15 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                 int sign = wallMap.second;
                 std::size_t idx = wall_d * 2 + (sign < 0 ? 0 : 1);
                 const auto& bc = spec.velBcs[idx];
-                FaceVelocityBC fbc;
-                fbc.type = bc.type;
-                fbc.u = bc.u; fbc.v = bc.v; fbc.w = bc.w;
-                fbc.pressureValue = bc.pressureValue;
-                disc.faceBC_[f] = fbc;
+                FaceVelocityBC& fb = disc.faceBCs_[f];
+                fb.type = bc.type;
+                fb.u = bc.u; fb.v = bc.v; fb.w = bc.w;
+                fb.pressureValue = bc.pressureValue;
                 disc.faceHasBC_[f] = 1;
-                if (bc.type == VelocityBCType::PressureOutlet) {
-                    disc.isPressureDirichletFace_[f] = 1;
-                    disc.pressureOutletFaces_.emplace_back(f, bc.pressureValue);
-                }
             } else {
-                disc.faceBC_[f].type = VelocityBCType::NoSlip;
+                FaceVelocityBC& fb = disc.faceBCs_[f];
+                fb.type = VelocityBCType::NoSlip;
                 disc.faceHasBC_[f] = 1;
-                disc.isPressureNeumannFace_[f] = 1;
             }
         } else {
             // Unstructured mesh: deduce the wall direction from the face
@@ -307,21 +280,15 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                 // The face is aligned with a coordinate direction: use the
                 // direction based boundary condition.
                 const auto& bc = spec.velBcs[wall_d * 2 + (sign < 0 ? 0 : 1)];
-                FaceVelocityBC fbc;
-                fbc.type = bc.type;
-                fbc.u = bc.u; fbc.v = bc.v; fbc.w = bc.w;
-                fbc.pressureValue = bc.pressureValue;
-                disc.faceBC_[f] = fbc;
+                FaceVelocityBC& fb = disc.faceBCs_[f];
+                fb.type = bc.type;
+                fb.u = bc.u; fb.v = bc.v; fb.w = bc.w;
+                fb.pressureValue = bc.pressureValue;
                 disc.faceHasBC_[f] = 1;
-                if (bc.type == VelocityBCType::PressureOutlet) {
-                    disc.isPressureDirichletFace_[f] = 1;
-                    disc.pressureOutletFaces_.emplace_back(f, bc.pressureValue);
-                } else {
-                    disc.isPressureNeumannFace_[f] = 1;
-                }
             } else {
                 // Oblique face: no direction based condition applies.
-                disc.faceBC_[f].type = VelocityBCType::NoSlip;
+                FaceVelocityBC& fb = disc.faceBCs_[f];
+                fb.type = VelocityBCType::NoSlip;
                 disc.faceHasBC_[f] = 1;
                 // A no-slip wall is a pressure-Neumann boundary. Without this flag the
                 // owning cell fails the "every boundary face is Neumann" test below,
@@ -330,7 +297,6 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                 // wall that the momentum equation treats as a solid no-slip surface.
                 // The two must agree, otherwise the pressure field that drives the
                 // recirculation is corrupted exactly at the boundary.
-                disc.isPressureNeumannFace_[f] = 1;
             }
         }
     }
@@ -346,20 +312,13 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
             if (mesh.neighbor(f) != std::size_t(-1)) continue;
             std::size_t P = mesh.owner(f);
             ++boundaryFaceCount[P];
-            if (disc.isPressureNeumannFace_[f]) ++pressureNeumannCount[P];
+            if (disc.faceBCs_[f].type != VelocityBCType::PressureOutlet) ++pressureNeumannCount[P];
         }
         for (std::size_t i = 0; i < mesh.nCells(); ++i) {
             disc.isPressureNeumann_[i] = (boundaryFaceCount[i] > 0 &&
                                          pressureNeumannCount[i] == boundaryFaceCount[i]);
         }
     }
-
-    std::sort(disc.pressureOutletFaces_.begin(), disc.pressureOutletFaces_.end(),
-              [](const auto& a, const auto& b){ return a.first < b.first; });
-    disc.pressureOutletFaces_.erase(
-        std::unique(disc.pressureOutletFaces_.begin(), disc.pressureOutletFaces_.end(),
-                    [](const auto& a, const auto& b){ return a.first == b.first; }),
-        disc.pressureOutletFaces_.end());
 
     return disc;
 }
@@ -557,15 +516,18 @@ void SIMPLEBoundaryConditions<Dim>::debugPrint(const BCDiscretization& disc) con
             if (disc.dirichletMask_[d][i]) dirichletCount[d]++;
     }
     for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
-        if (disc.isPressureNeumannFace_[f]) ++neumannFaceCount;
+        if (disc.faceBCs_[f].type != VelocityBCType::PressureOutlet) ++neumannFaceCount;
     }
+    std::size_t pressureOutletFaceCount = 0;
+    for (const auto& fb : disc.faceBCs_)
+        if (fb.type == VelocityBCType::PressureOutlet) ++pressureOutletFaceCount;
     std::cout << "  [BC] faceVelBCs=" << faceVelBCCount
               << " dirichlet U=" << dirichletCount[0] << " V=" << dirichletCount[1];
     if constexpr (Dim == 3) std::cout << " W=" << dirichletCount[2];
     std::cout << " pressureNeumann cells=" << neumannCount
               << " faces=" << neumannFaceCount
               << " pressureOutlet cells=" << disc.pressureOutletCells_.size()
-              << " faces=" << disc.pressureOutletFaces_.size() << "\n";
+              << " faces=" << pressureOutletFaceCount << "\n";
 }
 
 template class SIMPLEBoundaryConditions<2>;
