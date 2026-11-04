@@ -12,6 +12,7 @@
 #include "fvm/SSTModel.h"
 #include "fvm/Gradient.h"
 #include "fvm/PressureCorrection.h"
+#include "fvm/LinearSolverDispatcher.h"
 #include "fvm/AMG.h"
 #include "fvm/Residual.h"
 #include "fvm/VelocityCorrection.h"
@@ -155,62 +156,20 @@ struct Config {
             return c;
         }();
 
-        // --- Momentum linear solver -------------------------------------
-        // The momentum (convection-diffusion) matrix is nonsymmetric and, for
-        // upwind/SOU/TVD, an M-matrix.  always solves it with AMG, so
-        // that is the default here too. Set useAMGMomentum = false to fall
-        // back to BiCGSTAB + IncompleteLUT.
-        //
-        // The hierarchy is rebuilt when the matrix pattern changes and
-        // refreshed every momentumAmgRebuildInterval solves, because the
-        // convective coefficients change every outer iteration.
-        bool useAMGMomentum = true;
-        // 0 = always build and use AMG ( behaviour).
-        std::size_t momentumAmgThreshold = 0;
-        // When true, the momentum equation is advanced by applying the AMG
-        // hierarchy directly as the solver (a fixed number of V-cycles), with
-        // no outer Krylov method.  logs exactly this: "Total number
-        // of AMG iterations: 2" on a single fine level. When false (default)
-        // the hierarchy is used as a preconditioner inside BiCGSTAB, which is
-        // more robust and keeps the momentum residual tight.
-        bool momentumAmgAsSolver = false;
-        // How many momentum solves may reuse the same AMG hierarchy before it
-        // is rebuilt. The coarse levels depend on the momentum matrix through
-        // the Galerkin product and the matrix changes every solve (convective
-        // flux, pressure gradient, under-relaxation, rho*V/dt), so the
-        // hierarchy is technically stale after every solve - but rebuilding it
-        // every time costs more than the solve it accelerates.
-        std::size_t momentumAmgRebuildInterval = 5;
-        // Number of AMG cycles per preconditioner application. >1 makes the
-        // preconditioner stronger at linear cost.
-        int momentumAmgCycles = 2;
-        // Relative residual above which the AMG result is rejected and the
-        // solve is redone with ILU. Guards against the BiCGSTAB breakdown
-        // anomaly, which can otherwise return a silently wrong answer.
-        // Must be at least as tight as the ILU tolerance (1e-8): a loose
-        // momentum solve compounds through the SIMPLE outer loop.
-        double momentumAmgMaxResidual = 1e-8;
-        // Emit per-run momentum linear-solver statistics.
-        bool momentumSolverStats = false;
-        // Full multigrid configuration for the momentum hierarchy. Defaults
-        // use aggregation coarsening and Gauss-Seidel sweeps, matching the
-        //  momentum solver; see AMGHierarchy::Config for the knobs.
+        // Momentum linear-solver multigrid configuration, forwarded to the
+        // LinearSolverDispatcher. Tests use this to silence AMG output
+        // (verbosity = None). The dispatcher's other knobs (useAMG, threshold,
+        // cycles, etc.) use internal defaults and are not exposed here.
         AMGHierarchy::Config momentumAmgConfig = []{
             AMGHierarchy::Config c;
             c.strengthThreshold = 0.16;
             c.truncThreshold = 0.2;
             c.preSweeps = 1;
             c.postSweeps = 2;
-            c.nonsymmetric = true;
-            //  momentum defaults: Gauss-Seidel smoothing, a variable
-            // (flex) cycle and no inner Krylov acceleration. This only
-            // configures the hierarchy; whether it is used as the outer solver
-            // or as a BiCGSTAB preconditioner is decided by
-            // momentumAmgAsSolver above.
-            c.smoother = AMGHierarchy::Config::Smoother::GaussSeidel;
-            c.cycleType = AMGHierarchy::Config::CycleType::Flexible;
-            c.acceleration = AMGHierarchy::Config::Acceleration::None;
+            c.maxIterations = 100;
+            c.tolerance = 1e-8;
             c.verbosity = AMGHierarchy::Config::Verbosity::High;
+            c.acceleration = AMGHierarchy::Config::Acceleration::None;
             return c;
         }();
 
@@ -242,18 +201,6 @@ struct Config {
             c.pressureAmgConfig.coarseEnough = 2;
             c.pressureAmgConfig.cycleType = AMGHierarchy::Config::CycleType::VCycle;
             c.pressureAmgConfig.acceleration = AMGHierarchy::Config::Acceleration::ConjugateGradient;
-            c.useAMGMomentum = true;
-            c.momentumAmgThreshold = 0;
-            c.momentumAmgAsSolver = true;
-            c.momentumAmgConfig.preSweeps = 2;
-            c.momentumAmgConfig.postSweeps = 2;
-            c.momentumAmgConfig.maxIterations = 30;
-            c.momentumAmgConfig.tolerance = 0.1;
-            c.momentumAmgConfig.coarsening = AMGHierarchy::Config::Coarsening::SmoothedAggregation;
-            c.momentumAmgConfig.smoother = AMGHierarchy::Config::Smoother::GaussSeidel;
-            c.momentumAmgConfig.coarseEnough = 2;
-            c.momentumAmgConfig.cycleType = AMGHierarchy::Config::CycleType::Flexible;
-            c.momentumAmgConfig.acceleration = AMGHierarchy::Config::Acceleration::None;
             return c;
         }
     };
@@ -412,14 +359,12 @@ struct Config {
     }
 
     // Momentum AMG diagnostics (for tests / profiling).
-    std::size_t momentumAmgSolves() const { return momStats_.amgSolves; }
-    // Number of momentum solves that used the hierarchy directly as the solver
-    // (momentumAmgAsSolver=true). Zero for the default preconditioned path.
+    std::size_t momentumAmgSolves() const { return linearSolverDispatcher_.amgSolves(); }
     std::size_t momentumAmgStandaloneSolves() const {
-        return momStats_.amgStandaloneSolves;
+        return linearSolverDispatcher_.amgStandaloneSolves();
     }
-    std::size_t momentumAmgRejected() const { return momStats_.amgRejected; }
-    std::size_t momentumAmgBuilds() const { return momStats_.amgBuilds; }
+    std::size_t momentumAmgRejected() const { return linearSolverDispatcher_.amgRejected(); }
+    std::size_t momentumAmgBuilds() const { return linearSolverDispatcher_.amgBuilds(); }
     // Per-outer-iteration relative velocity change. Diagnostic only: it tracks
     // iteration progress rather than equation satisfaction.
     double finalMomentumChange() const { return lastMomChange_; }
@@ -474,22 +419,7 @@ private:
     // for component d, evaluated at the current velocity. Uses the
     // per-direction snapshot, not the shared (last-component) momA_/momB_.
     double momentumResidual_(std::size_t d) const;
-    // Solve momA_ x = momB_ for velocity component d, dispatching between
-    // BiCGSTAB+ILU (default) and AMG-preconditioned BiCGSTAB. Collects solver
-    // statistics. Returns the solution vector.
-    Eigen::VectorXd solveMomentumLinear_(std::size_t d);
-    // Cheap O(nnz) hash of the sparsity structure, used to decide whether an
-    // AMG hierarchy can be reused or must be rebuilt.
-    static std::size_t sparsityHash_(const SparseMatrix& A);
-    // True if any off-diagonal entry is positive, i.e. the matrix is not an
-    // M-matrix. AMG interpolation weights go negative in that case and the
-    // coarse operator loses diagonal dominance, so we refuse to use it.
-    static bool hasPositiveOffDiagonals_(const SparseMatrix& A);
-    void printMomentumSolverStats_() const;
     void printPressureSolverStats_() const;
-    // Solve with ILU. Used as the default and as the fallback when the
-    // AMG-preconditioned solve produces an unacceptable residual.
-    Eigen::VectorXd solveMomentumILU_(std::size_t d, std::size_t& itersOut);
     // Returns true when the caller should stop solving. `checkTolerance` gates
     // the "residuals are below tolerance" clause: the steady path wants it, the
     // transient path does not — a converged corrector loop at one time step
@@ -587,15 +517,6 @@ private:
     // first rather than whichever check ran last.
     Failure failure_ = Failure::None;
     void fail_(Failure reason);
-    // Set when a momentum Krylov solve breaks down (non-finite error or
-    // solution, or a numerical issue). Eigen can return an all-zero vector in
-    // that case, so "the result looks finite" is not enough to call it a
-    // success. Reset at the start of every momentum solve and consumed by the
-    // component assemblers.
-    bool momSolveFailed_ = false;
-    // Per-component flag: the ILU pattern analysis must be redone for each
-    // velocity component because U, V, W have different sparsity patterns.
-    std::array<bool, Dim> momPatternAnalyzed_{};
     double adaptiveAlphaP_ = 0.0;
     double maxInletSpeed_ = 0.0;
     double prevContResid_ = 0.0;
@@ -617,56 +538,27 @@ private:
     double initialMassImbalance_ = 0.0;
     bool initialMassImbalanceSet_ = false;
 
-    // Reusable buffers for momentum solver
-    mutable SparseMatrix momA_;
-    mutable Eigen::VectorXd momB_;
-    // momA_/momB_ are REUSED for every velocity component, so after
-    // solveMomentum_() they hold only the last component's system. The
-    // momentum residual must be evaluated per direction against that
-    // direction's own operator, hence these snapshots.
+    // Momentum snapshots kept for the PISO correctors and per-direction
+    // residual evaluation. momA_/momB_ are now locals in the component
+    // assemblers; these hold the last-assembled system per component.
     mutable std::array<SparseMatrix, Dim> momAsnap_;
     mutable std::array<Eigen::VectorXd, Dim> momBsnap_;
     // Pressure-free momentum RHS (b + V grad p at the predictor) per
     // direction. Frozen with momAsnap_/momBsnap_ for the PISO correctors.
     std::array<Eigen::VectorXd, Dim> momB0_;
-    mutable std::vector<Triplet> momTriplets_;
+    // Temporary output of computeDCoeffAndRelax; copied into diag_[d].
     mutable Field<Dim> momDiag_;
+    // Reusable per-component temporaries (avoid reallocation each iteration).
+    mutable std::vector<Triplet> momTriplets_;
     mutable std::array<Field<Dim>, Dim> velGrad_;
     mutable std::array<Field<Dim>, Dim> pressureGrad_;
-    mutable Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> momSolver_;
 
-    // --- Momentum AMG path (opt-in) -------------------------------------
-    // One hierarchy and one Krylov solver per velocity component: the
-    // convective stencil differs between U, V and W so they are not
-    // interchangeable.
-    mutable std::array<AMGHierarchy, Dim> momAmg_;
-    mutable std::array<AMGPreconditioner, Dim> momAmgPrec_;
-    mutable std::array<Eigen::BiCGSTAB<SparseMatrix, AMGPreconditioner>, Dim> momAmgSolver_;
-    mutable std::array<bool, Dim> momAmgBuilt_{};
-    mutable std::array<std::size_t, Dim> momAmgPatternHash_{};
-    // Number of momentum solves since the hierarchy was last rebuilt (see
-    // Config::momentumAmgRebuildInterval).
-    mutable std::array<std::size_t, Dim> momAmgValueUpdates_{};
-    mutable std::array<bool, Dim> momAmgPatternAnalyzed_{};
-    // Set once we have decided the momentum operator is unsuitable for AMG, so
-    // we do not rescan for positive off-diagonals every iteration.
-    mutable std::array<bool, Dim> momAmgDisabledReason_{};
-    mutable std::array<bool, Dim> momAmgPathLogged_{};
+    // Linear solver dispatch: AMG hierarchies, BiCGSTAB+ILU fallback,
+    // warm-start handling, and the AMG-vs-ILU decision. The SIMPLE orchestrator
+    // no longer knows about sparsity hashes, rebuild intervals, or preconditioner
+    // cycles — it simply asks the dispatcher to solve A x = b.
+    LinearSolverDispatcher<Dim> linearSolverDispatcher_;
 
-    struct MomentumSolverStats {
-        std::size_t solves = 0;
-        std::size_t amgSolves = 0;
-        std::size_t amgStandaloneSolves = 0;
-        std::size_t iluSolves = 0;
-        std::size_t amgBuilds = 0;
-        std::size_t amgRejected = 0;
-        std::size_t krylovIters = 0;
-        std::size_t amgKrylovIters = 0;
-        double iluSeconds = 0.0;
-        double amgSeconds = 0.0;
-        double buildSeconds = 0.0;
-    };
-    mutable MomentumSolverStats momStats_{};
     VectorField<Dim> velocityOld_;
     Field<Dim> nutOld_;
 

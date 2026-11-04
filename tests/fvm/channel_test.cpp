@@ -111,8 +111,6 @@ ChannelResult runChannel(int iterations = kIterations,
 
     // AMG is on by default in SIMPLE<2>::Config. Verbosity defaults to None, so
     // no per-level hierarchy output pollutes the test log (matching the UI).
-    cfg.useAMGMomentum = true;
-    cfg.momentumAmgThreshold = 0;
     cfg.pressureAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
     cfg.momentumAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
 
@@ -338,8 +336,6 @@ TEST_CASE("fvm.channel.grid_convergence") {
         cfg.printFrequency = 1000000;
         cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;
         cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
-        cfg.useAMGMomentum = true;
-        cfg.momentumAmgThreshold = 0;
         cfg.pressureAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
         cfg.momentumAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
 
