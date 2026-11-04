@@ -91,10 +91,17 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
 
 
     connect(m_ctrl, &CfdController::progress, this, &CfdCasePage::onProgress);
+    connect(m_ctrl, &CfdController::progress, this, &CfdCasePage::onProgress);
     connect(m_ctrl, &CfdController::residualsUpdated, this, [this](int iter, int dim, double cont,
-                                                                  double momU, double momV, double momW,
-                                                                  double k, double omega, bool hasTurb) {
-        emit residualSeriesUpdated(iter, dim, cont, momU, momV, momW, k, omega, hasTurb);
+                                                                   double momU, double momV, double momW,
+                                                                   double k, double omega, double maxYPlus,
+                                                                   bool hasTurb) {
+        emit residualSeriesUpdated(iter, dim, cont, momU, momV, momW, k, omega, maxYPlus, hasTurb);
+        if (hasTurb && maxYPlus > 50.0) {
+            log(QString("WARNING: max y+ = %1 — wall-adjacent cells are inside the log layer.\n"
+                        "Refine the mesh near walls or enable wall functions for reliable turbulence results.")
+                .arg(maxYPlus, 0, 'g', 3));
+        }
     });
     connect(m_ctrl, &CfdController::finished, this, &CfdCasePage::onFinished);
     connect(m_ctrl, &CfdController::failed, this, &CfdCasePage::onFailed);
@@ -131,6 +138,14 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_alphaK = cfdUi.alphaKSpin;
     m_alphaW = cfdUi.alphaWSpin;
     m_wallFuncCb = cfdUi.wallFuncCb;
+
+    // Wall functions are not implemented for the low-Re SST formulation, so the
+    // toggle stays hidden: it is a non-functional affordance until a high-Re
+    // path exists.
+    m_alphaK->setToolTip("Turbulent kinetic energy dissipation under-relaxation.\n"
+                         "Typical SST value: 0.7 (range 0.01 - 1.0).");
+    m_alphaW->setToolTip("Specific dissipation rate under-relaxation.\n"
+                         "Typical SST value: 0.7 (range 0.01 - 1.0).");
 
     if (m_alphaK && m_alphaK->parentWidget()) m_alphaK->parentWidget()->setVisible(m_turb->isChecked());
     if (m_alphaW && m_alphaW->parentWidget()) m_alphaW->parentWidget()->setVisible(m_turb->isChecked());

@@ -102,6 +102,9 @@ public:
     virtual std::array<double, 3> finalMomentumResiduals() const = 0;
     virtual double finalKResidual() const = 0;
     virtual double finalOmegaResidual() const = 0;
+    // Largest y+ over wall-adjacent cells (low-Re SST: should be O(1)).
+    // Zero when turbulence is disabled or no solver exists.
+    virtual double maxYPlus() const = 0;
     virtual bool hasTurbulence() const = 0;
 
     // Live state (solver fields if one exists, otherwise the installed state).

@@ -81,6 +81,8 @@ void SSTModel<Dim>::initialize(double mu, double rho) {
     }
     maxYPlus_ = 0.0;
     maxWallDistance_ = 0.0;
+    cellYPlus_.assign(n, 0.0);
+    cellIsHighRe_.assign(n, 0);
 }
 
 template<std::size_t Dim>
@@ -188,6 +190,13 @@ void SSTModel<Dim>::setBoundaryConditions(
     const double nu = (rho_ > 1e-30) ? mu_ / rho_ : mu_;
     const double beta1 = config_.constants.beta1;
     maxYPlus_ = 0.0;
+
+    // Map deprecated wallFunction bool to wallTreatment enum.
+    // wallFunction=false => LowRe (resolve sublayer everywhere)
+    // wallFunction=true  => AllYPlus (per-cell switch based on local y+)
+    if (config_.wallFunction) {
+        config_.wallTreatment = Config::WallTreatment::AllYPlus;
+    }
 
     for (std::size_t f = 0; f < nF; ++f) {
         if (mesh_.neighbor(f) != std::size_t(-1)) continue;
@@ -330,6 +339,12 @@ void SSTModel<Dim>::solveIteration(const VectorField<Dim>& velocity,
                                    ConvectionScheme scheme) {
     computeStrainRate(velocity);
     updateBackflowBCs_(velocity);
+    // Update per-cell wall BCs before the transport solves so wall-adjacent
+    // cells use low-Re or wall-function conditions according to the current
+    // local y+. This is what makes AllYPlus treatment work: cells with y+
+    // below the threshold use the low-Re wall BC (k=0, omega=6nu/(beta1*y^2)),
+    // cells above it use wall-function BCs.
+    updateWallBCs_(velocity);
     gradK_ = computeScalarGradients(k_, kBCMask_, kBCVals_);
     gradOmega_ = computeScalarGradients(omega_, omegaBCMask_, omegaBCVals_);
     computeBlendingFunctions();
@@ -338,7 +353,8 @@ void SSTModel<Dim>::solveIteration(const VectorField<Dim>& velocity,
     solveOmegaTransport(velocity, scheme);
     computeEddyViscosity();
     computeWallDiagnostics(velocity);
-    if (config_.wallFunction) applyWallFunctions(velocity);
+    // applyWallFunctions() removed: wall values are set per-cell by
+    // updateWallBCs_() before the solve, not overwritten after it.
 }
 
 template<std::size_t Dim>
@@ -486,12 +502,25 @@ void SSTModel<Dim>::computeStrainRate(const VectorField<Dim>& velocity) {
 }
 
 template<std::size_t Dim>
-void SSTModel<Dim>::applyWallFunctions(const VectorField<Dim>& velocity) {
+void SSTModel<Dim>::updateWallBCs_(const VectorField<Dim>& velocity) {
+    const std::size_t n = mesh_.nCells();
     const double nu = (rho_ > 1e-30) ? mu_ / rho_ : mu_;
-    const double kappa = config_.constants.kappa;
+    const auto& c = config_.constants;
+    const double kappa = c.kappa;
     const double B = 5.0;
     const double Cmu = 0.09;
-    const std::size_t n = mesh_.nCells();
+    const double yPlusCrit = config_.yPlusThreshold;
+
+    // Reset active masks from fixed (wall/inlet) masks.
+    kBCMask_ = kFixedMask_;
+    kBCVals_ = kFixedVals_;
+    omegaBCMask_ = omegaFixedMask_;
+    omegaBCVals_ = omegaFixedVals_;
+
+    // Per-cell treatment: default low-Re everywhere.
+    std::fill(cellIsHighRe_.begin(), cellIsHighRe_.end(), 0);
+    std::fill(cellYPlus_.begin(), cellYPlus_.end(), 0.0);
+    maxYPlus_ = 0.0;
 
     for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
         if (mesh_.neighbor(f) != std::size_t(-1)) continue;
@@ -500,6 +529,9 @@ void SSTModel<Dim>::applyWallFunctions(const VectorField<Dim>& velocity) {
         const double y = std::max(wallDist_[P], minFaceDist);
         if (y < 1e-12) continue;
 
+        // Estimate friction velocity from current velocity at the wall-adjacent
+        // cell. Iterative solution of u+ = (1/kappa) ln(y+) + B with the
+        // viscous-sublayer branch u+ = y+ for y+ < 11.225.
         double uMag = 0.0;
         const double* wallVel = faceVelocity_[f].data();
         for (std::size_t d = 0; d < Dim; ++d) {
@@ -507,66 +539,125 @@ void SSTModel<Dim>::applyWallFunctions(const VectorField<Dim>& velocity) {
             uMag += diff * diff;
         }
         uMag = std::sqrt(uMag);
-        if (uMag < 1e-12) continue;
+        if (uMag < 1e-12) {
+            // No slip velocity: cannot estimate uTau. Use low-Re BC.
+            kBCMask_[P] = 1;
+            kBCVals_[P] = 0.0;
+            omegaBCMask_[P] = 1;
+            omegaBCVals_[P] = std::min(6.0 * nu / (c.beta1 * y * y), config_.omegaMax);
+            continue;
+        }
 
-        // Iterative solution of u+ = (1/kappa) ln(y+) + B
         double uTau = std::max(uMag / 20.0, 1e-8);
         for (int it = 0; it < 20; ++it) {
             double yp = y * uTau / std::max(nu, 1e-30);
             double up = (yp < 11.225) ? yp : (1.0 / kappa) * std::log(std::max(yp, 1e-12)) + B;
             if (up > 1e-12) uTau = uMag / up;
         }
-        double yp = y * uTau / std::max(nu, 1e-30);
+        double yPlus = y * uTau / std::max(nu, 1e-30);
+        cellYPlus_[P] = std::max(cellYPlus_[P], yPlus);
+        if (std::isfinite(yPlus)) maxYPlus_ = std::max(maxYPlus_, yPlus);
 
-        double kVal, omegaVal, nutVal;
-        if (yp < 11.225) {
-            // Viscous sublayer
-            kVal = 0.0; // k=0 at wall
-            omegaVal = 6.0 * nu / (config_.constants.beta1 * y * y);
-            nutVal = 0.0;
-        } else {
-            kVal = uTau * uTau / std::sqrt(Cmu);
-            omegaVal = uTau / (std::sqrt(config_.constants.beta_star) * kappa * y);
-            nutVal = std::max(uTau * kappa * y - nu, 0.0);
+        // Decide per-cell treatment.
+        bool useWallFunction = false;
+        if (config_.wallTreatment == Config::WallTreatment::HighRe) {
+            useWallFunction = true;
+        } else if (config_.wallTreatment == Config::WallTreatment::AllYPlus) {
+            useWallFunction = (yPlus >= yPlusCrit);
         }
-        k_[P] = std::clamp(kVal, config_.kMin, config_.kMax);
-        omega_[P] = std::clamp(omegaVal, config_.omegaMin, config_.omegaMax);
-        nut_[P] = std::max(nutVal, 0.0);
+        // LowRe: useWallFunction = false (keep low-Re BC).
+
+        cellIsHighRe_[P] = useWallFunction ? 1 : 0;
+
+        if (useWallFunction) {
+            // Wall-function (high-Re) boundary values.
+            double kVal, omegaVal, nutVal;
+            if (yPlus < 11.225) {
+                // Fallback to viscous-sublayer values if y+ ended up low.
+                kVal = 0.0;
+                omegaVal = 6.0 * nu / (c.beta1 * y * y);
+                nutVal = 0.0;
+            } else {
+                kVal = uTau * uTau / std::sqrt(Cmu);
+                omegaVal = uTau / (std::sqrt(c.beta_star) * kappa * y);
+                nutVal = std::max(uTau * kappa * y - nu, 0.0);
+            }
+            kBCMask_[P] = 1;
+            kBCVals_[P] = std::clamp(kVal, config_.kMin, config_.kMax);
+            omegaBCMask_[P] = 1;
+            omegaBCVals_[P] = std::clamp(omegaVal, config_.omegaMin, config_.omegaMax);
+        } else {
+            // Low-Re boundary values (resolve viscous sublayer).
+            kBCMask_[P] = 1;
+            kBCVals_[P] = 0.0;
+            omegaBCMask_[P] = 1;
+            omegaBCVals_[P] = std::min(6.0 * nu / (c.beta1 * y * y), config_.omegaMax);
+        }
+    }
+
+    // Also apply backflow BCs on outlet faces that are ingesting, since
+    // updateBackflowBCs_() was called before this and its masks may have been
+    // reset above. Re-merge: fixed masks win, backflow only where no fixed BC.
+    for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
+        if (mesh_.neighbor(f) != std::size_t(-1)) continue;
+        if (!faceIsOutlet_[f]) continue;
+        const std::size_t P = mesh_.owner(f);
+        // Only add backflow Dirichlet if no wall/inlet condition already set.
+        if (kBCMask_[P] && kFixedMask_[P]) continue;
+        if (!(outletBackflowK_[f] > 0.0) || !(outletBackflowOmega_[f] > 0.0))
+            continue;
+        kBCMask_[P] = 1;
+        kBCVals_[P] = outletBackflowK_[f];
+        omegaBCMask_[P] = 1;
+        omegaBCVals_[P] = std::clamp(outletBackflowOmega_[f],
+                                     config_.omegaMin, config_.omegaMax);
     }
 }
 
 template<std::size_t Dim>
 void SSTModel<Dim>::computeWallDiagnostics(const VectorField<Dim>& velocity) {
+    // Per-cell y+ was already computed by updateWallBCs_() before the
+    // transport solves. Read it here for reporting; recompute only if
+    // updateWallBCs_() hasn't run yet (defensive).
+    bool needRecompute = true;
+    for (std::size_t i = 0; i < cellYPlus_.size(); ++i) {
+        if (cellYPlus_[i] > 0.0) { needRecompute = false; break; }
+    }
+
     maxYPlus_ = 0.0;
     const double nu = (rho_ > 1e-30) ? mu_ / rho_ : mu_;
     if (!(nu > 0.0)) return;
 
-    for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
-        if (mesh_.neighbor(f) != std::size_t(-1)) continue;
-        if (f >= faceIsWall_.size() || !faceIsWall_[f]) continue;
-        const std::size_t P = mesh_.owner(f);
-        const double y = std::max(wallDist_[P], minFaceDist);
-
-        // Wall-adjacent shear estimate from the viscous sublayer. With no
-        // wall function this is the best available diagnostic, and it is
-        // exactly the quantity that tells the caller whether the first cell
-        // is inside the sublayer (y+ ~ 1) or not.
-        double du2 = 0.0;
-        for (std::size_t d = 0; d < Dim; ++d) {
-            const double wallVel = faceVelocity_[f][d];
-            const double diff = velocity[d][P] - wallVel;
-            du2 += diff * diff;
+    if (needRecompute) {
+        // Fallback: compute y+ directly using the viscous-sublayer shear
+        // estimate (same as the pre-all-y+ behavior).
+        for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
+            if (mesh_.neighbor(f) != std::size_t(-1)) continue;
+            if (f >= faceIsWall_.size() || !faceIsWall_[f]) continue;
+            const std::size_t P = mesh_.owner(f);
+            const double y = std::max(wallDist_[P], minFaceDist);
+            double du2 = 0.0;
+            for (std::size_t d = 0; d < Dim; ++d) {
+                const double wallVel = faceVelocity_[f][d];
+                const double diff = velocity[d][P] - wallVel;
+                du2 += diff * diff;
+            }
+            const double magU = std::sqrt(du2);
+            const double tau = mu_ * magU / y;
+            const double uTau = std::sqrt(std::max(tau / rho_, 0.0));
+            const double yPlus = y * uTau / nu;
+            cellYPlus_[P] = std::max(cellYPlus_[P], yPlus);
+            if (std::isfinite(yPlus)) maxYPlus_ = std::max(maxYPlus_, yPlus);
         }
-        const double magU = std::sqrt(du2);
-        const double tau = mu_ * magU / y;
-        const double uTau = std::sqrt(std::max(tau / rho_, 0.0));
-        const double yPlus = y * uTau / nu;
-        if (std::isfinite(yPlus)) maxYPlus_ = std::max(maxYPlus_, yPlus);
+    } else {
+        for (std::size_t i = 0; i < cellYPlus_.size(); ++i) {
+            if (std::isfinite(cellYPlus_[i]))
+                maxYPlus_ = std::max(maxYPlus_, cellYPlus_[i]);
+        }
     }
-    // Auto-switch to wall functions when the mesh is too coarse for low-Re.
-    if (!config_.wallFunction && maxYPlus_ > 30.0) {
-        config_.wallFunction = true;
-    }
+
+    // Removed: global auto-switch from low-Re to wall functions based on
+    // maxYPlus_. All-y+ treatment now decides per-cell in updateWallBCs_().
 }
 
 template<std::size_t Dim>
@@ -719,6 +810,7 @@ void SSTModel<Dim>::solveIterationTransient(const VectorField<Dim>& velocity,
                                             const Field<Dim>* omegaOldPrev) {
     computeStrainRate(velocity);
     updateBackflowBCs_(velocity);
+    updateWallBCs_(velocity);
     gradK_ = computeScalarGradients(k_, kBCMask_, kBCVals_);
     gradOmega_ = computeScalarGradients(omega_, omegaBCMask_, omegaBCVals_);
     computeBlendingFunctions();
@@ -727,7 +819,7 @@ void SSTModel<Dim>::solveIterationTransient(const VectorField<Dim>& velocity,
     solveOmegaTransportTransient(velocity, scheme, dt, dtPrev, timeScheme, omegaOld, omegaOldPrev);
     computeEddyViscosity();
     computeWallDiagnostics(velocity);
-    if (config_.wallFunction) applyWallFunctions(velocity);
+    // applyWallFunctions() removed: see solveIteration().
 }
 
 template<std::size_t Dim>

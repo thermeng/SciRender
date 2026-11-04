@@ -200,8 +200,15 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
         sstCfg.kInf       = config_.kInf;
         sstCfg.omegaInf   = config_.omegaInf;
         sstCfg.alphaK     = config_.alphaK;
-         sstCfg.alphaOmega = config_.alphaOmega;
-         sstCfg.wallFunction = config_.wallFunction;
+        sstCfg.alphaOmega = config_.alphaOmega;
+        sstCfg.wallFunction = config_.wallFunction;
+        // Map deprecated wallFunction bool to wallTreatment enum.
+        using WallTreatment = typename SSTModel<Dim>::Config::WallTreatment;
+        if (wallFunction) {
+            sstCfg.wallTreatment = WallTreatment::AllYPlus;
+        } else {
+            sstCfg.wallTreatment = WallTreatment::LowRe;
+        }
         turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
         turbulence_->initialize(nu_ * rho_, rho_);
     }

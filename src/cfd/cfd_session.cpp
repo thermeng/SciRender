@@ -311,6 +311,12 @@ public:
             return t ? t->finalOmegaResid() : 0.0;
         });
     }
+    double maxYPlus() const override {
+        return withSolver([](const Solver& s) {
+            const auto* t = s.turbulence();
+            return t ? t->maxYPlus() : 0.0;
+        });
+    }
     bool hasTurbulence() const override {
         return withSolver([](const Solver& s) { return s.turbulence() != nullptr; });
     }

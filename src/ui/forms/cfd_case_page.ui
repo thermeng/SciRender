@@ -554,9 +554,6 @@
     </item>
     <item>
      <widget class="QWidget" name="wallFuncRow" native="true">
-      <property name="visible">
-       <bool>false</bool>
-      </property>
       <layout class="QHBoxLayout" name="wallFuncRowLayout">
        <property name="spacing">
         <number>6</number>
@@ -588,7 +585,7 @@
           </size>
          </property>
          <property name="text">
-          <string>Wall Func</string>
+          <string>Wall Treatment</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
@@ -597,6 +594,14 @@
        </item>
        <item>
         <widget class="QCheckBox" name="wallFuncCb">
+         <property name="text">
+          <string>All y+ treatment</string>
+         </property>
+         <property name="toolTip">
+          <string>All-y+ wall treatment: per-cell switch between low-Re (resolving the
+viscous sublayer, y+ ~ 1) and wall functions (log layer, y+ > 30) based on local y+.
+When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</string>
+         </property>
         </widget>
        </item>
       </layout>
