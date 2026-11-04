@@ -56,6 +56,18 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
         return out;
     };
 
+    auto writeScalarAttrs = [&](const std::string& name,
+                                 const std::vector<float>& cellVals) -> std::vector<float> {
+        attrs.cellScalars[name] = cellVals;
+        attrs.cellScalarRanges[name] = rangeOf(cellVals);
+        std::vector<float> ptsSrc = mesh_utils::extrapolateCellToPoints<float>(
+            rm, cellVals, static_cast<std::size_t>(nCells), static_cast<std::size_t>(nSrc));
+        std::vector<float> pts = expandToFinal(ptsSrc);
+        attrs.pointScalars[name] = pts;
+        attrs.pointScalarRanges[name] = rangeOf(ptsSrc);
+        return pts;
+    };
+
     // ── Pressure ────────────────────────────────────────────────────────────
     // Store BOTH cell and point data. The renderer resolves the active surface
     // field per-vertex (FieldStore::resolveScalar(Vertex)); without a
@@ -66,15 +78,7 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     for (int c = 0; c < nCells; ++c)
         cellPres[static_cast<std::size_t>(c)] = static_cast<float>(state.pressure[static_cast<std::size_t>(c)]);
 
-    attrs.cellScalars["pressure"] = cellPres;
-    attrs.cellScalarRanges["pressure"] = rangeOf(cellPres);
-
-    std::vector<float> pointPresSrc = mesh_utils::extrapolateCellToPoints<float>(rm, cellPres, static_cast<std::size_t>(nCells), static_cast<std::size_t>(nSrc));
-    std::vector<float> pointPres = expandToFinal(pointPresSrc);
-
-    attrs.pointScalars["pressure"] = pointPres;
-    attrs.pointScalarRanges["pressure"] = rangeOf(pointPresSrc);
-
+    std::vector<float> pointPres = writeScalarAttrs("pressure", cellPres);
     rm.scalars = pointPres;
     rm.scalarName = "pressure";
 
@@ -152,12 +156,7 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
             {"k", &k}, {"omega", &om}, {"nut", &nt}
         };
         for (const auto& [name, cellVals] : fields) {
-            attrs.cellScalars[name] = *cellVals;
-            attrs.cellScalarRanges[name] = rangeOf(*cellVals);
-            std::vector<float> ptsSrc = mesh_utils::extrapolateCellToPoints<float>(rm, *cellVals, static_cast<std::size_t>(nCells), static_cast<std::size_t>(nSrc));
-            std::vector<float> pts = expandToFinal(ptsSrc);
-            attrs.pointScalars[name] = pts;
-            attrs.pointScalarRanges[name] = rangeOf(ptsSrc);
+            writeScalarAttrs(std::string(name), *cellVals);
         }
     }
 
