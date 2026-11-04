@@ -65,6 +65,13 @@ private:
     Field<Dim> solution_;
 
     mutable std::unique_ptr<Gradient<Dim>> gradCalc_;
+    // Cached BiCGSTAB+ILU solver: pattern analysis is reused when the matrix
+    // sparsity pattern is unchanged (only values change between outer
+    // iterations), avoiding the O(nnz log nnz) pattern-analysis cost on every
+    // call. Factorization still runs every call because values change.
+    mutable Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> advectionSolver_;
+    bool advectionPatternAnalyzed_ = false;
+    std::size_t advectionPatternHash_ = 0;
     int lastIterations_ = 0;
     double lastResidual_ = 0.0;
 };

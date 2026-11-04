@@ -11,7 +11,15 @@
 //   - the divergence of the final velocity must vanish in the interior;
 //   - the mass flux through the inlet and through the outlet must balance;
 //   - the centreline profile must be smooth (no checkerboard).
+//
+// AMG is the default linear solver for both pressure and momentum
+// (pressureUseAMG = true, useAMGMomentum = true in SIMPLE<2>::Config), so this
+// test exercises the AMG-preconditioned BiCGSTAB path without needing to set
+// anything explicitly. The old channel_amg_tmp_test.cpp only added
+// momentumSolverStats = true, which generates noisy diagnostic logs; that line
+// is kept below but commented out.
 #include "doctest/doctest.h"
+#include "fvm/AMG.h"
 #include "fvm/Divergence.h"
 #include "fvm/SIMPLE.h"
 #include "mesh/BoundaryUtils.h"
@@ -75,6 +83,15 @@ ChannelResult runChannel(int iterations = kIterations) {
     cfg.printFrequency = 1000000; // effectively silent (the solver divides by it)
     cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;
     cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
+
+    // AMG is on by default in SIMPLE<2>::Config. These are documented here for
+    // clarity; they match the defaults (useAMGMomentum = true,
+    // momentumAmgThreshold = 0). momentumSolverStats is intentionally disabled
+    // because it emits noisy per-iteration AMG diagnostic logs.
+    cfg.useAMGMomentum = true;
+    cfg.momentumAmgThreshold = 0;
+    // cfg.momentumSolverStats = true;
+    // AMG verbosity defaults to None in SIMPLE<2>::Config, so no override needed.
 
     fvm::SIMPLE<2> solver(mesh, 1.0, nu, cfg);
 

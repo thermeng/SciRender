@@ -5,6 +5,29 @@
 
 namespace fvm {
 
+namespace {
+
+// FNV-1a hash of the sparse-matrix sparsity pattern (row/col indices only,
+// values excluded). Used to decide whether the ILU preconditioner's pattern
+// analysis can be reused across solveSteady() calls when only matrix values
+// change.
+std::size_t sparsityHash(const SparseMatrix& A) {
+    std::size_t h = 1469598103934665603ull;
+    auto mix = [&h](std::size_t v) {
+        h ^= v;
+        h *= 1099511628211ull;
+    };
+    for (Eigen::Index j = 0; j < A.outerSize(); ++j) {
+        for (SparseMatrix::InnerIterator it(A, j); it; ++it) {
+            mix(static_cast<std::size_t>(it.row()));
+            mix(static_cast<std::size_t>(it.col()));
+        }
+    }
+    return h;
+}
+
+} // namespace
+
 namespace detail {
 
 template<std::size_t Dim>
@@ -109,18 +132,27 @@ Eigen::VectorXd AdvectionDiffusionSolver<Dim>::solveSteady() {
 
         bcs_.addNeumannContributions(b);
 
-        Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> solver;
-        solver.setMaxIterations(50000);
-        solver.setTolerance(1e-10);
-        solver.compute(A);
-        Eigen::VectorXd x = solver.solve(b);
-        lastIterations_ = static_cast<int>(solver.iterations());
-        lastResidual_  = solver.error();
+        // Reuse the cached BiCGSTAB+ILU solver when the sparsity pattern is
+        // unchanged; only the factorization is recomputed because matrix values
+        // change every outer iteration. This avoids the O(nnz log nnz)
+        // ILU pattern-analysis cost on every call.
+        const std::size_t patternHash = sparsityHash(A);
+        if (!advectionPatternAnalyzed_ || patternHash != advectionPatternHash_) {
+            advectionSolver_.setMaxIterations(50000);
+            advectionSolver_.setTolerance(1e-10);
+            advectionSolver_.analyzePattern(A);
+            advectionPatternAnalyzed_ = true;
+            advectionPatternHash_ = patternHash;
+        }
+        advectionSolver_.factorize(A);
+        Eigen::VectorXd x = advectionSolver_.solve(b);
+        lastIterations_ = static_cast<int>(advectionSolver_.iterations());
+        lastResidual_  = advectionSolver_.error();
 
-        if (solver.info() != Eigen::Success) {
+        if (advectionSolver_.info() != Eigen::Success) {
             std::cerr << "  WARNING: advection-diffusion BiCGSTAB failed at outer iter "
-                      << outer << " (iters=" << solver.iterations()
-                      << ", resid=" << solver.error() << ")\n";
+                      << outer << " (iters=" << advectionSolver_.iterations()
+                      << ", resid=" << advectionSolver_.error() << ")\n";
         }
 
         Field<Dim> oldSolution = solution_;
