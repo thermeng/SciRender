@@ -37,14 +37,7 @@ void PressureCorrection<Dim>::solve(
     const std::array<std::vector<double>, Dim>& dCoeff,
     const Field<Dim>& pressure,
     Field<Dim>& pPrime,
-    const std::vector<std::pair<std::size_t, double>>& pressureOutletCells,
-    const std::vector<char>& isPressureNeumann,
-    const std::vector<char>* isPressureDirichletFace,
-    const std::vector<std::pair<std::size_t, double>>* pressureOutletFaces,
-    const std::vector<FaceVelocityBC>* faceBC,
-    const std::vector<char>* faceHasBC,
-    const std::vector<std::vector<char>>* velDirichletMask,
-    const std::vector<std::vector<double>>* velDirichletVals,
+    const BCDiscretization& bc,
     const std::atomic<bool>* cancel) {
 
     const std::size_t n = mesh_.nCells();
@@ -115,17 +108,17 @@ void PressureCorrection<Dim>::solve(
         pMask_[cell] = true;
         pVals_[cell] = 0.0;
     };
-    for (const auto& outlet : pressureOutletCells) pinOutletCell(outlet.first);
+    for (const auto& outlet : bc.pressureOutletCells()) pinOutletCell(outlet.first);
     // Face-based Dirichlet (exact per-face, fixes cell dedup loss)
-    if (isPressureDirichletFace && pressureOutletFaces) {
-        for (const auto& outlet : *pressureOutletFaces) {
+    if (!bc.pressureOutletFaces().empty() || !bc.isPressureDirichletFaces().empty()) {
+        for (const auto& outlet : bc.pressureOutletFaces()) {
             const std::size_t face = outlet.first;
             if (face < mesh_.nFaces() && mesh_.neighbor(face) == std::size_t(-1)) {
                 pinOutletCell(mesh_.owner(face));
             }
         }
-        for (std::size_t f = 0; f < mesh_.nFaces() && f < isPressureDirichletFace->size(); ++f) {
-            if ((*isPressureDirichletFace)[f] && mesh_.neighbor(f) == std::size_t(-1)) {
+        for (std::size_t f = 0; f < mesh_.nFaces() && f < bc.isPressureDirichletFaces().size(); ++f) {
+            if (bc.isPressureDirichletFaces()[f] && mesh_.neighbor(f) == std::size_t(-1)) {
                 pinOutletCell(mesh_.owner(f));
             }
         }
@@ -211,14 +204,13 @@ void PressureCorrection<Dim>::solve(
         // divergence here, the momentum convection and the continuity residual
         // are all built from the SAME face value.
         double un = 0.0;
-        const bool hasBC = faceBC && faceHasBC &&
-                           f < faceBC->size() && f < faceHasBC->size() && (*faceHasBC)[f];
+        const bool hasBC = f < bc.faceBCs().size() && f < bc.faceHasBCs().size() && bc.faceHasBCs()[f];
         if (N == kNoNeighbor && hasBC) {
-            un = boundaryFaceState<Dim>(uStar, P, fn, (*faceBC)[f]).normalVelocity;
+            un = boundaryFaceState<Dim>(uStar, P, fn, bc.faceBCs()[f]).normalVelocity;
         } else {
             const double w = (N == kNoNeighbor) ? 0.0 : mesh_.faceWeight(f);
             un = dotNormal(interpolateFaceVelocity(uStar, P, N, w,
-                                                   velDirichletMask, velDirichletVals), fn);
+                                                   &bc.dirichletMask(), &bc.dirichletVals()), fn);
         }
 
         // Rhie-Chow momentum interpolation for the compact pressure equation.
@@ -302,9 +294,9 @@ void PressureCorrection<Dim>::solve(
             const std::size_t N = neighborPtr[f];
             for (std::size_t d = 0; d < Dim; ++d) {
                 bool dirN = false, dirP = false;
-                if (velDirichletMask && d < velDirichletMask->size() && !(*velDirichletMask)[d].empty()) {
-                    dirP = (*velDirichletMask)[d][P];
-                    if (N != std::size_t(-1)) dirN = (*velDirichletMask)[d][N];
+                if (d < bc.dirichletMask().size() && !bc.dirichletMask()[d].empty()) {
+                    dirP = bc.dirichletMask()[d][P];
+                    if (N != std::size_t(-1)) dirN = bc.dirichletMask()[d][N];
                 }
                 if (!dirN && !dirP) {
                     rowVoid[P] = 0;
@@ -407,18 +399,18 @@ void PressureCorrection<Dim>::solve(
                 // discarded anyway.)
                 if (pMask_[P])
                     continue;
-                const bool hasBCEntry = faceBC && faceHasBC && f < faceBC->size() && (*faceHasBC)[f];
+                const bool hasBCEntry = f < bc.faceBCs().size() && f < bc.faceHasBCs().size() && bc.faceHasBCs()[f];
                 bool ownerExtrapolated = !hasBCEntry;
                 if (hasBCEntry) {
-                    ownerExtrapolated = isOutflowVelocityBC((*faceBC)[f].type);
+                    ownerExtrapolated = isOutflowVelocityBC(bc.faceBCs()[f].type);
                 }
                 if (!ownerExtrapolated)
                     continue;
                 for (std::size_t d = 0; d < Dim; ++d) {
                     bool dirP = false;
-                    if (velDirichletMask && d < velDirichletMask->size()) {
-                        const auto& m = (*velDirichletMask)[d];
-                        if (P < m.size()) dirP = m[P];
+                if (d < bc.dirichletMask().size()) {
+                    const auto& m = bc.dirichletMask()[d];
+                    if (P < m.size()) dirP = m[P];
                     }
                     if (dirP) continue; // corrected owner value = prescribed: fixed
                     const double local = -dCoeff[d][P] * fn[d] * area;
@@ -438,8 +430,8 @@ void PressureCorrection<Dim>::solve(
                 // same rule the divergence above uses), so the face velocity
                 // does not respond to p' in that component.
                 bool dirN = false, dirP = false;
-                if (velDirichletMask && d < velDirichletMask->size()) {
-                    const auto& m = (*velDirichletMask)[d];
+                if (d < bc.dirichletMask().size()) {
+                    const auto& m = bc.dirichletMask()[d];
                     if (N < m.size()) dirN = m[N];
                     if (P < m.size()) dirP = m[P];
                 }

@@ -440,10 +440,7 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
     for (int corr = 0; corr < nCorr; ++corr) {
         auto tPressure = std::chrono::steady_clock::now();
         pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
-                                 bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
-                                 &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
-                                 &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                                 &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals(), &cancelRequested_);
+                                 bcDiscretization_, &cancelRequested_);
         steadyPressureSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tPressure).count();
         if (pressureCorrection_.lastSolveProducedNonFinite())
             fail_(Failure::PressureSolveFailed);
@@ -1268,10 +1265,7 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
     solveMomentumTransient_(uStar_, velocityOld_);
     capturePredictedContinuity_();
     pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
-                              bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
-                              &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
-                              &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                              &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals(), &cancelRequested_);
+                              bcDiscretization_, &cancelRequested_);
     if (pressureCorrection_.lastSolveProducedNonFinite())
         fail_(Failure::PressureSolveFailed);
     limitPressureCorrection_(pPrime_);
@@ -1421,10 +1415,7 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
         updatePisoPredictor_();
 
         pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
-                                  bcDiscretization_.pressureOutletCells(), bcDiscretization_.isPressureNeumann(),
-                                  &bcDiscretization_.isPressureDirichletFaces(), &bcDiscretization_.pressureOutletFaces(),
-                                  &bcDiscretization_.faceBCs(), &bcDiscretization_.faceHasBCs(),
-                                  &bcDiscretization_.dirichletMask(), &bcDiscretization_.dirichletVals(), &cancelRequested_);
+                                  bcDiscretization_, &cancelRequested_);
         if (pressureCorrection_.lastSolveProducedNonFinite())
             fail_(Failure::PressureSolveFailed);
         // No p' limiter here. Scaling p' would silently impose alphaP < 1 and

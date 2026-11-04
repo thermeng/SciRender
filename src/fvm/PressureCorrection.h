@@ -5,6 +5,7 @@
 #include "field/VectorField.h"
 #include "fvm/Types.h"
 #include "fvm/SIMPLETypes.h"
+#include "fvm/SIMPLEBoundaryConditions.h"
 #include "fvm/Gradient.h"
 #include "fvm/RhieChow.h"
 #include "fvm/AMG.h"
@@ -132,19 +133,7 @@ public:
         const std::array<std::vector<double>, Dim>& dCoeff,
         const Field<Dim>& pressure,
         Field<Dim>& pPrime,
-        const std::vector<std::pair<std::size_t, double>>& pressureOutletCells,
-        const std::vector<char>& isPressureNeumann,
-        const std::vector<char>* isPressureDirichletFace = nullptr,
-        const std::vector<std::pair<std::size_t, double>>* pressureOutletFaces = nullptr,
-        const std::vector<FaceVelocityBC>* faceBC = nullptr,
-        const std::vector<char>* faceHasBC = nullptr,
-        // Velocity Dirichlet data (cell-level). When a cell carries a prescribed
-        // velocity the momentum assembly uses that prescribed value for the WHOLE
-        // face; the divergence here must use the very same face velocity, or the
-        // pressure correction balances a mass imbalance that the momentum
-        // equation never had.
-        const std::vector<std::vector<char>>* velDirichletMask = nullptr,
-        const std::vector<std::vector<double>>* velDirichletVals = nullptr,
+        const BCDiscretization& bc,
         const std::atomic<bool>* cancel = nullptr);
 
 private:
