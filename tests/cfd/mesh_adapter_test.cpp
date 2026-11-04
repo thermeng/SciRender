@@ -50,8 +50,8 @@ TEST_CASE("cfd.mesh_adapter.obstacle_3d_loads") {
 }
 
 TEST_CASE("cfd.mesh_adapter.cavity_2d_still_loads") {
-    test_support::requireSample("cfd/CavityQuad_40x40.msh");
-    const auto res = cfd::loadMesh(test_support::samplePath("cfd/CavityQuad_40x40.msh").string());
+    test_support::requireSample("cfd/CavityQuad_129x129.msh");
+    const auto res = cfd::loadMesh(test_support::samplePath("cfd/CavityQuad_129x129.msh").string());
 
     REQUIRE_MESSAGE(res.error.empty(), res.error);
     CHECK(res.dim == 2);

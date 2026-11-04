@@ -29,7 +29,7 @@ QCoreApplication& app() {
 }
 
 QString sampleMeshPath() {
-    return QStringLiteral(SCIRENDER_SAMPLES_DIR "/cfd/CavityQuad_40x40.msh");
+    return QStringLiteral(SCIRENDER_SAMPLES_DIR "/cfd/CavityQuad_129x129.msh");
 }
 
 void configureTransient(CfdController& ctrl, double tEnd) {
@@ -112,7 +112,7 @@ TEST_CASE("ui.scfd_roundtrip_preserves_case_and_mesh_name") {
     CfdController ctrl;
     REQUIRE(ctrl.loadMesh(sampleMeshPath()));
     const QString meshName = ctrl.meshName();
-    REQUIRE(meshName == "CavityQuad_40x40.msh");
+    REQUIRE(meshName == "CavityQuad_129x129.msh");
 
     cfd::CaseSettings s = ctrl.settings();
     s.transient.enabled = true;
