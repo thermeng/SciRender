@@ -130,6 +130,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/SSTModel.cpp
         src/fvm/Solver.cpp
         src/fvm/SIMPLE.cpp
+        src/fvm/LinearSolverDispatcher.cpp
         src/fvm/SIMPLEBoundaryConditions.cpp
         src/fvm/PressureCorrection.cpp
         src/fvm/AMG.cpp

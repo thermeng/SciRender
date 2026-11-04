@@ -30,7 +30,9 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
       pPrime_(mesh, 0.0),
       momDiag_(mesh, 0.0),
       uStar_(mesh, 0.0),
-      bc_(mesh) {
+      bc_(mesh),
+      linearSolverDispatcher_(mesh, typename fvm::LinearSolverDispatcher<Dim>::Config{}) {
+    linearSolverDispatcher_.setAmgConfig(config_.momentumAmgConfig);
     applyPressureSolverConfig_();
     for (auto& dc : dCoeff_) dc.assign(mesh.nCells(), 0.0);
     for (auto& g : velGrad_) g = Field<Dim>(mesh, 0.0);
@@ -487,376 +489,6 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
     }
 }
 
-template<std::size_t Dim>
-std::size_t SIMPLE<Dim>::sparsityHash_(const SparseMatrix& A) {
-    // FNV-1a over the structural (i, j) pairs only — values are excluded so the
-    // hash changes only when the stencil does.
-    std::size_t h = 1469598103934665603ull;
-    auto mix = [&h](std::size_t v) {
-        h ^= v;
-        h *= 1099511628211ull;
-    };
-    for (Eigen::Index j = 0; j < A.outerSize(); ++j) {
-        for (SparseMatrix::InnerIterator it(A, j); it; ++it) {
-            mix(static_cast<std::size_t>(it.row()));
-            mix(static_cast<std::size_t>(it.col()));
-        }
-    }
-    return h;
-}
-
-template<std::size_t Dim>
-bool SIMPLE<Dim>::hasPositiveOffDiagonals_(const SparseMatrix& A) {
-    for (Eigen::Index k = 0; k < A.outerSize(); ++k) {
-        for (SparseMatrix::InnerIterator it(A, k); it; ++it) {
-            if (it.row() != it.col() && it.value() > 0.0) return true;
-        }
-    }
-    return false;
-}
-
-template <std::size_t Dim>
-Eigen::VectorXd SIMPLE<Dim>::solveMomentumILU_(std::size_t d, std::size_t& itersOut) {
-    if (!momPatternAnalyzed_[d]) {
-        momSolver_.setMaxIterations(50000);
-        momSolver_.setTolerance(1e-8);
-        momSolver_.analyzePattern(momA_);
-        momPatternAnalyzed_[d] = true;
-    }
-    momSolver_.factorize(momA_);
-    Eigen::VectorXd x = momSolver_.solve(momB_);
-    itersOut = static_cast<std::size_t>(momSolver_.iterations());
-    if (momSolver_.info() != Eigen::Success) {
-        std::cerr << "  WARNING: momentum-" << (d == 0 ? "U" : d == 1 ? "V" : "W")
-                  << " BiCGSTAB failed (iters=" << momSolver_.iterations()
-                  << ", resid=" << momSolver_.error() << ")\n";
-        // A breakdown can return a finite (often zero) vector, so the solver's
-        // own status and error estimate decide whether the result is usable.
-        // A plain iteration-limit exit keeps the historical behaviour: the
-        // vector is still used and only the warning is emitted.
-        if (!std::isfinite(momSolver_.error()) || !x.allFinite() ||
-            momSolver_.info() == Eigen::NumericalIssue ||
-            momSolver_.info() == Eigen::InvalidInput) {
-            momSolveFailed_ = true;
-        }
-    }
-    return x;
-}
-
-template <std::size_t Dim>
-Eigen::VectorXd SIMPLE<Dim>::solveMomentumLinear_(std::size_t d) {
-    const std::size_t n = mesh_.nCells();
-    ++momStats_.solves;
-    momSolveFailed_ = false;
-
-    // Warm start every iterative momentum solve from the current velocity, as
-    // Fluent/STAR-CCM+ do. The linear system is the under-relaxed one, whose
-    // right-hand side already contains the old velocity, so the current field
-    // is the natural initial guess. Starting from zero instead means a loose
-    // solve (one V-cycle at tolerance 0.1) leaves an error of the cycle's
-    // contraction (~1%) in the returned field; that error is
-    // exactly what |A u - b| / sum|b| then measures, so the printed momentum
-    // residual stalls at ~5e-2 no matter how long the run continues and the
-    // convergence test can never be met.
-    const auto warmStart = [this, d]() -> Eigen::VectorXd {
-        const Eigen::Index size = momB_.size();
-        if (std::getenv("CFD_MOMENTUM_COLD_START")) {
-            return Eigen::VectorXd::Zero(size);
-        }
-        const auto& u = boundVelocity()[d].values();
-        if (size > 0 && static_cast<Eigen::Index>(u.size()) == size) {
-            return Eigen::Map<const Eigen::VectorXd>(u.data(), size);
-        }
-        return Eigen::VectorXd::Zero(size);
-    };
-
-    // Threshold 0 means "always use AMG", matching .
-    const std::size_t momThreshold = config_.momentumAmgThreshold;
-    const bool amgEligible =
-        config_.useAMGMomentum &&
-        !momAmgDisabledReason_[d] &&
-        (momThreshold == 0 || n >= momThreshold);
-
-    if (!amgEligible) {
-        if (config_.useAMGMomentum && !momAmgDisabledReason_[d] &&
-            momThreshold != 0 && n < momThreshold) {
-            momAmgDisabledReason_[d] = true;  // decision is permanent
-        }
-        if (!momAmgPathLogged_[d]) {
-            if (!config_.useAMGMomentum) {
-                std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W") << "]: AMG disabled by config; using BiCGSTAB+ILU.\n";
-            } else if (momThreshold != 0 && n < momThreshold) {
-                std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W") << "]: AMG skipped (n=" << n
-                          << " < threshold " << momThreshold << "); using BiCGSTAB+ILU.\n";
-            }
-            momAmgPathLogged_[d] = true;
-        }
-        std::size_t iters = 0;
-        const auto t0 = std::chrono::steady_clock::now();
-        Eigen::VectorXd x = solveMomentumILU_(d, iters);
-        momStats_.iluSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        ++momStats_.iluSolves;
-        momStats_.krylovIters += iters;
-        return x;
-    }
-
-    //  always drives momentum with AMG, including for the
-    // nonsymmetric (central-difference) operators that used to be routed to
-    // ILU. The two modes below mirror its log: either the hierarchy is used
-    // as a preconditioner inside BiCGSTAB (the default), or
-    // momentumAmgAsSolver applies it directly for a fixed number of cycles.
-    //
-    // `momentumAmgConfig.acceleration == None` is NOT a request for the
-    // standalone mode: it only means the AMG hierarchy itself has no inner
-    // Krylov acceleration. Treating it as standalone silently ignored
-    // momentumAmgAsSolver=false and ran 30 V-cycles as the whole solve; at
-    // Re=1000 on the 129x129 cavity that cycle is not a contraction for the
-    // changing nonsymmetric operator, the momentum residual grows from 0.05 to
-    // 1.4 within one AMG-rebuild window and the field diverges to 1e150.
-    const bool standaloneAmg = config_.momentumAmgAsSolver;
-    if (!momAmgPathLogged_[d]) {
-        const auto acc = config_.momentumAmgConfig.acceleration;
-        std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W") << "]: using ";
-        if (standaloneAmg) {
-            std::cerr << "AMG cycles.";
-        } else if (acc == AMGHierarchy::Config::Acceleration::GMRES) {
-            std::cerr << "AMG-preconditioned GMRES.";
-        } else {
-            std::cerr << "AMG-preconditioned BiCGSTAB.";
-        }
-        std::cerr << "\n";
-        momAmgPathLogged_[d] = true;
-    }
-
-    const std::size_t hash = sparsityHash_(momA_);
-    const bool needBuild = !momAmgBuilt_[d] || hash != momAmgPatternHash_[d];
-
-    if (needBuild) {
-        momAmgPatternAnalyzed_[d] = false;
-        const auto tb = std::chrono::steady_clock::now();
-        momAmg_[d].setConfig(config_.momentumAmgConfig);
-        momAmg_[d].build(momA_);
-        momAmgPatternHash_[d] = hash;
-        momAmgBuilt_[d] = momAmg_[d].isBuilt();
-        momAmgValueUpdates_[d] = 0;
-        ++momStats_.amgBuilds;
-        momStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tb).count();
-        if (momAmg_[d].isBuilt() && hasPositiveOffDiagonals_(momA_)) {
-            std::cerr << "  momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W")
-                      << "]: WARNING: matrix has positive off-diagonals; AMG robustness may suffer\n";
-        }
-    } else if (++momAmgValueUpdates_[d] >= std::max<std::size_t>(1, config_.momentumAmgRebuildInterval)) {
-        // The momentum matrix VALUES change every solve (convective flux,
-        // pressure gradient, under-relaxation, rho*V/dt), unlike the pressure
-        // correction matrix which is constant between pattern changes. Without
-        // this the fine-level smoother runs on iteration-1 coefficients and the
-        // preconditioner degrades until BiCGSTAB stalls.
-        //
-        // The rebuild is amortised: updateFineValues() rebuilds the whole
-        // hierarchy (the coarse levels depend on A through the Galerkin
-        // product, so a value-only fine update would be unsound), and doing
-        // that on every solve costs more than the solve it accelerates.
-        momAmgValueUpdates_[d] = 0;
-        momAmg_[d].updateFineValues(momA_);
-    }
-
-    if (!momAmgBuilt_[d]) {
-        std::size_t iters = 0;
-        Eigen::VectorXd x = solveMomentumILU_(d, iters);
-        ++momStats_.iluSolves;
-        momStats_.krylovIters += iters;
-        return x;
-    }
-
-    const auto momAccel = config_.momentumAmgConfig.acceleration;
-
-    if (standaloneAmg) {
-        //  mode: apply the hierarchy directly as the solver. The
-        // cycle count and stopping criterion come from momentumAmgConfig
-        // (maxIterations = 2, tolerance = 0.1 for the reference run). A loose
-        // momentum solve is intentional here: the outer SIMPLE loop converges
-        // the coupled system. The solve is warm-started from the current
-        // velocity (see warmStart above); with a zero start the cycle's own
-        // truncation error becomes the floor of the reported residual.
-        const auto t0 = std::chrono::steady_clock::now();
-        Eigen::VectorXd x = warmStart();
-        const bool ok = momAmg_[d].solve(momB_, x, &cancelRequested_);
-        momStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        momStats_.krylovIters += static_cast<std::size_t>(momAmg_[d].lastIterations());
-
-        if (cancelRequested_.load(std::memory_order_acquire)) {
-            momSolveFailed_ = true;
-            return Eigen::VectorXd::Zero(momB_.size());
-        }
-
-        // Unlike the preconditioned path, a large-but-finite residual is the
-        // expected outcome. Only a non-finite result is a hard failure.
-        if (!ok && (!x.allFinite() || !std::isfinite(momAmg_[d].lastResidual()))) {
-            std::size_t iters = 0;
-            x = solveMomentumILU_(d, iters);
-            momStats_.iluSolves++;
-            momStats_.krylovIters += iters;
-            ++momStats_.amgRejected;
-            if (!x.allFinite()) {
-                momSolveFailed_ = true;
-                return Eigen::VectorXd::Zero(momB_.size());
-            }
-            return x;
-        }
-
-        if (!x.allFinite()) {
-            momSolveFailed_ = true;
-            return Eigen::VectorXd::Zero(momB_.size());
-        }
-        ++momStats_.amgSolves;
-        ++momStats_.amgStandaloneSolves;
-        return x;
-    }
-
-    momAmgPrec_[d].setAMG(&momAmg_[d]);
-    momAmgPrec_[d].setCycles(config_.momentumAmgCycles);
-    if (!momAmgPatternAnalyzed_[d]) {
-        momAmgSolver_[d].setMaxIterations(5000);
-        momAmgSolver_[d].setTolerance(config_.momentumAmgMaxResidual);
-        momAmgSolver_[d].analyzePattern(momA_);
-        momAmgPatternAnalyzed_[d] = true;
-    }
-
-    const auto t0 = std::chrono::steady_clock::now();
-    Eigen::VectorXd x = warmStart();
-    if (momAccel == AMGHierarchy::Config::Acceleration::GMRES) {
-        //  "Generalized minimum residual" acceleration. The momentum
-        // operator is nonsymmetric, which is exactly GMRES's use case.
-        const GmresResult gres = gmresRestarted(
-            momB_, x,
-            [this](const Eigen::VectorXd& v) { return momA_ * v; },
-            [this, d](const Eigen::VectorXd& v) { return momAmgPrec_[d].solve(v); },
-            config_.momentumAmgMaxResidual, 5000, 30, &cancelRequested_);
-        momStats_.krylovIters += static_cast<std::size_t>(gres.iterations);
-        if (cancelRequested_.load(std::memory_order_acquire)) {
-            momSolveFailed_ = true;
-            x.setZero();
-        }
-    } else {
-        // CG is only valid for an SPD operator; the momentum matrix is not, so
-        // a CG request falls back to BiCGSTAB here (the pressure equation is
-        // the one where CG is meaningful).
-        const int maxIt = 5000;
-        const double bnorm = momB_.norm();
-        const double tol = (bnorm > 0.0 ? bnorm : 1.0) * config_.momentumAmgMaxResidual;
-        Eigen::VectorXd r = momB_ - momA_ * x;
-        Eigen::VectorXd r0 = r;
-        Eigen::VectorXd v = Eigen::VectorXd::Zero(momB_.size());
-        Eigen::VectorXd p = Eigen::VectorXd::Zero(momB_.size());
-        double rho = 1.0, alpha = 1.0, omega = 1.0;
-        int iters = 0;
-        for (iters = 0; iters < maxIt; ++iters) {
-            if (cancelRequested_.load(std::memory_order_acquire)) {
-                momSolveFailed_ = true;
-                break;
-            }
-            const double rhoNew = r0.dot(r);
-            if (rhoNew == 0.0 || !std::isfinite(rhoNew)) break;
-            const double beta = (rhoNew / rho) * (alpha / omega);
-            p = r + beta * (p - omega * v);
-            Eigen::VectorXd phat = momAmgPrec_[d].solve(p);
-            if (!phat.allFinite()) break;
-            v = momA_ * phat;
-            const double denom = r0.dot(v);
-            if (denom == 0.0 || !std::isfinite(denom)) break;
-            const double alphaNew = rhoNew / denom;
-            if (!std::isfinite(alphaNew)) break;
-            Eigen::VectorXd s = r - alphaNew * v;
-            if (s.norm() < tol) {
-                x += alphaNew * phat;
-                r = s;
-                rho = rhoNew; alpha = alphaNew; omega = 1.0;
-                break;
-            }
-            Eigen::VectorXd shat = momAmgPrec_[d].solve(s);
-            if (!shat.allFinite()) break;
-            Eigen::VectorXd t = momA_ * shat;
-            const double tt = t.dot(t);
-            if (tt == 0.0 || !std::isfinite(tt)) break;
-            const double omegaNew = t.dot(s) / tt;
-            if (omegaNew == 0.0 || !std::isfinite(omegaNew)) break;
-            x += alphaNew * phat + omegaNew * shat;
-            r = s - omegaNew * t;
-            rho = rhoNew; alpha = alphaNew; omega = omegaNew;
-            if (r.norm() < tol) break;
-        }
-        momStats_.krylovIters += static_cast<std::size_t>(iters + 1);
-        if (cancelRequested_.load(std::memory_order_acquire)) {
-            momSolveFailed_ = true;
-            x.setZero();
-        }
-    }
-    momStats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-
-    const double bnorm = momB_.norm();
-    double rnorm = (momA_ * x - momB_).norm();
-    double rel = bnorm > 0.0 ? rnorm / bnorm : rnorm;
-
-    bool bad =
-        !std::isfinite(rel) ||
-        !x.allFinite() ||
-        !std::isfinite(rnorm);
-
-    if (bad && !cancelRequested_.load(std::memory_order_acquire)) {
-        // Fallback to the robust ILU path when AMG fails to converge.
-        std::size_t iters = 0;
-        x = solveMomentumILU_(d, iters);
-        momStats_.iluSolves++;
-        momStats_.krylovIters += iters;
-        if (x.allFinite()) {
-            rnorm = (momA_ * x - momB_).norm();
-            rel = bnorm > 0.0 ? rnorm / bnorm : rnorm;
-            bad = !std::isfinite(rel) || !x.allFinite() || !std::isfinite(rnorm);
-        }
-    }
-
-    if (bad) {
-        if (!x.allFinite() || !std::isfinite(rel) || !std::isfinite(rnorm)) {
-            momSolveFailed_ = true;
-        }
-        if (!x.allFinite()) {
-            x = Eigen::VectorXd::Zero(momB_.size());
-        }
-        return x;
-    }
-
-    ++momStats_.amgSolves;
-    return x;
-}
-
-template <std::size_t Dim>
-void SIMPLE<Dim>::printMomentumSolverStats_() const {
-    if (!config_.momentumSolverStats) return;
-    std::cerr << "\n  Momentum linear solver statistics\n";
-    std::cerr << "    solves:            " << momStats_.solves << "\n";
-    std::cerr << "    AMG solves:        " << momStats_.amgSolves << "\n";
-    std::cerr << "    ILU solves:        " << momStats_.iluSolves << "\n";
-    std::cerr << "    AMG builds:        " << momStats_.amgBuilds << "\n";
-    std::cerr << "    AMG rejected:      " << momStats_.amgRejected
-              << "  (fell back to ILU)\n";
-    std::cerr << "    Krylov iters:      " << momStats_.krylovIters << "\n";
-    if (momStats_.solves > 0) {
-        std::cerr << "    Krylov iters/solve:"
-                  << "  " << (static_cast<double>(momStats_.krylovIters) /
-                              static_cast<double>(momStats_.solves)) << "\n";
-    }
-    std::cerr << "    AMG build time:    " << momStats_.buildSeconds << " s\n";
-    std::cerr << "    AMG solve time:    " << momStats_.amgSeconds << " s\n";
-    std::cerr << "    ILU solve time:    " << momStats_.iluSeconds << " s\n";
-    for (std::size_t d = 0; d < Dim; ++d) {
-        if (!momAmg_[d].isBuilt()) continue;
-        std::cerr << "    momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W")
-                  << "] AMG levels: " << momAmg_[d].numLevels() << " (";
-        for (int size : momAmg_[d].levelSizes()) std::cerr << size << " ";
-        std::cerr << ")\n";
-    }
-}
-
 template <std::size_t Dim>
 void SIMPLE<Dim>::printPressureSolverStats_() const {
     const auto& s = pressureCorrection_.pressureStats();
@@ -1286,7 +918,7 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
         }
     }
 
-    printMomentumSolverStats_();
+    linearSolverDispatcher_.printStats();
     printPressureSolverStats_();
     steadyTotalSeconds_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - steadyTotalStart).count();
     printFinalStats_();
@@ -1381,10 +1013,9 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar,
                                            const VectorField<Dim>& velocityOld,
                                            const std::array<Field<Dim>, Dim>& pressureGrad) {
-    momTriplets_.clear();
-    momTriplets_.reserve(mesh_.nCells() * (2 * Dim + 1));
-    momB_.resize(mesh_.nCells());
-    momB_.setZero();
+    SparseMatrix momA(mesh_.nCells(), mesh_.nCells());
+    Eigen::VectorXd momB(mesh_.nCells());
+    momB.setZero();
 
     const Field<Dim>* nutPtr = turbulence_ ? &turbulence_->nut() : nullptr;
 
@@ -1401,27 +1032,32 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
     momentum_.assembleWithConvection(d, boundVelocity(), pressureGrad,
                                      zeroSource_(),
                                      bcDiscretization_.dirichletMask(d), bcDiscretization_.dirichletVals(d),
-                                     momA_, momB_, momDiag_,
+                                     momA, momB, momDiag_,
                                      config_.convectionScheme,
                                      nutPtr, velGradPtr,
                                      momBCs);
 
     diag_[d] = momDiag_;
 
-    momentum_.computeDCoeffAndRelax(momA_, momB_, bcDiscretization_.dirichletMask(d),
+    momentum_.computeDCoeffAndRelax(momA, momB, bcDiscretization_.dirichletMask(d),
                                     velocityOld[d], config_.alphaU,
                                     dCoeff_[d], config_.simplec);
 
-    Eigen::VectorXd x = solveMomentumLinear_(d);
-    if (momSolveFailed_ || !x.allFinite()) fail_(Failure::MomentumSolveFailed);
+    Eigen::VectorXd warmStart(mesh_.nCells());
+    const double* velPtr = (boundVelocity())[d].ptr();
+    for (std::size_t i = 0; i < mesh_.nCells(); ++i) warmStart(i) = velPtr[i];
 
-    // Snapshot this component's operator: momA_/momB_ are reused by the next
-    // component, so the residual pass needs its own copy.
-    momAsnap_[d] = std::move(momA_);
-    momBsnap_[d] = std::move(momB_);
+    auto result = linearSolverDispatcher_.solve(d, momA, momB, warmStart,
+                                                &cancelRequested_);
+    if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
+
+    // Snapshot this component's operator: momA/momB are locals, so copy for
+    // the residual pass.
+    momAsnap_[d] = momA;
+    momBsnap_[d] = momB;
 
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
-        double val = x(static_cast<Eigen::Index>(i));
+        double val = result.x(static_cast<Eigen::Index>(i));
         if (std::isnan(val) || std::isinf(val)) val = (boundVelocity())[d][i];
         if (bcDiscretization_.dirichletMask(d)[i]) val = bcDiscretization_.dirichletVals(d)[i];
         uStar[d][i] = val;
@@ -1448,15 +1084,13 @@ void SIMPLE<Dim>::solveMomentumTransient_(VectorField<Dim>& uStar, const VectorF
         solveMomentumComponentTransient_(2, uStar, velocityOld, pressureGrad_);
     }
 }
-
 template<std::size_t Dim>
 void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Dim>& uStar,
                                                    const VectorField<Dim>& velocityOld,
                                                    const std::array<Field<Dim>, Dim>& pressureGrad) {
-    momTriplets_.clear();
-    momTriplets_.reserve(mesh_.nCells() * (2 * Dim + 1));
-    momB_.resize(mesh_.nCells());
-    momB_.setZero();
+    SparseMatrix momA(mesh_.nCells(), mesh_.nCells());
+    Eigen::VectorXd momB(mesh_.nCells());
+    momB.setZero();
     const Field<Dim>* nutPtr = turbulence_ ? &turbulence_->nut() : nullptr;
     gradientCalc_->compute((boundVelocity())[d], velGrad_);
     const std::array<Field<Dim>, Dim>* velGradPtr = &velGrad_;
@@ -1471,6 +1105,7 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     }
     TimeScheme ts = config_.transient.scheme;
     if (timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
+
     if (!hasVelocityHistory_ && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
 
     fvm::MomentumBCs momBCs;
@@ -1483,7 +1118,7 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     momentum_.assembleWithConvectionTransient(d, boundVelocity(), pressureGrad,
                                              zeroSource_(),
                                              bcDiscretization_.dirichletMask(d), bcDiscretization_.dirichletVals(d),
-                                             momA_, momB_, momDiag_,
+                                             momA, momB, momDiag_,
                                              dt_, dtPrev_, oldTime, oldTimePrev, ts,
                                              config_.convectionScheme,
                                              nutPtr, velGradPtr,
@@ -1492,20 +1127,25 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     // PISO: no momentum under-relaxation (alphaU=1). PIMPLE/SIMPLE use config.alphaU.
     // solverType is explicit; legacy piso bool kept for compat.
     double alphaU = isPiso_() ? 1.0 : config_.alphaU;
-    momentum_.computeDCoeffAndRelax(momA_, momB_, bcDiscretization_.dirichletMask(d),
+    momentum_.computeDCoeffAndRelax(momA, momB, bcDiscretization_.dirichletMask(d),
                                     velocityOld[d], alphaU,
                                     dCoeff_[d], config_.simplec);
     // Transient greatly increases diagonal dominance, keep pattern re-analysis cheap: still cache
     // For transient, matrix pattern identical, but values change with dt:
     // the linear-solver dispatch below re-factorizes / rebuilds as needed.
-    Eigen::VectorXd x = solveMomentumLinear_(d);
-    if (momSolveFailed_ || !x.allFinite()) fail_(Failure::MomentumSolveFailed);
+    Eigen::VectorXd warmStart(mesh_.nCells());
+    const double* velPtr = (boundVelocity())[d].ptr();
+    for (std::size_t i = 0; i < mesh_.nCells(); ++i) warmStart(i) = velPtr[i];
 
-    momAsnap_[d] = std::move(momA_);
-    momBsnap_[d] = std::move(momB_);
+    auto result = linearSolverDispatcher_.solve(d, momA, momB, warmStart,
+                                                &cancelRequested_);
+    if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
+
+    momAsnap_[d] = momA;
+    momBsnap_[d] = momB;
 
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
-        double val = x(static_cast<Eigen::Index>(i));
+        double val = result.x(static_cast<Eigen::Index>(i));
         if (std::isnan(val) || std::isinf(val)) val = (boundVelocity())[d][i];
         if (bcDiscretization_.dirichletMask(d)[i]) val = bcDiscretization_.dirichletVals(d)[i];
         uStar[d][i] = val;
@@ -2168,7 +1808,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                   << "           satisfied at the end of a corrector). Consider a smaller dt, more\n"
                   << "           correctors, or raising simple.pressure_correction_limit.\n";
     }
-    printMomentumSolverStats_();
+    linearSolverDispatcher_.printStats();
     printPressureSolverStats_();
     printFinalStats_();
 }

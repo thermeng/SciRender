@@ -63,13 +63,6 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     sc.pressureAmgCycles = settings.pressureAmgCycles;
     sc.pressureSolveTolerance = settings.pressureSolveTolerance;
     sc.pressureAmgConfig = toFvmAmg(settings.pressureAmg);
-    sc.useAMGMomentum = settings.useAMGMomentum;
-    sc.momentumAmgThreshold = settings.momentumAmgThreshold;
-    sc.momentumAmgAsSolver = settings.momentumAmgAsSolver;
-    sc.momentumAmgCycles = settings.momentumAmgCycles;
-    sc.momentumAmgMaxResidual = settings.momentumAmgMaxResidual;
-    sc.momentumSolverStats = settings.momentumSolverStats;
-    sc.momentumAmgConfig = toFvmAmg(settings.momentumAmg);
     sc.solverType = toFvmSolverType(settings.transient);
     sc.transient = toFvmTransient<Dim>(settings.transient);
 
