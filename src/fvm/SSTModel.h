@@ -8,6 +8,7 @@
 #include "fvm/Poisson.h"
 #include "fvm/Convection.h"
 #include "fvm/SIMPLETypes.h"
+#include "fvm/LinearSolverDispatcher.h"
 #include <Eigen/IterativeLinearSolvers>
 #include <array>
 #include <cmath>
@@ -44,6 +45,26 @@ public:
         bool wallFunction = false; // Deprecated: use wallTreatment. true => AllYPlus.
         // Cap on nut/nu. A numerical guard, not a physical model constant.
         double nutMaxFactor = 1e5;
+
+        // Turbulence linear-solver multigrid configuration, forwarded to the
+        // LinearSolverDispatcher for both the k and omega transport equations.
+        // Mirrors SIMPLE::Config::momentumAmgConfig.
+        AMGHierarchy::Config turbulenceAmgConfig = []{
+            AMGHierarchy::Config c;
+            c.strengthThreshold = 0.16;
+            c.truncThreshold = 0.2;
+            c.preSweeps = 1;
+            c.postSweeps = 2;
+            c.maxIterations = 100;
+            c.tolerance = 1e-8;
+            c.verbosity = AMGHierarchy::Config::Verbosity::None;
+            c.acceleration = AMGHierarchy::Config::Acceleration::None;
+            return c;
+        }();
+
+        // Outer Krylov solve tolerance for k/omega (|r|/|b|). -1 means use
+        // turbulenceAmgConfig.tolerance. Mirrors pressureSolveTolerance semantics.
+        double turbulenceSolveTolerance = -1.0;
     };
 
     SSTModel(const Mesh<Dim>& mesh, Config config);
@@ -268,8 +289,10 @@ private:
     Poisson<Dim>    poisson_;
     Convection<Dim> convection_;
 
-    mutable Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> kSolver_;
-    mutable Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> omegaSolver_;
+    // AMG-preconditioned Krylov solvers for the k and omega transport equations,
+    // mirroring the momentum setup in SIMPLE::linearSolverDispatcher_.
+    LinearSolverDispatcher<Dim> kDispatcher_;
+    LinearSolverDispatcher<Dim> omegaDispatcher_;
 };
 
 extern template class SSTModel<2>;

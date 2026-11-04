@@ -37,6 +37,9 @@ public:
         std::size_t amgRebuildInterval = 5;
         int amgCycles = 2;
         double amgMaxResidual = 1e-8;
+        // Default outer Krylov solve tolerance (|r|/|b|). A per-call value
+        // passed to solve() overrides this. -1 means use amgMaxResidual.
+        double solveTolerance = -1.0;
         bool solverStats = false;
         AMGHierarchy::Config amgConfig;
     };
@@ -49,15 +52,15 @@ public:
 
     LinearSolverDispatcher(const Mesh<Dim>& mesh, const Config& config);
 
-    // Override the AMG hierarchy config after construction (used by SIMPLE to
-    // forward Config::momentumAmgConfig).
     void setAmgConfig(const AMGHierarchy::Config& cfg) { config_.amgConfig = cfg; }
 
-    // Solve A x = b for momentum component d. The solution is warm-started
-    // from `warmStart` (the current velocity field). Returns the solution and
-    // whether the solve failed.
+    // Solve A x = b for momentum component d. `solveTolerance` overrides the
+    // config's amgMaxResidual when >= 0 (matching pressureSolveTolerance
+    // semantics: 0 means use the config default, >0 is used verbatim as
+    // |r|/|b|). The solution is warm-started from `warmStart`.
     Result solve(std::size_t component, const SparseMatrix& A, const Eigen::VectorXd& b,
                  const Eigen::VectorXd& warmStart,
+                 double solveTolerance = -1.0,
                  const std::atomic<bool>* cancelRequested = nullptr);
 
     // --- Statistics (delegated by the SIMPLE orchestrator) ---

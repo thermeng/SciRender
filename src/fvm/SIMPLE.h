@@ -173,6 +173,29 @@ struct Config {
             return c;
         }();
 
+        // Turbulence (k/omega) linear-solver multigrid configuration, forwarded
+        // to SSTModel's LinearSolverDispatcher instances. Defaults use low
+        // verbosity so turbulence solver output doesn't drown out the momentum
+        // and pressure diagnostics.
+        AMGHierarchy::Config turbulenceAmgConfig = []{
+            AMGHierarchy::Config c;
+            c.strengthThreshold = 0.16;
+            c.truncThreshold = 0.2;
+            c.preSweeps = 1;
+            c.postSweeps = 2;
+            c.maxIterations = 100;
+            c.tolerance = 1e-8;
+            c.verbosity = AMGHierarchy::Config::Verbosity::None;
+            c.acceleration = AMGHierarchy::Config::Acceleration::None;
+            return c;
+        }();
+
+        // Outer Krylov solve tolerance for momentum (|r|/|b|). -1 means use
+        // momentumAmgConfig.tolerance. Mirrors pressureSolveTolerance semantics.
+        double momentumSolveTolerance = -1.0;
+        // Outer Krylov solve tolerance for turbulence k/omega (|r|/|b|).
+        double turbulenceSolveTolerance = -1.0;
+
         std::function<void(int, double, double)> iterationCallback;
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> renderCallback;
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> transientCallback;
