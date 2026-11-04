@@ -17,7 +17,6 @@ struct MomentumBCs {
     const std::vector<std::vector<char>>* dirichletMaskAll = nullptr;
     const std::vector<std::vector<double>>* dirichletValsAll = nullptr;
     const std::vector<FaceVelocityBC>* faceBC = nullptr;
-    const std::vector<char>* faceHasBC = nullptr;
 };
 
 template<std::size_t Dim>

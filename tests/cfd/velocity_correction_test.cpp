@@ -26,13 +26,12 @@ Corrected correct(const fvm::Mesh<2>& mesh, const fvm::VectorField<2>& uStar,
                   const fvm::Field<2>& pPrime, double dCoeff,
                   const std::vector<std::vector<char>>& mask,
                   const std::vector<std::vector<double>>& values,
-                  const std::vector<fvm::FaceVelocityBC>* faceBC = nullptr,
-                  const std::vector<char>* faceHasBC = nullptr) {
+                  const std::vector<fvm::FaceVelocityBC>* faceBC = nullptr) {
     std::array<std::vector<double>, 2> d{std::vector<double>(mesh.nCells(), dCoeff),
                                          std::vector<double>(mesh.nCells(), dCoeff)};
     std::array<fvm::Field<2>, 2> dpdx{fvm::Field<2>(mesh, 0.0), fvm::Field<2>(mesh, 0.0)};
     fvm::VectorField<2> velocity(mesh, 0.0);
-    fvm::correctVelocity(mesh, uStar, pPrime, d, mask, values, dpdx, velocity, faceBC, faceHasBC);
+    fvm::correctVelocity(mesh, uStar, pPrime, d, mask, values, dpdx, velocity, faceBC);
     return {velocity, dpdx};
 }
 
@@ -106,21 +105,19 @@ TEST_CASE("cfd.velocity.symmetry_projects_normal") {
 
     // Mark the left wall (x = 0, normal -x) as a symmetry wall.
     std::vector<fvm::FaceVelocityBC> faceBC(mesh.nFaces());
-    std::vector<char> faceHasBC(mesh.nFaces(), 0);
     for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
         if (mesh.neighbor(f) != std::size_t(-1))
             continue;
         const auto& n = mesh.faceNormal(f);
         if (std::abs(n[0] + 1.0) < 1e-12) {
             faceBC[f].type = fvm::VelocityBCType::Symmetry;
-            faceHasBC[f] = 1;
         }
     }
 
     std::vector<std::vector<char>> mask(2, std::vector<char>(mesh.nCells(), 0));
     std::vector<std::vector<double>> values(2, std::vector<double>(mesh.nCells(), 0.0));
 
-    const Corrected out = correct(mesh, uStar, pPrime, 1.0, mask, values, &faceBC, &faceHasBC);
+    const Corrected out = correct(mesh, uStar, pPrime, 1.0, mask, values, &faceBC);
 
     for (std::size_t j = 0; j < mesh.dims()[1]; ++j) {
         const std::size_t P = mesh.cellIndex(0, j);

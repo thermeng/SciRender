@@ -141,8 +141,8 @@ TEST_CASE("cfd.bc.face_path_moving_wall_drives_flow") {
         const auto lidFaces = boundaryFaces(mesh, 1, +1);
         int lidFacesWithMovingWall = 0;
         for (std::size_t f : lidFaces) {
-            if (f < disc.faceHasBC_.size() && disc.faceHasBC_[f] &&
-                disc.faceBC_[f].type == fvm::VelocityBCType::MovingWall)
+            if (disc.faceBCs_[f].type != fvm::VelocityBCType::NoSlip &&
+                disc.faceBCs_[f].type == fvm::VelocityBCType::MovingWall)
                 ++lidFacesWithMovingWall;
         }
         CHECK_MESSAGE(lidFacesWithMovingWall == static_cast<int>(lidFaces.size()),

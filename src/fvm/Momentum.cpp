@@ -472,9 +472,9 @@ void Momentum<Dim>::assembleWithConvection(
 
                 // One face BC entry drives every boundary decision below: the
                 // diffusion classification and the convective face value.
-                const bool hasFaceBC = bcs.faceBC && bcs.faceHasBC &&
-                                       f < bcs.faceBC->size() && f < bcs.faceHasBC->size() &&
-                                       (*bcs.faceHasBC)[f];
+                const bool hasFaceBC = bcs.faceBC &&
+                                       f < bcs.faceBC->size() &&
+                                       (*bcs.faceBC)[f].type != VelocityBCType::NoSlip;
                 const BoundaryFaceState<Dim> faceState =
                     hasFaceBC ? boundaryFaceState<Dim>(velocity, P, fn, (*bcs.faceBC)[f])
                               : BoundaryFaceState<Dim>{};
@@ -778,9 +778,9 @@ void Momentum<Dim>::assembleWithConvection(
             for (std::size_t i = 0; i < n; ++i) if (dirichletMask[i]) patternHash ^= (i * 0x9e3779b97f4a7c15ULL + 1);
         }
         // Include face BC presence in hash
-        if (bcs.faceBC && bcs.faceHasBC) {
-            for (std::size_t f = 0; f < bcs.faceBC->size() && f < bcs.faceHasBC->size(); ++f) {
-                if ((*bcs.faceHasBC)[f]) patternHash ^= (f * 0x9e3779b97f4a7c15ULL + 2);
+        if (bcs.faceBC) {
+            for (std::size_t f = 0; f < bcs.faceBC->size(); ++f) {
+                if ((*bcs.faceBC)[f].type != VelocityBCType::NoSlip) patternHash ^= (f * 0x9e3779b97f4a7c15ULL + 2);
             }
         }
         // Include phiGrad presence

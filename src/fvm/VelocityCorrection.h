@@ -33,7 +33,6 @@ inline void correctVelocity(
     std::array<Field<Dim>, Dim>& dpdx,
     VectorField<Dim>& velocity,
     const std::vector<FaceVelocityBC>* faceBC = nullptr,
-    const std::vector<char>* faceHasBC = nullptr,
     double maxUnlimitedSpeed = 20.0,   // retained for API compatibility; no longer gates damping
     double maxGrowthRate = 0.15,       // max per-iteration growth rate (e.g. 0.15 = 15%)
     double alphaP = 1.0                // pressure under-relaxation applied to velocity correction
@@ -91,11 +90,11 @@ inline void correctVelocity(
         }
     }
 
-    if (faceBC && faceHasBC) {
+    if (faceBC) {
         for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
             if (mesh.neighbor(f) != std::size_t(-1)) continue;
-            if (f >= faceBC->size() || f >= faceHasBC->size()) continue;
-            if (!(*faceHasBC)[f]) continue;
+            if (f >= faceBC->size()) continue;
+            if ((*faceBC)[f].type == VelocityBCType::NoSlip) continue;
             auto t = (*faceBC)[f].type;
             if (isSlipVelocityBC(t)) {
                 std::size_t P = mesh.owner(f);

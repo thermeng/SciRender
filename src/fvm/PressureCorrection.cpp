@@ -109,18 +109,14 @@ void PressureCorrection<Dim>::solve(
         pVals_[cell] = 0.0;
     };
     for (const auto& outlet : bc.pressureOutletCells()) pinOutletCell(outlet.first);
-    // Face-based Dirichlet (exact per-face, fixes cell dedup loss)
-    if (!bc.pressureOutletFaces().empty() || !bc.isPressureDirichletFaces().empty()) {
-        for (const auto& outlet : bc.pressureOutletFaces()) {
-            const std::size_t face = outlet.first;
-            if (face < mesh_.nFaces() && mesh_.neighbor(face) == std::size_t(-1)) {
-                pinOutletCell(mesh_.owner(face));
-            }
-        }
-        for (std::size_t f = 0; f < mesh_.nFaces() && f < bc.isPressureDirichletFaces().size(); ++f) {
-            if (bc.isPressureDirichletFaces()[f] && mesh_.neighbor(f) == std::size_t(-1)) {
-                pinOutletCell(mesh_.owner(f));
-            }
+    // Face-based Dirichlet (exact per-face, fixes cell dedup loss).
+    // Iterate all boundary faces: if a face carries pressureDirichlet, pin its
+    // owner cell to p' = 0. This combines the old pressureOutletFaces_ and
+    // isPressureDirichletFace_ loops into one pass over the typed faceBCs_ view.
+    for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
+        if (mesh_.neighbor(f) != std::size_t(-1)) continue;
+        if (f < bc.faceBCs().size() && bc.faceBCs()[f].type == VelocityBCType::PressureOutlet) {
+            pinOutletCell(mesh_.owner(f));
         }
     }
 
@@ -204,7 +200,7 @@ void PressureCorrection<Dim>::solve(
         // divergence here, the momentum convection and the continuity residual
         // are all built from the SAME face value.
         double un = 0.0;
-        const bool hasBC = f < bc.faceBCs().size() && f < bc.faceHasBCs().size() && bc.faceHasBCs()[f];
+        const bool hasBC = bc.hasFaceBC(f);
         if (N == kNoNeighbor && hasBC) {
             un = boundaryFaceState<Dim>(uStar, P, fn, bc.faceBCs()[f]).normalVelocity;
         } else {
@@ -399,7 +395,7 @@ void PressureCorrection<Dim>::solve(
                 // discarded anyway.)
                 if (pMask_[P])
                     continue;
-                const bool hasBCEntry = f < bc.faceBCs().size() && f < bc.faceHasBCs().size() && bc.faceHasBCs()[f];
+                const bool hasBCEntry = bc.hasFaceBC(f);
                 bool ownerExtrapolated = !hasBCEntry;
                 if (hasBCEntry) {
                     ownerExtrapolated = isOutflowVelocityBC(bc.faceBCs()[f].type);
