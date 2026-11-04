@@ -86,11 +86,11 @@ public:
         m_solverMesh.reset();
         m_transientRun = false;
 
-        m_velocity = std::make_shared<Velocity>(*m_mesh, 0.0);
-        m_pressure = std::make_shared<Scalar>(*m_mesh, ic.pressure);
+        ensureFields();
         m_velocity->assign(0, ic.ux);
         if constexpr (Dim >= 2) m_velocity->assign(1, ic.uy);
         if constexpr (Dim >= 3) m_velocity->assign(2, ic.uz);
+        m_pressure->assign(ic.pressure);
 
         SolutionSnapshot state = snapshotFields();
         if (settings.turbulence) {
@@ -151,11 +151,12 @@ public:
 
         // Continue from the supplied snapshot when it belongs to this mesh;
         // otherwise start from zero. Initialize is the explicit reset.
+        ensureFields();
         if (restart.hasFields() && restart.cells == m_mesh->nCells()) {
             seedFields(restart);
         } else {
-            m_velocity = std::make_shared<Velocity>(*m_mesh, 0.0);
-            m_pressure = std::make_shared<Scalar>(*m_mesh, 0.0);
+            m_velocity->assign(0.0);
+            m_pressure->assign(0.0);
         }
 
         typename Solver::Config sc = toFvmConfig<Dim>(settings);
@@ -420,9 +421,22 @@ public:
     }
 
 private:
+    // (Re)allocate velocity/pressure fields only when the mesh or cell count
+    // changes. Otherwise reuse the existing buffers and let assign() overwrite
+    // values in place. Avoids repeated heap traffic on every initialize /
+    // re-run of the same mesh.
+    void ensureFields() {
+        const std::size_t n = m_mesh->nCells();
+        if (!m_velocity || m_velocity->size() != n) {
+            m_velocity = std::make_shared<Velocity>(*m_mesh, 0.0);
+        }
+        if (!m_pressure || m_pressure->size() != n) {
+            m_pressure = std::make_shared<Scalar>(*m_mesh, 0.0);
+        }
+    }
+
     void seedFields(const SolutionSnapshot& state) {
-        m_velocity = std::make_shared<Velocity>(*m_mesh, 0.0);
-        m_pressure = std::make_shared<Scalar>(*m_mesh, 0.0);
+        ensureFields();
         cfd::field_utils::copyVelocityToVectorField<Dim>(state.velocity, *m_velocity);
         cfd::field_utils::copyToField<Dim>(state.pressure, *m_pressure);
     }

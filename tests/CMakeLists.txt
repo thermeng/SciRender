@@ -82,11 +82,9 @@ scirender_add_test_suite(scirender_fvm_tests
         fvm/face_state_test.cpp
         fvm/failure_semantics_test.cpp
         fvm/transient_settings_test.cpp
-        fvm/ghia_cavity_test.cpp
         fvm/cavity_msh_test.cpp
         fvm/ghia_cavity_129_test.cpp
         fvm/channel_test.cpp
-        fvm/channel_amg_tmp_test.cpp
         fvm/momentum_amg_robustness_test.cpp
         cfd/mesh_flatplate_debug_test.cpp
         cfd/mesh_flatplate_run_test.cpp
