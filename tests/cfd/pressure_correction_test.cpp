@@ -68,7 +68,7 @@ CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = fal
     std::vector<char> isPressureNeumann(mesh.nCells(), 1);
 
     fvm::PressureCorrection<2> pc(mesh);
-    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
     // Apply the correction the way the solver does.
     const std::array<std::vector<double>, 2> dCoeff = uniformDCoeff(mesh, 1.0);
@@ -183,7 +183,7 @@ TEST_CASE("cfd.pressure.rhie_chow_uniform_flow_gives_zero_pressure") {
     std::vector<char> isPressureNeumann(mesh.nCells(), 1);
 
     fvm::PressureCorrection<2> pc(mesh);
-    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
     double worst = 0.0;
     for (std::size_t i = 0; i < mesh.nCells(); ++i)
@@ -204,7 +204,7 @@ TEST_CASE("cfd.pressure.reference_cell_pinned_to_zero") {
     std::vector<char> isPressureNeumann(mesh.nCells(), 1);
 
     fvm::PressureCorrection<2> pc(mesh);
-    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
     const auto& pMask = pc.pressureMask();
     int pinned = 0;
@@ -291,8 +291,8 @@ TEST_CASE("cfd.pressure.operator_consistency_on_a_known_field") {
         fvm::Field<2> pressure(mesh, 0.0);
         fvm::Field<2> pPrime(mesh, 0.0);
         std::vector<char> isPressureNeumann(mesh.nCells(), 1);
-        fvm::PressureCorrection<2> pc(mesh);
-        pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
+    fvm::PressureCorrection<2> pc(mesh);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
         // The known field: p = x^2, so the Laplacian is 2.
         Eigen::VectorXd pVec(mesh.nCells());
@@ -404,7 +404,7 @@ TEST_CASE("cfd.pressure.isolated_cell_is_reported") {
     std::vector<char> isPressureNeumann(mesh.nCells(), 1);
 
     fvm::PressureCorrection<2> pc(mesh);
-    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {}, isPressureNeumann);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
     // The detached cell (index 1) has no interior face.
     CHECK_MESSAGE(pc.isolatedCellCount() == 1,
@@ -458,8 +458,7 @@ TEST_CASE("cfd.pressure.compact_operator_has_two_point_stencil") {
         cfg.compactRhieChow = compact;
         cfg.useAMG = false;
         fvm::PressureCorrection<2> pc(mesh, cfg);
-        pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {},
-                 isPressureNeumann);
+        pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
         return pc.lastMatrix().coeff(static_cast<int>(row),
                                      static_cast<int>(col));
     };
@@ -480,8 +479,7 @@ TEST_CASE("cfd.pressure.compact_operator_has_two_point_stencil") {
     cfg.compactRhieChow = true;
     cfg.useAMG = false;
     fvm::PressureCorrection<2> pc(mesh, cfg);
-    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {},
-             isPressureNeumann);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
     const auto& A = pc.lastMatrix();
     std::vector<std::size_t> faceNeighbors(mesh.cellNeighbors(i).begin(),
                                            mesh.cellNeighbors(i).end());
@@ -520,8 +518,7 @@ TEST_CASE("cfd.pressure.compact_rhie_chow_cancels_checkerboard") {
     cfg.compactRhieChow = true;
     cfg.useAMG = false;
     fvm::PressureCorrection<2> pc(mesh, cfg);
-    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, {},
-             isPressureNeumann);
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
     // Measure the checkerboard left in the corrected pressure over the
     // central 2x2. The wall cells differ (the ghost pressure that the
@@ -585,7 +582,9 @@ TEST_CASE("cfd.pressure.amg_path_builds_and_stays_finite") {
     isNeumann[mesh.nCells() - 1] = 0;
     std::vector<std::pair<std::size_t, double>> outlets = { {mesh.nCells() - 1, 0.0} };
 
-    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, outlets, isNeumann);
+    fvm::BCDiscretization bc;
+    bc.pressureOutletCells_ = outlets;
+    pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, bc, nullptr);
 
     CHECK(pc.pressureStats().amgBuilds >= 1);
     bool finite = true;
