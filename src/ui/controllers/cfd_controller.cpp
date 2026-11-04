@@ -281,6 +281,7 @@ bool CfdController::run() {
             bool hasTurb = m_session->hasTurbulence();
             double k = m_session->finalKResidual();
             double omega = m_session->finalOmegaResidual();
+            double yPlus = m_session->maxYPlus();
             {
                 std::lock_guard<std::mutex> lock(m_monitorMutex);
                 MonitorPoint pt;
@@ -289,13 +290,14 @@ bool CfdController::run() {
                 pt.continuity = cont;
                 pt.momU = moms[0]; pt.momV = moms[1]; pt.momW = moms[2];
                 pt.k = k; pt.omega = omega;
+                pt.maxYPlus = yPlus;
                 pt.hasTurbulence = hasTurb;
                 pt.dim = dim;
                 m_monitorHistory.push_back(pt);
             }
             emit residualsUpdated(iter, dim, cont,
-                                 moms[0], moms[1], moms[2],
-                                 k, omega, hasTurb);
+                                  moms[0], moms[1], moms[2],
+                                  k, omega, yPlus, hasTurb);
         }
     };
     // Frame bus (Phase 2): the solver publishes a self-contained snapshot each

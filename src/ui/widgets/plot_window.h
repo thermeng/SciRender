@@ -43,7 +43,7 @@ public:
     void clearResiduals();
     void appendResidual(int iteration, int dim, double continuity,
                        double momU, double momV, double momW,
-                       double k, double omega, bool hasTurb);
+                       double k, double omega, double maxYPlus, bool hasTurb);
     void setMonitorLogScale(bool on);
     void setMonitorLegendVisible(bool on);
     void setMonitorHistoryWindow(int n);

@@ -192,7 +192,7 @@ void PlotWindow::clearResiduals() {
 
 void PlotWindow::appendResidual(int iteration, int dim, double continuity,
                                double momU, double momV, double momW,
-                               double k, double omega, bool hasTurb) {
+                               double k, double omega, double maxYPlus, bool hasTurb) {
     m_residualDim = dim;
     m_residualHasTurb = hasTurb;
 
@@ -221,12 +221,13 @@ void PlotWindow::appendResidual(int iteration, int dim, double continuity,
     if (hasTurb) {
         append(tr("k"), QColor(0x8A, 0x54, 0xB0), static_cast<float>(k));
         append(tr("omega"), QColor(0x30, 0xA0, 0xA0), static_cast<float>(omega));
+        append(tr("y+"), QColor(0xE2, 0x4a, 0x3A), static_cast<float>(maxYPlus));
     }
 
     QStringList avail;
     avail << tr("Continuity") << tr("Momentum X") << tr("Momentum Y");
     if (m_residualDim >= 3) avail << tr("Momentum Z");
-    if (hasTurb) { avail << tr("k") << tr("omega"); }
+    if (hasTurb) { avail << tr("k") << tr("omega") << tr("y+"); }
     if (avail != m_monitorAvailableSeries) {
         m_monitorAvailableSeries = avail;
         emit monitorSeriesChanged();

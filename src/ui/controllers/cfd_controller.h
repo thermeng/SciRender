@@ -44,6 +44,7 @@ struct MonitorPoint {
     double continuity = 0.0;
     double momU = 0.0, momV = 0.0, momW = 0.0;
     double k = 0.0, omega = 0.0;
+    double maxYPlus = 0.0;
     bool hasTurbulence = false;
     int dim = 0;
 };
@@ -140,7 +141,7 @@ signals:
     void progress(int iteration, double continuity, double momentum);
     void residualsUpdated(int iteration, int dim, double continuity,
                          double momU, double momV, double momW,
-                         double k, double omega, bool hasTurbulence);
+                         double k, double omega, double maxYPlus, bool hasTurbulence);
     void monitorHistoryLoaded(const std::vector<MonitorPoint>& history);
     void pauseRequested();
     void resumed();

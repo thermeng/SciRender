@@ -33,7 +33,15 @@ public:
         double omegaMin   = 1e-14;
         double kMax       = 1e3;
         double omegaMax   = 1e6;
-        bool wallFunction = false;   // enable wall-function (high-Re) treatment
+        // Wall treatment mode:
+        //   LowRe    - resolve viscous sublayer everywhere (y+ ~ 1 required)
+        //   HighRe   - use wall functions everywhere (y+ > 30 required)
+        //   AllYPlus - per-cell: low-Re where y+ < threshold, wall function where y+ >= threshold
+        enum class WallTreatment { LowRe, HighRe, AllYPlus };
+        WallTreatment wallTreatment = WallTreatment::LowRe;
+        // y+ threshold for AllYPlus switching (standard: 11.225, edge of viscous sublayer).
+        double yPlusThreshold = 11.225;
+        bool wallFunction = false; // Deprecated: use wallTreatment. true => AllYPlus.
         // Cap on nut/nu. A numerical guard, not a physical model constant.
         double nutMaxFactor = 1e5;
     };
@@ -95,10 +103,18 @@ public:
 
     // Largest y+ over the wall-adjacent cells. The model is a low-Re
     // formulation: y+ should be O(1). A large value means the first cell is
-    // inside the log layer and the wall shear is not resolved (there is no
-    // wall function), so the caller should warn.
+    // inside the log layer and the wall shear is not resolved (unless wall
+    // functions are used), so the caller should warn.
     double maxYPlus() const { return maxYPlus_; }
     double maxWallDistance() const { return maxWallDistance_; }
+
+    // Per-cell y+ at wall-adjacent cells (zero elsewhere). Populated by
+    // computeWallDiagnostics(). Useful for all-y+ treatment and mesh-quality
+    // reporting.
+    const std::vector<double>& cellYPlus() const { return cellYPlus_; }
+    // Per-cell wall treatment: 1 = wall function (high-Re), 0 = low-Re.
+    // Populated by computeWallDiagnostics() when wallTreatment == AllYPlus.
+    const std::vector<char>& cellIsHighRe() const { return cellIsHighRe_; }
 
     // Active Dirichlet masks and values, exposed for diagnostics and tests.
     const std::vector<char>& kDirichletMask() const { return kBCMask_; }
@@ -126,7 +142,11 @@ private:
 
     void computeStrainRate(const VectorField<Dim>& velocity);
     void computeWallDiagnostics(const VectorField<Dim>& velocity);
-    void applyWallFunctions(const VectorField<Dim>& velocity);
+    // Update per-cell wall boundary conditions based on current velocity and
+    // local y+. Called each iteration before the k/omega transport solves so
+    // that wall-adjacent cells use low-Re or wall-function BCs according to
+    // wallTreatment and the current local y+.
+    void updateWallBCs_(const VectorField<Dim>& velocity);
     // Rebuild the active masks from the fixed (wall/inlet) ones and add a
     // Dirichlet k/omega condition on outlet faces that are actually ingesting
     // fluid. Without this the backflow k/omega UI controls were dead and a
@@ -212,6 +232,13 @@ private:
     std::vector<double> kBCVals_;
     std::vector<char>   omegaBCMask_;
     std::vector<double> omegaBCVals_;
+
+    // Per-cell y+ at wall-adjacent cells (zero elsewhere). Populated by
+    // computeWallDiagnostics().
+    std::vector<double> cellYPlus_;
+    // Per-cell wall treatment: 1 = wall function (high-Re), 0 = low-Re.
+    // Populated by computeWallDiagnostics() when wallTreatment == AllYPlus.
+    std::vector<char>   cellIsHighRe_;
 
     // Fixed wall/inlet conditions. The active masks above start from these
     // every iteration and add the current outlet-backflow cells.

@@ -534,9 +534,9 @@ void MainWindow::setupSidebar() {
             if (!m_plotWindow || !m_cfdPage || !m_cfdPage->controller()) return;
             m_plotWindow->clearResiduals();
             for (const auto& pt : m_cfdPage->controller()->monitorHistory()) {
-                m_plotWindow->appendResidual(pt.iteration, pt.dim, pt.continuity,
-                                            pt.momU, pt.momV, pt.momW, pt.k, pt.omega,
-                                            pt.hasTurbulence);
+            m_plotWindow->appendResidual(pt.iteration, pt.dim, pt.continuity,
+                                        pt.momU, pt.momV, pt.momW, pt.k, pt.omega,
+                                        pt.maxYPlus, pt.hasTurbulence);
             }
         });
     }

@@ -26,8 +26,8 @@ class CfdCasePage : public SidebarPage {
 signals:
     void residualPoint(int iteration, double continuity, double momentum);
     void residualSeriesUpdated(int iteration, int dim, double continuity,
-                              double momU, double momV, double momW,
-                              double k, double omega, bool hasTurbulence);
+                               double momU, double momV, double momW,
+                               double k, double omega, double maxYPlus, bool hasTurbulence);
     void residualsCleared();
     void monitorHistoryRestored();
 public:
