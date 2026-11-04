@@ -209,6 +209,8 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
         } else {
             sstCfg.wallTreatment = WallTreatment::LowRe;
         }
+        sstCfg.turbulenceAmgConfig = config_.turbulenceAmgConfig;
+        sstCfg.turbulenceSolveTolerance = config_.turbulenceSolveTolerance;
         turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
         turbulence_->initialize(nu_ * rho_, rho_);
     }
@@ -1045,6 +1047,7 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) warmStart(i) = velPtr[i];
 
     auto result = linearSolverDispatcher_.solve(d, momA, momB, warmStart,
+                                                config_.momentumSolveTolerance,
                                                 &cancelRequested_);
     if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
 
@@ -1134,6 +1137,7 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) warmStart(i) = velPtr[i];
 
     auto result = linearSolverDispatcher_.solve(d, momA, momB, warmStart,
+                                                config_.momentumSolveTolerance,
                                                 &cancelRequested_);
     if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
 

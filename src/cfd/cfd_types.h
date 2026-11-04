@@ -231,6 +231,19 @@ struct CaseSettings {
     bool momentumSolverStats = false;
     AmgSettings momentumAmg = AmgSettings::momentumDefaults();
 
+    // Turbulence (k/omega) linear solver (see fvm::SSTModel::Config)
+    bool useAMGTurbulence = true;
+    std::size_t turbulenceAmgThreshold = 0;
+    int turbulenceAmgCycles = 2;
+    double turbulenceAmgMaxResidual = 1e-8;
+    AmgSettings turbulenceAmg = AmgSettings::momentumDefaults();
+
+    // Outer Krylov solve tolerance for momentum (|r|/|b|). -1 means use the
+    // AMG hierarchy tolerance. Mirrors pressureSolveTolerance semantics.
+    double momentumSolveTolerance = -1.0;
+    // Outer Krylov solve tolerance for turbulence k/omega (|r|/|b|).
+    double turbulenceSolveTolerance = -1.0;
+
     // Steady vs transient. See TransientSettings above.
     TransientSettings transient;
 };

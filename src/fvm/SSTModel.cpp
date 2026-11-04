@@ -45,7 +45,11 @@ SSTModel<Dim>::SSTModel(const Mesh<Dim>& mesh, Config config)
       F1_(mesh, 0.0),
       F2_(mesh, 0.0),
       poisson_(mesh),
-      convection_(mesh) {
+      convection_(mesh),
+      kDispatcher_(mesh, typename LinearSolverDispatcher<Dim>::Config{}),
+      omegaDispatcher_(mesh, typename LinearSolverDispatcher<Dim>::Config{}) {
+    kDispatcher_.setAmgConfig(config_.turbulenceAmgConfig);
+    omegaDispatcher_.setAmgConfig(config_.turbulenceAmgConfig);
     for (auto& g : gradK_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : gradOmega_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : scalarGradBuffer_) g = Field<Dim>(mesh, 0.0);
@@ -55,10 +59,6 @@ SSTModel<Dim>::SSTModel(const Mesh<Dim>& mesh, Config config)
         double v = volPtr[i];
         invVol_[i] = (v > 1e-30) ? 1.0 / v : 0.0;
     }
-    kSolver_.setMaxIterations(static_cast<int>(sstMaxIterations));
-    kSolver_.setTolerance(sstTolerance);
-    omegaSolver_.setMaxIterations(static_cast<int>(sstMaxIterations));
-    omegaSolver_.setTolerance(sstTolerance);
 }
 
 template<std::size_t Dim>
@@ -995,43 +995,40 @@ void SSTModel<Dim>::solveOmegaTransportTransient(const VectorField<Dim>& velocit
 
 template<std::size_t Dim>
 Eigen::VectorXd SSTModel<Dim>::solveKSystem_(const SparseMatrix& A,
-                                             const Eigen::VectorXd& b) {
-    kSolver_.compute(A);
-    Eigen::VectorXd x = kSolver_.solve(b);
-    if (kSolver_.info() != Eigen::Success) {
-        // Fallback: solve without the ILU preconditioner.
-        Eigen::BiCGSTAB<SparseMatrix> fallback;
-        fallback.setMaxIterations(static_cast<int>(sstMaxIterations));
-        fallback.setTolerance(sstTolerance);
-        fallback.compute(A);
-        x = fallback.solve(b);
-        if (fallback.info() != Eigen::Success) {
-            std::fprintf(stderr,
-                "  WARNING: SST k solve did not converge (iters=%d, resid=%g)\n",
-                fallback.iterations(), fallback.error());
-        }
+                                              const Eigen::VectorXd& b) {
+    // Warm start from the current k field so AMG hierarchy reuse and Krylov
+    // convergence benefit from the previous iteration's solution.
+    Eigen::VectorXd warmStart(static_cast<Eigen::Index>(k_.size()));
+    for (std::size_t i = 0; i < k_.size(); ++i)
+        warmStart(static_cast<Eigen::Index>(i)) = k_[i];
+
+    auto result = kDispatcher_.solve(0, A, b, warmStart,
+                                     config_.turbulenceSolveTolerance, nullptr);
+    if (result.failed) {
+        std::fprintf(stderr,
+            "  WARNING: SST k AMG solve failed (iters=%zu)\n",
+            result.krylovIters);
     }
+    Eigen::VectorXd x = result.x;
     sanitizeSolution_(x);
     return x;
 }
 
 template<std::size_t Dim>
 Eigen::VectorXd SSTModel<Dim>::solveOmegaSystem_(const SparseMatrix& A,
-                                                 const Eigen::VectorXd& b) {
-    omegaSolver_.compute(A);
-    Eigen::VectorXd x = omegaSolver_.solve(b);
-    if (omegaSolver_.info() != Eigen::Success) {
-        Eigen::BiCGSTAB<SparseMatrix> fallback;
-        fallback.setMaxIterations(static_cast<int>(sstMaxIterations));
-        fallback.setTolerance(sstTolerance);
-        fallback.compute(A);
-        x = fallback.solve(b);
-        if (fallback.info() != Eigen::Success) {
-            std::fprintf(stderr,
-                "  WARNING: SST omega solve did not converge (iters=%d, resid=%g)\n",
-                fallback.iterations(), fallback.error());
-        }
+                                                  const Eigen::VectorXd& b) {
+    Eigen::VectorXd warmStart(static_cast<Eigen::Index>(omega_.size()));
+    for (std::size_t i = 0; i < omega_.size(); ++i)
+        warmStart(static_cast<Eigen::Index>(i)) = omega_[i];
+
+    auto result = omegaDispatcher_.solve(0, A, b, warmStart,
+                                         config_.turbulenceSolveTolerance, nullptr);
+    if (result.failed) {
+        std::fprintf(stderr,
+            "  WARNING: SST omega AMG solve failed (iters=%zu)\n",
+            result.krylovIters);
     }
+    Eigen::VectorXd x = result.x;
     sanitizeSolution_(x);
     return x;
 }

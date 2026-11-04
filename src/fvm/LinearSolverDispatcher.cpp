@@ -27,6 +27,7 @@ typename LinearSolverDispatcher<Dim>::Result
 LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
                                     const Eigen::VectorXd& b,
                                     const Eigen::VectorXd& warmStart,
+                                    double solveTolerance,
                                     const std::atomic<bool>* cancelRequested) {
     ++stats_.solves;
 
@@ -111,6 +112,9 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     }
 
     const auto momAccel = config_.amgConfig.acceleration;
+    // Per-call solveTolerance overrides the config default; -1 means use
+    // amgMaxResidual. Matches pressureSolveTolerance semantics.
+    const double effTol = (solveTolerance > 0.0) ? solveTolerance : config_.amgMaxResidual;
 
     if (standaloneAmg) {
         const auto t0 = std::chrono::steady_clock::now();
@@ -147,7 +151,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     amgPrec_[component].setCycles(config_.amgCycles);
     if (!amgPatternAnalyzed_[component]) {
         amgSolver_[component].setMaxIterations(5000);
-        amgSolver_[component].setTolerance(config_.amgMaxResidual);
+        amgSolver_[component].setTolerance(effTol);
         amgSolver_[component].analyzePattern(A);
         amgPatternAnalyzed_[component] = true;
     }
@@ -159,7 +163,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
             b, x,
             [this, &A](const Eigen::VectorXd& v) { return A * v; },
             [this, component](const Eigen::VectorXd& v) { return amgPrec_[component].solve(v); },
-            config_.amgMaxResidual, 5000, 30,
+            effTol, 5000, 30,
             cancelRequested ? cancelRequested : nullptr);
         stats_.krylovIters += static_cast<std::size_t>(gres.iterations);
         if (cancelRequested && cancelRequested->load(std::memory_order_acquire)) {
@@ -168,7 +172,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     } else {
         const int maxIt = 5000;
         const double bnorm = b.norm();
-        const double tol = (bnorm > 0.0 ? bnorm : 1.0) * config_.amgMaxResidual;
+        const double tol = (bnorm > 0.0 ? bnorm : 1.0) * effTol;
         Eigen::VectorXd r = b - A * x;
         Eigen::VectorXd r0 = r;
         Eigen::VectorXd v = Eigen::VectorXd::Zero(b.size());
