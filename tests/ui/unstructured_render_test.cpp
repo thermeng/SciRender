@@ -147,7 +147,7 @@ TEST_CASE("ui.unstructured_render.vtu_volume_sample_supports_volume") {
     CHECK(scattered.planeRange(0, grid.dimX / 2, pmin, pmax));
 }
 TEST_CASE("ui.unstructured_render.cavity_2d_is_not_a_volume_mesh") {
-    const auto res = cfd::loadMesh(samplePath("cfd/CavityQuad_40x40.msh"));
+    const auto res = cfd::loadMesh(samplePath("cfd/CavityQuad_129x129.msh"));
     REQUIRE_MESSAGE(res.error.empty(), res.error);
     REQUIRE(res.renderMesh);
     REQUIRE(res.dim == 2);
