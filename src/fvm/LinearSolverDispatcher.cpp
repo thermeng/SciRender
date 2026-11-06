@@ -27,7 +27,6 @@ typename LinearSolverDispatcher<Dim>::Result
 LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
                                     const Eigen::VectorXd& b,
                                     const Eigen::VectorXd& warmStart,
-                                    double solveTolerance,
                                     const std::atomic<bool>* cancelRequested) {
     ++stats_.solves;
 
@@ -112,9 +111,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     }
 
     const auto momAccel = config_.amgConfig.acceleration;
-    // Per-call solveTolerance overrides the config default; -1 means use
-    // amgMaxResidual. Matches pressureSolveTolerance semantics.
-    const double effTol = (solveTolerance > 0.0) ? solveTolerance : config_.amgMaxResidual;
+    const double effTol = config_.amgMaxResidual;
 
     if (standaloneAmg) {
         const auto t0 = std::chrono::steady_clock::now();

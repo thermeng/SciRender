@@ -54,9 +54,9 @@ public:
         enum class Smoother { Jacobi, GaussSeidel, ILU0, SPAI0 };
         // Feedback printed while the hierarchy is built and cycled.
         enum class Verbosity { None, Low, High, Diagnosis };
-        // Multimesh loop strategy. amgcl supports V and W natively; F and
-        // Flexible are approximated by a V-cycle (documented in the dialog).
-        enum class CycleType { VCycle, WCycle, FCycle, Flexible };
+        // Multimesh loop strategy. amgcl supports V and W natively; F is
+        // approximated by a V-cycle (documented in the dialog).
+        enum class CycleType { VCycle, WCycle, FCycle };
         // Outer acceleration wrapped around the AMG hierarchy. None means the
         // hierarchy itself is the solver ( momentum behaviour).
         enum class Acceleration { None, ConjugateGradient, BiCGStab, GMRES };
@@ -86,15 +86,10 @@ public:
         double epsilon = 0.0;
         // Block size for aggregation coarsening (1 for scalar equations).
         int blockSize = 1;
-        // Flexible/variable-cycle controls (stored for round-tripping; amgcl
-        // has no adaptive cycle, so these currently have no numerical effect).
-        double flexCoarsenRatio = 0.5;
-        double flexLevelTolerance = 0.1;
         // Cycles performed when the hierarchy is used as a preconditioner
         // (amgcl `pre_cycles`).
         int preCycles = 1;
     };
-
     AMGHierarchy() = default;
     explicit AMGHierarchy(Config config) : config_(config) {}
 

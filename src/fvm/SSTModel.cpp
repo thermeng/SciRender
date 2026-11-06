@@ -50,14 +50,12 @@ SSTModel<Dim>::SSTModel(const Mesh<Dim>& mesh, Config config)
           typename LinearSolverDispatcher<Dim>::Config c;
           c.amgCycles = config_.turbulenceAmgCycles;
           c.amgMaxResidual = config_.turbulenceAmgMaxResidual;
-          c.solveTolerance = config_.turbulenceSolveTolerance;
           return c;
       }()),
       omegaDispatcher_(mesh, [&]{
           typename LinearSolverDispatcher<Dim>::Config c;
           c.amgCycles = config_.turbulenceAmgCycles;
           c.amgMaxResidual = config_.turbulenceAmgMaxResidual;
-          c.solveTolerance = config_.turbulenceSolveTolerance;
           return c;
       }()) {
     kDispatcher_.setAmgConfig(config_.turbulenceAmgConfig);
@@ -1014,8 +1012,7 @@ Eigen::VectorXd SSTModel<Dim>::solveKSystem_(const SparseMatrix& A,
     for (std::size_t i = 0; i < k_.size(); ++i)
         warmStart(static_cast<Eigen::Index>(i)) = k_[i];
 
-    auto result = kDispatcher_.solve(0, A, b, warmStart,
-                                     config_.turbulenceSolveTolerance, nullptr);
+    auto result = kDispatcher_.solve(0, A, b, warmStart, nullptr);
     if (result.failed) {
         std::fprintf(stderr,
             "  WARNING: SST k AMG solve failed (iters=%zu)\n",
@@ -1033,8 +1030,7 @@ Eigen::VectorXd SSTModel<Dim>::solveOmegaSystem_(const SparseMatrix& A,
     for (std::size_t i = 0; i < omega_.size(); ++i)
         warmStart(static_cast<Eigen::Index>(i)) = omega_[i];
 
-    auto result = omegaDispatcher_.solve(0, A, b, warmStart,
-                                         config_.turbulenceSolveTolerance, nullptr);
+    auto result = omegaDispatcher_.solve(0, A, b, warmStart, nullptr);
     if (result.failed) {
         std::fprintf(stderr,
             "  WARNING: SST omega AMG solve failed (iters=%zu)\n",

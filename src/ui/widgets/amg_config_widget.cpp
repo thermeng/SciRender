@@ -99,7 +99,7 @@ void AmgConfigWidget::buildUi() {
     m_maxCycles->setToolTip(
         "Maximum number of multimesh loops run while the linear-system residual is\n"
         "above Epsilon and the convergence tolerance has not been met.");
-    solver->addRow("Maximum cycle", m_maxCycles);
+    solver->addRow("Maximum Cycle", m_maxCycles);
 
     m_verbosity = styleCombo(new QComboBox(this));
     m_verbosity->addItems({"None", "Low", "High", "Diagnosis"});
@@ -114,14 +114,14 @@ void AmgConfigWidget::buildUi() {
     m_tolerance->setToolTip(
         "Factor by which the linear-system residual must drop before the multimesh\n"
         "loop stops. 0.01 = two orders of magnitude.");
-    solver->addRow("Convergence tolerance", m_tolerance);
+    solver->addRow("Convergence Tolerance", m_tolerance);
 
     m_cycleType = styleCombo(new QComboBox(this));
-    m_cycleType->addItems({"V Cycle", "W Cycle", "F Cycle", "Variable"});
+    m_cycleType->addItems({"V Cycle", "W Cycle", "F Cycle"});
     m_cycleType->setToolTip(
         "Multimesh loop strategy. F Cycle and Variable are approximated by a V Cycle\n"
         "by the amgcl backend.");
-    solver->addRow("Cycle type", m_cycleType);
+    solver->addRow("Cycle Type", m_cycleType);
 
     m_preSweeps = styleSpin(new QSpinBox(this));
     m_preSweeps->setRange(0, 50);
@@ -136,60 +136,36 @@ void AmgConfigWidget::buildUi() {
     m_maxLevels = styleSpin(new QSpinBox(this));
     m_maxLevels->setRange(1, 100);
     m_maxLevels->setToolTip("Maximum number of multigrid levels in the sequence.");
-    solver->addRow("Maximum number of levels", m_maxLevels);
-
-    // ── Variable cycle ───────────────────────────────────────────────────────
-    QFormLayout* variable = makeGroup(leftCol, "Variable cycle");
-
-    m_flexRatio = styleSpin(new QDoubleSpinBox(this));
-    m_flexRatio->setRange(0.0, 10.0);
-    m_flexRatio->setDecimals(3);
-    m_flexRatio->setSingleStep(0.05);
-    m_flexRatio->setToolTip(
-        "Constraints and tolerances: if the residual ratio between two consecutive\n"
-        "sweeps at a level is below this value, the cycle continues on the coarser level.");
-    variable->addRow("Constraints and tolerances", m_flexRatio);
-
-    m_flexTolerance = styleSpin(new QDoubleSpinBox(this));
-    m_flexTolerance->setRange(0.0, 10.0);
-    m_flexTolerance->setDecimals(3);
-    m_flexTolerance->setSingleStep(0.01);
-    m_flexTolerance->setToolTip(
-        "Extended tolerance: residual reduction required before stopping at a level.");
-    variable->addRow("Extended tolerance", m_flexTolerance);
-
-    variable->addRow(noteLabel(
-        "Used by the Variable cycle. The amgcl backend runs a V cycle regardless;\n"
-        "these values are stored for the case file."));
+    solver->addRow("Maximum Number Of Levels", m_maxLevels);
 
     // ── Robustness (expert) ──────────────────────────────────────────────────
-    QFormLayout* robust = makeGroup(leftCol, "Robustness (expert)");
+    QFormLayout* robust = makeGroup(leftCol, "Robustness (Expert)");
 
     m_stagnationFactor = styleSpin(new QDoubleSpinBox(this));
     m_stagnationFactor->setRange(1.0, 10.0);
     m_stagnationFactor->setDecimals(2);
     m_stagnationFactor->setSingleStep(0.05);
     m_stagnationFactor->setToolTip("Residual growth ratio that counts as stagnation.");
-    robust->addRow("Stagnation factor", m_stagnationFactor);
+    robust->addRow("Stagnation Factor", m_stagnationFactor);
 
     m_stagnationMinIter = styleSpin(new QSpinBox(this));
     m_stagnationMinIter->setRange(0, 10000);
     m_stagnationMinIter->setToolTip("Cycles to run before stagnation may trigger.");
-    robust->addRow("Stagnation min cycles", m_stagnationMinIter);
+    robust->addRow("Stagnation Min Cycles", m_stagnationMinIter);
 
     m_stagnationLoose = styleSpin(new QDoubleSpinBox(this));
     m_stagnationLoose->setRange(1.0, 100.0);
     m_stagnationLoose->setDecimals(2);
     m_stagnationLoose->setSingleStep(0.5);
     m_stagnationLoose->setToolTip("Loosened residual factor accepted once stagnation is detected.");
-    robust->addRow("Stagnation loose factor", m_stagnationLoose);
+    robust->addRow("Stagnation Loose Factor", m_stagnationLoose);
 
     leftCol->addStretch(1);
 
     // ── Coarse solve ─────────────────────────────────────────────────────────
-    QFormLayout* coarse = makeGroup(rightCol, "Coarse solve");
+    QFormLayout* coarse = makeGroup(rightCol, "Coarse Solve");
 
-    m_directSolver = new QCheckBox("Enable the direct solver", this);
+    m_directSolver = new QCheckBox("Enable The Direct Solver", this);
     m_directSolver->setToolTip(
         "Solve the coarsest level directly instead of relaxing it.");
     coarse->addRow(m_directSolver);
@@ -199,7 +175,7 @@ void AmgConfigWidget::buildUi() {
     m_directMaxEquations->setToolTip(
         "Maximum number of equations handled by the direct coarse solve. Coarsening\n"
         "stops once a level has at most this many unknowns.");
-    coarse->addRow("Maximum direct solver equations", m_directMaxEquations);
+    coarse->addRow("Maximum Direct Solver Equations", m_directMaxEquations);
 
     m_epsilon = toleranceSpin();
     m_epsilon->setToolTip(
@@ -208,7 +184,7 @@ void AmgConfigWidget::buildUi() {
     coarse->addRow("Epsilon", m_epsilon);
 
     // ── Smoother and acceleration ────────────────────────────────────────────
-    QFormLayout* smoother = makeGroup(rightCol, "Smoother and acceleration");
+    QFormLayout* smoother = makeGroup(rightCol, "Smoother And Acceleration");
 
     m_smoother = styleCombo(new QComboBox(this));
     m_smoother->addItems({"Jacobi", "Gauss-Seidel", "ILU"});
@@ -219,13 +195,13 @@ void AmgConfigWidget::buildUi() {
     smoother->addRow("Smoother", m_smoother);
 
     m_acceleration = styleCombo(new QComboBox(this));
-    m_acceleration->addItems({"None", "Conjugate gradient", "BiCGStab", "GMRES"});
+    m_acceleration->addItems({"None", "Conjugate Gradient", "BiCGStab", "GMRES"});
     m_acceleration->setToolTip(
         "None: the AMG cycle is the solver.\n"
         "Conjugate gradient: SPD systems only (pressure).\n"
         "BiCGStab: nonsymmetric systems.\n"
         "GMRES: general, not necessarily symmetric systems.");
-    smoother->addRow("Acceleration method", m_acceleration);
+    smoother->addRow("Acceleration Method", m_acceleration);
 
     m_scaling = styleCombo(new QComboBox(this));
     m_scaling->addItems({"Automatic", "Disabled"});
@@ -233,7 +209,7 @@ void AmgConfigWidget::buildUi() {
         "Proportional scaling of the coarse-level correction. Applicable to symmetric\n"
         "positive definite matrices; the amgcl backend stores the choice but does not\n"
         "apply scaling.");
-    smoother->addRow("Proportional scaling", m_scaling);
+    smoother->addRow("Proportional Scaling", m_scaling);
 
     // ── Aggregation ──────────────────────────────────────────────────────────
     QFormLayout* aggregation = makeGroup(rightCol, "Aggregation");
@@ -243,7 +219,7 @@ void AmgConfigWidget::buildUi() {
     m_groupSizeControl->setToolTip(
         "Automatic resolves the group size for the equation being solved.\n"
         "Manual lets you set it below.");
-    aggregation->addRow("Group size control", m_groupSizeControl);
+    aggregation->addRow("Group Size Control", m_groupSizeControl);
 
     m_groupSize = styleSpin(new QSpinBox(this));
     m_groupSize->setRange(1, 16);
@@ -251,13 +227,13 @@ void AmgConfigWidget::buildUi() {
         "Number of equations aggregated into one equation on the coarser level.\n"
         "Read-only under Automatic: our pressure and momentum systems are scalar, so\n"
         "the automatic group size is 1.");
-    aggregation->addRow("Group size", m_groupSize);
+    aggregation->addRow("Group Size", m_groupSize);
 
     // ── Coarsening (expert) ──────────────────────────────────────────────────
-    QFormLayout* build = makeGroup(rightCol, "Coarsening (expert)");
+    QFormLayout* build = makeGroup(rightCol, "Coarsening (Expert)");
 
     m_coarsening = styleCombo(new QComboBox(this));
-    m_coarsening->addItems({"Ruge-Stuben", "Smoothed aggregation"});
+    m_coarsening->addItems({"Ruge-Stuben", "Smoothed Aggregation"});
     m_coarsening->setToolTip(
         "Smoothed aggregation is 's choice and is robust for nonsymmetric\n"
         "operators. Ruge-Stuben is kept for comparison.");
@@ -268,7 +244,7 @@ void AmgConfigWidget::buildUi() {
     m_strength->setDecimals(3);
     m_strength->setSingleStep(0.05);
     m_strength->setToolTip("Relative drop below which a matrix entry is not a strong connection.");
-    build->addRow("Strength threshold", m_strength);
+    build->addRow("Strength Threshold", m_strength);
 
     m_truncation = styleSpin(new QDoubleSpinBox(this));
     m_truncation->setRange(0.0, 1.0);
@@ -277,18 +253,18 @@ void AmgConfigWidget::buildUi() {
     m_truncation->setToolTip(
         "Interpolation weights smaller than this fraction of the row max are dropped\n"
         "(Ruge-Stuben only).");
-    build->addRow("Truncation threshold", m_truncation);
+    build->addRow("Truncation Threshold", m_truncation);
 
     m_minCoarse = styleSpin(new QSpinBox(this));
     m_minCoarse->setRange(1, 1000000);
     m_minCoarse->setToolTip("Stop coarsening once a level has this few unknowns.");
-    build->addRow("Min coarse size", m_minCoarse);
+    build->addRow("Min Coarse Size", m_minCoarse);
 
-    m_nonsymmetric = new QCheckBox("Non-symmetric operator (momentum)", this);
+    m_nonsymmetric = new QCheckBox("Non-Symmetric Operator (Momentum)", this);
     m_nonsymmetric->setToolTip(
         "Forces smoothed-aggregation coarsening, the robust choice for the\n"
         "convection-diffusion momentum operator.");
-    build->addRow("Non-symmetric", m_nonsymmetric);
+    build->addRow("Non-Symmetric", m_nonsymmetric);
 
     if (m_lockNonsymmetric) {
         m_nonsymmetric->setChecked(false);
@@ -303,7 +279,7 @@ void AmgConfigWidget::buildUi() {
                            m_stagnationMinIter}) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit changed(); });
     }
-    for (QDoubleSpinBox* spin : {m_tolerance, m_flexRatio, m_flexTolerance, m_epsilon,
+    for (QDoubleSpinBox* spin : {m_tolerance, m_epsilon,
                                  m_strength, m_truncation, m_stagnationFactor,
                                  m_stagnationLoose}) {
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
@@ -327,11 +303,6 @@ void AmgConfigWidget::buildUi() {
 }
 
 void AmgConfigWidget::syncDependencies() {
-    const bool variableCycle =
-        m_cycleType->currentIndex() == static_cast<int>(cfd::AmgSettings::CycleType::Flexible);
-    m_flexRatio->setEnabled(variableCycle);
-    m_flexTolerance->setEnabled(variableCycle);
-
     m_directMaxEquations->setEnabled(m_directSolver->isChecked());
 
     const bool manualGroup =
@@ -370,9 +341,6 @@ void AmgConfigWidget::setConfig(const cfd::AmgSettings& s) {
     m_postSweeps->setValue(s.postSweeps);
     m_maxLevels->setValue(s.maxLevels);
 
-    m_flexRatio->setValue(s.flexCoarsenRatio);
-    m_flexTolerance->setValue(s.flexLevelTolerance);
-
     m_directSolver->setChecked(s.directCoarse);
     m_directMaxEquations->setValue(s.coarseEnough);
     m_epsilon->setValue(s.epsilon);
@@ -407,9 +375,6 @@ cfd::AmgSettings AmgConfigWidget::config() const {
     s.preSweeps = m_preSweeps->value();
     s.postSweeps = m_postSweeps->value();
     s.maxLevels = m_maxLevels->value();
-
-    s.flexCoarsenRatio = m_flexRatio->value();
-    s.flexLevelTolerance = m_flexTolerance->value();
 
     s.directCoarse = m_directSolver->isChecked();
     s.coarseEnough = m_directMaxEquations->value();

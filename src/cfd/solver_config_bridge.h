@@ -61,14 +61,12 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     sc.pressureUseAMG = true;
     sc.pressureUseAMGPreconditioner = true;
     sc.pressureAmgThreshold = 0;
-    sc.pressureAmgCycles = settings.pressureAmgCycles;
-    sc.pressureSolveTolerance = settings.pressureSolveTolerance;
+    sc.pressureAmgPreconditionerCycles = settings.pressureAmgPreconditionerCycles;
     sc.pressureAmgConfig = toFvmAmg(settings.pressureAmg);
     sc.momentumAmgConfig = toFvmAmg(settings.momentumAmg);
+    sc.momentumSolverStats = settings.momentumSolverStats;
     // AMG is always on for momentum as well.
     sc.turbulenceAmgConfig = toFvmAmg(settings.turbulenceAmg);
-    sc.momentumSolveTolerance = settings.momentumSolveTolerance;
-    sc.turbulenceSolveTolerance = settings.turbulenceSolveTolerance;
     sc.momentumAmgCycles = settings.momentumAmgCycles;
     sc.momentumAmgAsSolver = settings.momentumAmgAsSolver;
     sc.turbulenceAmgCycles = settings.turbulenceAmgCycles;

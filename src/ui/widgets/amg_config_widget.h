@@ -42,10 +42,6 @@ private:
     QSpinBox* m_postSweeps = nullptr;
     QSpinBox* m_maxLevels = nullptr;
 
-    // Variable (flexible) cycle
-    QDoubleSpinBox* m_flexRatio = nullptr;
-    QDoubleSpinBox* m_flexTolerance = nullptr;
-
     // Coarse solve
     QCheckBox* m_directSolver = nullptr;
     QSpinBox* m_directMaxEquations = nullptr;

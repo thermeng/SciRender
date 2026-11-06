@@ -138,12 +138,7 @@ struct Config {
         bool pressureUseAMGPreconditioner = true;
         // 0 = always build and use AMG ( behaviour).
         std::size_t pressureAmgThreshold = 0;
-        // Relative tolerance for the AMG-preconditioned pressure Krylov solve.
-        // 0 keeps the legacy mesh-scaled 1e-4 * mean(cell volume) rule; a
-        // positive value is used verbatim as |r|/|b|.  stops at ~0.1
-        // and lets the outer SIMPLE loop do the rest.
-        double pressureSolveTolerance = 0.1;
-        int pressureAmgCycles = 1;
+        int pressureAmgPreconditionerCycles = 1;
         AMGHierarchy::Config pressureAmgConfig = []{
             AMGHierarchy::Config c;
             c.strengthThreshold = 0.16;
@@ -180,8 +175,8 @@ struct Config {
         // Apply the AMG hierarchy directly as the momentum solver instead of
         // using it as a preconditioner inside a Krylov solver.
         bool momentumAmgAsSolver = false;
-
-
+        // Print momentum linear-solver statistics at the end of the run.
+        bool momentumSolverStats = false;
         // Turbulence (k/omega) linear-solver multigrid configuration, forwarded
         // to SSTModel's LinearSolverDispatcher instances. Defaults use low
         // verbosity so turbulence solver output doesn't drown out the momentum
@@ -205,12 +200,6 @@ struct Config {
         // and the solve is redone with ILU.
         double turbulenceAmgMaxResidual = 1e-8;
 
-        // Outer Krylov solve tolerance for momentum (|r|/|b|). -1 means use
-        // momentumAmgConfig.tolerance. Mirrors pressureSolveTolerance semantics.
-        double momentumSolveTolerance = -1.0;
-        // Outer Krylov solve tolerance for turbulence k/omega (|r|/|b|).
-        double turbulenceSolveTolerance = -1.0;
-
         std::function<void(int, double, double)> iterationCallback;
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> renderCallback;
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> transientCallback;
@@ -230,8 +219,7 @@ struct Config {
             c.pressureUseAMG = true;
             c.pressureUseAMGPreconditioner = true;
             c.pressureAmgThreshold = 0;
-            c.pressureSolveTolerance = 0.1;
-            c.pressureAmgCycles = 1;
+            c.pressureAmgPreconditionerCycles = 1;
             c.pressureAmgConfig.preSweeps = 1;
             c.pressureAmgConfig.postSweeps = 5;
             c.pressureAmgConfig.coarsening = AMGHierarchy::Config::Coarsening::SmoothedAggregation;

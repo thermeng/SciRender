@@ -44,10 +44,6 @@ public:
         // preconditioner based on size. Any non-zero value keeps the legacy
         // small-mesh shortcut for callers that want it.
         std::size_t amgThreshold = 0;
-        // Relative tolerance for the AMG-preconditioned Krylov solve. 0 keeps
-        // the legacy mesh-scaled 1e-4 * mean(cell volume) rule. A positive
-        // value is used verbatim as |r|/|b|;  stops at ~0.1.
-        double solveTolerance = 0.1;
         int amgPreconditionerCycles = 1;
         // How many times the pressure matrix may change its VALUES before the
         // AMG hierarchy is rebuilt. The coarse levels depend on the matrix
