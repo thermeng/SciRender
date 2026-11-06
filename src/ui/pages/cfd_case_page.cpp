@@ -375,32 +375,25 @@ void CfdCasePage::buildAdvancedDialog() {
 
     auto* pressureSolveForm = addGroup(pressureLay, "Pressure linear solver");
 
-    m_pressureUseAMG = new QCheckBox("Build an AMG hierarchy");
-    m_pressureUseAMG->setToolTip(
-        "Rebuild the multigrid hierarchy for the pressure Poisson operator. When off,\n"
-        "the pressure solve always uses CG+IC (or BiCGSTAB+ILU).");
-    pressureSolveForm->addRow(m_pressureUseAMG);
-
-    m_pressureUseAMGPreconditioner = new QCheckBox("Use AMG as preconditioner");
-    m_pressureUseAMGPreconditioner->setToolTip(
-        "On: AMG preconditions the acceleration method chosen on the Pressure AMG tab.\n"
-        "Off: a standalone AMG solve, terminated by the maximum cycle and convergence\n"
-        "tolerance on the Pressure AMG tab.");
-    pressureSolveForm->addRow(m_pressureUseAMGPreconditioner);
-
-    m_pressureAmgThreshold = styleSpin(new QSpinBox);
-    m_pressureAmgThreshold->setRange(0, 100000000);
-    m_pressureAmgThreshold->setSingleStep(1000);
-    m_pressureAmgThreshold->setSpecialValueText("always");
-    m_pressureAmgThreshold->setToolTip(
-        "Cell count below which AMG is skipped because its setup cost is not amortised.\n"
-        "0 = always build it, which is what  does.");
-    pressureSolveForm->addRow("Minimum cells", m_pressureAmgThreshold);
-
     m_pressureAmgCycles = styleSpin(new QSpinBox);
     m_pressureAmgCycles->setRange(1, 100);
-    m_pressureAmgCycles->setToolTip("AMG cycles per preconditioner application (pressure).");
+    m_pressureAmgCycles->setToolTip(
+        "AMG cycles applied per preconditioner application inside the pressure\n"
+        "Krylov solver. Active when 'Use AMG as preconditioner' is on. This is the\n"
+        "per-application cycle count - different from the 'Maximum cycle' on the\n"
+        "Pressure AMG tab, which limits the standalone AMG solver iterations.");
     pressureSolveForm->addRow("Cycles", m_pressureAmgCycles);
+
+    m_pressureSolveTolerance = styleSpin(new ScientificDoubleSpinBox);
+    m_pressureSolveTolerance->setRange(1e-16, 1e-1);
+    m_pressureSolveTolerance->setDecimals(18);
+    m_pressureSolveTolerance->setSingleStep(1e-9);
+    m_pressureSolveTolerance->setToolTip(
+        "Outer Krylov solve tolerance for pressure (|r|/|b|). When AMG is used as a\n"
+        "preconditioner this is the tolerance that actually gates convergence - the\n"
+        "AMG hierarchy tolerance on the Pressure AMG tab is ignored in that mode.\n"
+        "0 keeps the legacy mesh-scaled rule.");
+    pressureSolveForm->addRow("Outer solve tolerance", m_pressureSolveTolerance);
 
     pressureLay->addStretch(1);
 
@@ -416,39 +409,16 @@ void CfdCasePage::buildAdvancedDialog() {
     pressureAmgLay->addStretch(1);
 
     // ── Momentum ─────────────────────────────────────────────────────────────
-    // The AMG toggle and its hierarchy live together: the toggle is meaningless
-    // without the settings it switches on.
     auto* momentumLay = addScrollPage("Momentum");
     auto* momentumForm = addGroup(momentumLay, "Momentum linear solver");
 
-    m_useAMGMomentum = new QCheckBox("Use AMG for momentum");
-    m_useAMGMomentum->setToolTip(
-        "Momentum is a nonsymmetric convection-diffusion operator. AMG scales better\n"
-        "than ILU on fine meshes; turn this off to fall back to BiCGSTAB+ILU.");
-    momentumForm->addRow(m_useAMGMomentum);
-
-    m_momentumAmgThreshold = styleSpin(new QSpinBox);
-    m_momentumAmgThreshold->setRange(0, 100000000);
-    m_momentumAmgThreshold->setSingleStep(1000);
-    m_momentumAmgThreshold->setSpecialValueText("always");
-    m_momentumAmgThreshold->setToolTip(
-        "Cell count below which the momentum solve stays on ILU regardless of the switch above.\n"
-        "0 = always build it.");
-    momentumForm->addRow("Minimum cells", m_momentumAmgThreshold);
-
     m_momentumAmgCycles = styleSpin(new QSpinBox);
     m_momentumAmgCycles->setRange(1, 100);
-    m_momentumAmgCycles->setToolTip("Multigrid cycles per preconditioner application.");
+    m_momentumAmgCycles->setToolTip(
+        "Multigrid cycles per preconditioner application inside the momentum\n"
+        "Krylov solver. Different from the 'Maximum cycle' on the Momentum AMG\n"
+        "tab, which limits standalone AMG solver iterations.");
     momentumForm->addRow("Cycles", m_momentumAmgCycles);
-
-    m_momentumAmgMaxResidual = styleSpin(new ScientificDoubleSpinBox);
-    m_momentumAmgMaxResidual->setRange(1e-16, 1e-1);
-    m_momentumAmgMaxResidual->setDecimals(18);
-    m_momentumAmgMaxResidual->setSingleStep(1e-9);
-    m_momentumAmgMaxResidual->setToolTip(
-        "Relative residual above which the AMG result is rejected and the solve is\n"
-        "redone with ILU. Keep at or below the ILU tolerance.");
-    momentumForm->addRow("Max residual", m_momentumAmgMaxResidual);
 
     m_momentumSolverStats = new QCheckBox("Momentum solver stats");
     m_momentumSolverStats->setToolTip("Print per-run momentum linear-solver statistics.");
@@ -459,6 +429,42 @@ void CfdCasePage::buildAdvancedDialog() {
     m_momentumAmgWidget = new AmgConfigWidget(cfd::AmgSettings::momentumDefaults());
     momentumLay->addWidget(m_momentumAmgWidget);
     momentumLay->addStretch(1);
+
+    // ── Turbulence ─────────────────────────────────────────────────────────────
+    auto* turbulenceLay = addScrollPage("Turbulence");
+    auto* turbulenceForm = addGroup(turbulenceLay, "Turbulence linear solver");
+
+    m_turbulenceAmgThreshold = styleSpin(new QSpinBox);
+    m_turbulenceAmgThreshold->setRange(0, 100000000);
+    m_turbulenceAmgThreshold->setSingleStep(1000);
+    m_turbulenceAmgThreshold->setSpecialValueText("always");
+    m_turbulenceAmgThreshold->setToolTip(
+        "Cell count below which the turbulence solve stays on ILU regardless of\n"
+        "the AMG settings below. 0 = always build it.");
+    turbulenceForm->addRow("Minimum cells", m_turbulenceAmgThreshold);
+
+    m_turbulenceAmgCycles = styleSpin(new QSpinBox);
+    m_turbulenceAmgCycles->setRange(1, 100);
+    m_turbulenceAmgCycles->setToolTip(
+        "Multigrid cycles per preconditioner application inside the turbulence\n"
+        "Krylov solver. Different from the 'Maximum cycle' on the Turbulence AMG\n"
+        "tab, which limits standalone AMG solver iterations.");
+    turbulenceForm->addRow("Cycles", m_turbulenceAmgCycles);
+
+    m_turbulenceAmgMaxResidual = styleSpin(new ScientificDoubleSpinBox);
+    m_turbulenceAmgMaxResidual->setRange(1e-16, 1e-1);
+    m_turbulenceAmgMaxResidual->setDecimals(18);
+    m_turbulenceAmgMaxResidual->setSingleStep(1e-9);
+    m_turbulenceAmgMaxResidual->setToolTip(
+        "Relative residual above which the AMG result is rejected and the solve is\n"
+        "redone with ILU. Keep at or below the ILU tolerance.");
+    turbulenceForm->addRow("Max residual", m_turbulenceAmgMaxResidual);
+
+    auto* turbHierarchyCaption = dialogSectionHeader("Turbulence AMG hierarchy");
+    turbulenceLay->addWidget(turbHierarchyCaption);
+    m_turbulenceAmgWidget = new AmgConfigWidget(cfd::AmgSettings::momentumDefaults());
+    turbulenceLay->addWidget(m_turbulenceAmgWidget);
+    turbulenceLay->addStretch(1);
 
     // ── Diagnostics ──────────────────────────────────────────────────────────
     auto* diagLay = addScrollPage("Diagnostics");
@@ -518,11 +524,7 @@ void CfdCasePage::buildAdvancedDialog() {
     connect(restoreBtn, &QPushButton::clicked, this, [this] { applyDialogDefaults(); });
 
     // ── Dependencies ─────────────────────────────────────────────────────────
-    connect(m_pressureUseAMG, &QCheckBox::toggled, this,
-            [this](bool) { syncDialogDependencies(); });
     connect(m_limitPressureCorrection, &QCheckBox::toggled, this,
-            [this](bool) { syncDialogDependencies(); });
-    connect(m_useAMGMomentum, &QCheckBox::toggled, this,
             [this](bool) { syncDialogDependencies(); });
 
     // Seed every control from the shipped defaults, so the values the dialog
@@ -542,17 +544,18 @@ void CfdCasePage::applyDialogDefaults() {
     m_limitPressureCorrection->setChecked(d.limitPressureCorrection);
     m_pressureCorrectionLimit->setValue(d.pressureCorrectionLimit);
     m_pressureRefCell->setValue(static_cast<int>(d.pressureRefCell));
-    m_pressureUseAMG->setChecked(d.pressureUseAMG);
-    m_pressureUseAMGPreconditioner->setChecked(d.pressureUseAMGPreconditioner);
-    m_pressureAmgThreshold->setValue(static_cast<int>(d.pressureAmgThreshold));
+    m_pressureAmgCycles->setValue(d.pressureAmgCycles);
+    m_pressureSolveTolerance->setValue(d.pressureSolveTolerance);
     m_pressureAmgWidget->resetToDefaults();
 
-    m_useAMGMomentum->setChecked(d.useAMGMomentum);
-    m_momentumAmgThreshold->setValue(static_cast<int>(d.momentumAmgThreshold));
     m_momentumAmgCycles->setValue(d.momentumAmgCycles);
-    m_momentumAmgMaxResidual->setValue(d.momentumAmgMaxResidual);
     m_momentumSolverStats->setChecked(d.momentumSolverStats);
     m_momentumAmgWidget->resetToDefaults();
+
+    m_turbulenceAmgThreshold->setValue(static_cast<int>(d.turbulenceAmgThreshold));
+    m_turbulenceAmgCycles->setValue(d.turbulenceAmgCycles);
+    m_turbulenceAmgMaxResidual->setValue(d.turbulenceAmgMaxResidual);
+    m_turbulenceAmgWidget->resetToDefaults();
 
     m_printFrequency->setValue(static_cast<int>(d.printFrequency));
     m_residualHistoryWindow->setValue(static_cast<int>(d.residualHistoryWindow));
@@ -563,19 +566,13 @@ void CfdCasePage::applyDialogDefaults() {
 }
 
 void CfdCasePage::syncDialogDependencies() {
-    const bool pressureAmg = m_pressureUseAMG->isChecked();
-    m_pressureUseAMGPreconditioner->setEnabled(pressureAmg);
-    m_pressureAmgThreshold->setEnabled(pressureAmg);
-    m_pressureAmgCycles->setEnabled(pressureAmg);
-    m_pressureAmgWidget->setEnabled(pressureAmg);
-
     m_pressureCorrectionLimit->setEnabled(m_limitPressureCorrection->isChecked());
 
-    const bool momentumAmg = m_useAMGMomentum->isChecked();
-    m_momentumAmgThreshold->setEnabled(momentumAmg);
-    m_momentumAmgCycles->setEnabled(momentumAmg);
-    m_momentumAmgMaxResidual->setEnabled(momentumAmg);
-    m_momentumAmgWidget->setEnabled(momentumAmg);
+    const bool turbulenceAmg = true; // turbulence AMG is always available
+    m_turbulenceAmgThreshold->setEnabled(turbulenceAmg);
+    m_turbulenceAmgCycles->setEnabled(turbulenceAmg);
+    m_turbulenceAmgMaxResidual->setEnabled(turbulenceAmg);
+    m_turbulenceAmgWidget->setEnabled(turbulenceAmg);
 
     // "Correctors" is usable in both steady (SIMPLE) and transient (PISO) runs.
     m_pressureCorrectors->setEnabled(true);
@@ -676,16 +673,11 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_velocityCorrectionMaxGrowthRate->setValue(s.velocityCorrectionMaxGrowthRate);
     m_numThreads->setValue(s.numThreads);
 
-    m_pressureUseAMG->setChecked(s.pressureUseAMG);
-    m_pressureUseAMGPreconditioner->setChecked(s.pressureUseAMGPreconditioner);
-    m_pressureAmgThreshold->setValue((int)s.pressureAmgThreshold);
     m_pressureAmgCycles->setValue(s.pressureAmgCycles);
+    m_pressureSolveTolerance->setValue(s.pressureSolveTolerance);
     m_pressureAmgWidget->setConfig(s.pressureAmg);
 
-    m_useAMGMomentum->setChecked(s.useAMGMomentum);
-    m_momentumAmgThreshold->setValue((int)s.momentumAmgThreshold);
     m_momentumAmgCycles->setValue(s.momentumAmgCycles);
-    m_momentumAmgMaxResidual->setValue(s.momentumAmgMaxResidual);
     m_momentumSolverStats->setChecked(s.momentumSolverStats);
     m_momentumAmgWidget->setConfig(s.momentumAmg);
 
@@ -788,19 +780,20 @@ void CfdCasePage::collectSettings() {
     s.numThreads = m_numThreads->value();
 
     // Pressure linear solver
-    s.pressureUseAMG = m_pressureUseAMG->isChecked();
-    s.pressureUseAMGPreconditioner = m_pressureUseAMGPreconditioner->isChecked();
-    s.pressureAmgThreshold = static_cast<std::size_t>(m_pressureAmgThreshold->value());
     s.pressureAmgCycles = m_pressureAmgCycles->value();
+    s.pressureSolveTolerance = m_pressureSolveTolerance->value();
     s.pressureAmg = m_pressureAmgWidget->config();
 
     // Momentum linear solver
-    s.useAMGMomentum = m_useAMGMomentum->isChecked();
-    s.momentumAmgThreshold = static_cast<std::size_t>(m_momentumAmgThreshold->value());
     s.momentumAmgCycles = m_momentumAmgCycles->value();
-    s.momentumAmgMaxResidual = m_momentumAmgMaxResidual->value();
     s.momentumSolverStats = m_momentumSolverStats->isChecked();
     s.momentumAmg = m_momentumAmgWidget->config();
+
+    // Turbulence AMG
+    s.turbulenceAmgThreshold = static_cast<std::size_t>(m_turbulenceAmgThreshold->value());
+    s.turbulenceAmgCycles = m_turbulenceAmgCycles->value();
+    s.turbulenceAmgMaxResidual = m_turbulenceAmgMaxResidual->value();
+    s.turbulenceAmg = m_turbulenceAmgWidget->config();
 
     // Time mode (steady / transient)
     s.transient.enabled = m_transientRadio->isChecked();

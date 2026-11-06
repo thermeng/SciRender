@@ -65,6 +65,11 @@ public:
         // Outer Krylov solve tolerance for k/omega (|r|/|b|). -1 means use
         // turbulenceAmgConfig.tolerance. Mirrors pressureSolveTolerance semantics.
         double turbulenceSolveTolerance = -1.0;
+        // Number of AMG cycles per preconditioner application for turbulence.
+        int turbulenceAmgCycles = 1;
+        // Relative residual above which the turbulence AMG result is rejected
+        // and the solve is redone with ILU.
+        double turbulenceAmgMaxResidual = 1e-8;
     };
 
     SSTModel(const Mesh<Dim>& mesh, Config config);

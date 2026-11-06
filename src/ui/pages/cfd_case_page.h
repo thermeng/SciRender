@@ -113,10 +113,8 @@ private:
     QCheckBox* m_limitPressureCorrection = nullptr;
     QDoubleSpinBox* m_pressureCorrectionLimit = nullptr;
     QSpinBox* m_pressureRefCell = nullptr;
-    QCheckBox* m_pressureUseAMG = nullptr;
-    QCheckBox* m_pressureUseAMGPreconditioner = nullptr;
-    QSpinBox* m_pressureAmgThreshold = nullptr;
     QSpinBox* m_pressureAmgCycles = nullptr;
+    QDoubleSpinBox* m_pressureSolveTolerance = nullptr;
     AmgConfigWidget* m_pressureAmgWidget = nullptr;
     QSpinBox* m_printFrequency = nullptr;
     QSpinBox* m_residualHistoryWindow = nullptr;
@@ -126,12 +124,15 @@ private:
     // is declared converged.
     QSpinBox* m_convergenceHold = nullptr;
     QSpinBox* m_numThreads = nullptr;
-    QCheckBox* m_useAMGMomentum = nullptr;
-    QSpinBox* m_momentumAmgThreshold = nullptr;
     QSpinBox* m_momentumAmgCycles = nullptr;
-    QDoubleSpinBox* m_momentumAmgMaxResidual = nullptr;
     QCheckBox* m_momentumSolverStats = nullptr;
     AmgConfigWidget* m_momentumAmgWidget = nullptr;
+
+    // Turbulence AMG hierarchy
+    QSpinBox* m_turbulenceAmgThreshold = nullptr;
+    QSpinBox* m_turbulenceAmgCycles = nullptr;
+    QDoubleSpinBox* m_turbulenceAmgMaxResidual = nullptr;
+    AmgConfigWidget* m_turbulenceAmgWidget = nullptr;
 
     // ── Time mode (steady / transient) ──────────────────────────────
     QRadioButton* m_steadyRadio = nullptr;

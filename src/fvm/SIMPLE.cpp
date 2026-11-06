@@ -31,7 +31,14 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
       momDiag_(mesh, 0.0),
       uStar_(mesh, 0.0),
       bc_(mesh),
-      linearSolverDispatcher_(mesh, typename fvm::LinearSolverDispatcher<Dim>::Config{}) {
+      linearSolverDispatcher_(mesh, [&]{
+          typename fvm::LinearSolverDispatcher<Dim>::Config c;
+          c.amgCycles = config_.momentumAmgCycles;
+          c.amgAsSolver = config_.momentumAmgAsSolver;
+          c.amgMaxResidual = config_.momentumAmgMaxResidual;
+          c.solveTolerance = config_.momentumSolveTolerance;
+          return c;
+      }()) {
     linearSolverDispatcher_.setAmgConfig(config_.momentumAmgConfig);
     applyPressureSolverConfig_();
     for (auto& dc : dCoeff_) dc.assign(mesh.nCells(), 0.0);
@@ -211,6 +218,8 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
         }
         sstCfg.turbulenceAmgConfig = config_.turbulenceAmgConfig;
         sstCfg.turbulenceSolveTolerance = config_.turbulenceSolveTolerance;
+        sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
+        sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
         turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
         turbulence_->initialize(nu_ * rho_, rho_);
     }
@@ -274,8 +283,12 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
         sstCfg.kInf       = config_.kInf;
         sstCfg.omegaInf   = config_.omegaInf;
         sstCfg.alphaK     = config_.alphaK;
-         sstCfg.alphaOmega = config_.alphaOmega;
-         sstCfg.wallFunction = config_.wallFunction;
+        sstCfg.alphaOmega = config_.alphaOmega;
+        sstCfg.wallFunction = config_.wallFunction;
+        sstCfg.turbulenceAmgConfig = config_.turbulenceAmgConfig;
+        sstCfg.turbulenceSolveTolerance = config_.turbulenceSolveTolerance;
+        sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
+        sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
         if (!turbulence_) {
             turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
         } else {

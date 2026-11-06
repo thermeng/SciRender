@@ -57,15 +57,22 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     sc.limitPressureCorrection = settings.limitPressureCorrection;
     sc.pressureCorrectionLimit = settings.pressureCorrectionLimit;
     sc.pressureRefCell = settings.pressureRefCell == 0 ? SIZE_MAX : settings.pressureRefCell;
-    sc.pressureUseAMG = settings.pressureUseAMG;
-    sc.pressureUseAMGPreconditioner = settings.pressureUseAMGPreconditioner;
-    sc.pressureAmgThreshold = settings.pressureAmgThreshold;
+    // AMG is always on: pressure AMG hierarchy built and used as preconditioner.
+    sc.pressureUseAMG = true;
+    sc.pressureUseAMGPreconditioner = true;
+    sc.pressureAmgThreshold = 0;
     sc.pressureAmgCycles = settings.pressureAmgCycles;
     sc.pressureSolveTolerance = settings.pressureSolveTolerance;
     sc.pressureAmgConfig = toFvmAmg(settings.pressureAmg);
+    sc.momentumAmgConfig = toFvmAmg(settings.momentumAmg);
+    // AMG is always on for momentum as well.
     sc.turbulenceAmgConfig = toFvmAmg(settings.turbulenceAmg);
     sc.momentumSolveTolerance = settings.momentumSolveTolerance;
     sc.turbulenceSolveTolerance = settings.turbulenceSolveTolerance;
+    sc.momentumAmgCycles = settings.momentumAmgCycles;
+    sc.momentumAmgAsSolver = settings.momentumAmgAsSolver;
+    sc.turbulenceAmgCycles = settings.turbulenceAmgCycles;
+    sc.turbulenceAmgMaxResidual = settings.turbulenceAmgMaxResidual;
     sc.solverType = toFvmSolverType(settings.transient);
     sc.transient = toFvmTransient<Dim>(settings.transient);
 

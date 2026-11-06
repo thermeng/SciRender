@@ -211,20 +211,13 @@ struct CaseSettings {
     // residuals). 0 = auto (OpenMP runtime default / OMP_NUM_THREADS).
     int numThreads = 1;
     // Pressure-correction linear solver (see fvm::PressureCorrection::Config)
-    bool pressureUseAMG = true;
-    bool pressureUseAMGPreconditioner = true;
-    // 0 = always use AMG ( behaviour).
-    std::size_t pressureAmgThreshold = 0;
-    // 0 = legacy mesh-scaled tolerance; >0 = |r|/|b| ( uses ~0.1).
+    // AMG is always used; pressureSolveTolerance gates the Krylov convergence.
     double pressureSolveTolerance = 0.0;
     int pressureAmgCycles = 1;
     AmgSettings pressureAmg = AmgSettings::pressureDefaults();
 
     // Momentum linear solver (see fvm::SIMPLE::Config)
-    bool useAMGMomentum = true;
-    // 0 = always use AMG ( behaviour).
-    std::size_t momentumAmgThreshold = 0;
-    // Apply the AMG hierarchy directly as the momentum solver ().
+    // AMG is always used; momentumAmgCycles controls cycles per application.
     bool momentumAmgAsSolver = false;
     int momentumAmgCycles = 2;
     double momentumAmgMaxResidual = 1e-8;
