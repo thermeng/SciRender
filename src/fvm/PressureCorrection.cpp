@@ -18,9 +18,7 @@ PressureCorrection<Dim>::PressureCorrection(const Mesh<Dim>& mesh, const Config&
 
 template<std::size_t Dim>
 PressureCorrection<Dim>::PressureCorrection(const Mesh<Dim>& mesh)
-    : mesh_(mesh), config_{}, divU_(mesh, 0.0) {
-    config_.amgConfig.tolerance = 1e-8;
-}
+    : mesh_(mesh), config_{}, divU_(mesh, 0.0) {}
 
 template<std::size_t Dim>
 void PressureCorrection<Dim>::refreshPressureGradient(const Field<Dim>& pressure) {

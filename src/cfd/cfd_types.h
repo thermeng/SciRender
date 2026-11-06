@@ -215,14 +215,14 @@ struct CaseSettings {
     // AMG is always used; momentumAmgCycles controls cycles per application.
     bool momentumAmgAsSolver = false;
     int momentumAmgCycles = 1;
-    double momentumAmgMaxResidual = 1e-8;
+        double momentumAmgMaxResidual = 0.1;
     bool momentumSolverStats = false;
     AmgSettings momentumAmg = AmgSettings::momentumDefaults();
 
     // Turbulence (k/omega) linear solver (see fvm::SSTModel::Config)
     bool useAMGTurbulence = true;
     int turbulenceAmgCycles = 1;
-    double turbulenceAmgMaxResidual = 1e-8;
+        double turbulenceAmgMaxResidual = 0.1;
     AmgSettings turbulenceAmg = AmgSettings::momentumDefaults();
 
     // Steady vs transient. See TransientSettings above.
