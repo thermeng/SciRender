@@ -62,9 +62,6 @@ public:
             return c;
         }();
 
-        // Outer Krylov solve tolerance for k/omega (|r|/|b|). -1 means use
-        // turbulenceAmgConfig.tolerance. Mirrors pressureSolveTolerance semantics.
-        double turbulenceSolveTolerance = -1.0;
         // Number of AMG cycles per preconditioner application for turbulence.
         int turbulenceAmgCycles = 1;
         // Relative residual above which the turbulence AMG result is rejected

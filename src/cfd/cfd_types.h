@@ -32,7 +32,7 @@ struct AmgSettings {
     // --- Solver ----------------------------------------------------------
     enum class Coarsening { RugeStuben, SmoothedAggregation };
     enum class Verbosity { None, Low, High, Diagnosis };
-    enum class CycleType { VCycle, WCycle, FCycle, Flexible };
+    enum class CycleType { VCycle, WCycle, FCycle };
     enum class Acceleration { None, ConjugateGradient, BiCGStab, GMRES };
     enum class Smoother { Jacobi, GaussSeidel, ILU };
     enum class ProportionalScaling { Automatic, Disabled };
@@ -57,10 +57,6 @@ struct AmgSettings {
     bool directCoarse = true;    // Enable the direct solver
     int coarseEnough = 2;        // Maximum direct solver equations
     int minCoarseSize = 10;
-
-    // --- Variable / flexible cycle ---------------------------------------
-    double flexCoarsenRatio = 0.5;    // Residual ratio to go coarser
-    double flexLevelTolerance = 0.1;  // Extended tolerance
 
     // --- Expert -----------------------------------------------------------
     double strengthThreshold = 0.25;
@@ -97,7 +93,7 @@ struct AmgSettings {
         s.postSweeps = 1;
         s.maxLevels = 50;
         s.nonsymmetric = true;
-        s.cycleType = CycleType::Flexible;
+        s.cycleType = CycleType::VCycle;
         s.smoother = Smoother::GaussSeidel;
         s.acceleration = Acceleration::None;
         s.scaling = ProportionalScaling::Automatic;
@@ -211,31 +207,23 @@ struct CaseSettings {
     // residuals). 0 = auto (OpenMP runtime default / OMP_NUM_THREADS).
     int numThreads = 1;
     // Pressure-correction linear solver (see fvm::PressureCorrection::Config)
-    // AMG is always used; pressureSolveTolerance gates the Krylov convergence.
-    double pressureSolveTolerance = 0.0;
-    int pressureAmgCycles = 1;
+    // AMG is always used; the AMG hierarchy tolerance gates convergence.
+    int pressureAmgPreconditionerCycles = 1;
     AmgSettings pressureAmg = AmgSettings::pressureDefaults();
 
     // Momentum linear solver (see fvm::SIMPLE::Config)
     // AMG is always used; momentumAmgCycles controls cycles per application.
     bool momentumAmgAsSolver = false;
-    int momentumAmgCycles = 2;
+    int momentumAmgCycles = 1;
     double momentumAmgMaxResidual = 1e-8;
     bool momentumSolverStats = false;
     AmgSettings momentumAmg = AmgSettings::momentumDefaults();
 
     // Turbulence (k/omega) linear solver (see fvm::SSTModel::Config)
     bool useAMGTurbulence = true;
-    std::size_t turbulenceAmgThreshold = 0;
-    int turbulenceAmgCycles = 2;
+    int turbulenceAmgCycles = 1;
     double turbulenceAmgMaxResidual = 1e-8;
     AmgSettings turbulenceAmg = AmgSettings::momentumDefaults();
-
-    // Outer Krylov solve tolerance for momentum (|r|/|b|). -1 means use the
-    // AMG hierarchy tolerance. Mirrors pressureSolveTolerance semantics.
-    double momentumSolveTolerance = -1.0;
-    // Outer Krylov solve tolerance for turbulence k/omega (|r|/|b|).
-    double turbulenceSolveTolerance = -1.0;
 
     // Steady vs transient. See TransientSettings above.
     TransientSettings transient;

@@ -299,7 +299,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
 
 void CfdCasePage::buildAdvancedDialog() {
     m_advancedDlg = new QDialog(this);
-    m_advancedDlg->setWindowTitle("Advanced solver settings");
+    m_advancedDlg->setWindowTitle("Advanced Solver Settings");
     m_advancedDlg->resize(780, 620);
 
     auto* tabs = new QTabWidget(m_advancedDlg);
@@ -347,14 +347,14 @@ void CfdCasePage::buildAdvancedDialog() {
 
     // ── Pressure ─────────────────────────────────────────────────────────────
     auto* pressureLay = addScrollPage("Pressure");
-    auto* pressureForm = addGroup(pressureLay, "Pressure correction");
+    auto* pressureForm = addGroup(pressureLay, "Pressure Correction");
 
     m_pressureCorrectors = styleSpin(new QSpinBox);
     m_pressureCorrectors->setRange(1, 100);
     m_pressureCorrectors->setToolTip("Pressure-corrector sweeps per SIMPLE iteration.");
     pressureForm->addRow("Correctors", m_pressureCorrectors);
 
-    m_limitPressureCorrection = new QCheckBox("Limit p' correction");
+    m_limitPressureCorrection = new QCheckBox("Limit P' Correction");
     m_limitPressureCorrection->setToolTip(
         "Clamp the pressure correction as a fraction of rho*U^2. Prevents the first\n"
         "iterations from overshooting, at the cost of a weaker pressure-velocity coupling.");
@@ -364,36 +364,14 @@ void CfdCasePage::buildAdvancedDialog() {
     m_pressureCorrectionLimit->setRange(0, 1000);
     m_pressureCorrectionLimit->setDecimals(2);
     m_pressureCorrectionLimit->setToolTip("Upper bound on |p'| as a multiple of rho*U_ref^2.");
-    pressureForm->addRow("Correction limit", m_pressureCorrectionLimit);
+    pressureForm->addRow("Correction Limit", m_pressureCorrectionLimit);
 
     m_pressureRefCell = styleSpin(new QSpinBox);
     m_pressureRefCell->setRange(0, 1000000);
     m_pressureRefCell->setSpecialValueText("auto");
     m_pressureRefCell->setToolTip(
         "Cell that pins the pressure datum when no pressure outlet exists. auto = last cell.");
-    pressureForm->addRow("Reference cell", m_pressureRefCell);
-
-    auto* pressureSolveForm = addGroup(pressureLay, "Pressure linear solver");
-
-    m_pressureAmgCycles = styleSpin(new QSpinBox);
-    m_pressureAmgCycles->setRange(1, 100);
-    m_pressureAmgCycles->setToolTip(
-        "AMG cycles applied per preconditioner application inside the pressure\n"
-        "Krylov solver. Active when 'Use AMG as preconditioner' is on. This is the\n"
-        "per-application cycle count - different from the 'Maximum cycle' on the\n"
-        "Pressure AMG tab, which limits the standalone AMG solver iterations.");
-    pressureSolveForm->addRow("Cycles", m_pressureAmgCycles);
-
-    m_pressureSolveTolerance = styleSpin(new ScientificDoubleSpinBox);
-    m_pressureSolveTolerance->setRange(1e-16, 1e-1);
-    m_pressureSolveTolerance->setDecimals(18);
-    m_pressureSolveTolerance->setSingleStep(1e-9);
-    m_pressureSolveTolerance->setToolTip(
-        "Outer Krylov solve tolerance for pressure (|r|/|b|). When AMG is used as a\n"
-        "preconditioner this is the tolerance that actually gates convergence - the\n"
-        "AMG hierarchy tolerance on the Pressure AMG tab is ignored in that mode.\n"
-        "0 keeps the legacy mesh-scaled rule.");
-    pressureSolveForm->addRow("Outer solve tolerance", m_pressureSolveTolerance);
+    pressureForm->addRow("Reference Cell", m_pressureRefCell);
 
     pressureLay->addStretch(1);
 
@@ -410,19 +388,10 @@ void CfdCasePage::buildAdvancedDialog() {
 
     // ── Momentum ─────────────────────────────────────────────────────────────
     auto* momentumLay = addScrollPage("Momentum");
-    auto* momentumForm = addGroup(momentumLay, "Momentum linear solver");
 
-    m_momentumAmgCycles = styleSpin(new QSpinBox);
-    m_momentumAmgCycles->setRange(1, 100);
-    m_momentumAmgCycles->setToolTip(
-        "Multigrid cycles per preconditioner application inside the momentum\n"
-        "Krylov solver. Different from the 'Maximum cycle' on the Momentum AMG\n"
-        "tab, which limits standalone AMG solver iterations.");
-    momentumForm->addRow("Cycles", m_momentumAmgCycles);
-
-    m_momentumSolverStats = new QCheckBox("Momentum solver stats");
+    m_momentumSolverStats = new QCheckBox("Momentum Solver Stats");
     m_momentumSolverStats->setToolTip("Print per-run momentum linear-solver statistics.");
-    momentumForm->addRow(m_momentumSolverStats);
+    momentumLay->addWidget(m_momentumSolverStats);
 
     auto* hierarchyCaption = dialogSectionHeader("Momentum AMG hierarchy");
     momentumLay->addWidget(hierarchyCaption);
@@ -432,33 +401,6 @@ void CfdCasePage::buildAdvancedDialog() {
 
     // ── Turbulence ─────────────────────────────────────────────────────────────
     auto* turbulenceLay = addScrollPage("Turbulence");
-    auto* turbulenceForm = addGroup(turbulenceLay, "Turbulence linear solver");
-
-    m_turbulenceAmgThreshold = styleSpin(new QSpinBox);
-    m_turbulenceAmgThreshold->setRange(0, 100000000);
-    m_turbulenceAmgThreshold->setSingleStep(1000);
-    m_turbulenceAmgThreshold->setSpecialValueText("always");
-    m_turbulenceAmgThreshold->setToolTip(
-        "Cell count below which the turbulence solve stays on ILU regardless of\n"
-        "the AMG settings below. 0 = always build it.");
-    turbulenceForm->addRow("Minimum cells", m_turbulenceAmgThreshold);
-
-    m_turbulenceAmgCycles = styleSpin(new QSpinBox);
-    m_turbulenceAmgCycles->setRange(1, 100);
-    m_turbulenceAmgCycles->setToolTip(
-        "Multigrid cycles per preconditioner application inside the turbulence\n"
-        "Krylov solver. Different from the 'Maximum cycle' on the Turbulence AMG\n"
-        "tab, which limits standalone AMG solver iterations.");
-    turbulenceForm->addRow("Cycles", m_turbulenceAmgCycles);
-
-    m_turbulenceAmgMaxResidual = styleSpin(new ScientificDoubleSpinBox);
-    m_turbulenceAmgMaxResidual->setRange(1e-16, 1e-1);
-    m_turbulenceAmgMaxResidual->setDecimals(18);
-    m_turbulenceAmgMaxResidual->setSingleStep(1e-9);
-    m_turbulenceAmgMaxResidual->setToolTip(
-        "Relative residual above which the AMG result is rejected and the solve is\n"
-        "redone with ILU. Keep at or below the ILU tolerance.");
-    turbulenceForm->addRow("Max residual", m_turbulenceAmgMaxResidual);
 
     auto* turbHierarchyCaption = dialogSectionHeader("Turbulence AMG hierarchy");
     turbulenceLay->addWidget(turbHierarchyCaption);
@@ -468,18 +410,18 @@ void CfdCasePage::buildAdvancedDialog() {
 
     // ── Diagnostics ──────────────────────────────────────────────────────────
     auto* diagLay = addScrollPage("Diagnostics");
-    auto* diagForm = addGroup(diagLay, "Residual monitoring");
+    auto* diagForm = addGroup(diagLay, "Residual Monitoring");
 
     m_printFrequency = styleSpin(new QSpinBox);
     m_printFrequency->setRange(1, 100000);
     m_printFrequency->setToolTip("Print a residual row every N outer iterations.");
-    diagForm->addRow("Print frequency", m_printFrequency);
+    diagForm->addRow("Print Frequency", m_printFrequency);
 
     m_residualHistoryWindow = styleSpin(new QSpinBox);
     m_residualHistoryWindow->setRange(1, 10000);
     m_residualHistoryWindow->setToolTip(
         "Iterations inspected when watching for a continuity residual that keeps growing.");
-    diagForm->addRow("Residual window", m_residualHistoryWindow);
+    diagForm->addRow("Residual Window", m_residualHistoryWindow);
 
     m_velocityCorrectionMaxUnlimitedSpeed = styleSpin(new QDoubleSpinBox);
     m_velocityCorrectionMaxUnlimitedSpeed->setRange(0.0, 1e6);
@@ -487,9 +429,9 @@ void CfdCasePage::buildAdvancedDialog() {
     m_velocityCorrectionMaxUnlimitedSpeed->setValue(20.0);
     m_velocityCorrectionMaxUnlimitedSpeed->setSuffix(" m/s");
     m_velocityCorrectionMaxUnlimitedSpeed->setToolTip(
-        "Retained for API compatibility. Growth-rate limiting (next field) "
-        "applies at all speeds.");
-    diagForm->addRow("Max unlimited speed", m_velocityCorrectionMaxUnlimitedSpeed);
+        "Velocity growth limiting is only applied when cell speed exceeds "
+        "this threshold. Below it, no damping is applied.");
+    diagForm->addRow("Max Unlimited Speed", m_velocityCorrectionMaxUnlimitedSpeed);
 
     m_velocityCorrectionMaxGrowthRate = styleSpin(new QDoubleSpinBox);
     m_velocityCorrectionMaxGrowthRate->setRange(0.0, 1.0);
@@ -498,7 +440,7 @@ void CfdCasePage::buildAdvancedDialog() {
     m_velocityCorrectionMaxGrowthRate->setValue(0.15);
     m_velocityCorrectionMaxGrowthRate->setToolTip(
         "Maximum per-iteration velocity amplitude growth rate from pressure correction.");
-    diagForm->addRow("Acceptable speed growth rate", m_velocityCorrectionMaxGrowthRate);
+    diagForm->addRow("Acceptable Speed Growth Rate", m_velocityCorrectionMaxGrowthRate);
 
     auto* perfForm = addGroup(diagLay, "Performance");
     m_numThreads = styleSpin(new QSpinBox);
@@ -516,7 +458,7 @@ void CfdCasePage::buildAdvancedDialog() {
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults,
         m_advancedDlg);
     auto* restoreBtn = buttons->button(QDialogButtonBox::RestoreDefaults);
-    restoreBtn->setText("Restore defaults");
+    restoreBtn->setText("Restore Defaults");
     restoreBtn->setToolTip("Reset every setting on every tab of this dialog.");
     outer->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, m_advancedDlg, &QDialog::accept);
@@ -544,17 +486,11 @@ void CfdCasePage::applyDialogDefaults() {
     m_limitPressureCorrection->setChecked(d.limitPressureCorrection);
     m_pressureCorrectionLimit->setValue(d.pressureCorrectionLimit);
     m_pressureRefCell->setValue(static_cast<int>(d.pressureRefCell));
-    m_pressureAmgCycles->setValue(d.pressureAmgCycles);
-    m_pressureSolveTolerance->setValue(d.pressureSolveTolerance);
     m_pressureAmgWidget->resetToDefaults();
 
-    m_momentumAmgCycles->setValue(d.momentumAmgCycles);
     m_momentumSolverStats->setChecked(d.momentumSolverStats);
     m_momentumAmgWidget->resetToDefaults();
 
-    m_turbulenceAmgThreshold->setValue(static_cast<int>(d.turbulenceAmgThreshold));
-    m_turbulenceAmgCycles->setValue(d.turbulenceAmgCycles);
-    m_turbulenceAmgMaxResidual->setValue(d.turbulenceAmgMaxResidual);
     m_turbulenceAmgWidget->resetToDefaults();
 
     m_printFrequency->setValue(static_cast<int>(d.printFrequency));
@@ -569,9 +505,6 @@ void CfdCasePage::syncDialogDependencies() {
     m_pressureCorrectionLimit->setEnabled(m_limitPressureCorrection->isChecked());
 
     const bool turbulenceAmg = true; // turbulence AMG is always available
-    m_turbulenceAmgThreshold->setEnabled(turbulenceAmg);
-    m_turbulenceAmgCycles->setEnabled(turbulenceAmg);
-    m_turbulenceAmgMaxResidual->setEnabled(turbulenceAmg);
     m_turbulenceAmgWidget->setEnabled(turbulenceAmg);
 
     // "Correctors" is usable in both steady (SIMPLE) and transient (PISO) runs.
@@ -673,11 +606,8 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_velocityCorrectionMaxGrowthRate->setValue(s.velocityCorrectionMaxGrowthRate);
     m_numThreads->setValue(s.numThreads);
 
-    m_pressureAmgCycles->setValue(s.pressureAmgCycles);
-    m_pressureSolveTolerance->setValue(s.pressureSolveTolerance);
     m_pressureAmgWidget->setConfig(s.pressureAmg);
 
-    m_momentumAmgCycles->setValue(s.momentumAmgCycles);
     m_momentumSolverStats->setChecked(s.momentumSolverStats);
     m_momentumAmgWidget->setConfig(s.momentumAmg);
 
@@ -780,19 +710,13 @@ void CfdCasePage::collectSettings() {
     s.numThreads = m_numThreads->value();
 
     // Pressure linear solver
-    s.pressureAmgCycles = m_pressureAmgCycles->value();
-    s.pressureSolveTolerance = m_pressureSolveTolerance->value();
     s.pressureAmg = m_pressureAmgWidget->config();
 
     // Momentum linear solver
-    s.momentumAmgCycles = m_momentumAmgCycles->value();
     s.momentumSolverStats = m_momentumSolverStats->isChecked();
     s.momentumAmg = m_momentumAmgWidget->config();
 
     // Turbulence AMG
-    s.turbulenceAmgThreshold = static_cast<std::size_t>(m_turbulenceAmgThreshold->value());
-    s.turbulenceAmgCycles = m_turbulenceAmgCycles->value();
-    s.turbulenceAmgMaxResidual = m_turbulenceAmgMaxResidual->value();
     s.turbulenceAmg = m_turbulenceAmgWidget->config();
 
     // Time mode (steady / transient)

@@ -33,7 +33,7 @@ inline void correctVelocity(
     std::array<Field<Dim>, Dim>& dpdx,
     VectorField<Dim>& velocity,
     const std::vector<FaceVelocityBC>* faceBC = nullptr,
-    double maxUnlimitedSpeed = 20.0,   // retained for API compatibility; no longer gates damping
+    double maxUnlimitedSpeed = 20.0,   // growth limiting only applies above this speed
     double maxGrowthRate = 0.15,       // max per-iteration growth rate (e.g. 0.15 = 15%)
     double alphaP = 1.0                // pressure under-relaxation applied to velocity correction
 ) {
@@ -53,14 +53,10 @@ inline void correctVelocity(
         }
     }
 
-    // Velocity amplitude damping: cap per-iteration growth rate.
-    // Growth rate is always limited (reduction rate is unlimited). The
-    // maxUnlimitedSpeed threshold is intentionally NOT applied here: even at
-    // low speeds, pressure correction can inject explosive growth (as seen at
-    // Re=1000 where speed jumped 0.77 -> 1790 m/s in one iteration). Capping
-    // relative growth prevents this cascade regardless of absolute speed.
-    // Dirichlet cells keep their prescribed velocity exactly and are not
-    // damped.
+    // Velocity amplitude damping: cap per-iteration growth rate, but only when
+    // the cell speed exceeds maxUnlimitedSpeed. Below this threshold no damping
+    // is applied. Growth rate is always limited (reduction rate is unlimited).
+    // Dirichlet cells keep their prescribed velocity exactly and are not damped.
     if (maxGrowthRate >= 0.0) {
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh.nCells(); ++i) {
@@ -78,7 +74,7 @@ inline void correctVelocity(
             double newSpeed = std::sqrt(newSpeed2);
             double oldSpeed = std::sqrt(oldSpeed2);
 
-            if (oldSpeed > 0.0) {
+            if (oldSpeed > maxUnlimitedSpeed && oldSpeed > 0.0) {
                 double maxAllowedSpeed = oldSpeed * (1.0 + maxGrowthRate);
                 if (newSpeed > maxAllowedSpeed) {
                     double scale = maxAllowedSpeed / newSpeed;

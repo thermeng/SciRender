@@ -65,7 +65,7 @@ std::shared_ptr<AMG> makeAmg(const Eigen::SparseMatrix<double, Eigen::RowMajor>&
     ap.max_levels = static_cast<unsigned>(c.maxLevels > 0 ? c.maxLevels : 30);
     ap.npre = static_cast<unsigned>(c.preSweeps >= 0 ? c.preSweeps : 1);
     ap.npost = static_cast<unsigned>(c.postSweeps >= 0 ? c.postSweeps : 1);
-    // V-cycle = one inner loop, W-cycle = two. F and Flexible are approximated
+    // V-cycle = one inner loop, W-cycle = two. F-cycle is approximated
     // by a V-cycle because amgcl has no adaptive cycle.
     ap.ncycle = (c.cycleType == AMGHierarchy::Config::CycleType::WCycle) ? 2u : 1u;
     ap.pre_cycles = static_cast<unsigned>(c.preCycles > 0 ? c.preCycles : 1);
@@ -301,10 +301,9 @@ void AMGHierarchy::build(const SparseMatrix& A) {
                               : config_.smoother == Config::Smoother::SPAI0 ? "SPAI0"
                                                                            : "Gauss-Seidel")
                           << ", cycle="
-                          << (config_.cycleType == Config::CycleType::WCycle ? "W"
-                              : config_.cycleType == Config::CycleType::FCycle ? "F (V used)"
-                              : config_.cycleType == Config::CycleType::Flexible ? "variable (V used)"
-                                                                                : "V")
+                           << (config_.cycleType == Config::CycleType::WCycle ? "W"
+                               : config_.cycleType == Config::CycleType::FCycle ? "F (V used)"
+                                                                                 : "V")
                           << ", coarse solve="
                           << (config_.directCoarse ? "direct" : "iterative")
                           << " (<= " << config_.coarseEnough << " equations)\n";

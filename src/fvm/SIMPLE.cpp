@@ -36,7 +36,7 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
           c.amgCycles = config_.momentumAmgCycles;
           c.amgAsSolver = config_.momentumAmgAsSolver;
           c.amgMaxResidual = config_.momentumAmgMaxResidual;
-          c.solveTolerance = config_.momentumSolveTolerance;
+          c.solverStats = config_.momentumSolverStats;
           return c;
       }()) {
     linearSolverDispatcher_.setAmgConfig(config_.momentumAmgConfig);
@@ -74,8 +74,7 @@ void SIMPLE<Dim>::applyPressureSolverConfig_() {
     pcCfg.useAMG = config_.pressureUseAMG;
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
     pcCfg.amgThreshold = config_.pressureAmgThreshold;
-    pcCfg.amgPreconditionerCycles = config_.pressureAmgCycles;
-    pcCfg.solveTolerance = config_.pressureSolveTolerance;
+    pcCfg.amgPreconditionerCycles = config_.pressureAmgPreconditionerCycles;
     pcCfg.amgConfig = config_.pressureAmgConfig;
     pressureCorrection_.setConfig(pcCfg);
 }
@@ -217,7 +216,6 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
             sstCfg.wallTreatment = WallTreatment::LowRe;
         }
         sstCfg.turbulenceAmgConfig = config_.turbulenceAmgConfig;
-        sstCfg.turbulenceSolveTolerance = config_.turbulenceSolveTolerance;
         sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
         sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
         turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
@@ -286,7 +284,6 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
         sstCfg.alphaOmega = config_.alphaOmega;
         sstCfg.wallFunction = config_.wallFunction;
         sstCfg.turbulenceAmgConfig = config_.turbulenceAmgConfig;
-        sstCfg.turbulenceSolveTolerance = config_.turbulenceSolveTolerance;
         sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
         sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
         if (!turbulence_) {
@@ -1060,7 +1057,6 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) warmStart(i) = velPtr[i];
 
     auto result = linearSolverDispatcher_.solve(d, momA, momB, warmStart,
-                                                config_.momentumSolveTolerance,
                                                 &cancelRequested_);
     if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
 
@@ -1150,7 +1146,6 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) warmStart(i) = velPtr[i];
 
     auto result = linearSolverDispatcher_.solve(d, momA, momB, warmStart,
-                                                config_.momentumSolveTolerance,
                                                 &cancelRequested_);
     if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
 

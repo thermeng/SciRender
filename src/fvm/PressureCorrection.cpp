@@ -600,9 +600,6 @@ void PressureCorrection<Dim>::solve(
             amgValueUpdates_ = 0;
             amg_.invalidate();
             auto amgCfg = config_.amgConfig;
-            amgCfg.tolerance = (config_.solveTolerance > 0.0)
-                ? config_.solveTolerance
-                : amgCfg.tolerance * volScale;
             amg_.setConfig(amgCfg);
             amg_.build(A_);
         }
@@ -648,9 +645,6 @@ void PressureCorrection<Dim>::solve(
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
             amg_.invalidate();
             auto amgCfg = config_.amgConfig;
-            amgCfg.tolerance = (config_.solveTolerance > 0.0)
-                                   ? config_.solveTolerance
-                                   : amgCfg.tolerance * volScale;
             amg_.setConfig(amgCfg);
             auto tBuild = std::chrono::steady_clock::now();
             amg_.build(A_);
@@ -665,9 +659,7 @@ void PressureCorrection<Dim>::solve(
         }
 
         if (amg_.isBuilt()) {
-            const double krylovTol =
-                (config_.solveTolerance > 0.0) ? config_.solveTolerance
-                                               : 0.1;
+            const double krylovTol = 0.1;
             if (!pPatternAnalyzed_ || compactChanged) {
                 bicgSolver_.setMaxIterations(1000);
                 bicgSolver_.setTolerance(krylovTol);
@@ -744,9 +736,6 @@ void PressureCorrection<Dim>::solve(
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
             amg_.invalidate();
             auto amgCfg = config_.amgConfig;
-            amgCfg.tolerance = (config_.solveTolerance > 0.0)
-                                   ? config_.solveTolerance
-                                   : amgCfg.tolerance * volScale;
             amg_.setConfig(amgCfg);
             auto tBuild = std::chrono::steady_clock::now();
             amg_.build(A_);

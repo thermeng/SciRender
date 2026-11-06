@@ -32,8 +32,6 @@ inline fvm::AMGHierarchy::Config toFvmAmg(const AmgSettings& s) {
 
     c.coarseEnough = s.coarseEnough;
     c.directCoarse = s.directCoarse;
-    c.flexCoarsenRatio = s.flexCoarsenRatio;
-    c.flexLevelTolerance = s.flexLevelTolerance;
 
     switch (s.coarsening) {
         case AmgSettings::Coarsening::RugeStuben: c.coarsening = F::Coarsening::RugeStuben; break;
@@ -61,7 +59,6 @@ inline fvm::AMGHierarchy::Config toFvmAmg(const AmgSettings& s) {
     switch (s.cycleType) {
         case AmgSettings::CycleType::WCycle:   c.cycleType = F::CycleType::WCycle; break;
         case AmgSettings::CycleType::FCycle:   c.cycleType = F::CycleType::FCycle; break;
-        case AmgSettings::CycleType::Flexible: c.cycleType = F::CycleType::Flexible; break;
         case AmgSettings::CycleType::VCycle:
         default:                               c.cycleType = F::CycleType::VCycle; break;
     }
