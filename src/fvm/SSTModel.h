@@ -66,7 +66,7 @@ public:
         int turbulenceAmgCycles = 1;
         // Relative residual above which the turbulence AMG result is rejected
         // and the solve is redone with ILU.
-        double turbulenceAmgMaxResidual = 1e-8;
+        double turbulenceAmgMaxResidual = 0.1;
     };
 
     SSTModel(const Mesh<Dim>& mesh, Config config);

@@ -146,7 +146,6 @@ struct Config {
             c.preSweeps = 1;
             c.postSweeps = 2;
             c.maxIterations = 100;
-            c.tolerance = 1e-8;
             c.verbosity = AMGHierarchy::Config::Verbosity::High;
             return c;
         }();
@@ -161,12 +160,10 @@ struct Config {
             c.preSweeps = 1;
             c.postSweeps = 2;
             c.maxIterations = 100;
-            c.tolerance = 1e-8;
             c.verbosity = AMGHierarchy::Config::Verbosity::High;
             c.acceleration = AMGHierarchy::Config::Acceleration::None;
             return c;
         }();
-
         // Number of AMG cycles per preconditioner application for momentum.
         int momentumAmgCycles = 1;
         // Relative residual above which the momentum AMG result is rejected
@@ -188,12 +185,10 @@ struct Config {
             c.preSweeps = 1;
             c.postSweeps = 2;
             c.maxIterations = 100;
-            c.tolerance = 1e-8;
             c.verbosity = AMGHierarchy::Config::Verbosity::None;
             c.acceleration = AMGHierarchy::Config::Acceleration::None;
             return c;
         }();
-
         // Number of AMG cycles per preconditioner application for turbulence.
         int turbulenceAmgCycles = 1;
         // Relative residual above which the turbulence AMG result is rejected

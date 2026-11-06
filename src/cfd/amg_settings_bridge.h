@@ -33,6 +33,8 @@ inline fvm::AMGHierarchy::Config toFvmAmg(const AmgSettings& s) {
     c.coarseEnough = s.coarseEnough;
     c.directCoarse = s.directCoarse;
 
+    c.tolerance = s.tolerance;
+
     switch (s.coarsening) {
         case AmgSettings::Coarsening::RugeStuben: c.coarsening = F::Coarsening::RugeStuben; break;
         case AmgSettings::Coarsening::SmoothedAggregation:
