@@ -269,13 +269,11 @@ void StoppingCriteriaDialog::setFrom(const cfd::CaseSettings& s) {
         }
     }
 
+    m_fixedIterCb->setChecked(s.runFixedIterations);
+    m_fixedIterEdit->setEnabled(s.runFixedIterations);
     if (s.fixedIterations) {
-        m_fixedIterCb->setChecked(true);
-        m_fixedIterEdit->setEnabled(true);
         m_fixedIterEdit->setText(QString::number(*s.fixedIterations));
     } else {
-        m_fixedIterCb->setChecked(false);
-        m_fixedIterEdit->setEnabled(false);
         m_fixedIterEdit->setText("500");
     }
     m_holdItersSpin->setValue(static_cast<int>(s.convergenceHoldIterations));

@@ -46,8 +46,20 @@ SSTModel<Dim>::SSTModel(const Mesh<Dim>& mesh, Config config)
       F2_(mesh, 0.0),
       poisson_(mesh),
       convection_(mesh),
-      kDispatcher_(mesh, typename LinearSolverDispatcher<Dim>::Config{}),
-      omegaDispatcher_(mesh, typename LinearSolverDispatcher<Dim>::Config{}) {
+      kDispatcher_(mesh, [&]{
+          typename LinearSolverDispatcher<Dim>::Config c;
+          c.amgCycles = config_.turbulenceAmgCycles;
+          c.amgMaxResidual = config_.turbulenceAmgMaxResidual;
+          c.solveTolerance = config_.turbulenceSolveTolerance;
+          return c;
+      }()),
+      omegaDispatcher_(mesh, [&]{
+          typename LinearSolverDispatcher<Dim>::Config c;
+          c.amgCycles = config_.turbulenceAmgCycles;
+          c.amgMaxResidual = config_.turbulenceAmgMaxResidual;
+          c.solveTolerance = config_.turbulenceSolveTolerance;
+          return c;
+      }()) {
     kDispatcher_.setAmgConfig(config_.turbulenceAmgConfig);
     omegaDispatcher_.setAmgConfig(config_.turbulenceAmgConfig);
     for (auto& g : gradK_) g = Field<Dim>(mesh, 0.0);

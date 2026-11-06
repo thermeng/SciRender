@@ -155,7 +155,6 @@ struct Config {
             c.verbosity = AMGHierarchy::Config::Verbosity::High;
             return c;
         }();
-
         // Momentum linear-solver multigrid configuration, forwarded to the
         // LinearSolverDispatcher. Tests use this to silence AMG output
         // (verbosity = None). The dispatcher's other knobs (useAMG, threshold,
@@ -173,6 +172,16 @@ struct Config {
             return c;
         }();
 
+        // Number of AMG cycles per preconditioner application for momentum.
+        int momentumAmgCycles = 1;
+        // Relative residual above which the momentum AMG result is rejected
+        // and the solve is redone with ILU.
+        double momentumAmgMaxResidual = 1e-8;
+        // Apply the AMG hierarchy directly as the momentum solver instead of
+        // using it as a preconditioner inside a Krylov solver.
+        bool momentumAmgAsSolver = false;
+
+
         // Turbulence (k/omega) linear-solver multigrid configuration, forwarded
         // to SSTModel's LinearSolverDispatcher instances. Defaults use low
         // verbosity so turbulence solver output doesn't drown out the momentum
@@ -189,6 +198,12 @@ struct Config {
             c.acceleration = AMGHierarchy::Config::Acceleration::None;
             return c;
         }();
+
+        // Number of AMG cycles per preconditioner application for turbulence.
+        int turbulenceAmgCycles = 1;
+        // Relative residual above which the turbulence AMG result is rejected
+        // and the solve is redone with ILU.
+        double turbulenceAmgMaxResidual = 1e-8;
 
         // Outer Krylov solve tolerance for momentum (|r|/|b|). -1 means use
         // momentumAmgConfig.tolerance. Mirrors pressureSolveTolerance semantics.
