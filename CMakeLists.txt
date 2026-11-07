@@ -36,23 +36,46 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 find_package(OpenMP REQUIRED)
 
 # ---------------------------------------------------------------------------
-# 1b. Optional Hypre >= 2.17 (MIT/Apache dual, commercial OK) — BoomerAMG
+# 1b. Optional Hypre (MIT/Apache dual, commercial OK) — BoomerAMG
 #
-#     External dependency: when found, FvmCore additionally defines
+#     Vendored at vendor/hypre (master). Built with HYPRE_ENABLE_MPI=OFF by
+#     default (single-rank; enable with -DSCIRENDER_HYPRE_MPI=ON). When the
+#     vendored configure succeeds, FvmCore additionally defines
 #     FVM_HAVE_HYPRE and AMGHierarchy can select the Hypre backend via
 #     Config::useHypre. When not found, everything falls back to amgcl and
-#     the build is unaffected. vendor/ is never modified by this backend.
+#     the build is unaffected. vendor/ sources are never modified.
 # ---------------------------------------------------------------------------
+option(SCIRENDER_HYPRE_MPI "Build vendored Hypre with MPI support (default OFF)" OFF)
 set(SCIRENDER_HAVE_HYPRE OFF)
 set(SCIRENDER_HYPRE_INCLUDE_DIRS "")
 set(SCIRENDER_HYPRE_LIBRARIES "")
-find_package(HYPRE QUIET)
-if(HYPRE_FOUND OR TARGET HYPRE::HYPRE OR TARGET HYPRE::hypre OR TARGET hypre)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vendor/hypre/src/CMakeLists.txt)
+    set(HYPRE_ENABLE_MPI ${SCIRENDER_HYPRE_MPI} CACHE BOOL "" FORCE)
+    set(HYPRE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(HYPRE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(_hypre_saved_install_prefix "${CMAKE_INSTALL_PREFIX}")
+    add_subdirectory(vendor/hypre/src EXCLUDE_FROM_ALL)
+    set(CMAKE_INSTALL_PREFIX "${_hypre_saved_install_prefix}" CACHE PATH "" FORCE)
+    unset(_hypre_saved_install_prefix)
     set(SCIRENDER_HAVE_HYPRE ON)
-elseif(HYPRE_INCLUDE_DIRS OR HYPRE_LIBRARIES)
-    set(SCIRENDER_HAVE_HYPRE ON)
-    set(SCIRENDER_HYPRE_INCLUDE_DIRS ${HYPRE_INCLUDE_DIRS})
-    set(SCIRENDER_HYPRE_LIBRARIES ${HYPRE_LIBRARIES})
+    if(TARGET hypre)
+        list(APPEND SCIRENDER_HYPRE_LIBRARIES hypre)
+    endif()
+    # Vendored master exposes the target as HYPRE (add_library(${PROJECT_NAME})).
+    if(TARGET HYPRE)
+        list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE)
+    endif()
+endif()
+if(NOT SCIRENDER_HAVE_HYPRE)
+    find_package(HYPRE QUIET)
+    if(HYPRE_FOUND OR TARGET HYPRE::HYPRE OR TARGET HYPRE::hypre OR TARGET hypre)
+        set(SCIRENDER_HAVE_HYPRE ON)
+    elseif(HYPRE_INCLUDE_DIRS OR HYPRE_LIBRARIES)
+        set(SCIRENDER_HAVE_HYPRE ON)
+        set(SCIRENDER_HYPRE_INCLUDE_DIRS ${HYPRE_INCLUDE_DIRS})
+        set(SCIRENDER_HYPRE_LIBRARIES ${HYPRE_LIBRARIES})
+    endif()
 endif()
 if(NOT SCIRENDER_HAVE_HYPRE)
     find_package(hypre QUIET)
@@ -72,17 +95,18 @@ if(SCIRENDER_HAVE_HYPRE)
     elseif(TARGET hypre::hypre)
         list(APPEND SCIRENDER_HYPRE_LIBRARIES hypre::hypre)
     endif()
-    # Hypre is an MPI library.
-    find_package(MPI QUIET)
-    if(NOT MPI_CXX_FOUND AND NOT MPI_C_FOUND)
-        message(WARNING "Hypre found but MPI was not; disabling Hypre backend (amgcl fallback).")
-        set(SCIRENDER_HAVE_HYPRE OFF)
+    # Vendored master target (no namespace): link it to FvmCore.
+    if(TARGET hypre AND NOT HYPRE IN_LIST SCIRENDER_HYPRE_LIBRARIES)
+        list(APPEND SCIRENDER_HYPRE_LIBRARIES hypre)
+    endif()
+    if(TARGET HYPRE AND NOT HYPRE IN_LIST SCIRENDER_HYPRE_LIBRARIES)
+        list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE)
     endif()
 endif()
 if(SCIRENDER_HAVE_HYPRE)
-    message(STATUS "SciRender: Hypre BoomerAMG backend ENABLED (Config::useHypre selects it)")
+    message(STATUS "SciRender: Hypre BoomerAMG backend ENABLED (vendored, Config::useHypre selects it)")
 else()
-    message(STATUS "SciRender: Hypre not found - amgcl remains the AMG backend")
+    message(STATUS "SciRender: Hypre not vendored - amgcl remains the AMG backend")
 endif()
 
 if(SCIRENDER_BUILD_APP)
@@ -209,8 +233,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         target_compile_definitions(FvmCore PUBLIC FVM_HAVE_HYPRE=1)
         target_include_directories(FvmCore SYSTEM PUBLIC ${SCIRENDER_HYPRE_INCLUDE_DIRS})
         target_link_libraries(FvmCore PUBLIC
-            ${SCIRENDER_HYPRE_LIBRARIES}
-            MPI::MPI_C MPI::MPI_CXX)
+            ${SCIRENDER_HYPRE_LIBRARIES})
     endif()
     # NOTE: no -ffast-math / /fp:fast here.
     #
