@@ -31,6 +31,13 @@ public:
 
     void cancelAndJoin();
     void shutdown();
+    // Non-blocking cancel: the worker discards its result when it finishes.
+    // Never joins here, so the GUI thread cannot stall on a long integration.
+    void requestCancel() {
+        m_cancelFlag = true;
+        std::lock_guard<std::mutex> lock(m_resultMutex);
+        m_pendingResult.reset();
+    }
 
     void requestRecompute() { m_streamlineRequestTime = std::chrono::steady_clock::now(); }
 

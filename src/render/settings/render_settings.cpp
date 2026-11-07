@@ -1898,7 +1898,16 @@ void RenderSettings::setStreamlineMagRangeHi(float v) {
     markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 void RenderSettings::resetStreamlineDefaults() {
-    m_state.streamlineVectorField = "";
+    // Quiesce first: particles index into the live paths, so they must be
+    // dropped before the recompute below replaces them (crash when Reset
+    // is pressed mid-animation).
+    m_renderer.quiesceStreamlineParticles();
+    // Restore a valid field instead of "" (which resolves to no data and
+    // silently empties the streamline + particle view).
+    const QStringList available = getAvailableVectors();
+    m_state.streamlineVectorField = available.isEmpty()
+        ? m_state.vectorField
+        : available.first().toStdString();
     m_state.streamlineStepSize = 0.005f;
     m_state.streamlineMaxSteps = 100;
     m_state.streamlineMaxPathLength = 5.0f;
@@ -1918,6 +1927,7 @@ void RenderSettings::resetStreamlineDefaults() {
     m_state.streamlineOpacity = 1.0f;
     m_state.streamlineShadingMode = 1;
     m_renderer.markStreamlineDirty();
+    m_renderer.markParticleCountDirty(); // re-init particles on the new paths
     markStateDirty();
     emit viewChanged(ChangeFlag::Display);
 }
