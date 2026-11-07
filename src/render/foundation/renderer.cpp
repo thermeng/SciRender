@@ -492,6 +492,10 @@ void Renderer::reinitMeshData() {
         m_dataMesh ? m_dataMesh : m_lastUploadedMesh;
     if (dataMesh) {
         if (m_lastUploadedMesh) meshManager.upload(m_lastUploadedMesh);
+        // Backstop: a mesh reload can arrive mid-animation from any path
+        // (not just the gated UI). Detach particles before rebuild()
+        // replaces the paths they index into.
+        quiesceStreamlineParticles();
         vectorGlyph.rebuild(*dataMesh, m_state.vectorStride,
                             m_state.vectorField, m_state.vectorMagTransform,
                             m_state.vectorPlacement, m_state.computed.get());

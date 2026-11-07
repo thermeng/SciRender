@@ -567,15 +567,18 @@ public:
     int streamlineLastPathCount() const { return m_state.streamlineLastPathCount; }
     int streamlineLastTruncatedCount() const { return m_state.streamlineLastTruncatedCount; }
     void markParticleCountDirty() { m_streamlines.particleCountDirty = true; }
-    void releaseParticleResources() { particlePass.release(); streamlineSet.clearParticles(); }
+    // CPU-only particle teardown. ParticlePass GL buffers are created and
+    // released exclusively on the render thread (draw/shutdown) where a GL
+    // context is current; deleting them from a settings setter or UI
+    // handler (no context) is undefined behaviour.
+    void releaseParticleResources() { streamlineSet.clearParticles(); }
     // Quiesce particles before anything replaces `paths` (reset, mesh
     // reload): request worker cancellation without joining (the worker
-    // never touches `paths`), drop live particles, and release their GL
-    // buffers. Safe to call on the GUI thread mid-animation.
+    // never touches `paths`) and drop live particles. CPU-only, safe to
+    // call on the GUI thread mid-animation.
     void quiesceStreamlineParticles() {
         m_streamlines.requestCancel();
         streamlineSet.clearParticles();
-        particlePass.release();
     }
     void resizeViewport(int width, int height);
 

@@ -8,6 +8,7 @@
 #include "core/mesh_loader.h"
 #include "doctest/doctest.h"
 #include "support/test_support.h"
+#include <cstdio>
 #include <atomic>
 #include <cmath>
 #include <limits>
@@ -166,6 +167,81 @@ TEST_CASE("render.streamline_v2.particles_survive_paths_cleared") {
     set.updateParticles(0.016f, 1.0f);
     set.buildParticleVertices(verts);
     CHECK(verts.empty());
+}
+
+TEST_CASE("render.streamline_v2.comp_coloring_varies") {
+    // Colour-by-component end-to-end (CPU mirror of streamline.vert):
+    // per-vertex comp attributes + published ranges must normalise to a
+    // varying scalar, not a constant. Wind_Flow Y varies with z.
+    const RenderMesh& mesh = referenceMeshForV2();
+    StreamlineSet set;
+    auto res = set.compute(mesh, 27, 0.05f, 200, "Wind_Flow", "Volume", "Both", 0.5, 0.0, 10, 10,
+                           false, 0.15f, 0.02f, 0.01f, 0.3f);
+    REQUIRE(!res.verts.empty());
+    CHECK(res.compMax[1] > res.compMin[1]); // Y range is non-degenerate
+    float mn = 1.0f, mx = 0.0f;
+    for (size_t i = 0; i + 9 < res.verts.size(); i += 10) {
+        float span = std::max(res.compMax[1] - res.compMin[1], 1e-6f);
+        float s = std::clamp((res.verts[i+5] - res.compMin[1]) / span, 0.0f, 1.0f);
+        mn = std::min(mn, s); mx = std::max(mx, s);
+    }
+    CHECK(mx - mn > 0.5f); // Y-component scalar actually varies
+}
+
+TEST_CASE("render.streamline_v2.trilinear_sampler_values") {
+    // Ported from the legacy trilinear test: same fixture, new sampler.
+    const RenderMesh& mesh = referenceMeshForV2();
+    size_t wfCount = 0;
+    const glm::vec3* wfData = mesh.vectorFieldData("Wind_Flow", wfCount);
+    REQUIRE(wfData != nullptr);
+    std::vector<glm::vec3> pos;
+    for (size_t i = 0; i + 2 < mesh.vertices.size(); i += 3)
+        pos.emplace_back(mesh.vertices[i], mesh.vertices[i+1], mesh.vertices[i+2]);
+    pos.resize(wfCount);
+    std::vector<glm::vec3> val(wfData, wfData + wfCount);
+    auto d = FieldDomain::build(pos, val, StructuredDims{mesh.gridDimX, mesh.gridDimY, mesh.gridDimZ});
+    REQUIRE(d.has_value());
+    TrilinearSampler sampler(*d);
+    glm::vec3 v0 = sampler.sample({1.5f, 2.5f, 0.0f});
+    CHECK(std::abs(v0.x - 1.0f) < 1e-4f);
+    CHECK(std::abs(v0.y) < 1e-4f);
+    glm::vec3 v2 = sampler.sample({1.5f, 2.5f, 2.0f});
+    CHECK(std::abs(v2.y - 0.8f) < 1e-3f);
+    CHECK(sampler.sample({-100.0f, 0, 0}) == glm::vec3(0.0f)); // outside -> zero
+}
+
+TEST_CASE("render.streamline_v2.nearest_sampler_values") {
+    const RenderMesh& mesh = referenceMeshForV2();
+    size_t wfCount = 0;
+    const glm::vec3* wfData = mesh.vectorFieldData("Wind_Flow", wfCount);
+    REQUIRE(wfData != nullptr);
+    std::vector<glm::vec3> pos;
+    for (size_t i = 0; i + 2 < mesh.vertices.size(); i += 3)
+        pos.emplace_back(mesh.vertices[i], mesh.vertices[i+1], mesh.vertices[i+2]);
+    pos.resize(wfCount);
+    std::vector<glm::vec3> val(wfData, wfData + wfCount);
+    auto d = FieldDomain::build(pos, val, std::nullopt); // unstructured -> nearest
+    REQUIRE(d.has_value());
+    NearestSampler sampler(*d);
+    glm::vec3 v = sampler.sample({0.5f, 0.5f, 0.5f});
+    CHECK(std::abs(v.x - 1.0f) < 1e-4f);
+    CHECK(std::abs(v.y) < 1e-4f);
+}
+
+TEST_CASE("render.streamline_v2.geometry_arrows_present") {
+    auto pos = gridPositions(5,5,5);
+    auto val = uniformField(pos.size(), {1,0,0});
+    auto d = FieldDomain::build(pos, val, StructuredDims{5,5,5});
+    REQUIRE(d.has_value());
+    IntegrationParameters p; p.stepSize = 0.25f; p.maxSteps = 50; p.seedCount = 4;
+    std::atomic<bool> cancel{false};
+    auto data = integrateAll(*d, p, cancel);
+    REQUIRE(!data.paths.empty());
+    GeometryConfig cfg; cfg.style = 1; cfg.baseWidth = 0.01f; cfg.extent = 4.0f;
+    cfg.showArrows = true; cfg.arrowSize = 0.05f; cfg.arrowSpacingFrac = 0.15f;
+    auto geom = buildGeometry(data, cfg);
+    CHECK(geom.arrowCount > 0);
+    CHECK(geom.arrowVerts.size() == (size_t)geom.arrowCount * 10);
 }
 
 TEST_CASE("render.streamline_v2.parallel_transport_continuity") {
