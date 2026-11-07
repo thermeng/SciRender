@@ -159,7 +159,7 @@ void AMGHierarchy::build(const SparseMatrix& A) {
                            : config_.cycleType == Config::CycleType::FCycle ? "F"
                            : config_.cycleType == Config::CycleType::Flexible ? "Flexible"
                                                                                   : "V") +
-                          "-cycle, strength 0.25, maxLevels " +
+                          "-cycle, strength " + std::to_string(config_.strengthThreshold > 0.0 ? config_.strengthThreshold : 0.25) + ", maxLevels " +
                           std::to_string(config_.maxLevels > 0 ? config_.maxLevels : 50) +
                           ", coarse direct <= " +
                           std::to_string(config_.coarseEnough > 0 ? config_.coarseEnough : 2) +
@@ -169,15 +169,21 @@ void AMGHierarchy::build(const SparseMatrix& A) {
                 built_ = true;
                 return;
             }
+            std::cerr << "  AMG: Hypre build failed; falling back to amgcl.\n";
         } catch (...) {
+            std::cerr << "  AMG: Hypre build threw; falling back to amgcl.\n";
             hypreHandle_.reset();
             hypreScale_.clear();
             useHypreActive_ = false;
         }
     }
 #else
-    // Hypre not linked in: useHypre=true falls back to amgcl.
-    (void)0;
+    // Hypre not linked in: useHypre=true falls back to amgcl. Log it so
+    // the fallback is never silent.
+    if (config_.useHypre) {
+        std::cerr << "  AMG: useHypre=true but Hypre is not linked in "
+                     "(FVM_HAVE_HYPRE unset); falling back to amgcl.\n";
+    }
 #endif
 
     Eigen::SparseMatrix<double, Eigen::RowMajor> AR = A;

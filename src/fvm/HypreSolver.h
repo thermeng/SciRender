@@ -119,6 +119,7 @@ public:
 
 #include <cmath>
 #include <cstdlib>
+#include <iostream>
 #include <mutex>
 
 namespace fvm {
@@ -131,9 +132,23 @@ inline MPI_Comm hypreComm() { return MPI_COMM_WORLD; }
 
 // HYPRE_Initialize() is idempotent in Hypre; call it exactly once so that
 // every buildSolver() is safe without the caller remembering to init.
+// Serial (HYPRE_SEQUENTIAL) builds need no MPI_Init. MPI builds still
+// require the application to have called MPI_Init before any Hypre call
+// (a library must not initialise MPI itself); we log a clear diagnostic
+// instead of crashing inside Hypre if that was forgotten.
 inline void ensureHypreInitialized() {
     static std::once_flag flag;
-    std::call_once(flag, []() { HYPRE_Initialize(); });
+    std::call_once(flag, []() {
+#if defined(HYPRE_HAVE_MPI) && !defined(HYPRE_SEQUENTIAL)
+        int initialized = 0;
+        MPI_Initialized(&initialized);
+        if (!initialized) {
+            std::cerr << "  Hypre: MPI not initialised by application; "
+                         "call MPI_Init before using the Hypre AMG backend.\n";
+        }
+#endif
+        HYPRE_Initialize();
+    });
 }
 
 } // namespace hypre_detail
@@ -319,8 +334,13 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
             // HYPRE exposes per-step coarse-grid correction scaling
             // (prolongation). Beta (restriction) has no direct Hypre knob; it is
             // kept in the config and honoured by the own FAMGHierarchy flexible
-            // walk, so here it is recorded but not passed to Hypre.
-            (void)cfg.flexBeta;
+            // walk, so here it is recorded but not passed to Hypre. Log it so
+            // a non-default beta is never silently dropped.
+            if (cfg.flexBeta != 1.0) {
+                std::cerr << "  Hypre: flexBeta=" << cfg.flexBeta
+                          << " has no BoomerAMG knob and is ignored "
+                             "(alpha=" << cfg.flexAlpha << " is honoured).\n";
+            }
             HYPRE_BoomerAMGSetFlexibleCGCScalingFactors(amg, cgc);
             const HYPRE_Int sweeps =
                 cfg.flexMaxSweeps > 0 ? static_cast<HYPRE_Int>(cfg.flexMaxSweeps) : 1;
@@ -328,14 +348,28 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
         }
     }
 
-    // Gauss-Seidel smoother: hybrid GS forward on the down cycle, backward
-    // on the up cycle, Gaussian elimination on the coarsest level.
-    HYPRE_BoomerAMGSetRelaxType(amg, 3);
+    // Smoother: map Config::Smoother where Hypre has an equivalent relax
+    // type (Jacobi = 0, hybrid Gauss-Seidel = 3). ILU0/SPAI0 have no
+    // BoomerAMG relax type, so they fall back to Gauss-Seidel; log that
+    // instead of silently ignoring the selection.
+    {
+        const HYPRE_Int relaxType =
+            (cfg.smoother == AMGHierarchy::Config::Smoother::Jacobi) ? 0 : 3;
+        if (cfg.smoother == AMGHierarchy::Config::Smoother::ILU0 ||
+            cfg.smoother == AMGHierarchy::Config::Smoother::SPAI0) {
+            std::cerr << "  Hypre: smoother ILU0/SPAI0 has no BoomerAMG "
+                         "equivalent; using Gauss-Seidel.\n";
+        }
+        HYPRE_BoomerAMGSetRelaxType(amg, relaxType);
+    }
     HYPRE_BoomerAMGSetCycleRelaxType(amg, 4, 2);
     HYPRE_BoomerAMGSetCycleRelaxType(amg, 9, 3);
 
-    // Strength 0.25 (2D Laplace optimum; also Hypre's own default).
-    HYPRE_BoomerAMGSetStrongThreshold(amg, 0.25);
+    // Strength: honour Config::strengthThreshold (falling back to Hypre's
+    // 2D-Laplace default 0.25 when unset/non-positive).
+    const double strength =
+        (cfg.strengthThreshold > 0.0) ? cfg.strengthThreshold : 0.25;
+    HYPRE_BoomerAMGSetStrongThreshold(amg, strength);
     // Max levels 50.
     HYPRE_BoomerAMGSetMaxLevels(amg,
         cfg.maxLevels > 0 ? static_cast<HYPRE_Int>(cfg.maxLevels) : 50);

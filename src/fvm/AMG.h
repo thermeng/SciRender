@@ -119,7 +119,11 @@ public:
 
     bool isBuilt() const { return built_; }
     void invalidate() { built_ = false; amgHandle_.reset(); famgHandle_.reset(); hypreHandle_.reset(); hypreScale_.clear(); useHypreActive_ = false; levels_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; }
-    void setConfig(Config config) { config_ = config; }
+    // Changing config invalidates any built hierarchy (amgcl, FAMG and
+    // Hypre handles); callers must rebuild before solving. Without this a
+    // stale handle built for the old cycle/smoother/backend would keep
+    // serving solve()/applyCycle() after setConfig().
+    void setConfig(Config config) { config_ = config; invalidate(); }
     const Config& config() const { return config_; }
     void updateFineValues(const SparseMatrix& A);
 
