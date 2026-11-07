@@ -136,26 +136,49 @@ void PressureCorrection<Dim>::solve(
     if (!hasDirichletPressure) {
         std::size_t refCell = config_.pressureRefCell;
         if (refCell >= n) {
-            // STAR-CCM+ style: pin the cell nearest the min X/Y/Z corner,
-            // which sits near the boundary surface.
-            std::array<double, Dim> minCorner{};
-            for (std::size_t d = 0; d < Dim; ++d) minCorner[d] = std::numeric_limits<double>::max();
+            // Auto: pick a boundary-adjacent cell near the domain corner.
+            // Sequential filter: smallest X, then smallest Y among X-min cells,
+            // then smallest Z among Y-min cells.
+            double bestX = std::numeric_limits<double>::max();
             for (std::size_t i = 0; i < n; ++i) {
+                if (!mesh_.isBoundary(i)) continue;
+                const double x = mesh_.cellCenter(i)[0];
+                if (x < bestX) bestX = x;
+            }
+
+            double bestY = std::numeric_limits<double>::max();
+            for (std::size_t i = 0; i < n; ++i) {
+                if (!mesh_.isBoundary(i)) continue;
                 const auto& c = mesh_.cellCenter(i);
-                for (std::size_t d = 0; d < Dim; ++d) {
-                    if (c[d] < minCorner[d]) minCorner[d] = c[d];
+                if (c[0] > bestX) continue;
+                if (c[1] < bestY) bestY = c[1];
+            }
+
+            std::size_t bestCell = n;
+            if constexpr (Dim >= 3) {
+                double bestZ = std::numeric_limits<double>::max();
+                for (std::size_t i = 0; i < n; ++i) {
+                    if (!mesh_.isBoundary(i)) continue;
+                    const auto& c = mesh_.cellCenter(i);
+                    if (c[0] > bestX) continue;
+                    if (c[1] > bestY) continue;
+                    if (c[2] < bestZ) {
+                        bestZ = c[2];
+                        bestCell = i;
+                    }
+                }
+            } else {
+                for (std::size_t i = 0; i < n; ++i) {
+                    if (!mesh_.isBoundary(i)) continue;
+                    const auto& c = mesh_.cellCenter(i);
+                    if (c[0] > bestX) continue;
+                    if (c[1] > bestY) continue;
+                    bestCell = i;
+                    break;
                 }
             }
-            double best = std::numeric_limits<double>::max();
-            for (std::size_t i = 0; i < n; ++i) {
-                const auto& c = mesh_.cellCenter(i);
-                double d2 = 0.0;
-                for (std::size_t d = 0; d < Dim; ++d) {
-                    const double dd = c[d] - minCorner[d];
-                    d2 += dd * dd;
-                }
-                if (d2 < best) { best = d2; refCell = i; }
-            }
+
+            refCell = bestCell;
         }
         if (refCell < n && !pMask_[refCell]) { pMask_[refCell] = true; pVals_[refCell] = 0.0; }
     }
@@ -183,11 +206,8 @@ void PressureCorrection<Dim>::solve(
     }
 
     std::vector<double> divU(n, 0.0);
-    #pragma omp parallel
-    {
-        std::vector<double> local(n, 0.0);
-        #pragma omp for schedule(static)
-        for (std::size_t f = 0; f < nF; ++f) {
+    #pragma omp parallel for schedule(dynamic)
+    for (std::size_t f = 0; f < nF; ++f) {
         const std::size_t P = ownerPtr[f];
         const std::size_t N = neighborPtr[f];
         const double* fn = mesh_.faceNormalPtr(f);
@@ -242,13 +262,12 @@ void PressureCorrection<Dim>::solve(
         }
 
         double flux = un * area;
-        local[P] += flux;
+        #pragma omp atomic update
+        divU[P] += flux;
         if (N != std::size_t(-1)) {
-            local[N] -= flux;
+            #pragma omp atomic update
+            divU[N] -= flux;
         }
-    }
-    #pragma omp critical
-    for (std::size_t i = 0; i < n; ++i) divU[i] += local[i];
     }
     for (std::size_t i = 0; i < n; ++i) divU_[i] = divU[i];
 

@@ -66,7 +66,7 @@ struct InletTurbulence {
 struct Config {
     SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
         std::size_t maxIterations = 100;
-        double tolerance = 1e-3;
+        double tolerance = 1e-4;
         // Per-equation residual tolerances (std::nullopt = inherit from `tolerance`).
         std::optional<double> contTol;
         std::optional<double> momUTol;
@@ -168,7 +168,7 @@ struct Config {
         int momentumAmgCycles = 1;
         // Relative residual above which the momentum AMG result is rejected
         // and the solve is redone with ILU.
-        double momentumAmgMaxResidual = 1e-8;
+        double momentumAmgMaxResidual = 0.1;
         // Apply the AMG hierarchy directly as the momentum solver instead of
         // using it as a preconditioner inside a Krylov solver.
         bool momentumAmgAsSolver = false;
