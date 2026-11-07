@@ -134,7 +134,7 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
             this, [this]() {
                 for (auto& row : m_rows) {
                     row.enabled->setChecked(true);
-                    row.tolEdit->setText(fmtTol(1e-3));
+                    row.tolEdit->setText(fmtTol(1e-4));
                     row.tolEdit->setEnabled(true);
                 }
                 m_fixedIterCb->setChecked(false);
@@ -156,7 +156,7 @@ void StoppingCriteriaDialog::buildRow(int idx, const QString& name,
     row.enabled->setChecked(true);
     row.enabled->setToolTip(tip);
 
-    row.tolEdit = new QLineEdit(fmtTol(1e-3));
+    row.tolEdit = new QLineEdit(fmtTol(1e-4)); 
     row.tolEdit->setValidator(new PositiveDoubleValidator(row.tolEdit));
     row.tolEdit->setFixedWidth(100);
     row.tolEdit->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -265,7 +265,7 @@ void StoppingCriteriaDialog::setFrom(const cfd::CaseSettings& s) {
         if (tols[i]) {
             m_rows[i].tolEdit->setText(fmtTol(*tols[i]));
         } else {
-            m_rows[i].tolEdit->setText(fmtTol(1e-3));
+            m_rows[i].tolEdit->setText(fmtTol(cfd::kDefaultResidualTolerance));
         }
     }
 

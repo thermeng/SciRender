@@ -136,9 +136,14 @@ struct TransientSettings {
     std::string pvdFile;
 };
 
+// Default residual tolerance for stopping criteria.
+// Used by CaseSettings::tolerance and by the StoppingCriteriaDialog UI
+// when no per-equation override is set.
+constexpr double kDefaultResidualTolerance = 1e-4;
+
 struct CaseSettings {
     double rho = 1.0, nu = 0.01;
-    double tolerance = 1e-3;
+    double tolerance = kDefaultResidualTolerance;
     std::size_t maxIterations = 500;
     // Per-equation residual tolerances (std::nullopt = inherit from `tolerance`).
     // When set, an equation is gated by its own tolerance; when nullopt it falls
@@ -185,7 +190,7 @@ struct CaseSettings {
     double alphaK = 0.7, alphaOmega = 0.7;
 
     // Advanced SIMPLE settings
-    std::size_t pressureRefCell = 0; // 0 = auto (last cell)
+    std::size_t pressureRefCell = 0; // 0 = auto: boundary-adjacent cell near domain corner
     int pressureCorrectors = 1;
     bool limitPressureCorrection = false;
     double pressureCorrectionLimit = 5.0;
