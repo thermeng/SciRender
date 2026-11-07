@@ -100,7 +100,12 @@ void StreamlinesPage::buildContent() {
     auto* resetBtn = new QPushButton("Reset to Defaults");
     connect(resetBtn, &QPushButton::clicked, s, [this, s]() {
         s->resetStreamlineDefaults();
+        // Delete the old tree: QScrollArea::setWidget() does not delete it,
+        // and its viewChanged/mesh connections would otherwise accumulate.
+        QWidget* old = nullptr;
+        if (auto* scroll = findChild<QScrollArea*>()) old = scroll->widget();
         buildContent();
+        if (old && old != findChild<QScrollArea*>()->widget()) old->deleteLater();
     });
     flowLay->addWidget(resetBtn);
 

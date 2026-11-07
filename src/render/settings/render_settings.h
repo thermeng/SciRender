@@ -13,6 +13,8 @@
 
 #include <memory>
 #include <atomic>
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <vector>
 
@@ -685,13 +687,13 @@ public:
     bool getShowStreamlines() const { return m_state.showStreamlines; }
     void setShowStreamlines(bool v) { if (m_state.showStreamlines != v) { m_state.showStreamlines = v; if (v) { m_renderer.markStreamlineDirty(); m_renderer.markParticleCountDirty(); } else { m_renderer.releaseParticleResources(); } markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getStreamlineSeedCount() const { return m_state.streamlineSeedCount; }
-    void setStreamlineSeedCount(int v) { if (m_state.streamlineSeedCount != v) { m_state.streamlineSeedCount = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineSeedCount(int v) { v = std::clamp(v, 0, 50000); if (m_state.streamlineSeedCount != v) { m_state.streamlineSeedCount = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineStepSize() const { return m_state.streamlineStepSize; }
-    void setStreamlineStepSize(double v) { if (m_state.streamlineStepSize != v) { m_state.streamlineStepSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineStepSize(double v) { if (!std::isfinite(v) || v <= 0.0) return; if (m_state.streamlineStepSize != v) { m_state.streamlineStepSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getStreamlineMaxSteps() const { return m_state.streamlineMaxSteps; }
-    void setStreamlineMaxSteps(int v) { if (m_state.streamlineMaxSteps != v) { m_state.streamlineMaxSteps = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineMaxSteps(int v) { v = std::clamp(v, 1, 5000); if (m_state.streamlineMaxSteps != v) { m_state.streamlineMaxSteps = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineMaxPathLength() const { return m_state.streamlineMaxPathLength; }
-    void setStreamlineMaxPathLength(double v) { if (m_state.streamlineMaxPathLength != static_cast<float>(v)) { m_state.streamlineMaxPathLength = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineMaxPathLength(double v) { if (!std::isfinite(v) || v < 0.0) return; if (m_state.streamlineMaxPathLength != static_cast<float>(v)) { m_state.streamlineMaxPathLength = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getStreamlineUseColormap, setStreamlineUseColormap, bool, m_state.streamlineUseColormap, Display)
     STATE_PROP(getStreamlineColormapChoice, setStreamlineColormapChoice, int, m_state.streamlineColormapChoice, Colormap)
     STATE_PROP(getStreamlineColormapReversed, setStreamlineColormapReversed, bool, m_state.streamlineColormapReversed, Colormap)
@@ -700,13 +702,13 @@ public:
     QString getSeedMode() const { return QString::fromStdString(m_state.seedMode); }
     void setSeedMode(const QString& v) { if (m_state.seedMode != v.toStdString()) { m_state.seedMode = v.toStdString(); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getSeedPlanePos() const { return m_state.seedPlanePos; }
-    void setSeedPlanePos(double v) { if (m_state.seedPlanePos != v) { m_state.seedPlanePos = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setSeedPlanePos(double v) { if (!std::isfinite(v)) return; v = std::clamp(v, 0.0, 1.0); if (m_state.seedPlanePos != v) { m_state.seedPlanePos = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getSeedPlaneCountU() const { return m_state.seedPlaneCountU; }
     void setSeedPlaneCountU(int v) { if (v < 1) v = 1; if (m_state.seedPlaneCountU != v) { m_state.seedPlaneCountU = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getSeedPlaneCountV() const { return m_state.seedPlaneCountV; }
     void setSeedPlaneCountV(int v) { if (v < 1) v = 1; if (m_state.seedPlaneCountV != v) { m_state.seedPlaneCountV = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getSeedJitter() const { return m_state.seedJitter; }
-    void setSeedJitter(double v) { if (m_state.seedJitter != v) { m_state.seedJitter = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setSeedJitter(double v) { if (!std::isfinite(v)) return; v = std::clamp(v, 0.0, 1.0); if (m_state.seedJitter != v) { m_state.seedJitter = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getShowSeeds, setShowSeeds, bool, m_state.showSeeds, Display)
     bool getShowStreamlineArrows() const { return m_state.showStreamlineArrows; }
     void setShowStreamlineArrows(bool v) { if (m_state.showStreamlineArrows != v) { m_state.showStreamlineArrows = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
@@ -718,14 +720,14 @@ public:
         if (m_state.streamlineArrowSpacingFrac != f) { m_state.streamlineArrowSpacingFrac = f; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
     double getStreamlineArrowSize() const { return m_state.streamlineArrowSize; }
-    void setStreamlineArrowSize(double v) { if (m_state.streamlineArrowSize != v) { m_state.streamlineArrowSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineArrowSize(double v) { if (!std::isfinite(v) || v <= 0.0) return; if (m_state.streamlineArrowSize != v) { m_state.streamlineArrowSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP_CAST(getStreamlineOpacity, setStreamlineOpacity, float, m_state.streamlineOpacity, Display)
     double getStreamlineRibbonWidth() const { return m_state.streamlineRibbonWidth; }
-    void setStreamlineRibbonWidth(double v) { if (m_state.streamlineRibbonWidth != v) { m_state.streamlineRibbonWidth = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineRibbonWidth(double v) { if (!std::isfinite(v) || v <= 0.0) return; if (m_state.streamlineRibbonWidth != v) { m_state.streamlineRibbonWidth = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     double getStreamlineTaperFactor() const { return m_state.streamlineTaperFactor; }
-    void setStreamlineTaperFactor(double v) { if (m_state.streamlineTaperFactor != v) { m_state.streamlineTaperFactor = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineTaperFactor(double v) { if (!std::isfinite(v)) return; v = std::clamp(v, 0.0, 1.0); if (m_state.streamlineTaperFactor != v) { m_state.streamlineTaperFactor = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getStreamlineStyle() const { return m_state.streamlineStyle; }
-    void setStreamlineStyle(int v) { if (m_state.streamlineStyle != v) { m_state.streamlineStyle = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
+    void setStreamlineStyle(int v) { v = std::clamp(v, 0, 2); if (m_state.streamlineStyle != v) { m_state.streamlineStyle = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getStreamlineLastSeedCount() const { return m_renderer.streamlineLastSeedCount(); }
     int getStreamlineLastPathCount() const { return m_renderer.streamlineLastPathCount(); }
     int getStreamlineLastTruncatedCount() const { return m_renderer.streamlineLastTruncatedCount(); }

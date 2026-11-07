@@ -68,6 +68,15 @@ public:
          int style = 1;
      };
 
+    // Static entry point: no `this` state, safe to call from a worker
+    // thread while the render thread owns the live StreamlineSet.
+    static StreamlineResult computeStatic(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
+                             const std::string& fieldName, const std::string& mode, const std::string& direction,
+                             double planePos, double jitter, int planeCountU, int planeCountV,
+                             bool showArrows, float arrowSpacingFrac, float arrowSize,
+                             float ribbonWidth, float taperFactor, int style = 1, float maxPathLength = 0.0f,
+                             const postfields::ComputedSnapshot* snap = nullptr);
+
     StreamlineResult compute(const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
                              const std::string& fieldName, const std::string& mode, const std::string& direction,
                              double planePos, double jitter, int planeCountU, int planeCountV,
