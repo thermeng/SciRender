@@ -54,9 +54,16 @@ public:
         enum class Smoother { Jacobi, GaussSeidel, ILU0, SPAI0 };
         // Feedback printed while the hierarchy is built and cycled.
         enum class Verbosity { None, Low, High, Diagnosis };
-        // Multimesh loop strategy. amgcl supports V and W natively; F is
-        // approximated by a V-cycle (documented in the dialog).
-        enum class CycleType { VCycle, WCycle, FCycle };
+        // Multimesh loop strategy. Flexible is residual-driven (α/β).
+        enum class CycleType { VCycle, WCycle, FCycle, Flexible };
+        // Walk encoding (legacy).
+        enum class FlexMove { Terminate = -2, Coarser = -1, Stay = 0, Finer = 1 };
+        // Flexible cycle parameters (STAR-CCM+ defaults):
+        // α = prolongation tolerance (R_i < α·R_0 → go finer), β = restriction
+        // tolerance (R_i > β·R_{i-1} → go coarser). Defaults α=0.5, β=0.9.
+        double flexAlpha = 0.5;
+        double flexBeta = 0.9;
+        int flexMaxSweeps = 1;
         // Outer acceleration wrapped around the AMG hierarchy. None means the
         // hierarchy itself is the solver ( momentum behaviour).
         enum class Acceleration { None, ConjugateGradient, BiCGStab, GMRES };
@@ -89,6 +96,13 @@ public:
         // Cycles performed when the hierarchy is used as a preconditioner
         // (amgcl `pre_cycles`).
         int preCycles = 1;
+        // Flexible cycle struct (Hypre-style). Empty = use cycleType.
+        std::vector<FlexMove> flexStruct;
+        // Use Hypre BoomerAMG as the backend instead of amgcl. Default false:
+        // keeps the amgcl path (and every existing result) untouched until
+        // the user opts in. If Hypre was not found at configure time,
+        // useHypre=true silently falls back to amgcl in build().
+        bool useHypre = false;
     };
     AMGHierarchy() = default;
     explicit AMGHierarchy(Config config) : config_(config) {}
@@ -104,7 +118,7 @@ public:
     bool applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const;
 
     bool isBuilt() const { return built_; }
-    void invalidate() { built_ = false; amgHandle_.reset(); levels_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; }
+    void invalidate() { built_ = false; amgHandle_.reset(); famgHandle_.reset(); hypreHandle_.reset(); hypreScale_.clear(); useHypreActive_ = false; levels_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; }
     void setConfig(Config config) { config_ = config; }
     const Config& config() const { return config_; }
     void updateFineValues(const SparseMatrix& A);
@@ -128,6 +142,11 @@ private:
     Config config_;
     std::vector<AMGLevel> levels_;
     std::shared_ptr<void> amgHandle_;
+    mutable std::shared_ptr<void> famgHandle_; // F/Flexible own hierarchy
+    // Hypre BoomerAMG backend (HypreSolver::HypreSolverImpl + HypreMat).
+    mutable std::shared_ptr<void> hypreHandle_;
+    mutable std::vector<double> hypreScale_;
+    mutable bool useHypreActive_ = false;
     bool built_ = false;
     int n_ = 0;
     SparseMatrix systemMatrix_;

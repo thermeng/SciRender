@@ -79,6 +79,7 @@ scirender_add_test_suite(scirender_core_tests
 scirender_add_test_suite(scirender_fvm_tests
     SOURCES
         fvm/amg_config_test.cpp
+        fvm/hypre_backend_test.cpp
         fvm/face_state_test.cpp
         fvm/failure_semantics_test.cpp
         fvm/transient_settings_test.cpp
