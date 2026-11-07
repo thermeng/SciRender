@@ -1,5 +1,6 @@
 #include "main_window.h"
 #include "ui_main_window.h"
+#include <QTextEdit>
 #include "animation_export_dialog.h"
 #include "ui/widgets/plot_window.h"
 #include "ui/panel_helpers.h"
@@ -53,6 +54,10 @@ using sb::kSidebarWidth;
 
 // Nav list delegate: keeps the label left-aligned and pins the warning badge
 // to the right edge of the (narrower) rail without reflowing on toggle.
+
+#ifdef _WIN32
+#endif
+
 class NavListDelegate : public QStyledItemDelegate {
 public:
     explicit NavListDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
@@ -114,8 +119,7 @@ MainWindow::MainWindow(QWidget* parent)
     auto* histLay = new QVBoxLayout(m_histContainer);
     histLay->setContentsMargins(0, 0, 0, 0);
     histLay->setSpacing(0);
-    m_plotWindow = new PlotWindow(m_settings, m_histContainer);
-    histLay->addWidget(m_plotWindow, 1);
+    // PlotWindow built lazily by ensurePlotWindow() on first dock show.
 
     m_plotDock = new QDockWidget(tr("Plots"), m_centralHost);
     m_plotDock->setObjectName("PlotDock");
@@ -125,9 +129,10 @@ MainWindow::MainWindow(QWidget* parent)
     m_plotDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
     m_centralHost->addDockWidget(Qt::RightDockWidgetArea, m_plotDock); // default: horizontally beside scene
     m_plotDock->hide();
-    connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
-    connect(m_plotWindow, &PlotWindow::requestOpenControls, this, [this](){ setSidebarSection(14); }); // 14 = Plots nav section
-    connect(m_plotDock, &QDockWidget::visibilityChanged, this, [this](bool v){ m_histogramVisible = v; m_settings->setLineProbeWindowOpen(v); });
+    connect(m_plotDock, &QDockWidget::visibilityChanged, this, [this](bool v) {
+        if (v) ensurePlotWindow();
+        m_histogramVisible = v; m_settings->setLineProbeWindowOpen(v);
+    });
 
     // Solver output: docked text panel at bottom of viewport area.
     m_outputSink = new SolverOutputSink(this);
@@ -187,7 +192,6 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Accept drops
     setAcceptDrops(true);
-
     setupMenus();
     setupTopToolbar();
     if (m_topToolbar) {
@@ -238,11 +242,10 @@ void MainWindow::setupMenus() {
     m_clearAction = fileMenu->addAction("&Clear", this, &MainWindow::clearMeshes);
     if (m_clearAction) m_clearAction->setEnabled(m_settings->getHasMeshLoaded());
     fileMenu->addSeparator();
-    if (!m_cfdPage) m_cfdPage = new sidebar::CfdCasePage(m_settings);
-    fileMenu->addAction("Load CFD &Mesh...", m_cfdPage, &sidebar::CfdCasePage::onLoadMesh);
-    fileMenu->addAction("&Export Solution...", m_cfdPage, &sidebar::CfdCasePage::onExport);
-    fileMenu->addAction("&Save Case...", m_cfdPage, &sidebar::CfdCasePage::onSaveCase);
-    fileMenu->addAction("&Load Case...", m_cfdPage, &sidebar::CfdCasePage::onLoadCase);
+    fileMenu->addAction("Load CFD &Mesh...", this, [this]() { ensureCfdPage()->onLoadMesh(); });
+    fileMenu->addAction("&Export Solution...", this, [this]() { ensureCfdPage()->onExport(); });
+    fileMenu->addAction("&Save Case...", this, [this]() { ensureCfdPage()->onSaveCase(); });
+    fileMenu->addAction("&Load Case...", this, [this]() { ensureCfdPage()->onLoadCase(); });
     fileMenu->addSeparator();
     fileMenu->addAction("E&xit", qApp, &QApplication::quit);
 
@@ -477,69 +480,51 @@ void MainWindow::setupSidebar() {
     // than each build*Page() repeating the wrapper it already builds internally.
     m_sectionStack = new QStackedWidget;
     m_sectionBanners.resize(kNavSectionCount);
+    m_sectionFactories.assign(kNavSectionCount, nullptr);
+    m_sectionBuilt.assign(kNavSectionCount, 0);
 
-    addSectionPage(0, new sidebar::MeshInfoPage(m_settings));     // Mesh Info
-    addSectionPage(1, new sidebar::LightingPage(m_settings));     // Lighting
-    addSectionPage(2, new sidebar::ClippingPage(m_settings));     // Clipping
-    addSectionPage(3, new sidebar::ViewDisplayPage(m_settings));  // View & Display
-    addSectionPage(4, new sidebar::ScalarPage(m_settings));       // Scalar
-    addSectionPage(5, new sidebar::ProbePage(m_settings));        // Probe
-    addSectionPage(6, new sidebar::VectorsPage(m_settings));      // Vectors
-    {
-        auto* slPage = new sidebar::StreamlinesPage(m_settings);  // Streamlines
+    // Lazy pages: factories run on first navigation instead of building
+    // all 15 widget trees at launch (~30 MB saved; see ensureSectionPage).
+    registerSectionFactory(0, [this]() -> sidebar::SidebarPage* { return new sidebar::MeshInfoPage(m_settings); });
+    registerSectionFactory(1, [this]() -> sidebar::SidebarPage* { return new sidebar::LightingPage(m_settings); });
+    registerSectionFactory(2, [this]() -> sidebar::SidebarPage* { return new sidebar::ClippingPage(m_settings); });
+    registerSectionFactory(3, [this]() -> sidebar::SidebarPage* { return new sidebar::ViewDisplayPage(m_settings); });
+    registerSectionFactory(4, [this]() -> sidebar::SidebarPage* { return new sidebar::ScalarPage(m_settings); });
+    registerSectionFactory(5, [this]() -> sidebar::SidebarPage* { return new sidebar::ProbePage(m_settings); });
+    registerSectionFactory(6, [this]() -> sidebar::SidebarPage* { return new sidebar::VectorsPage(m_settings); });
+    registerSectionFactory(7, [this]() -> sidebar::SidebarPage* {
+        auto* slPage = new sidebar::StreamlinesPage(m_settings);
         // The page marks the backend dirty itself; MainWindow only wakes the viewport.
         connect(slPage, &sidebar::StreamlinesPage::viewportUpdateRequested,
                 this, [this] { if (m_viewport) m_viewport->update(); });
-        addSectionPage(7, slPage);
-    }
-    addSectionPage(8, new sidebar::VolumePage(m_settings));       // Volume
-    addSectionPage(9, new sidebar::SlicePlanePage(m_settings));   // Slice Plane
-    addSectionPage(10, new sidebar::IsosurfacePage(m_settings));  // Isosurface
-    addSectionPage(11, new sidebar::PostProcPage(m_settings));    // Post Processing
-    {
+        return slPage;
+    });
+    registerSectionFactory(8, [this]() -> sidebar::SidebarPage* { return new sidebar::VolumePage(m_settings); });
+    registerSectionFactory(9, [this]() -> sidebar::SidebarPage* { return new sidebar::SlicePlanePage(m_settings); });
+    registerSectionFactory(10, [this]() -> sidebar::SidebarPage* { return new sidebar::IsosurfacePage(m_settings); });
+    registerSectionFactory(11, [this]() -> sidebar::SidebarPage* { return new sidebar::PostProcPage(m_settings); });
+    registerSectionFactory(12, [this]() -> sidebar::SidebarPage* {
         auto* ssPage = new sidebar::ScreenshotPage(m_settings);
-        // The save dialog, shortcuts and capture plumbing stay on MainWindow.
-        connect(ssPage, &sidebar::ScreenshotPage::saveRequested,
-                this, &MainWindow::saveScreenshot);
-        addSectionPage(12, ssPage);  // Screenshot
-    }
-    {
+        connect(ssPage, &sidebar::ScreenshotPage::saveRequested, this, &MainWindow::saveScreenshot);
+        return ssPage;
+    });
+    registerSectionFactory(13, [this]() -> sidebar::SidebarPage* {
         auto* animPage = new sidebar::AnimationPage(m_settings);
-        // Export dialog/exporter capture plumbing stays on MainWindow.
-        connect(animPage, &sidebar::AnimationPage::exportRequested,
-                this, &MainWindow::exportAnimation);
-        // Section 13 (Animation) is usable only once a .pvd loads, so the nav
-        // badge re-evaluates on stateChanged, exactly like the old builder.
-        connect(m_settings->anim(), &AnimationController::stateChanged,
-                this, &MainWindow::refreshSidebarCapabilityBadges);
-        addSectionPage(13, animPage);
-    }
-    {
-        auto* plotsPage = new sidebar::PlotsPage(m_settings, m_plotWindow, m_histogramVisible);
-        connect(plotsPage, &sidebar::PlotsPage::viewportToggleRequested,
-                this, &MainWindow::setHistogramVisible);
+        connect(animPage, &sidebar::AnimationPage::exportRequested, this, &MainWindow::exportAnimation);
+        return animPage;
+    });
+    // Animation badge re-evaluates on stateChanged regardless of page build state.
+    connect(m_settings->anim(), &AnimationController::stateChanged,
+            this, &MainWindow::refreshSidebarCapabilityBadges);
+    registerSectionFactory(14, [this]() -> sidebar::SidebarPage* {
+        auto* plotsPage = new sidebar::PlotsPage(m_settings, ensurePlotWindow(), m_histogramVisible);
+        connect(plotsPage, &sidebar::PlotsPage::viewportToggleRequested, this, &MainWindow::setHistogramVisible);
         if (m_plotDock)
             connect(m_plotDock, &QDockWidget::visibilityChanged, plotsPage,
                     [plotsPage](bool v) { plotsPage->setViewportVisible(v); });
-        addSectionPage(14, plotsPage);  // Plots
-    }
-    m_cfdPage = m_cfdPage ? m_cfdPage : new sidebar::CfdCasePage(m_settings);
-    addSectionPage(15, m_cfdPage);  // CFD
-    if (m_plotWindow) {
-        connect(m_cfdPage, &sidebar::CfdCasePage::residualSeriesUpdated, m_plotWindow,
-                &PlotWindow::appendResidual);
-        connect(m_cfdPage, &sidebar::CfdCasePage::residualsCleared, m_plotWindow,
-                &PlotWindow::clearResiduals);
-        connect(m_cfdPage, &sidebar::CfdCasePage::monitorHistoryRestored, this, [this]() {
-            if (!m_plotWindow || !m_cfdPage || !m_cfdPage->controller()) return;
-            m_plotWindow->clearResiduals();
-            for (const auto& pt : m_cfdPage->controller()->monitorHistory()) {
-            m_plotWindow->appendResidual(pt.iteration, pt.dim, pt.continuity,
-                                        pt.momU, pt.momV, pt.momW, pt.k, pt.omega,
-                                        pt.maxYPlus, pt.hasTurbulence);
-            }
-        });
-    }
+        return plotsPage;
+    });
+    registerSectionFactory(15, [this]() -> sidebar::SidebarPage* { return ensureCfdPage(); });
 
     rightLayout->addWidget(m_sectionStack, 1);
     m_sectionStack->setVisible(false);
@@ -595,6 +580,7 @@ void MainWindow::setupSidebar() {
 // of the badge feature and every section gets one wrapper by construction.
 
 void MainWindow::addSectionPage(int section, QWidget* page) {
+    // page may be nullptr in lazy mode; ensureSectionPage() adds it later.
     auto* wrapper = new QWidget;
     auto* wrapperLayout = new QVBoxLayout(wrapper);
     wrapperLayout->setContentsMargins(0, 0, 0, 0);
@@ -628,12 +614,90 @@ void MainWindow::addSectionPage(int section, QWidget* page) {
     // Hidden by default; refreshSidebarCapabilityBadges() decides per dataset.
     banner->setVisible(false);
     wrapperLayout->addWidget(banner);
+    if (page) wrapperLayout->addWidget(page, 1);
 
-    wrapperLayout->addWidget(page, 1);
+    // Lazy: page widget is added by ensureSectionPage() on first navigation.
+    // A spacer keeps the wrapper layout valid until then.
+    auto* spacer = new QWidget;
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    wrapperLayout->addWidget(spacer, 1);
 
     m_sectionBanners[section] = banner;
     m_sectionStack->addWidget(wrapper);
 }
+
+void MainWindow::registerSectionFactory(int section, std::function<sidebar::SidebarPage*()> factory) {
+    if (section < 0 || section >= kNavSectionCount) return;
+    if ((int)m_sectionFactories.size() != kNavSectionCount) {
+        m_sectionFactories.assign(kNavSectionCount, nullptr);
+        m_sectionBuilt.assign(kNavSectionCount, 0);
+    }
+    m_sectionFactories[section] = std::move(factory);
+    // Eager placeholder (banner + spacer only); the real page is built on
+    // first navigation via ensureSectionPage().
+    addSectionPage(section, nullptr);
+}
+
+void MainWindow::ensureSectionPage(int section) {
+    if (section < 0 || section >= kNavSectionCount) return;
+    if ((int)m_sectionBuilt.size() != kNavSectionCount || m_sectionBuilt[section]) return;
+    if (!m_sectionFactories[section]) return;
+    m_sectionBuilt[section] = 1; // mark first: factory may re-enter navigation
+    auto* page = m_sectionFactories[section]();
+    if (!page) return;
+    if (section == 15) m_cfdPage = static_cast<sidebar::CfdCasePage*>(page);
+    QWidget* wrapper = m_sectionStack->widget(section);
+    if (auto* lay = qobject_cast<QVBoxLayout*>(wrapper->layout())) {
+        // Replace the placeholder spacer with the real page.
+        if (lay->count() > 1) {
+            if (QWidget* spacer = lay->itemAt(1)->widget()) {
+                lay->removeWidget(spacer);
+                delete spacer;
+            }
+        }
+        lay->addWidget(page, 1);
+    } else {
+        wrapper->setLayout(new QVBoxLayout(wrapper));
+        wrapper->layout()->addWidget(page);
+    }
+}
+
+PlotWindow* MainWindow::ensurePlotWindow() {
+    if (m_plotWindow) return m_plotWindow;
+    m_plotWindow = new PlotWindow(m_settings, m_histContainer);
+    if (auto* lay = qobject_cast<QVBoxLayout*>(m_histContainer->layout()))
+        lay->addWidget(m_plotWindow, 1);
+    connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
+    connect(m_plotWindow, &PlotWindow::requestOpenControls, this, [this](){ setSidebarSection(14); });
+    return m_plotWindow;
+}
+
+sidebar::CfdCasePage* MainWindow::ensureCfdPage() {
+    if (m_cfdPage) return m_cfdPage;
+    ensureSectionPage(15);
+    if (!m_cfdPage) {
+        // Fallback if section 15 factory was not registered (should not happen).
+        m_cfdPage = new sidebar::CfdCasePage(m_settings);
+    }
+    // Wire residual history into the plot window once both exist.
+    if (m_plotWindow) {
+        connect(m_cfdPage, &sidebar::CfdCasePage::residualSeriesUpdated, m_plotWindow,
+                &PlotWindow::appendResidual);
+        connect(m_cfdPage, &sidebar::CfdCasePage::residualsCleared, m_plotWindow,
+                &PlotWindow::clearResiduals);
+        connect(m_cfdPage, &sidebar::CfdCasePage::monitorHistoryRestored, this, [this]() {
+            if (!m_plotWindow || !m_cfdPage || !m_cfdPage->controller()) return;
+            m_plotWindow->clearResiduals();
+            for (const auto& pt : m_cfdPage->controller()->monitorHistory()) {
+                m_plotWindow->appendResidual(pt.iteration, pt.dim, pt.continuity,
+                                             pt.momU, pt.momV, pt.momW, pt.k, pt.omega,
+                                             pt.maxYPlus, pt.hasTurbulence);
+            }
+        });
+    }
+    return m_cfdPage;
+}
+
 
 
 // Is this section's backing data present? Empty reason means supported.
@@ -745,6 +809,7 @@ void MainWindow::setSidebarSection(int section) {
         m_navList->clearSelection();
         m_navList->setCurrentRow(-1);
     } else if (section >= 0) {
+        ensureSectionPage(section);
         m_sidebarExpanded = true;
         m_sectionStack->setCurrentIndex(section);
         m_sectionStack->setVisible(true);
@@ -967,9 +1032,9 @@ void MainWindow::openRecent(const QString& path) {
     m_currentFile = path;
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix == "scfd") {
-        if (m_cfdPage) m_cfdPage->loadCaseFromPath(path);
+        ensureCfdPage()->loadCaseFromPath(path);
     } else if (suffix == "msh") {
-        if (m_cfdPage) m_cfdPage->loadMeshFromPath(path);
+        ensureCfdPage()->loadMeshFromPath(path);
     } else {
         m_settings->openRecent(path);
     }

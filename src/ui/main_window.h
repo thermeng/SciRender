@@ -12,6 +12,8 @@
 #include <QActionGroup>
 #include <QList>
 #include <QVector>
+#include <functional>
+#include <vector>
 
 #include "solver_output_sink.h"
 #include <QTextEdit>
@@ -117,7 +119,15 @@ private:
     void refreshSidebarCapabilityBadges();
     QString sectionUnavailableReason(int section) const;
     void addSectionPage(int section, QWidget* page);
+    // Lazy section construction: factories run on first navigation instead
+    // of building all 15 pages (and their widget trees) at launch.
+    void registerSectionFactory(int section, std::function<sidebar::SidebarPage*()> factory);
+    void ensureSectionPage(int section);
+    sidebar::CfdCasePage* ensureCfdPage();
+    PlotWindow* ensurePlotWindow();
     QVector<QLabel*> m_sectionBanners;                  // indexed by section
+    std::vector<std::function<sidebar::SidebarPage*()>> m_sectionFactories;
+    std::vector<char> m_sectionBuilt;
 
     // Panel header
     QWidget* m_panelHeader = nullptr;
