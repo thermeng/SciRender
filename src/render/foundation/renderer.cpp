@@ -552,7 +552,7 @@ void Renderer::updateScalarsOnGPU(std::shared_ptr<const std::vector<float>> scal
 }
 
 void Renderer::drawGizmo(int deviceW, int deviceH) {
-
+    if (!gizmo.isInitialized() && !gizmo.init()) return; // lazy, idempotent
     GLStateGuard guard;
     glDisable(GL_DEPTH_TEST);
     const float dpr = static_cast<float>(devicePixelRatio);
@@ -850,7 +850,7 @@ int Renderer::colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& b
 }
 
 int Renderer::gizmoAxisAt(int pxDev, int pyDev) const {
-    if (!m_state.showGizmo) return -1;
+    if (!m_state.showGizmo || !m_state.hasMeshLoaded) return -1;
     return Gizmo::hitTestAxis(m_state.camera.getViewMatrix(),
                               static_cast<float>(devicePixelRatio),
                               effectiveDeviceW(), effectiveDeviceH(),
@@ -1362,7 +1362,8 @@ void Renderer::renderFrame() {
     if (m_state.anySlicePlaneEnabled()) updateSliceScalarRange(sliceTextures);
     m_volumeSliceOverlay.draw(m_state, view, proj, colormap, sliceTex, sliceOcc, boxMin, boxMax, m_dataMesh.get());
 
-    if (m_state.showGizmo) drawGizmo(deviceW, deviceH);
+    // Gizmo is a scene-orientation aid: only once a mesh is loaded.
+    if (m_state.showGizmo && m_state.hasMeshLoaded) drawGizmo(deviceW, deviceH);
 
     drawColorbarLegends(deviceW, deviceH);
 

@@ -112,6 +112,7 @@ QImage ViewportWidget::captureFrameImage(int width, int height, int samples, boo
     return img;
 }
 
+
 void ViewportWidget::initializeGL() {
     initializeOpenGLFunctions();
     if (!m_settings) return;
@@ -121,7 +122,8 @@ void ViewportWidget::initializeGL() {
     scene->initGLAD();
     scene->reinitForNewContext();
     loadShaders();
-    scene->initGizmo();
+    // Gizmo programs/atlas initialise lazily on first draw (mesh loaded),
+    // not at startup — no mesh means no gizmo cost.
     scene->reinitMeshData();
     m_initialized = true;
 }
