@@ -568,6 +568,15 @@ public:
     int streamlineLastTruncatedCount() const { return m_state.streamlineLastTruncatedCount; }
     void markParticleCountDirty() { m_streamlines.particleCountDirty = true; }
     void releaseParticleResources() { particlePass.release(); streamlineSet.clearParticles(); }
+    // Quiesce particles before anything replaces `paths` (reset, mesh
+    // reload): request worker cancellation without joining (the worker
+    // never touches `paths`), drop live particles, and release their GL
+    // buffers. Safe to call on the GUI thread mid-animation.
+    void quiesceStreamlineParticles() {
+        m_streamlines.requestCancel();
+        streamlineSet.clearParticles();
+        particlePass.release();
+    }
     void resizeViewport(int width, int height);
 
     void setDevicePixelRatio(float dpr) { devicePixelRatio = dpr; }

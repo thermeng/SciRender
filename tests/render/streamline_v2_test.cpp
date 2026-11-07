@@ -4,7 +4,10 @@
 #include "render/streamlines/domain/Sampling.h"
 #include "render/streamlines/integrate/Integration.h"
 #include "render/streamlines/geometry/GeometryBuilder.h"
+#include "render/streamlines/StreamlineSet.h"
+#include "core/mesh_loader.h"
 #include "doctest/doctest.h"
+#include "support/test_support.h"
 #include <atomic>
 #include <cmath>
 #include <limits>
@@ -20,6 +23,14 @@ std::vector<glm::vec3> gridPositions(int nx, int ny, int nz, float step = 1.0f) 
     return p;
 }
 std::vector<glm::vec3> uniformField(size_t n, glm::vec3 v) { return std::vector<glm::vec3>(n, v); }
+
+const RenderMesh& referenceMeshForV2() {
+    static RenderMesh mesh = [] {
+        test_support::requireSample("STRUCTURED_GRID_block_four_fields_vectors_ascii.vtk");
+        return loadMeshFile(test_support::samplePath("STRUCTURED_GRID_block_four_fields_vectors_ascii.vtk").string());
+    }();
+    return mesh;
+}
 }
 
 TEST_SUITE("render") {
@@ -130,6 +141,31 @@ TEST_CASE("render.streamline_v2.geometry_vertex_count") {
     }
     CHECK(geom.lineCount == (int)(segments * 2));
     CHECK(geom.verts.size() == (size_t)geom.lineCount * 10);
+}
+
+TEST_CASE("render.streamline_v2.particles_survive_paths_cleared") {
+    // Reset-while-animating regression: particles must never dereference a
+    // path that no longer exists, even if paths are replaced/cleared
+    // before particles are re-initialised (the quiesce window).
+    const RenderMesh& mesh = referenceMeshForV2();
+    StreamlineSet set;
+    auto res = set.compute(mesh, 27, 0.05f, 200, "Wind_Flow", "Volume", "Both", 0.5, 0.0, 10, 10,
+                           false, 0.15f, 0.02f, 0.01f, 0.3f);
+    REQUIRE(!res.paths.empty());
+    set.paths = std::move(res.paths);
+    set.initParticles(20);
+    REQUIRE(!set.particles.empty());
+    // Simulate the reset window: paths gone, particles not yet cleared.
+    set.paths.clear();
+    set.updateParticles(0.016f, 1.0f); // must be a safe no-op
+    std::vector<float> verts;
+    set.buildParticleVertices(verts);
+    CHECK(verts.empty());
+    // And the normal quiesce path stays safe too.
+    set.clearParticles();
+    set.updateParticles(0.016f, 1.0f);
+    set.buildParticleVertices(verts);
+    CHECK(verts.empty());
 }
 
 TEST_CASE("render.streamline_v2.parallel_transport_continuity") {

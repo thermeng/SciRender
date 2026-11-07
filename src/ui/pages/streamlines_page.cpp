@@ -21,6 +21,33 @@ namespace sidebar {
 StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     : SidebarPage(settings, parent) {
     buildContent();
+    // Page-level connections live here, once. buildContent() is re-run by
+    // Reset; connecting inside it would stack duplicate handlers on every
+    // reset (each re-clearing the field combo on mesh updates).
+    auto* s = S();
+    // Streamlines integrate node vectors; cell-only vectors cannot seed an
+    // integration (matches the auto-disable in RenderSettings::loadMesh).
+    connect(s, &RenderSettings::meshLoadStateChanged, this, [this, s]() {
+        const bool hasVectors = s->hasMeshVectors();
+        if (m_showCb) {
+            m_showCb->setEnabled(hasVectors);
+            if (!hasVectors) m_showCb->setChecked(false);
+        }
+    });
+    connect(s, &RenderSettings::meshDataUpdated, this, [this, s]() {
+        if (m_streamlineCombo) {
+            m_streamlineCombo->blockSignals(true);
+            m_streamlineCombo->clear();
+            m_streamlineCombo->addItems(s->getAvailableVectors());
+            m_streamlineCombo->setCurrentText(s->getStreamlineVectorField());
+            m_streamlineCombo->blockSignals(false);
+        }
+        if (m_streamlineDirectionCombo) {
+            m_streamlineDirectionCombo->blockSignals(true);
+            m_streamlineDirectionCombo->setCurrentText(s->getStreamlineDirection());
+            m_streamlineDirectionCombo->blockSignals(false);
+        }
+    });
 }
 
 void StreamlinesPage::buildContent() {
@@ -99,13 +126,19 @@ void StreamlinesPage::buildContent() {
 
     auto* resetBtn = new QPushButton("Reset to Defaults");
     connect(resetBtn, &QPushButton::clicked, s, [this, s]() {
-        s->resetStreamlineDefaults();
+        // Quiesce the animation first: particles index into the live paths,
+        // and the reset below replaces them. Toggling showParticles off
+        // also stops MainWindow's particle timer (viewChanged handler).
+        const bool wasAnimating = s->getShowParticles() && s->getShowStreamlines();
+        if (wasAnimating) s->setShowParticles(false);
+        s->resetStreamlineDefaults(); // also quiesces + restores a valid field
         // Delete the old tree: QScrollArea::setWidget() does not delete it,
         // and its viewChanged/mesh connections would otherwise accumulate.
         QWidget* old = nullptr;
         if (auto* scroll = findChild<QScrollArea*>()) old = scroll->widget();
         buildContent();
         if (old && old != findChild<QScrollArea*>()->widget()) old->deleteLater();
+        if (wasAnimating) s->setShowParticles(true); // resume on the new paths
     });
     flowLay->addWidget(resetBtn);
 
@@ -186,15 +219,15 @@ void StreamlinesPage::buildContent() {
                      &RenderSettings::setSeedPointSize);
 
     auto* seedBtn = sb::createSwatchButton("Seed Color", s->getSeedPointColorQml(), nullptr);
-    connect(seedBtn, &QPushButton::clicked, this, [this, seedBtn, s]() {
-        if (!m_seedColorDialog) {
-            m_seedColorDialog = new QColorDialog(s->getSeedPointColorQml(), this);
-            connect(m_seedColorDialog, &QColorDialog::colorSelected, s, &RenderSettings::setSeedPointColorQml);
-            connect(m_seedColorDialog, &QColorDialog::colorSelected, seedBtn, [seedBtn](const QColor& c) {
-                QPixmap pix(14, 14); pix.fill(c); seedBtn->setIcon(pix);
-            });
-        }
-        m_seedColorDialog->open();
+    connect(seedBtn, &QPushButton::clicked, this, [seedBtn, s]() {
+        // Dialog parented to the button: it dies with the content tree on
+        // Reset, so no dangling capture and no stale member pointer.
+        auto* dlg = new QColorDialog(s->getSeedPointColorQml(), seedBtn);
+        connect(dlg, &QColorDialog::colorSelected, s, &RenderSettings::setSeedPointColorQml);
+        connect(dlg, &QColorDialog::colorSelected, seedBtn, [seedBtn](const QColor& c) {
+            QPixmap pix(14, 14); pix.fill(c); seedBtn->setIcon(pix);
+        });
+        dlg->open();
     });
     seedsLay->addWidget(seedBtn);
     seedsLay->addStretch();
@@ -207,15 +240,13 @@ void StreamlinesPage::buildContent() {
     lookLay->setContentsMargins(4, 4, 4, 4);
 
     auto* streamlineBtn = sb::createSwatchButton("Line color", s->getStreamlineColorQml(), nullptr);
-    connect(streamlineBtn, &QPushButton::clicked, this, [this, streamlineBtn, s]() {
-        if (!m_streamlineColorDialog) {
-            m_streamlineColorDialog = new QColorDialog(s->getStreamlineColorQml(), this);
-            connect(m_streamlineColorDialog, &QColorDialog::colorSelected, s, &RenderSettings::setStreamlineColorQml);
-            connect(m_streamlineColorDialog, &QColorDialog::colorSelected, streamlineBtn, [streamlineBtn](const QColor& c) {
-                QPixmap pix(14, 14); pix.fill(c); streamlineBtn->setIcon(pix);
-            });
-        }
-        m_streamlineColorDialog->open();
+    connect(streamlineBtn, &QPushButton::clicked, this, [streamlineBtn, s]() {
+        auto* dlg = new QColorDialog(s->getStreamlineColorQml(), streamlineBtn);
+        connect(dlg, &QColorDialog::colorSelected, s, &RenderSettings::setStreamlineColorQml);
+        connect(dlg, &QColorDialog::colorSelected, streamlineBtn, [streamlineBtn](const QColor& c) {
+            QPixmap pix(14, 14); pix.fill(c); streamlineBtn->setIcon(pix);
+        });
+        dlg->open();
     });
     lookLay->addWidget(streamlineBtn);
 
@@ -299,32 +330,6 @@ void StreamlinesPage::buildContent() {
 
     tabs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     optionsLay->addStretch();
-
-    // Streamlines integrate node vectors; cell-only vectors cannot seed an
-    // integration (matches the auto-disable in RenderSettings::loadMesh).
-    connect(s, &RenderSettings::meshLoadStateChanged, this, [this, s]() {
-        const bool hasVectors = s->hasMeshVectors();
-        if (m_showCb) {
-            m_showCb->setEnabled(hasVectors);
-            if (!hasVectors) m_showCb->setChecked(false);
-        }
-    });
-
-    // Field combos: was a branch of the meshDataUpdated lambda.
-    connect(s, &RenderSettings::meshDataUpdated, this, [this, s]() {
-        if (m_streamlineCombo) {
-            m_streamlineCombo->blockSignals(true);
-            m_streamlineCombo->clear();
-            m_streamlineCombo->addItems(s->getAvailableVectors());
-            m_streamlineCombo->setCurrentText(s->getStreamlineVectorField());
-            m_streamlineCombo->blockSignals(false);
-        }
-        if (m_streamlineDirectionCombo) {
-            m_streamlineDirectionCombo->blockSignals(true);
-            m_streamlineDirectionCombo->setCurrentText(s->getStreamlineDirection());
-            m_streamlineDirectionCombo->blockSignals(false);
-        }
-    });
 
     setContent(content);
 }
