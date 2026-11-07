@@ -35,6 +35,56 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 # ---------------------------------------------------------------------------
 find_package(OpenMP REQUIRED)
 
+# ---------------------------------------------------------------------------
+# 1b. Optional Hypre >= 2.17 (MIT/Apache dual, commercial OK) — BoomerAMG
+#
+#     External dependency: when found, FvmCore additionally defines
+#     FVM_HAVE_HYPRE and AMGHierarchy can select the Hypre backend via
+#     Config::useHypre. When not found, everything falls back to amgcl and
+#     the build is unaffected. vendor/ is never modified by this backend.
+# ---------------------------------------------------------------------------
+set(SCIRENDER_HAVE_HYPRE OFF)
+set(SCIRENDER_HYPRE_INCLUDE_DIRS "")
+set(SCIRENDER_HYPRE_LIBRARIES "")
+find_package(HYPRE QUIET)
+if(HYPRE_FOUND OR TARGET HYPRE::HYPRE OR TARGET HYPRE::hypre OR TARGET hypre)
+    set(SCIRENDER_HAVE_HYPRE ON)
+elseif(HYPRE_INCLUDE_DIRS OR HYPRE_LIBRARIES)
+    set(SCIRENDER_HAVE_HYPRE ON)
+    set(SCIRENDER_HYPRE_INCLUDE_DIRS ${HYPRE_INCLUDE_DIRS})
+    set(SCIRENDER_HYPRE_LIBRARIES ${HYPRE_LIBRARIES})
+endif()
+if(NOT SCIRENDER_HAVE_HYPRE)
+    find_package(hypre QUIET)
+    if(hypre_FOUND OR TARGET hypre::hypre OR TARGET HYPRE::HYPRE)
+        set(SCIRENDER_HAVE_HYPRE ON)
+    elseif(hypre_INCLUDE_DIRS OR hypre_LIBRARIES)
+        set(SCIRENDER_HAVE_HYPRE ON)
+        set(SCIRENDER_HYPRE_INCLUDE_DIRS ${hypre_INCLUDE_DIRS})
+        set(SCIRENDER_HYPRE_LIBRARIES ${hypre_LIBRARIES})
+    endif()
+endif()
+if(SCIRENDER_HAVE_HYPRE)
+    if(TARGET HYPRE::HYPRE)
+        list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE::HYPRE)
+    elseif(TARGET HYPRE::hypre)
+        list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE::hypre)
+    elseif(TARGET hypre::hypre)
+        list(APPEND SCIRENDER_HYPRE_LIBRARIES hypre::hypre)
+    endif()
+    # Hypre is an MPI library.
+    find_package(MPI QUIET)
+    if(NOT MPI_CXX_FOUND AND NOT MPI_C_FOUND)
+        message(WARNING "Hypre found but MPI was not; disabling Hypre backend (amgcl fallback).")
+        set(SCIRENDER_HAVE_HYPRE OFF)
+    endif()
+endif()
+if(SCIRENDER_HAVE_HYPRE)
+    message(STATUS "SciRender: Hypre BoomerAMG backend ENABLED (Config::useHypre selects it)")
+else()
+    message(STATUS "SciRender: Hypre not found - amgcl remains the AMG backend")
+endif()
+
 if(SCIRENDER_BUILD_APP)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
@@ -134,6 +184,8 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/SIMPLEBoundaryConditions.cpp
         src/fvm/PressureCorrection.cpp
         src/fvm/AMG.cpp
+        src/fvm/AMG_F.h
+        src/fvm/HypreSolver.h
         src/io/VTKXMLWriter.cpp
         src/io/ANSYSMeshReader.cpp
         src/io/GmshReader.cpp
@@ -153,6 +205,13 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         FVM_CACHE_LINE_SIZE=64
         AMGCL_NO_BOOST
     )
+    if(SCIRENDER_HAVE_HYPRE)
+        target_compile_definitions(FvmCore PUBLIC FVM_HAVE_HYPRE=1)
+        target_include_directories(FvmCore SYSTEM PUBLIC ${SCIRENDER_HYPRE_INCLUDE_DIRS})
+        target_link_libraries(FvmCore PUBLIC
+            ${SCIRENDER_HYPRE_LIBRARIES}
+            MPI::MPI_C MPI::MPI_CXX)
+    endif()
     # NOTE: no -ffast-math / /fp:fast here.
     #
     # "Fast math" implies -ffinite-math-only (GCC) / /fp:fast (MSVC), i.e. the

@@ -1,4 +1,6 @@
 #include "fvm/AMG.h"
+#include "fvm/AMG_F.h"
+#include "fvm/HypreSolver.h"
 
 #include <amgcl/amg.hpp>
 #include <amgcl/coarsening/ruge_stuben.hpp>
@@ -22,6 +24,14 @@ AMGCL_USE_EIGEN_VECTORS_WITH_BUILTIN_BACKEND()
 namespace fvm {
 
 namespace {
+#ifdef FVM_HAVE_HYPRE
+// Shared Hypre holder: keeps the BoomerAMG solver and its ParCSR matrix
+// alive for the lifetime of the hierarchy.
+struct HypreHolder {
+    std::shared_ptr<HypreSolver::HypreMat> mat;
+    std::shared_ptr<HypreSolver::HypreSolverImpl> solver;
+};
+#endif
 using Backend = amgcl::backend::builtin<double>;
 
 // The coarsening/smoother pairs the configuration exposes.  uses
@@ -65,8 +75,8 @@ std::shared_ptr<AMG> makeAmg(const Eigen::SparseMatrix<double, Eigen::RowMajor>&
     ap.max_levels = static_cast<unsigned>(c.maxLevels > 0 ? c.maxLevels : 30);
     ap.npre = static_cast<unsigned>(c.preSweeps >= 0 ? c.preSweeps : 1);
     ap.npost = static_cast<unsigned>(c.postSweeps >= 0 ? c.postSweeps : 1);
-    // V-cycle = one inner loop, W-cycle = two. F-cycle is approximated
-    // by a V-cycle because amgcl has no adaptive cycle.
+    // V = one inner loop, W = two. F is implemented in applyCycle
+    // as two V-cycles (F = V then V on residual) — no vendor change needed.
     ap.ncycle = (c.cycleType == AMGHierarchy::Config::CycleType::WCycle) ? 2u : 1u;
     ap.pre_cycles = static_cast<unsigned>(c.preCycles > 0 ? c.preCycles : 1);
     ap.direct_coarse = c.directCoarse;
@@ -111,6 +121,10 @@ void AMGHierarchy::build(const SparseMatrix& A) {
     levels_.clear();
     built_ = false;
     amgHandle_.reset();
+    famgHandle_.reset();
+    hypreHandle_.reset();
+    hypreScale_.clear();
+    useHypreActive_ = false;
     n_ = 0;
     nlevels_ = 0;
     levelSizes_.clear();
@@ -122,10 +136,57 @@ void AMGHierarchy::build(const SparseMatrix& A) {
 
     auto buildStart = std::chrono::steady_clock::now();
 
+#ifdef FVM_HAVE_HYPRE
+    // Hypre BoomerAMG backend (opt-in via Config::useHypre). On any Hypre
+    // failure we fall through to the amgcl path below, never failing build.
+    if (config_.useHypre) {
+        try {
+            auto impl = std::make_shared<HypreSolver::HypreSolverImpl>();
+            auto mat = std::make_shared<HypreSolver::HypreMat>();
+            std::vector<double> hscale;
+            if (HypreSolver::buildSolver(A, config_, *mat, *impl, hscale)) {
+                auto holder = std::make_shared<HypreHolder>();
+                holder->mat = mat;
+                holder->solver = impl;
+                hypreHandle_ = holder;
+                hypreScale_ = hscale;
+                useHypreActive_ = true;
+                nlevels_ = 1;
+                levelSizes_ = {n_};
+                report_ = "Hypre BoomerAMG hierarchy (" +
+                          std::to_string(n_) + " unknowns, 1 level shown; " +
+                          (config_.cycleType == Config::CycleType::WCycle ? "W"
+                           : config_.cycleType == Config::CycleType::FCycle ? "F"
+                           : config_.cycleType == Config::CycleType::Flexible ? "Flexible"
+                                                                                  : "V") +
+                          "-cycle, strength 0.25, maxLevels " +
+                          std::to_string(config_.maxLevels > 0 ? config_.maxLevels : 50) +
+                          ", coarse direct <= " +
+                          std::to_string(config_.coarseEnough > 0 ? config_.coarseEnough : 2) +
+                          ")\n";
+                buildTimeSec_ = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - buildStart).count();
+                built_ = true;
+                return;
+            }
+        } catch (...) {
+            hypreHandle_.reset();
+            hypreScale_.clear();
+            useHypreActive_ = false;
+        }
+    }
+#else
+    // Hypre not linked in: useHypre=true falls back to amgcl.
+    (void)0;
+#endif
+
     Eigen::SparseMatrix<double, Eigen::RowMajor> AR = A;
     AR.makeCompressed();
 
-    // Auto scaling: symmetric diagonal equilibration (STAR-CCM+-style).
+    // Bandwidth reorder TODO: needs matching b/x permutation at applyCycle.
+    // Disabled for now to avoid scale mismatch.
+
+    // Auto scaling: symmetric diagonal equilibration.
     scale_.clear();
     if (config_.scaling == AMGHierarchy::Config::ProportionalScaling::Automatic) {
         const int n = static_cast<int>(A.rows());
@@ -184,8 +245,7 @@ void AMGHierarchy::build(const SparseMatrix& A) {
             // mesh). Halving keeps the  value usable with margin.
             cp.aggr.eps_strong =
                 static_cast<float>(0.5 * config_.strengthThreshold);
-            // Group size only applies to aggregation coarsening, and amgcl
-            // requires the matrix dimension to be a multiple of the block size.
+            // Group size: amgcl requires n % block == 0. Auto=2 needs padding -> stay 1 for scalar.
             if (config_.groupSizeControl == Config::GroupSizeControl::Manual &&
                 config_.blockSize > 1 && (n_ % config_.blockSize) == 0) {
                 cp.aggr.block_size = static_cast<unsigned>(config_.blockSize);
@@ -287,9 +347,9 @@ void AMGHierarchy::build(const SparseMatrix& A) {
                 std::cerr << "  AMG hierarchy (" << n_ << " unknowns, "
                           << nlevels_ << " levels)\n" << report_;
             }
-            // "Diagnosis" adds the top-level system summary: the level sizes,
-            // the resolved cycle/smoother/coarsening, and the coarse-solve mode.
-            if (config_.verbosity == Config::Verbosity::Diagnosis) {
+            // "Diagnosis" only for V/W — F/Flexible use own hierarchy (AMG_F.h),
+            // amgcl levels are dummy there and would mislead.
+            if (config_.verbosity == Config::Verbosity::Diagnosis && config_.cycleType != Config::CycleType::FCycle && config_.cycleType != Config::CycleType::Flexible) {
                 std::cerr << "  AMG diagnosis: " << n_ << " unknowns, "
                           << nlevels_ << " levels, level sizes";
                 for (int s : levelSizes_) std::cerr << ' ' << s;
@@ -302,7 +362,8 @@ void AMGHierarchy::build(const SparseMatrix& A) {
                                                                            : "Gauss-Seidel")
                           << ", cycle="
                            << (config_.cycleType == Config::CycleType::WCycle ? "W"
-                               : config_.cycleType == Config::CycleType::FCycle ? "F (V used)"
+                               : config_.cycleType == Config::CycleType::FCycle ? "F"
+                               : config_.cycleType == Config::CycleType::Flexible ? "Flexible"
                                                                                  : "V")
                           << ", coarse solve="
                           << (config_.directCoarse ? "direct" : "iterative")
@@ -318,6 +379,15 @@ void AMGHierarchy::build(const SparseMatrix& A) {
 }
 
 bool AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
+#ifdef FVM_HAVE_HYPRE
+    if (useHypreActive_ && hypreHandle_) {
+        auto holder = std::static_pointer_cast<HypreHolder>(hypreHandle_);
+        if (holder && holder->mat && holder->solver) {
+            return HypreSolver::applyCycle(*holder->mat, *holder->solver, b, x, hypreScale_);
+        }
+        return false;
+    }
+#endif
     if (!built_ || !amgHandle_) { x = b; return false; }
     auto h = std::static_pointer_cast<Handle>(amgHandle_);
     if (!h || !h->ptr) { x = b; return false; }
@@ -335,6 +405,34 @@ bool AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) cons
         xn[i] = hasScale ? x(i) / scale_[i] : x(i);
     }
 
+    // F-cycle via own hierarchy in src/fvm/AMG_F.h (vendor untouched).
+    // Per-instance (not thread_local) → no cross-solver clobbering, rebuilt
+    // in build()/updateFineValues() so values never go stale.
+    if (config_.cycleType == Config::CycleType::FCycle || config_.cycleType == Config::CycleType::Flexible) {
+        if (!famgHandle_) {
+            auto famg = std::make_shared<FAMGHierarchy>(config_);
+            if (!famg->build(systemMatrix_)) {
+                // No UB cast: use kind switch like the V/W path.
+                switch (h->kind) {
+                    case Kind::AggGs:     std::static_pointer_cast<AggGsAmg>(h->ptr)->cycle(bn, xn); break;
+                    case Kind::AggJacobi: std::static_pointer_cast<AggJacobiAmg>(h->ptr)->cycle(bn, xn); break;
+                    case Kind::AggIlu:    std::static_pointer_cast<AggIluAmg>(h->ptr)->cycle(bn, xn); break;
+                    case Kind::AggSpai:   std::static_pointer_cast<AggSpaiAmg>(h->ptr)->cycle(bn, xn); break;
+                    case Kind::RsGs:      std::static_pointer_cast<RsGsAmg>(h->ptr)->cycle(bn, xn); break;
+                    case Kind::RsJacobi:  std::static_pointer_cast<RsJacobiAmg>(h->ptr)->cycle(bn, xn); break;
+                    case Kind::RsIlu:     std::static_pointer_cast<RsIluAmg>(h->ptr)->cycle(bn, xn); break;
+                    case Kind::RsSpai:    std::static_pointer_cast<RsSpaiAmg>(h->ptr)->cycle(bn, xn); break;
+                }
+            } else {
+                famgHandle_ = famg;
+                auto res = famg->applyCycle(b, x);
+                return res;
+            }
+        } else {
+            auto famg = std::static_pointer_cast<FAMGHierarchy>(famgHandle_);
+            return famg->applyCycle(b, x);
+        }
+    }
     switch (h->kind) {
         case Kind::AggGs:     std::static_pointer_cast<AggGsAmg>(h->ptr)->cycle(bn, xn); break;
         case Kind::AggJacobi: std::static_pointer_cast<AggJacobiAmg>(h->ptr)->cycle(bn, xn); break;
@@ -358,10 +456,13 @@ bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                          const std::atomic<bool>* cancel) const {
     lastIterations_ = 0;
     lastResidual_ = 0.0;
-    if (!built_ || !amgHandle_) return false;
+    const bool hypreOk = (built_ && useHypreActive_ && hypreHandle_);
+    if (!hypreOk && (!built_ || !amgHandle_)) return false;
 
-    auto h = std::static_pointer_cast<Handle>(amgHandle_);
-    if (!h || !h->ptr) return false;
+    if (!hypreOk) {
+        auto h = std::static_pointer_cast<Handle>(amgHandle_);
+        if (!h || !h->ptr) return false;
+    }
 
     auto solveStart = std::chrono::steady_clock::now();
 
@@ -432,6 +533,8 @@ bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
 
 void AMGHierarchy::updateFineValues(const SparseMatrix& A) {
     systemMatrix_ = A;
+    famgHandle_.reset(); // force F/Flex hierarchy rebuild with new values
+    if (useHypreActive_) { build(A); return; } // Hypre: values are baked in at setup
     if (!built_ || !amgHandle_) { build(A); return; }
     auto h = std::static_pointer_cast<Handle>(amgHandle_);
     if (!h || !h->ptr) { build(A); return; }
