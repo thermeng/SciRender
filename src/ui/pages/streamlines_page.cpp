@@ -25,6 +25,8 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     // Reset; connecting inside it would stack duplicate handlers on every
     // reset (each re-clearing the field combo on mesh updates).
     auto* s = S();
+    // Animation gate: structural controls lock while particles play.
+    connect(s, &RenderSettings::viewChanged, this, [this](QFlags<ChangeFlag>) { updateAnimationGate(); });
     // Streamlines integrate node vectors; cell-only vectors cannot seed an
     // integration (matches the auto-disable in RenderSettings::loadMesh).
     connect(s, &RenderSettings::meshLoadStateChanged, this, [this, s]() {
@@ -51,6 +53,8 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
 }
 
 void StreamlinesPage::buildContent() {
+    m_structuralControls.clear();
+    m_animBanner = nullptr;
     auto* content = new QWidget;
     Ui::StreamlinesPage slUi;
     slUi.setupUi(content);
@@ -163,6 +167,7 @@ void StreamlinesPage::buildContent() {
     });
     flowLay->addWidget(integrateBtn);
     flowLay->addStretch();
+    m_structuralControls.push_back(flowTab);
     tabs->addTab(flowTab, tr("Flow"));
 
     // Tab: Seeds
@@ -231,6 +236,7 @@ void StreamlinesPage::buildContent() {
     });
     seedsLay->addWidget(seedBtn);
     seedsLay->addStretch();
+    m_structuralControls.push_back(seedsTab);
     tabs->addTab(seedsTab, tr("Seeds"));
 
     // Tab: Look
@@ -285,6 +291,7 @@ void StreamlinesPage::buildContent() {
         }
     });
     sb::addCtlRow(lookLay, "streamlineStyleLabel", "Style", styleCombo);
+    m_structuralControls.push_back(styleCombo);
 
     sb::addSliderRow(s, lookLay, "ribbonWidthLabel", "Ribbon Width",
                       s->getStreamlineRibbonWidth(), 0.0001, 0.01, 4,
@@ -329,9 +336,25 @@ void StreamlinesPage::buildContent() {
     optionsLay->addWidget(particleAdditiveCb);
 
     tabs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+
+    // Animation banner: explains why structural controls are locked.
+    m_animBanner = new QLabel(tr("Particles playing — pause particles to change integration settings."));
+    m_animBanner->setWordWrap(true);
+    m_animBanner->setStyleSheet("color: palette(mid); font-style: italic;");
+    optionsLay->addWidget(m_animBanner);
+
     optionsLay->addStretch();
 
     setContent(content);
+    updateAnimationGate();
+}
+
+void StreamlinesPage::updateAnimationGate() {
+    auto* s = S();
+    const bool animating = s->getShowParticles() && s->getShowStreamlines();
+    for (auto* w : m_structuralControls)
+        if (w) w->setEnabled(!animating);
+    if (m_animBanner) m_animBanner->setVisible(animating);
 }
 
 } // namespace sidebar

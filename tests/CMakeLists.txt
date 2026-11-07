@@ -102,8 +102,8 @@ scirender_add_test_suite(scirender_fvm_tests
 # ---------------------------------------------------------------------------
 scirender_add_test_suite(scirender_render_tests
     SOURCES
-        render/streamline_test.cpp
-        render/streamline_v2_test.cpp
+        render/streamline_legacy_test.cpp
+        render/streamline_pipeline_test.cpp
         render/lic_vector_texture_test.cpp
     LIBRARIES
         RenderCore

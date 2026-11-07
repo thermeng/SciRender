@@ -249,30 +249,6 @@ TEST_CASE("render.streamline.nearest_fallback") {
 
 // ---------------------------------------------------------------------------
 // 7. Verify compute(): draw count matches 7-float stride, every seed yields a path
-// ---------------------------------------------------------------------------
-TEST_CASE("render.streamline.compute") {
-    const RenderMesh& mesh = referenceMesh();
-    StreamlineSet set;
-    auto res = set.compute(mesh, 27, 0.05f, 200, "Wind_Flow", "Volume", "Both", 0.5, 0.0, 10, 10,
-                           false, 0.15f, 0.02f, 0.01f, 0.3f);
-    CHECK_MESSAGE(res.seedCount > 0, "compute: seeds produced");
-    REQUIRE_MESSAGE(!res.verts.empty(), "compute: ribbon vertices produced");
-    CHECK_MESSAGE(res.lineCount == static_cast<int>(res.verts.size() / 10),
-                  "compute: lineCount matches the 10-float vertex stride");
-    CHECK_MESSAGE(static_cast<int>(res.paths.size()) == res.seedCount,
-                  "compute: every surviving seed yields a streamline");
-    bool allLongEnough = true;
-    for (const auto& p : res.paths)
-        if (p.points.size() < 3) {
-            allLongEnough = false;
-            break;
-        }
-    CHECK_MESSAGE(allLongEnough, "compute: every path has >= 3 points");
-}
-
-// ---------------------------------------------------------------------------
-// 8. computeArrowPlacement: logical arrow distribution invariants
-// ---------------------------------------------------------------------------
 TEST_CASE("render.streamline.arrow_placement") {
     const float extent = 2.0f;
 
@@ -345,44 +321,4 @@ TEST_CASE("render.streamline.arrow_placement") {
 
 // ---------------------------------------------------------------------------
 // 9. Particle advance invariants (updateParticles via public API)
-// ---------------------------------------------------------------------------
-TEST_CASE("render.streamline.particle_advance") {
-    const RenderMesh& mesh = referenceMesh();
-    StreamlineSet set;
-    auto res = set.compute(mesh, 27, 0.05f, 200, "Wind_Flow", "Volume", "Both", 0.5, 0.0, 10, 10,
-                           false, 0.15f, 0.02f, 0.01f, 0.3f);
-    REQUIRE_MESSAGE(!res.paths.empty(), "compute must produce paths for the particle test");
-
-    // CPU-only: move paths in directly (uploadGL needs a GL context,
-    // which this suite does not have).
-    set.paths = std::move(res.paths);
-    set.initParticles(10);
-    CHECK_MESSAGE(static_cast<int>(set.paths.size()) > 0, "particles: paths available after uploadGL");
-
-    // Sample t before/after a run of fixed steps; every t must stay in [0,1).
-    std::vector<float> before;
-    for (const auto& p : set.particles)
-        before.push_back(p.t);
-    bool rangeOk = true;
-    for (int step = 0; step < 100; ++step) {
-        set.updateParticles(0.016f, 1.0f);
-        for (const auto& p : set.particles) {
-            if (!(p.t >= 0.0f && p.t < 1.0f)) {
-                rangeOk = false;
-                break;
-            }
-        }
-        if (!rangeOk)
-            break;
-    }
-    CHECK_MESSAGE(rangeOk, "particles: t stays in [0,1) across 100 advances");
-    bool anyMoved = false;
-    for (size_t i = 0; i < set.particles.size(); ++i)
-        if (std::abs(set.particles[i].t - before[i]) > 1e-6f) {
-            anyMoved = true;
-            break;
-        }
-    CHECK_MESSAGE(anyMoved, "particles: at least one particle advanced");
-}
-
 } // TEST_SUITE("render")

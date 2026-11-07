@@ -135,15 +135,21 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
             ubo.lightDir = glm::vec4(lightDir, 0.0f);
             ubo.time_opacity = glm::vec4(static_cast<float>(animationTime), state.streamlineOpacity, 0.0f, 0.0f);
             ubo.color_useColormap = glm::vec4(state.streamlineColor[0], state.streamlineColor[1], state.streamlineColor[2], state.streamlineColorMode > 0 ? 1.0f : 0.0f);
-            const float magLo = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeLo : streamlineSet.magMin;
-            const float magHi = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeHi : streamlineSet.magMax;
+            float magLo = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeLo : streamlineSet.magMin;
+            float magHi = state.streamlineMagRangeOverrideEnabled ? state.streamlineMagRangeHi : streamlineSet.magMax;
+            if (magHi - magLo <= 1e-6f) { magLo = streamlineSet.magMin; magHi = streamlineSet.magMax; }
             ubo.magRange = glm::vec4(magLo, magHi, 0.0f, 0.0f);
             glm::vec3 cMin(streamlineSet.compMin[0], streamlineSet.compMin[1], streamlineSet.compMin[2]);
             glm::vec3 cMax(streamlineSet.compMax[0], streamlineSet.compMax[1], streamlineSet.compMax[2]);
             for (int i = 0; i < 3; ++i) {
                 if (state.streamlineCompRangeOverrideEnabled[i]) {
-                    cMin[i] = state.streamlineCompRangeLo[i];
-                    cMax[i] = state.streamlineCompRangeHi[i];
+                    // Guard against a degenerate override (e.g. enabled
+                    // before the first compute seeded it to [0, 1e-6]):
+                    // fall back to the data range instead of collapsing
+                    // every vertex to a LUT end colour.
+                    float lo = state.streamlineCompRangeLo[i];
+                    float hi = state.streamlineCompRangeHi[i];
+                    if (hi - lo > 1e-6f) { cMin[i] = lo; cMax[i] = hi; }
                 }
             }
             ubo.compMin = glm::vec4(cMin, 0.0f);
