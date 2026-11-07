@@ -8,3 +8,7 @@
 
 add_executable(scirender_tool_cylinder2d cylinder2d_vorticity.cpp)
 target_link_libraries(scirender_tool_cylinder2d PRIVATE CoreLib)
+
+add_executable(scirender_tool_bench_streamline bench_streamline.cpp)
+target_include_directories(scirender_tool_bench_streamline PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_link_libraries(scirender_tool_bench_streamline PRIVATE RenderCore CoreLib)

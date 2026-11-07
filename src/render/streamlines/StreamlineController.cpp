@@ -67,12 +67,12 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
         // Snapshot shared_ptr captured by value: keeps computed post-proc
         // payloads alive for the worker even if the GUI thread re-extracts.
         auto snapCopy = state.computed;
-        StreamlineSet* streamlineSetPtr = &streamlineSet;
         m_worker = std::thread(
-            [this, streamlineSetPtr, meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
+            [this, meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
              planePos, jitter, planeCountU, planeCountV, showArrows, arrowSpacingFrac,
              arrowSize, ribbonWidth, taperFactor, streamlineStyle, maxPathLength, snapCopy]() {
-                auto result = streamlineSetPtr->compute(
+              try {
+                auto result = StreamlineSet::computeStatic(
                     *meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
                     planePos, jitter, planeCountU, planeCountV,
                     showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor, streamlineStyle, maxPathLength,
@@ -82,11 +82,13 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
                     m_computeRunning = false;
                     return;
                 }
-
                 {
                     std::lock_guard<std::mutex> lock(m_resultMutex);
                     m_pendingResult = std::make_unique<StreamlineSet::StreamlineResult>(std::move(result));
                 }
+              } catch (...) {
+                // Never let an exception escape a worker thread (std::terminate).
+              }
                 m_computeRunning = false;
             });
     }
@@ -115,6 +117,7 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
     if ((state.showStreamlines && !streamlineSet.empty()) ||
         (state.showStreamlineArrows && streamlineSet.arrowVao.has() && streamlineSet.arrowCount > 0 && state.showStreamlines)) {
         if (m_streamlineProgram.has()) {
+            GLStateGuard guard;
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             glUseProgram(m_streamlineProgram);
             GLboolean blendWas = glIsEnabled(GL_BLEND);
@@ -146,8 +149,8 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
             ubo.compMin = glm::vec4(cMin, 0.0f);
             ubo.compMax = glm::vec4(cMax, 0.0f);
             ubo.colorMode = glm::vec4(static_cast<float>(state.streamlineColorMode), 0.0f, 0.0f, 0.0f);
-            glm::vec4 material(1.0f, 0.0f, 0.0f, 1.0f);
-            ubo.material = material;
+            ubo.material = glm::vec4(state.streamlineAmbient, state.streamlineDiffuse,
+                                     state.streamlineSpecular, float(state.streamlineSpecularPower));
             ubo.ribbon = glm::vec4(state.streamlineRibbonWidth, state.streamlineTaperFactor, 0.0f, 0.0f);
             ubo.arrowParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
             ubo.pbr = glm::vec4(state.lighting.matRoughness, state.lighting.matMetallic, 0.0f, 0.0f);
@@ -156,7 +159,7 @@ void StreamlineController::draw(const RenderRenderState& state, StreamlineSet& s
             if (m_streamlineNumBandsLoc != -1) glUniform1f(m_streamlineNumBandsLoc, static_cast<float>(state.streamlineColorBands));
             if (state.streamlineColorMode > 0 && colormap.streamlineTexture() != 0) {
                 glBindTextureUnit(1, colormap.streamlineTexture());
-                glUniform1i(m_streamlineLutLoc, 1);
+                if (m_streamlineLutLoc != -1) glUniform1i(m_streamlineLutLoc, 1);
             }
             if (state.showStreamlines && !streamlineSet.empty()) {
                 GLenum mode = streamlineSet.renderAsLines ? GL_LINES : GL_TRIANGLES;

@@ -209,6 +209,10 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
     add_library(RenderCore STATIC
         src/render/streamlines/StreamlineSet.cpp
         src/render/streamlines/VectorGlyphSet.cpp
+        src/render/streamlines/domain/FieldDomain.cpp
+        src/render/streamlines/domain/Sampling.cpp
+        src/render/streamlines/integrate/Integration.cpp
+        src/render/streamlines/geometry/GeometryBuilder.cpp
         src/render/foundation/gl_raii.cpp
         src/render/passes/VectorTextureCache.cpp
     )
