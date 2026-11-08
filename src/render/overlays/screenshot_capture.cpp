@@ -136,26 +136,26 @@ void ScreenshotCapture::ensureResolveFbo(int w, int h) {
 // PBO double-buffer for async readback
 // ---------------------------------------------------------------------------
 void ScreenshotCapture::ensurePbos(size_t bytes) {
-    if (m_pboCapacity >= bytes && m_pboIds[0] && m_pboIds[1])
+    if (m_pboCapacity >= bytes && m_pbo[0].has() && m_pbo[1].has())
         return;
 
     destroyPbos();
     m_pboCapacity = bytes;
     m_pboReady = false;
 
-    glGenBuffers(2, m_pboIds);
     for (int i = 0; i < 2; ++i) {
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pboIds[i]);
+        GLuint id = 0;
+        glGenBuffers(1, &id);
+        m_pbo[i].reset(id);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, m_pbo[i]);
         glBufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(bytes), nullptr, GL_STREAM_READ);
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 }
 
 void ScreenshotCapture::destroyPbos() {
-    if (m_pboIds[0] || m_pboIds[1]) {
-        glDeleteBuffers(2, m_pboIds);
-        m_pboIds[0] = m_pboIds[1] = 0;
-    }
+    m_pbo[0].reset();
+    m_pbo[1].reset();
     m_pboCapacity = 0;
     m_pboReady = false;
 }
@@ -185,15 +185,17 @@ ScreenshotCapture::GlState ScreenshotCapture::saveState() {
     glGetIntegerv(GL_BLEND_DST, &s.blendDst);
     glGetIntegerv(GL_BLEND_EQUATION_RGB, &s.blendEquationRgb);
     glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &s.blendEquationAlpha);
-    glGetIntegerv(GL_POLYGON_MODE, s.polygonMode);
+    glGetIntegerv(GL_POLYGON_MODE, &s.polygonMode);
     glGetIntegerv(GL_CURRENT_PROGRAM, &s.currentProgram);
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &s.vertexArrayBinding);
     glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &s.elementArrayBuffer);
     s.stencilTest = glIsEnabled(GL_STENCIL_TEST);
     s.framebufferSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
     glGetIntegerv(GL_DEPTH_FUNC, &s.depthFunc);
-    glGetIntegerv(GL_CLIP_ORIGIN, &s.clipControlLower);
-    glGetIntegerv(GL_CLIP_DEPTH_MODE, &s.clipControlDepth);
+    if (GLAD_GL_ARB_clip_control) {
+        glGetIntegerv(GL_CLIP_ORIGIN, &s.clipControlLower);
+        glGetIntegerv(GL_CLIP_DEPTH_MODE, &s.clipControlDepth);
+    }
     return s;
 }
 
@@ -216,8 +218,7 @@ void ScreenshotCapture::restoreState(const GlState& s) {
     glDepthMask(static_cast<GLboolean>(s.depthMask));
     glBlendFunc(s.blendSrc, s.blendDst);
     glBlendEquationSeparate(s.blendEquationRgb, s.blendEquationAlpha);
-    glPolygonMode(GL_FRONT, s.polygonMode[0]);
-    glPolygonMode(GL_BACK, s.polygonMode[1]);
+    glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(s.polygonMode));
     glUseProgram(s.currentProgram);
     glBindVertexArray(s.vertexArrayBinding);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s.elementArrayBuffer);

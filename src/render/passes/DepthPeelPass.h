@@ -94,7 +94,7 @@ private:
     GlTexture m_backTemp;       // RGBA8 per-iteration back peel
     GlTexture m_opaqueDepth;    // single-sample copy of the opaque scene depth
     GlVao m_dummyVao;
+    GlQuery m_query;   // GL_SAMPLES_PASSED, drives automatic termination
 
     int m_width = 0, m_height = 0;
-    GLuint m_queryId = 0;   // GL_SAMPLES_PASSED, drives automatic termination
 };

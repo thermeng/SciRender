@@ -32,18 +32,26 @@ void ParticlePass::draw(const RenderRenderState& state,
     const float dt = (frameDt < 0.1f) ? frameDt : 0.1f;
     streamlines.updateParticles(dt, state.particleSpeed);
 
-    std::vector<float> particleVerts;
-    streamlines.buildParticleVertices(particleVerts);
+    m_particleVertsScratch.clear();
+    streamlines.buildParticleVertices(m_particleVertsScratch);
 
-    if (particleVerts.empty()) return;
+    if (m_particleVertsScratch.empty()) return;
 
     if (!particleVao.has()) {
         setupVertexBuffer(particleVao, particleVbo, nullptr, 0, 9 * sizeof(float),
-                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 1, 4 * sizeof(float) }, { 3, 3, 5 * sizeof(float) }, { 4, 1, 8 * sizeof(float) } }, GL_DYNAMIC_DRAW);
+                          { { 0, 3, 0 }, { 1, 1, 3 * sizeof(float) }, { 2, 1, 4 * sizeof(float) }, { 3, 3, 5 * sizeof(float) }, { 4, 1, 8 * sizeof(float) } }, GL_STREAM_DRAW);
+        particleVboCapacityBytes_ = 0;
     }
 
-    m_particleVertexCount = static_cast<int>(particleVerts.size() / 9);
-    glNamedBufferData(particleVbo, particleVerts.size() * sizeof(float), particleVerts.data(), GL_DYNAMIC_DRAW);
+    m_particleVertexCount = static_cast<int>(m_particleVertsScratch.size() / 9);
+    const GLsizeiptr bytes = static_cast<GLsizeiptr>(m_particleVertsScratch.size() * sizeof(float));
+    if (bytes > particleVboCapacityBytes_) {
+        glNamedBufferData(particleVbo, bytes, m_particleVertsScratch.data(), GL_STREAM_DRAW);
+        particleVboCapacityBytes_ = bytes;
+    } else {
+        glNamedBufferData(particleVbo, particleVboCapacityBytes_, nullptr, GL_STREAM_DRAW); // orphan
+        glNamedBufferSubData(particleVbo, 0, bytes, m_particleVertsScratch.data());
+    }
 
     glUseProgram(particleProgram);
     // Save engine state we mutate; restored automatically on scope exit.
@@ -94,8 +102,13 @@ void ParticlePass::shutdown() {
     particleProgram.reset();
     particleVao.reset();
     particleVbo.reset();
+    particleVboCapacityBytes_ = 0;
+    m_particleVertsScratch.clear();
+    m_particleVertsScratch.shrink_to_fit();
     m_particleVertexCount = 0;
     particleColorLoc = -1;
+    particleMvpLoc = -1;
+    particleSizeRefWLoc = -1;
     particleLutLoc = -1;
     particlePointSizeLoc = -1;
     particleUseColormapLoc = -1;

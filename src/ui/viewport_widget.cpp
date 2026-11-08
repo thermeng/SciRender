@@ -1,5 +1,6 @@
 #include <glad/gl.h>
 #include "viewport_widget.h"
+#include "gl_context_scope.h"
 #include "colorbar_style_dialog.h"
 #include "render/foundation/render_config.h"
 #include <QApplication>
@@ -8,6 +9,7 @@
 #include <QFileDialog>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QOpenGLContext>
 #include <QPaintEvent>
 #include <QStyle>
 #include <QWheelEvent>
@@ -99,7 +101,7 @@ QImage ViewportWidget::captureFrameImage(int width, int height, int samples, boo
     ::Renderer* scene = m_settings ? m_settings->backend() : nullptr;
     if (!scene || width <= 0 || height <= 0) return QImage();
 
-    makeCurrent();
+    GlCurrentScope ctx(this);
     m_screenshotCapture.ensureScreenshotFbo(width, height, samples);
     glBindFramebuffer(GL_FRAMEBUFFER, m_screenshotCapture.screenshotFboId());
     scene->setViewportOverride(width, height);
@@ -108,13 +110,31 @@ QImage ViewportWidget::captureFrameImage(int width, int height, int samples, boo
     QImage img = m_screenshotCapture.readFboToImage(
         m_screenshotCapture.screenshotFboId(), width, height, samples, transparent);
     glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
-    doneCurrent();
     return img;
 }
 
 
 void ViewportWidget::initializeGL() {
     initializeOpenGLFunctions();
+    // Install Qt context check so GL RAII destructors only delete with a live context.
+    setGlContextCheck([]() noexcept -> bool {
+        return QOpenGLContext::currentContext() != nullptr;
+    });
+
+    if (QOpenGLContext* ctx = context()) {
+        // Tear down context-owned resources on the RIGHT context before it dies.
+        connect(ctx, &QOpenGLContext::aboutToBeDestroyed, this, [this]() {
+            makeCurrent();
+            m_screenshotCapture.destroyAll();
+            if (m_settings) {
+                if (::Renderer* scene = m_settings->backend()) {
+                    scene->clearGpuMeshes();
+                }
+            }
+            doneCurrent();
+        }, Qt::DirectConnection);
+    }
+
     if (!m_settings) return;
     ::Renderer* scene = m_settings->backend();
     if (!scene) return;
@@ -284,11 +304,10 @@ void ViewportWidget::deferredCapture(const QString& path) {
         m_settings->screenshotCaptured(QString());
         return;
     }
-    makeCurrent();
+    GlCurrentScope ctx(this);
 
     ::Renderer* scene = m_settings->backend();
     if (!scene) {
-        doneCurrent();
         m_settings->screenshotCaptured(QString());
         return;
     }
@@ -349,7 +368,6 @@ void ViewportWidget::deferredCapture(const QString& path) {
     glBindFramebuffer(GL_FRAMEBUFFER, defaultFbo);
 
     glFinish();
-    doneCurrent();
     m_settings->screenshotCaptured(result.success ? path : QString());
 }
 

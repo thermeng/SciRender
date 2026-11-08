@@ -1112,22 +1112,26 @@ void MainWindow::onScreenshotCaptured(const QString& savedPath) {    QTimer::sin
 
 void MainWindow::clearMeshes() {
     if (m_settings && !m_settings->getHasMeshLoaded()) return;
-    bool glReady = false;
     if (m_viewport) {
         m_viewport->makeCurrent();
-        glReady = (QOpenGLContext::currentContext() != nullptr);
-    }
-    // Stop the CFD solve (if running) before clearing GPU resources, so
-    // background solve threads, hooks, and frame publishers cannot touch
-    // deleted GPU objects after clearGpuMeshes() runs.
-    if (m_cfdPage && m_cfdPage->controller()) {
-        m_cfdPage->controller()->unload();
-    }
-    if (glReady) {
-        m_settings->clearMeshes();
+        const bool glReady = (QOpenGLContext::currentContext() != nullptr);
+        // Stop the CFD solve (if running) before clearing GPU resources, so
+        // background solve threads, hooks, and frame publishers cannot touch
+        // deleted GPU objects after clearGpuMeshes() runs.
+        if (m_cfdPage && m_cfdPage->controller()) {
+            m_cfdPage->controller()->unload();
+        }
+        if (glReady) {
+            m_settings->clearMeshes();
+        } else {
+            // Context is not current: clear CPU-side state only, skip GL cleanup.
+            m_settings->clearMeshes(/*skipGpu=*/true);
+        }
         m_viewport->doneCurrent();
     } else {
-        // Context is not current: clear CPU-side state only, skip GL cleanup.
+        if (m_cfdPage && m_cfdPage->controller()) {
+            m_cfdPage->controller()->unload();
+        }
         m_settings->clearMeshes(/*skipGpu=*/true);
     }
     syncTopToolbar();
