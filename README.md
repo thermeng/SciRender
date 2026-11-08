@@ -124,7 +124,7 @@ SciRender includes a finite-volume CFD solver for steady and transient incompres
 | `tools/` | Developer CLI diagnostics (not part of the test suite) |
 | `samples/` | VTK/STL fixtures and `.scfd`/`.msh` CFD samples |
 | `assets/` | Application icon |
-| `vendor/` | GLAD, GLM, pugixml, LZ4/LZMA, doctest |
+| `vendor/` | GLAD, GLM, zlib, Hypre, eigen, pugixml, LZ4/LZMA, doctest |
 
 ## Tests
 
