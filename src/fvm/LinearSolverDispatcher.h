@@ -38,7 +38,7 @@ public:
         int amgCycles = 2;
         double amgMaxResidual = 1e-8;
         bool solverStats = false;
-        AMGHierarchy::Config amgConfig;
+        cfd::AmgSettings amgConfig;
     };
 
     struct Result {
@@ -49,7 +49,7 @@ public:
 
     LinearSolverDispatcher(const Mesh<Dim>& mesh, const Config& config);
 
-    void setAmgConfig(const AMGHierarchy::Config& cfg) { config_.amgConfig = cfg; }
+    void setAmgConfig(const cfd::AmgSettings& cfg) { config_.amgConfig = cfg; }
 
     // Solve A x = b for momentum component d. The solve uses amgMaxResidual
     // from the config as the |r|/|b| convergence tolerance. The solution is
@@ -66,7 +66,7 @@ public:
     std::size_t amgBuilds() const { return stats_.amgBuilds; }
     std::size_t amgRejected() const { return stats_.amgRejected; }
     std::size_t krylovIters() const { return stats_.krylovIters; }
-    std::size_t amgKrylovIters() const { return stats_.amgKrylovIters; }
+    std::size_t amgCycleIters() const { return stats_.amgCycleIters; }
     double iluSeconds() const { return stats_.iluSeconds; }
     double amgSeconds() const { return stats_.amgSeconds; }
     double buildSeconds() const { return stats_.buildSeconds; }
@@ -77,6 +77,12 @@ public:
     bool amgBuilt(std::size_t d) const;
     int amgLevels(std::size_t d) const;
     std::vector<int> amgLevelSizes(std::size_t d) const;
+    // Diagnostics of the last AMG solve for component d (cycles performed and
+    // final relative residual |b-Ax|/|b|). Valid after the most recent solve().
+    int amgLastIterations(std::size_t d) const;
+    double amgLastResidual(std::size_t d) const;
+    // Per-cycle relative residuals from the last AMG solve for component d.
+    const std::vector<double>& amgLastResidualHistory(std::size_t d) const;
 
 private:
     const Mesh<Dim>& mesh_;
@@ -105,8 +111,8 @@ private:
         std::size_t iluSolves = 0;
         std::size_t amgBuilds = 0;
         std::size_t amgRejected = 0;
-        std::size_t krylovIters = 0;
-        std::size_t amgKrylovIters = 0;
+    std::size_t krylovIters = 0;
+    std::size_t amgCycleIters = 0; // AMG multigrid cycle counts (standalone AMG path only; not Krylov iterations)
         double iluSeconds = 0.0;
         double amgSeconds = 0.0;
         double buildSeconds = 0.0;

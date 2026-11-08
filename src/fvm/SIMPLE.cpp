@@ -39,7 +39,7 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
           c.solverStats = config_.momentumSolverStats;
           return c;
       }()) {
-    linearSolverDispatcher_.setAmgConfig(config_.momentumAmgConfig);
+    linearSolverDispatcher_.setAmgConfig(config_.momentumAmg);
     applyPressureSolverConfig_();
     for (auto& dc : dCoeff_) dc.assign(mesh.nCells(), 0.0);
     for (auto& g : velGrad_) g = Field<Dim>(mesh, 0.0);
@@ -69,13 +69,8 @@ void SIMPLE<Dim>::applyPressureSolverConfig_() {
     // nonsymmetric and forced a BiCGSTAB solve regardless of the acceleration
     // method chosen in the UI.
     pcCfg.compactRhieChow = config_.rhieChow;
-    pcCfg.rhieChow = config_.rhieChow;
-    pcCfg.pressureRefCell = config_.pressureRefCell;
     pcCfg.useAMG = config_.pressureUseAMG;
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
-    pcCfg.amgThreshold = config_.pressureAmgThreshold;
-    pcCfg.amgPreconditionerCycles = config_.pressureAmgPreconditionerCycles;
-    pcCfg.amgConfig = config_.pressureAmgConfig;
     pressureCorrection_.setConfig(pcCfg);
 }
 
@@ -190,7 +185,7 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
     if (!(kInf > 0.0) || !std::isfinite(kInf)) kInf = 1e-3;
     if (!(omegaInf > 0.0) || !std::isfinite(omegaInf)) omegaInf = 1.0;
 
-    config_.turbulenceEnabled = true;
+    config_.turbulence = true;
     config_.kInf = kInf;
     config_.omegaInf = omegaInf;
     config_.alphaK = std::clamp(alphaK, 1e-3, 1.0);
@@ -215,7 +210,7 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
         } else {
             sstCfg.wallTreatment = WallTreatment::LowRe;
         }
-        sstCfg.turbulenceAmgConfig = config_.turbulenceAmgConfig;
+        sstCfg.turbulenceAmgConfig = config_.turbulenceAmg;
         sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
         sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
         turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
@@ -276,14 +271,14 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     // application configures boundaries face by face.
     bcDiscretization_ = bc_.build();
 
-    if (config_.turbulenceEnabled) {
+    if (config_.turbulence) {
         typename SSTModel<Dim>::Config sstCfg;
         sstCfg.kInf       = config_.kInf;
         sstCfg.omegaInf   = config_.omegaInf;
         sstCfg.alphaK     = config_.alphaK;
         sstCfg.alphaOmega = config_.alphaOmega;
         sstCfg.wallFunction = config_.wallFunction;
-        sstCfg.turbulenceAmgConfig = config_.turbulenceAmgConfig;
+        sstCfg.turbulenceAmgConfig = config_.turbulenceAmg;
         sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
         sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
         if (!turbulence_) {
@@ -539,14 +534,9 @@ double SIMPLE<Dim>::momentumResidual_(std::size_t d) const {
     const auto& u = (boundVelocity()[d]).values();
     if (static_cast<Eigen::Index>(u.size()) != n) return 0.0;
 
-    // |A u - b| / sum|b| evaluated at the current velocity. The equation was
-    // assembled with the previous pressure, so at convergence this measures
-    // how much the pressure/velocity corrections displaced the solution, which
-    // is the same convention Fluent uses. It tends to zero as p' -> 0.
-    // A is stored column-major, so the row-wise dot products must be computed
-    // via a proper matrix-vector product rather than by iterating columns.
     Eigen::Map<const Eigen::VectorXd> uvec(u.data(), n);
     Eigen::VectorXd r = A * uvec - b;
+    if (b.norm() < 1e-30) return 0.0;
     double num = r.cwiseAbs().sum();
     double den = b.cwiseAbs().sum();
     return den > 1e-30 ? num / den : num;
@@ -554,14 +544,6 @@ double SIMPLE<Dim>::momentumResidual_(std::size_t d) const {
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::capturePredictedContinuity_() {
-    // The divergence here must use the same face value the pressure correction
-    // will use (boundaryFaceState / interpolateFaceVelocity), which
-    // computeResiduals does by construction. The compact Rhie-Chow term is only
-    // part of the pressure equation when PressureCorrection is in compact mode,
-    // so it is added only then. Its face flux needs the gradient of the CURRENT
-    // pressure, not the one left over from the previous (pre-correction) solve,
-    // and the pressure mask that solve() fills in. On the first iteration the
-    // pressure is zero, so the term is zero and there is nothing to refresh.
     const bool compactRC = config_.rhieChow &&
                            pressureCorrection_.usesCompactRhieChow() &&
                            pressureCorrection_.pressureMask().size() == mesh_.nCells();
@@ -580,18 +562,7 @@ void SIMPLE<Dim>::capturePredictedContinuity_() {
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::updateResiduals_() {
-    // The reported continuity residual is the mass imbalance of the momentum
-    // predictor captured by capturePredictedContinuity_(), i.e. the quantity
-    // the pressure correction is about to remove. The OLD code measured the
-    // divergence of the CORRECTED field: that is the pressure linear-solver
-    // residual, and with the composed operator plus one corrector it is ~1e-8,
-    // with several correctors it is round-off (~1e-15). It therefore reported
-    // machine zero for the whole run and could never gate convergence.
     lastContResidRaw_ = predictedContinuity_;
-
-    // Post-correction divergence. Diagnostic only: it shows how well the
-    // pressure solve closed the mass balance, NOT whether the outer iteration
-    // has converged.
     ResidualResult resid = computeResiduals(mesh_, boundVelocity(), velocityOld_, diag_,
                                             divBuffer_, bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
                                             &bcDiscretization_.faceBCs(),
@@ -606,13 +577,7 @@ void SIMPLE<Dim>::updateResiduals_() {
     for (std::size_t d = 0; d < Dim; ++d) {
         momResidRaw_[d] = momentumResidual_(d);
     }
-
-    // /Fluent normalization: divide each equation's raw residual by
-    // its maximum over the first `residualNormalizationIterations` iterations.
-    // The reference grows during that window, so iteration 1 prints 1 and a
-    // residual that is exactly zero on the first iteration (e.g. y-momentum
-    // from a rest state) prints 0 there and 1 on the first iteration that has
-    // a non-zero value - the same shape as a  residual plot.
+    
     const std::size_t window =
         std::max<std::size_t>(1, config_.residualNormalizationIterations);
     ++contResidRefSamples_;
@@ -664,7 +629,6 @@ void SIMPLE<Dim>::updateResiduals_() {
         }
     }
 
-    // PISO robustness: no adaptive alphaP reduction (Fluent keeps 1.0)
     if (isPiso_()) adaptiveAlphaP_ = 1.0;
     prevContResid_ = lastContResid_;
 
@@ -799,7 +763,8 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
         hdr << std::setw(wIter) << "iter"
             << std::setw(wRes) << "continuity"
             << std::setw(wRes) << "x-velocity"
-            << std::setw(wRes) << "y-velocity";
+            << std::setw(wRes) << "y-velocity"
+            << std::setw(wTime) << "time/iter";
         if constexpr (Dim == 3) hdr << std::setw(wRes) << "z-velocity";
         if (turbulence_) hdr << std::setw(wRes) << "k" << std::setw(wRes) << "omega";
         hdr << "\n" << std::string(width, '-') ;
@@ -812,14 +777,82 @@ void SIMPLE<Dim>::printIterationOutput_(std::size_t iter) {
     if ((iter + 1) % config_.printFrequency == 0 || iter + 1 == config_.maxIterations) {
         if (headerCounter_ % 25 == 0) printHeader_(false);
         ++headerCounter_;
+
+        // Per-equation AMG diagnosis: tolerance, per-cycle residual history,
+        // last solve stats, and the multigrid level sizes reported by BoomerAMG.
+        // Shown only when the user selected Diagnosis verbosity for that
+        // equation's AMG config.
+        const auto verbosity = cfd::AmgSettings::Verbosity::Diagnosis;
+        if (config_.momentumAmg.verbosity == verbosity) {
+            for (std::size_t d = 0; d < Dim; ++d) {
+                const char* name = (d == 0) ? "x-momentum"
+                                   : (d == 1) ? "y-momentum"
+                                   : "z-momentum";
+                if (!linearSolverDispatcher_.amgBuilt(d)) continue;
+                std::cout << name << " equation:\n";
+                std::cout << "  tol.   " << std::scientific << std::setprecision(4)
+                          << config_.momentumAmg.tolerance << "\n";
+                const auto& hist = linearSolverDispatcher_.amgLastResidualHistory(d);
+                for (std::size_t c = 0; c < hist.size(); ++c) {
+                    std::cout << "    " << std::setw(2) << c << " "
+                              << std::scientific << std::setprecision(4)
+                              << hist[c] << "\n";
+                }
+                std::cout << "  iters  " << linearSolverDispatcher_.amgLastIterations(d)
+                          << "  rel.resid " << std::scientific << std::setprecision(4)
+                          << linearSolverDispatcher_.amgLastResidual(d) << "\n";
+                const auto& sizes = linearSolverDispatcher_.amgLevelSizes(d);
+                std::cout << "  multigrid levels:\n";
+                std::cout << "  level min    max    mean   total\n";
+                for (int l = 0; l < static_cast<int>(sizes.size()); ++l) {
+                    const int sz = sizes[static_cast<std::size_t>(l)];
+                    std::cout << "   " << std::setw(2) << l << " "
+                              << std::setw(6) << sz << " "
+                              << std::setw(6) << sz << " "
+                              << std::setw(7) << sz << " "
+                              << std::setw(6) << sz << "\n";
+                }
+            }
+        }
+        if (config_.pressureAmg.verbosity == verbosity &&
+            pressureCorrection_.amgBuilt()) {
+            std::cout << "pressure correction equation:\n";
+            std::cout << "  tol.   " << std::scientific << std::setprecision(4)
+                      << config_.pressureAmg.tolerance << "\n";
+            const auto& hist = pressureCorrection_.amgLastResidualHistory();
+            for (std::size_t c = 0; c < hist.size(); ++c) {
+                std::cout << "    " << std::setw(2) << c << " "
+                          << std::scientific << std::setprecision(4)
+                          << hist[c] << "\n";
+            }
+            std::cout << "  iters  " << pressureCorrection_.lastSolveIterations()
+                      << "  rel.resid " << std::scientific << std::setprecision(4)
+                      << pressureCorrection_.lastSolveResidual() << "\n";
+            const auto& sizes = pressureCorrection_.amgLevelSizes();
+            std::cout << "  multigrid levels:\n";
+            std::cout << "  level min    max    mean   total\n";
+            for (int l = 0; l < static_cast<int>(sizes.size()); ++l) {
+                const int sz = sizes[static_cast<std::size_t>(l)];
+                std::cout << "   " << std::setw(2) << l << " "
+                          << std::setw(6) << sz << " "
+                          << std::setw(6) << sz << " "
+                          << std::setw(7) << sz << " "
+                          << std::setw(6) << sz << "\n";
+            }
+        }
+
         constexpr int wIter = 6;
         constexpr int wRes = 13;
+        constexpr int wTime = 10;
+        const double iterTime = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - m_iterStart).count();
         std::ostringstream line;
         line << std::setw(wIter) << (iter + 1)
              << std::scientific << std::setprecision(4)
              << std::setw(wRes) << lastContResid_
              << std::setw(wRes) << lastMomResidU_
-             << std::setw(wRes) << lastMomResidV_;
+             << std::setw(wRes) << lastMomResidV_
+             << std::fixed << std::setprecision(4) << std::setw(wTime) << iterTime;
         if constexpr (Dim == 3) line << std::setw(wRes) << lastMomResidW_;
         if (turbulence_) line << std::setw(wRes) << turbulence_->finalKResid()
                                << std::setw(wRes) << turbulence_->finalOmegaResid();
@@ -889,6 +922,7 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     const auto steadyTotalStart = std::chrono::steady_clock::now();
 
     for (std::size_t iter = startIteration_; iter < config_.maxIterations; ++iter) {
+        m_iterStart = std::chrono::steady_clock::now();
         // Pause/step boundary. Placed before the iteration so a pause issued
         // after the previous iteration is observed before doing more work, and
         // the fields the UI published are always a completed iteration.
@@ -1109,10 +1143,10 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     // BDF2 needs two levels of history. dtPrev_ == 0 additionally forces
     // explicit Euler for this step (handled inside the assembler), which is
     // what a restart from a fresh field must do.
-    if (config_.transient.scheme == TimeScheme::BDF2 && timeStep_ > 1 && dtPrev_ > 0.0 && hasVelocityHistory_) {
+    if (config_.transient.timeScheme == TimeScheme::BDF2 && timeStep_ > 1 && dtPrev_ > 0.0 && hasVelocityHistory_) {
         oldTimePrev = &velocityNM1_[d];
     }
-    TimeScheme ts = config_.transient.scheme;
+    TimeScheme ts = config_.transient.timeScheme;
     if (timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
 
     if (!hasVelocityHistory_ && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
@@ -1297,7 +1331,7 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
         nutOld_ = turbulence_->nut();
         // Transient turbulence
         if (config_.transient.enabled && dt_ > 0) {
-            TimeScheme ts = config_.transient.scheme;
+            TimeScheme ts = config_.transient.timeScheme;
             if (timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
             // Two levels of history are needed for BDF2; dtPrev_ == 0 (fresh
             // start or restart) makes the assembler fall back to Euler.
@@ -1637,8 +1671,8 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         // Legacy piso bool still honored for compat
         if (config_.transient.piso && config_.solverType==SolverType::SIMPLE) solverName="PISO";
         std::cout << "Transient " << solverName << ": dt=" << dt_ << " tEnd=" << config_.transient.tEnd
-                  << " scheme=" << (config_.transient.scheme==TimeScheme::BDF2?"BDF2":"Euler")
-                  << " adaptive=" << (config_.transient.adaptive?"yes":"no")
+                  << " scheme=" << (config_.transient.timeScheme==TimeScheme::BDF2?"BDF2":"Euler")
+                  << " adaptive=" << (config_.transient.adaptiveCfl?"yes":"no")
                   << " nOuter=" << config_.transient.maxOuterCorrectors
                   << (config_.simplec ? " SIMPLEC" : "") << "\n";
     }
@@ -1662,7 +1696,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         // Cancel/Save from here is a valid restart point.
         if (!waitIfPaused()) break;
 
-        if (config_.transient.adaptive && step > 0) {
+        if (config_.transient.adaptiveCfl && step > 0) {
             double newDt = computeAdaptiveDt_();
             // Limit change to 50% per step for stability (was 20%, too restrictive for shedding)
             newDt = std::max(0.5*dt_, std::min(newDt, 1.5*dt_));
@@ -1677,9 +1711,8 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         time_ += dt_;
         ++step;
         timeStep_ = step;
-        // Outer correctors per time step - Fluent-like distinction
+        
         bool isPISO = isPiso_();
-        // PISO robustness: force Rhie-Chow (like Fluent/StarCCM+ on collocated grids)
         if (isPISO && !config_.rhieChow) {
             config_.rhieChow = true;
     applyPressureSolverConfig_();
@@ -1719,7 +1752,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             // Turbulence updated once per time step after PISO correctors (frozen during correctors)
             if (turbulence_ && config_.transient.enabled && dt_ > 0) {
                 // One turbulence iteration with the corrected velocity
-                TimeScheme ts = config_.transient.scheme;
+                TimeScheme ts = config_.transient.timeScheme;
                 if (timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
                 const Field<Dim>* kPrevPrev =
                     (timeStep_ > 1 && dtPrev_ > 0.0) ? &kNM1_ : nullptr;
@@ -1789,7 +1822,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             config_.transientCallback(step, time_, velocity, pressure);
         }
         if (step >= 1000000) break; // safety
-        if (!config_.transient.adaptive && step >= nSteps) break;
+        if (!config_.transient.adaptiveCfl && step >= nSteps) break;
     }
     hasRestoredTransientState_ = false;
     if (aborted_) {

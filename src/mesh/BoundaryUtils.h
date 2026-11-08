@@ -61,9 +61,6 @@ inline void forEachBoundaryFace(const Mesh<Dim>& mesh, std::size_t d, int sign, 
     }
 }
 
-// Shared backflow correction for PressureOutlet/Outlet BCs.
-// Given base normal velocity (un) and face BC, applies Fluent-like backflow handling.
-// Returns corrected un.
 template<std::size_t Dim>
 inline double applyBackflowCorrection(double un,
                                        const std::array<double, Dim>& fn,

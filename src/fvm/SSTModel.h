@@ -49,16 +49,16 @@ public:
         // Turbulence linear-solver multigrid configuration, forwarded to the
         // LinearSolverDispatcher for both the k and omega transport equations.
         // Mirrors SIMPLE::Config::momentumAmgConfig.
-        AMGHierarchy::Config turbulenceAmgConfig = []{
-            AMGHierarchy::Config c;
+        cfd::AmgSettings turbulenceAmgConfig = []{
+            cfd::AmgSettings c;
             c.strengthThreshold = 0.16;
             c.truncThreshold = 0.2;
             c.preSweeps = 1;
             c.postSweeps = 2;
             c.maxIterations = 100;
             c.tolerance = 1e-8;
-            c.verbosity = AMGHierarchy::Config::Verbosity::None;
-            c.acceleration = AMGHierarchy::Config::Acceleration::None;
+            c.verbosity = cfd::AmgSettings::Verbosity::None;
+            c.acceleration = cfd::AmgSettings::Acceleration::None;
             return c;
         }();
 

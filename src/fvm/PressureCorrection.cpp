@@ -118,17 +118,6 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
-    // Boundary cells at velocity-Dirichlet walls use pressure Neumann
-    // (zero normal gradient), NOT Dirichlet p'=0. Pinning p'=0 at every
-    // wall over-constrains the system and makes the pressure matrix
-    // ill-conditioned - AMG-CG cannot converge because every wall cell is
-    // forced to p'=0 while the velocity correction injects pressure
-    // gradients. Only pressure-outlet cells (handled above) carry p' = 0.
-
-    // A pure Neumann system (no Dirichlet pressure anywhere) is singular: it
-    // needs ONE pinned reference cell (p' = 0 there) to fix the constant
-    // mode. STAR-CCM+ places it near the smallest X/Y/Z corner of the
-    // domain, which sits near the boundary surface.
     bool hasDirichletPressure = false;
     for (std::size_t i = 0; i < n; ++i) {
         if (pMask_[i]) { hasDirichletPressure = true; break; }
@@ -616,7 +605,7 @@ void PressureCorrection<Dim>::solve(
         if (amg_.isBuilt() && ++amgValueUpdates_ >= std::max<std::size_t>(1, config_.amgRebuildInterval)) {
             amgValueUpdates_ = 0;
             amg_.invalidate();
-            auto amgCfg = config_.amgConfig;
+            auto amgCfg = config_.pressureAmg;
             amg_.setConfig(amgCfg);
             amg_.build(A_);
         }
@@ -627,16 +616,16 @@ void PressureCorrection<Dim>::solve(
     // preconditioner based on mesh size. Pure-Neumann systems (lid-driven
     // cavity) are safe here because the assembly pins one reference cell, so
     // the matrix handed to amgcl is non-singular.
-    const std::size_t amgThreshold = config_.amgThreshold;
+    const std::size_t amgThreshold = config_.pressureAmgThreshold;
     const bool amgEligible =
         config_.useAMG && (amgThreshold == 0 || n >= amgThreshold);
     //  "Acceleration method": None runs the hierarchy on its own,
     // everything else wraps it in a Krylov method. The legacy
     // useAMGPreconditioner=false switch still forces the standalone path.
-    const auto accel = config_.amgConfig.acceleration;
+    const auto accel = config_.pressureAmg.acceleration;
     const bool standaloneAmg =
         !config_.useAMGPreconditioner ||
-        accel == AMGHierarchy::Config::Acceleration::None;
+        accel == cfd::AmgSettings::Acceleration::None;
 
     if (amgEligible && !standaloneAmg) {
         // CG is only valid for the SPD compact operator. Anything else
@@ -644,15 +633,15 @@ void PressureCorrection<Dim>::solve(
         // nonsymmetric solver so the request cannot silently produce garbage.
         const bool spd = config_.compactRhieChow;
         const bool useCg =
-            (accel == AMGHierarchy::Config::Acceleration::ConjugateGradient) && spd;
+            (accel == cfd::AmgSettings::Acceleration::ConjugateGradient) && spd;
         const bool useGmres =
-            accel == AMGHierarchy::Config::Acceleration::GMRES;
+            accel == cfd::AmgSettings::Acceleration::GMRES;
         if (!amgPathLogged_) {
             std::cerr << "  pressure: using AMG-preconditioned "
                       << (useCg ? "CG (SPD)." : useGmres ? "GMRES." : "BiCGSTAB.")
                       << "\n";
             if (!spd &&
-                accel == AMGHierarchy::Config::Acceleration::ConjugateGradient) {
+                accel == cfd::AmgSettings::Acceleration::ConjugateGradient) {
                 std::cerr << "  pressure: Conjugate gradient requested, but the pressure\n"
                              "            operator is not symmetric (Rhie-Chow is off);\n"
                              "            using BiCGSTAB.\n";
@@ -661,14 +650,17 @@ void PressureCorrection<Dim>::solve(
         }
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
             amg_.invalidate();
-            auto amgCfg = config_.amgConfig;
+            auto amgCfg = config_.pressureAmg;
             amg_.setConfig(amgCfg);
             auto tBuild = std::chrono::steady_clock::now();
             amg_.build(A_);
             pressureStats_.amgBuilds++;
             pressureStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tBuild).count();
             amgPrec_.setAMG(&amg_);
-            amgBuilt_ = true;
+            // Only mark built when the hierarchy actually exists: setting this
+            // unconditionally meant a failed build was never retried for the
+            // same pattern and AMG silently stayed on the ILU fallback.
+            amgBuilt_ = amg_.isBuilt();
             amgValueUpdates_ = 0;
             amgPatternHash_ = patternHash;
             prevPMask_ = pMask_;
@@ -676,26 +668,37 @@ void PressureCorrection<Dim>::solve(
         }
 
         if (amg_.isBuilt()) {
-            const double krylovTol = 0.1;
+            // STAR parity: use the configured Convergence Tolerance directly
+            // (0.1) and Max Cycle (30) as the iteration cap. The SIMPLE outer
+            // loop, not the inner linear solve, is responsible for the final
+            // continuity level. (The old 1e-10 * volScale was below double
+            // precision and burned ~63 CG iterations per outer iteration.)
+            const double krylovTol =
+                std::max(1e-14, config_.pressureAmg.tolerance > 0.0
+                                    ? config_.pressureAmg.tolerance
+                                    : 0.1);
+            const int krylovMaxIter = std::max(1, config_.pressureAmg.maxIterations);
             if (!pPatternAnalyzed_ || compactChanged) {
-                bicgSolver_.setMaxIterations(1000);
+                bicgSolver_.setMaxIterations(krylovMaxIter);
                 bicgSolver_.setTolerance(krylovTol);
                 bicgSolver_.analyzePattern(A_);
-                cgAmgSolver_.setMaxIterations(1000);
+                cgAmgSolver_.setMaxIterations(krylovMaxIter);
                 cgAmgSolver_.setTolerance(krylovTol);
                 cgAmgSolver_.analyzePattern(A_);
                 pPatternAnalyzed_ = true;
                 prevCompact_ = config_.compactRhieChow;
             } else {
                 // A tolerance change must reach the already-analysed solvers.
+                bicgSolver_.setMaxIterations(krylovMaxIter);
                 bicgSolver_.setTolerance(krylovTol);
+                cgAmgSolver_.setMaxIterations(krylovMaxIter);
                 cgAmgSolver_.setTolerance(krylovTol);
             }
             auto tSolve = std::chrono::steady_clock::now();
             if (useCg) {
                 cgAmgSolver_.factorize(A_);
                 cgAmgSolver_.preconditioner().setAMG(&amg_);
-                cgAmgSolver_.preconditioner().setCycles(config_.amgPreconditionerCycles);
+                cgAmgSolver_.preconditioner().setCycles(config_.pressureAmgPreconditionerCycles);
                 x = cgAmgSolver_.solve(bVec_);
                 pressureStats_.amgKrylovIters += cgAmgSolver_.iterations();
                 converged = (cgAmgSolver_.info() == Eigen::Success) ||
@@ -715,7 +718,7 @@ void PressureCorrection<Dim>::solve(
                     [this](const Eigen::VectorXd& v) {
                         return amgPrec_.solve(v);
                     },
-                    krylovTol, 1000, 30);
+                    krylovTol, krylovMaxIter, 30);
                 pressureStats_.amgKrylovIters += static_cast<std::size_t>(gres.iterations);
                 converged = gres.converged;
                 lastSolveIterations_ = static_cast<std::size_t>(gres.iterations);
@@ -729,7 +732,7 @@ void PressureCorrection<Dim>::solve(
             } else {
                 bicgSolver_.factorize(A_);
                 bicgSolver_.preconditioner().setAMG(&amg_);
-                bicgSolver_.preconditioner().setCycles(config_.amgPreconditionerCycles);
+                bicgSolver_.preconditioner().setCycles(config_.pressureAmgPreconditionerCycles);
                 x = bicgSolver_.solve(bVec_);
                 pressureStats_.amgKrylovIters += bicgSolver_.iterations();
                 converged = (bicgSolver_.info() == Eigen::Success);
@@ -752,17 +755,22 @@ void PressureCorrection<Dim>::solve(
         }
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
             amg_.invalidate();
-            auto amgCfg = config_.amgConfig;
+            auto amgCfg = config_.pressureAmg;
             amg_.setConfig(amgCfg);
             auto tBuild = std::chrono::steady_clock::now();
             amg_.build(A_);
             pressureStats_.amgBuilds++;
             pressureStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tBuild).count();
-            amgBuilt_ = true;
+            amgBuilt_ = amg_.isBuilt();
             amgValueUpdates_ = 0;
             amgPatternHash_ = patternHash;
             prevPMask_ = pMask_;
             prevNonZeroPattern_ = triplets_.size();
+        } else {
+            // Standalone: the hierarchy is the solver, so it must carry the
+            // current operator. A hierarchy built on an older pressure matrix
+            // reports convergence against a system that no longer exists.
+            amg_.updateFineValues(A_);
         }
 
         if (amg_.isBuilt()) {
@@ -791,11 +799,15 @@ void PressureCorrection<Dim>::solve(
     if (!converged) {
         std::size_t nz = triplets_.size();
         if (!fallbackPatternAnalyzed_ || maskChanged || compactChanged || patternHash != fallbackPatternHash_) {
+            // Fallback is a safety net, not the STAR path: keep it accurate
+            // but clamp the old 1e-8 * volScale (also below double precision
+            // at fine meshes) to a reachable relative residual.
+            const double fallbackTol = std::max(1e-12, 1e-8 * volScale);
             bicgFallbackSolver_.setMaxIterations(10000);
-            bicgFallbackSolver_.setTolerance(1e-8 * volScale);
+            bicgFallbackSolver_.setTolerance(fallbackTol);
             bicgFallbackSolver_.analyzePattern(A_);
             cgSolver_.setMaxIterations(10000);
-            cgSolver_.setTolerance(1e-8 * volScale);
+            cgSolver_.setTolerance(fallbackTol);
             cgSolver_.analyzePattern(A_);
             fallbackPatternAnalyzed_ = true;
             fallbackPatternHash_ = patternHash;

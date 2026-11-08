@@ -64,14 +64,19 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         return {std::move(x), false, iters};
     }
 
-    const bool standaloneAmg = config_.amgAsSolver;
+    // STAR parity: Acceleration Method = None means the AMG hierarchy *is*
+    // the solver (its own Max Cycle / Convergence Tolerance drive it), not a
+    // preconditioner. The explicit amgAsSolver switch forces the same path.
+    const bool standaloneAmg =
+        config_.amgAsSolver ||
+        config_.amgConfig.acceleration == cfd::AmgSettings::Acceleration::None;
     if (!amgPathLogged_[component]) {
         const auto acc = config_.amgConfig.acceleration;
         std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
                   << "]: using ";
         if (standaloneAmg) {
             std::cerr << "AMG cycles.";
-        } else if (acc == AMGHierarchy::Config::Acceleration::GMRES) {
+        } else if (acc == cfd::AmgSettings::Acceleration::GMRES) {
             std::cerr << "AMG-preconditioned GMRES.";
         } else {
             std::cerr << "AMG-preconditioned BiCGSTAB.";
@@ -97,9 +102,21 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
             std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
                       << "]: WARNING: matrix has positive off-diagonals; AMG robustness may suffer\n";
         }
-    } else if (++amgValueUpdates_[component] >= std::max<std::size_t>(1, config_.amgRebuildInterval)) {
-        amgValueUpdates_[component] = 0;
-        amg_[component].updateFineValues(A);
+    } else {
+        // A standalone AMG cycle solves the operator it was set up with. In a
+        // preconditioner role the outer Krylov method absorbs stale values, but
+        // with Acceleration = None the hierarchy *is* the solver, so reusing a
+        // hierarchy built from ~5 outer iterations ago makes it converge (by
+        // its own residual test) to the wrong linear system. At Re=1000 that
+        // showed up as "AMG relative residual 1%" but a true residual of 30%
+        // and up against the current matrix, and the SIMPLE loop diverged.
+        // Refresh the fine-level values on every standalone solve.
+        const std::size_t interval =
+            standaloneAmg ? 1 : std::max<std::size_t>(1, config_.amgRebuildInterval);
+        if (++amgValueUpdates_[component] >= interval) {
+            amgValueUpdates_[component] = 0;
+            amg_[component].updateFineValues(A);
+        }
     }
 
     if (!amgBuilt_[component]) {
@@ -118,7 +135,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         Eigen::VectorXd x = warmStart;
         const bool ok = amg_[component].solve(b, x, cancelRequested);
         stats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        stats_.krylovIters += static_cast<std::size_t>(amg_[component].lastIterations());
+        stats_.amgCycleIters += static_cast<std::size_t>(amg_[component].lastIterations());
 
         if (cancelRequested && cancelRequested->load(std::memory_order_acquire)) {
             return {Eigen::VectorXd::Zero(b.size()), true, 0};
@@ -141,7 +158,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         }
         ++stats_.amgSolves;
         ++stats_.amgStandaloneSolves;
-        return {std::move(x), false, static_cast<std::size_t>(amg_[component].lastIterations())};
+        return {std::move(x), false, 0};
     }
 
     amgPrec_[component].setAMG(&amg_[component]);
@@ -155,7 +172,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
 
     const auto t0 = std::chrono::steady_clock::now();
     Eigen::VectorXd x = warmStart;
-    if (momAccel == AMGHierarchy::Config::Acceleration::GMRES) {
+    if (momAccel == cfd::AmgSettings::Acceleration::GMRES) {
         const GmresResult gres = gmresRestarted(
             b, x,
             [this, &A](const Eigen::VectorXd& v) { return A * v; },
@@ -304,6 +321,15 @@ void LinearSolverDispatcher<Dim>::printStats() const {
                   << "  " << (static_cast<double>(stats_.krylovIters) /
                               static_cast<double>(stats_.solves)) << "\n";
     }
+    if (stats_.amgCycleIters > 0) {
+        std::cerr << "    AMG cycle iters:  " << stats_.amgCycleIters << "\n";
+        if (stats_.amgStandaloneSolves > 0) {
+            std::cerr << "    AMG cycle/solve:  "
+                      << (static_cast<double>(stats_.amgCycleIters) /
+                          static_cast<double>(stats_.amgStandaloneSolves))
+                      << "\n";
+        }
+    }
     std::cerr << "    AMG build time:    " << stats_.buildSeconds << " s\n";
     std::cerr << "    AMG solve time:    " << stats_.amgSeconds << " s\n";
     std::cerr << "    ILU solve time:    " << stats_.iluSeconds << " s\n";
@@ -329,6 +355,21 @@ int LinearSolverDispatcher<Dim>::amgLevels(std::size_t d) const {
 template<std::size_t Dim>
 std::vector<int> LinearSolverDispatcher<Dim>::amgLevelSizes(std::size_t d) const {
     return amg_[d].levelSizes();
+}
+
+template<std::size_t Dim>
+int LinearSolverDispatcher<Dim>::amgLastIterations(std::size_t d) const {
+    return amg_[d].lastIterations();
+}
+
+template<std::size_t Dim>
+double LinearSolverDispatcher<Dim>::amgLastResidual(std::size_t d) const {
+    return amg_[d].lastResidual();
+}
+
+template<std::size_t Dim>
+const std::vector<double>& LinearSolverDispatcher<Dim>::amgLastResidualHistory(std::size_t d) const {
+    return amg_[d].lastResidualHistory();
 }
 
 template class LinearSolverDispatcher<2>;

@@ -70,4 +70,11 @@ private:
     QDoubleSpinBox* m_stagnationFactor = nullptr;
     QSpinBox* m_stagnationMinIter = nullptr;
     QDoubleSpinBox* m_stagnationLoose = nullptr;
+
+    // Flexible cycle 
+    QDoubleSpinBox* m_restrictionTolerance = nullptr;
+    QDoubleSpinBox* m_prolongationTolerance = nullptr;
+    QSpinBox* m_flexSweeps = nullptr;
+    QSpinBox* m_maxFineRelaxations = nullptr;
+    QSpinBox* m_maxCoarseRelaxations = nullptr;
 };

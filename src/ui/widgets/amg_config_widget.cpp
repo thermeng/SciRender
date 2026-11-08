@@ -117,10 +117,10 @@ void AmgConfigWidget::buildUi() {
     solver->addRow("Convergence Tolerance", m_tolerance);
 
     m_cycleType = styleCombo(new QComboBox(this));
-    m_cycleType->addItems({"V Cycle", "W Cycle", "F Cycle"});
+    m_cycleType->addItems({"V Cycle", "W Cycle", "F Cycle", "Flexible"});
     m_cycleType->setToolTip(
-        "Multimesh loop strategy. F Cycle and Variable are approximated by a V Cycle\n"
-        "by the amgcl backend.");
+        "Multimesh loop strategy. F = W followed by V (fixed). Flexible = residual-driven\n"
+        "α=0.1 termination, β=0.7 reduction tolerance.");
     solver->addRow("Cycle Type", m_cycleType);
 
     m_preSweeps = styleSpin(new QSpinBox(this));
@@ -137,6 +137,34 @@ void AmgConfigWidget::buildUi() {
     m_maxLevels->setRange(1, 100);
     m_maxLevels->setToolTip("Maximum number of multigrid levels in the sequence.");
     solver->addRow("Maximum Number Of Levels", m_maxLevels);
+
+    // ── Flexible Cycle ──────────────────────────────────────
+    QFormLayout* flex = makeGroup(rightCol, "Flexible Cycle");
+    m_restrictionTolerance = styleSpin(new QDoubleSpinBox(this));
+    m_restrictionTolerance->setRange(0.01, 0.99);
+    m_restrictionTolerance->setDecimals(2);
+    m_restrictionTolerance->setSingleStep(0.05);
+    m_restrictionTolerance->setToolTip("Restriction tolerance (beta). Go coarser when R_i > beta * R_{i-1} (residual not dropping).");
+    flex->addRow("Restriction", m_restrictionTolerance);
+
+    m_prolongationTolerance = styleSpin(new QDoubleSpinBox(this));
+    m_prolongationTolerance->setRange(0.01, 0.99);
+    m_prolongationTolerance->setDecimals(2);
+    m_prolongationTolerance->setSingleStep(0.05);
+    m_prolongationTolerance->setToolTip("Termination tolerance (alpha). Go finer / terminate when R_i < alpha * R_0 (correction converged).");
+    flex->addRow("Termination", m_prolongationTolerance);
+
+    m_flexSweeps = styleSpin(new QSpinBox(this));
+    m_flexSweeps->setRange(1, 100);
+    flex->addRow("Sweeps", m_flexSweeps);
+
+    m_maxFineRelaxations = styleSpin(new QSpinBox(this));
+    m_maxFineRelaxations->setRange(1, 1000);
+    flex->addRow("Max Fine Relaxations", m_maxFineRelaxations);
+
+    m_maxCoarseRelaxations = styleSpin(new QSpinBox(this));
+    m_maxCoarseRelaxations->setRange(1, 1000);
+    flex->addRow("Max Coarse Relaxations", m_maxCoarseRelaxations);
 
     // ── Robustness (expert) ──────────────────────────────────────────────────
     QFormLayout* robust = makeGroup(leftCol, "Robustness (Expert)");
@@ -217,8 +245,7 @@ void AmgConfigWidget::buildUi() {
     m_groupSizeControl = styleCombo(new QComboBox(this));
     m_groupSizeControl->addItems({"Automatic", "Manual"});
     m_groupSizeControl->setToolTip(
-        "Automatic resolves the group size for the equation being solved.\n"
-        "Manual lets you set it below.");
+        "Automatic: STAR Auto = 2 (2D) / 4 (3D) with padding. Manual: set below.");
     aggregation->addRow("Group Size Control", m_groupSizeControl);
 
     m_groupSize = styleSpin(new QSpinBox(this));
@@ -276,12 +303,13 @@ void AmgConfigWidget::buildUi() {
     // ── Change notifications ─────────────────────────────────────────────────
     for (QSpinBox* spin : {m_maxCycles, m_preSweeps, m_postSweeps, m_maxLevels,
                            m_directMaxEquations, m_groupSize, m_minCoarse,
-                           m_stagnationMinIter}) {
+                           m_stagnationMinIter, m_flexSweeps}) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit changed(); });
     }
     for (QDoubleSpinBox* spin : {m_tolerance, m_epsilon,
                                  m_strength, m_truncation, m_stagnationFactor,
-                                 m_stagnationLoose}) {
+                                 m_stagnationLoose, m_restrictionTolerance,
+                                 m_prolongationTolerance}) {
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
                 [this](double) { emit changed(); });
     }
@@ -303,6 +331,12 @@ void AmgConfigWidget::buildUi() {
 }
 
 void AmgConfigWidget::syncDependencies() {
+    const bool flex = m_cycleType->currentIndex() == static_cast<int>(cfd::AmgSettings::CycleType::Flexible);
+    m_restrictionTolerance->setEnabled(flex);
+    m_prolongationTolerance->setEnabled(flex);
+    m_flexSweeps->setEnabled(flex);
+    m_maxFineRelaxations->setEnabled(flex);
+    m_maxCoarseRelaxations->setEnabled(flex);
     m_directMaxEquations->setEnabled(m_directSolver->isChecked());
 
     const bool manualGroup =
@@ -363,6 +397,12 @@ void AmgConfigWidget::setConfig(const cfd::AmgSettings& s) {
     m_stagnationMinIter->setValue(s.stagnationMinIter);
     m_stagnationLoose->setValue(s.stagnationLooseFactor);
 
+    m_restrictionTolerance->setValue(s.flexBeta);
+    m_prolongationTolerance->setValue(s.flexAlpha);
+    m_flexSweeps->setValue(s.flexMaxSweeps);
+    m_maxFineRelaxations->setValue(s.flexMaxFineRelaxations);
+    m_maxCoarseRelaxations->setValue(s.flexMaxCoarseRelaxations);
+
     syncDependencies();
 }
 
@@ -403,5 +443,11 @@ cfd::AmgSettings AmgConfigWidget::config() const {
     s.stagnationFactor = m_stagnationFactor->value();
     s.stagnationMinIter = m_stagnationMinIter->value();
     s.stagnationLooseFactor = m_stagnationLoose->value();
+
+    s.flexBeta = m_restrictionTolerance->value();
+    s.flexAlpha = m_prolongationTolerance->value();
+    s.flexMaxSweeps = m_flexSweeps->value();
+    s.flexMaxFineRelaxations = m_maxFineRelaxations->value();
+    s.flexMaxCoarseRelaxations = m_maxCoarseRelaxations->value();
     return s;
 }

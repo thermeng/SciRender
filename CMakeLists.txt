@@ -208,7 +208,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/SIMPLEBoundaryConditions.cpp
         src/fvm/PressureCorrection.cpp
         src/fvm/AMG.cpp
-        src/fvm/AMG_F.h
+        src/fvm/HypreSolver.h
         src/fvm/HypreSolver.h
         src/io/VTKXMLWriter.cpp
         src/io/ANSYSMeshReader.cpp
@@ -219,7 +219,6 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/eigen-3.4.0"
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/json"
-        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/amgcl"
     )
     target_compile_features(FvmCore PUBLIC cxx_std_20)
     target_link_libraries(FvmCore PUBLIC CoreLib OpenMP::OpenMP_CXX)
@@ -231,6 +230,9 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
     )
     if(SCIRENDER_HAVE_HYPRE)
         target_compile_definitions(FvmCore PUBLIC FVM_HAVE_HYPRE=1)
+        if(SCIRENDER_HYPRE_MPI)
+            target_compile_definitions(FvmCore PUBLIC SCIRENDER_HYPRE_MPI=1)
+        endif()
         target_include_directories(FvmCore SYSTEM PUBLIC ${SCIRENDER_HYPRE_INCLUDE_DIRS})
         target_link_libraries(FvmCore PUBLIC
             ${SCIRENDER_HYPRE_LIBRARIES})
@@ -264,8 +266,6 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/cfd/case_codec.h
         src/cfd/field_utils.h
         src/cfd/mesh_build_policy.h
-        src/cfd/amg_settings_bridge.h
-        src/cfd/transient_settings_bridge.h
         src/cfd/cfd_mesh_adapter.h
         src/cfd/cfd_mesh_adapter.cpp
         src/cfd/cfd_result_builder.h

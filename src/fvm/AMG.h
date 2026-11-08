@@ -1,7 +1,7 @@
 #pragma once
 
+#include "cfd/cfd_types.h"
 #include "fvm/Types.h"
-#include <amgcl/backend/builtin.hpp>
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
 #include <Eigen/LU>
@@ -27,83 +27,8 @@ struct AmgHandleBase { virtual ~AmgHandleBase() = default; };
 
 class AMGHierarchy {
 public:
-    struct Config {
-        double strengthThreshold = 0.16;
-        double truncThreshold = 0.2;
-        int maxLevels = 50;
-        int minCoarseSize = 10;
-        int preSweeps = 1;
-        int postSweeps = 1;
-        int maxIterations = 30;
-        double tolerance = 0.1;
-        double stagnationFactor = 1.05;
-        int stagnationMinIter = 10;
-        double stagnationLooseFactor = 5.0;
-        // Non-symmetric operator (momentum): use smoothed aggregation + SPAI.
-        bool nonsymmetric = false;
+    using Config = cfd::AmgSettings;
 
-        // --- Solver construction (amgcl) --------------------------------
-        // 's AMG uses aggregation coarsening and a Gauss-Seidel
-        // smoother on every level, a V-cycle, and a direct solve on the
-        // coarsest level (its log shows the level sizes roughly halving down
-        // to 2 unknowns). The legacy Ruge-Stuben + ILU0 combination is kept
-        // selectable for comparison and as a robustness fallback.
-        enum class Coarsening { RugeStuben, SmoothedAggregation };
-        //  offers Jacobi / Gauss-Seidel / ILU. SPAI0 is kept as a
-        // legacy option for the nonsymmetric momentum operator.
-        enum class Smoother { Jacobi, GaussSeidel, ILU0, SPAI0 };
-        // Feedback printed while the hierarchy is built and cycled.
-        enum class Verbosity { None, Low, High, Diagnosis };
-        // Multimesh loop strategy. Flexible is residual-driven (α/β).
-        enum class CycleType { VCycle, WCycle, FCycle, Flexible };
-        // Walk encoding (legacy).
-        enum class FlexMove { Terminate = -2, Coarser = -1, Stay = 0, Finer = 1 };
-        // Flexible cycle parameters (STAR-CCM+ defaults):
-        // α = prolongation tolerance (R_i < α·R_0 → go finer), β = restriction
-        // tolerance (R_i > β·R_{i-1} → go coarser). Defaults α=0.5, β=0.9.
-        double flexAlpha = 0.5;
-        double flexBeta = 0.9;
-        int flexMaxSweeps = 1;
-        // Outer acceleration wrapped around the AMG hierarchy. None means the
-        // hierarchy itself is the solver ( momentum behaviour).
-        enum class Acceleration { None, ConjugateGradient, BiCGStab, GMRES };
-        // Coarse-grid correction scaling. amgcl has no equivalent, so this is
-        // stored for round-tripping and currently has no numerical effect.
-        enum class ProportionalScaling { Automatic, Disabled };
-        // Group (block) size used by aggregation coarsening.
-        enum class GroupSizeControl { Automatic, Manual };
-
-        Coarsening coarsening = Coarsening::SmoothedAggregation;
-        Smoother smoother = Smoother::GaussSeidel;
-        Verbosity verbosity = Verbosity::None;
-        CycleType cycleType = CycleType::VCycle;
-        Acceleration acceleration = Acceleration::ConjugateGradient;
-        ProportionalScaling scaling = ProportionalScaling::Disabled;
-        GroupSizeControl groupSizeControl = GroupSizeControl::Automatic;
-
-        // Stop coarsening once a level has at most this many unknowns. The
-        // coarsest level is then solved directly.  goes down to 2.
-        int coarseEnough = 2;
-        //  "Enable the direct solver" / "Maximum direct solver
-        // equations". When directCoarse is false the coarsest level is relaxed
-        // instead of factorised.
-        bool directCoarse = true;
-        // Absolute residual floor ( "Epsilon"). Below this the cycle
-        // stops regardless of the relative convergence tolerance.
-        double epsilon = 0.0;
-        // Block size for aggregation coarsening (1 for scalar equations).
-        int blockSize = 1;
-        // Cycles performed when the hierarchy is used as a preconditioner
-        // (amgcl `pre_cycles`).
-        int preCycles = 1;
-        // Flexible cycle struct (Hypre-style). Empty = use cycleType.
-        std::vector<FlexMove> flexStruct;
-        // Use Hypre BoomerAMG as the backend instead of amgcl. Default false:
-        // keeps the amgcl path (and every existing result) untouched until
-        // the user opts in. If Hypre was not found at configure time,
-        // useHypre=true silently falls back to amgcl in build().
-        bool useHypre = false;
-    };
     AMGHierarchy() = default;
     explicit AMGHierarchy(Config config) : config_(config) {}
 
@@ -117,12 +42,14 @@ public:
     // x applies multiple cycles. Never discards the incoming x.
     bool applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const;
 
+    // Recursive style flexible cycle. Evaluates alpha (termination) and
+    // beta (restriction) gates at every level, allowing multi-level traversal
+    // (e.g. 0-1-2-3-2-3-2-1-0) instead of a depth-capped static walk.
+    // Returns the correction at this level (x - x_start); x is modified in place.
+    Eigen::VectorXd flexCycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x) const;
+
     bool isBuilt() const { return built_; }
-    void invalidate() { built_ = false; amgHandle_.reset(); famgHandle_.reset(); hypreHandle_.reset(); hypreScale_.clear(); useHypreActive_ = false; levels_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; }
-    // Changing config invalidates any built hierarchy (amgcl, FAMG and
-    // Hypre handles); callers must rebuild before solving. Without this a
-    // stale handle built for the old cycle/smoother/backend would keep
-    // serving solve()/applyCycle() after setConfig().
+    void invalidate() { built_ = false; amgHandle_.reset(); hypreMat_.reset(); hypreSolver_.reset(); hypreScale_.clear(); useHypreActive_ = false; levels_.clear(); cgrid_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; lastResidualHistory_.clear(); buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; fineRows_.resize(0, 0); fineRowsReady_ = false; lazyBuild_ = false; hypreHierarchyReady_ = false; }
     void setConfig(Config config) { config_ = config; invalidate(); }
     const Config& config() const { return config_; }
     void updateFineValues(const SparseMatrix& A);
@@ -132,42 +59,72 @@ public:
     int numLevels() const { return nlevels_; }
     int fineSize() const { return n_; }
     const std::vector<int>& levelSizes() const { return levelSizes_; }
-    // amgcl's own hierarchy report ("Number of levels", operator complexity,
-    // per-level unknowns/nonzeros). Printed when solver statistics are on.
     const std::string& hierarchyReport() const { return report_; }
-    // Diagnostics of the last solve() call: cycles performed and the final
-    // relative residual (|b-Ax|/|b|), the same pair  logs.
     int lastIterations() const { return lastIterations_; }
     double lastResidual() const { return lastResidual_; }
+    const std::vector<double>& lastResidualHistory() const { return lastResidualHistory_; }
     double buildTime() const { return buildTimeSec_; }
     double solveTime() const { return solveTimeSec_; }
 
 private:
     Config config_;
-    std::vector<AMGLevel> levels_;
+    mutable std::vector<AMGLevel> levels_;
+    bool built_ = false;
     std::shared_ptr<void> amgHandle_;
-    mutable std::shared_ptr<void> famgHandle_; // F/Flexible own hierarchy
-    // Hypre BoomerAMG backend (HypreSolver::HypreSolverImpl + HypreMat).
-    mutable std::shared_ptr<void> hypreHandle_;
+    // Hypre-only
+    mutable std::shared_ptr<void> hypreMat_;
+    mutable std::shared_ptr<void> hypreSolver_;
     mutable std::vector<double> hypreScale_;
     mutable bool useHypreActive_ = false;
-    bool built_ = false;
     int n_ = 0;
     SparseMatrix systemMatrix_;
+    // Row-major copy of the fine operator used by the residual-gated Flexible
+    // cycle's level-0 Gauss-Seidel sweep. Rebuilt together with the hierarchy.
+    mutable Eigen::SparseMatrix<double, Eigen::RowMajor> fineRows_;
+    mutable bool fineRowsReady_ = false;
+    // A Flexible cycle is built lazily: the fine level is enough whenever one
+    // Gauss-Seidel sweep meets the tolerance (STAR reports exactly one level
+    // for momentum). The BoomerAMG hierarchy is only set up when the residual
+    // gate asks for a coarse correction.
+    bool lazyBuild_ = false;
+    mutable bool hypreHierarchyReady_ = false;
     std::vector<double> scale_;
-    int nlevels_ = 0;
-    std::vector<int> levelSizes_;
-    std::string report_;
-    mutable amgcl::backend::numa_vector<double> bn_work_;
-    mutable amgcl::backend::numa_vector<double> xn_work_;
+    mutable     int nlevels_ = 0;
+    mutable std::vector<int> levelSizes_;
+    // cgrid[i] = deepest level containing fine row i (from BoomerAMG grid
+    // hierarchy). Used to build per-level prolongation/restriction operators.
+    mutable std::vector<int> cgrid_;
+    mutable std::string report_;
+    // Hypre-only: workspaces per applyCycle
     mutable int lastIterations_ = 0;
     mutable double lastResidual_ = 0.0;
+    mutable std::vector<double> lastResidualHistory_;
     mutable double buildTimeSec_ = 0.0;
     mutable double solveTimeSec_ = 0.0;
 
-    void strengthOfConnection(const SparseMatrix& A, std::vector<std::vector<int>>& strongNeighbors) const;
+    void strengthOfConnection(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A, std::vector<std::vector<int>>& strongNeighbors) const;
 
-    void printSolveDiagnosis() const;
+    // Lazily set up the BoomerAMG hierarchy for a deferred Flexible build.
+    // Returns true when the hierarchy is ready (possibly already was).
+    bool ensureHypreBuilt_() const;
+
+    // Build per-level prolongation/restriction/operator from cgrid_ for the
+    // recursive Flexible cycle. Called from build() after the Hypre hierarchy
+    // is constructed.
+    void buildLevelOperators_() const;
+
+    // Level-0 Gauss-Seidel smoother for the residual-gated Flexible cycle.
+    void fineGaussSeidel_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                          int sweeps) const;
+
+    // Flexible solve: one fine sweep is the whole cycle when it reduces the
+    // residual below beta*R_{i-1}; otherwise a coarse AMG correction is
+    // applied (and the hierarchy is built on demand).
+    bool solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                        const std::atomic<bool>* cancel) const;
+
+    // One residual-gated Flexible cycle. Returns false on failure.
+    bool applyFlexibleCycle_(const Eigen::VectorXd& b, Eigen::VectorXd& x) const;
 
     void rsCoarsening(const std::vector<std::vector<int>>& strongNeighbors,
                       std::vector<int>& cfSplit, int& nCoarse) const;

@@ -3,8 +3,6 @@
 #include "cfd/cfd_types.h"
 #include "fvm/SIMPLE.h"
 #include "fvm/SIMPLETypes.h"
-#include "cfd/amg_settings_bridge.h"
-#include "cfd/transient_settings_bridge.h"
 
 namespace cfd {
 
@@ -14,65 +12,23 @@ namespace cfd {
 template <std::size_t Dim>
 inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& settings) {
     typename fvm::SIMPLE<Dim>::Config sc;
-
-    sc.maxIterations = settings.maxIterations;
-    sc.tolerance = settings.tolerance;
-    sc.contTol = settings.contTol;
-    sc.momUTol = settings.momUTol;
-    sc.momVTol = settings.momVTol;
-    sc.momWTol = settings.momWTol;
-    sc.turbKTol = settings.turbKTol;
-    sc.turbOmegaTol = settings.turbOmegaTol;
-    sc.gateContinuity = settings.gateContinuity;
-    sc.gateMomU = settings.gateMomU;
-    sc.gateMomV = settings.gateMomV;
-    sc.gateMomW = settings.gateMomW;
-    sc.gateTurbK = settings.gateTurbK;
-    sc.gateTurbOmega = settings.gateTurbOmega;
-    sc.fixedIterations = settings.fixedIterations;
-    sc.runFixedIterations = settings.runFixedIterations;
+    sc = settings; // Copy all CaseSettings fields (Config inherits from CaseSettings)
+    sc.solverType = settings.transient.enabled ? fvm::SolverType::PISO : fvm::SolverType::SIMPLE;
+    sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
+                          : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind
+                             : fvm::ConvectionScheme::Upwind);
+    sc.gradientScheme = settings.gradientScheme == 1 ? fvm::GradientScheme::GreenGaussCellBased
+                   : (settings.gradientScheme == 2 ? fvm::GradientScheme::GreenGaussNodeBased : fvm::GradientScheme::LeastSquares);
+    sc.pressureUseAMG = true;
+    sc.pressureUseAMGPreconditioner = true;
+    sc.pressureAmgThreshold = 0;
+    sc.pressureRefCell = settings.pressureRefCell == 0 ? SIZE_MAX : settings.pressureRefCell;
     // A fixed iteration cap overrides maxIterations and disables tolerance
     // gating (equivalent to runFixedIterations).
     if (settings.fixedIterations) {
         sc.maxIterations = *settings.fixedIterations;
         sc.runFixedIterations = true;
     }
-    sc.convergenceHoldIterations = settings.convergenceHoldIterations;
-    sc.normalizeResiduals = settings.normalizeResiduals;
-    sc.residualNormalizationIterations = settings.residualNormalizationIterations;
-    sc.alphaU = settings.alphaU;
-    sc.alphaP = settings.alphaP;
-    sc.simplec = settings.simplec;
-    sc.rhieChow = settings.rhieChow;
-    sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
-                          : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind
-                             : fvm::ConvectionScheme::Upwind);
-    sc.gradientScheme = settings.gradientScheme == 1 ? fvm::GradientScheme::GreenGaussCellBased
-                       : (settings.gradientScheme == 2 ? fvm::GradientScheme::GreenGaussNodeBased : fvm::GradientScheme::LeastSquares);
-    sc.printFrequency = settings.printFrequency;
-    sc.residualHistoryWindow = settings.residualHistoryWindow;
-    sc.velocityCorrectionMaxUnlimitedSpeed = settings.velocityCorrectionMaxUnlimitedSpeed;
-    sc.velocityCorrectionMaxGrowthRate = settings.velocityCorrectionMaxGrowthRate;
-    sc.pressureCorrectors = settings.pressureCorrectors;
-    sc.limitPressureCorrection = settings.limitPressureCorrection;
-    sc.pressureCorrectionLimit = settings.pressureCorrectionLimit;
-    sc.pressureRefCell = settings.pressureRefCell == 0 ? SIZE_MAX : settings.pressureRefCell;
-    // AMG is always on: pressure AMG hierarchy built and used as preconditioner.
-    sc.pressureUseAMG = true;
-    sc.pressureUseAMGPreconditioner = true;
-    sc.pressureAmgThreshold = 0;
-    sc.pressureAmgPreconditionerCycles = settings.pressureAmgPreconditionerCycles;
-    sc.pressureAmgConfig = toFvmAmg(settings.pressureAmg);
-    sc.momentumAmgConfig = toFvmAmg(settings.momentumAmg);
-    sc.momentumSolverStats = settings.momentumSolverStats;
-    // AMG is always on for momentum as well.
-    sc.turbulenceAmgConfig = toFvmAmg(settings.turbulenceAmg);
-    sc.momentumAmgCycles = settings.momentumAmgCycles;
-    sc.momentumAmgAsSolver = settings.momentumAmgAsSolver;
-    sc.turbulenceAmgCycles = settings.turbulenceAmgCycles;
-    sc.turbulenceAmgMaxResidual = settings.turbulenceAmgMaxResidual;
-    sc.solverType = toFvmSolverType(settings.transient);
-    sc.transient = toFvmTransient<Dim>(settings.transient);
 
     return sc;
 }

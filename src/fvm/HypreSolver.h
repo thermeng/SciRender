@@ -6,12 +6,6 @@
 // can be enabled with -DSCIRENDER_HYPRE_MPI=ON). This header is only
 // compiled with FVM_HAVE_HYPRE defined (see the root CMakeLists.txt).
 //
-// STAR-CCM+ parity target (lid 129x129): BoomerAMG with strength 0.25,
-// max 50 levels, coarse solve direct at <= 2 unknowns, Gauss-Seidel
-// smoother, V/W/F cycles and a Flexible cycle driven by a -2/-1/0/1 walk
-// struct (Terminate/Coarser/Stay/Finer) with prolongation alpha = 0.5 and
-// restriction beta = 0.9, 1 sweep.
-//
 // Matrix/vector exchange uses the Hypre master IJ interface (HYPRE_IJMatrix
 // / HYPRE_IJVector) instead of the removed-in-master ParCSR direct
 // construction (SetNumNonzeros / SetOffDiagValues / ParVectorGetData).
@@ -74,7 +68,7 @@ public:
     // describes. Returns true on success.
 #ifdef FVM_HAVE_HYPRE
     static bool buildSolver(const SparseMatrix& A,
-                            const class AMGHierarchy::Config& cfg,
+                            const cfd::AmgSettings& cfg,
                             HypreMat& mat, HypreSolverImpl& solver,
                             std::vector<double>& scale);
     // Apply one BoomerAMG cycle (MaxIter is forced to 1 in buildSolver) to
@@ -83,6 +77,13 @@ public:
     static bool applyCycle(HypreMat& mat, HypreSolverImpl& solver,
                            const Eigen::VectorXd& b, Eigen::VectorXd& x,
                            const std::vector<double>& scale);
+    // Real level sizes of a built BoomerAMG hierarchy, derived from
+    // HYPRE_BoomerAMGGetGridHierarchy(). levelSizes[0] is the finest grid.
+    // cgrid[i] is the deepest level still containing row i (0 = fine only).
+    // Returns false when the query fails (caller falls back to one level).
+    static bool hierarchyLevelSizes(HypreSolverImpl& solver, int n,
+                                    std::vector<int>& levelSizes,
+                                    std::vector<int>& cgrid);
     static bool hypreAvailable() { return true; }
 #else
     static bool hypreAvailable() { return false; }
@@ -168,28 +169,40 @@ inline HypreSolver::HypreSolverImpl::~HypreSolverImpl() {
 }
 
 inline bool HypreSolver::buildSolver(const SparseMatrix& A,
-                                     const AMGHierarchy::Config& cfg,
+                                     const cfd::AmgSettings& cfg,
                                      HypreMat& mat, HypreSolverImpl& solver,
                                      std::vector<double>& scale) {
-    const int n = static_cast<int>(A.rows());
+    // BoomerAMG has no block-size option (scalar coarsening only), so the
+    // STAR "Group Size = Auto" (2 in 2D) padding has no purpose here. Padding
+    // must not be done with SparseMatrix::resize(): resize() deallocates every
+    // nonzero, which silently handed Hypre an empty matrix for any odd n
+    // (16641 unknowns on the 129x129 cavity) and made AMG setup fail.
+    int n = static_cast<int>(A.rows());
+    SparseMatrix Aeff = A;
     if (n <= 0 || static_cast<int>(A.cols()) != n) return false;
 
     hypre_detail::ensureHypreInitialized();
+    // Hypre's error flag is sticky: a failed setup leaves it set, and every
+    // later Hypre call then returns the same stale code (e.g. all subsequent
+    // IJMatrixCreate calls "failing" with the first setup's error). Clear it
+    // before each build so a single failure does not cascade.
+    HYPRE_ClearAllErrors();
 
     // Symmetric diagonal equilibration (same Automatic scaling rule as the
     // amgcl path). The caller must apply/invert `scale` around b/x.
     scale.clear();
-    if (cfg.scaling == AMGHierarchy::Config::ProportionalScaling::Automatic) {
+    if (cfg.scaling == cfd::AmgSettings::ProportionalScaling::Automatic) {
         scale.assign(n, 1.0);
         for (int i = 0; i < n; ++i) {
-            const double diag = A.coeff(i, i);
+            const double diag = Aeff.coeff(i, i);
             if (std::abs(diag) > 0.0)
                 scale[i] = 1.0 / std::sqrt(std::abs(diag));
         }
     }
 
-    // Copy into RowMajor CSR so we can hand Hypre row-by-row arrays.
-    Eigen::SparseMatrix<double, Eigen::RowMajor> AR = A;
+    // Bandwidth reorder is internal to Hypre; keep AR as Original ordering,
+    // but sort each row by column (Hypre expects sorted IJ rows).
+    Eigen::SparseMatrix<double, Eigen::RowMajor> AR = Aeff;
     AR.makeCompressed();
     if (!scale.empty()) {
         const int* outer = AR.outerIndexPtr();
@@ -237,115 +250,68 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
         }
     }
 
+    auto fail = [](const char* what, HYPRE_Int rc) {
+        std::cerr << "  Hypre: " << what << " failed (rc=" << rc << ")\n";
+        return false;
+    };
+
     HYPRE_IJMatrix ij = nullptr;
-    if (HYPRE_IJMatrixCreate(hypre_detail::hypreComm(), ilower, iupper, jlower, jupper, &ij) != 0) {
-        return false;
+    if (HYPRE_Int rc = HYPRE_IJMatrixCreate(hypre_detail::hypreComm(), ilower, iupper, jlower, jupper, &ij); rc != 0) {
+        return fail("IJMatrixCreate", rc);
     }
-    if (HYPRE_IJMatrixSetObjectType(ij, HYPRE_PARCSR) != 0 ||
-        HYPRE_IJMatrixInitialize(ij) != 0) {
+    if (HYPRE_Int rc = HYPRE_IJMatrixSetObjectType(ij, HYPRE_PARCSR); rc != 0) {
         HYPRE_IJMatrixDestroy(ij);
-        return false;
+        return fail("IJMatrixSetObjectType", rc);
+    }
+    if (HYPRE_Int rc = HYPRE_IJMatrixInitialize(ij); rc != 0) {
+        HYPRE_IJMatrixDestroy(ij);
+        return fail("IJMatrixInitialize", rc);
     }
     // SetRowSizes is optional but avoids reallocation during SetValues.
-    if (HYPRE_IJMatrixSetRowSizes(ij, rowSizes.data()) != 0) {
+    if (HYPRE_Int rc = HYPRE_IJMatrixSetRowSizes(ij, rowSizes.data()); rc != 0) {
         HYPRE_IJMatrixDestroy(ij);
-        return false;
+        return fail("IJMatrixSetRowSizes", rc);
     }
-    if (HYPRE_IJMatrixSetValues(ij, static_cast<HYPRE_Int>(n), ncols.data(),
-                                rows.data(), cols.data(), values.data()) != 0) {
+    if (HYPRE_Int rc = HYPRE_IJMatrixSetValues(ij, static_cast<HYPRE_Int>(n), ncols.data(),
+                                rows.data(), cols.data(), values.data()); rc != 0) {
         HYPRE_IJMatrixDestroy(ij);
-        return false;
+        return fail("IJMatrixSetValues", rc);
     }
-    if (HYPRE_IJMatrixAssemble(ij) != 0) {
+    if (HYPRE_Int rc = HYPRE_IJMatrixAssemble(ij); rc != 0) {
         HYPRE_IJMatrixDestroy(ij);
-        return false;
+        return fail("IJMatrixAssemble", rc);
     }
     mat.mat = static_cast<void*>(ij);
 
     HYPRE_ParCSRMatrix parA = nullptr;
-    if (HYPRE_IJMatrixGetObject(ij, reinterpret_cast<void**>(&parA)) != 0 || !parA) {
+    if (HYPRE_Int rc = HYPRE_IJMatrixGetObject(ij, reinterpret_cast<void**>(&parA)); rc != 0 || !parA) {
         HYPRE_IJMatrixDestroy(ij);
         mat.mat = nullptr;
-        return false;
+        return fail("IJMatrixGetObject (matrix)", rc);
     }
 
     // --- BoomerAMG configuration -----------------------------------------
     HYPRE_Solver amg = nullptr;
-    if (HYPRE_BoomerAMGCreate(&amg) != 0) return false;
+    if (HYPRE_Int rc = HYPRE_BoomerAMGCreate(&amg); rc != 0) return fail("BoomerAMGCreate", rc);
     solver.solver = static_cast<void*>(amg);
 
     // V-cycle (1) / W-cycle (2).
     const HYPRE_Int cycleType =
-        (cfg.cycleType == AMGHierarchy::Config::CycleType::WCycle) ? 2 : 1;
+        (cfg.cycleType == cfd::AmgSettings::CycleType::WCycle) ? 2 : 1;
     HYPRE_BoomerAMGSetCycleType(amg, cycleType);
     // F-cycle (Full multigrid).
-    if (cfg.cycleType == AMGHierarchy::Config::CycleType::FCycle)
+    if (cfg.cycleType == cfd::AmgSettings::CycleType::FCycle)
         HYPRE_BoomerAMGSetFCycle(amg, 1);
 
-    // Flexible cycle: -2 Terminate / -1 Coarser / 0 Stay / 1 Finer walk.
-    // Alpha (prolongation) and beta (restriction) are the coarse-grid
-    // correction scaling factors applied on every Finer step; 1 sweep each.
-    // NOTE: HYPRE_BoomerAMGSetFlexibleCycleStruct / SetFlexibleCGCScalingFactors
-    // store the array pointer without copying and free it with hypre_TFree on
-    // BoomerAMGDestroy. The arrays MUST therefore be malloc-allocated (hypre's
-    // host allocator is malloc) and ownership transferred to Hypre; passing a
-    // std::vector buffer here leaves a dangling pointer after buildSolver
-    // returns (heap corruption on the next solve).
-    if (cfg.cycleType == AMGHierarchy::Config::CycleType::Flexible) {
-        std::vector<HYPRE_Int> flexTmp;
-        if (!cfg.flexStruct.empty()) {
-            for (auto m : cfg.flexStruct)
-                flexTmp.push_back(static_cast<HYPRE_Int>(m));
-        } else {
-            // Default walk: stay, go coarser, go finer, stay, terminate.
-            // Depth 1 (not the older depth-3 walk): the flex walk depth must
-            // not exceed the actual hierarchy depth. On small problems (e.g.
-            // the 20x20/32x32 test Laplacians, 3-4 levels) a depth-3 walk
-            // overshoots the coarsest level and the cycle then stalls
-            // (~0.9 residual factor per cycle, never reaching tolerance in
-            // 30 cycles). Depth 1 converges on both the small test
-            // problems and the 129x129 lid target (~0.44-0.48 per cycle
-            // with alpha=0.5, i.e. within maxIterations=30). Trailing -2
-            // is required by Hypre. Explicit Config::flexStruct walks are
-            // honoured verbatim.
-            flexTmp = {0, -1, 1, 0, -2};
-        }
-        std::vector<HYPRE_Real> cgcTmp;
-        cgcTmp.reserve(flexTmp.size());
-        for (HYPRE_Int step : flexTmp)
-            cgcTmp.push_back(step == 1 ? static_cast<HYPRE_Real>(cfg.flexAlpha) : 1.0);
-        const std::size_t nFlex = flexTmp.size();
-        HYPRE_Int* flex = static_cast<HYPRE_Int*>(
-            std::malloc(nFlex * sizeof(HYPRE_Int)));
-        HYPRE_Real* cgc = static_cast<HYPRE_Real*>(
-            std::malloc(nFlex * sizeof(HYPRE_Real)));
-        if (!flex || !cgc) {
-            if (flex) std::free(flex);
-            if (cgc) std::free(cgc);
-            // Fall back to a non-flexible V-cycle rather than failing.
-            HYPRE_BoomerAMGSetNumSweeps(amg, 1);
-        } else {
-            for (std::size_t i = 0; i < nFlex; ++i) {
-                flex[i] = flexTmp[i];
-                cgc[i] = cgcTmp[i];
-            }
-            // Ownership of flex/cgc passes to Hypre (freed on Destroy).
-            HYPRE_BoomerAMGSetFlexibleCycleStruct(amg, flex);
-            // HYPRE exposes per-step coarse-grid correction scaling
-            // (prolongation). Beta (restriction) has no direct Hypre knob; it is
-            // kept in the config and honoured by the own FAMGHierarchy flexible
-            // walk, so here it is recorded but not passed to Hypre. Log it so
-            // a non-default beta is never silently dropped.
-            if (cfg.flexBeta != 1.0) {
-                std::cerr << "  Hypre: flexBeta=" << cfg.flexBeta
-                          << " has no BoomerAMG knob and is ignored "
-                             "(alpha=" << cfg.flexAlpha << " is honoured).\n";
-            }
-            HYPRE_BoomerAMGSetFlexibleCGCScalingFactors(amg, cgc);
-            const HYPRE_Int sweeps =
-                cfg.flexMaxSweeps > 0 ? static_cast<HYPRE_Int>(cfg.flexMaxSweeps) : 1;
-            HYPRE_BoomerAMGSetNumSweeps(amg, sweeps);
-        }
+    // Flexible cycle: we no longer use Hypre's static FlexibleCycleStruct
+    // (depth-capped at 1). The recursive residual-driven traversal lives in
+    // AMGHierarchy::flexCycle, which evaluates alpha/beta gates at every
+    // level. BoomerAMG is only used here to build the hierarchy (cgrid +
+    // level sizes); the actual multigrid cycling is done by AMGHierarchy.
+    if (cfg.cycleType == cfd::AmgSettings::CycleType::Flexible) {
+        const HYPRE_Int sweeps =
+            cfg.flexMaxSweeps > 0 ? static_cast<HYPRE_Int>(cfg.flexMaxSweeps) : 1;
+        HYPRE_BoomerAMGSetNumSweeps(amg, sweeps);
     }
 
     // Smoother: map Config::Smoother where Hypre has an equivalent relax
@@ -354,9 +320,8 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     // instead of silently ignoring the selection.
     {
         const HYPRE_Int relaxType =
-            (cfg.smoother == AMGHierarchy::Config::Smoother::Jacobi) ? 0 : 3;
-        if (cfg.smoother == AMGHierarchy::Config::Smoother::ILU0 ||
-            cfg.smoother == AMGHierarchy::Config::Smoother::SPAI0) {
+            (cfg.smoother == cfd::AmgSettings::Smoother::Jacobi) ? 0 : 3;
+        if (cfg.smoother == cfd::AmgSettings::Smoother::ILU) {
             std::cerr << "  Hypre: smoother ILU0/SPAI0 has no BoomerAMG "
                          "equivalent; using Gauss-Seidel.\n";
         }
@@ -365,11 +330,33 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     HYPRE_BoomerAMGSetCycleRelaxType(amg, 4, 2);
     HYPRE_BoomerAMGSetCycleRelaxType(amg, 9, 3);
 
-    // Strength: honour Config::strengthThreshold (falling back to Hypre's
-    // 2D-Laplace default 0.25 when unset/non-positive).
+    // Pre/post smoothing sweeps. STAR exposes 1/1 for pressure and a single
+    // sweep count for momentum. A Flexible cycle already applied its own
+    // flexMaxSweeps above, so only the fixed cycles map pre/post separately.
+    if (cfg.cycleType != cfd::AmgSettings::CycleType::Flexible) {
+        const HYPRE_Int pre =
+            static_cast<HYPRE_Int>(cfg.preSweeps > 0 ? cfg.preSweeps : 1);
+        const HYPRE_Int post =
+            static_cast<HYPRE_Int>(cfg.postSweeps > 0 ? cfg.postSweeps : 1);
+        HYPRE_BoomerAMGSetCycleNumSweeps(amg, pre, 1);
+        HYPRE_BoomerAMGSetCycleNumSweeps(amg, post, 2);
+    }
+
+    // Research: Hypre default 0.25 sits on boundary -> 1 level. Need 0.5+.
     const double strength =
-        (cfg.strengthThreshold > 0.0) ? cfg.strengthThreshold : 0.25;
+        (cfg.strengthThreshold > 0.0) ? cfg.strengthThreshold : 0.5;
     HYPRE_BoomerAMGSetStrongThreshold(amg, strength);
+    // Coarsening algorithm selected in the UI. BoomerAMG has no smoothed
+    // aggregation variant, so the two UI choices map to the closest classical
+    // coarsening Hypre provides:
+    //   Ruge-Stuben        -> 3  (classical RS on each rank + boundary pass)
+    //   SmoothedAggregation -> 10 (HMIS, Hypre's robust default; SA itself is
+    //                              not available in BoomerAMG)
+    const HYPRE_Int coarsenType =
+        (cfg.coarsening == cfd::AmgSettings::Coarsening::RugeStuben) ? 3 : 10;
+    HYPRE_BoomerAMGSetCoarsenType(amg, coarsenType);
+    HYPRE_BoomerAMGSetInterpType(amg, 6); // extended+i (Hypre default)
+    HYPRE_BoomerAMGSetMaxRowSum(amg, 1.0); // disable diag dom check
     // Max levels 50.
     HYPRE_BoomerAMGSetMaxLevels(amg,
         cfg.maxLevels > 0 ? static_cast<HYPRE_Int>(cfg.maxLevels) : 50);
@@ -385,6 +372,10 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     HYPRE_BoomerAMGSetTol(amg, 0.0);
     HYPRE_BoomerAMGSetMaxIter(amg, 1);
 
+    // Hypre's native BoomerAMG printing is disabled (print_level=0) so it
+    // never writes to the terminal or any GUI output stream.
+    HYPRE_BoomerAMGSetPrintLevel(amg, 0);
+
     // --- Setup with zero IJ vectors --------------------------------------
     HYPRE_IJVector bvec = nullptr, xvec = nullptr;
     HYPRE_ParVector parB = nullptr, parX = nullptr;
@@ -393,8 +384,9 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
         indices[static_cast<std::size_t>(i)] = static_cast<HYPRE_BigInt>(i);
     std::vector<HYPRE_Real> zeros(static_cast<std::size_t>(n), 0.0);
 
-    if (HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &bvec) != 0 ||
+    if (HYPRE_Int rc = HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &bvec); rc != 0 ||
         HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &xvec) != 0) {
+        std::cerr << "  Hypre: IJVectorCreate failed\n";
         if (bvec) HYPRE_IJVectorDestroy(bvec);
         if (xvec) HYPRE_IJVectorDestroy(xvec);
         return false;
@@ -409,10 +401,30 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     HYPRE_IJVectorAssemble(xvec);
     HYPRE_IJVectorGetObject(bvec, reinterpret_cast<void**>(&parB));
     HYPRE_IJVectorGetObject(xvec, reinterpret_cast<void**>(&parX));
-    const bool setupOk = (parB && parX && HYPRE_BoomerAMGSetup(amg, parA, parB, parX) == 0);
+    const HYPRE_Int setupRc = (parB && parX) ? HYPRE_BoomerAMGSetup(amg, parA, parB, parX) : -1;
     if (bvec) HYPRE_IJVectorDestroy(bvec);
     if (xvec) HYPRE_IJVectorDestroy(xvec);
-    return setupOk;
+    if (!parB || !parX) return fail("IJVectorGetObject", setupRc);
+    if (setupRc != 0) {
+        char descr[256] = {0};
+        HYPRE_DescribeError(setupRc, descr);
+        int emptyRows = 0, zeroDiag = 0;
+        double minAbsDiag = 1e300, maxAbsDiag = 0.0;
+        const int* aouter = AR.outerIndexPtr();
+        for (int i = 0; i < n; ++i) {
+            const double d = std::abs(Aeff.coeff(i, i));
+            if (aouter[i + 1] - aouter[i] == 0) ++emptyRows;
+            if (d == 0.0) ++zeroDiag;
+            else { minAbsDiag = std::min(minAbsDiag, d); maxAbsDiag = std::max(maxAbsDiag, d); }
+        }
+        std::cerr << "  Hypre: BoomerAMGSetup failed (rc=" << setupRc << ") " << descr
+                  << "\n    n=" << n << " nnz=" << Aeff.nonZeros()
+                  << " emptyRows=" << emptyRows << " zeroDiag=" << zeroDiag
+                  << " |diag| in [" << minAbsDiag << ", " << maxAbsDiag << "]"
+                  << " strength=" << strength << "\n";
+        return false;
+    }
+    return true;
 }
 
 inline bool HypreSolver::applyCycle(HypreMat& mat, HypreSolverImpl& solver,
@@ -420,21 +432,28 @@ inline bool HypreSolver::applyCycle(HypreMat& mat, HypreSolverImpl& solver,
                                     Eigen::VectorXd& x,
                                     const std::vector<double>& scale) {
     if (!mat.ok() || !solver.ok()) return false;
-    const int n = static_cast<int>(b.size());
-    if (n <= 0 || static_cast<int>(x.size()) != n) return false;
+    const int origN = static_cast<int>(b.size());
+    if (origN <= 0 || static_cast<int>(x.size()) != origN) return false;
+    // Pad b/x to Hypre matrix size (padded rows) — scale holds padded size
+    int n = origN;
+    if (!scale.empty() && (int)scale.size() > n) n = (int)scale.size();
 
     hypre_detail::ensureHypreInitialized();
+    // Same sticky-error hazard as buildSolver(): clear before every solve so
+    // one failed cycle does not make every later Hypre call report failure.
+    HYPRE_ClearAllErrors();
 
     HYPRE_IJMatrix ij = static_cast<HYPRE_IJMatrix>(mat.mat);
     HYPRE_ParCSRMatrix parA = nullptr;
     if (HYPRE_IJMatrixGetObject(ij, reinterpret_cast<void**>(&parA)) != 0 || !parA) return false;
 
-    const bool hasScale = (static_cast<int>(scale.size()) == n);
-    std::vector<HYPRE_Real> bdata(static_cast<std::size_t>(n)), xdata(static_cast<std::size_t>(n));
-    for (int i = 0; i < n; ++i) {
+    const bool hasScale = !scale.empty();
+    std::vector<HYPRE_Real> bdata(static_cast<std::size_t>(n), 0.0), xdata(static_cast<std::size_t>(n), 0.0);
+    for (int i = 0; i < origN; ++i) {
         bdata[static_cast<std::size_t>(i)] = static_cast<HYPRE_Real>(hasScale ? b(i) * scale[i] : b(i));
         xdata[static_cast<std::size_t>(i)] = static_cast<HYPRE_Real>(hasScale ? x(i) / scale[i] : x(i));
     }
+    // padded rows: b=0, x=0 (identity rows solve to 0)
 
     const HYPRE_BigInt ilower = 0;
     const HYPRE_BigInt iupper = static_cast<HYPRE_BigInt>(n - 1);
@@ -474,12 +493,44 @@ inline bool HypreSolver::applyCycle(HypreMat& mat, HypreSolverImpl& solver,
         HYPRE_IJVectorDestroy(xvec);
         return false;
     }
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < origN; ++i)
         x(i) = static_cast<double>(xout[static_cast<std::size_t>(i)]) * (hasScale ? scale[i] : 1.0);
     HYPRE_IJVectorDestroy(bvec);
     HYPRE_IJVectorDestroy(xvec);
     if (!x.allFinite()) { x.setZero(); return false; }
     return rc == 0;
+}
+
+inline bool HypreSolver::hierarchyLevelSizes(HypreSolverImpl& solver, int n,
+                                             std::vector<int>& levelSizes,
+                                             std::vector<int>& cgrid) {
+    levelSizes.clear();
+    cgrid.clear();
+    if (!solver.solver || n <= 0) return false;
+    // Sticky error flag: clear first so a stale failure does not mask this
+    // (read-only) query, and clear again so we leave no trace for the caller.
+    HYPRE_ClearAllErrors();
+    std::vector<HYPRE_Int> cgridTmp(static_cast<std::size_t>(n), 0);
+    if (HYPRE_BoomerAMGGetGridHierarchy(static_cast<HYPRE_Solver>(solver.solver),
+                                        cgridTmp.data()) != 0) {
+        HYPRE_ClearAllErrors();
+        return false;
+    }
+    cgrid.assign(cgridTmp.begin(), cgridTmp.end());
+    // cgrid[i] is the deepest level still containing row i (0 = fine only),
+    // so level L holds every row with cgrid[i] >= L.
+    HYPRE_Int maxLevel = 0;
+    for (HYPRE_Int v : cgridTmp) maxLevel = std::max(maxLevel, v);
+    levelSizes.assign(static_cast<std::size_t>(maxLevel) + 1, 0);
+    for (HYPRE_Int lvl = 0; lvl <= maxLevel; ++lvl) {
+        int count = 0;
+        for (HYPRE_Int v : cgridTmp) {
+            if (v >= lvl) ++count;
+        }
+        levelSizes[static_cast<std::size_t>(lvl)] = count;
+    }
+    HYPRE_ClearAllErrors();
+    return true;
 }
 
 } // namespace fvm
