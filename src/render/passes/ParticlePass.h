@@ -3,6 +3,7 @@
 #include "render/foundation/gl_raii.h"
 
 #include <glm/glm.hpp>
+#include <glad/gl.h>
 
 #include <vector>
 
@@ -20,13 +21,15 @@ public:
               StreamlineSet& streamlines,
               const ColormapManager& colormap);
     void shutdown();
-    void release() { particleVao.reset(); particleVbo.reset(); m_particleVertexCount = 0; }
+    void release() { particleVao.reset(); particleVbo.reset(); m_particleVertexCount = 0; particleVboCapacityBytes_ = 0; }
     void resetCount() { m_particleVertexCount = 0; }
 
 private:
     GlProgram particleProgram;
     GlVao particleVao;
     GlBuffer particleVbo;
+    GLsizeiptr particleVboCapacityBytes_ = 0;
+    std::vector<float> m_particleVertsScratch;
     int m_particleVertexCount = 0;
     GLint particleColorLoc = -1;
     GLint particleMvpLoc = -1;

@@ -29,6 +29,11 @@ if(MINGW)
 endif()
 
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # Parallel LTO: avoid lto-wrapper "serial compilation of N LTRANS jobs"
+    set(CMAKE_C_COMPILE_OPTIONS_IPO   "-flto=auto")
+    set(CMAKE_CXX_COMPILE_OPTIONS_IPO "-flto=auto")
+endif()
 
 # ---------------------------------------------------------------------------
 # 1. Locate System Dependencies

@@ -65,7 +65,7 @@ private:
     int m_resolveH = 0;
 
     // PBO double-buffer for async readback
-    GLuint m_pboIds[2] = {};
+    GlBuffer m_pbo[2];
     int m_pboIdx = 0;
     size_t m_pboCapacity = 0;
     bool m_pboReady = false;
@@ -92,7 +92,7 @@ private:
         GLint blendDst = GL_ZERO;
         GLint blendEquationRgb = GL_FUNC_ADD;
         GLint blendEquationAlpha = GL_FUNC_ADD;
-        GLint polygonMode[2] = {GL_FILL, GL_FILL};
+        GLint polygonMode = GL_FILL;
         GLint currentProgram = 0;
         GLint vertexArrayBinding = 0;
         GLint elementArrayBuffer = 0;

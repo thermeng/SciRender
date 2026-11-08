@@ -7,6 +7,14 @@
 typedef unsigned int GLuint;
 typedef int GLint;
 
+// Pluggable check so RenderCore (Qt-free) can gate GL deletions on a live
+// context. Qt layer installs a check returning QOpenGLContext::currentContext()
+// != nullptr. Default (no check installed) returns true to preserve legacy
+// behavior; explicit teardown on context loss is the correctness path.
+using GlContextCheckFn = bool (*)();
+void setGlContextCheck(GlContextCheckFn fn);
+bool glContextAlive();
+
 class GlTexture {
     GLuint m_id = 0;
 public:
@@ -120,6 +128,25 @@ public:
     operator GLuint() const { return m_id; }
 };
 
+class GlQuery {
+    GLuint m_id = 0;
+public:
+    GlQuery() = default;
+    explicit GlQuery(GLuint id) : m_id(id) {}
+    ~GlQuery();
+    GlQuery(GlQuery&& o) noexcept : m_id(o.m_id) { o.m_id = 0; }
+    GlQuery& operator=(GlQuery&& o) noexcept { reset(); m_id = o.m_id; o.m_id = 0; return *this; }
+    GlQuery(const GlQuery&) = delete;
+    GlQuery& operator=(const GlQuery&) = delete;
+
+    GLuint get() const { return m_id; }
+    GLuint* ptr() { return &m_id; }
+    GLuint release() { GLuint r = m_id; m_id = 0; return r; }
+    void reset(GLuint id = 0);
+    bool has() const { return m_id != 0; }
+    operator GLuint() const { return m_id; }
+};
+
 // RAII guard that saves the render state a pass/overlay mutates (viewport,
 // depth/blend/cull/scissor/program-point-size/sRGB enables, depth func/mask/clamp,
 // blend func/equation, polygon mode, clip control, active texture, line width,
@@ -147,12 +174,12 @@ private:
     int m_blendSrcRgb = 0, m_blendDstRgb = 0;
     int m_blendSrcAlpha = 0, m_blendDstAlpha = 0;
     int m_blendEquationRgb = 0, m_blendEquationAlpha = 0;
-    int m_polyMode[2] = {};
     int m_clipOrigin = 0, m_clipDepthMode = 0;
     int m_activeTexture = 0;
     float m_lineWidth = 1.0f;
     float m_clearColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     GLint m_currentProgram = 0;
+    int m_polyMode = 0;
 };
 
 // Describes one interleaved vertex attribute: shader location, component

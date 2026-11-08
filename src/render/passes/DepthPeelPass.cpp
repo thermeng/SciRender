@@ -113,7 +113,7 @@ void DepthPeelPass::reinitForNewContext() {
     m_peelProgram.reset(); m_peelClipProgram.reset(); m_blitProgram.reset();
     // GL objects are context-owned; the query is recreated lazily in
     // ensureTargets, so just drop the handle here.
-    m_queryId = 0;
+    m_query.reset();
 }
 
 void DepthPeelPass::ensureTargets(int w, int h) {
@@ -163,7 +163,7 @@ void DepthPeelPass::ensureTargets(int w, int h) {
     glTextureParameteri(m_opaqueDepth, GL_TEXTURE_COMPARE_MODE, GL_NONE);
 
     glCreateVertexArrays(1, m_dummyVao.ptr());
-    if (!m_queryId) glGenQueries(1, &m_queryId);
+    if (!m_query.has()) glGenQueries(1, m_query.ptr());
     m_width = w; m_height = h;
 }
 
@@ -391,7 +391,7 @@ void DepthPeelPass::renderTransparent(int vpW, int vpH,
             glBindTextureUnit(0, m_opaqueDepth);
             glBindTextureUnit(1, m_depthRange[srcSlot]);
             glBindTextureUnit(2, m_front[srcSlot]);
-            glBeginQuery(GL_SAMPLES_PASSED, m_queryId);
+            glBeginQuery(GL_SAMPLES_PASSED, m_query);
             for (const auto& m : transparentMeshes) drawTranslucent(m.first, m.second);
             glEndQuery(GL_SAMPLES_PASSED);
         }
@@ -418,9 +418,9 @@ void DepthPeelPass::renderTransparent(int vpW, int vpH,
         //     remaining layers are sub-pixel -- resolving them further cannot
         //     change a visible pixel, so stop and let the ALPHA mop-up blend
         //     the tail. This is why the user never has to pick a pass count.
-        if (m_queryId && pass > 0) {
+        if (m_query.has() && pass > 0) {
             GLuint written = 0;
-            glGetQueryObjectuiv(m_queryId, GL_QUERY_RESULT, &written);
+            glGetQueryObjectuiv(m_query, GL_QUERY_RESULT, &written);
             if (written <= occlusionThreshold) {
                 peelingDone = true;
             }

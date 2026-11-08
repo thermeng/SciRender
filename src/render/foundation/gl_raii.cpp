@@ -1,23 +1,33 @@
 #include "render/foundation/gl_raii.h"
 #include <glad/gl.h>
 
-GlTexture::~GlTexture() { if (m_id) glDeleteTextures(1, &m_id); }
-void GlTexture::reset(GLuint id) { if (m_id) glDeleteTextures(1, &m_id); m_id = id; }
+namespace {
+GlContextCheckFn g_glContextCheck = nullptr;
+} // namespace
 
-GlBuffer::~GlBuffer() { if (m_id) glDeleteBuffers(1, &m_id); }
-void GlBuffer::reset(GLuint id) { if (m_id) glDeleteBuffers(1, &m_id); m_id = id; }
+void setGlContextCheck(GlContextCheckFn fn) { g_glContextCheck = fn; }
+bool glContextAlive() { return g_glContextCheck ? g_glContextCheck() : true; }
 
-GlVao::~GlVao() { if (m_id) glDeleteVertexArrays(1, &m_id); }
-void GlVao::reset(GLuint id) { if (m_id) glDeleteVertexArrays(1, &m_id); m_id = id; }
+GlTexture::~GlTexture() { if (m_id && glContextAlive()) glDeleteTextures(1, &m_id); }
+void GlTexture::reset(GLuint id) { if (m_id && glContextAlive()) glDeleteTextures(1, &m_id); m_id = id; }
 
-GlProgram::~GlProgram() { if (m_id) glDeleteProgram(m_id); }
-void GlProgram::reset(GLuint id) { if (m_id) glDeleteProgram(m_id); m_id = id; }
+GlBuffer::~GlBuffer() { if (m_id && glContextAlive()) glDeleteBuffers(1, &m_id); }
+void GlBuffer::reset(GLuint id) { if (m_id && glContextAlive()) glDeleteBuffers(1, &m_id); m_id = id; }
 
-GlFramebuffer::~GlFramebuffer() { if (m_id) glDeleteFramebuffers(1, &m_id); }
-void GlFramebuffer::reset(GLuint id) { if (m_id) glDeleteFramebuffers(1, &m_id); m_id = id; }
+GlVao::~GlVao() { if (m_id && glContextAlive()) glDeleteVertexArrays(1, &m_id); }
+void GlVao::reset(GLuint id) { if (m_id && glContextAlive()) glDeleteVertexArrays(1, &m_id); m_id = id; }
 
-GlRenderbuffer::~GlRenderbuffer() { if (m_id) glDeleteRenderbuffers(1, &m_id); }
-void GlRenderbuffer::reset(GLuint id) { if (m_id) glDeleteRenderbuffers(1, &m_id); m_id = id; }
+GlProgram::~GlProgram() { if (m_id && glContextAlive()) glDeleteProgram(m_id); }
+void GlProgram::reset(GLuint id) { if (m_id && glContextAlive()) glDeleteProgram(m_id); m_id = id; }
+
+GlFramebuffer::~GlFramebuffer() { if (m_id && glContextAlive()) glDeleteFramebuffers(1, &m_id); }
+void GlFramebuffer::reset(GLuint id) { if (m_id && glContextAlive()) glDeleteFramebuffers(1, &m_id); m_id = id; }
+
+GlRenderbuffer::~GlRenderbuffer() { if (m_id && glContextAlive()) glDeleteRenderbuffers(1, &m_id); }
+void GlRenderbuffer::reset(GLuint id) { if (m_id && glContextAlive()) glDeleteRenderbuffers(1, &m_id); m_id = id; }
+
+GlQuery::~GlQuery() { if (m_id && glContextAlive()) glDeleteQueries(1, &m_id); }
+void GlQuery::reset(GLuint id) { if (m_id && glContextAlive()) glDeleteQueries(1, &m_id); m_id = id; }
 
 GLStateGuard::GLStateGuard() {
     glGetIntegerv(GL_VIEWPORT, m_viewport);
@@ -27,9 +37,11 @@ GLStateGuard::GLStateGuard() {
     glGetIntegerv(GL_DEPTH_WRITEMASK, &depthMask);
     m_depthMask = depthMask != 0;
     glGetIntegerv(GL_ACTIVE_TEXTURE, &m_activeTexture);
-    glGetIntegerv(GL_POLYGON_MODE, m_polyMode);
-    glGetIntegerv(GL_CLIP_ORIGIN, &m_clipOrigin);
-    glGetIntegerv(GL_CLIP_DEPTH_MODE, &m_clipDepthMode);
+    glGetIntegerv(GL_POLYGON_MODE, &m_polyMode);
+    if (GLAD_GL_ARB_clip_control) {
+        glGetIntegerv(GL_CLIP_ORIGIN, &m_clipOrigin);
+        glGetIntegerv(GL_CLIP_DEPTH_MODE, &m_clipDepthMode);
+    }
     glGetIntegerv(GL_BLEND_SRC_RGB, &m_blendSrcRgb);
     glGetIntegerv(GL_BLEND_DST_RGB, &m_blendDstRgb);
     glGetIntegerv(GL_BLEND_SRC_ALPHA, &m_blendSrcAlpha);
@@ -62,9 +74,9 @@ GLStateGuard::~GLStateGuard() {
     glBlendFuncSeparate(static_cast<GLenum>(m_blendSrcRgb), static_cast<GLenum>(m_blendDstRgb),
                         static_cast<GLenum>(m_blendSrcAlpha), static_cast<GLenum>(m_blendDstAlpha));
     glBlendEquationSeparate(static_cast<GLenum>(m_blendEquationRgb), static_cast<GLenum>(m_blendEquationAlpha));
-    glPolygonMode(GL_FRONT, static_cast<GLenum>(m_polyMode[0]));
-    glPolygonMode(GL_BACK, static_cast<GLenum>(m_polyMode[1]));
-    glClipControl(static_cast<GLenum>(m_clipOrigin), static_cast<GLenum>(m_clipDepthMode));
+    glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(m_polyMode));
+    if (GLAD_GL_ARB_clip_control)
+        glClipControl(static_cast<GLenum>(m_clipOrigin), static_cast<GLenum>(m_clipDepthMode));
     glActiveTexture(static_cast<GLenum>(m_activeTexture));
     glLineWidth(m_lineWidth);
     glClearColor(m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]);
