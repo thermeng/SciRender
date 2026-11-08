@@ -614,7 +614,7 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_transientRadio->setChecked(s.transient.enabled);
     m_dtSpin->setValue(s.transient.dt);
     m_tEndSpin->setValue(s.transient.tEnd);
-    m_timeSchemeCombo->setCurrentIndex(s.transient.timeScheme == cfd::TransientSettings::TimeScheme::BDF2 ? 1 : 0);
+    m_timeSchemeCombo->setCurrentIndex(s.transient.timeScheme == fvm::TimeScheme::BDF2 ? 1 : 0);
     m_adaptiveCflCb->setChecked(s.transient.adaptiveCfl);
     m_cflSpin->setValue(s.transient.cfl);
     m_minDtSpin->setValue(s.transient.minDt);
@@ -724,8 +724,8 @@ void CfdCasePage::collectSettings() {
     s.transient.dt = m_dtSpin->value();
     s.transient.tEnd = m_tEndSpin->value();
     s.transient.timeScheme = (m_timeSchemeCombo->currentIndex() == 1)
-        ? cfd::TransientSettings::TimeScheme::BDF2
-        : cfd::TransientSettings::TimeScheme::BackwardEuler;
+        ? fvm::TimeScheme::BDF2
+        : fvm::TimeScheme::Euler;
     s.transient.adaptiveCfl = m_adaptiveCflCb->isChecked();
     s.transient.cfl = m_cflSpin->value();
     s.transient.minDt = m_minDtSpin->value();

@@ -53,7 +53,6 @@ struct FaceVelocityBC {
     double v = 0.0;
     double w = 0.0;
     double pressureValue = 0.0;
-    // Fluent-like pressure outlet backflow handling
     bool suppressBackflow = false; // if true, clamp U·n >=0 (prevent inflow through outlet)
     double backflowU = 0.0;
     double backflowV = 0.0;
@@ -64,7 +63,7 @@ struct FaceVelocityBC {
 
 struct PressureOutletConfig {
     double p0 = 0.0; // gauge static pressure at outlet
-    double operatingPressure = 0.0; // operating pressure offset (Fluent)
+    double operatingPressure = 0.0; 
     bool radialEquilibrium = false;
     bool suppressBackflow = false;
     double backflowU = 0.0;

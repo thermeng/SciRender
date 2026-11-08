@@ -23,49 +23,22 @@ namespace fvm {
 template<std::size_t Dim>
 class PressureCorrection {
 public:
-    struct Config {
-        // Diagnostic Rhie-Chow switch (the residual reports the correction).
-        bool rhieChow = true;
-        // Assemble the pressure equation from the compact face-normal
-        // Laplacian and use the Rhie-Chow face flux on its right-hand side.
-        // This is the collocated-grid formulation: the pressure matrix is the
-        // two-point operator div(d_f (p_N-p_P)/d), the Rhie-Chow term removes
-        // the checkerboard mode, and the velocity correction remains
-        // u = u* - d grad(p'). Enabled for PISO; the legacy composed
-        // least-squares operator (compactRhieChow = false) is kept for the
-        // steady path and its exact-cancellation contracts.
-        bool compactRhieChow = false;
-        std::size_t pressureRefCell = SIZE_MAX;
-        bool useAMG = true;
-        bool useAMGPreconditioner = true;
-        // Number of cells below which the solve falls back to CG+IC (or
-        // BiCGSTAB+ILU). 0 means "always use AMG", which is what 
-        // does: it never switches the pressure equation to a different
-        // preconditioner based on size. Any non-zero value keeps the legacy
-        // small-mesh shortcut for callers that want it.
-        std::size_t amgThreshold = 0;
-        int amgPreconditionerCycles = 1;
-        // How many times the pressure matrix may change its VALUES before the
-        // AMG hierarchy is rebuilt. The coarse levels depend on the matrix
-        // through the Galerkin product, so a value change makes the hierarchy
-        // stale - but rebuilding it on every outer iteration costs more than
-        // the solve it accelerates. At high Reynolds numbers the matrix changes
-        // quickly, so a value of 1 (rebuild every iteration) keeps the
-        // preconditioner effective.
-        std::size_t amgRebuildInterval = 1;
-        AMGHierarchy::Config amgConfig = []{
-            AMGHierarchy::Config c;
-            c.strengthThreshold = 0.05;
-            c.truncThreshold = 0.2;
-            c.preSweeps = 1;
-            c.postSweeps = 2;
-            c.maxIterations = 100;
-            c.scaling = AMGHierarchy::Config::ProportionalScaling::Automatic;
-            c.tolerance = 1e-8;
-            c.verbosity = AMGHierarchy::Config::Verbosity::High;
-            return c;
-        }();
-    };
+    struct Config : public cfd::CaseSettings {
+    bool compactRhieChow = false;
+    bool useAMG = true;
+    bool useAMGPreconditioner = true;
+    // Number of cells below which the solve falls back to CG+IC (or
+    // BiCGSTAB+ILU). 0 means "always use AMG".
+    std::size_t pressureAmgThreshold = 0;
+    // How many times the pressure matrix may change its VALUES before the
+    // AMG hierarchy is rebuilt. The coarse levels depend on the matrix
+    // through the Galerkin product, so a value change makes the hierarchy
+    // stale - but rebuilding it on every outer iteration costs more than
+    // the solve it accelerates. At high Reynolds numbers the matrix changes
+    // quickly, so a value of 1 (rebuild every iteration) keeps the
+    // preconditioner effective.
+    std::size_t amgRebuildInterval = 1;
+};
 
     struct PressureSolverStats {
         std::size_t solves = 0;
@@ -120,6 +93,8 @@ public:
     bool amgBuilt() const { return amgBuilt_; }
     int amgLevels() const { return amg_.numLevels(); }
     const std::vector<int>& amgLevelSizes() const { return amg_.levelSizes(); }
+    // Per-cycle relative residuals from the last AMG build/solve.
+    const std::vector<double>& amgLastResidualHistory() const { return amg_.lastResidualHistory(); }
     // The assembled system of the last solve (diagnostics).
     const SparseMatrix& lastMatrix() const { return A_; }
     const Eigen::VectorXd& lastRhs() const { return bVec_; }

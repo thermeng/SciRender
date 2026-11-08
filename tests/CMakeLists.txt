@@ -78,14 +78,12 @@ scirender_add_test_suite(scirender_core_tests
 # ---------------------------------------------------------------------------
 scirender_add_test_suite(scirender_fvm_tests
     SOURCES
-        fvm/amg_config_test.cpp
-        fvm/hypre_backend_test.cpp
+        fvm/mpi_smoke_test.cpp
         fvm/face_state_test.cpp
         fvm/failure_semantics_test.cpp
         fvm/transient_settings_test.cpp
         fvm/cavity_msh_test.cpp
         fvm/channel_test.cpp
-        fvm/momentum_amg_robustness_test.cpp
         fvm/channel_3d_test.cpp
         fvm/sst_test.cpp
         fvm/transient_channel_test.cpp

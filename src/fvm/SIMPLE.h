@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cfd/cfd_types.h"
 #include "mesh/Mesh.h"
 #include "mesh/BoundaryUtils.h"
 #include "field/Field.h"
@@ -23,6 +24,7 @@
 #include <Eigen/IterativeLinearSolvers>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <functional>
 #include <optional>
@@ -38,24 +40,7 @@ namespace fvm {
 template<std::size_t Dim>
 class SIMPLE : public Cancellable {
 public:
-    struct TransientConfig {
-        bool enabled = false;
-        double dt = 0.001;
-        double tEnd = 1.0;
-        TimeScheme scheme = TimeScheme::Euler;
-        bool adaptive = false;
-        double cfl = 0.5;
-        double maxDt = 0.01;
-        double minDt = 1e-6;
-        int writeInterval = 1;
-        int maxOuterCorrectors = 3;
-        // Number of inner PISO passes per outer corrector. Each pass rebuilds
-        // the explicit momentum residual from the velocity the previous pass
-        // produced and projects it again, so this knob is not a no-op.
-        int nonOrthogonalCorrectors = 1;
-        std::string pvdFile = "";
-        bool piso = false; // DEPRECATED legacy: use Config::solverType==PISO instead. Kept for compat only - will be removed
-    };
+    using TransientConfig = cfd::TransientSettings;
 
 struct InletTurbulence {
     std::string patch;
@@ -63,139 +48,27 @@ struct InletTurbulence {
     double omega = 1.0;
 };
 
-struct Config {
+struct Config : public cfd::CaseSettings {
+    Config& operator=(const cfd::CaseSettings& s) {
+        static_cast<cfd::CaseSettings&>(*this) = s;
+        return *this;
+    }
     SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
-        std::size_t maxIterations = 100;
-        double tolerance = 1e-4;
-        // Per-equation residual tolerances (std::nullopt = inherit from `tolerance`).
-        std::optional<double> contTol;
-        std::optional<double> momUTol;
-        std::optional<double> momVTol;
-        std::optional<double> momWTol;
-        std::optional<double> turbKTol;
-        std::optional<double> turbOmegaTol;
-        // Whether each equation participates in the convergence gate.
-        bool gateContinuity = true;
-        bool gateMomU = true;
-        bool gateMomV = true;
-        bool gateMomW = true;
-        bool gateTurbK = true;
-        bool gateTurbOmega = true;
-        // Fixed iteration cap override (std::nullopt = use maxIterations).
-        std::optional<std::size_t> fixedIterations;
-        // Ignore the residual tolerance and run exactly maxIterations iterations.
-        bool runFixedIterations = false;
-        // Consecutive iterations the residual criterion must hold before the run
-        // is declared converged.
-        int convergenceHoldIterations = 3;
-        // Report residuals the way  (and Fluent) do: the continuity
-        // residual is the mass imbalance of the MOMENTUM PREDICTOR - the field
-        // the pressure correction is about to project - and each equation's
-        // residual is divided by its maximum over the first
-        // `residualNormalizationIterations` iterations. With this on the first
-        // table row is ~1 and the values can be read directly against a
-        //  residual plot. With it off the printed values are the raw
-        // (physical) mass imbalance and linear momentum residual.
-        bool normalizeResiduals = true;
-        std::size_t residualNormalizationIterations = 5;
-        double alphaP = 0.3;
-        double alphaU = 0.7;
-        std::size_t pressureRefCell = SIZE_MAX;
-        ConvectionScheme convectionScheme = ConvectionScheme::Upwind;
-        // Gradient operator used for the convective reconstruction.
-        GradientScheme gradientScheme = GradientScheme::LeastSquares;
-        bool rhieChow = true;
-        bool simplec = false; // kept as requested: SIMPLE vs SIMPLEC via this flag
-        // Number of pressure correctors per SIMPLE iteration (>=1).
-        int pressureCorrectors = 3;
-        // Bound on |p'| as a multiple of rho*U_ref^2. See limitPressureCorrection_.
-        // Set high enough that the limiter rarely fires for well-posed flows;
-        // the limiter is a safety net, not a convergence aid.
-        bool limitPressureCorrection = true;
-        double pressureCorrectionLimit = 1e6;
-        std::size_t printFrequency = 1;
-        std::size_t residualHistoryWindow = 20;
-        bool turbulenceEnabled = false;
-    bool wallFunction = false;
-    double kInf = 1e-3;
-    double omegaInf = 1.0;
-    double alphaK = 0.7;
-    double alphaOmega = 0.7;
+    ConvectionScheme convectionScheme = ConvectionScheme::Upwind;
+    GradientScheme gradientScheme = GradientScheme::LeastSquares;
+    bool pressureUseAMG = true;
+    bool pressureUseAMGPreconditioner = true;
+    std::size_t pressureAmgThreshold = 0;
+    // Override CaseSettings defaults where the solver needs different values:
+    int pressureCorrectors = 3;           // CaseSettings: 1
+    bool limitPressureCorrection = true;   // CaseSettings: false
+    double pressureCorrectionLimit = 1e6;  // CaseSettings: 5.0
+    std::size_t maxIterations = 100;       // CaseSettings: 500
+    std::size_t pressureRefCell = SIZE_MAX; // CaseSettings: 0
+    double turbulenceAmgMaxResidual = 1e-8; // CaseSettings: 0.1
     std::vector<InletTurbulence> inletTurbulence;
 
-    // Velocity correction damping limits.
-    double velocityCorrectionMaxUnlimitedSpeed = 20.0;
-    double velocityCorrectionMaxGrowthRate = 0.15;
-
-        // --- Pressure-correction linear solver ---------------------------
-        // The pressure Poisson system is symmetric, so AMG is a good fit.
-        //  always uses it, so AMG is on by default and
-        // pressureAmgThreshold = 0 means "no size cut-off".
-        bool pressureUseAMG = true;
-        // true  -> AMG used as a preconditioner inside a Krylov solver.
-        // false -> a standalone AMG solve (then pressureAmgConfig's
-        //          maxIterations/tolerance below decide convergence).
-        bool pressureUseAMGPreconditioner = true;
-        // 0 = always build and use AMG ( behaviour).
-        std::size_t pressureAmgThreshold = 0;
-        int pressureAmgPreconditionerCycles = 1;
-        AMGHierarchy::Config pressureAmgConfig = []{
-            AMGHierarchy::Config c;
-            c.strengthThreshold = 0.16;
-            c.truncThreshold = 0.2;
-            c.preSweeps = 1;
-            c.postSweeps = 2;
-            c.maxIterations = 100;
-            c.verbosity = AMGHierarchy::Config::Verbosity::High;
-            return c;
-        }();
-        // Momentum linear-solver multigrid configuration, forwarded to the
-        // LinearSolverDispatcher. Tests use this to silence AMG output
-        // (verbosity = None). The dispatcher's other knobs (useAMG, threshold,
-        // cycles, etc.) use internal defaults and are not exposed here.
-        AMGHierarchy::Config momentumAmgConfig = []{
-            AMGHierarchy::Config c;
-            c.strengthThreshold = 0.16;
-            c.truncThreshold = 0.2;
-            c.preSweeps = 1;
-            c.postSweeps = 2;
-            c.maxIterations = 100;
-            c.verbosity = AMGHierarchy::Config::Verbosity::High;
-            c.acceleration = AMGHierarchy::Config::Acceleration::None;
-            return c;
-        }();
-        // Number of AMG cycles per preconditioner application for momentum.
-        int momentumAmgCycles = 1;
-        // Relative residual above which the momentum AMG result is rejected
-        // and the solve is redone with ILU.
-        double momentumAmgMaxResidual = 0.1;
-        // Apply the AMG hierarchy directly as the momentum solver instead of
-        // using it as a preconditioner inside a Krylov solver.
-        bool momentumAmgAsSolver = false;
-        // Print momentum linear-solver statistics at the end of the run.
-        bool momentumSolverStats = false;
-        // Turbulence (k/omega) linear-solver multigrid configuration, forwarded
-        // to SSTModel's LinearSolverDispatcher instances. Defaults use low
-        // verbosity so turbulence solver output doesn't drown out the momentum
-        // and pressure diagnostics.
-        AMGHierarchy::Config turbulenceAmgConfig = []{
-            AMGHierarchy::Config c;
-            c.strengthThreshold = 0.16;
-            c.truncThreshold = 0.2;
-            c.preSweeps = 1;
-            c.postSweeps = 2;
-            c.maxIterations = 100;
-            c.verbosity = AMGHierarchy::Config::Verbosity::None;
-            c.acceleration = AMGHierarchy::Config::Acceleration::None;
-            return c;
-        }();
-        // Number of AMG cycles per preconditioner application for turbulence.
-        int turbulenceAmgCycles = 1;
-        // Relative residual above which the turbulence AMG result is rejected
-        // and the solve is redone with ILU.
-        double turbulenceAmgMaxResidual = 1e-8;
-
-        std::function<void(int, double, double)> iterationCallback;
+    std::function<void(int, double, double)> iterationCallback;
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> renderCallback;
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> transientCallback;
         CheckpointConfig checkpoint;
@@ -208,20 +81,20 @@ struct Config {
         // that leave the outer loop to converge the solution. Use it as a
         // starting point and override the physics settings (rho, nu, BCs) as
         // needed.
-        static Config starCcmPlusLike() {
+        static Config cavityLike() {
             Config c;
             c.pressureCorrectors = 1;
             c.pressureUseAMG = true;
             c.pressureUseAMGPreconditioner = true;
             c.pressureAmgThreshold = 0;
             c.pressureAmgPreconditionerCycles = 1;
-            c.pressureAmgConfig.preSweeps = 1;
-            c.pressureAmgConfig.postSweeps = 5;
-            c.pressureAmgConfig.coarsening = AMGHierarchy::Config::Coarsening::SmoothedAggregation;
-            c.pressureAmgConfig.smoother = AMGHierarchy::Config::Smoother::GaussSeidel;
-            c.pressureAmgConfig.coarseEnough = 2;
-            c.pressureAmgConfig.cycleType = AMGHierarchy::Config::CycleType::VCycle;
-            c.pressureAmgConfig.acceleration = AMGHierarchy::Config::Acceleration::ConjugateGradient;
+            c.pressureAmg.preSweeps = 1;
+            c.pressureAmg.postSweeps = 1;
+            c.pressureAmg.coarsening = cfd::AmgSettings::Coarsening::SmoothedAggregation;
+            c.pressureAmg.smoother = cfd::AmgSettings::Smoother::GaussSeidel;
+            c.pressureAmg.coarseEnough = 2;
+            c.pressureAmg.cycleType = cfd::AmgSettings::CycleType::VCycle;
+            c.pressureAmg.acceleration = cfd::AmgSettings::Acceleration::ConjugateGradient;
             return c;
         }
     };
@@ -517,8 +390,6 @@ private:
     // (with more than one corrector: to machine precision), which is why the
     // old post-correction value sat at ~1e-15 for the whole run.
     double predictedContinuity_ = 0.0;
-    // Normalization references: max raw residual over the first N iterations,
-    // exactly the /Fluent convention (iteration 1 is ~1).
     double contResidRef_ = 0.0;
     std::size_t contResidRefSamples_ = 0;
     std::array<double, Dim> momResidRaw_{};
@@ -555,6 +426,9 @@ private:
     double steadyPressureSeconds_ = 0.0;
     double steadyVelocityCorrectionSeconds_ = 0.0;
     double steadyResidualSeconds_ = 0.0;
+    // Wall-clock time at the start of the current outer iteration, used for
+    // the "time/iter" column of the iteration table under Diagnosis verbosity.
+    std::chrono::steady_clock::time_point m_iterStart;
     std::size_t divergenceCount_ = 0;
     double initialMassImbalance_ = 0.0;
     bool initialMassImbalanceSet_ = false;

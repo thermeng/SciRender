@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <optional>
 
+#include "fvm/Types.h"
+
 namespace cfd {
 
 enum class BCType { VelocityInlet, PressureOutlet, Outlet, WallNoSlip, SlipWall, Symmetry, MovingWall };
@@ -20,23 +22,22 @@ struct PatchBC {
     double kInlet = 1e-3, omegaInlet = 1.0;
 };
 
-// UI-facing mirror of fvm::AMGHierarchy::Config. Kept as a plain struct with
-// plain enums so the UI layer never has to include Eigen; the single
-// translation to the solver type lives in cfd/amg_settings_bridge.h. Field
-// names and defaults are intentionally identical to AMGHierarchy::Config so the
-// two stay easy to compare.
+// Single source of truth for AMG linear solver configuration.
+// Used by the UI, case file I/O, and the solver (fvm::AMGHierarchy) directly.
+// Plain enums so the UI layer never has to include Eigen.
 //
-// The property names in comments are the  AMG linear solver labels
+// The property names in comments are the AMG linear solver labels
 // this dialog mirrors.
 struct AmgSettings {
     // --- Solver ----------------------------------------------------------
     enum class Coarsening { RugeStuben, SmoothedAggregation };
     enum class Verbosity { None, Low, High, Diagnosis };
-    enum class CycleType { VCycle, WCycle, FCycle };
+    enum class CycleType { VCycle, WCycle, FCycle, Flexible };
     enum class Acceleration { None, ConjugateGradient, BiCGStab, GMRES };
     enum class Smoother { Jacobi, GaussSeidel, ILU };
     enum class ProportionalScaling { Automatic, Disabled };
     enum class GroupSizeControl { Automatic, Manual };
+    enum class FlexMove { Terminate = -2, Coarser = -1, Stay = 0, Finer = 1 };
 
     Coarsening coarsening = Coarsening::SmoothedAggregation;
     int maxIterations = 30;     // Maximum cycle
@@ -67,6 +68,14 @@ struct AmgSettings {
     // Non-symmetric operator (momentum). Forces aggregation coarsening, which
     // is the robust choice for a nonsymmetric matrix.
     bool nonsymmetric = false;
+    // Flexible cycle struct (Hypre-style ints: -2 terminate, -1 coarser, 0 stay, 1 finer).
+    std::vector<int> flexStruct;
+    
+    double flexAlpha = 0.1;
+    double flexBeta = 0.7;
+    int flexMaxSweeps = 2;
+    int flexMaxFineRelaxations = 30;
+    int flexMaxCoarseRelaxations = 20;
 
     static AmgSettings pressureDefaults() {
         AmgSettings s;
@@ -93,7 +102,8 @@ struct AmgSettings {
         s.postSweeps = 1;
         s.maxLevels = 50;
         s.nonsymmetric = true;
-        s.cycleType = CycleType::VCycle;
+        // Flexible is the default for momentum & turbulence.
+        s.cycleType = CycleType::Flexible;
         s.smoother = Smoother::GaussSeidel;
         s.acceleration = Acceleration::None;
         s.scaling = ProportionalScaling::Automatic;
@@ -103,17 +113,14 @@ struct AmgSettings {
     }
 };
 
-// UI-facing mirror of fvm::SIMPLE::TransientConfig, plus the mode switch that
-// decides whether run() calls solve() or solveTransient(). Only the transient
-// path reads these; the steady path uses tolerance/maxIterations instead.
+// Single source of truth for transient solver configuration.
+// Used by the UI, case file I/O, and the solver (fvm::SIMPLE) directly.
+// Plain enums so the UI layer never has to include fvm headers beyond Types.
 //
-// Defaults are identical to TransientConfig's initialisers so the UI, the
-// solver and "Restore defaults" cannot disagree.
+// Defaults match fvm::SIMPLE::TransientConfig's initialisers so the UI,
+// the solver and "Restore defaults" cannot disagree.
 struct TransientSettings {
-    // The solver's TimeScheme::Euler is implicit, i.e. backward Euler. Named
-    // for what it is so the UI does not have to explain "Euler".
-    enum class TimeScheme { BackwardEuler, BDF2 };
-
+    // The solver's TimeScheme::Euler is implicit, i.e. backward Euler.
     // false = steady: the transient controls are not shown and not consulted.
     bool enabled = false;
     // Initial step size. Always clamped into [minDt, maxDt], which applies to
@@ -121,7 +128,7 @@ struct TransientSettings {
     double dt = 0.001;
     // Must be > 0: the solver loops "while (time < tEnd)", so 0 runs no steps.
     double tEnd = 1.0;
-    TimeScheme timeScheme = TimeScheme::BackwardEuler;
+    fvm::TimeScheme timeScheme = fvm::TimeScheme::Euler;
     bool adaptiveCfl = false;
     double cfl = 0.5; // only consulted when adaptiveCfl is on
     double minDt = 1e-6;
@@ -132,6 +139,8 @@ struct TransientSettings {
     int nonOrthogonalCorrectors = 1;
     // Pressure correctors per step (PISO: 1 predictor + this many correctors).
     int maxOuterCorrectors = 3;
+    // Legacy PISO switch (DEPRECATED: use solverType==PISO instead).
+    bool piso = false;
     // Base name or full path for the .pvd/.vtu output. Empty = "transient".
     std::string pvdFile;
 };
@@ -171,7 +180,7 @@ struct CaseSettings {
     // Consecutive iterations the residual criterion must hold before the run
     // is declared converged.
     int convergenceHoldIterations = 3;
-    // /Fluent-style residual reporting: continuity is measured on the
+    // continuity is measured on the
     // momentum predictor (before the pressure correction) and every residual is
     // normalized by its maximum over the first `residualNormalizationIterations`
     // iterations. With this on, the monitor curve starts at ~1 and is directly
@@ -228,6 +237,7 @@ struct CaseSettings {
     bool useAMGTurbulence = true;
     int turbulenceAmgCycles = 1;
         double turbulenceAmgMaxResidual = 0.1;
+    // Flexible also default for turbulence (per request); pressure stays V.
     AmgSettings turbulenceAmg = AmgSettings::momentumDefaults();
 
     // Steady vs transient. See TransientSettings above.

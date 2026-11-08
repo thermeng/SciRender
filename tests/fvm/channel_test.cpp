@@ -105,7 +105,9 @@ ChannelResult runChannel(int iterations = kIterations,
     cfg.simplec = false;
     cfg.rhieChow = true;
     cfg.pressureCorrectors = pressureCorrectors; // 1 = pure SIMPLE; 3 = PISO-like (masks coupling defects)
-    cfg.printFrequency = 1000000; // effectively silent (the solver divides by it)
+    cfg.pressureUseAMG = true; // DEBUG-A
+    cfg.momentumAmgConfig.acceleration = fvm::AMGHierarchy::Config::Acceleration::BiCGStab; // DEBUG-B
+    cfg.printFrequency = 1; // DEBUG
     cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;
     cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
 
