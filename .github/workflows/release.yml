@@ -22,20 +22,23 @@ jobs:
           cache: true
           aqtsource: git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head
 
-      - name: Configure (MinGW)
+      - name: Install Ninja
+        run: choco install ninja -y
+
+      - name: Configure (Ninja)
         # The release job builds the application only. The test suite links far
         # more Qt targets and its CTest discovery step executes each freshly
         # linked test binary during the build; on this runner that resolves the
         # MinGW runtime from a different toolchain than the one Qt was built
         # with and the executable dies at load time (0xc0000139). Tests belong
         # in their own job, not in the packaging path.
-        run: cmake -G "MinGW Makefiles" -S . -B build-mingw -DCMAKE_BUILD_TYPE=Release -DSCIRENDER_BUILD_TESTS=OFF
+        run: cmake -G Ninja -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DSCIRENDER_BUILD_TESTS=OFF
 
       - name: Build
-        run: cmake --build build-mingw -j4
+        run: cmake --build build-release -j4
 
       - name: Stage package
-        run: cmake --install build-mingw --prefix package
+        run: cmake --install build-release --prefix package
 
       - name: Run windeployqt
         run: |

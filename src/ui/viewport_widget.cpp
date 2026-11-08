@@ -142,6 +142,7 @@ void ViewportWidget::initializeGL() {
     scene->initGLAD();
     scene->reinitForNewContext();
     loadShaders();
+    scene->initColorbarOverlay();
     // Gizmo programs/atlas initialise lazily on first draw (mesh loaded),
     // not at startup — no mesh means no gizmo cost.
     scene->reinitMeshData();
@@ -631,6 +632,12 @@ void ViewportWidget::contextMenuEvent(QContextMenuEvent* event) {
                     update();
                 });
             }
+            cbMenu->addSeparator();
+            cbMenu->addAction("Reset layout / bring back", this, [scene]() {
+                if (!scene) return;
+                scene->resetColorbarLayout();
+                scene->commitColorbarPositions();
+            });
         }
     }
 
