@@ -88,6 +88,21 @@ QImage renderRotatedTextImage(const QString& text, const QFont& font, const QCol
 
 } // namespace
 
+float ColorbarOverlay::sanitizeFrac(float v, float fallback) {
+    if (!std::isfinite(v)) return fallback;
+    return std::clamp(v, 0.0f, 1.0f);
+}
+
+QPointF ColorbarOverlay::barOrigin(float dpr, int deviceW, int deviceH,
+                                   const ColorbarData& bar) const {
+    const QSize sz = computeLayout(dpr, bar).size;
+    const int availW = std::max(0, deviceW - sz.width());
+    const int availH = std::max(0, deviceH - sz.height());
+    const float fx = sanitizeFrac(bar.fracX, 1.0f);
+    const float fy = sanitizeFrac(bar.fracY, 1.0f);
+    return QPointF(static_cast<qreal>(fx * availW), static_cast<qreal>(fy * availH));
+}
+
 bool ColorbarOverlay::init() {
     if (isInitialized()) return true;
     if (!buildProgram()) return false;
@@ -478,9 +493,11 @@ void ColorbarOverlay::drawSingleBar(float dpr, int deviceW, int deviceH,
         glBindTextureUnit(0, cache->texId);
     }
 
-    // Position in clip space
-    const int px = static_cast<int>(bar.fracX * (deviceW - cache->w));
-    const int py = static_cast<int>(bar.fracY * (deviceH - cache->h));
+    // Position in clip space (fractional mapping so viewport and screenshot
+    // override targets show identical relative placement).
+    const QPointF o = barOrigin(dpr, deviceW, deviceH, bar);
+    const int px = static_cast<int>(std::lround(o.x()));
+    const int py = static_cast<int>(std::lround(o.y()));
     const float left = (2.0f * px / deviceW) - 1.0f;
     const float right = (2.0f * (px + cache->w) / deviceW) - 1.0f;
     const float top = 1.0f - (2.0f * py / deviceH);
@@ -534,7 +551,6 @@ int ColorbarOverlay::barIndexAt(float dpr, int deviceW, int deviceH,
 QRectF ColorbarOverlay::barRectAt(float dpr, int deviceW, int deviceH,
                                    const ColorbarData& bar) const {
     const QSize sz = computeLayout(dpr, bar).size;
-    const int px = static_cast<int>(bar.fracX * (deviceW - sz.width()));
-    const int py = static_cast<int>(bar.fracY * (deviceH - sz.height()));
-    return QRectF(px, py, sz.width(), sz.height());
+    const QPointF o = barOrigin(dpr, deviceW, deviceH, bar);
+    return QRectF(o, QSizeF(sz));
 }

@@ -528,6 +528,7 @@ public:
     void initGLAD();
     void initShaders(const ShaderSources& sources);
     void initGizmo();
+    void initColorbarOverlay();
     void renderFrame();
 
 
@@ -587,20 +588,17 @@ public:
 
 
     void setViewportOverride(int deviceW, int deviceH) { m_overrideDeviceW = deviceW; m_overrideDeviceH = deviceH; }
-    void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; colorbarOverlay.markDirty(); }
-
+    void clearViewportOverride() { m_overrideDeviceW = 0; m_overrideDeviceH = 0; }
 
     int colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& bars) const;
     void setColorbarPosition(int index, float fracX, float fracY);
     void setColorbarOrientation(int index, ColorbarStyle::Orientation orient);
     void setColorbarVisible(int index, bool vis);
     void commitColorbarPositions();
-    void markColorbarDirty() { colorbarOverlay.markDirty(); }
+    void markColorbarDirty() { m_colorbarModelDirty = true; colorbarOverlay.markDirty(); }
+    void resetColorbarLayout();
     QRectF colorbarBarRect(float dpr, int deviceW, int deviceH, const ColorbarData& bar) const;
     const std::vector<ColorbarData>& colorbarBars() const { return m_colorbarBars; }
-
-
-
 
 
     int effectiveDeviceW() const { return m_overrideDeviceW > 0 ? m_overrideDeviceW : static_cast<int>(width * devicePixelRatio); }
@@ -716,6 +714,8 @@ public:
 private:
     void drawGizmo(int deviceW, int deviceH);
     void drawColorbarLegends(int deviceW, int deviceH);
+    void buildColorbarModel();
+    void rebuildColorbarModelIfDirty(int deviceW, int deviceH, float dpr);
     static std::string vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     void updateSliceScalarRange(const VolumeTexture* sliceTextures);
@@ -732,6 +732,8 @@ private:
     float devicePixelRatio = 1.0f;
     int m_overrideDeviceW = 0;
     int m_overrideDeviceH = 0;
+    bool m_colorbarModelDirty = true;
+    float m_colorbarLastDpr = 0.0f;
 
 
     Gizmo gizmo;

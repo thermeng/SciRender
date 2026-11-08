@@ -144,6 +144,9 @@ void Renderer::initShaders(const ShaderSources& sources) {
 void Renderer::initGizmo() {
     gizmo.init();
     m_lightMarkers.init();
+}
+
+void Renderer::initColorbarOverlay() {
     colorbarOverlay.init();
 }
 
@@ -325,7 +328,7 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.colorbarPanelOpacity != state.colorbarPanelOpacity
         || m_state.colorbarShowAnnotation != state.colorbarShowAnnotation;
     if (colormapChanged || scalarRangeChanged || colorbarStyleChanged) {
-        colorbarOverlay.markDirty();
+        markColorbarDirty();
     }
     // A new computed-fields snapshot invalidates everything derived from
     // field arrays: 3D textures, glyph instances, streamline paths.
@@ -594,14 +597,14 @@ QString colorbarPosKey(const ColorbarData& d) {
 }
 
 }
-
 void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
     if (deviceW <= 0 || deviceH <= 0) return;
     const float dpr = static_cast<float>(devicePixelRatio);
+    rebuildColorbarModelIfDirty(deviceW, deviceH, dpr);
+    colorbarOverlay.drawBars(dpr, deviceW, deviceH, m_colorbarBars);
+}
 
-
-
-
+void Renderer::buildColorbarModel() {
     const auto stopsFor = [&](int choice, bool reversed) {
         QVariantList out;
         const int steps = 16;
@@ -618,27 +621,46 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
 
     m_colorbarBars.clear();
     const int tickCount = m_state.colorbarTicks;
+    int colorbarIdx = 0;
 
-    auto loadBarPosition = [this](ColorbarData& d) {
+    auto defaultSlot = [&](int idx) -> std::pair<float, float> {
+        // Stack downward from top-right so fresh bars never overlap / go off-screen.
+        const float fx = 1.0f;
+        const float fy = std::clamp(0.06f + static_cast<float>(idx) * 0.11f, 0.0f, 1.0f);
+        return { fx, fy };
+    };
+
+    auto loadBarPosition = [this, &defaultSlot](ColorbarData& d, int idx) {
         const QString key = colorbarPosKey(d);
         std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
         auto it = m_colorbarPosCache.find(key);
         if (it == m_colorbarPosCache.end()) {
             QSettings s;
             float fx = 1.0f, fy = 1.0f;
-
+            bool hadValid = false;
 
             const QString byField = QString("colorbarPos/%1/%2").arg(d.subtitle, d.title);
             const QString legacy = QString("colorbarPos_%1").arg(d.title);
-            if (s.contains(key + "_x")) {
-                fx = s.value(key + "_x", 1.0).toFloat();
-                fy = s.value(key + "_y", 1.0).toFloat();
-            } else if (s.contains(byField + "_x")) {
-                fx = s.value(byField + "_x", 1.0).toFloat();
-                fy = s.value(byField + "_y", 1.0).toFloat();
-            } else if (s.contains(legacy + "_x")) {
-                fx = s.value(legacy + "_x", 1.0).toFloat();
-                fy = s.value(legacy + "_y", 1.0).toFloat();
+            auto read = [&](const QString& k) -> bool {
+                if (!s.contains(k + "_x")) return false;
+                fx = s.value(k + "_x", 1.0f).toFloat();
+                fy = s.value(k + "_y", 1.0f).toFloat();
+                hadValid = ColorbarOverlay::sanitizeFrac(fx) == fx
+                    && ColorbarOverlay::sanitizeFrac(fy) == fy
+                    && std::isfinite(fx) && std::isfinite(fy);
+                return true;
+            };
+            if (!read(key) && !read(byField) && !read(legacy)) {
+                auto slot = defaultSlot(idx);
+                fx = slot.first; fy = slot.second;
+            }
+            // Sanitize any persisted bad value and migrate it back to QSettings.
+            auto slot = defaultSlot(idx);
+            fx = ColorbarOverlay::sanitizeFrac(fx, slot.first);
+            fy = ColorbarOverlay::sanitizeFrac(fy, slot.second);
+            if (!hadValid) {
+                s.setValue(key + "_x", fx);
+                s.setValue(key + "_y", fy);
             }
             it = m_colorbarPosCache.emplace(key, std::make_pair(fx, fy)).first;
         }
@@ -690,8 +712,6 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         return labels;
     };
 
-
-
     auto makeBar = [&](const char* subtitle, const QString& title,
                        const QVariantList& stops, auto&& valueAt, int bandCount = 0) {
         ColorbarData d;
@@ -700,7 +720,8 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         d.stops = stops;
         d.bandCount = bandCount;
         d.tickLabels = makeTickLabels(std::forward<decltype(valueAt)>(valueAt), tickCount);
-        loadBarPosition(d);
+        const int idx = colorbarIdx++;
+        loadBarPosition(d, idx);
         loadBarOrientation(d);
         loadBarVisible(d);
         d.style.fontFamily = m_state.colorbarFontFamily;
@@ -717,10 +738,9 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         m_colorbarBars.push_back(std::move(d));
     };
 
-
-    if (m_state.hasMeshLoaded && m_state.meshHasScalars && m_state.meshUseScalarColor && m_state.showScalarColorbar && !m_state.showIsosurface) {
-
-
+    if (m_state.hasMeshLoaded && m_state.meshHasScalars &&
+        m_state.showScalarColorbar &&
+        !m_state.showIsosurface) {
         const float mapMin = m_state.colorMapMin();
         const float mapMax = m_state.colorMapMax();
         const float range = mapMax - mapMin;
@@ -732,11 +752,9 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                 }, m_state.scalarColorBands);
     }
 
-
     if (m_state.showVectors && m_state.vectorColorMode > 0 && m_state.hasMeshLoaded &&
         (m_state.vectorPlacement == 0 ? m_state.meshHasVectors : m_state.meshHasCellVectors)) {
         if (m_state.vectorColorMode == 1) {
-
             auto txMag = [&](float m) -> float {
                 if (m_state.vectorMagTransform == 1) return std::sqrt(std::max(m, 0.0f));
                 if (m_state.vectorMagTransform == 2) return std::log(1.0f + std::max(m, 0.0f));
@@ -761,7 +779,6 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                         return invTxMag(tMin + tRange * frac);
                     }, m_state.vectorColorBands);
         } else {
-
             int compIdx = m_state.vectorColorMode - 2;
             const float cMin = m_state.glyphCompRangeOverrideEnabled[compIdx]
                 ? m_state.glyphCompRangeLo[compIdx] : vectorGlyph.compMin[compIdx];
@@ -778,7 +795,6 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                     }, m_state.vectorColorBands);
         }
     }
-
 
     if (m_state.showStreamlines && m_state.streamlineColorMode > 0 && m_state.meshHasVectors && m_state.hasMeshLoaded) {
         if (m_state.streamlineColorMode == 1) {
@@ -809,7 +825,6 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
         }
     }
 
-
     if (m_state.showVolume && m_state.volumeUseColormap && m_state.hasMeshLoaded) {
         const float vMin = m_state.volumeColorRangeOverrideEnabled ? m_state.volumeColorRangeLo : m_state.dataScalarMin;
         const float vMax = m_state.volumeColorRangeOverrideEnabled ? m_state.volumeColorRangeHi : m_state.dataScalarMax;
@@ -821,7 +836,6 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                     return vMin + range * frac;
                 }, m_state.volumeColorBands);
     }
-
 
     for (int axis = 0; axis < 3; ++axis) {
         if (!m_state.slicePlaneEnabled[axis] || !m_state.slicePlaneShowColorbar[axis]) continue;
@@ -841,10 +855,15 @@ void Renderer::drawColorbarLegends(int deviceW, int deviceH) {
                     return slMin + range * frac;
                 }, m_state.volumeSliceColorBands);
     }
-
-    colorbarOverlay.drawBars(dpr, deviceW, deviceH, m_colorbarBars);
 }
 
+void Renderer::rebuildColorbarModelIfDirty(int deviceW, int deviceH, float dpr) {
+    if (deviceW <= 0 || deviceH <= 0) return;
+    if (!m_colorbarModelDirty && qFuzzyCompare(m_colorbarLastDpr, dpr)) return;
+    buildColorbarModel();
+    m_colorbarModelDirty = false;
+    m_colorbarLastDpr = dpr;
+}
 int Renderer::colorbarIndexAt(int px, int py, const std::vector<ColorbarData>& bars) const {
     return colorbarOverlay.barIndexAt(devicePixelRatio, effectiveDeviceW(), effectiveDeviceH(), bars, px, py);
 }
@@ -862,10 +881,10 @@ int Renderer::gizmoAxisAt(int pxDev, int pyDev) const {
 void Renderer::setColorbarPosition(int index, float fracX, float fracY) {
     if (index >= 0 && index < static_cast<int>(m_colorbarBars.size())) {
         auto& bar = m_colorbarBars[index];
-        bar.fracX = fracX;
-        bar.fracY = fracY;
+        bar.fracX = ColorbarOverlay::sanitizeFrac(fracX, bar.fracX);
+        bar.fracY = ColorbarOverlay::sanitizeFrac(fracY, bar.fracY);
         std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
-        m_colorbarPosCache[colorbarPosKey(bar)] = { fracX, fracY };
+        m_colorbarPosCache[colorbarPosKey(bar)] = { bar.fracX, bar.fracY };
     }
 }
 
@@ -910,6 +929,21 @@ void Renderer::commitColorbarPositions() {
     }
 }
 
+void Renderer::resetColorbarLayout() {
+    {
+        std::lock_guard<std::mutex> lock(m_colorbarCacheMutex);
+        m_colorbarPosCache.clear();
+        m_colorbarOrientCache.clear();
+        m_colorbarVisibleCache.clear();
+    }
+    QSettings s;
+    for (const QString& k : s.allKeys()) {
+        if (k.startsWith("colorbarPos")) s.remove(k);
+    }
+    m_colorbarModelDirty = true;
+    colorbarOverlay.markDirty();
+}
+
 QRectF Renderer::colorbarBarRect(float dpr, int deviceW, int deviceH, const ColorbarData& bar) const {
     return colorbarOverlay.barRectAt(dpr, deviceW, deviceH, bar);
 }
@@ -926,10 +960,12 @@ void Renderer::updateSliceScalarRange(const VolumeTexture* sliceTextures) {
             float mn = 0.0f, mx = 1.0f;
             if (planes && planes->range(axis, m_state.slicePlanePos[axis], mn, mx)) {
                 if (mx - mn < 1e-6f) mx = mn + 1.0f;
+                if (std::fabs(mn - m_state.sliceScalarMin[axis]) > 1e-5f || std::fabs(mx - m_state.sliceScalarMax[axis]) > 1e-5f) m_colorbarModelDirty = true;
                 m_state.sliceScalarMin[axis] = mn;
                 m_state.sliceScalarMax[axis] = mx;
             } else {
                 // Empty slice (plane misses the mesh) — keep the map stable.
+                if (m_state.sliceScalarMin[axis] != 0.0f || m_state.sliceScalarMax[axis] != 1.0f) m_colorbarModelDirty = true;
                 m_state.sliceScalarMin[axis] = 0.0f;
                 m_state.sliceScalarMax[axis] = 1.0f;
             }
@@ -994,6 +1030,7 @@ void Renderer::updateSliceScalarRange(const VolumeTexture* sliceTextures) {
         } else if (mx - mn < 1e-6f) {
             mx = mn + 1.0f;
         }
+        if (std::fabs(mn - m_state.sliceScalarMin[axis]) > 1e-5f || std::fabs(mx - m_state.sliceScalarMax[axis]) > 1e-5f) m_colorbarModelDirty = true;
         m_state.sliceScalarMin[axis] = mn;
         m_state.sliceScalarMax[axis] = mx;
     }

@@ -8,6 +8,8 @@
 #include <QImage>
 #include <QSettings>
 #include <vector>
+#include <algorithm>
+#include <cmath>
 
 // Visual styling for one colorbar. Defaults reproduce the legacy look.
 struct ColorbarStyle {
@@ -57,6 +59,13 @@ public:
 
     QRectF barRectAt(float dpr, int deviceW, int deviceH,
                      const ColorbarData& bar) const;
+
+    // Canonical placement helpers shared by paint, hit-test and drag: fraction
+    // is clamped to finite [0,1]; bar is pinned inside the device rect so an
+    // off-screen persisted state can never make a bar unreachable.
+    static float sanitizeFrac(float v, float fallback = 1.0f);
+    QPointF barOrigin(float dpr, int deviceW, int deviceH,
+                      const ColorbarData& bar) const;
 
     void markDirty();
 

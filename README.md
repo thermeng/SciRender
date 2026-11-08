@@ -42,7 +42,7 @@ Then drag-drop a `.vtu`/`.vts`/`.vti`/`.vtp`/`.vtr`/`.vtm`/`.vtk`/`.stl`/`.obj`/
 Requires **Qt 6** (Core, Gui, Widgets, OpenGLWidgets), **OpenGL 4.6**, a C++20 compiler, CMake ≥ 3.19, and **ZLIB** (system-installed or auto-detected via `ZLIB_ROOT`). GLAD, GLM, pugixml, LZ4, and LZMA are vendored under `vendor/`, no install needed.
 
 ```bash
-cmake -S . -B build -DCMAKE_PREFIX_PATH="<path-to-Qt6>"
+cmake -G Ninja -S . -B build -DCMAKE_PREFIX_PATH="<path-to-Qt6>"
 cmake --build build -j4
 ```
 
@@ -51,9 +51,9 @@ The shaders in `src/shaders/` are copied next to the binary at build time, so th
 To reproduce the Release package locally:
 
 ```bash
-cmake -G "MinGW Makefiles" -S . -B build-mingw -DCMAKE_BUILD_TYPE=Release
-cmake --build build-mingw -j4
-cmake --install build-mingw --prefix package
+cmake -G Ninja -S . -B build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release -j4
+cmake --install build-release --prefix package
 C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --compiler-runtime package/SciRender.exe
 # ZIP: Compress-Archive package/* SciRender-win64.zip
 # Setup: iscc installer/SciRender.iss /DAppVersion=0.1.0  # requires Inno Setup 6
