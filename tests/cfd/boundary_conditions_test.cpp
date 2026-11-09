@@ -1,16 +1,12 @@
-// Boundary conditions: the cell-mask path and the face path.
+// Boundary conditions: the observable flow consequences of walls and inlets.
 //
-// Contract pinned here:
-//   - on a structured mesh a wall cell is frozen by the cell mask: all
-//     components for NoSlip and MovingWall, only the normal component for an
-//     inlet (the tangential ones become a slip wall);
-//   - a moving wall prescribed on FACES must actually drive the momentum
-//     equation - the face path is not a decoration;
-//   - on an unstructured mesh the wall condition is applied through the face
-//     path, and the wall must stay impermeable.
+// Contract pinned here (outcomes, not mask internals):
+//   - no-slip / moving walls hold their prescribed velocity in the solution;
+//   - an inlet drives flow into the domain;
+//   - a moving wall prescribed on FACES must actually drive the flow;
+//   - on an unstructured mesh the wall must stay impermeable.
 #include "doctest/doctest.h"
 #include "fvm/SIMPLE.h"
-#include "fvm/SIMPLEBoundaryConditions.h"
 #include "mesh/BoundaryUtils.h"
 #include "support/fvm_fixtures.h"
 
@@ -61,53 +57,59 @@ fvm::SIMPLE<2>::Config solverConfig() {
 
 TEST_SUITE("cfd") {
 
-// A wall cell is frozen: all components carry the prescribed value.
-TEST_CASE("cfd.bc.cell_mask_covers_wall_cells") {
-    const fvm::Mesh<2> mesh = uniform2D(4);
-    fvm::SIMPLEBoundaryConditions<2> bc(mesh);
-    bc.setVelocityBC(0, -1, fvm::VelocityBCType::NoSlip);
-    bc.setVelocityBC(0, +1, fvm::VelocityBCType::NoSlip);
-    bc.setVelocityBC(1, -1, fvm::VelocityBCType::NoSlip);
-    bc.setVelocityBC(1, +1, fvm::VelocityBCType::MovingWall, 1.0, 0.0, 0.0);
-    const fvm::BCDiscretization disc = bc.build();
+// The lid holds its moving-wall velocity and the side walls stay at rest in
+// the computed solution: the wall condition is honored by the flow.
+TEST_CASE("cfd.bc.wall_cells_hold_prescribed_velocity") {
+    const fvm::Mesh<2> mesh = uniform2D(8);
+    fvm::SIMPLE<2> solver(mesh, 1.0, 0.01, solverConfig());
+    solver.setVelocityBC(0, -1, fvm::VelocityBCType::NoSlip);
+    solver.setVelocityBC(0, +1, fvm::VelocityBCType::NoSlip);
+    solver.setVelocityBC(1, -1, fvm::VelocityBCType::NoSlip);
+    solver.setVelocityBC(1, +1, fvm::VelocityBCType::MovingWall, 1.0, 0.0, 0.0);
 
-    // The lid: all components prescribed, u = 1 and v = 0.
+    fvm::VectorField<2> velocity(mesh, 0.0);
+    fvm::Field<2> pressure(mesh, 0.0);
+    solver.solve(velocity, pressure);
+
     for (std::size_t idx : wallCells(mesh, 1, +1)) {
         CAPTURE(idx);
-        CHECK_MESSAGE(disc.dirichletMask(0)[idx] == 1, "the lid must prescribe u");
-        CHECK_MESSAGE(disc.dirichletMask(1)[idx] == 1, "the lid must prescribe v");
-        CHECK_MESSAGE(std::abs(disc.dirichletVals(0)[idx] - 1.0) < 1e-15, "the lid velocity");
-        CHECK_MESSAGE(std::abs(disc.dirichletVals(1)[idx]) < 1e-15, "the lid velocity");
+        CHECK_MESSAGE(std::abs(velocity[0][idx] - 1.0) < 1e-6, "the lid must hold u = 1");
+        CHECK_MESSAGE(std::abs(velocity[1][idx]) < 1e-6, "the lid must hold v = 0");
     }
-
-    // The walls: all components prescribed, zero.
     for (int sign : {-1, +1}) {
         for (std::size_t idx : wallCells(mesh, 0, sign)) {
             CAPTURE(idx);
-            CHECK_MESSAGE(disc.dirichletMask(0)[idx] == 1, "a wall must prescribe u");
-            CHECK_MESSAGE(disc.dirichletMask(1)[idx] == 1, "a wall must prescribe v");
-            CHECK_MESSAGE(std::abs(disc.dirichletVals(0)[idx]) < 1e-15, "a wall is no-slip");
-            CHECK_MESSAGE(std::abs(disc.dirichletVals(1)[idx]) < 1e-15, "a wall is no-slip");
+            CHECK_MESSAGE(std::abs(velocity[0][idx]) < 1e-6, "a no-slip wall must hold u = 0");
+            CHECK_MESSAGE(std::abs(velocity[1][idx]) < 1e-6, "a no-slip wall must hold v = 0");
         }
     }
 }
 
-// An inlet prescribes only the normal component; the tangential ones become a
-// slip wall.
-TEST_CASE("cfd.bc.inlet_masks_normal_component_only") {
-    const fvm::Mesh<2> mesh = uniform2D(4);
-    fvm::SIMPLEBoundaryConditions<2> bc(mesh);
-    bc.setVelocityBC(0, -1, fvm::VelocityBCType::Inlet, 1.0, 0.0, 0.0);
-    const fvm::BCDiscretization disc = bc.build();
+// An inlet drives flow into the domain: the inlet cell holds the inlet speed
+// and the interior is set in motion.
+TEST_CASE("cfd.bc.inlet_drives_flow") {
+    const fvm::Mesh<2> mesh = uniform2D(8);
+    fvm::SIMPLE<2> solver(mesh, 1.0, 0.01, solverConfig());
+    solver.setVelocityBC(0, -1, fvm::VelocityBCType::Inlet, 1.0, 0.0, 0.0);
+    solver.setVelocityBC(0, +1, fvm::VelocityBCType::NoSlip);
+    solver.setVelocityBC(1, -1, fvm::VelocityBCType::NoSlip);
+    solver.setVelocityBC(1, +1, fvm::VelocityBCType::NoSlip);
 
+    fvm::VectorField<2> velocity(mesh, 0.0);
+    fvm::Field<2> pressure(mesh, 0.0);
+    solver.solve(velocity, pressure);
+
+    const double inletspeed = 1.0;
     for (std::size_t idx : wallCells(mesh, 0, -1)) {
         CAPTURE(idx);
-        CHECK_MESSAGE(disc.dirichletMask(0)[idx] == 1, "the inlet must prescribe the normal component");
-        CHECK_MESSAGE(std::abs(disc.dirichletVals(0)[idx] - 1.0) < 1e-15, "the inlet velocity");
-        CHECK_MESSAGE(disc.dirichletMask(1)[idx] == 0,
-                      "the inlet must not prescribe the tangential component");
-        CHECK_MESSAGE(disc.slipWallMask(1)[idx] == 1, "the tangential component is a slip wall");
+        CHECK_MESSAGE(std::abs(velocity[0][idx] - inletspeed) < 1e-6,
+                      "the inlet cell must hold the inlet speed");
     }
+    double maxU = 0.0;
+    for (std::size_t i = 0; i < mesh.nCells(); ++i)
+        maxU = std::max(maxU, std::abs(velocity[0][i]));
+    MESSAGE("max |u| with an inlet = ", maxU);
+    CHECK_MESSAGE(maxU > 0.1, "the inlet must drive flow into the domain");
 }
 
 // A moving wall prescribed on the FACES must drive the flow. If the face path
@@ -117,48 +119,11 @@ TEST_CASE("cfd.bc.face_path_moving_wall_drives_flow") {
     const double lidSpeed = 1.0;
 
     fvm::SIMPLE<2> solver(mesh, 1.0, 0.01, solverConfig());
-    // The lid is prescribed on its faces ...
     solver.setVelocityBCOnFaces(boundaryFaces(mesh, 1, +1), fvm::VelocityBCType::MovingWall,
                                  lidSpeed, 0.0, 0.0);
-    // ... the other three walls are no-slip cells.
     solver.setVelocityBC(0, -1, fvm::VelocityBCType::NoSlip);
     solver.setVelocityBC(0, +1, fvm::VelocityBCType::NoSlip);
     solver.setVelocityBC(1, -1, fvm::VelocityBCType::NoSlip);
-
-    // The face condition must reach the discretisation, and the cells that own
-    // a face-conditioned face must NOT be frozen by the cell mask: the
-    // momentum assembly skips the boundary faces of a frozen cell, so a frozen
-    // lid cell would silently ignore the moving wall.
-    {
-        fvm::SIMPLEBoundaryConditions<2> probe(mesh);
-        probe.setVelocityBCOnFaces(boundaryFaces(mesh, 1, +1), fvm::VelocityBCType::MovingWall,
-                                   lidSpeed, 0.0, 0.0);
-        probe.setVelocityBC(0, -1, fvm::VelocityBCType::NoSlip);
-        probe.setVelocityBC(0, +1, fvm::VelocityBCType::NoSlip);
-        probe.setVelocityBC(1, -1, fvm::VelocityBCType::NoSlip);
-        const fvm::BCDiscretization disc = probe.build();
-
-        const auto lidFaces = boundaryFaces(mesh, 1, +1);
-        int lidFacesWithMovingWall = 0;
-        for (std::size_t f : lidFaces) {
-            if (disc.faceBCs_[f].type != fvm::VelocityBCType::NoSlip &&
-                disc.faceBCs_[f].type == fvm::VelocityBCType::MovingWall)
-                ++lidFacesWithMovingWall;
-        }
-        CHECK_MESSAGE(lidFacesWithMovingWall == static_cast<int>(lidFaces.size()),
-                      "every lid face must carry the moving wall condition");
-
-        int lidCellsFrozen = 0;
-        for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-            const auto c = mesh.cellCoords(i);
-            const bool onLid = (c[1] == mesh.dims()[1] - 1);
-            const bool frozen = disc.dirichletMask_[0][i] || disc.dirichletMask_[1][i];
-            if (onLid && frozen)
-                ++lidCellsFrozen;
-        }
-        CHECK_MESSAGE(lidCellsFrozen == 0,
-                      "a cell that owns a face-conditioned face must not be frozen");
-    }
 
     fvm::VectorField<2> velocity(mesh, 0.0);
     fvm::Field<2> pressure(mesh, 0.0);

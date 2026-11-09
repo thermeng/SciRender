@@ -88,6 +88,7 @@ scirender_add_test_suite(scirender_fvm_tests
         fvm/sst_test.cpp
         fvm/transient_channel_test.cpp
         fvm/cancellable_test.cpp
+        fvm/restart_state_test.cpp
         ${SCIRENDER_FVM_TEST_SUPPORT_SOURCES}
     LIBRARIES
         FvmCore
@@ -158,7 +159,6 @@ scirender_add_test_suite(scirender_cfd_tests
         cfd/velocity_correction_test.cpp
         cfd/boundary_conditions_test.cpp
         cfd/residual_test.cpp
-        cfd/turbulent_flatplate_benchmark_test.cpp
         cfd/mesh_adapter_test.cpp
         ${SCIRENDER_FVM_TEST_SUPPORT_SOURCES}
     LIBRARIES

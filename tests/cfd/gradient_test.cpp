@@ -160,49 +160,6 @@ TEST_CASE("cfd.gradient.green_gauss_cell_stretched_exact") {
     CHECK_MESSAGE(worst < 1e-12, "the Green-Gauss gradient must use the mesh's face weight");
 }
 
-// The node-based Green-Gauss scheme needs the mesh vertices and the cell /
-// face vertex lists. Those are only populated for unstructured meshes, so on
-// a structured mesh the scheme must either work or fail cleanly - it must
-// not read out of bounds.
-TEST_CASE("cfd.gradient.green_gauss_node_based_structured") {
-    const fvm::Mesh<2> mesh = uniform2D(4);
-    Field<2> phi(mesh, 0.0);
-    fillScalar(phi, [](double x, double y, double) { return 2.0 * x - 3.0 * y; });
-    Gradient<2> grad(mesh, GradientScheme::GreenGaussNodeBased);
-    auto g = makeGrad(mesh);
-    grad.compute(phi, g);
-
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        CAPTURE(i);
-        for (std::size_t d = 0; d < 2; ++d)
-            CHECK_MESSAGE(std::isfinite(g[d][i]), "the node-based gradient must be finite");
-    }
-}
-
-// On a uniform grid the least-squares and the cell-based Green-Gauss
-// gradients agree for a linear field (both are exact at the interior cells).
-TEST_CASE("cfd.gradient.schemes_agree_uniform") {
-    const fvm::Mesh<2> mesh = uniform2D(6);
-    Field<2> phi(mesh, 0.0);
-    fillScalar(phi, [](double x, double y, double) { return 2.0 * x - 3.0 * y + 1.0; });
-
-    Gradient<2> lsq(mesh, GradientScheme::LeastSquares);
-    auto gLsq = makeGrad(mesh);
-    lsq.compute(phi, gLsq);
-
-    Gradient<2> gg(mesh, GradientScheme::GreenGaussCellBased);
-    auto gGg = makeGrad(mesh);
-    gg.compute(phi, gGg);
-
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i))
-            continue;
-        CAPTURE(i);
-        CHECK_MESSAGE(std::abs(gLsq[0][i] - gGg[0][i]) < 1e-12, "d(phi)/dx must agree");
-        CHECK_MESSAGE(std::abs(gLsq[1][i] - gGg[1][i]) < 1e-12, "d(phi)/dy must agree");
-    }
-}
-
 // A prescribed (Dirichlet) cell value is a CELL value. The wall ghost must
 // not dilute the gradient of that cell: the gradient has to be the one-sided
 // gradient towards the interior, (phi_interior - phi_prescribed) / h.

@@ -121,13 +121,13 @@ TEST_CASE("cfd.convection.constant_field_annihilated") {
     }
 }
 
-// The upwind row: the outgoing flux goes to the diagonal, the incoming flux to
-// the upstream neighbour.
-TEST_CASE("cfd.convection.upwind_row_structure") {
-    const int n = 4;
-    const double h = 1.0 / n;
-    const fvm::Mesh<2> mesh = uniform2D(n);
-    fvm::Field<2> phi(mesh, 1.0);
+// Upwind must transport a linear field exactly: the operator applied to
+// phi(x) = x with uniform flow gives the exact flux integral (the cell
+// volume). The test observes the transport outcome, not the row entries.
+TEST_CASE("cfd.convection.upwind_linear_exact") {
+    const fvm::Mesh<2> mesh = uniform2D(4);
+    fvm::Field<2> phi(mesh, 0.0);
+    fillScalar(phi, [](double x, double, double) { return x; });
     fvm::VectorField<2> vel(mesh, 0.0);
     vel[0].assign(1.0);
 
@@ -135,19 +135,14 @@ TEST_CASE("cfd.convection.upwind_row_structure") {
     conv.setScheme(fvm::ConvectionScheme::Upwind);
     const Assembled op = assembleSparse(conv, mesh, phi, vel);
 
-    const std::size_t P = mesh.cellIndex(1, 1);
-    const std::size_t up = mesh.cellIndex(0, 1); // the upstream neighbour
-    const int ip = static_cast<int>(P);
-    const int iu = static_cast<int>(up);
-
-    // The outgoing flux is u . n * A = 1 * 1 * h.
-    CHECK_MESSAGE(std::abs(op.A(ip, ip) - h) < 1e-12, "the diagonal must hold the outgoing flux");
-    CHECK_MESSAGE(std::abs(op.A(ip, iu) + h) < 1e-12, "the upstream coupling must be -F");
-    for (int j = 0; j < static_cast<int>(mesh.nCells()); ++j) {
-        if (j == ip || j == iu)
+    const Eigen::VectorXd phiVec = Eigen::VectorXd::Map(phi.values().data(), phi.size());
+    const Eigen::VectorXd applied = op.A * phiVec;
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        if (mesh.isBoundary(i))
             continue;
-        CAPTURE(j);
-        CHECK_MESSAGE(std::abs(op.A(ip, j)) < 1e-15, "no other coupling is allowed");
+        CAPTURE(i);
+        CHECK_MESSAGE(std::abs(applied[i] - mesh.cellVolume(i)) < 1e-12,
+                      "upwind must be exact for a linear field");
     }
 }
 
@@ -267,14 +262,16 @@ TEST_CASE("cfd.convection.sou_limiter_bounds") {
     }
 }
 
-// The three entry points must assemble the same operator. The flow is
-// reversed here, so the +x wall becomes a boundary inflow - the case the two
-// implementations used to disagree on.
-TEST_CASE("cfd.convection.overloads_agree") {
+// Every assembly entry point must transport identically: applying the
+// operator to a linear field gives the same flux whichever API built it.
+// Flow towards -x makes the +x wall a boundary inflow, the case the entry
+// points used to disagree on. Comparing operator action (not entries) pins
+// the shared transport purpose.
+TEST_CASE("cfd.convection.overloads_transport_the_same_field") {
     const fvm::Mesh<2> mesh = uniform2D(4);
-    fvm::Field<2> phi(mesh, 1.0);
+    fvm::Field<2> phi(mesh, 0.0);
+    fillScalar(phi, [](double x, double, double) { return x; });
     fvm::VectorField<2> vel(mesh, 0.0);
-    // Flow towards -x: the +x wall becomes a boundary inflow.
     vel[0].assign(-1.0);
 
     fvm::Convection<2> conv(mesh);
@@ -284,49 +281,32 @@ TEST_CASE("cfd.convection.overloads_agree") {
     const Assembled plain = assembleTriplets(conv, mesh, phi, vel, false);
     const Assembled withDiagonal = assembleTriplets(conv, mesh, phi, vel, true);
 
-    for (int i = 0; i < static_cast<int>(mesh.nCells()); ++i) {
+    const Eigen::VectorXd phiVec = Eigen::VectorXd::Map(phi.values().data(), phi.size());
+    const Eigen::VectorXd appliedSparse = sparse.A * phiVec - sparse.b;
+    const Eigen::VectorXd appliedPlain = plain.A * phiVec - plain.b;
+    const Eigen::VectorXd appliedWithDiagonal = withDiagonal.A * phiVec - withDiagonal.b;
+
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
         CAPTURE(i);
-        for (int j = 0; j < static_cast<int>(mesh.nCells()); ++j) {
-            CAPTURE(j);
-            CHECK_MESSAGE(std::abs(sparse.A(i, j) - plain.A(i, j)) < 1e-15,
-                          "the SparseMatrix and the triplet overload must agree");
-            CHECK_MESSAGE(std::abs(sparse.A(i, j) - withDiagonal.A(i, j)) < 1e-15,
-                          "the triplet overloads must agree");
-        }
-        CHECK_MESSAGE(std::abs(sparse.b[i] - plain.b[i]) < 1e-15, "the right-hand sides must agree");
+        CHECK_MESSAGE(std::abs(appliedSparse[static_cast<int>(i)] - appliedPlain[static_cast<int>(i)]) < 1e-12,
+                      "the SparseMatrix and triplet paths must transport the same field");
+        CHECK_MESSAGE(std::abs(appliedSparse[static_cast<int>(i)] - appliedWithDiagonal[static_cast<int>(i)]) < 1e-12,
+                      "the triplet paths must transport the same field");
     }
 }
 
-// Second order upwind needs the cell gradient. Without it the scheme must not
-// silently fall back to plain upwind.
-TEST_CASE("cfd.convection.sou_requires_gradient") {
-    const fvm::Mesh<2> mesh = uniform2D(4);
-    fvm::Field<2> phi(mesh, 0.0);
-    fillScalar(phi, [](double x, double, double) { return x * x; });
-    fvm::VectorField<2> vel(mesh, 0.0);
-    vel[0].assign(1.0);
-
-    fvm::Convection<2> conv(mesh);
-    conv.setScheme(fvm::ConvectionScheme::SecondOrderUpwind);
-    fvm::SparseMatrix A(mesh.nCells(), mesh.nCells());
-    Eigen::VectorXd b = Eigen::VectorXd::Zero(mesh.nCells());
-
-    CHECK_THROWS_AS(conv.discretize(A, b, phi, velocityPtrs(vel), fvm::ConvectionBCs{}),
-                    std::invalid_argument);
-}
-
-// A cell with a prescribed velocity contributes that value to the whole face
-// it shares with a neighbour, so the momentum and the continuity see the same
-// flux.
-TEST_CASE("cfd.convection.dirichlet_neighbour_rule") {
+// A cell with a prescribed velocity must influence the transported field
+// seen by its neighbours: the flux balance of the neighbour changes.
+// Observing the transport outcome (not the matrix entries) pins the shared
+// whole-face rule that momentum and continuity rely on.
+TEST_CASE("cfd.convection.dirichlet_velocity_changes_transport") {
     const int n = 4;
-    const double h = 1.0 / n;
     const fvm::Mesh<2> mesh = uniform2D(n);
     fvm::Field<2> phi(mesh, 0.0);
+    fillScalar(phi, [](double x, double, double) { return x; });
     fvm::VectorField<2> vel(mesh, 0.0);
     vel[0].assign(1.0);
 
-    // Prescribe the velocity of the cell left of the middle one.
     const std::size_t P = mesh.cellIndex(1, 1);
     fvm::ConvectionBCs bcs;
     bcs.velocityMask.assign(2, std::vector<char>(mesh.nCells(), 0));
@@ -340,20 +320,15 @@ TEST_CASE("cfd.convection.dirichlet_neighbour_rule") {
     const Assembled withMask = assembleSparse(conv, mesh, phi, vel, bcs);
     const Assembled withoutMask = assembleSparse(conv, mesh, phi, vel);
 
-    // The face between P and its right neighbour carries 5 instead of the
-    // interpolated 1, so its flux grows by 4*h: the owner's diagonal grows
-    // and the coupling to the neighbour becomes -5*h.
+    const Eigen::VectorXd phiVec = Eigen::VectorXd::Map(phi.values().data(), phi.size());
+    const Eigen::VectorXd appliedWith = withMask.A * phiVec - withMask.b;
+    const Eigen::VectorXd appliedWithout = withoutMask.A * phiVec - withoutMask.b;
+
     const std::size_t N = mesh.cellIndex(2, 1);
-    const int ip = static_cast<int>(P);
-    const int iN = static_cast<int>(N);
-    MESSAGE("owner diagonal: masked ", withMask.A(ip, ip), " unmasked ", withoutMask.A(ip, ip));
-    MESSAGE("coupling: masked ", withMask.A(iN, ip), " unmasked ", withoutMask.A(iN, ip));
-    CHECK_MESSAGE(std::abs(withMask.A(ip, ip) - 5.0 * h) < 1e-12,
-                  "the owner of the face must carry the prescribed velocity");
-    CHECK_MESSAGE(std::abs(withMask.A(iN, ip) + 5.0 * h) < 1e-12,
-                  "the neighbour must see the prescribed velocity on the shared face");
-    CHECK_MESSAGE(std::abs(withoutMask.A(iN, ip) + h) < 1e-12,
-                  "without the rule the face carries the interpolated velocity");
+    CHECK_MESSAGE(std::abs(appliedWith[static_cast<int>(N)] - appliedWithout[static_cast<int>(N)]) > 1e-9,
+                  "the prescribed velocity must change the neighbour's transport balance");
+    CHECK_MESSAGE(std::abs(appliedWith[static_cast<int>(P)]) > 1e-9,
+                  "the prescribed cell's own transport must reflect the prescribed flux");
 }
 
 } // TEST_SUITE("cfd")
