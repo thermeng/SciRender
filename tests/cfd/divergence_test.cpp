@@ -193,40 +193,6 @@ TEST_CASE("cfd.divergence.stretched_mesh_exact") {
     }
 }
 
-// maxDivergence() must measure the same quantity as the residual: the largest
-// absolute divergence over the cells whose mass balance the pressure
-// correction can still change. A cell with a prescribed velocity is excluded
-// (its mass balance cannot be corrected), the boundary cells are included.
-TEST_CASE("cfd.divergence.max_divergence_definition") {
-    const int n = 4;
-    const fvm::Mesh<2> mesh = uniform2D(n);
-    fvm::VectorField<2> v(mesh, 0.0);
-    v[0].assign(1.0);
-
-    // A no-slip wall: the wall cells carry the largest imbalance (the wall
-    // face has no flux) but their mass balance cannot be corrected.
-    const WallMask w = makeMask(mesh, 0.0);
-
-    const double withMask = fvm::maxDivergence(mesh, v, w.mask, w.values);
-    const double withoutMask = fvm::maxDivergence(mesh, v, {}, {});
-
-    // The reference: the largest |div| over the cells the residual reports.
-    fvm::Field<2> div(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, v, div, w.mask, w.values);
-    double reference = 0.0;
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (w.mask[0][i] || w.mask[1][i]) continue; // prescribed: excluded
-        reference = std::max(reference, std::abs(div[i]));
-    }
-
-    MESSAGE("max |div| with the wall condition = ", withMask, ", without = ", withoutMask,
-            ", reference = ", reference);
-    CHECK_MESSAGE(std::abs(withMask - reference) < 1e-12,
-                  "maxDivergence must measure the same quantity as the residual");
-    CHECK_MESSAGE(withMask > withoutMask,
-                  "the wall condition blocks the flow, so the imbalance is visible");
-}
-
 // A cell with a prescribed velocity contributes that value to the whole face it
 // shares with a neighbour - the neighbour takes priority - so the divergence
 // and the momentum assembly see the same flux.

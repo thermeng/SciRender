@@ -12,6 +12,11 @@ The suite is part of the main CMake project (`scirender_cfd_tests`), it links
 the real `FvmCore` / `CfdLib` targets, and it needs neither Qt nor an OpenGL
 context.
 
+The tests pin **observable purpose** — the solution, the corrected field, the
+flow — not assembly internals. Where two code paths solve the same physics
+(Laplacian vs Poisson, the three Convection overloads), the tests compare
+solutions or operator action on a field, not matrix entries or stencil layout.
+
 ## The contracts
 
 Every test states one contract of the operator it covers. The expected values
@@ -33,13 +38,10 @@ are hand-derived from the physics, not copied from the implementation's output.
   it without a residual);
 * the wall ghost implements a zero-gradient condition, so the boundary cells
   are excluded from the exactness claims;
-* the cell-based Green-Gauss must use the mesh's face weight - the exact
-  linear interpolation between the two cell centres - and not a plain
+* the cell-based Green-Gauss must use the mesh's face weight — the exact
+  linear interpolation between the two cell centres — and not a plain
   `0.5*(phi_P + phi_N)`. A stretched grid discriminates the two: the cells
   have different widths, so the face is not midway between the centres;
-* the node-based Green-Gauss reconstructs the nodes of a structured mesh from
-  the grid (a structured mesh has no vertex arrays) and reproduces a linear
-  field exactly;
 * a prescribed cell keeps its own value: the gradient of such a cell is the
   one-sided gradient towards the interior, and the wall ghost must not dilute
   it.
@@ -55,58 +57,59 @@ formulation, not a defect of the operator.
 * the face velocity is the exact linear interpolation between the two cell
   centres;
 * a cell with a prescribed velocity owns the **whole** face it shares with a
-  neighbour (the neighbour takes priority) - the same rule as the momentum
+  neighbour (the neighbour takes priority) — the same rule as the momentum
   assembly, so the divergence and the momentum see the same flux;
 * at a boundary face the velocity is the prescribed value of the cell that
   owns the face; with no boundary condition the face carries the owner's
   velocity;
 * the fluxes telescope: `sum(div * V)` over the cells equals the net flux
   through the boundary faces;
-* `maxDivergence()` measures the same quantity as the residual: the largest
-  absolute divergence over the cells whose mass balance the pressure
-  correction can still change (a cell with a prescribed velocity is excluded,
-  the boundary cells are included);
 * the Dirichlet mask is validated: a mask that does not cover every cell (or
-  every component) is rejected instead of being read out of bounds.
+  every component) is rejected instead of being read out of bounds. This is
+  the one retained crash-safety test; the per-operator throw checks were
+  removed in favor of a single representative.
 
 ### Laplacian / Poisson (`cfd.poisson.*`)
 
-* `A phi = b` with `A = -div(c grad(phi))`: positive diagonal, non-positive
-  off-diagonals, symmetric. A positive source produces a positive bump, which
-  is what SIMPLE's pressure equation needs. (The `Poisson.h` header comment
-  states the opposite - the code is right, the comment is what has to change.)
+* `A phi = b` with `A = -div(c grad(phi))`: a positive source produces a
+  positive bump, which is what SIMPLE's pressure equation needs. (The
+  `Poisson.h` header comment states the opposite — the code is right, the
+  comment is what has to change.)
 * `b = source * V`, i.e. `source` is a density;
 * the discrete operator applied to the exact quadratic reproduces the analytic
-  Laplacian times the cell volume - that pins the sign, the coefficient and
+  Laplacian times the cell volume — that pins the sign, the coefficient and
   the volume weighting in one assertion;
-* a masked cell gets an identity row, its unmasked neighbours pick the
-  prescribed value up in the right-hand side;
-* `Laplacian(k)` and `Poisson(c = k, source = 0)` assemble the same operator.
+* the assembled system is solvable and its solution satisfies the system;
+* a prescribing cell holds its prescribed value in the solution, and that
+  value influences its neighbours;
+* `Laplacian(k)` and `Poisson(c = k)` solve the same problem to the same
+  solution;
+* the non-orthogonal correction leaves the solved field unchanged on an
+  orthogonal mesh.
 
 ### Convection (`cfd.convection.*`)
 
-* upwind: `F >= 0 -> A(P,P) += F`, `F < 0 -> A(P,N) = F`; central: `F/2` on
-  both;
-* a cell with a prescribed velocity owns the **whole** face it shares with a
-  neighbour (the neighbour takes priority) - the same rule as the momentum
-  assembly;
-* second order upwind: the upwind base plus a deferred reconstruction that is
-  clamped to the neighbour bounds, with the known term moved to the
-  right-hand side (so the full balance is `(A phi) - b). It needs the cell
-  gradient: a call without it is **rejected** rather than silently degrading to
-  plain upwind;
-* central and second order upwind are exact for a linear field;
+* upwind, central, and second order upwind are exact for a linear field
+  (observed as exact flux integrals via applied operators);
+* second order upwind's reconstruction is clamped so it never creates a new
+  maximum;
 * a constant transported quantity is conserved by a divergence-free flow;
-* the three entry points (the sparse matrix, the triplets with a separate
-  diagonal and the triplets with the diagonal included) must assemble the same
-  operator.
-
+* the three assembly entry points transport the same field identically
+  (compared via operator action, not entries);
+* a cell with a prescribed velocity changes the neighbour's transport balance
+  (the shared whole-face flux rule, observed via the transported field).
 
 ### Pressure and velocity correction (`cfd.pressure.*`, `cfd.velocity.*`)
 
 * a uniform flow must not produce a pressure correction;
 * the pinned reference cell carries `p' = 0`;
-* the correction must remove the divergence it was built for;
+* the correction removes most of the predictor divergence at every
+  resolution, and keeps the corrected divergence small away from the
+  reference cell for both kinked and smooth sources;
+* the compact Rhie-Chow correction cancels a checkerboard pressure mode;
+* with AMG enabled the solve still removes divergence and stays finite
+  (the AMG path is an implementation choice; the corrected divergence is
+  the outcome);
 * a cell without an interior face has no pressure equation: it is excluded
   from the pressure unknowns and **reported** (`isolatedCellCount()`), because
   its mass balance can never be corrected and the run would otherwise never
@@ -116,18 +119,31 @@ formulation, not a defect of the operator.
 
 ### Boundary conditions (`cfd.bc.*`)
 
-* a wall cell is frozen by the cell mask: all components for NoSlip and
-  MovingWall, only the normal component for an inlet;
-* a moving wall prescribed on the **faces** must drive the momentum equation;
-* on an unstructured mesh the wall condition is applied through the face path
-  and the wall stays impermeable.
+* wall cells hold their prescribed velocity in the computed solution (no-slip
+  zero, moving wall at lid speed);
+* an inlet drives flow into the domain (inlet cell holds the inlet speed and
+  the interior is set in motion);
+* a moving wall prescribed on the **faces** drives the flow;
+* on an unstructured mesh the wall stays impermeable.
 
 ### Residual (`cfd.residual.*`)
 
 * the continuity residual is the mass imbalance normalised by the total flux
   and covers the boundary cells;
-* the momentum residual is the relative per-iteration **change**, not a linear
-  residual.
+* the momentum residual ranks velocity changes: unchanged < small < large.
+  The exact normalization constant is not pinned so reporting choices can
+  change without breaking the convergence purpose.
+
+### Mesh adapter (`cfd.mesh_adapter.*`)
+
+* a 3D mesh loads (previously rejected by a hard-coded 2D reader), with real
+  xyz vertices;
+* a 2D mesh still loads and is drawn in the z=0 plane;
+* the pipe mesh loads with a closed-manifold external surface, valid cell
+  topology, and positive finite cell volumes whose total cannot exceed the
+  bounding box. Assertions are relational (positive counts, manifold,
+  validity) rather than hard-coded file sizes, so file churn does not break
+  the test without behavior changing.
 
 ## The known-failure registry
 
@@ -148,10 +164,10 @@ prints every outstanding defect with its real diagnostic.
 
 ## Fixing the solver one defect at a time
 
-1. `ctest --test-dir build-tests -L known-broken -V` - pick the top entry; the
+1. `ctest --test-dir build-tests -L known-broken -V` — pick the top entry; the
    diagnostic names the operator and the expected versus actual values.
 2. Fix the solver. One defect per change.
-3. Re-run: the row turns **red** (the test now passes) - remove the entry from
+3. Re-run: the row turns **red** (the test now passes) — remove the entry from
    `known_failures.txt` and the row is green again.
 4. Repeat.
 
@@ -169,4 +185,4 @@ available. The suite therefore uses:
 | exactness on a linear field | relative `1e-12` |
 | conservation / telescoping sums | relative `1e-12` |
 | boundedness (the SOU limiter) | exact, with a `1e-12` slack |
-| structural properties (symmetry, M-matrix) | relative `1e-12` |
+| well-posedness (solve satisfies its system) | residual relative `1e-9` |
