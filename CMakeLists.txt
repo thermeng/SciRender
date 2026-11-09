@@ -51,10 +51,11 @@ find_package(OpenMP REQUIRED)
 #     the build is unaffected. vendor/ sources are never modified.
 # ---------------------------------------------------------------------------
 option(SCIRENDER_HYPRE_MPI "Build vendored Hypre with MPI support (default OFF)" OFF)
+option(SCIRENDER_BUILD_VENDORED_HYPRE "Build the vendored Hypre library (disable to use a system/installed HYPRE)" ON)
 set(SCIRENDER_HAVE_HYPRE OFF)
 set(SCIRENDER_HYPRE_INCLUDE_DIRS "")
 set(SCIRENDER_HYPRE_LIBRARIES "")
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vendor/hypre/src/CMakeLists.txt)
+if(SCIRENDER_BUILD_VENDORED_HYPRE AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vendor/hypre/src/CMakeLists.txt)
     set(HYPRE_ENABLE_MPI ${SCIRENDER_HYPRE_MPI} CACHE BOOL "" FORCE)
     set(HYPRE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(HYPRE_BUILD_TESTS OFF CACHE BOOL "" FORCE)

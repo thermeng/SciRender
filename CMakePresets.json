@@ -18,7 +18,7 @@
       "name": "debug",
       "displayName": "Debug",
       "inherits": "base",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build-ninja",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_PREFIX_PATH": "C:/Qt/6.11.1/mingw_64"
