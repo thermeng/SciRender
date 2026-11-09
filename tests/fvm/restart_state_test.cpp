@@ -49,9 +49,6 @@ struct Channel {
 
 fvm::SIMPLE<2>::Config transientConfig() {
     fvm::SIMPLE<2>::Config cfg;
-    cfg.alphaU = 0.7;
-    cfg.alphaP = 0.3;
-    cfg.rhieChow = true;
     cfg.pressureCorrectors = 2;
     cfg.printFrequency = 1000000;
     cfg.convectionScheme = fvm::ConvectionScheme::Upwind;

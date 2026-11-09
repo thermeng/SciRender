@@ -100,21 +100,10 @@ ChannelResult runChannel(int iterations = kIterations,
     cfg.tolerance = residualTol;
     cfg.runFixedIterations = false;      // stop when residuals hold below tolerance
     cfg.convergenceHoldIterations = 3;
-    cfg.alphaU = 0.7;
-    cfg.alphaP = 0.3;
-    cfg.simplec = false;
-    cfg.rhieChow = true;
     cfg.pressureCorrectors = pressureCorrectors; // 1 = pure SIMPLE; 3 = PISO-like (masks coupling defects)
-    cfg.pressureUseAMG = true; // DEBUG-A
-    cfg.momentumAmgConfig.acceleration = fvm::AMGHierarchy::Config::Acceleration::BiCGStab; // DEBUG-B
-    cfg.printFrequency = 1; // DEBUG
+    cfg.printFrequency = 1000000;
     cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;
     cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
-
-    // AMG is on by default in SIMPLE<2>::Config. Verbosity defaults to None, so
-    // no per-level hierarchy output pollutes the test log (matching the UI).
-    cfg.pressureAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
-    cfg.momentumAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
 
     fvm::SIMPLE<2> solver(mesh, 1.0, nu, cfg);
 
@@ -330,16 +319,10 @@ TEST_CASE("fvm.channel.grid_convergence") {
         cfg.tolerance = kResidualTol;
         cfg.runFixedIterations = false;
         cfg.convergenceHoldIterations = 3;
-        cfg.alphaU = 0.7;
-        cfg.alphaP = 0.3;
-        cfg.simplec = false;
-        cfg.rhieChow = true;
         cfg.pressureCorrectors = 1;
         cfg.printFrequency = 1000000;
         cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;
         cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
-        cfg.pressureAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
-        cfg.momentumAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
 
         fvm::SIMPLE<2> solver(mesh, 1.0, nu, cfg);
         solver.setVelocityBCOnFacesWithSlip(inlet, "inlet", kInletSpeed, 0.0, 0.0, false, 0.0);

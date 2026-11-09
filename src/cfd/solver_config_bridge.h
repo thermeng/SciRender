@@ -13,6 +13,10 @@ template <std::size_t Dim>
 inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& settings) {
     typename fvm::SIMPLE<Dim>::Config sc;
     sc = settings; // Copy all CaseSettings fields (Config inherits from CaseSettings)
+    // Config declares its own TransientConfig, shadowing CaseSettings::transient.
+    // The solver reads the derived member, so it must be set explicitly or UI
+    // transient knobs are silently ignored.
+    sc.transient = settings.transient;
     sc.solverType = settings.transient.enabled ? fvm::SolverType::PISO : fvm::SolverType::SIMPLE;
     sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
                           : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind

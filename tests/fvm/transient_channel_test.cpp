@@ -46,10 +46,6 @@ TEST_CASE("fvm.transient.open_channel_runs") {
     cfg.tolerance = 1e-3;
     cfg.runFixedIterations = false;
     cfg.convergenceHoldIterations = 1;
-    cfg.alphaU = 0.7;
-    cfg.alphaP = 0.3;
-    cfg.simplec = false;
-    cfg.rhieChow = true;
     cfg.pressureCorrectors = 2;
     cfg.printFrequency = 1000000;
     cfg.convectionScheme = fvm::ConvectionScheme::Upwind;
@@ -57,8 +53,8 @@ TEST_CASE("fvm.transient.open_channel_runs") {
     cfg.transient.enabled = true;
     cfg.transient.dt = 0.01;
     cfg.transient.tEnd = 0.05;
-    cfg.transient.scheme = fvm::TimeScheme::Euler;
-    cfg.transient.adaptive = false;
+    cfg.transient.timeScheme = fvm::TimeScheme::Euler;
+    cfg.transient.adaptiveCfl = false;
     cfg.transient.maxOuterCorrectors = 2;
     cfg.solverType = fvm::SolverType::PISO;
 
@@ -114,9 +110,6 @@ TEST_CASE("fvm.transient.open_channel_reaches_steady") {
     cfgS.tolerance = 1e-5;
     cfgS.runFixedIterations = false;
     cfgS.convergenceHoldIterations = 3;
-    cfgS.alphaU = 0.7;
-    cfgS.alphaP = 0.3;
-    cfgS.rhieChow = true;
     cfgS.pressureCorrectors = 2;
     cfgS.printFrequency = 1000000;
     cfgS.convectionScheme = fvm::ConvectionScheme::Upwind;
@@ -135,9 +128,6 @@ TEST_CASE("fvm.transient.open_channel_reaches_steady") {
     cfgT.tolerance = 1e-3;
     cfgT.runFixedIterations = false;
     cfgT.convergenceHoldIterations = 1;
-    cfgT.alphaU = 0.7;
-    cfgT.alphaP = 0.3;
-    cfgT.rhieChow = true;
     cfgT.pressureCorrectors = 2;
     cfgT.printFrequency = 1000000;
     cfgT.convectionScheme = fvm::ConvectionScheme::Upwind;
@@ -145,8 +135,8 @@ TEST_CASE("fvm.transient.open_channel_reaches_steady") {
     cfgT.transient.enabled = true;
     cfgT.transient.dt = 0.01;
     cfgT.transient.tEnd = 2.0;
-    cfgT.transient.scheme = fvm::TimeScheme::BDF2;
-    cfgT.transient.adaptive = false;
+    cfgT.transient.timeScheme = fvm::TimeScheme::BDF2;
+    cfgT.transient.adaptiveCfl = false;
     cfgT.transient.maxOuterCorrectors = 2;
     cfgT.solverType = fvm::SolverType::PISO;
     fvm::SIMPLE<2> solverT(meshT, 1.0, nu, cfgT);
@@ -176,15 +166,11 @@ TEST_CASE("fvm.transient.piso_inner_correctors_are_not_a_noop") {
         forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
 
         fvm::SIMPLE<2>::Config cfg;
-        cfg.maxIterations = 100;
-        cfg.tolerance = 1e-6;
+        cfg.tolerance = 1e-4;
         cfg.runFixedIterations = false;
         cfg.convergenceHoldIterations = 1;
-        cfg.alphaU = 0.7;
-        cfg.alphaP = 0.3;
-        cfg.rhieChow = true;
         cfg.pressureCorrectors = 2;
-        cfg.printFrequency = 1000000;
+        cfg.printFrequency = 100;
         cfg.convectionScheme = fvm::ConvectionScheme::Upwind;
         cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
         cfg.transient.enabled = true;
@@ -192,8 +178,8 @@ TEST_CASE("fvm.transient.piso_inner_correctors_are_not_a_noop") {
         // Exactly one time step, one outer corrector: the only difference
         // between the two runs is the number of inner PISO passes.
         cfg.transient.tEnd = cfg.transient.dt;
-        cfg.transient.scheme = fvm::TimeScheme::Euler;
-        cfg.transient.adaptive = false;
+        cfg.transient.timeScheme = fvm::TimeScheme::Euler;
+        cfg.transient.adaptiveCfl = false;
         cfg.transient.maxOuterCorrectors = 1;
         cfg.transient.nonOrthogonalCorrectors = innerPasses;
         cfg.solverType = fvm::SolverType::PISO;

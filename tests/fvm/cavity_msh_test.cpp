@@ -121,21 +121,10 @@ CavityRun runCavity(const CavitySetup& setup, int iterations) {
     cfg.tolerance = 1e-4;
     cfg.runFixedIterations = false;
     cfg.convergenceHoldIterations = 3;
-    cfg.alphaU = 0.7;
-    cfg.alphaP = 0.3;
-    cfg.simplec = false;
-    cfg.rhieChow = true;
     cfg.pressureCorrectors = 1;
     cfg.printFrequency = 100;
     cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;
     cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
-
-    // AMG verbosity defaults to None in SIMPLE<2>::Config, so no override needed.
-
-    // Match the UI defaults: AMG verbosity is None, so no per-level hierarchy
-    // output pollutes the test log.
-    cfg.pressureAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
-    cfg.momentumAmgConfig.verbosity = fvm::AMGHierarchy::Config::Verbosity::None;
 
     fvm::SIMPLE<2> solver(setup.mesh, 1.0, nu, cfg);
 

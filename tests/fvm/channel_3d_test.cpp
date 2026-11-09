@@ -36,10 +36,6 @@ fvm::SIMPLE<Dim>::Config channelConfig() {
     cfg.tolerance = 1e-8;
     cfg.runFixedIterations = true;
     cfg.convergenceHoldIterations = 3;
-    cfg.alphaU = 0.7;
-    cfg.alphaP = 0.3;
-    cfg.simplec = false;
-    cfg.rhieChow = true;
     cfg.pressureCorrectors = 3;
     cfg.printFrequency = 1000000; // effectively silent (the solver divides by it)
     cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;
