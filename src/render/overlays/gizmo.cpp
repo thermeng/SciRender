@@ -3,7 +3,6 @@
 #include <glad/gl.h>
 #include "render/foundation/shader_utils.h"
 #include <vector>
-#include <cstring>
 #include <algorithm>
 #include <iostream>
 #include <QImage>
@@ -12,9 +11,8 @@
 #include <QString>
 #include <QOpenGLContext>
 
-// ----------------------------------------------------------------------------
 // Shaders
-// ----------------------------------------------------------------------------
+
 // Screen-space AA line: quad vertices carry clip-space pos + color + signed distance.
 // Fragment shader uses fwidth/smoothstep on the distance for crisp AA at any DPI.
 static const char* aaLineVS = R"(
@@ -46,40 +44,48 @@ void main() {
 }
 )";
 
-// Simple solid-color shader for the origin disc (the light-marker discs live in
-// LightMarkerOverlay; this tiny program is triad-local).
-static const char* discVS = R"(
-#version 460 core
-layout(location = 0) in vec3 aPos;
-layout(location = 1) in vec3 aColor;
-uniform mat4 uMVP;
-out vec3 vColor;
-void main() {
-    vColor = aColor;
-    gl_Position = uMVP * vec4(aPos, 1.0);
-}
-)";
-static const char* discFS = R"(
-#version 460 core
-in vec3 vColor;
-out vec4 frag;
-void main() { frag = vec4(vColor, 1.0); }
-)";
-
-// Simple solid-color shader for axis tip cones.
+// Flat BASE_COLOR shader for axis tip cones — always fully opaque, never dark
+// on the back side (matches FreeCAD's SoAxisCrossKit lightModel BASE_COLOR).
 static const char* capVS = R"(
 #version 460 core
 layout(location = 0) in vec3 aPos;
 uniform mat4 uMVP;
+uniform vec3 uColor;
+out vec3 vColor;
 void main() {
+    vColor = uColor;
     gl_Position = uMVP * vec4(aPos, 1.0);
 }
 )";
 static const char* capFS = R"(
 #version 460 core
-uniform vec3 uColor;
+in vec3 vColor;
 out vec4 frag;
-void main() { frag = vec4(uColor, 1.0); }
+void main() {
+    frag = vec4(vColor, 1.0);
+}
+)";
+
+// Flat BASE_COLOR shader for the center sphere — always fully opaque, never dark
+// on the back side (matches FreeCAD's SoAxisCrossKit lightModel BASE_COLOR).
+static const char* sphereVS = R"(
+#version 460 core
+layout(location = 0) in vec3 aPos;
+uniform mat4 uMVP;
+uniform vec3 uColor;
+out vec3 vColor;
+void main() {
+    vColor = uColor;
+    gl_Position = uMVP * vec4(aPos, 1.0);
+}
+)";
+static const char* sphereFS = R"(
+#version 460 core
+in vec3 vColor;
+out vec4 frag;
+void main() {
+    frag = vec4(vColor, 1.0);
+}
 )";
 
 static const char* textVS = R"(
@@ -117,9 +123,9 @@ Gizmo::~Gizmo() { shutdown(); }
 // makes glyphs upright happens in draw(), not here.
 // ----------------------------------------------------------------------------
 bool Gizmo::buildAtlas() {
-    const char chars[3] = { 'X', 'Y', 'Z' };
+    const char chars[4] = { 'X', 'Y', 'Z', '-' };
     const int cell = 64;
-    glyphAtlasW = cell * 3;
+    glyphAtlasW = cell * 4;
     glyphAtlasH = cell;
 
     QImage img(glyphAtlasW, glyphAtlasH, QImage::Format_ARGB32);
@@ -132,7 +138,7 @@ bool Gizmo::buildAtlas() {
         p.setFont(f);
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setRenderHint(QPainter::TextAntialiasing, true);
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < 4; ++i) {
             p.drawText(QRect(i * cell, 0, cell, cell), Qt::AlignCenter, QString(chars[i]));
         }
     }
@@ -171,18 +177,17 @@ bool Gizmo::buildAALineProgram() {
 bool Gizmo::buildCapProgram() {
     capProgram.reset(compileProgram(capVS, capFS, "Gizmo/cap"));
     if (!capProgram.has()) return false;
-    capMvpLoc   = glGetUniformLocation(capProgram, "uMVP");
-    capColorLoc = glGetUniformLocation(capProgram, "uColor");
+    capMvpLoc      = glGetUniformLocation(capProgram, "uMVP");
+    capColorLoc    = glGetUniformLocation(capProgram, "uColor");
     return capMvpLoc >= 0 && capColorLoc >= 0;
 }
 
-bool Gizmo::buildDiscProgram() {
-    discProgram.reset(compileProgram(discVS, discFS, "Gizmo/disc"));
-    if (!discProgram.has()) return false;
-    discMvpLoc = glGetUniformLocation(discProgram, "uMVP");
-    GLint posLoc = glGetAttribLocation(discProgram, "aPos");
-    GLint colLoc = glGetAttribLocation(discProgram, "aColor");
-    return discMvpLoc >= 0 && posLoc >= 0 && colLoc >= 0;
+bool Gizmo::buildSphereProgram() {
+    sphereProgram.reset(compileProgram(sphereVS, sphereFS, "Gizmo/sphere"));
+    if (!sphereProgram.has()) return false;
+    sphereMvpLoc     = glGetUniformLocation(sphereProgram, "uMVP");
+    sphereColorLoc   = glGetUniformLocation(sphereProgram, "uColor");
+    return sphereMvpLoc >= 0 && sphereColorLoc >= 0;
 }
 
 bool Gizmo::buildTextProgram() {
@@ -198,7 +203,7 @@ bool Gizmo::buildTextProgram() {
 bool Gizmo::init() {
     if (isInitialized()) return true;
 
-    if (!buildAALineProgram() || !buildCapProgram() || !buildDiscProgram()
+    if (!buildAALineProgram() || !buildCapProgram() || !buildSphereProgram()
         || !buildTextProgram() || !buildAtlas())
         return false;
 
@@ -211,7 +216,7 @@ bool Gizmo::init() {
     {
         const int segments = 8;
         const float coneH = 0.25f;   // height along axis
-        const float coneR = 0.08f;   // base radius
+        const float coneR = 0.15f;   // base radius (matches shaft base width for obvious tip)
         // Each cone: 1 cap triangle fan (segments tris) + side triangles (segments tris)
         // = 2*segments triangles = 6*segments vertices
         capVertCount = 3 * 6 * segments;
@@ -274,32 +279,53 @@ bool Gizmo::init() {
         }
 
         setupVertexBuffer(capVAO, capVBO, verts.data(), verts.size() * sizeof(float), 6 * sizeof(float),
-                          { { 0, 3, 0 } }, GL_STATIC_DRAW);
+                          { { 0, 3, 0 }, { 1, 3, 3 * sizeof(float) } }, GL_STATIC_DRAW);
     }
 
-    // ---- Origin disc (static): 12-sided disc at pivot, white per-vertex ----
+    // ---- Center sphere (static): UV sphere with normals for metallic lighting ----
     {
-        const int segments = 12;
-        const float radius = 0.07f;
-        originVertCount = segments * 3;
+        const int latSegments = 24;
+        const int lonSegments = 36;
+        const float radius = 0.12f;
         std::vector<float> verts;
-        verts.reserve(originVertCount * 6);
-        for (int i = 0; i < segments; ++i) {
-            float a0 = (float)i / segments * 6.28318f;
-            float a1 = (float)(i + 1) / segments * 6.28318f;
-            if (i + 1 == segments) a1 = 0.0f;
-            // vec3 pos + vec3 color (white)
-            float v[] = {
-                0.0f, 0.0f, 0.0f,    0.85f, 0.85f, 0.85f,
-                std::cos(a0) * radius, std::sin(a0) * radius, 0.0f,  0.85f, 0.85f, 0.85f,
-                std::cos(a1) * radius, std::sin(a1) * radius, 0.0f,  0.85f, 0.85f, 0.85f,
-            };
-            verts.insert(verts.end(), v, v + 18);
+
+        for (int lat = 0; lat < latSegments; ++lat) {
+            float theta0 = (float)lat * 3.14159265f / latSegments;
+            float theta1 = (float)(lat + 1) * 3.14159265f / latSegments;
+            for (int lon = 0; lon < lonSegments; ++lon) {
+                float phi0 = (float)lon * 2.0f * 3.14159265f / lonSegments;
+                float phi1 = (float)(lon + 1) * 2.0f * 3.14159265f / lonSegments;
+
+                auto vertex = [&](float theta, float phi) {
+                    float x = std::sin(theta) * std::cos(phi);
+                    float y = std::cos(theta);
+                    float z = std::sin(theta) * std::sin(phi);
+                    // position
+                    verts.push_back(x * radius);
+                    verts.push_back(y * radius);
+                    verts.push_back(z * radius);
+                    // normal
+                    verts.push_back(x);
+                    verts.push_back(y);
+                    verts.push_back(z);
+                };
+
+                // Triangle 1: (lat,lon) -> (lat+1,lon) -> (lat,lon+1)
+                vertex(theta0, phi0);
+                vertex(theta1, phi0);
+                vertex(theta0, phi1);
+                // Triangle 2: (lat+1,lon) -> (lat+1,lon+1) -> (lat,lon+1)
+                vertex(theta1, phi0);
+                vertex(theta1, phi1);
+                vertex(theta0, phi1);
+            }
         }
-        GLint lmPosLoc2 = glGetAttribLocation(discProgram, "aPos");
-        GLint lmColLoc2 = glGetAttribLocation(discProgram, "aColor");
+
+        originVertCount = static_cast<int>(verts.size() / 6);
+        GLint posLoc = glGetAttribLocation(sphereProgram, "aPos");
+        GLint norLoc = glGetAttribLocation(sphereProgram, "aNormal");
         setupVertexBuffer(originVAO, originVBO, verts.data(), verts.size() * sizeof(float), 6 * sizeof(float),
-                          { { lmPosLoc2, 3, 0 }, { lmColLoc2, 3, 3 * sizeof(float) } }, GL_STATIC_DRAW);
+                          { { posLoc, 3, 0 }, { norLoc, 3, 3 * sizeof(float) } }, GL_STATIC_DRAW);
     }
 
     // ---- Text quad VBO (dynamic): 3 chars × 6 verts × (vec4 px.xy+uv + vec3 color) ----
@@ -314,7 +340,7 @@ void Gizmo::shutdown() {
     aaLineVAO.reset(); aaLineVBO.reset(); aaLineProgram.reset();
     capVAO.reset(); capVBO.reset(); capProgram.reset();
     originVAO.reset(); originVBO.reset();
-    discProgram.reset();
+    sphereProgram.reset();
     textVAO.reset(); textVBO.reset(); textProgram.reset();
     glyphTex.reset();
 }
@@ -361,162 +387,213 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-    // ---- Screen-space AA axis lines ----
-    // ponytail: clip-space expansion calibrated for ortho [-1.55,1.55] → [0,foot] px
+    // ---- axis triad: center sphere + thick arrow shafts + conical tips ----
     const float clipPerPx = 3.1f / static_cast<float>(foot);
-    const float halfWidth = 0.6f;  // ~1.2px total
-    const float hwClip = halfWidth * clipPerPx;
+    const float shaftHalfWidthOrigin = 0.5f;  // thinner at center/pivot
+    const float shaftHalfWidthBase = 1.2f;    // wider at cone base
+    const float hoverHalfWidthOrigin = 0.8f;  // hovered width at origin
+    const float hoverHalfWidthBase = 1.8f;    // hovered width at cone
+    const float sheenHalfWidth = 0.3f;        // thin center highlight strip
+    const float sheenHalfWidthHover = 0.5f;   // thin center highlight strip (hovered)
+    const float shaftRatio = 0.8f;       // shaft ends at 80%, cone covers last 20%
 
-    const glm::vec3 origins[3] = { {0,0,0}, {0,0,0}, {0,0,0} };
-    const glm::vec3 tips[3]    = { {1,0,0}, {0,1,0}, {0,0,1} };
-    const float colors[3][3]   = { {1,0.2f,0.2f}, {0.2f,1,0.2f}, {0.3f,0.5f,1.0f} };
+    const glm::vec3 axes[3] = { {1,0,0}, {0,1,0}, {0,0,1} };
+    const float baseColors[3][3] = { {1,0.2f,0.2f}, {0.2f,1,0.2f}, {0.3f,0.5f,1.0f} };
+    const glm::vec3 gold(1.0f, 0.84f, 0.0f);  
 
-    // Hover feedback: pull the axis color toward white so the hovered shaft,
-    // cone, and label read as one active element.
-    auto axisColor = [&](int axis) -> glm::vec3 {
-        glm::vec3 c(colors[axis][0], colors[axis][1], colors[axis][2]);
-        if (axis == hoverAxis / 2 && hoverAxis >= 0) c = glm::min(c * 0.45f + 0.55f, glm::vec3(1.0f));
-        return c;
+    auto axisColor = [&](int axisIdx, bool isHovered) -> glm::vec3 {
+        if (isHovered) return gold;
+        return glm::vec3(baseColors[axisIdx][0], baseColors[axisIdx][1], baseColors[axisIdx][2]);
     };
 
-    // Per-axis quad: 6 verts (2 triangles) × (vec2 pos + vec3 col + float dist) = 36 floats
-    float quadData[3][36];
-    bool axisVisible[3] = { true, true, true };
+    bool hoveredPos[3] = {
+        hoverAxis >= 0 && hoverAxis == 0,
+        hoverAxis >= 0 && hoverAxis == 2,
+        hoverAxis >= 0 && hoverAxis == 4 };
+    bool hoveredNeg[3] = {
+        hoverAxis >= 0 && hoverAxis == 1,
+        hoverAxis >= 0 && hoverAxis == 3,
+        hoverAxis >= 0 && hoverAxis == 5 };
 
-    for (int i = 0; i < 3; ++i) {
-        glm::vec4 cA = lineMVP * glm::vec4(origins[i], 1.0f);
-        glm::vec4 cB = lineMVP * glm::vec4(tips[i], 1.0f);
-        // Ortho: w=1, just use xy
-        glm::vec2 a(cA), b(cB);
-        glm::vec2 dir = b - a;
-        float len = glm::length(dir);
-
-        // Detect pole view: axis tip projects to near-origin (viewing down that axis)
-        if (len < 1e-4f) {
-            axisVisible[i] = false;
-            // Fill with degenerate quad (will be no-op draw)
-            glm::vec3 col = axisColor(i);
-            float q[] = {
-                a.x, a.y, col.r, col.g, col.b, 0.0f,
-                a.x, a.y, col.r, col.g, col.b, 0.0f,
-                a.x, a.y, col.r, col.g, col.b, 0.0f,
-                a.x, a.y, col.r, col.g, col.b, 0.0f,
-                a.x, a.y, col.r, col.g, col.b, 0.0f,
-                a.x, a.y, col.r, col.g, col.b, 0.0f,
-            };
-            std::memcpy(quadData[i], q, sizeof(q));
-            continue;
-        }
-        glm::vec2 perp(-dir.y / len, dir.x / len);  // perpendicular in clip space
-
-        glm::vec2 aL = a - perp * hwClip;
-        glm::vec2 aR = a + perp * hwClip;
-        glm::vec2 bL = b - perp * hwClip;
-        glm::vec2 bR = b + perp * hwClip;
-
-        glm::vec3 col = axisColor(i);
-        // Two triangles: (aL,bL,bR) and (aL,bR,aR)
-        // vDist: -halfWidth at left edge, +halfWidth at right edge
-        float q[] = {
-            aL.x, aL.y, col.r, col.g, col.b, -halfWidth,
-            bL.x, bL.y, col.r, col.g, col.b, -halfWidth,
-            bR.x, bR.y, col.r, col.g, col.b,  halfWidth,
-            aL.x, aL.y, col.r, col.g, col.b, -halfWidth,
-            bR.x, bR.y, col.r, col.g, col.b,  halfWidth,
-            aR.x, aR.y, col.r, col.g, col.b,  halfWidth,
-        };
-        std::memcpy(quadData[i], q, sizeof(q));
-    }
-
+    // === Arrow shafts: thick screen-space quads from origin to shaftRatio * axis ===
     glUseProgram(aaLineProgram);
-    glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));  // positions already in clip space
+    glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
     glBindVertexArray(aaLineVAO);
-    glNamedBufferSubData(aaLineVBO, 0, sizeof(quadData), quadData);
-    // One draw per axis: the hovered shaft uses a wider AA profile.
+
+    bool axisVisible[3] = { true, true, true };
     for (int i = 0; i < 3; ++i) {
-        glUniform1f(aaLineHalfWidthLoc, i * 2 == hoverAxis ? 1.0f : halfWidth);
-        glDrawArrays(GL_TRIANGLES, i * 6, 6);
+        // Positive axis shaft (tapered: thinner at center, wider at cone) + center sheen
+        {
+            bool hovered = hoveredPos[i];
+            float hwOrigin = hovered ? hoverHalfWidthOrigin : shaftHalfWidthOrigin;
+            float hwBase = hovered ? hoverHalfWidthBase : shaftHalfWidthBase;
+            float hwClipOrigin = hwOrigin * clipPerPx;
+            float hwClipBase = hwBase * clipPerPx;
+            glm::vec3 color = axisColor(i, hovered);
+            glm::vec3 sheenColor = glm::min(color * 0.5f + 0.5f, glm::vec3(1.0f));
+
+            glm::vec4 cA = lineMVP * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            glm::vec4 cB = lineMVP * glm::vec4(axes[i] * shaftRatio, 1.0f);
+            glm::vec2 a(cA), b(cB);
+            glm::vec2 dir = b - a;
+            float len = glm::length(dir);
+
+            if (len < 1e-4f) {
+                axisVisible[i] = false;
+                float q[] = {
+                    a.x, a.y, color.r, color.g, color.b, 0.0f,
+                    a.x, a.y, color.r, color.g, color.b, 0.0f,
+                    a.x, a.y, color.r, color.g, color.b, 0.0f,
+                    a.x, a.y, color.r, color.g, color.b, 0.0f,
+                    a.x, a.y, color.r, color.g, color.b, 0.0f,
+                    a.x, a.y, color.r, color.g, color.b, 0.0f,
+                };
+                glUniform1f(aaLineHalfWidthLoc, hwOrigin);
+                glNamedBufferSubData(aaLineVBO, 0, sizeof(q), q);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+                continue;
+            }
+
+            glm::vec2 perp(-dir.y / len, dir.x / len);
+            glm::vec2 aL = a - perp * hwClipOrigin;
+            glm::vec2 aR = a + perp * hwClipOrigin;
+            glm::vec2 bL = b - perp * hwClipBase;
+            glm::vec2 bR = b + perp * hwClipBase;
+
+            // Base tapered shaft quad
+            float q[] = {
+                aL.x, aL.y, color.r, color.g, color.b, -hwOrigin,
+                bL.x, bL.y, color.r, color.g, color.b, -hwBase,
+                bR.x, bR.y, color.r, color.g, color.b,  hwBase,
+                aL.x, aL.y, color.r, color.g, color.b, -hwOrigin,
+                bR.x, bR.y, color.r, color.g, color.b,  hwBase,
+                aR.x, aR.y, color.r, color.g, color.b,  hwOrigin,
+            };
+            glUniform1f(aaLineHalfWidthLoc, hwBase);
+            glNamedBufferSubData(aaLineVBO, 0, sizeof(q), q);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            // Sheen highlight: thinner lighter strip down shaft center
+            float sheenHw = hovered ? sheenHalfWidthHover : sheenHalfWidth;
+            float sheenClip = sheenHw * clipPerPx;
+            glm::vec2 aLs = a - perp * sheenClip;
+            glm::vec2 aRs = a + perp * sheenClip;
+            glm::vec2 bLs = b - perp * sheenClip;
+            glm::vec2 bRs = b + perp * sheenClip;
+            float qs[] = {
+                aLs.x, aLs.y, sheenColor.r, sheenColor.g, sheenColor.b, -sheenHw,
+                bLs.x, bLs.y, sheenColor.r, sheenColor.g, sheenColor.b, -sheenHw,
+                bRs.x, bRs.y, sheenColor.r, sheenColor.g, sheenColor.b,  sheenHw,
+                aLs.x, aLs.y, sheenColor.r, sheenColor.g, sheenColor.b, -sheenHw,
+                bRs.x, bRs.y, sheenColor.r, sheenColor.g, sheenColor.b,  sheenHw,
+                aRs.x, aRs.y, sheenColor.r, sheenColor.g, sheenColor.b,  sheenHw,
+            };
+            glUniform1f(aaLineHalfWidthLoc, sheenHw);
+            glNamedBufferSubData(aaLineVBO, 0, sizeof(qs), qs);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+
+        // Negative axis shaft (shown on hover, or always when enabled) — tapered + sheen
+        if (showNegativeAxes || hoveredNeg[i]) {
+            float hwOrigin = hoveredNeg[i] ? hoverHalfWidthOrigin : shaftHalfWidthOrigin;
+            float hwBase = hoveredNeg[i] ? hoverHalfWidthBase : shaftHalfWidthBase;
+            float hwClipOrigin = hwOrigin * clipPerPx;
+            float hwClipBase = hwBase * clipPerPx;
+            glm::vec3 color = axisColor(i, hoveredNeg[i]);
+            glm::vec3 sheenColor = glm::min(color * 0.5f + 0.5f, glm::vec3(1.0f));
+
+            glm::vec4 cA = lineMVP * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            glm::vec4 cB = lineMVP * glm::vec4(-axes[i] * shaftRatio, 1.0f);
+            glm::vec2 a(cA), b(cB);
+            glm::vec2 dir = b - a;
+            float len = glm::length(dir);
+
+            if (len < 1e-4f) continue;
+
+            glm::vec2 perp(-dir.y / len, dir.x / len);
+            glm::vec2 aL = a - perp * hwClipOrigin;
+            glm::vec2 aR = a + perp * hwClipOrigin;
+            glm::vec2 bL = b - perp * hwClipBase;
+            glm::vec2 bR = b + perp * hwClipBase;
+
+            // Base tapered shaft quad
+            float q[] = {
+                aL.x, aL.y, color.r, color.g, color.b, -hwOrigin,
+                bL.x, bL.y, color.r, color.g, color.b, -hwBase,
+                bR.x, bR.y, color.r, color.g, color.b,  hwBase,
+                aL.x, aL.y, color.r, color.g, color.b, -hwOrigin,
+                bR.x, bR.y, color.r, color.g, color.b,  hwBase,
+                aR.x, aR.y, color.r, color.g, color.b,  hwOrigin,
+            };
+            glUniform1f(aaLineHalfWidthLoc, hwBase);
+            glNamedBufferSubData(aaLineVBO, 0, sizeof(q), q);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            // Sheen highlight: thinner lighter strip down shaft center
+            float sheenHw = hoveredNeg[i] ? sheenHalfWidthHover : sheenHalfWidth;
+            float sheenClip = sheenHw * clipPerPx;
+            glm::vec2 aLs = a - perp * sheenClip;
+            glm::vec2 aRs = a + perp * sheenClip;
+            glm::vec2 bLs = b - perp * sheenClip;
+            glm::vec2 bRs = b + perp * sheenClip;
+            float qs[] = {
+                aLs.x, aLs.y, sheenColor.r, sheenColor.g, sheenColor.b, -sheenHw,
+                bLs.x, bLs.y, sheenColor.r, sheenColor.g, sheenColor.b, -sheenHw,
+                bRs.x, bRs.y, sheenColor.r, sheenColor.g, sheenColor.b,  sheenHw,
+                aLs.x, aLs.y, sheenColor.r, sheenColor.g, sheenColor.b, -sheenHw,
+                bRs.x, bRs.y, sheenColor.r, sheenColor.g, sheenColor.b,  sheenHw,
+                aRs.x, aRs.y, sheenColor.r, sheenColor.g, sheenColor.b,  sheenHw,
+            };
+            glUniform1f(aaLineHalfWidthLoc, sheenHw);
+            glNamedBufferSubData(aaLineVBO, 0, sizeof(qs), qs);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
     }
     glBindVertexArray(0);
 
-    // ---- Negative axes (shown on hover, or always when enabled) ----
-    for (int a = 0; a < 3; ++a) {
-        if (!(showNegativeAxes || (hoverAxis >= 0 && hoverAxis == a * 2 + 1))) continue;
-        glm::vec3 unit = (a == 0) ? glm::vec3(1,0,0) : (a == 1) ? glm::vec3(0,1,0) : glm::vec3(0,0,1);
-        glm::vec3 tip = -unit;
-        glm::vec4 cA = lineMVP * glm::vec4(0.0f,0.0f,0.0f,1.0f);
-        glm::vec4 cB = lineMVP * glm::vec4(tip,1.0f);
-        glm::vec2 aP(cA), bP(cB);
-        glm::vec2 dir = bP - aP;
-        float len = glm::length(dir);
-        if (len < 1e-4f) continue;
-        glm::vec2 perp(-dir.y / len, dir.x / len);
-        glm::vec2 aL = aP - perp * hwClip;
-        glm::vec2 aR = aP + perp * hwClip;
-        glm::vec2 bL = bP - perp * hwClip;
-        glm::vec2 bR = bP + perp * hwClip;
-        glm::vec3 col = axisColor(a);
-        float q[] = {
-            aL.x, aL.y, col.r, col.g, col.b, -halfWidth,
-            bL.x, bL.y, col.r, col.g, col.b, -halfWidth,
-            bR.x, bR.y, col.r, col.g, col.b,  halfWidth,
-            aL.x, aL.y, col.r, col.g, col.b, -halfWidth,
-            bR.x, bR.y, col.r, col.g, col.b,  halfWidth,
-            aR.x, aR.y, col.r, col.g, col.b,  halfWidth,
-        };
-        glUseProgram(aaLineProgram);
-        glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
-        glUniform1f(aaLineHalfWidthLoc, (hoverAxis == a * 2 + 1) ? 1.0f : halfWidth);
-        glBindVertexArray(aaLineVAO);
-        glNamedBufferSubData(aaLineVBO, 0, sizeof(q), q);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glBindVertexArray(0);
-    }
-
-    // ---- Axis tip cones (solid color) ----
+    // === Cone arrowheads: static geometry scaled by shaftRatio
+    //    base moves from axis*1.0 to axis*shaftRatio, tip from axis*1.25 to axis*1.0 (shaftRatio=0.8) ===
     glUseProgram(capProgram);
-    glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
     glBindVertexArray(capVAO);
+    const int conePerAxis = capVertCount / 3;
     for (int i = 0; i < 3; ++i) {
-        const glm::vec3 col = axisColor(i);
-        glUniform3fv(capColorLoc, 1, glm::value_ptr(col));
-        glDrawArrays(GL_TRIANGLES, i * (capVertCount / 3), capVertCount / 3);
+        // Positive cone
+        {
+            glm::vec3 color = axisColor(i, hoveredPos[i]);
+            float coneScale = hoveredPos[i] ? shaftRatio * 1.25f : shaftRatio;
+            // Pin cone base at shaft end so hover grows outward, not from origin
+            glm::mat4 coneModel = glm::translate(glm::mat4(1.0f), axes[i] * (shaftRatio - coneScale))
+                                * glm::scale(glm::mat4(1.0f), glm::vec3(coneScale));
+            glm::mat4 coneMVP = lineMVP * coneModel;
+            glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(coneMVP));
+            glUniform3fv(capColorLoc, 1, glm::value_ptr(color));
+            glDrawArrays(GL_TRIANGLES, i * conePerAxis, conePerAxis);
+        }
+        // Negative cone (shown on hover, or always when enabled)
+        if (showNegativeAxes || hoveredNeg[i]) {
+            glm::vec3 color = axisColor(i, hoveredNeg[i]);
+            float coneScale = hoveredNeg[i] ? shaftRatio * 1.25f : shaftRatio;
+            glm::mat4 reflect(1.0f);
+            reflect[i][i] = -1.0f;
+            // Pin cone base at shaft end (negative direction) so hover grows outward
+            glm::mat4 coneModel = reflect * glm::translate(glm::mat4(1.0f), axes[i] * (shaftRatio - coneScale))
+                                * glm::scale(glm::mat4(1.0f), glm::vec3(coneScale));
+            glm::mat4 coneMVP = lineMVP * coneModel;
+            glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(coneMVP));
+            glUniform3fv(capColorLoc, 1, glm::value_ptr(color));
+            glDrawArrays(GL_TRIANGLES, i * conePerAxis, conePerAxis);
+        }
     }
     glBindVertexArray(0);
 
-    // ---- Negative axes cones ----
-    for (int a = 0; a < 3; ++a) {
-        if (!(showNegativeAxes || (hoverAxis >= 0 && hoverAxis == a * 2 + 1))) continue;
-        glm::mat4 reflect(1.0f);
-        reflect[a][a] = -1.0f;
-        glm::mat4 negMVP = lineMVP * reflect;
-        glUseProgram(capProgram);
-        glUniformMatrix4fv(capMvpLoc, 1, GL_FALSE, glm::value_ptr(negMVP));
-        glBindVertexArray(capVAO);
-        const glm::vec3 col = axisColor(a);
-        glUniform3fv(capColorLoc, 1, glm::value_ptr(col));
-        glDrawArrays(GL_TRIANGLES, a * (capVertCount / 3), capVertCount / 3);
-        glBindVertexArray(0);
-    }
-
-    // ---- Origin disc (solid white at pivot) ----
-    glUseProgram(discProgram);
-    glUniformMatrix4fv(discMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
-    glBindVertexArray(originVAO);
-    glDrawArrays(GL_TRIANGLES, 0, originVertCount);
-    glBindVertexArray(0);
-
-    // ---- Pole-view axis markers (for axes viewed end-on) ----
-    // Draw a small disc at origin for axes invisible due to pole view.
-    // Batched: one upload + one draw regardless of how many axes are hidden.
+    // === Pole-view axis markers: small disc at origin for axes viewed end-on ===
     {
         const float poleMarkerRadius = 0.08f;
         constexpr int kSegs = 16;
         std::vector<float> markerVerts;
-        markerVerts.reserve(3 * kSegs * 18);
         for (int i = 0; i < 3; ++i) {
             if (axisVisible[i]) continue;
-            const glm::vec3 col = axisColor(i);
+            const glm::vec3 col = axisColor(i, hoveredPos[i] || hoveredNeg[i]);
             for (int t = 0; t < kSegs; ++t) {
                 float a0 = (float)t / kSegs * 6.28318f;
                 float a1 = (float)(t + 1) / kSegs * 6.28318f;
@@ -528,7 +605,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
         if (!markerVerts.empty()) {
             glUseProgram(aaLineProgram);
             glUniformMatrix4fv(aaLineMvpLoc, 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
-            glUniform1f(aaLineHalfWidthLoc, halfWidth);
+            glUniform1f(aaLineHalfWidthLoc, shaftHalfWidthOrigin);
             glBindVertexArray(aaLineVAO);
             glNamedBufferSubData(aaLineVBO, 0, static_cast<GLsizeiptr>(markerVerts.size() * sizeof(float)), markerVerts.data());
             glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(markerVerts.size() / 6));
@@ -536,24 +613,25 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
         }
     }
 
-    // ---- Text labels (per-vertex color, batched: single upload + single draw) ----
+    // ---- Text labels (per-vertex color, batched) ----
     const glm::mat4 textMVP = glm::ortho(0.0f, (float)foot, 0.0f, (float)foot, -1.0f, 1.0f);
-    const float cellU = 1.0f / 3.0f;
-    const float glyph = 24.0f;
+    const float cellU = 1.0f / 4.0f;  // 4 cells: X, Y, Z, -
+    const float glyph = 20.0f; 
     const float half = glyph * 0.5f;
+    const float gap = -10.0f;  // minus sign attached directly to letter (no gap)
 
-    float quads[3][6][7];  // 3 labels × 6 verts × (px.xy, uv, rgb)
+    // Positive labels: single quad per axis, cell i (X/Y/Z)
+    float quads[3][6][7];
     for (int i = 0; i < 3; ++i) {
-        glm::vec4 clip = gizmoProj * gizmoView * glm::vec4(tips[i], 1.0f);
+        glm::vec4 clip = gizmoProj * gizmoView * glm::vec4(axes[i], 1.0f);
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
-        float f = 1.5f;
+        float f = 1.2f;
         ndc.x *= f; ndc.y *= f;
         float cx = (ndc.x * 0.5f + 0.5f) * foot;
         float cy = (ndc.y * 0.5f + 0.5f) * foot;
         cx = std::max(half, std::min(foot - half, cx));
         cy = std::max(half, std::min(foot - half, cy));
 
-        // Detect pole view and offset label to avoid overlapping origin disc
         bool isPole = std::abs(ndc.z) > 0.99f;
         if (isPole) {
             float offsetDist = glyph * 1.5f;
@@ -572,7 +650,7 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
         float u0 = i * cellU, u1 = (i + 1) * cellU;
         const float vTop = 0.0f, vBot = 1.0f;
         const float hx = glyph * 0.5f, hy = glyph * 0.5f;
-        const glm::vec3 labCol = axisColor(i);
+        const glm::vec3 labCol = axisColor(i, hoveredPos[i]);
         float tri[6][7] = {
             { cx - hx, cy + hy, u0, vTop, labCol.r, labCol.g, labCol.b },
             { cx + hx, cy + hy, u1, vTop, labCol.r, labCol.g, labCol.b },
@@ -592,19 +670,21 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
     glNamedBufferSubData(textVBO, 0, sizeof(quads), quads);
     glDrawArrays(GL_TRIANGLES, 0, 3 * 6);  // 3 label quads
 
-    // ---- Negative axes labels ----
+    // Negative labels: two quads per axis (minus sign cell 3 + letter cell a)
     for (int a = 0; a < 3; ++a) {
-        if (!(showNegativeAxes || (hoverAxis >= 0 && hoverAxis == a * 2 + 1))) continue;
+        if (!(showNegativeAxes || hoveredNeg[a])) continue;
+
         glm::vec3 unit = (a == 0) ? glm::vec3(1,0,0) : (a == 1) ? glm::vec3(0,1,0) : glm::vec3(0,0,1);
         glm::vec4 clip = gizmoProj * gizmoView * glm::vec4(-unit, 1.0f);
         glm::vec3 ndc = glm::vec3(clip) / clip.w;
-        float f = 1.40f;
+        float f = 1.20f;
         ndc.x *= f; ndc.y *= f;
         float cx = (ndc.x * 0.5f + 0.5f) * foot;
         float cy = (ndc.y * 0.5f + 0.5f) * foot;
         const float halfg = glyph * 0.5f;
         cx = std::max(halfg, std::min(foot - halfg, cx));
         cy = std::max(halfg, std::min(foot - halfg, cy));
+
         bool isPole = std::abs(ndc.z) > 0.99f;
         if (isPole) {
             float offsetDist = glyph * 1.5f;
@@ -614,19 +694,52 @@ void Gizmo::draw(const glm::mat4& mainView, float dpr,
             cx = std::max(halfg, std::min(foot - halfg, cx));
             cy = std::max(halfg, std::min(foot - halfg, cy));
         }
-        float u0 = a * cellU, u1 = (a + 1) * cellU;
-        const float vTop = 0.0f, vBot = 1.0f;
-        const glm::vec3 labCol = axisColor(a);
-        float tri[6][7] = {
-            { cx - halfg, cy + halfg, u0, vTop, labCol.r, labCol.g, labCol.b },
-            { cx + halfg, cy + halfg, u1, vTop, labCol.r, labCol.g, labCol.b },
-            { cx - halfg, cy - halfg, u0, vBot, labCol.r, labCol.g, labCol.b },
-            { cx + halfg, cy + halfg, u1, vTop, labCol.r, labCol.g, labCol.b },
-            { cx + halfg, cy - halfg, u1, vBot, labCol.r, labCol.g, labCol.b },
-            { cx - halfg, cy - halfg, u0, vBot, labCol.r, labCol.g, labCol.b },
-        };
-        glNamedBufferSubData(textVBO, 0, sizeof(tri), tri);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        const glm::vec3 labCol = axisColor(a, hoveredNeg[a]);
+
+        // Minus-sign quad: cell 3, placed left of the letter center
+        {
+            float u0 = 3 * cellU, u1 = 4 * cellU;
+            float mx = cx - glyph - gap;
+            float tri[6][7] = {
+                { mx - halfg, cy + halfg, u0, 0.0f, labCol.r, labCol.g, labCol.b },
+                { mx + halfg, cy + halfg, u1, 0.0f, labCol.r, labCol.g, labCol.b },
+                { mx - halfg, cy - halfg, u0, 1.0f, labCol.r, labCol.g, labCol.b },
+                { mx + halfg, cy + halfg, u1, 0.0f, labCol.r, labCol.g, labCol.b },
+                { mx + halfg, cy - halfg, u1, 1.0f, labCol.r, labCol.g, labCol.b },
+                { mx - halfg, cy - halfg, u0, 1.0f, labCol.r, labCol.g, labCol.b },
+            };
+            glNamedBufferSubData(textVBO, 0, sizeof(tri), tri);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+
+        // Letter quad: cell a, at the label center
+        {
+            float u0 = a * cellU, u1 = (a + 1) * cellU;
+            float tri[6][7] = {
+                { cx - halfg, cy + halfg, u0, 0.0f, labCol.r, labCol.g, labCol.b },
+                { cx + halfg, cy + halfg, u1, 0.0f, labCol.r, labCol.g, labCol.b },
+                { cx - halfg, cy - halfg, u0, 1.0f, labCol.r, labCol.g, labCol.b },
+                { cx + halfg, cy + halfg, u1, 0.0f, labCol.r, labCol.g, labCol.b },
+                { cx + halfg, cy - halfg, u1, 1.0f, labCol.r, labCol.g, labCol.b },
+                { cx - halfg, cy - halfg, u0, 1.0f, labCol.r, labCol.g, labCol.b },
+            };
+            glNamedBufferSubData(textVBO, 0, sizeof(tri), tri);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+    }
+
+    // === Center sphere (flat yellow) - drawn last, on top of all arrows ===
+    {
+        glm::mat4 model(1.0f);  // sphere is at origin, no extra transform
+        glm::vec3 sphereColor(1.0f, 0.95f, 0.2f);  // Brighter gold yellow
+
+        glUseProgram(sphereProgram);
+        glUniformMatrix4fv(sphereMvpLoc, 1, GL_FALSE, glm::value_ptr(lineMVP));
+        glUniform3fv(sphereColorLoc, 1, glm::value_ptr(sphereColor));
+        glBindVertexArray(originVAO);
+        glDrawArrays(GL_TRIANGLES, 0, originVertCount);
+        glBindVertexArray(0);
     }
 
     glBindVertexArray(0);
@@ -652,7 +765,8 @@ int Gizmo::hitTestAxis(const glm::mat4& mainView, float dpr,
     const glm::vec2 click(gx * inv - kExtent, gy * inv - kExtent);
 
     // Dead zone around the pivot: avoid unstable selection near the origin.
-    const float deadZoneClip = 8.0f * (2.0f * kExtent) / static_cast<float>(foot);
+    // The center sphere is larger than the old origin disc, so widen the dead zone.
+    const float deadZoneClip = 10.0f * (2.0f * kExtent) / static_cast<float>(foot);
     if (glm::length(click) < deadZoneClip) return -1;
 
     // Same matrices as draw(): rotation-only view + fixed ortho.
@@ -693,7 +807,9 @@ int Gizmo::hitTestAxis(const glm::mat4& mainView, float dpr,
             cx = std::max(halfG, std::min(foot - halfG, cx));
             cy = std::max(halfG, std::min(foot - halfG, cy));
         }
-        if (lx >= cx - halfG && lx <= cx + halfG && ly >= cy - halfG && ly <= cy + halfG) {
+        // Label hit test: negative labels (-X/-Y/-Z) extend left with a minus-sign quad.
+        const float labelLeft = (i % 2 == 1) ? cx - glyph - 4.0f - halfG : cx - halfG;
+        if (lx >= labelLeft && lx <= cx + halfG && ly >= cy - halfG && ly <= cy + halfG) {
             return i;
         }
     }
