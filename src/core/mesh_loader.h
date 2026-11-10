@@ -188,7 +188,8 @@ struct RenderMesh {
     mutable std::vector<float> flatVerts;
 
     // Lazily compute flatVerts from vertices+indices if not already populated.
-    // Called by mesh_quality analysis. No-op if flatVerts is already filled.
+    // No-op if flatVerts is already filled. NOT thread-safe: call before any
+    // concurrent read of flatVerts (e.g. from mesh_quality analysis threads).
     void ensureFlatVerts() const {
         if (!flatVerts.empty() || indices.empty() || vertices.empty()) return;
         flatVerts.reserve(indices.size() * 3);

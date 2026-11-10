@@ -136,7 +136,7 @@ public:
                 return false;
             }
             if (restart.transientValid &&
-                restart.time >= settings.transient.tEnd - 1e-12) {
+                restart.time >= settings.transient.tEnd - 1e-12 * std::max(1.0, settings.transient.tEnd)) {
                 error = "The saved state is already at t = " +
                         std::to_string(restart.time) +
                         " s (end time " +
@@ -211,7 +211,7 @@ public:
 
         configureBoundaryConditions(*solver, bcs);
 
-        queueRestartState(*solver, restart, settings);
+        queueRestartState(*solver, restart, settings, m_mesh->nCells());
 
         *turbSlot = solver->turbulence();
         m_solver = std::move(solver);
@@ -506,16 +506,22 @@ private:
     }
 
     void queueRestartState(Solver& solver, const SolutionSnapshot& restart,
-                           const CaseSettings& settings) {
+                           const CaseSettings& settings, std::size_t expectedCells) {
         if (!(restart.hasFields() || restart.hasTurbulence() ||
               (settings.transient.enabled && restart.transientValid))) return;
         typename Solver::RestartState rs;
-        if (restart.hasFields()) {
-            rs.hasVelocity = true;
-            for (std::size_t d = 0; d < Dim; ++d) rs.velocity[d] = restart.velocity[d];
-            rs.pressure = restart.pressure;
+        if (restart.hasFields() && restart.cells == expectedCells) {
+            bool velocitySizesOk = true;
+            for (std::size_t d = 0; d < Dim; ++d) {
+                if (restart.velocity[d].size() != expectedCells) { velocitySizesOk = false; break; }
+            }
+            if (velocitySizesOk && restart.pressure.size() == expectedCells) {
+                rs.hasVelocity = true;
+                for (std::size_t d = 0; d < Dim; ++d) rs.velocity[d] = restart.velocity[d];
+                rs.pressure = restart.pressure;
+            }
         }
-        if (restart.hasTurbulence()) {
+        if (restart.hasTurbulence() && restart.turbulence.matches(expectedCells)) {
             rs.hasTurbulence = true;
             rs.k = restart.turbulence.k;
             rs.omega = restart.turbulence.omega;

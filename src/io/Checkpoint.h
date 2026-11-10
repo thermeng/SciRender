@@ -188,7 +188,12 @@ public:
         std::string metaStr(metaLen, '\0');
         in.read(&metaStr[0], static_cast<std::streamsize>(metaLen));
 
-        auto j = nlohmann::json::parse(metaStr);
+        nlohmann::json j;
+        try {
+            j = nlohmann::json::parse(metaStr);
+        } catch (const std::exception&) {
+            return false;
+        }
 
         if (j.contains("n_cells") && j["n_cells"].get<std::size_t>() != mesh.nCells())
             return false;

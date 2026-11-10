@@ -66,19 +66,26 @@ bool extractCartesianGrid(const RenderMesh& mesh, CartesianGrid& out) {
     // Positional proof: every vertex must lie on the (xs,ys,zs) lattice
     // (axis-aligned). This is order-independent so it survives the
     // post-load normal-split that reorders / duplicates vertices.
+    // xs/ys/zs are sorted by uniqueCoords, so use binary search for O(log N)
+    // lookups instead of O(N) linear scans.
     {
         const float ex = coordEps(xs, xs.size()) + 1e-6f * std::max(1.0f, std::abs(xs.back()));
         const float ey = coordEps(ys, ys.size()) + 1e-6f * std::max(1.0f, std::abs(ys.back()));
         const float ez = coordEps(zs, zs.size()) + 1e-6f * std::max(1.0f, std::abs(zs.back()));
         const size_t vN = mesh.vertices.size() / 3;
-        auto contains = [](float v, const std::vector<float>& arr, float eps) {
-            for (float a : arr) if (std::abs(v - a) <= eps) return true;
+        auto containsSorted = [](float v, const std::vector<float>& arr, float eps) -> bool {
+            auto it = std::lower_bound(arr.begin(), arr.end(), v);
+            if (it != arr.end() && std::abs(*it - v) <= eps) return true;
+            if (it != arr.begin()) {
+                --it;
+                if (std::abs(*it - v) <= eps) return true;
+            }
             return false;
         };
         for (size_t n = 0; n < vN; ++n) {
-            if (!contains(mesh.vertices[n*3+0], xs, ex)) return false;
-            if (!contains(mesh.vertices[n*3+1], ys, ey)) return false;
-            if (!contains(mesh.vertices[n*3+2], zs, ez)) return false;
+            if (!containsSorted(mesh.vertices[n*3+0], xs, ex)) return false;
+            if (!containsSorted(mesh.vertices[n*3+1], ys, ey)) return false;
+            if (!containsSorted(mesh.vertices[n*3+2], zs, ez)) return false;
         }
     }
 
@@ -106,12 +113,13 @@ bool extractPointVectorsUnstructured(const RenderMesh& mesh, const std::string& 
     const glm::vec3* d = mesh.vectorFieldData(name, count);
     if (d && count>0){
         size_t nPt = mesh.vertices.size()/3;
-        if (count==nPt || (mesh.sourcePointCount>0 && count==(size_t)mesh.sourcePointCount)) { out.data=d; out.count=count; return true; }
-        if (count>0){ out.data=d; out.count=count; return true; }
+        if (count==nPt || (mesh.sourcePointCount>0 && count==(size_t)mesh.sourcePointCount)) {
+            out.data=d; out.count=count; return true;
+        }
+        // Mismatched point data: do not silently accept wrong-sized arrays.
+        return false;
     }
-    // Fallback to cell vectors (treat cell centers as points for LSQ — Q/vorticity still defined)
-    const glm::vec3* cd = mesh.cellVectorFieldData(name, count);
-    if (cd && count>0){ out.data=cd; out.count=count; return true; }
+    // Cell vectors are not point data; the caller must extrapolate explicitly.
     return false;
 }
 
@@ -182,14 +190,11 @@ bool extractPointScalarsUnstructured(const RenderMesh& mesh, const std::string& 
     auto it = mesh.attributes->pointScalars.find(name);
     if (it!=mesh.attributes->pointScalars.end()){
         size_t nPt = mesh.vertices.size()/3;
-        if (it->second.size()==nPt || (mesh.sourcePointCount>0 && it->second.size()==(size_t)mesh.sourcePointCount) || !it->second.empty()){
+        if (it->second.size()==nPt || (mesh.sourcePointCount>0 && it->second.size()==(size_t)mesh.sourcePointCount)) {
             out.data=it->second.data(); out.count=it->second.size(); return true;
         }
-    }
-    // Fallback to cell scalars (extrapolated point copy may exist, else use cell centers)
-    auto cit = mesh.attributes->cellScalars.find(name);
-    if (cit!=mesh.attributes->cellScalars.end() && !cit->second.empty()){
-        out.data=cit->second.data(); out.count=cit->second.size(); return true;
+        // Mismatched point data: do not silently fall back to cell-sized arrays.
+        return false;
     }
     return false;
 }
