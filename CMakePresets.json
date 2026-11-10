@@ -45,6 +45,30 @@
         "SCIRENDER_BUILD_APP": "OFF",
         "SCIRENDER_BUILD_TESTS": "ON"
       }
+    },
+    {
+      "name": "debug-vendored",
+      "displayName": "Debug (vendored libs)",
+      "description": "Debug build using prebuilt HYPRE from build-vendored-lib/install (skips HYPRE rebuild)",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build-vendored-lib/app-debug",
+      "cacheVariables": {
+        "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
+        "HYPRE_DIR": "${sourceDir}/build-vendored-lib/install/lib/cmake/HYPRE",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install;C:/Qt/6.11.1/mingw_64"
+      }
+    },
+    {
+      "name": "release-vendored",
+      "displayName": "Release (vendored libs)",
+      "description": "Release build using prebuilt HYPRE from build-vendored-lib/install (skips HYPRE rebuild)",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-vendored-lib/app-release",
+      "cacheVariables": {
+        "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
+        "HYPRE_DIR": "${sourceDir}/build-vendored-lib/install/lib/cmake/HYPRE",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install;C:/Qt/6.11.1/mingw_64"
+      }
     }
   ],
   "buildPresets": [
@@ -59,6 +83,14 @@
     {
       "name": "tests",
       "configurePreset": "tests"
+    },
+    {
+      "name": "debug-vendored",
+      "configurePreset": "debug-vendored"
+    },
+    {
+      "name": "release-vendored",
+      "configurePreset": "release-vendored"
     }
   ],
   "testPresets": [
