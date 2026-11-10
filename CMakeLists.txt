@@ -109,11 +109,13 @@ if(SCIRENDER_HAVE_HYPRE)
         list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE)
     endif()
 endif()
-if(SCIRENDER_HAVE_HYPRE)
-    message(STATUS "SciRender: Hypre BoomerAMG backend ENABLED (vendored, Config::useHypre selects it)")
-else()
-    message(STATUS "SciRender: Hypre not vendored - amgcl remains the AMG backend")
+if(NOT SCIRENDER_HAVE_HYPRE)
+    message(FATAL_ERROR
+        "Hypre is required for the AMG solver but was not found. "
+        "Ensure vendor/hypre/src/CMakeLists.txt is present (vendored build) "
+        "or provide a system HYPRE via find_package(HYPRE) / HYPRE_DIR.")
 endif()
+message(STATUS "SciRender: Hypre BoomerAMG backend ENABLED (Config::useHypre selects it)")
 
 if(SCIRENDER_BUILD_APP)
     set(CMAKE_AUTOMOC ON)

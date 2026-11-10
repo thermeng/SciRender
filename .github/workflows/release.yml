@@ -14,6 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fetch vendored Hypre
+        run: git clone --depth 1 --branch v2.24.0 https://github.com/hypre-space/hypre.git vendor/hypre
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
