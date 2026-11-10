@@ -26,7 +26,7 @@ template<typename Struct>
 struct Field {
     const char* name;
     std::function<QJsonValue(const Struct&)> toJson;
-    std::function<void(Struct&, const QJsonValue&)> fromJson;
+    std::function<bool(Struct&, const QJsonValue&)> fromJson;
 };
 
 // ---------- field factories (one per C++ type) ----------
@@ -37,7 +37,11 @@ inline Field<Struct> dbl(const char* name, T Struct::*m) {
     return Field<Struct>{
         name,
         [m](const Struct& s) { return QJsonValue(s.*m); },
-        [m](Struct& s, const QJsonValue& v) { s.*m = v.toDouble(s.*m); }};
+        [m](Struct& s, const QJsonValue& v) {
+            if (!v.isDouble()) return false;
+            s.*m = v.toDouble(s.*m);
+            return true;
+        }};
 }
 
 // integral stored as qint64 (size_t): toVariant().toULongLong() (no default,
@@ -48,7 +52,9 @@ inline Field<Struct> num(const char* name, T Struct::*m) {
         name,
         [m](const Struct& s) { return QJsonValue(static_cast<qint64>(s.*m)); },
         [m](Struct& s, const QJsonValue& v) {
+            if (!v.isDouble()) return false;
             s.*m = static_cast<T>(v.toVariant().toULongLong());
+            return true;
         }};
 }
 
@@ -58,7 +64,11 @@ inline Field<Struct> flg(const char* name, T Struct::*m) {
     return Field<Struct>{
         name,
         [m](const Struct& s) { return QJsonValue(s.*m); },
-        [m](Struct& s, const QJsonValue& v) { s.*m = static_cast<T>(v.toBool(static_cast<bool>(s.*m))); }};
+        [m](Struct& s, const QJsonValue& v) {
+            if (!v.isBool()) return false;
+            s.*m = static_cast<T>(v.toBool(static_cast<bool>(s.*m)));
+            return true;
+        }};
 }
 
 // int: toInt(default=current).
@@ -67,7 +77,11 @@ inline Field<Struct> i32(const char* name, T Struct::*m) {
     return Field<Struct>{
         name,
         [m](const Struct& s) { return QJsonValue(static_cast<int>(s.*m)); },
-        [m](Struct& s, const QJsonValue& v) { s.*m = static_cast<T>(v.toInt(static_cast<int>(s.*m))); }};
+        [m](Struct& s, const QJsonValue& v) {
+            if (!v.isDouble()) return false;
+            s.*m = static_cast<T>(v.toInt(static_cast<int>(s.*m)));
+            return true;
+        }};
 }
 
 // enum stored as int: toInt(default=current) cast back to enum.
@@ -76,7 +90,11 @@ inline Field<Struct> enm(const char* name, T Struct::*m) {
     return Field<Struct>{
         name,
         [m](const Struct& s) { return QJsonValue(static_cast<int>(s.*m)); },
-        [m](Struct& s, const QJsonValue& v) { s.*m = static_cast<T>(v.toInt(static_cast<int>(s.*m))); }};
+        [m](Struct& s, const QJsonValue& v) {
+            if (!v.isDouble()) return false;
+            s.*m = static_cast<T>(v.toInt(static_cast<int>(s.*m)));
+            return true;
+        }};
 }
 
 // std::string: from/to QString; toString(default=current).
@@ -86,7 +104,9 @@ inline Field<Struct> str(const char* name, T Struct::*m) {
         name,
         [m](const Struct& s) { return QJsonValue(QString::fromUtf8(s.*m)); },
         [m](Struct& s, const QJsonValue& v) {
+            if (!v.isString()) return false;
             s.*m = v.toString(QString::fromUtf8(s.*m)).toStdString();
+            return true;
         }};
 }
 
@@ -101,9 +121,13 @@ inline QJsonObject writeObject(const Struct& s,
 }
 
 template<typename Struct>
-inline void readObject(Struct& s, const QJsonObject& o,
+inline bool readObject(Struct& s, const QJsonObject& o,
                        const std::vector<Field<Struct>>& fields) {
-    for (const auto& f : fields) f.fromJson(s, o.value(QString::fromUtf8(f.name)));
+    bool ok = true;
+    for (const auto& f : fields) {
+        if (!f.fromJson(s, o.value(QString::fromUtf8(f.name)))) ok = false;
+    }
+    return ok;
 }
 
 // ---------- TransientSettings ----------
@@ -131,8 +155,8 @@ inline QJsonObject serializeTransient(const TransientSettings& s) {
     return writeObject(s, transientFields());
 }
 
-inline void deserializeTransient(const QJsonObject& o, TransientSettings& s) {
-    readObject(s, o, transientFields());
+inline bool deserializeTransient(const QJsonObject& o, TransientSettings& s) {
+    return readObject(s, o, transientFields());
 }
 
 // ---------- AmgSettings ----------
@@ -177,8 +201,8 @@ inline QJsonObject serializeAmg(const AmgSettings& s) {
     return writeObject(s, amgFields());
 }
 
-inline void deserializeAmg(const QJsonObject& o, AmgSettings& s) {
-    readObject(s, o, amgFields());
+inline bool deserializeAmg(const QJsonObject& o, AmgSettings& s) {
+    return readObject(s, o, amgFields());
 }
 
 // ---------- PatchBC ----------
@@ -243,21 +267,21 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
             "transient",
             [](const CaseSettings& s) { return serializeTransient(s.transient); },
             [](CaseSettings& s, const QJsonValue& v) {
-                deserializeTransient(v.toObject(), s.transient);
+                return deserializeTransient(v.toObject(), s.transient);
             },
         },
         Field<CaseSettings>{
             "pressureAmg",
             [](const CaseSettings& s) { return serializeAmg(s.pressureAmg); },
             [](CaseSettings& s, const QJsonValue& v) {
-                deserializeAmg(v.toObject(), s.pressureAmg);
+                return deserializeAmg(v.toObject(), s.pressureAmg);
             },
         },
         Field<CaseSettings>{
             "momentumAmg",
             [](const CaseSettings& s) { return serializeAmg(s.momentumAmg); },
             [](CaseSettings& s, const QJsonValue& v) {
-                deserializeAmg(v.toObject(), s.momentumAmg);
+                return deserializeAmg(v.toObject(), s.momentumAmg);
             },
         },
     };
@@ -289,11 +313,11 @@ inline bool deserializeCaseSettings(const QByteArray& settings, CaseSettings& s,
     if (!doc.isObject()) return false;
     const QJsonObject o = doc.object();
 
-    detail::readObject(s, o, detail::caseSettingsFields());
+    if (!detail::readObject(s, o, detail::caseSettingsFields())) return false;
 
     const QJsonArray bcArr = o.value("patchBCs").toArray();
+    patchBCs.clear();
     if (!bcArr.isEmpty()) {
-        patchBCs.clear();
         for (const auto& v : bcArr) {
             cfd::PatchBC pbc;
             detail::readObject(pbc, v.toObject(), detail::patchBCFields());

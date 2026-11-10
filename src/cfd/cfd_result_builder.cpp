@@ -41,13 +41,13 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     const int nFinal = static_cast<int>(rm.vertices.size() / 3);
     if (nSrc <= 0 || nFinal <= 0) return nullptr;
 
-    auto expandToFinal = [&](const std::vector<float>& src) {
+    auto expandToFinal = [&](std::vector<float> src) -> std::vector<float> {
+        if (static_cast<int>(src.size()) == nFinal) return std::move(src);
         std::vector<float> out(static_cast<std::size_t>(nFinal), 0.0f);
-        if (static_cast<int>(src.size()) == nFinal) return src;
         if (rm.vertexSourceIndex.size() == static_cast<std::size_t>(nFinal)) {
             for (int i = 0; i < nFinal; ++i) {
                 const uint32_t s = rm.vertexSourceIndex[static_cast<std::size_t>(i)];
-                if (s < src.size()) out[static_cast<std::size_t>(i)] = src[s];
+                if (s < src.size()) out[static_cast<std::size_t>(i)] = src[static_cast<std::size_t>(s)];
             }
         } else {
             for (int i = 0; i < nFinal && i < static_cast<int>(src.size()); ++i)
@@ -62,9 +62,9 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
         attrs.cellScalarRanges[name] = rangeOf(cellVals);
         std::vector<float> ptsSrc = mesh_utils::extrapolateCellToPoints<float>(
             rm, cellVals, static_cast<std::size_t>(nCells), static_cast<std::size_t>(nSrc));
-        std::vector<float> pts = expandToFinal(ptsSrc);
+        std::vector<float> pts = expandToFinal(std::move(ptsSrc));
         attrs.pointScalars[name] = pts;
-        attrs.pointScalarRanges[name] = rangeOf(ptsSrc);
+        attrs.pointScalarRanges[name] = rangeOf(pts);
         return pts;
     };
 

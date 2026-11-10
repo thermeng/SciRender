@@ -284,20 +284,12 @@ bool LeastSquaresEstimator::buildNeighborsFromRadius(){
         float xi=verts[i*3], yi=verts[i*3+1], zi=verts[i*3+2];
         // brute scan limited buckets: just check all points within radius² by scanning points with nearby bucket key not efficient,
         // fallback to brute over all points when N < 8000
-        if (m_pointCount < 8000){
-            for (size_t j=0;j<m_pointCount;++j) if(j!=i){
-                float dx=verts[j*3]-xi, dy=verts[j*3+1]-yi, dz=verts[j*3+2]-zi;
-                if (dx*dx+dy*dy+dz*dz < r2) m_neighbors[i].push_back((uint32_t)j);
-                if (m_neighbors[i].size()>=24) break;
-            }
-        } else {
-            // bucket check 27 neighboring quantized cells
-            int64_t qx=(int64_t)std::llround(xi*4.0f), qy=(int64_t)std::llround(yi*4.0f), qz=(int64_t)std::llround(zi*4.0f);
-            for(int dz=-1;dz<=1;++dz) for(int dy=-1;dy<=1;++dy) for(int dx=-1;dx<=1;++dx){
-                auto it=buckets.find(qKey((qx+dx)/4.0f,(qy+dy)/4.0f,(qz+dz)/4.0f));
-                if(it==buckets.end()) continue;
-                for(uint32_t j: it->second){ if(j==i) continue; float ddx=verts[j*3]-xi,ddy=verts[j*3+1]-yi,ddz=verts[j*3+2]-zi; if(ddx*ddx+ddy*ddy+ddz*ddz < r2) m_neighbors[i].push_back(j); if(m_neighbors[i].size()>=24) break; } if(m_neighbors[i].size()>=24) break;
-            }
+        // Bucket check 27 neighboring quantized cells (always; avoids O(N²))
+        int64_t qx=(int64_t)std::llround(xi*4.0f), qy=(int64_t)std::llround(yi*4.0f), qz=(int64_t)std::llround(zi*4.0f);
+        for(int dz=-1;dz<=1;++dz) for(int dy=-1;dy<=1;++dy) for(int dx=-1;dx<=1;++dx){
+            auto it=buckets.find(qKey((qx+dx)/4.0f,(qy+dy)/4.0f,(qz+dz)/4.0f));
+            if(it==buckets.end()) continue;
+            for(uint32_t j: it->second){ if(j==i) continue; float ddx=verts[j*3]-xi,ddy=verts[j*3+1]-yi,ddz=verts[j*3+2]-zi; if(ddx*ddx+ddy*ddy+ddz*ddz < r2) m_neighbors[i].push_back(j); if(m_neighbors[i].size()>=24) break; } if(m_neighbors[i].size()>=24) break;
         }
         if (m_neighbors[i].empty()){
             // ensure at least 4 nearest brute

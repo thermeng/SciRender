@@ -14,6 +14,7 @@ namespace {
 thread_local std::unordered_map<std::string, std::shared_ptr<const std::vector<float>>> s_derivedCache;
 thread_local const RenderMesh* s_derivedLastMesh = nullptr;
 thread_local uint64_t s_derivedLastHash = 0;
+thread_local uint64_t s_cacheGeneration = 0;
 
 inline int placementToInt(Placement p) { return static_cast<int>(p); }
 
@@ -222,8 +223,17 @@ ScalarField resolveScalar(const RenderMesh& mesh, const FieldKey& key,
         bool hasPoint = vfPoint.data && vfPoint.count > 0;
         bool hasCell  = vfCell.data && vfCell.count > 0;
         if (!hasPoint && !hasCell) return {nullptr, {0,1}, false};
-        const uint64_t curHash = mesh.geometryHash ? mesh.geometryHash : reinterpret_cast<uint64_t>(&mesh);
-        if (s_derivedLastMesh != &mesh || s_derivedLastHash != curHash) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; s_derivedLastHash = curHash; }
+        uint64_t curHash = mesh.geometryHash;
+        if (!curHash) {
+            curHash = ++s_cacheGeneration;
+            s_derivedCache.clear();
+            s_derivedLastMesh = &mesh;
+            s_derivedLastHash = curHash;
+        } else if (s_derivedLastMesh != &mesh || s_derivedLastHash != curHash) {
+            s_derivedCache.clear();
+            s_derivedLastMesh = &mesh;
+            s_derivedLastHash = curHash;
+        }
 
         std::string keyPoint = name + "#vert";
         std::shared_ptr<const std::vector<float>> pointOwner;
@@ -335,8 +345,17 @@ ScalarField resolveScalarForVolume(const RenderMesh& mesh, const FieldKey& key,
             if (!vf.data || vf.count == 0) return {nullptr, {0,1}, false};
         }
         std::string cacheKey = name + (placement == Placement::CellCenter ? "#volcell" : "#volvert");
-        const uint64_t curHash2 = mesh.geometryHash ? mesh.geometryHash : reinterpret_cast<uint64_t>(&mesh);
-        if (s_derivedLastMesh != &mesh || s_derivedLastHash != curHash2) { s_derivedCache.clear(); s_derivedLastMesh = &mesh; s_derivedLastHash = curHash2; }
+        uint64_t curHash2 = mesh.geometryHash;
+        if (!curHash2) {
+            curHash2 = ++s_cacheGeneration;
+            s_derivedCache.clear();
+            s_derivedLastMesh = &mesh;
+            s_derivedLastHash = curHash2;
+        } else if (s_derivedLastMesh != &mesh || s_derivedLastHash != curHash2) {
+            s_derivedCache.clear();
+            s_derivedLastMesh = &mesh;
+            s_derivedLastHash = curHash2;
+        }
         auto itc = s_derivedCache.find(cacheKey);
         if (itc != s_derivedCache.end()) {
             return {itc->second.get(), computeRange(*itc->second), vf.isCell, itc->second};

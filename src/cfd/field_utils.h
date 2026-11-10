@@ -92,7 +92,6 @@ template<std::size_t Dim>
 inline void fillTurbulence(const fvm::SSTModel<Dim>& model,
                           cfd::TurbulenceState& state,
                           std::size_t n) {
-    state.valid = true;
     state.k.resize(n);
     state.omega.resize(n);
     state.nut.resize(n);
@@ -106,6 +105,9 @@ inline void fillTurbulence(const fvm::SSTModel<Dim>& model,
     detail::copyN(kv, state.k, m);
     detail::copyN(ov, state.omega, m);
     detail::copyN(nv, state.nut, m);
+    // Only mark valid when the full copy succeeded; partial data remains
+    // zero-filled and must not be trusted by consumers.
+    state.valid = (m == n);
 }
 
 } // namespace field_utils
