@@ -40,7 +40,7 @@ public:
               int corner = BottomLeft, int foot = 128, int hoverAxis = -1,
               bool showNegativeAxes = false);
 
-    bool isInitialized() const { return aaLineProgram.has() && textProgram.has(); }
+    bool isInitialized() const { return aaLineProgram.has() && textProgram.has() && sphereProgram.has(); }
 
     // Maps a click (device px, top-left origin) to the axis (0=X, 1=Y, 2=Z)
     // whose shaft/cone/label zone contains it, or -1 if none. Uses exactly the
@@ -67,8 +67,8 @@ private:
     GlBuffer originVBO;
     int    originVertCount = 0;
 
-    GlProgram discProgram;
-    GLint  discMvpLoc = -1;
+    GlProgram sphereProgram;
+    GLint  sphereMvpLoc = -1, sphereColorLoc = -1;
 
     GlProgram textProgram;
     GlVao textVAO;
@@ -80,6 +80,6 @@ private:
     bool buildAtlas();
     bool buildAALineProgram();
     bool buildCapProgram();
-    bool buildDiscProgram();
+    bool buildSphereProgram();
     bool buildTextProgram();
 };
