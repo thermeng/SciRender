@@ -24,35 +24,6 @@ class Momentum {
 public:
     Momentum(const Mesh<Dim>& mesh, double rho, double nu);
 
-    Field<Dim> assemble(
-        std::size_t d,
-        const VectorField<Dim>& velocity,
-        const Field<Dim>& pressure,
-        const Field<Dim>& source,
-        const std::vector<char>& dirichletMask,
-        const std::vector<double>& dirichletValues,
-        SparseMatrix& A,
-        Eigen::VectorXd& b,
-        const Field<Dim>* nutField = nullptr,
-        const std::array<Field<Dim>, Dim>* velGrad = nullptr);
-
-    void assembleWithConvection(
-        std::size_t d,
-        const VectorField<Dim>& velocity,
-        const Field<Dim>& pressure,
-        const Field<Dim>& source,
-        const std::vector<char>& dirichletMask,
-        const std::vector<double>& dirichletValues,
-        SparseMatrix& A,
-        Eigen::VectorXd& b,
-        Field<Dim>& diag,
-        ConvectionScheme scheme = ConvectionScheme::Upwind,
-        const Field<Dim>* nutField = nullptr,
-        const std::array<Field<Dim>, Dim>* phiGrad = nullptr,
-        const std::vector<std::vector<char>>& dirichletMaskAll = {},
-        const std::vector<std::vector<double>>& dirichletValsAll = {},
-        const MomentumBCs& bcs = {});
-
     void assembleWithConvection(
         std::size_t d,
         const VectorField<Dim>& velocity,
@@ -105,7 +76,6 @@ public:
 
 private:
     double nuEff_(std::size_t P, std::size_t N, const Field<Dim>* nutField) const;
-    Field<Dim> pressureGradientField_(std::size_t d, const Field<Dim>& pressure) const;
 
     const Mesh<Dim>& mesh_;
     double rho_;

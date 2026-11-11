@@ -238,6 +238,37 @@ void Gradient<Dim>::computeGreenGaussNodeBased_(const Field<Dim>& phi,
 // ---------------------------------------------------------------------------
 
 template<std::size_t Dim>
+void Gradient<Dim>::buildNormalMatrix_() const {
+    const std::size_t n = mesh_.nCells();
+    const std::size_t nF = mesh_.nFaces();
+    M_all_.assign(n, Eigen::Matrix<double, Dim, Dim>::Zero());
+
+    const std::size_t* ownerPtr = mesh_.ownerPtr();
+    const std::size_t* neighborPtr = mesh_.neighborPtr();
+    for (std::size_t f = 0; f < nF; ++f) {
+        const std::size_t P = ownerPtr[f];
+        const std::size_t N = neighborPtr[f];
+        // Wall faces are excluded: the fit uses interior neighbours only
+        // (see the face loop for why a reflected ghost cell was removed).
+        if (N == std::size_t(-1)) continue;
+        const double* xP = mesh_.cellCenterPtr(P);
+        const double* xN = mesh_.cellCenterPtr(N);
+        double dPN[Dim];
+        for (std::size_t dd = 0; dd < Dim; ++dd) dPN[dd] = xN[dd] - xP[dd];
+        auto& Mp = M_all_[P];
+        auto& Mn = M_all_[N];
+        for (std::size_t i = 0; i < Dim; ++i) {
+            for (std::size_t j = 0; j < Dim; ++j) {
+                const double contrib = dPN[i] * dPN[j];
+                Mp(i, j) += contrib;
+                Mn(i, j) += contrib;
+            }
+        }
+    }
+    normalMatrixBuilt_ = true;
+}
+
+template<std::size_t Dim>
 void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
                                           std::array<Field<Dim>, Dim>& grad,
                                           const std::vector<char>& dirichletMask,
@@ -245,14 +276,12 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
 
-    if (M_all_.size() != n) {
-        M_all_.assign(n, Eigen::Matrix<double, Dim, Dim>::Zero());
-        rhs_all_.assign(n, Eigen::Matrix<double, Dim, 1>::Zero());
-    } else {
-        for (auto& m : M_all_) m.setZero();
-        for (auto& r : rhs_all_) r.setZero();
-    }
-    auto& M_all = M_all_;
+    // The normal-equation matrix depends only on the cell-centre geometry, so it
+    // is built once per Gradient; only the phi-dependent right-hand side is
+    // refilled on each call.
+    if (!normalMatrixBuilt_ || M_all_.size() != n) buildNormalMatrix_();
+    if (rhs_all_.size() != n) rhs_all_.assign(n, Eigen::Matrix<double, Dim, 1>::Zero());
+    else for (auto& r : rhs_all_) r.setZero();
     auto& rhs_all = rhs_all_;
 
     // Use raw pointers to avoid copying std::array per face (hot loop)
@@ -268,52 +297,42 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
     for (std::size_t f = 0; f < nF; ++f) {
         const std::size_t P = ownerPtr[f];
         const std::size_t N = neighborPtr[f];
+        // Wall-adjacent cell: the gradient is fitted over the INTERIOR
+        // neighbours only.
+        //
+        // A reflected ghost cell used to be added here, carrying a
+        // zero-gradient (Neumann) condition: it contributed its direction
+        // to the normal matrix and nothing to the right-hand side, so it
+        // dragged the gradient of the wall cell towards zero in the
+        // wall-normal direction.
+        //
+        // That is inconsistent with the pressure equation, whose wall face
+        // contributes NOTHING at all (the flux through a wall is
+        // prescribed, so it does not change with the pressure correction).
+        // The two operators have to be the same one: where they are not,
+        // the pressure correction cannot cancel the divergence it was
+        // built for, and the error is largest exactly in the wall layer.
+        //
+        // The cell-centre gradient of a wall cell is an extrapolation
+        // from the interior, which is the standard treatment.
+        if (N == std::size_t(-1)) continue;
         const double* xP = mesh_.cellCenterPtr(P);
-        if (N == std::size_t(-1)) {
-            // Wall-adjacent cell: the gradient is fitted over the INTERIOR
-            // neighbours only.
-            //
-            // A reflected ghost cell used to be added here, carrying a
-            // zero-gradient (Neumann) condition: it contributed its direction
-            // to the normal matrix and nothing to the right-hand side, so it
-            // dragged the gradient of the wall cell towards zero in the
-            // wall-normal direction.
-            //
-            // That is inconsistent with the pressure equation, whose wall face
-            // contributes NOTHING at all (the flux through a wall is
-            // prescribed, so it does not change with the pressure correction).
-            // The two operators have to be the same one: where they are not,
-            // the pressure correction cannot cancel the divergence it was
-            // built for, and the error is largest exactly in the wall layer.
-            //
-            // The cell-centre gradient of a wall cell is an extrapolation
-            // from the interior, which is the standard treatment.
-            continue;
-        } else {
-            const double* xN = mesh_.cellCenterPtr(N);
-            double dPN[Dim];
-            for (std::size_t dd = 0; dd < Dim; ++dd) dPN[dd] = xN[dd] - xP[dd];
-            const double delta = value(N) - value(P);
-            auto& Mp = M_all[P];
-            auto& Mn = M_all[N];
-            auto& rp = rhs_all[P];
-            auto& rn = rhs_all[N];
-            for (std::size_t i = 0; i < Dim; ++i) {
-                for (std::size_t j = 0; j < Dim; ++j) {
-                    double contrib = dPN[i] * dPN[j];
-                    Mp(i, j) += contrib;
-                    Mn(i, j) += contrib;
-                }
-                rp(i) += dPN[i] * delta;
-                rn(i) += dPN[i] * delta;
-            }
+        const double* xN = mesh_.cellCenterPtr(N);
+        double dPN[Dim];
+        for (std::size_t dd = 0; dd < Dim; ++dd) dPN[dd] = xN[dd] - xP[dd];
+        const double delta = value(N) - value(P);
+        auto& rp = rhs_all[P];
+        auto& rn = rhs_all[N];
+        for (std::size_t i = 0; i < Dim; ++i) {
+            rp(i) += dPN[i] * delta;
+            rn(i) += dPN[i] * delta;
         }
     }
 
     for (std::size_t P = 0; P < n; ++P) {
         if constexpr (Dim == 2) {
-            double m00 = M_all[P](0, 0), m01 = M_all[P](0, 1);
-            double m10 = M_all[P](1, 0), m11 = M_all[P](1, 1);
+            double m00 = M_all_[P](0, 0), m01 = M_all_[P](0, 1);
+            double m10 = M_all_[P](1, 0), m11 = M_all_[P](1, 1);
             double det = m00 * m11 - m01 * m10;
             if (std::abs(det) > 1e-30) {
                 double invDet = 1.0 / det;
@@ -327,9 +346,9 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
                 else grad[1][P] = 0.0;
             }
         } else {
-            double m00 = M_all[P](0, 0), m01 = M_all[P](0, 1), m02 = M_all[P](0, 2);
-            double m10 = M_all[P](1, 0), m11 = M_all[P](1, 1), m12 = M_all[P](1, 2);
-            double m20 = M_all[P](2, 0), m21 = M_all[P](2, 1), m22 = M_all[P](2, 2);
+            double m00 = M_all_[P](0, 0), m01 = M_all_[P](0, 1), m02 = M_all_[P](0, 2);
+            double m10 = M_all_[P](1, 0), m11 = M_all_[P](1, 1), m12 = M_all_[P](1, 2);
+            double m20 = M_all_[P](2, 0), m21 = M_all_[P](2, 1), m22 = M_all_[P](2, 2);
             double det = m00 * (m11 * m22 - m12 * m21)
                        - m01 * (m10 * m22 - m12 * m20)
                        + m02 * (m10 * m21 - m11 * m20);

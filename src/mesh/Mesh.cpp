@@ -59,9 +59,6 @@ Mesh<Dim>::Mesh(std::vector<std::array<double, Dim>> vertices,
 }
 
 template<std::size_t Dim>
-std::size_t Mesh<Dim>::nCells() const { return nCells_; }
-
-template<std::size_t Dim>
 const std::array<std::size_t, Dim>& Mesh<Dim>::dims() const { return dims_; }
 
 template<std::size_t Dim>
@@ -113,11 +110,6 @@ double Mesh<Dim>::faceCoord(std::size_t d, std::size_t faceIdx) const {
 }
 
 template<std::size_t Dim>
-std::array<double, Dim> Mesh<Dim>::cellCenter(std::size_t idx) const {
-    return cellCenters_[idx];
-}
-
-template<std::size_t Dim>
 double Mesh<Dim>::faceArea(std::size_t d, std::size_t idx) const {
     if (unstructured_) throw std::logic_error("Mesh::faceArea(d,idx) not valid for unstructured mesh");
     double area = 1.0;
@@ -132,16 +124,6 @@ double Mesh<Dim>::faceArea(std::size_t d, std::size_t idx) const {
         }
     }
     return area;
-}
-
-template<std::size_t Dim>
-double Mesh<Dim>::faceWeight(std::size_t f) const {
-    return faceWeights_[f];
-}
-
-template<std::size_t Dim>
-double Mesh<Dim>::cellVolume(std::size_t idx) const {
-    return cellVolumes_[idx];
 }
 
 template<std::size_t Dim>
@@ -161,11 +143,6 @@ std::array<std::size_t, Dim> Mesh<Dim>::cellCoords(std::size_t idx) const {
 }
 
 template<std::size_t Dim>
-bool Mesh<Dim>::isBoundary(std::size_t idx) const {
-    return isBoundary_[idx];
-}
-
-template<std::size_t Dim>
 std::pair<std::size_t, int> Mesh<Dim>::neighborOffset(std::size_t idx, std::size_t d, int sign) const {
     if (unstructured_) throw std::logic_error("Mesh::neighborOffset not valid for unstructured mesh");
     std::array<std::size_t, Dim> c = cellCoords(idx);
@@ -174,27 +151,6 @@ std::pair<std::size_t, int> Mesh<Dim>::neighborOffset(std::size_t idx, std::size
     c[d] += sign;
     return {cellIndex_(c), 0};
 }
-
-template<std::size_t Dim>
-std::size_t Mesh<Dim>::nFaces() const { return nFaces_; }
-
-template<std::size_t Dim>
-std::size_t Mesh<Dim>::owner(std::size_t f) const { return owner_[f]; }
-
-template<std::size_t Dim>
-std::size_t Mesh<Dim>::neighbor(std::size_t f) const { return neighbor_[f]; }
-
-template<std::size_t Dim>
-double Mesh<Dim>::faceArea(std::size_t f) const { return faceArea_[f]; }
-
-template<std::size_t Dim>
-const std::array<double, Dim>& Mesh<Dim>::faceNormal(std::size_t f) const { return faceNormal_[f]; }
-
-template<std::size_t Dim>
-const std::array<double, Dim>& Mesh<Dim>::faceCenter(std::size_t f) const { return faceCenter_[f]; }
-
-template<std::size_t Dim>
-double Mesh<Dim>::faceDist(std::size_t f) const { return faceDist_[f]; }
 
 template<std::size_t Dim>
 std::size_t Mesh<Dim>::nFacesOnBoundary(std::size_t d, int sign) const {

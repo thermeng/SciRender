@@ -51,7 +51,7 @@ public:
          std::vector<std::vector<std::size_t>> cells,
          std::vector<std::vector<std::vector<std::size_t>>> cellFaces = {});
 
-    std::size_t nCells() const;
+    std::size_t nCells() const { return nCells_; }
     const std::array<std::size_t, Dim>& dims() const;
     const std::array<double, Dim>& lengths() const;
     const std::array<double, Dim>& spacings() const;
@@ -64,14 +64,14 @@ public:
     double lx(std::size_t d) const;
     double dx(std::size_t d, std::size_t cellIdx) const;
     double faceCoord(std::size_t d, std::size_t faceIdx) const;
-    std::array<double, Dim> cellCenter(std::size_t idx) const;
+    std::array<double, Dim> cellCenter(std::size_t idx) const { return cellCenters_[idx]; }
     double faceArea(std::size_t d, std::size_t idx) const;
-    double cellVolume(std::size_t idx) const;
+    double cellVolume(std::size_t idx) const { return cellVolumes_[idx]; }
     // Interpolation weight for face f: phi_f = (1-w)*phi_P + w*phi_N.
     // w is the parameter of the orthogonal projection of the face centre onto
     // the owner->neighbour segment, so it is the exact linear-interpolation
     // coefficient between the two cell centres. It is 0.5 on a uniform mesh.
-    double faceWeight(std::size_t f) const;
+    double faceWeight(std::size_t f) const { return faceWeights_[f]; }
     // Distance-weighted face value: (1-w)*phi_P + w*phi_N, or phi_P for boundary
     template<typename T>
     T faceValue(std::size_t f, const T& phiP, const T& phiN) const {
@@ -89,7 +89,7 @@ public:
 
     std::size_t cellIndex(const std::array<std::size_t, Dim>& c) const;
     std::array<std::size_t, Dim> cellCoords(std::size_t idx) const;
-    bool isBoundary(std::size_t idx) const;
+    bool isBoundary(std::size_t idx) const { return isBoundary_[idx]; }
 
     template<typename... Coord>
      requires (sizeof...(Coord) == Dim)
@@ -103,13 +103,13 @@ public:
 
     std::pair<std::size_t, int> neighborOffset(std::size_t idx, std::size_t d, int sign) const;
 
-    std::size_t nFaces() const;
-    std::size_t owner(std::size_t f) const;
-    std::size_t neighbor(std::size_t f) const;
-    double faceArea(std::size_t f) const;
-    const std::array<double, Dim>& faceNormal(std::size_t f) const;
-    const std::array<double, Dim>& faceCenter(std::size_t f) const;
-    double faceDist(std::size_t f) const;
+    std::size_t nFaces() const { return nFaces_; }
+    std::size_t owner(std::size_t f) const { return owner_[f]; }
+    std::size_t neighbor(std::size_t f) const { return neighbor_[f]; }
+    double faceArea(std::size_t f) const { return faceArea_[f]; }
+    const std::array<double, Dim>& faceNormal(std::size_t f) const { return faceNormal_[f]; }
+    const std::array<double, Dim>& faceCenter(std::size_t f) const { return faceCenter_[f]; }
+    double faceDist(std::size_t f) const { return faceDist_[f]; }
     std::size_t nFacesOnBoundary(std::size_t d, int sign) const;
     const std::vector<std::size_t>& boundaryFaces(std::size_t d, int sign) const;
 

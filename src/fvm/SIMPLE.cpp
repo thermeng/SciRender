@@ -44,6 +44,8 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
     for (auto& dc : dCoeff_) dc.assign(mesh.nCells(), 0.0);
     for (auto& g : velGrad_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : pressureGrad_) g = Field<Dim>(mesh, 0.0);
+    pPrimeGradientCalc_ = std::make_unique<Gradient<Dim>>(
+        mesh, GradientScheme::LeastSquares);
 }
 
 template<std::size_t Dim>
@@ -465,7 +467,8 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
                     &bcDiscretization_.faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
-                    adaptiveAlphaP_);
+                    adaptiveAlphaP_,
+                    pPrimeGradientCalc_.get());
         steadyVelocityCorrectionSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tCorrection).count();
 
         #pragma omp parallel for schedule(static)
@@ -1057,9 +1060,11 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar,
                                            const VectorField<Dim>& velocityOld,
                                            const std::array<Field<Dim>, Dim>& pressureGrad) {
-    SparseMatrix momA(mesh_.nCells(), mesh_.nCells());
-    Eigen::VectorXd momB(mesh_.nCells());
-    momB.setZero();
+    // Assemble in place into the per-component snapshot: the operator pattern
+    // is reused across iterations, and the residual/PISO code reads the same
+    // object instead of a copy.
+    SparseMatrix& momA = momAsnap_[d];
+    Eigen::VectorXd& momB = momBsnap_[d];
 
     const Field<Dim>* nutPtr = turbulence_ ? &turbulence_->nut() : nullptr;
 
@@ -1086,18 +1091,14 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
                                     velocityOld[d], config_.alphaU,
                                     dCoeff_[d], config_.simplec);
 
-    Eigen::VectorXd warmStart(mesh_.nCells());
+    momentumWarmStart_.resize(static_cast<Eigen::Index>(mesh_.nCells()));
     const double* velPtr = (boundVelocity())[d].ptr();
-    for (std::size_t i = 0; i < mesh_.nCells(); ++i) warmStart(i) = velPtr[i];
+    for (std::size_t i = 0; i < mesh_.nCells(); ++i)
+        momentumWarmStart_(static_cast<Eigen::Index>(i)) = velPtr[i];
 
-    auto result = linearSolverDispatcher_.solve(d, momA, momB, warmStart,
+    auto result = linearSolverDispatcher_.solve(d, momA, momB, momentumWarmStart_,
                                                 &cancelRequested_);
     if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
-
-    // Snapshot this component's operator: momA/momB are locals, so copy for
-    // the residual pass.
-    momAsnap_[d] = momA;
-    momBsnap_[d] = momB;
 
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         double val = result.x(static_cast<Eigen::Index>(i));
@@ -1131,9 +1132,9 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Dim>& uStar,
                                                    const VectorField<Dim>& velocityOld,
                                                    const std::array<Field<Dim>, Dim>& pressureGrad) {
-    SparseMatrix momA(mesh_.nCells(), mesh_.nCells());
-    Eigen::VectorXd momB(mesh_.nCells());
-    momB.setZero();
+    // Assemble in place into the per-component snapshot (see the steady path).
+    SparseMatrix& momA = momAsnap_[d];
+    Eigen::VectorXd& momB = momBsnap_[d];
     const Field<Dim>* nutPtr = turbulence_ ? &turbulence_->nut() : nullptr;
     gradientCalc_->compute((boundVelocity())[d], velGrad_);
     const std::array<Field<Dim>, Dim>* velGradPtr = &velGrad_;
@@ -1175,16 +1176,14 @@ void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Di
     // Transient greatly increases diagonal dominance, keep pattern re-analysis cheap: still cache
     // For transient, matrix pattern identical, but values change with dt:
     // the linear-solver dispatch below re-factorizes / rebuilds as needed.
-    Eigen::VectorXd warmStart(mesh_.nCells());
+    momentumWarmStart_.resize(static_cast<Eigen::Index>(mesh_.nCells()));
     const double* velPtr = (boundVelocity())[d].ptr();
-    for (std::size_t i = 0; i < mesh_.nCells(); ++i) warmStart(i) = velPtr[i];
+    for (std::size_t i = 0; i < mesh_.nCells(); ++i)
+        momentumWarmStart_(static_cast<Eigen::Index>(i)) = velPtr[i];
 
-    auto result = linearSolverDispatcher_.solve(d, momA, momB, warmStart,
+    auto result = linearSolverDispatcher_.solve(d, momA, momB, momentumWarmStart_,
                                                 &cancelRequested_);
     if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
-
-    momAsnap_[d] = momA;
-    momBsnap_[d] = momB;
 
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         double val = result.x(static_cast<Eigen::Index>(i));
@@ -1321,7 +1320,8 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
                     &bcDiscretization_.faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
-                    adaptiveAlphaP_);
+                    adaptiveAlphaP_,
+                    pPrimeGradientCalc_.get());
     #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         (boundPressure())[i] += adaptiveAlphaP_ * pPrime_[i];
@@ -1474,7 +1474,8 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
                         &bcDiscretization_.faceBCs(),
                         config_.velocityCorrectionMaxUnlimitedSpeed,
                         config_.velocityCorrectionMaxGrowthRate,
-                        adaptiveAlphaP_);
+                        adaptiveAlphaP_,
+                        pPrimeGradientCalc_.get());
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
             (boundPressure())[i] += pPrime_[i]; // alphaP = 1 for PISO

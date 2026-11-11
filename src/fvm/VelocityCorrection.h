@@ -35,15 +35,19 @@ inline void correctVelocity(
     const std::vector<FaceVelocityBC>* faceBC = nullptr,
     double maxUnlimitedSpeed = 20.0,   // growth limiting only applies above this speed
     double maxGrowthRate = 0.15,       // max per-iteration growth rate (e.g. 0.15 = 15%)
-    double alphaP = 1.0                // pressure under-relaxation applied to velocity correction
+    double alphaP = 1.0,               // pressure under-relaxation applied to velocity correction
+    Gradient<Dim>* reusableGradient = nullptr   // caller-owned LS workspace
 ) {
 
-    Gradient<Dim> gradient(mesh, GradientScheme::LeastSquares);
-    std::array<Field<Dim>, Dim> lsqGrad{};
-    for (auto& g : lsqGrad) g = Field<Dim>(mesh, 0.0);
-    gradient.compute(pPrime, lsqGrad);
-
-    for (std::size_t d = 0; d < Dim; ++d) dpdx[d] = lsqGrad[d];
+    // The gradient of p' is computed directly into dpdx, the buffer the update
+    // below consumes. `reusableGradient` lets the solver reuse its least-squares
+    // workspace (geometry matrix, scratch) across correctors; without one a
+    // fresh Gradient is used, which allocates nothing until compute() is called.
+    Gradient<Dim> localGradient(mesh, GradientScheme::LeastSquares);
+    Gradient<Dim>& gradient = reusableGradient ? *reusableGradient : localGradient;
+    for (auto& g : dpdx)
+        if (g.size() != mesh.nCells()) g = Field<Dim>(mesh, 0.0);
+    gradient.compute(pPrime, dpdx);
 
     for (std::size_t d = 0; d < Dim; ++d) {
         #pragma omp parallel for schedule(static)

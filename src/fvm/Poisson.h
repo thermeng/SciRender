@@ -3,6 +3,7 @@
 #include "mesh/Mesh.h"
 #include "field/Field.h"
 #include "fvm/Types.h"
+#include "core/AlignedBuffer.hpp"
 #include <array>
 #include <vector>
 #include <cstddef>
@@ -30,7 +31,12 @@ public:
     const Mesh<Dim>& mesh() const;
 
 private:
+    void ensureWorkspace_(std::size_t n);
+
     const Mesh<Dim>& mesh_;
+    AlignedBuffer<double> diagSum_;
+    std::vector<Triplet> triplets_;
+    bool workspaceInitialized_ = false;
 };
 
 extern template class Poisson<2>;

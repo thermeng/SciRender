@@ -78,11 +78,14 @@ inline ResidualResult computeResiduals(
 
         double flux = un * area;
         sumFlux += std::abs(flux);
-        divBuffer[P] += flux / mesh.cellVolume(P);
+        // Accumulate the raw flux and divide each cell once after the loop:
+        // one division per cell instead of one per incident face.
+        divBuffer[P] += flux;
         if (N != std::size_t(-1)) {
-            divBuffer[N] -= flux / mesh.cellVolume(N);
+            divBuffer[N] -= flux;
         }
     }
+    for (std::size_t i = 0; i < n; ++i) divBuffer[i] /= volPtr[i];
 
     double maxDiv = 0.0;
     double sumAbsDivVol = 0.0;
