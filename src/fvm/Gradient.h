@@ -74,10 +74,14 @@ private:
                               const std::vector<char>& dirichletMask,
                               const std::vector<double>& dirichletValues) const;
 
+    // Geometry-only normal matrix of the least-squares fit. Built once.
+    void buildNormalMatrix_() const;
+
     const Mesh<Dim>& mesh_;
     GradientScheme scheme_ = GradientScheme::LeastSquares;
     mutable std::vector<Eigen::Matrix<double, Dim, Dim>> M_all_;
     mutable std::vector<Eigen::Matrix<double, Dim, 1>> rhs_all_;
+    mutable bool normalMatrixBuilt_ = false;
 };
 
 extern template class Gradient<2>;

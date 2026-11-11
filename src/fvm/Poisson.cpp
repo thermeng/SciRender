@@ -10,6 +10,15 @@ template<std::size_t Dim>
 Poisson<Dim>::Poisson(const Mesh<Dim>& mesh) : mesh_(mesh) {}
 
 template<std::size_t Dim>
+void Poisson<Dim>::ensureWorkspace_(std::size_t n) {
+    if (!workspaceInitialized_ || diagSum_.size() != n) {
+        diagSum_.resize(n);
+        triplets_.reserve(n * (2 * Dim + 1));
+        workspaceInitialized_ = true;
+    }
+}
+
+template<std::size_t Dim>
 void Poisson<Dim>::discretize(SparseMatrix& A, Eigen::VectorXd& b,
                               const Field<Dim>& c,
                               const Field<Dim>& source,
@@ -18,13 +27,11 @@ void Poisson<Dim>::discretize(SparseMatrix& A, Eigen::VectorXd& b,
                               const std::array<Field<Dim>, Dim>* phiGrad) {
     const std::size_t n = mesh_.nCells();
     validateDirichlet(n, dirichletMask, dirichletValues);
-
-    AlignedBuffer<double> diagSum(n);
-    std::vector<Triplet> triplets;
+    ensureWorkspace_(n);
 
     // Face diffusivity is the distance-weighted interpolation of c between the
     // two cell centres, matching the momentum operator's face interpolation.
-    assembleDiffusion<Dim>(mesh_, A, b, diagSum, triplets,
+    assembleDiffusion<Dim>(mesh_, A, b, diagSum_, triplets_,
                            dirichletMask, dirichletValues, source.values(),
                            phiGrad,
                            [this, &c](std::size_t f, std::size_t P, std::size_t N) {

@@ -372,6 +372,9 @@ private:
     // the pressure operator must be the same one the pressure matrix and the
     // velocity correction are built from.
     std::unique_ptr<Gradient<Dim>> pressureGradientCalc_;
+    // Least-squares gradient of p' for the velocity correction. Reused across
+    // correctors instead of constructing a Gradient (and its workspace) per call.
+    std::unique_ptr<Gradient<Dim>> pPrimeGradientCalc_;
 
     std::optional<std::reference_wrapper<VectorField<Dim>>> velocity_;
     std::optional<std::reference_wrapper<Field<Dim>>> pressure_;
@@ -434,10 +437,12 @@ private:
     bool initialMassImbalanceSet_ = false;
 
     // Momentum snapshots kept for the PISO correctors and per-direction
-    // residual evaluation. momA_/momB_ are now locals in the component
-    // assemblers; these hold the last-assembled system per component.
+    // residual evaluation. The component assemblers build the operator and
+    // right-hand side IN PLACE in these, so no per-iteration copy is needed.
     mutable std::array<SparseMatrix, Dim> momAsnap_;
     mutable std::array<Eigen::VectorXd, Dim> momBsnap_;
+    // Warm start for the momentum solve, reused across components/iterations.
+    mutable Eigen::VectorXd momentumWarmStart_;
     // Pressure-free momentum RHS (b + V grad p at the predictor) per
     // direction. Frozen with momAsnap_/momBsnap_ for the PISO correctors.
     std::array<Eigen::VectorXd, Dim> momB0_;

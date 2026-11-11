@@ -64,192 +64,6 @@ void Momentum<Dim>::updateMomentumValues_(SparseMatrix& A, std::size_t d) const 
 }
 
 template<std::size_t Dim>
-Field<Dim> Momentum<Dim>::assemble(
-    std::size_t d,
-    const VectorField<Dim>& velocity,
-    const Field<Dim>& pressure,
-    const Field<Dim>& source,
-    const std::vector<char>& dirichletMask,
-    const std::vector<double>& dirichletValues,
-    SparseMatrix& A,
-    Eigen::VectorXd& b,
-    const Field<Dim>* nutField,
-    const std::array<Field<Dim>, Dim>* velGrad) {
-
-    const std::size_t n = mesh_.nCells();
-    const std::size_t nF = mesh_.nFaces();
-    const bool hasMask = !dirichletMask.empty();
-    const bool hasGrad = (velGrad != nullptr);
-    validateDirichlet(n, dirichletMask, dirichletValues);
-    const bool hasSource = source.size() > 0;
-
-    ensureWorkspace_(n);
-    diagSum_.fill(0.0);
-    triplets_.clear();
-
-    A.resize(n, n);
-    b.resize(n);
-    b.setZero();
-
-    Field<Dim> dpdx = pressureGradientField_(d, pressure);
-
-    for (std::size_t f = 0; f < nF; ++f) {
-        const std::size_t P = mesh_.owner(f);
-        const std::size_t N = mesh_.neighbor(f);
-        if (N == std::size_t(-1)) {
-            if (!(hasMask && dirichletMask[P])) {
-                const double dist = mesh_.faceDist(f);
-                if (dist > minFaceDist) {
-                    const double area = mesh_.faceArea(f);
-                    const auto& fn = mesh_.faceNormal(f);
-                    const auto& xP = mesh_.cellCenter(P);
-                    const auto& xF = mesh_.faceCenter(f);
-                    double dotSfd = 0.0;
-                    for (std::size_t dd = 0; dd < Dim; ++dd)
-                        dotSfd += fn[dd] * (xF[dd] - xP[dd]);
-                    const double coeff = rho_ * nuEff_(P, P, nutField) * area * dotSfd / (dist * dist);
-                    diagSum_[P] += coeff;
-                }
-            }
-            continue;
-        }
-
-        const double dist = mesh_.faceDist(f);
-        const double area = mesh_.faceArea(f);
-        const auto& fn = mesh_.faceNormal(f);
-        const auto& xP = mesh_.cellCenter(P);
-        const auto& xN = mesh_.cellCenter(N);
-
-        std::array<double, Dim> delta{};
-        for (std::size_t dd = 0; dd < Dim; ++dd)
-            delta[dd] = xN[dd] - xP[dd];
-
-        double dotSfd = 0.0;
-        for (std::size_t dd = 0; dd < Dim; ++dd)
-            dotSfd += fn[dd] * delta[dd];
-
-        const double nuEffPN = nuEff_(P, N, nutField);
-        bool negativeDiffusion = (dotSfd < 0.0);
-        double absDotSfd = negativeDiffusion ? -dotSfd : dotSfd;
-        const double coeff = rho_ * nuEffPN * area * absDotSfd / (dist * dist);
-
-        double correction = 0.0;
-        if (hasGrad) {
-            double dot_f_dhat = absDotSfd / dist;
-            for (std::size_t dd = 0; dd < Dim; ++dd) {
-                double Sf_nonorth_dd = area * fn[dd] - area * dot_f_dhat * delta[dd] / dist;
-                correction += rho_ * nuEffPN * (*velGrad)[dd][P] * Sf_nonorth_dd;
-            }
-        }
-
-        if (negativeDiffusion) {
-            if (!(hasMask && dirichletMask[P])) {
-                b(P) += coeff * (hasMask && dirichletMask[N] ? dirichletValues[N] : 0.0);
-                if (hasGrad) b(P) -= correction;
-            }
-            if (!(hasMask && dirichletMask[N])) {
-                b(N) += coeff * (hasMask && dirichletMask[P] ? dirichletValues[P] : 0.0);
-                if (hasGrad) b(N) += correction;
-            }
-        } else {
-            if (!(hasMask && dirichletMask[P])) {
-                if (hasMask && dirichletMask[N]) {
-                    b(P) += coeff * dirichletValues[N];
-                } else {
-                    triplets_.emplace_back(P, N, -coeff);
-                }
-                diagSum_[P] += coeff;
-                if (hasGrad) b(P) -= correction;
-            }
-
-            if (!(hasMask && dirichletMask[N])) {
-                if (hasMask && dirichletMask[P]) {
-                    b(N) += coeff * dirichletValues[P];
-                } else {
-                    triplets_.emplace_back(N, P, -coeff);
-                }
-                diagSum_[N] += coeff;
-                if (hasGrad) b(N) += correction;
-            }
-        }
-    }
-
-    for (std::size_t P = 0; P < n; ++P) {
-        if (hasMask && dirichletMask[P]) {
-            triplets_.emplace_back(P, P, 1.0);
-            b(P) = dirichletValues[P];
-        } else {
-            triplets_.emplace_back(P, P, diagSum_[P]);
-            if (hasSource) {
-                b(P) += source[P] * mesh_.cellVolume(P);
-            }
-            b(P) -= mesh_.cellVolume(P) * dpdx[P];
-        }
-    }
-
-    // Pattern-cache assembly: O(nnz log nnz) only on topology change
-    {
-        std::size_t patternHash = triplets_.size() * 0x85ebca6bULL + n * 31ULL;
-        if (hasMask) {
-            for (std::size_t i = 0; i < n; ++i) if (dirichletMask[i]) patternHash ^= (i * 0x9e3779b97f4a7c15ULL + 1);
-        }
-        // Distinguish diffusion-only vs convective pattern (extra flag)
-        patternHash ^= 0x9e3779b97f4a7c15ULL;
-        if (d >= momPatternHash_.size()) d = 0;
-        if (!momPatternBuilt_[d] || patternHash != momPatternHash_[d]) {
-            A.resize(n, n);
-            A.setFromTriplets(triplets_.begin(), triplets_.end());
-            A.makeCompressed();
-            momPatternHash_[d] = patternHash;
-            momPatternBuilt_[d] = true;
-            buildMomentumScatterMap_(A, d);
-        } else {
-            // Ensure size matches; Eigen may have compressed with same nnz
-            if (static_cast<std::size_t>(A.rows()) != n || static_cast<std::size_t>(A.cols()) != n || A.nonZeros() != static_cast<Eigen::Index>(triplets_.size())) {
-                A.resize(n, n);
-                A.setFromTriplets(triplets_.begin(), triplets_.end());
-                A.makeCompressed();
-                buildMomentumScatterMap_(A, d);
-            } else {
-                updateMomentumValues_(A, d);
-            }
-        }
-    }
-
-    Field<Dim> diagField(mesh_, 0.0);
-    for (std::size_t P = 0; P < n; ++P) diagField[P] = diagSum_[P];
-    return diagField;
-}
-
-template<std::size_t Dim>
-void Momentum<Dim>::assembleWithConvection(
-    std::size_t d,
-    const VectorField<Dim>& velocity,
-    const Field<Dim>& pressure,
-    const Field<Dim>& source,
-    const std::vector<char>& dirichletMask,
-    const std::vector<double>& dirichletValues,
-    SparseMatrix& A,
-    Eigen::VectorXd& b,
-    Field<Dim>& diag,
-    ConvectionScheme scheme,
-    const Field<Dim>* nutField,
-    const std::array<Field<Dim>, Dim>* phiGrad,
-    const std::vector<std::vector<char>>& dirichletMaskAll,
-    const std::vector<std::vector<double>>& dirichletValsAll,
-    const MomentumBCs& bcs) {
-
-    Field<Dim> dpdx = pressureGradientField_(d, pressure);
-    std::array<Field<Dim>, Dim> pressureGrad{};
-    pressureGrad[d] = std::move(dpdx);
-    MomentumBCs bcs2 = bcs;
-    bcs2.dirichletMaskAll = &dirichletMaskAll;
-    bcs2.dirichletValsAll = &dirichletValsAll;
-    assembleWithConvection(d, velocity, pressureGrad, source, dirichletMask, dirichletValues,
-                           A, b, diag, scheme, nutField, phiGrad, bcs2);
-}
-
-template<std::size_t Dim>
 void Momentum<Dim>::computeDCoeffAndRelax(SparseMatrix& A, Eigen::VectorXd& b,
                                           const std::vector<char>& dirichletMask,
                                           const Field<Dim>& velocityOld,
@@ -347,37 +161,6 @@ double Momentum<Dim>::nuEff_(std::size_t P, std::size_t N,
 }
 
 template<std::size_t Dim>
-Field<Dim> Momentum<Dim>::pressureGradientField_(std::size_t d,
-                                                 const Field<Dim>& pressure) const {
-    const std::size_t n = mesh_.nCells();
-    const std::size_t nF = mesh_.nFaces();
-    Field<Dim> grad(mesh_, 0.0);
-
-    for (std::size_t f = 0; f < nF; ++f) {
-        const std::size_t P = mesh_.owner(f);
-        const std::size_t N = mesh_.neighbor(f);
-
-        double pFace;
-        if (N == std::size_t(-1)) {
-            pFace = pressure[P];
-        } else {
-            double w = mesh_.faceWeight(f);
-            pFace = (1.0 - w) * pressure[P] + w * pressure[N];
-        }
-
-        double normalD = mesh_.faceNormal(f)[d];
-        double contrib = pFace * normalD * mesh_.faceArea(f);
-
-        grad[P] += contrib / mesh_.cellVolume(P);
-        if (N != std::size_t(-1)) {
-            grad[N] -= contrib / mesh_.cellVolume(N);
-        }
-    }
-
-    return grad;
-}
-
-template<std::size_t Dim>
 void Momentum<Dim>::computePressureGradientFused_(const Field<Dim>& pressure,
                                                  std::array<Field<Dim>, Dim>& grad) const {
     const std::size_t n = mesh_.nCells();
@@ -447,7 +230,8 @@ void Momentum<Dim>::assembleWithConvection(
     A.resize(n, n);
     b.resize(n);
     b.setZero();
-    diag = Field<Dim>(mesh_, 0.0);
+    if (diag.size() != n) diag = Field<Dim>(mesh_, 0.0);
+    else diag.assign(0.0);
 
     const Field<Dim>& dpdx = pressureGrad[d];
     const double* areaPtr = mesh_.faceAreaPtr();
@@ -770,21 +554,27 @@ void Momentum<Dim>::assembleWithConvection(
         }
     }
 
-    // Pattern-cache assembly: O(nnz log nnz) only on topology change
+    // Pattern-cache assembly: O(nnz log nnz) sort only when the structure
+    // changes; otherwise the values are scattered in place.
+    //
+    // The emitted triplet structure is a deterministic function of the mesh,
+    // the Dirichlet mask, the scheme and whether a gradient reconstruction is
+    // present. Hashing the whole mask (rather than an XOR of its set bits)
+    // makes a collision between two different masks negligible, which matters
+    // because the cached scatter positions are now actually reused.
     {
-        std::size_t patternHash = triplets_.size() * 0x85ebca6bULL + n * 31ULL;
-        patternHash ^= static_cast<std::size_t>(scheme) * 0x9e3779b97f4a7c55ULL;
+        std::size_t patternHash = 0xcbf29ce484222325ULL;
+        auto mix = [&patternHash](std::size_t v) {
+            patternHash ^= v;
+            patternHash *= 0x100000001b3ULL;
+        };
+        mix(n);
+        mix(triplets_.size());
+        mix(static_cast<std::size_t>(scheme));
+        mix(phiGrad ? 1u : 0u);
         if (hasMask) {
-            for (std::size_t i = 0; i < n; ++i) if (dirichletMask[i]) patternHash ^= (i * 0x9e3779b97f4a7c15ULL + 1);
+            for (std::size_t i = 0; i < n; ++i) mix(dirichletMask[i] ? 1u : 0u);
         }
-        // Include face BC presence in hash
-        if (bcs.faceBC) {
-            for (std::size_t f = 0; f < bcs.faceBC->size(); ++f) {
-                if ((*bcs.faceBC)[f].type != VelocityBCType::NoSlip) patternHash ^= (f * 0x9e3779b97f4a7c15ULL + 2);
-            }
-        }
-        // Include phiGrad presence
-        if (phiGrad) patternHash ^= 0x85ebca6bULL;
 
         if (d < momPatternHash_.size() && momPatternBuilt_[d] && patternHash == momPatternHash_[d]) {
             // Pattern unchanged: O(nnz) scatter update
