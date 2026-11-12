@@ -125,6 +125,12 @@ private:
     void ensureSectionPage(int section);
     sidebar::CfdCasePage* ensureCfdPage();
     PlotWindow* ensurePlotWindow();
+    // Both the CFD page and the plot surface are built lazily and in either
+    // order, so their monitor wiring is established here once both exist.
+    void wireCfdMonitor();
+    // Replay the controller's captured monitor samples into the plot surface.
+    // Needed when the plot is opened after a run/case load has already started.
+    void syncMonitorHistoryToPlot();
     QVector<QLabel*> m_sectionBanners;                  // indexed by section
     std::vector<std::function<sidebar::SidebarPage*()>> m_sectionFactories;
     std::vector<char> m_sectionBuilt;
@@ -158,6 +164,7 @@ private:
     QMainWindow* m_centralHost = nullptr; // inner host that owns viewport + plot dock, keeps plot from docking before sidebar
     QWidget* m_histContainer = nullptr;
     bool m_histogramVisible = false;
+    bool m_monitorWired = false;   // CFD monitor signals hooked to the plot surface
     void setHistogramVisible(bool visible);
 
     // Theme

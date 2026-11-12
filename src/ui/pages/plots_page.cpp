@@ -347,7 +347,7 @@ PlotsPage::PlotsPage(RenderSettings* settings, PlotWindow* plotWindow,
         seriesLabel->setObjectName("monitorSeriesLabel");
         ml->addWidget(seriesLabel);
         const QStringList allSeries = {tr("Continuity"), tr("Momentum X"), tr("Momentum Y"),
-                                       tr("Momentum Z"), tr("k"), tr("omega")};
+                                       tr("Momentum Z"), tr("k"), tr("omega"), tr("y+")};
         QMap<QString, QCheckBox*> seriesChecks;
         for (const QString& name : allSeries) {
             auto* cb = new QCheckBox(name);

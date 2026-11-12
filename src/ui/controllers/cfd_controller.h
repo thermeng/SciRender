@@ -95,8 +95,16 @@ public:
     void unload();
 
     bool isRunning() const { return m_running.load(std::memory_order_acquire); }
-    const std::vector<MonitorPoint>& monitorHistory() const { return m_monitorHistory; }
-    void clearMonitorHistory() { m_monitorHistory.clear(); }
+    // Copy under the monitor lock: samples are pushed by the solve thread, so
+    // the GUI must never iterate the live vector.
+    std::vector<MonitorPoint> monitorHistorySnapshot() const {
+        std::lock_guard<std::mutex> lock(m_monitorMutex);
+        return m_monitorHistory;
+    }
+    void clearMonitorHistory() {
+        std::lock_guard<std::mutex> lock(m_monitorMutex);
+        m_monitorHistory.clear();
+    }
     bool isPaused() const;
     // True when the solver is parked at an iteration/time-step boundary, i.e.
     // the in-memory state is a consistent restart point.
@@ -195,5 +203,5 @@ private:
     std::atomic<bool> m_diskWriterRunning{false};
     std::thread m_diskWriterThread;
     std::vector<MonitorPoint> m_monitorHistory;
-    std::mutex m_monitorMutex;
+    mutable std::mutex m_monitorMutex;
 };

@@ -209,6 +209,7 @@ void PlotWindow::appendResidual(int iteration, int dim, double continuity,
         PlotSeries s;
         s.name = name;
         s.color = color;
+        s.visible = !m_hiddenMonitorSeries.contains(name);
         s.xs.push_back(x);
         s.ys.push_back(y);
         m_monitorSeries.push_back(s);
@@ -234,15 +235,19 @@ void PlotWindow::appendResidual(int iteration, int dim, double continuity,
     }
 
     if (m_monitorHistoryWindow > 0) {
-        for (auto& s : m_monitorSeries) {
-            if ((int)s.xs.size() > m_monitorHistoryWindow) {
-                s.xs.erase(s.xs.begin(), s.xs.end() - m_monitorHistoryWindow);
-                s.ys.erase(s.ys.begin(), s.ys.end() - m_monitorHistoryWindow);
-            }
-        }
+        trimMonitorHistory();
     }
 
     if (m_mode == 2) updateResidualPlot();
+}
+
+void PlotWindow::trimMonitorHistory() {
+    if (m_monitorHistoryWindow <= 0) return;
+    for (auto& s : m_monitorSeries) {
+        const size_t n = static_cast<size_t>(m_monitorHistoryWindow);
+        if (s.xs.size() > n) s.xs.erase(s.xs.begin(), s.xs.end() - n);
+        if (s.ys.size() > n) s.ys.erase(s.ys.begin(), s.ys.end() - n);
+    }
 }
 
 void PlotWindow::updateResidualPlot() {
@@ -255,6 +260,9 @@ void PlotWindow::updateResidualPlot() {
     m_monitorPlot->clear();
     for (const auto& s : m_monitorSeries) {
         m_monitorPlot->setSeries(s.name, s.xs, s.ys);
+        // clear() above reset the canvas to all-visible; reapply the
+        // user's per-series choice from the side panel.
+        m_monitorPlot->setSeriesVisible(s.name, s.visible);
     }
     if (m_residualStats) m_residualStats->setText(tr("Monitor: %1 points").arg(m_monitorSeries.front().xs.size()));
     if (m_residualStatus) m_residualStatus->setText(QString());
@@ -270,6 +278,10 @@ void PlotWindow::setMonitorLegendVisible(bool on) {
 
 void PlotWindow::setMonitorHistoryWindow(int n) {
     m_monitorHistoryWindow = n;
+    // Apply the window immediately; previously it only took effect when the
+    // next sample arrived, so changing it after a run did nothing.
+    trimMonitorHistory();
+    if (m_mode == 2) updateResidualPlot();
 }
 
 void PlotWindow::setMonitorYRange(bool autoRange, float ymin, float ymax) {
@@ -277,6 +289,10 @@ void PlotWindow::setMonitorYRange(bool autoRange, float ymin, float ymax) {
 }
 
 void PlotWindow::setMonitorSeriesVisible(const QString& name, bool on) {
+    if (on) m_hiddenMonitorSeries.remove(name);
+    else    m_hiddenMonitorSeries.insert(name);
+    for (auto& s : m_monitorSeries)
+        if (s.name == name) s.visible = on;
     if (m_monitorPlot) m_monitorPlot->setSeriesVisible(name, on);
 }
 
