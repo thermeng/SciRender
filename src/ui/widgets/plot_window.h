@@ -2,6 +2,7 @@
 #include <QWidget>
 #include <QLabel>
 #include <QTimer>
+#include <QSet>
 #include <vector>
 #include <QStringList>
 #include <glm/glm.hpp>
@@ -79,6 +80,7 @@ private:
     void recomputeHistogram();
     void recomputeLine();
     void updateResidualPlot();
+    void trimMonitorHistory();
     void updateStatsLabel();
     void exportHistogramCsv();
     void exportHistogramPng();
@@ -100,6 +102,9 @@ private:
     int m_residualDim = 3;
     bool m_residualHasTurb = false;
     int m_monitorHistoryWindow = 0; // 0 = all
+    // Hidden series survive clear()/rebuilds and new runs: the sidebar's
+    // checkboxes are the single source of truth for per-series visibility.
+    QSet<QString> m_hiddenMonitorSeries;
     QStringList m_monitorAvailableSeries;
     QTimer* m_recomputeTimer = nullptr;
     int m_mode = 0;

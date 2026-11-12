@@ -669,7 +669,34 @@ PlotWindow* MainWindow::ensurePlotWindow() {
         lay->addWidget(m_plotWindow, 1);
     connect(m_plotWindow, &PlotWindow::requestCloseHistogram, this, [this](){ setHistogramVisible(false); });
     connect(m_plotWindow, &PlotWindow::requestOpenControls, this, [this](){ setSidebarSection(14); });
+    // The CFD page may already exist (opened from the File menu or before the
+    // Plots page was ever visited); wire it now and replay any live samples.
+    wireCfdMonitor();
     return m_plotWindow;
+}
+
+void MainWindow::syncMonitorHistoryToPlot() {
+    if (!m_plotWindow || !m_cfdPage || !m_cfdPage->controller()) return;
+    m_plotWindow->clearResiduals();
+    for (const auto& pt : m_cfdPage->controller()->monitorHistorySnapshot()) {
+        m_plotWindow->appendResidual(pt.iteration, pt.dim, pt.continuity,
+                                     pt.momU, pt.momV, pt.momW, pt.k, pt.omega,
+                                     pt.maxYPlus, pt.hasTurbulence);
+    }
+}
+
+void MainWindow::wireCfdMonitor() {
+    if (m_monitorWired || !m_cfdPage || !m_plotWindow) return;
+    m_monitorWired = true;
+    connect(m_cfdPage, &sidebar::CfdCasePage::residualSeriesUpdated, m_plotWindow,
+            &PlotWindow::appendResidual);
+    connect(m_cfdPage, &sidebar::CfdCasePage::residualsCleared, m_plotWindow,
+            &PlotWindow::clearResiduals);
+    connect(m_cfdPage, &sidebar::CfdCasePage::monitorHistoryRestored,
+            this, &MainWindow::syncMonitorHistoryToPlot);
+    // A run started (or a case loaded) before the plot surface existed already
+    // has samples in the controller; seed the plot with them.
+    syncMonitorHistoryToPlot();
 }
 
 sidebar::CfdCasePage* MainWindow::ensureCfdPage() {
@@ -679,22 +706,9 @@ sidebar::CfdCasePage* MainWindow::ensureCfdPage() {
         // Fallback if section 15 factory was not registered (should not happen).
         m_cfdPage = new sidebar::CfdCasePage(m_settings);
     }
-    // Wire residual history into the plot window once both exist.
-    if (m_plotWindow) {
-        connect(m_cfdPage, &sidebar::CfdCasePage::residualSeriesUpdated, m_plotWindow,
-                &PlotWindow::appendResidual);
-        connect(m_cfdPage, &sidebar::CfdCasePage::residualsCleared, m_plotWindow,
-                &PlotWindow::clearResiduals);
-        connect(m_cfdPage, &sidebar::CfdCasePage::monitorHistoryRestored, this, [this]() {
-            if (!m_plotWindow || !m_cfdPage || !m_cfdPage->controller()) return;
-            m_plotWindow->clearResiduals();
-            for (const auto& pt : m_cfdPage->controller()->monitorHistory()) {
-                m_plotWindow->appendResidual(pt.iteration, pt.dim, pt.continuity,
-                                             pt.momU, pt.momV, pt.momW, pt.k, pt.omega,
-                                             pt.maxYPlus, pt.hasTurbulence);
-            }
-        });
-    }
+    // Wire residual history into the plot window once both exist. The plot
+    // window is lazy too, so this may run again from ensurePlotWindow().
+    wireCfdMonitor();
     return m_cfdPage;
 }
 
