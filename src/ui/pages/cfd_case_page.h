@@ -109,7 +109,7 @@ private:
 
     // Advanced solver settings live in one dialog, built up front and hidden.
     QDialog* m_advancedDlg = nullptr;
-    StoppingCriteriaDialog* m_stoppingDlg = nullptr;
+    cfd::StoppingCriteriaDialog* m_stoppingDlg = nullptr;
     QSpinBox* m_pressureCorrectors = nullptr;
     QCheckBox* m_limitPressureCorrection = nullptr;
     QDoubleSpinBox* m_pressureCorrectionLimit = nullptr;

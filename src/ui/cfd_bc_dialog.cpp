@@ -26,13 +26,13 @@ struct BcTypeInfo {
 // Presentation order matches how a case is usually set up: walls and symmetry
 // first, then the flow boundaries.
 const BcTypeInfo kBcTypes[] = {
-    {cfd::BCType::WallNoSlip, "No-slip wall"},
-    {cfd::BCType::SlipWall, "Slip wall"},
+    {cfd::BCType::WallNoSlip, "No-slip Wall"},
+    {cfd::BCType::SlipWall, "Slip Wall"},
     {cfd::BCType::Symmetry, "Symmetry"},
-    {cfd::BCType::VelocityInlet, "Velocity inlet"},
-    {cfd::BCType::PressureOutlet, "Pressure outlet"},
+    {cfd::BCType::VelocityInlet, "Velocity Inlet"},
+    {cfd::BCType::PressureOutlet, "Pressure Outlet"},
     {cfd::BCType::Outlet, "Outlet"},
-    {cfd::BCType::MovingWall, "Moving wall"},
+    {cfd::BCType::MovingWall, "Moving Wall"},
 };
 constexpr int kBcTypeCount = int(sizeof(kBcTypes) / sizeof(kBcTypes[0]));
 

@@ -176,6 +176,12 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_pvdFileEdit = cfdUi.pvdFileEdit;
     m_pvdBrowseBtn = cfdUi.pvdBrowseBtn;
 
+    // tEnd and maxOuterCorrectors now live exclusively in the Stopping
+    // Criteria dialog (D1); hide their rows here so they are not edited in
+    // two places.
+    cfdUi.tEndRow->setVisible(false);
+    cfdUi.outerCorrectorsRow->setVisible(false);
+
     // ── Physics defaults ─────────────────────────────────────────────────────
     m_rho->setText("1.0");
     m_nu->setText("0.01");
@@ -239,6 +245,8 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
             m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
         if (m_stepBtn) m_stepBtn->setEnabled(settled);
         if (m_cancelBtn && !m_ctrl->isCancelled()) m_cancelBtn->setEnabled(true);
+        const bool stoppingEditable = m_ctrl->isPaused() && settled;
+        if (m_stoppingBtn) m_stoppingBtn->setEnabled(stoppingEditable);
         if (!paused) {
             m_pauseSettledLogged = false;
         } else if (settled && !m_pauseSettledLogged) {
@@ -632,6 +640,11 @@ void CfdCasePage::setRunning(bool running) {
     }
     if (m_advancedBtn) m_advancedBtn->setEnabled(!running);
     if (m_bcEditBtn) m_bcEditBtn->setEnabled(!running && !m_patchBCs.empty());
+    // Stopping criteria may be edited when idle, or when paused at a settled
+    // boundary (live edit). Disabled while actively running or pausing.
+    const bool stoppingEditable = !running ||
+        (m_ctrl && m_ctrl->isPaused() && m_ctrl->isPausedSettled());
+    if (m_stoppingBtn) m_stoppingBtn->setEnabled(stoppingEditable);
     if (!running) {
         m_pauseSettledLogged = false;
         if (m_pauseBtn) m_pauseBtn->setText("Pause");
@@ -700,19 +713,14 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
 
     m_transientRadio->setChecked(s.transient.enabled);
     m_dtSpin->setValue(s.transient.dt);
-    m_tEndSpin->setValue(s.transient.tEnd);
     m_timeSchemeCombo->setCurrentIndex(s.transient.timeScheme == fvm::TimeScheme::BDF2 ? 1 : 0);
     m_adaptiveCflCb->setChecked(s.transient.adaptiveCfl);
     m_cflSpin->setValue(s.transient.cfl);
     m_minDtSpin->setValue(s.transient.minDt);
     m_maxDtSpin->setValue(s.transient.maxDt);
     m_writeIntervalSpin->setValue(s.transient.writeInterval);
-    m_outerCorrectorsSpin->setValue(s.transient.maxOuterCorrectors);
     m_nonOrthCorrectorsSpin->setValue(s.transient.nonOrthogonalCorrectors);
     m_pvdFileEdit->setText(QString::fromStdString(s.transient.pvdFile));
-
-    // Keep the stopping-criteria dialog in sync with the settings object.
-    if (m_stoppingDlg) m_stoppingDlg->setFrom(s);
 
     syncDialogDependencies();
     syncTimeDependencies();
@@ -754,7 +762,7 @@ void CfdCasePage::rebuildPatchTable() {
 }
 
 void CfdCasePage::collectSettings() {
-    cfd::CaseSettings s;
+    cfd::CaseSettings s = m_ctrl->settings();
     bool okRho, okNu;
     s.rho = m_rho->text().toDouble(&okRho);
     s.nu = m_nu->text().toDouble(&okNu);
@@ -817,7 +825,6 @@ void CfdCasePage::collectSettings() {
     // Time mode (steady / transient)
     s.transient.enabled = m_transientRadio->isChecked();
     s.transient.dt = m_dtSpin->value();
-    s.transient.tEnd = m_tEndSpin->value();
     s.transient.timeScheme = (m_timeSchemeCombo->currentIndex() == 1)
         ? fvm::TimeScheme::BDF2
         : fvm::TimeScheme::Euler;
@@ -826,13 +833,8 @@ void CfdCasePage::collectSettings() {
     s.transient.minDt = m_minDtSpin->value();
     s.transient.maxDt = m_maxDtSpin->value();
     s.transient.writeInterval = m_writeIntervalSpin->value();
-    s.transient.maxOuterCorrectors = m_outerCorrectorsSpin->value();
     s.transient.nonOrthogonalCorrectors = m_nonOrthCorrectorsSpin->value();
     s.transient.pvdFile = m_pvdFileEdit->text().toStdString();
-
-    // If the stopping-criteria dialog has been opened, its per-equation
-    // tolerances and fixed-iteration cap override the spinbox defaults.
-    if (m_stoppingDlg) m_stoppingDlg->applyTo(s);
 
     m_ctrl->setSettings(s);
     m_ctrl->setPatchBCs(m_patchBCs);
@@ -931,15 +933,29 @@ void CfdCasePage::onStep() {
 
 void CfdCasePage::onStoppingCriteria() {
     if (!m_stoppingDlg) {
-        m_stoppingDlg = new StoppingCriteriaDialog(this);
+        m_stoppingDlg = new cfd::StoppingCriteriaDialog(this);
         m_stoppingDlg->setWindowModality(Qt::ApplicationModal);
     }
-    m_stoppingDlg->setFrom(m_ctrl->settings());
-    if (m_stoppingDlg->exec() != QDialog::Accepted) return;
-    auto s = m_ctrl->settings();
-    m_stoppingDlg->applyTo(s);
-    m_ctrl->setSettings(s);
-    log("Stopping criteria updated.");
+    const bool dim3 = m_ctrl->meshResult().dim == 3;
+    const bool turbulence = m_ctrl->settings().turbulence;
+    const bool transient = m_ctrl->settings().transient.enabled;
+    if (!m_stoppingDlg->edit(m_ctrl->settings().stopping, dim3, turbulence,
+                             transient)) {
+        return; // Cancel: nothing changes.
+    }
+    auto result = m_stoppingDlg->result();
+    if (!result) return;
+
+    // Apply live to a paused, settled run; otherwise store for the next run.
+    const bool applyLive = m_running && m_ctrl->isPaused() &&
+                           m_ctrl->isPausedSettled();
+    if (!m_ctrl->setStoppingCriteria(*result, applyLive)) {
+        // setStoppingCriteria already emitted failed() with the reason.
+        return;
+    }
+    log(QString("Stopping criteria %1.")
+            .arg(applyLive ? "applied to the active run"
+                           : "stored for the next run"));
 }
 
 void CfdCasePage::onInitialize() {

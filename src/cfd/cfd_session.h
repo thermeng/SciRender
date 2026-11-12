@@ -2,6 +2,7 @@
 
 #include "cfd/cfd_mesh_adapter.h"
 #include "cfd/cfd_types.h"
+#include "cfd/convergence_policy.h"
 #include "cfd/solution_state.h"
 
 #include <cstddef>
@@ -90,6 +91,11 @@ public:
     virtual double currentTime() const = 0;
     virtual SessionStatus status() const = 0;
     virtual int lastIterations() const = 0;
+    // Apply a new stopping policy to the active run. Only safe to call when the
+    // solver is paused at a settled step boundary; the solver applies it on the
+    // next iteration/time step. Returns false if the policy cannot be applied
+    // (e.g. no active solver).
+    virtual bool updateStoppingPolicy(const ResolvedStoppingPolicy& policy) = 0;
     // Raw continuity residual (the mass imbalance the pressure correction must
     // remove). Not the value the tolerance is compared against.
     virtual double finalContinuityResidual() const = 0;

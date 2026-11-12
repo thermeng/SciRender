@@ -1,288 +1,348 @@
 #include "stopping_criteria_dialog.h"
 
-#include <QDoubleValidator>
-#include <QIntValidator>
-#include <cmath>
-#include <limits>
+#include <QFormLayout>
+#include <QGridLayout>
+#include <QLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QMessageBox>
+#include <QRegularExpressionValidator>
+#include <QVBoxLayout>
 
 namespace {
 
-// Validator that accepts strictly-positive doubles in decimal or scientific
-// notation (e.g. 1e-3, 0.001, 2.5E-6).
-class PositiveDoubleValidator : public QValidator {
-public:
-    explicit PositiveDoubleValidator(QObject* parent = nullptr) : QValidator(parent) {}
-    State validate(QString& input, int& /*pos*/) const override {
-        if (input.isEmpty()) return Intermediate;
-        bool ok = false;
-        double v = input.toDouble(&ok);
-        if (!ok || !std::isfinite(v) || v <= 0.0) return Invalid;
-        return Acceptable;
-    }
-};
-
-// Validator for strictly-positive integers.
-class PositiveIntValidator : public QValidator {
-public:
-    explicit PositiveIntValidator(QObject* parent = nullptr) : QValidator(parent) {}
-    State validate(QString& input, int& /*pos*/) const override {
-        if (input.isEmpty()) return Intermediate;
-        bool ok = false;
-        long v = input.toLong(&ok);
-        if (!ok || v <= 0) return Invalid;
-        return Acceptable;
-    }
-};
+// Validator that accepts a positive decimal or scientific value but leaves
+// intermediate input (a leading "-", a lone "e", etc.) as Intermediate so the
+// user can finish typing. Final validation is owned by the model.
+QRegularExpressionValidator* positiveNumberValidator() {
+    static const QRegularExpression re(
+        R"(([+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?)?)");
+    return new QRegularExpressionValidator(re);
+}
 
 } // namespace
+
+namespace cfd {
 
 StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
     : QDialog(parent) {
     setWindowTitle("Stopping Criteria");
     setModal(true);
-    resize(420, 360);
+    //resize(560, 640);
+    adjustSize();
+
+    model_ = std::make_unique<StoppingCriteriaModel>(this);
 
     auto* main = new QVBoxLayout(this);
+    main->setContentsMargins(12, 12, 12, 12);
+    main->setSpacing(10);
 
-    // Intro text.
-    auto* intro = new QLabel(
-        "The solver stops when every enabled equation's scaled residual falls "
-        "below its tolerance. Uncheck an equation to exclude it from the "
-        "convergence test. If no equation is enabled, the run iterates until "
-        "the fixed limit (or until cancelled).");
-    intro->setWordWrap(true);
-    intro->setStyleSheet("color: palette(text);");
-    main->addWidget(intro);
+    // ── Equation table ──────────────────────────────────────────────
+    eqGroup_ = new QGroupBox("Residual equations");
+    auto* eqLay = new QVBoxLayout(eqGroup_);
+    eqLay->setContentsMargins(12, 12, 12, 12);
+    eqLay->setSpacing(10);
+    eqGrid_ = new QGridLayout();
+    eqGrid_->setColumnStretch(0, 1);
+    eqGrid_->setHorizontalSpacing(12);
+    eqGrid_->setVerticalSpacing(6);
+    auto* hName = new QLabel("Equation");
+    hName->setAlignment(Qt::AlignCenter | Qt::AlignVCenter);
+    auto* hEnable = new QLabel("Gate");
+    hEnable->setAlignment(Qt::AlignCenter);
+    auto* hOverride = new QLabel("Override");
+    hOverride->setAlignment(Qt::AlignCenter);
+    auto* hTol = new QLabel("Tolerance");
+    hTol->setAlignment(Qt::AlignCenter);
+    eqGrid_->addWidget(hName, 0, 0);
+    eqGrid_->addWidget(hEnable, 0, 1, Qt::AlignCenter);
+    eqGrid_->addWidget(hOverride, 0, 2, Qt::AlignCenter);
+    eqGrid_->addWidget(hTol, 0, 3, Qt::AlignCenter);
+    eqLay->addLayout(eqGrid_);
+    eqLay->addStretch();
+    main->addWidget(eqGroup_);
 
-    // Equation grid.
-    m_grid = new QGridLayout();
-    m_grid->setSpacing(8);
-    m_grid->setColumnStretch(2, 1);
+    // ── Steady policy ───────────────────────────────────────────────
+    steadyGroup_ = new QGroupBox("Steady stopping policy");
+    auto* sLay = new QFormLayout(steadyGroup_);
+    sLay->setContentsMargins(12, 8, 12, 12);
+    sLay->setSpacing(6);
+    sLay->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    sLay->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    sLay->setFormAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
-    // Header row.
-    auto* hdrEnabled = new QLabel("Enable");
-    hdrEnabled->setAlignment(Qt::AlignCenter);
-    auto* hdrTol = new QLabel("Tolerance");
-    hdrTol->setAlignment(Qt::AlignCenter);
-    m_grid->addWidget(hdrEnabled, 0, 0);
-    m_grid->addWidget(hdrTol, 0, 1);
+    defaultTolSpin_ = new QDoubleSpinBox;
+    defaultTolSpin_->setDecimals(6);
+    defaultTolSpin_->setRange(cfd::StoppingCriteriaLimits::kTolMin,
+                              cfd::StoppingCriteriaLimits::kTolMax);
+    defaultTolSpin_->setValue(cfd::defaultStoppingCriteria().defaultTolerance);
+    defaultTolSpin_->setToolTip(
+        "Default residual tolerance applied to every equation that inherits.");
+    defaultTolSpin_->setStyleSheet(
+        "QDoubleSpinBox::lineEdit { padding-left: 6px; padding-right: 6px; }");
+    sLay->addRow("Default tolerance", defaultTolSpin_);
 
-    const struct {
-        const char* name;
-        const char* tip;
-    } equations[6] = {
-        {"Continuity",      "Mass imbalance residual. Uncheck to exclude continuity from the convergence test."},
-        {"Momentum U",      "X-momentum linear residual."},
-        {"Momentum V",      "Y-momentum linear residual."},
-        {"Momentum W",      "Z-momentum linear residual (3D only)."},
-        {"Turbulence k",    "Turbulent kinetic energy residual."},
-        {"Turbulence omega","Specific dissipation rate residual."},
-    };
+    maxIterSpin_ = new QSpinBox;
+    maxIterSpin_->setRange(
+        (int)cfd::StoppingCriteriaLimits::kIterMin,
+        (int)cfd::StoppingCriteriaLimits::kIterMax);
+    maxIterSpin_->setValue(cfd::defaultStoppingCriteria().steady.maxIterations);
+    maxIterSpin_->setToolTip(
+        "Maximum iterations for residual mode. If the residual gate never "
+        "fires the run stops here and reports \"max iterations reached\".");
+    sLay->addRow("Max iterations", maxIterSpin_);
 
-    for (int i = 0; i < 6; ++i) {
-        buildRow(i, equations[i].name, equations[i].tip);
-    }
-    main->addLayout(m_grid);
+    fixedIterCb_ = new QCheckBox("Fixed iteration limit");
+    fixedIterCb_->setToolTip(
+        "When on, the solver runs exactly this many iterations and the "
+        "residual tolerance gate is bypassed. Max iterations is ignored.");
+    sLay->addRow(fixedIterCb_);
 
-    // Fixed iteration limit row.
-    auto* iterRow = new QHBoxLayout();
-    m_fixedIterCb = new QCheckBox("Fixed iteration limit");
-    m_fixedIterCb->setToolTip("When checked, the solver runs exactly this many "
-                              "iterations and the residual tolerance gate is bypassed.");
-    m_fixedIterEdit = new QLineEdit("500");
-    m_fixedIterEdit->setValidator(new PositiveIntValidator(m_fixedIterEdit));
-    m_fixedIterEdit->setFixedWidth(80);
-    m_fixedIterEdit->setEnabled(false);
-    iterRow->addWidget(m_fixedIterCb);
-    iterRow->addWidget(new QLabel("iterations:"));
-    iterRow->addWidget(m_fixedIterEdit);
-    iterRow->addStretch(1);
-    main->addLayout(iterRow);
+    fixedIterSpin_ = new QSpinBox;
+    fixedIterSpin_->setRange(
+        (int)cfd::StoppingCriteriaLimits::kIterMin,
+        (int)cfd::StoppingCriteriaLimits::kIterMax);
+    fixedIterSpin_->setValue(cfd::defaultStoppingCriteria().steady.maxIterations);
+    fixedIterSpin_->setEnabled(false);
+    fixedIterSpin_->setToolTip("Exact iteration budget (fixed mode only).");
+    sLay->addRow("Fixed iterations", fixedIterSpin_);
 
-    connect(m_fixedIterCb, &QCheckBox::toggled,
-            m_fixedIterEdit, &QLineEdit::setEnabled);
-    connect(m_fixedIterCb, &QCheckBox::toggled, this, &StoppingCriteriaDialog::updateOkState);
-    connect(m_fixedIterEdit, &QLineEdit::textChanged, this, &StoppingCriteriaDialog::updateOkState);
+    holdSpin_ = new QSpinBox;
+    holdSpin_->setRange(cfd::StoppingCriteriaLimits::kHoldMin,
+                        cfd::StoppingCriteriaLimits::kHoldMax);
+    holdSpin_->setValue(cfd::defaultStoppingCriteria().steady.convergenceHoldIterations);
+    holdSpin_->setToolTip(
+        "Consecutive iterations every gated equation must stay below its "
+        "tolerance before the run is declared converged.");
+    sLay->addRow("Convergence hold", holdSpin_);
 
-    // Convergence hold iterations row.
-    auto* holdRow = new QHBoxLayout();
-    auto* holdLabel = new QLabel("Convergence hold");
-    holdLabel->setToolTip("Number of consecutive iterations every gated "
-                          "equation must stay below its tolerance before the "
-                          "solver declares convergence.");
-    m_holdItersSpin = new QSpinBox;
-    m_holdItersSpin->setRange(1, 100);
-    m_holdItersSpin->setValue(3);
-    m_holdItersSpin->setFixedWidth(60);
-    holdRow->addWidget(holdLabel);
-    holdRow->addWidget(m_holdItersSpin);
-    holdRow->addWidget(new QLabel("consecutive iterations below tolerance"));
-    holdRow->addStretch(1);
-    main->addLayout(holdRow);
+    main->addWidget(steadyGroup_);
 
-    // Buttons.
-    m_buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Reset);
-    m_buttons->button(QDialogButtonBox::Reset)->setText("Reset to Defaults");
-    main->addWidget(m_buttons);
+    // ── Transient policy ────────────────────────────────────────────
+    transientGroup_ = new QGroupBox("Transient stopping policy");
+    auto* tLay = new QFormLayout(transientGroup_);
+    tLay->setContentsMargins(12, 8, 12, 12);
+    tLay->setSpacing(6);
+    tLay->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    tLay->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    tLay->setFormAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
-    connect(m_buttons->button(QDialogButtonBox::Ok), &QPushButton::clicked,
-            this, &QDialog::accept);
-    connect(m_buttons->button(QDialogButtonBox::Cancel), &QPushButton::clicked,
-            this, &QDialog::reject);
-    connect(m_buttons->button(QDialogButtonBox::Reset), &QPushButton::clicked,
+    tEndSpin_ = new QDoubleSpinBox;
+    tEndSpin_->setDecimals(6);
+    tEndSpin_->setRange(cfd::StoppingCriteriaLimits::kTEndMin,
+                        cfd::StoppingCriteriaLimits::kTEndMax);
+    tEndSpin_->setValue(cfd::defaultStoppingCriteria().transient.tEnd);
+    tEndSpin_->setToolTip("Global end time; the run stops here regardless of "
+                          "residuals.");
+    tEndSpin_->setStyleSheet(
+        "QDoubleSpinBox::lineEdit { padding-left: 6px; padding-right: 6px; }");
+    tLay->addRow("End time (s)", tEndSpin_);
+
+    maxOuterSpin_ = new QSpinBox;
+    maxOuterSpin_->setRange(cfd::StoppingCriteriaLimits::kOuterMin,
+                            cfd::StoppingCriteriaLimits::kOuterMax);
+    maxOuterSpin_->setValue(cfd::defaultStoppingCriteria().transient
+                                .maxOuterCorrectors);
+    maxOuterSpin_->setToolTip(
+        "Maximum pressure-corrector sweeps per time step.");
+    tLay->addRow("Max outer correctors", maxOuterSpin_);
+
+    transientGroup_->setVisible(false);
+    main->addWidget(transientGroup_);
+
+    // ── Buttons ─────────────────────────────────────────────────────
+    buttons_ = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel |
+        QDialogButtonBox::Reset);
+    buttons_->button(QDialogButtonBox::Reset)->setText("Reset to Defaults");
+    main->addWidget(buttons_);
+
+    okBtn_ = buttons_->button(QDialogButtonBox::Ok);
+
+    // Wiring.
+    connect(model_.get(), &StoppingCriteriaModel::validationChanged, this,
+            &StoppingCriteriaDialog::updateOkState);
+    connect(model_.get(), &StoppingCriteriaModel::changed, this,
+            &StoppingCriteriaDialog::updateOkState);
+
+    connect(buttons_->button(QDialogButtonBox::Ok), &QPushButton::clicked,
             this, [this]() {
-                for (auto& row : m_rows) {
-                    row.enabled->setChecked(true);
-                    row.tolEdit->setText(fmtTol(1e-4));
-                    row.tolEdit->setEnabled(true);
+                // Sync every tolerance field before accepting. editingFinished
+                // only fires on focus loss / Enter, so a user who types a new
+                // tolerance and clicks OK directly would otherwise commit a
+                // stale value.
+                for (auto it = rowWidgets_.cbegin(); it != rowWidgets_.cend(); ++it) {
+                    auto& rw = it.value();
+                    if (rw.override_->isChecked() && rw.tolerance->isEnabled()) {
+                        model_->setEquationOverride(
+                            it.key(), cfd::parseTolerance(
+                                rw.tolerance->text().toStdString()));
+                    }
                 }
-                m_fixedIterCb->setChecked(false);
-                m_fixedIterEdit->setText("500");
-                m_fixedIterEdit->setEnabled(false);
-                m_holdItersSpin->setValue(3);
+                accept();
+            });
+    connect(buttons_->button(QDialogButtonBox::Cancel), &QPushButton::clicked,
+            this, &StoppingCriteriaDialog::reject);
+    connect(buttons_->button(QDialogButtonBox::Reset), &QPushButton::clicked,
+            this, [this]() {
+                model_->resetToDefaults();
+                rebuildEquations();
+                rebuildPolicy();
                 updateOkState();
             });
 
+    connect(defaultTolSpin_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double v) {
+                model_->setDefaultTolerance(v);
+                refreshToleranceTexts();
+            });
+    connect(maxIterSpin_, qOverload<int>(&QSpinBox::valueChanged), this,
+            [this](int v) { model_->setSteadyMaxIterations((std::size_t)v); });
+    connect(fixedIterCb_, &QCheckBox::toggled, this,
+            [this](bool on) {
+                fixedIterSpin_->setEnabled(on);
+                model_->setSteadyFixedIterations(
+                    on ? std::optional<std::size_t>(
+                             (std::size_t)fixedIterSpin_->value())
+                       : std::nullopt);
+            });
+    connect(fixedIterSpin_, qOverload<int>(&QSpinBox::valueChanged), this,
+            [this](int v) {
+                if (fixedIterCb_->isChecked())
+                    model_->setSteadyFixedIterations((std::size_t)v);
+            });
+    connect(holdSpin_, qOverload<int>(&QSpinBox::valueChanged), this,
+            [this](int v) { model_->setSteadyHold(v); });
+
+    connect(tEndSpin_, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { model_->setTransientTEnd(v); });
+    connect(maxOuterSpin_, qOverload<int>(&QSpinBox::valueChanged), this,
+            [this](int v) { model_->setTransientMaxOuterCorrectors(v); });
+
     updateOkState();
 }
 
-void StoppingCriteriaDialog::buildRow(int idx, const QString& name,
-                                       const QString& tip) {
-    auto& row = m_rows[idx];
-    int r = idx + 1; // skip header row
+StoppingCriteriaDialog::~StoppingCriteriaDialog() = default;
 
-    row.enabled = new QCheckBox();
-    row.enabled->setChecked(true);
-    row.enabled->setToolTip(tip);
-
-    row.tolEdit = new QLineEdit(fmtTol(1e-4)); 
-    row.tolEdit->setValidator(new PositiveDoubleValidator(row.tolEdit));
-    row.tolEdit->setFixedWidth(100);
-    row.tolEdit->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-
-    row.nameLabel = new QLabel(name);
-    row.nameLabel->setToolTip(tip);
-
-    m_grid->addWidget(row.enabled, r, 0, Qt::AlignCenter);
-    m_grid->addWidget(row.tolEdit, r, 1);
-    m_grid->addWidget(row.nameLabel, r, 2);
-
-    connect(row.enabled, &QCheckBox::toggled,
-            row.tolEdit, &QLineEdit::setEnabled);
-    connect(row.enabled, &QCheckBox::toggled, this, &StoppingCriteriaDialog::updateOkState);
-    connect(row.tolEdit, &QLineEdit::textChanged, this, &StoppingCriteriaDialog::updateOkState);
+bool StoppingCriteriaDialog::edit(const cfd::StoppingCriteria& s, bool dim3,
+                                  bool turbulence, bool transient) {
+    dim3_ = dim3;
+    turbulence_ = turbulence;
+    transient_ = transient;
+    model_->setContext(dim3, turbulence, transient);
+    model_->load(s);
+    rebuildEquations();
+    rebuildPolicy();
+    updateOkState();
+    result_ = std::nullopt;
+    const bool accepted = exec() == QDialog::Accepted;
+    if (accepted) result_ = model_->commit();
+    return accepted;
 }
 
-QString StoppingCriteriaDialog::fmtTol(double v) {
-    // Scientific notation with 3 significant digits: 1.00e-03
-    return QString::number(v, 'e', 3);
+void StoppingCriteriaDialog::rebuildEquations() {
+    // Remove all non-header items from the grid (Qt 6: removeRow removed).
+    while (eqGrid_->count() > 4) {
+        QLayoutItem* item = eqGrid_->takeAt(4);
+        if (item->widget()) {
+            item->widget()->deleteLater();
+        }
+        delete item;
+    }
+    rowWidgets_.clear();
+
+    int row = 1;
+    for (const auto& er : model_->equations()) {
+        if (!er.applicable) continue;
+
+        auto* nameLbl = new QLabel(er.name);
+        nameLbl->setToolTip(er.tip);
+
+        auto* enableCb = new QCheckBox;
+        enableCb->setChecked(er.enabled);
+        enableCb->setToolTip(er.tip);
+
+        auto* overrideCb = new QCheckBox;
+        overrideCb->setChecked(er.hasOverride);
+        overrideCb->setToolTip("When off, the equation inherits the default "
+                               "tolerance above.");
+
+        auto* tolEdit = new QLineEdit;
+        tolEdit->setValidator(positiveNumberValidator());
+        tolEdit->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        tolEdit->setFixedWidth(110);
+        tolEdit->setText(cfd::formatTolerance(er.tolerance).c_str());
+        tolEdit->setEnabled(er.hasOverride && er.enabled);
+        tolEdit->setToolTip(er.tip);
+
+        RowWidgets rw{enableCb, overrideCb, tolEdit};
+        rowWidgets_[er.id] = rw;
+
+        connect(enableCb, &QCheckBox::toggled, this,
+                [this, id = er.id, tolEdit, overrideCb](bool on) {
+                    model_->setEquationEnabled(id, on);
+                    tolEdit->setEnabled(on && overrideCb->isChecked());
+                    updateOkState();
+                });
+        connect(overrideCb, &QCheckBox::toggled, this,
+                [this, id = er.id, tolEdit, enableCb](bool on) {
+                    if (on) {
+                        model_->setEquationOverride(
+                            id, cfd::parseTolerance(
+                                tolEdit->text().toStdString()));
+                    } else {
+                        model_->setEquationOverride(id, std::nullopt);
+                    }
+                    tolEdit->setEnabled(on && enableCb->isChecked());
+                    updateOkState();
+                });
+        connect(tolEdit, &QLineEdit::editingFinished, this,
+                [this, id = er.id, tolEdit]() {
+                    model_->setEquationOverride(
+                        id, cfd::parseTolerance(
+                            tolEdit->text().toStdString()));
+                    updateOkState();
+                });
+
+    eqGrid_->addWidget(nameLbl, row, 0);
+    eqGrid_->addWidget(enableCb, row, 1, Qt::AlignCenter);
+    eqGrid_->addWidget(overrideCb, row, 2, Qt::AlignCenter);
+    eqGrid_->addWidget(tolEdit, row, 3, Qt::AlignRight);
+    ++row;
+    }
 }
 
-double StoppingCriteriaDialog::parseTol(const QString& text, bool* ok) {
-    double v = text.toDouble(ok);
-    if (ok && *ok && (!std::isfinite(v) || v <= 0.0)) *ok = false;
-    return v;
+void StoppingCriteriaDialog::refreshToleranceTexts() {
+    const double def = model_->draft().defaultTolerance;
+    for (auto it = rowWidgets_.cbegin(); it != rowWidgets_.cend(); ++it) {
+        auto& rw = it.value();
+        if (!rw.override_->isChecked()) {
+            rw.tolerance->setText(cfd::formatTolerance(def).c_str());
+        }
+    }
+}
+
+void StoppingCriteriaDialog::rebuildPolicy() {
+    const bool trans = model_->transient();
+    steadyGroup_->setVisible(!trans);
+    transientGroup_->setVisible(trans);
+
+    defaultTolSpin_->setValue(model_->draft().defaultTolerance);
+    maxIterSpin_->setValue((int)model_->draft().steady.maxIterations);
+    const bool fixed = model_->draft().steady.fixedIterations.has_value();
+    fixedIterCb_->setChecked(fixed);
+    fixedIterSpin_->setEnabled(fixed);
+    fixedIterSpin_->setValue(
+        fixed ? (int)*model_->draft().steady.fixedIterations
+              : (int)model_->draft().steady.maxIterations);
+    holdSpin_->setValue(model_->draft().steady.convergenceHoldIterations);
+
+    tEndSpin_->setValue(model_->draft().transient.tEnd);
+    maxOuterSpin_->setValue(model_->draft().transient.maxOuterCorrectors);
 }
 
 void StoppingCriteriaDialog::updateOkState() {
-    bool anyValid = false;
-    bool allValid = true;
-    for (auto& row : m_rows) {
-        if (!row.enabled->isChecked()) continue;
-        bool ok = false;
-        parseTol(row.tolEdit->text(), &ok);
-        row.tolEdit->setStyleSheet(ok ? "" : "border: 1px solid red;");
-        if (ok) anyValid = true;
-        else allValid = false;
-    }
-    if (m_fixedIterCb->isChecked()) {
-        bool ok = false;
-        m_fixedIterEdit->text().toLong(&ok);
-        m_fixedIterEdit->setStyleSheet(ok ? "" : "border: 1px solid red;");
-        if (ok) anyValid = true;
-        else allValid = false;
-    }
-    auto* okBtn = m_buttons->button(QDialogButtonBox::Ok);
-    okBtn->setEnabled((anyValid && allValid) || isConfigured());
+    okBtn_->setEnabled(model_->isValid());
 }
 
-void StoppingCriteriaDialog::applyTo(cfd::CaseSettings& s) const {
-    const char* names[6] = {
-        "contTol", "momUTol", "momVTol", "momWTol",
-        "turbKTol", "turbOmegaTol"
-    };
-    std::optional<double>* tols[6] = {
-        &s.contTol, &s.momUTol, &s.momVTol, &s.momWTol,
-        &s.turbKTol, &s.turbOmegaTol
-    };
-    bool* gates[6] = {
-        &s.gateContinuity, &s.gateMomU, &s.gateMomV, &s.gateMomW,
-        &s.gateTurbK, &s.gateTurbOmega
-    };
-
-    for (int i = 0; i < 6; ++i) {
-        *gates[i] = m_rows[i].enabled->isChecked();
-        if (m_rows[i].enabled->isChecked()) {
-            bool ok = false;
-            double v = parseTol(m_rows[i].tolEdit->text(), &ok);
-            *tols[i] = ok ? std::make_optional(v) : std::nullopt;
-        } else {
-            *tols[i] = std::nullopt;
-        }
-    }
-
-    if (m_fixedIterCb->isChecked()) {
-        bool ok = false;
-        long v = m_fixedIterEdit->text().toLong(&ok);
-        if (ok && v > 0) {
-            s.fixedIterations = static_cast<std::size_t>(v);
-            s.runFixedIterations = true;
-        } else {
-            s.fixedIterations = std::nullopt;
-            s.runFixedIterations = false;
-        }
-    } else {
-        s.fixedIterations = std::nullopt;
-        s.runFixedIterations = false;
-    }
-    s.convergenceHoldIterations = m_holdItersSpin->value();
-}
-
-void StoppingCriteriaDialog::setFrom(const cfd::CaseSettings& s) {
-    std::optional<double> tols[6] = {
-        s.contTol, s.momUTol, s.momVTol, s.momWTol,
-        s.turbKTol, s.turbOmegaTol
-    };
-    bool gates[6] = {
-        s.gateContinuity, s.gateMomU, s.gateMomV, s.gateMomW,
-        s.gateTurbK, s.gateTurbOmega
-    };
-
-    for (int i = 0; i < 6; ++i) {
-        m_rows[i].enabled->setChecked(gates[i]);
-        m_rows[i].tolEdit->setEnabled(gates[i]);
-        if (tols[i]) {
-            m_rows[i].tolEdit->setText(fmtTol(*tols[i]));
-        } else {
-            m_rows[i].tolEdit->setText(fmtTol(cfd::kDefaultResidualTolerance));
-        }
-    }
-
-    m_fixedIterCb->setChecked(s.runFixedIterations);
-    m_fixedIterEdit->setEnabled(s.runFixedIterations);
-    if (s.fixedIterations) {
-        m_fixedIterEdit->setText(QString::number(*s.fixedIterations));
-    } else {
-        m_fixedIterEdit->setText("500");
-    }
-    m_holdItersSpin->setValue(static_cast<int>(s.convergenceHoldIterations));
-    updateOkState();
-}
-
-bool StoppingCriteriaDialog::isConfigured() const {
-    for (auto& row : m_rows) {
-        if (row.enabled->isChecked()) return true;
-    }
-    return m_fixedIterCb->isChecked();
-}
+} // namespace cfd

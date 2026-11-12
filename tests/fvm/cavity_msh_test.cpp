@@ -126,10 +126,10 @@ CavityRun runCavity(const CavitySetup& setup, int iterations) {
     const double nu = kLidSpeed * L / kReynolds; // rho = 1
 
     fvm::SIMPLE<2>::Config cfg;
-    cfg.maxIterations = static_cast<std::size_t>(iterations);
-    cfg.tolerance = kTolerance;
-    cfg.runFixedIterations = false;
-    cfg.convergenceHoldIterations = 3;
+    cfg.stopping.steady.maxIterations = static_cast<std::size_t>(iterations);
+    cfg.stopping.defaultTolerance = kTolerance;
+    cfg.stopping.steady.fixedIterations = std::nullopt;
+    cfg.stopping.steady.convergenceHoldIterations = 3;
     cfg.pressureCorrectors = 1;
     cfg.printFrequency = 100;
     cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;

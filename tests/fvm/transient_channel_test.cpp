@@ -42,20 +42,16 @@ TEST_CASE("fvm.transient.open_channel_runs") {
     forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
 
     fvm::SIMPLE<2>::Config cfg;
-    cfg.maxIterations = 5;
-    cfg.tolerance = 1e-3;
-    cfg.runFixedIterations = false;
-    cfg.convergenceHoldIterations = 1;
+    cfg.stopping.defaultTolerance = 1e-3;
+    cfg.stopping.steady.convergenceHoldIterations = 1;
     cfg.pressureCorrectors = 2;
     cfg.printFrequency = 1000000;
     cfg.convectionScheme = fvm::ConvectionScheme::Upwind;
     cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
     cfg.transient.enabled = true;
     cfg.transient.dt = 0.01;
-    cfg.transient.tEnd = 0.05;
-    cfg.transient.timeScheme = fvm::TimeScheme::Euler;
-    cfg.transient.adaptiveCfl = false;
-    cfg.transient.maxOuterCorrectors = 2;
+    cfg.stopping.transient.tEnd = 0.05;
+    cfg.stopping.transient.maxOuterCorrectors = 2;
     cfg.solverType = fvm::SolverType::PISO;
 
     fvm::SIMPLE<2> solver(mesh, 1.0, nu, cfg);
@@ -106,10 +102,10 @@ TEST_CASE("fvm.transient.open_channel_reaches_steady") {
     fvm::Mesh<2> meshS = buildMesh();
     std::vector<std::size_t> inS, outS, wallS;
     fvm::SIMPLE<2>::Config cfgS;
-    cfgS.maxIterations = 300;
-    cfgS.tolerance = 1e-5;
-    cfgS.runFixedIterations = false;
-    cfgS.convergenceHoldIterations = 3;
+    cfgS.stopping.steady.maxIterations = 300;
+    cfgS.stopping.defaultTolerance = 1e-5;
+    cfgS.stopping.steady.fixedIterations = std::nullopt;
+    cfgS.stopping.steady.convergenceHoldIterations = 3;
     cfgS.pressureCorrectors = 2;
     cfgS.printFrequency = 1000000;
     cfgS.convectionScheme = fvm::ConvectionScheme::Upwind;
@@ -124,20 +120,16 @@ TEST_CASE("fvm.transient.open_channel_reaches_steady") {
     fvm::Mesh<2> meshT = buildMesh();
     std::vector<std::size_t> inT, outT, wallT;
     fvm::SIMPLE<2>::Config cfgT;
-    cfgT.maxIterations = 5;
-    cfgT.tolerance = 1e-3;
-    cfgT.runFixedIterations = false;
-    cfgT.convergenceHoldIterations = 1;
+    cfgT.stopping.defaultTolerance = 1e-3;
+    cfgT.stopping.steady.convergenceHoldIterations = 1;
     cfgT.pressureCorrectors = 2;
     cfgT.printFrequency = 1000000;
     cfgT.convectionScheme = fvm::ConvectionScheme::Upwind;
     cfgT.gradientScheme = fvm::GradientScheme::LeastSquares;
     cfgT.transient.enabled = true;
     cfgT.transient.dt = 0.01;
-    cfgT.transient.tEnd = 2.0;
-    cfgT.transient.timeScheme = fvm::TimeScheme::BDF2;
-    cfgT.transient.adaptiveCfl = false;
-    cfgT.transient.maxOuterCorrectors = 2;
+    cfgT.stopping.transient.tEnd = 2.0;
+    cfgT.stopping.transient.maxOuterCorrectors = 2;
     cfgT.solverType = fvm::SolverType::PISO;
     fvm::SIMPLE<2> solverT(meshT, 1.0, nu, cfgT);
     setupBCs(solverT, meshT, inT, outT, wallT);
@@ -166,9 +158,9 @@ TEST_CASE("fvm.transient.piso_inner_correctors_are_not_a_noop") {
         forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
 
         fvm::SIMPLE<2>::Config cfg;
-        cfg.tolerance = 1e-4;
-        cfg.runFixedIterations = false;
-        cfg.convergenceHoldIterations = 1;
+        cfg.stopping.defaultTolerance = 1e-4;
+        cfg.stopping.steady.fixedIterations = std::nullopt;
+        cfg.stopping.steady.convergenceHoldIterations = 1;
         cfg.pressureCorrectors = 2;
         cfg.printFrequency = 100;
         cfg.convectionScheme = fvm::ConvectionScheme::Upwind;
@@ -177,10 +169,11 @@ TEST_CASE("fvm.transient.piso_inner_correctors_are_not_a_noop") {
         cfg.transient.dt = 0.01;
         // Exactly one time step, one outer corrector: the only difference
         // between the two runs is the number of inner PISO passes.
-        cfg.transient.tEnd = cfg.transient.dt;
+        cfg.stopping.transient.tEnd = cfg.transient.dt;
         cfg.transient.timeScheme = fvm::TimeScheme::Euler;
         cfg.transient.adaptiveCfl = false;
-        cfg.transient.maxOuterCorrectors = 1;
+        cfg.stopping.transient.tEnd = cfg.transient.dt;
+        cfg.stopping.transient.maxOuterCorrectors = 1;
         cfg.transient.nonOrthogonalCorrectors = innerPasses;
         cfg.solverType = fvm::SolverType::PISO;
 

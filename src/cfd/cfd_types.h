@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "fvm/Types.h"
+#include "cfd/stopping_criteria.h"
 
 namespace cfd {
 
@@ -126,8 +127,6 @@ struct TransientSettings {
     // Initial step size. Always clamped into [minDt, maxDt], which applies to
     // the fixed-step case too, not just adaptive.
     double dt = 0.001;
-    // Must be > 0: the solver loops "while (time < tEnd)", so 0 runs no steps.
-    double tEnd = 1.0;
     fvm::TimeScheme timeScheme = fvm::TimeScheme::Euler;
     bool adaptiveCfl = false;
     double cfl = 0.5; // only consulted when adaptiveCfl is on
@@ -137,49 +136,18 @@ struct TransientSettings {
     int writeInterval = 1;
     // Non-orthogonal correctors per pressure solve (PISO).
     int nonOrthogonalCorrectors = 1;
-    // Pressure correctors per step (PISO: 1 predictor + this many correctors).
-    int maxOuterCorrectors = 3;
-    // Legacy PISO switch (DEPRECATED: use solverType==PISO instead).
+    // PISO legacy switch (DEPRECATED: use solverType==PISO instead).
     bool piso = false;
     // Base name or full path for the .pvd/.vtu output. Empty = "transient".
     std::string pvdFile;
 };
 
-// Default residual tolerance for stopping criteria.
-// Used by CaseSettings::tolerance and by the StoppingCriteriaDialog UI
-// when no per-equation override is set.
-constexpr double kDefaultResidualTolerance = 1e-4;
-
 struct CaseSettings {
     double rho = 1.0, nu = 0.01;
-    double tolerance = kDefaultResidualTolerance;
-    std::size_t maxIterations = 500;
-    // Per-equation residual tolerances (std::nullopt = inherit from `tolerance`).
-    // When set, an equation is gated by its own tolerance; when nullopt it falls
-    // back to the global `tolerance`. A value with its checkbox unchecked in the
-    // UI means "do not gate on this equation at all" (see gate* flags below).
-    std::optional<double> contTol;
-    std::optional<double> momUTol;
-    std::optional<double> momVTol;
-    std::optional<double> momWTol;
-    std::optional<double> turbKTol;
-    std::optional<double> turbOmegaTol;
-    // Whether each equation participates in the convergence gate.
-    bool gateContinuity = true;
-    bool gateMomU = true;
-    bool gateMomV = true;
-    bool gateMomW = true;
-    bool gateTurbK = true;
-    bool gateTurbOmega = true;
-    // Fixed iteration cap override (std::nullopt = use maxIterations).
-    // When set, the solver runs exactly this many iterations and the residual
-    // tolerance gate is bypassed (equivalent to runFixedIterations).
-    std::optional<std::size_t> fixedIterations;
-    // Ignore the residual tolerance and run exactly maxIterations iterations.
-    bool runFixedIterations = false;
-    // Consecutive iterations the residual criterion must hold before the run
-    // is declared converged.
-    int convergenceHoldIterations = 3;
+    // Stopping criteria (residual tolerances, iteration caps, transient end
+    // time / corrector cap). Replaces the previous flat tolerance /
+    // maxIterations / runFixedIterations / gate* / contTol* fields.
+    StoppingCriteria stopping = defaultStoppingCriteria();
     // continuity is measured on the
     // momentum predictor (before the pressure correction) and every residual is
     // normalized by its maximum over the first `residualNormalizationIterations`

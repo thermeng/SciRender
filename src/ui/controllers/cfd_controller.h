@@ -65,6 +65,11 @@ public:
     const cfd::MeshLoadResult& meshResult() const { return m_mesh; }
     const cfd::CaseSettings& settings() const { return m_settings; }
     void setSettings(const cfd::CaseSettings& s) { m_settings = s; }
+    // Validated accessor/mutator for stopping criteria. Returns false (and
+    // emits failed()) when the criteria fail validation or cannot be applied
+    // to a live paused run.
+    const cfd::StoppingCriteria& stoppingCriteria() const { return m_settings.stopping; }
+    bool setStoppingCriteria(const cfd::StoppingCriteria& s, bool applyToActiveRun = false);
     void setPatchBCs(const std::vector<cfd::PatchBC>& bcs) { m_patchBCs = bcs; }
     const std::vector<cfd::PatchBC>& patchBCs() const { return m_patchBCs; }
     // Display name of the loaded mesh (the embedded name for a .scfd file,

@@ -131,16 +131,17 @@ public:
             return false;
         }
         if (settings.transient.enabled) {
-            if (!(settings.transient.tEnd > 0.0)) {
+            if (!(settings.stopping.transient.tEnd > 0.0)) {
                 error = "End time must be greater than zero.";
                 return false;
             }
             if (restart.transientValid &&
-                restart.time >= settings.transient.tEnd - 1e-12 * std::max(1.0, settings.transient.tEnd)) {
+                restart.time >= settings.stopping.transient.tEnd -
+                    1e-12 * std::max(1.0, settings.stopping.transient.tEnd)) {
                 error = "The saved state is already at t = " +
                         std::to_string(restart.time) +
                         " s (end time " +
-                        std::to_string(settings.transient.tEnd) +
+                        std::to_string(settings.stopping.transient.tEnd) +
                         " s). Raise the end time to continue the run.";
                 return false;
             }
@@ -246,6 +247,11 @@ public:
     void requestPause() override { withSolver([](Solver& s) { s.requestPause(); }); }
     void requestResume() override { withSolver([](Solver& s) { s.requestResume(); }); }
     void requestStep() override { withSolver([](Solver& s) { s.requestStep(); }); }
+
+    bool updateStoppingPolicy(const ResolvedStoppingPolicy& policy) override {
+        return withSolver(
+            [&policy](Solver& s) { return s.updateStoppingPolicy(policy); });
+    }
 
     bool isPaused() const override {
         return withSolver([](const Solver& s) { return s.isPaused(); });
