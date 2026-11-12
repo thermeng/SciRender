@@ -41,14 +41,14 @@ TEST_CASE("fvm.transient.steady_defaults") {
     auto c = cfg.transient;
     CHECK_MESSAGE(c.enabled == false, "enabled maps");
     CHECK_NEAR(c.dt, 0.001);
-    CHECK_NEAR(c.tEnd, 1.0);
+    CHECK_NEAR(cfg.stopping.transient.tEnd, 1.0);
     CHECK_MESSAGE(c.timeScheme == fvm::TimeScheme::Euler, "BackwardEuler -> Euler");
     CHECK_MESSAGE(c.adaptiveCfl == false, "adaptive maps");
     CHECK_NEAR(c.cfl, 0.5);
     CHECK_NEAR(c.minDt, 1e-6);
     CHECK_NEAR(c.maxDt, 0.01);
     CHECK_MESSAGE(c.writeInterval == 1, "writeInterval maps");
-    CHECK_MESSAGE(c.maxOuterCorrectors == 3, "maxOuterCorrectors maps");
+    CHECK_MESSAGE(cfg.stopping.transient.maxOuterCorrectors == 3, "maxOuterCorrectors maps");
     CHECK_MESSAGE(c.pvdFile.empty(), "pvdFile maps (empty)");
     CHECK_MESSAGE(cfg.solverType == fvm::SolverType::SIMPLE, "steady -> SIMPLE");
 }
@@ -59,28 +59,28 @@ TEST_CASE("fvm.transient.transient_mapping") {
     auto& s = settings.transient;
     s.enabled = true;
     s.dt = 2.5e-4;
-    s.tEnd = 4.0;
     s.timeScheme = fvm::TimeScheme::BDF2;
     s.adaptiveCfl = true;
     s.cfl = 0.3;
     s.minDt = 1e-7;
     s.maxDt = 5e-3;
     s.writeInterval = 7;
-    s.maxOuterCorrectors = 5;
     s.pvdFile = "case.pvd";
+    settings.stopping.transient.tEnd = 4.0;
+    settings.stopping.transient.maxOuterCorrectors = 5;
 
     auto cfg = cfd::toFvmConfig<2>(settings);
     auto c = cfg.transient;
     CHECK_MESSAGE(c.enabled == true, "enabled maps");
     CHECK_NEAR(c.dt, 2.5e-4);
-    CHECK_NEAR(c.tEnd, 4.0);
+    CHECK_NEAR(cfg.stopping.transient.tEnd, 4.0);
     CHECK_MESSAGE(c.timeScheme == fvm::TimeScheme::BDF2, "BDF2 maps");
     CHECK_MESSAGE(c.adaptiveCfl == true, "adaptive maps");
     CHECK_NEAR(c.cfl, 0.3);
     CHECK_NEAR(c.minDt, 1e-7);
     CHECK_NEAR(c.maxDt, 5e-3);
     CHECK_MESSAGE(c.writeInterval == 7, "writeInterval maps");
-    CHECK_MESSAGE(c.maxOuterCorrectors == 5, "maxOuterCorrectors maps");
+    CHECK_MESSAGE(cfg.stopping.transient.maxOuterCorrectors == 5, "maxOuterCorrectors maps");
     CHECK_MESSAGE(c.pvdFile == "case.pvd", "pvdFile maps");
     CHECK_MESSAGE(cfg.solverType == fvm::SolverType::PISO, "transient -> PISO");
 }

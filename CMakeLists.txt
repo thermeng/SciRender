@@ -273,6 +273,8 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
     add_library(CfdLib STATIC
         src/cfd/cfd_types.h
         src/cfd/case_codec.h
+        src/cfd/convergence_policy.h
+        src/cfd/convergence_policy.cpp
         src/cfd/field_utils.h
         src/cfd/mesh_build_policy.h
         src/cfd/cfd_mesh_adapter.h
@@ -282,6 +284,8 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/cfd/solution_state.h
         src/cfd/cfd_session.h
         src/cfd/cfd_session.cpp
+        src/cfd/stopping_criteria.h
+        src/cfd/stopping_criteria.cpp
     )
     target_include_directories(CfdLib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
     target_link_libraries(CfdLib PUBLIC CoreLib FvmCore)
@@ -369,6 +373,8 @@ if(SCIRENDER_BUILD_APP)
         src/ui/widgets/amg_config_widget.h
         src/ui/widgets/stopping_criteria_dialog.cpp
         src/ui/widgets/stopping_criteria_dialog.h
+        src/ui/widgets/stopping_criteria_model.cpp
+        src/ui/widgets/stopping_criteria_model.h
         src/ui/widgets/range_editor.cpp
         src/ui/widgets/range_editor.h
         src/ui/widgets/plot_widget.cpp

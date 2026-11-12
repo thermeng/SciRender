@@ -14,9 +14,9 @@ TEST_CASE("fvm.simple.non_finite_momentum_solve_aborts_with_a_reason") {
                       std::array<double, 2>{1.0, 1.0});
 
     fvm::SIMPLE<2>::Config cfg;
-    cfg.maxIterations = 3;
+    cfg.stopping.steady.maxIterations = 3;
     cfg.printFrequency = 1000000;
-    cfg.tolerance = 1e-6;
+    cfg.stopping.defaultTolerance = 1e-6;
     fvm::SIMPLE<2> solver(mesh, 1.0, 1e-2, cfg);
 
     fvm::VectorField<2> velocity(mesh, 0.0);
@@ -38,7 +38,7 @@ TEST_CASE("fvm.simple.healthy_run_has_no_failure_reason") {
                       std::array<double, 2>{1.0, 1.0});
 
     fvm::SIMPLE<2>::Config cfg;
-    cfg.maxIterations = 2;
+    cfg.stopping.steady.maxIterations = 2;
     cfg.printFrequency = 1000000;
     fvm::SIMPLE<2> solver(mesh, 1.0, 1e-2, cfg);
 

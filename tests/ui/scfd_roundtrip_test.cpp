@@ -36,12 +36,12 @@ void configureTransient(CfdController& ctrl, double tEnd) {
     cfd::CaseSettings s = ctrl.settings();
     s.transient.enabled = true;
     s.transient.dt = 0.01;
-    s.transient.tEnd = tEnd;
+    s.stopping.transient.tEnd = tEnd;
     s.transient.adaptiveCfl = false;
-    s.transient.maxOuterCorrectors = 1;
+    s.stopping.transient.maxOuterCorrectors = 1;
     s.transient.timeScheme = fvm::TimeScheme::Euler;
     s.transient.writeInterval = 0; // no VTU/PVD side effects in the test
-    s.tolerance = 1e-4;
+    s.stopping.defaultTolerance = 1e-4;
     s.numThreads = 1;
     ctrl.setSettings(s);
 }
@@ -117,7 +117,7 @@ TEST_CASE("ui.scfd_roundtrip_preserves_case_and_mesh_name") {
     cfd::CaseSettings s = ctrl.settings();
     s.transient.enabled = true;
     s.transient.dt = 0.005;
-    s.transient.tEnd = 2.0;
+    s.stopping.transient.tEnd = 2.0;
     s.turbulence = false;
     ctrl.setSettings(s);
 

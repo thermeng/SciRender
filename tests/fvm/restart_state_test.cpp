@@ -53,15 +53,15 @@ fvm::SIMPLE<2>::Config transientConfig() {
     cfg.printFrequency = 1000000;
     cfg.convectionScheme = fvm::ConvectionScheme::Upwind;
     cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
-    cfg.maxIterations = 100;
-    cfg.tolerance = 0.0; // never "converges": the run is bounded by tEnd
+    cfg.stopping.steady.maxIterations = 100;
+    cfg.stopping.defaultTolerance = 0.0; // never "converges": the run is bounded by tEnd
     cfg.solverType = fvm::SolverType::SIMPLE;
     cfg.transient.enabled = true;
     cfg.transient.dt = 0.005;
-    cfg.transient.tEnd = 50.0;
+    cfg.stopping.transient.tEnd = 50.0;
     cfg.transient.timeScheme = fvm::TimeScheme::Euler;
     cfg.transient.adaptiveCfl = false;
-    cfg.transient.maxOuterCorrectors = 1;
+    cfg.stopping.transient.maxOuterCorrectors = 1;
     return cfg;
 }
 
@@ -75,7 +75,7 @@ TEST_CASE("fvm.transient.restart_state_continues_at_the_saved_step") {
     // --- First leg: t = 0 .. 0.03 (3 steps of 0.01) -----------------------
     auto cfg1 = transientConfig();
     cfg1.transient.dt = 0.01;
-    cfg1.transient.tEnd = 0.03;
+    cfg1.stopping.transient.tEnd = 0.03;
 
     fvm::SIMPLE<2> first(ch.mesh, 1.0, 0.01, cfg1);
     ch.apply(first);
@@ -118,7 +118,7 @@ TEST_CASE("fvm.transient.restart_state_continues_at_the_saved_step") {
     // --- Second leg: continue to t = 0.04 ---------------------------------
     auto cfg2 = transientConfig();
     cfg2.transient.dt = 0.01;
-    cfg2.transient.tEnd = 0.04;
+    cfg2.stopping.transient.tEnd = 0.04;
 
     fvm::SIMPLE<2> second(ch.mesh, 1.0, 0.01, cfg2);
     ch.apply(second);

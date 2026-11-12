@@ -32,10 +32,10 @@ constexpr double kReynolds = 100.0;
 template<std::size_t Dim>
 fvm::SIMPLE<Dim>::Config channelConfig() {
     typename fvm::SIMPLE<Dim>::Config cfg;
-    cfg.maxIterations = static_cast<std::size_t>(kIterations);
-    cfg.tolerance = 1e-8;
-    cfg.runFixedIterations = true;
-    cfg.convergenceHoldIterations = 3;
+    cfg.stopping.steady.maxIterations = static_cast<std::size_t>(kIterations);
+    cfg.stopping.defaultTolerance = 1e-8;
+    cfg.stopping.steady.fixedIterations = static_cast<std::size_t>(kIterations);
+    cfg.stopping.steady.convergenceHoldIterations = 3;
     cfg.pressureCorrectors = 3;
     cfg.printFrequency = 1000000; // effectively silent (the solver divides by it)
     cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;

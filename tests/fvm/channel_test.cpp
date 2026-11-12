@@ -96,10 +96,11 @@ ChannelResult runChannel(int iterations = kIterations,
     forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
 
     fvm::SIMPLE<2>::Config cfg;
-    cfg.maxIterations = static_cast<std::size_t>(iterations);
-    cfg.tolerance = residualTol;
-    cfg.runFixedIterations = false;      // stop when residuals hold below tolerance
-    cfg.convergenceHoldIterations = 3;
+    cfg.stopping.steady.maxIterations = static_cast<std::size_t>(iterations);
+    cfg.stopping.defaultTolerance = residualTol;
+    // stop when residuals hold below tolerance (no fixed budget)
+    cfg.stopping.steady.fixedIterations = std::nullopt;
+    cfg.stopping.steady.convergenceHoldIterations = 3;
     cfg.pressureCorrectors = pressureCorrectors; // 1 = pure SIMPLE; 3 = PISO-like (masks coupling defects)
     cfg.printFrequency = 1000000;
     cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;
@@ -315,10 +316,10 @@ TEST_CASE("fvm.channel.grid_convergence") {
         forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
 
         fvm::SIMPLE<2>::Config cfg;
-        cfg.maxIterations = static_cast<std::size_t>(kIterations);
-        cfg.tolerance = kResidualTol;
-        cfg.runFixedIterations = false;
-        cfg.convergenceHoldIterations = 3;
+        cfg.stopping.steady.maxIterations = static_cast<std::size_t>(kIterations);
+        cfg.stopping.defaultTolerance = kResidualTol;
+        cfg.stopping.steady.fixedIterations = std::nullopt;
+        cfg.stopping.steady.convergenceHoldIterations = 3;
         cfg.pressureCorrectors = 1;
         cfg.printFrequency = 1000000;
         cfg.convectionScheme = fvm::ConvectionScheme::SecondOrderUpwind;

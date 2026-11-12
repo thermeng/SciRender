@@ -63,12 +63,12 @@ void configureTransient(CfdController& ctrl, double tEnd) {
     cfd::CaseSettings s = ctrl.settings();
     s.transient.enabled = true;
     s.transient.dt = 0.01;
-    s.transient.tEnd = tEnd;
+    s.stopping.transient.tEnd = tEnd;
     s.transient.adaptiveCfl = false;
-    s.transient.maxOuterCorrectors = 1;
+    s.stopping.transient.maxOuterCorrectors = 1;
     s.transient.timeScheme = fvm::TimeScheme::Euler;
     s.transient.writeInterval = 0; // no VTU/PVD side effects in the test
-    s.tolerance = 1e-4;
+    s.stopping.defaultTolerance = 1e-4;
     s.numThreads = 1;
     ctrl.setSettings(s);
 }
@@ -76,8 +76,8 @@ void configureTransient(CfdController& ctrl, double tEnd) {
 void configureSteady(CfdController& ctrl) {
     cfd::CaseSettings s = ctrl.settings();
     s.transient.enabled = false;
-    s.maxIterations = 1;
-    s.runFixedIterations = true;
+    s.stopping.steady.maxIterations = 1;
+    s.stopping.steady.fixedIterations = static_cast<std::size_t>(1);
     s.numThreads = 1;
     ctrl.setSettings(s);
 }

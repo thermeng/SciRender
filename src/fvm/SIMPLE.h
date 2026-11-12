@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cfd/cfd_types.h"
+#include "cfd/convergence_policy.h"
 #include "mesh/Mesh.h"
 #include "mesh/BoundaryUtils.h"
 #include "field/Field.h"
@@ -63,7 +64,6 @@ struct Config : public cfd::CaseSettings {
     int pressureCorrectors = 3;           // CaseSettings: 1
     bool limitPressureCorrection = true;   // CaseSettings: false
     double pressureCorrectionLimit = 1e6;  // CaseSettings: 5.0
-    std::size_t maxIterations = 100;       // CaseSettings: 500
     std::size_t pressureRefCell = SIZE_MAX; // CaseSettings: 0
     double turbulenceAmgMaxResidual = 1e-8; // CaseSettings: 0.1
     std::vector<InletTurbulence> inletTurbulence;
@@ -73,6 +73,9 @@ struct Config : public cfd::CaseSettings {
         std::function<void(int, double, const VectorField<Dim>&, const Field<Dim>&)> transientCallback;
         CheckpointConfig checkpoint;
         TransientConfig transient;
+        // Resolved stopping policy (populated by solver_config_bridge). The
+        // iteration loop consults this instead of raw optional fields.
+        cfd::ResolvedStoppingPolicy stoppingPolicy;
 
         // A configuration that mirrors the  129x129 cavity run:
         // one pressure corrector, AMG for both equations, a V cycle with CG
@@ -227,6 +230,10 @@ struct Config : public cfd::CaseSettings {
     const Field<Dim>& kNM1() const { return kNM1_; }
     const Field<Dim>& omegaNM1() const { return omegaNM1_; }
     int lastIterations() const;
+    // Apply a resolved stopping policy at run start, and again whenever the
+    // user edits stopping criteria while the run is paused at a settled
+    // boundary. Replaces the current policy and resets the hold streak.
+    bool updateStoppingPolicy(const cfd::ResolvedStoppingPolicy& policy);
     // Raw (un-normalized) continuity residual: the mass imbalance of the
     // momentum predictor, sum|div|*V / sum|flux|. This is the quantity the
     // pressure correction has to remove, not the post-correction divergence
@@ -322,9 +329,11 @@ private:
     // stop it in both modes).
     bool checkConvergence_(std::size_t iter, bool checkTolerance = true,
                            bool checkCancel = true);
-    // True when every gated equation's scaled residual is below its own
-    // tolerance (inheriting `tolerance` when the per-equation value is nullopt).
-    bool residualsConverged_() const;
+    // Resolve config_.stopping into config_.stoppingPolicy for the current
+    // dimension/turbulence/transient context. Called at the start of every run
+    // so tests and direct Config construction work without going through the
+    // bridge; mid-run edits go through updateStoppingPolicy().
+    void applyStoppingPolicy_();
     bool aborted() const { return aborted_; }
     void saveCheckpoint_(std::size_t iter);
     void saveCheckpoint_(std::size_t iter, const TransientBlock<Dim>* transient);
@@ -418,6 +427,9 @@ private:
     std::size_t stallCount_ = 0;
     // Number of consecutive iterations the residual criterion has held.
     int convergedStreak_ = 0;
+    // Convergence monitor built from the resolved stopping policy at run start
+    // (and reset whenever the policy is updated mid-run).
+    std::unique_ptr<cfd::ConvergenceMonitor> convergenceMonitor_;
     std::size_t startIteration_ = 0;
     // Restart payload queued by setRestartState(), consumed by initializeSolve_.
     std::optional<RestartState> restartState_;

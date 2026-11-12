@@ -19,6 +19,9 @@
 
 namespace fvm {
 
+using cfd::ResolvedStoppingPolicy;
+using cfd::ResidualEquation;
+
 template<std::size_t Dim>
 SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& config)
     : mesh_(mesh),
@@ -54,6 +57,28 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
     pPrimeGradientCalc_ = std::make_unique<Gradient<Dim>>(
         mesh, GradientScheme::LeastSquares);
 }
+
+template<std::size_t Dim>
+bool SIMPLE<Dim>::updateStoppingPolicy(const cfd::ResolvedStoppingPolicy& policy) {
+    config_.stoppingPolicy = policy;
+    convergenceMonitor_ = std::make_unique<cfd::ConvergenceMonitor>(
+        config_.stoppingPolicy.steady);
+    return true;
+}
+
+template<std::size_t Dim>
+void SIMPLE<Dim>::applyStoppingPolicy_() {
+    auto resolved = cfd::resolveStoppingPolicy(
+        config_.stopping, Dim == 3, config_.turbulence, config_.transient.enabled);
+    if (resolved) {
+        config_.stoppingPolicy = *resolved;
+    } else {
+        // Invalid configuration (e.g. steady residual mode with no active gate
+        // and no fixed budget): refuse to run by setting a zero iteration limit.
+        config_.stoppingPolicy = cfd::ResolvedStoppingPolicy{};
+    }
+}
+
 
 template<std::size_t Dim>
 bool SIMPLE<Dim>::isPiso_() const {
@@ -673,30 +698,6 @@ void SIMPLE<Dim>::updateResiduals_() {
 }
 
 template<std::size_t Dim>
-bool SIMPLE<Dim>::residualsConverged_() const {
-    // Per-equation tolerance, inheriting the global `tolerance` when nullopt.
-    auto tolFor = [this](std::optional<double> v) {
-        return v.value_or(config_.tolerance);
-    };
-    // Each gated equation must be below its tolerance.
-    if (config_.gateContinuity && lastContResid_ >= tolFor(config_.contTol)) return false;
-    if (config_.gateMomU && lastMomResidU_ >= tolFor(config_.momUTol)) return false;
-    if (config_.gateMomV && lastMomResidV_ >= tolFor(config_.momVTol)) return false;
-    if constexpr (Dim == 3) {
-        if (config_.gateMomW && lastMomResidW_ >= tolFor(config_.momWTol)) return false;
-    }
-    if (turbulence_ && config_.gateTurbK) {
-        double kResid = turbulence_->finalKResid();
-        if (kResid >= tolFor(config_.turbKTol)) return false;
-    }
-    if (turbulence_ && config_.gateTurbOmega) {
-        double oResid = turbulence_->finalOmegaResid();
-        if (oResid >= tolFor(config_.turbOmegaTol)) return false;
-    }
-    return true;
-}
-
-template<std::size_t Dim>
 bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
                                      bool checkCancel) {
     (void)iter; // kept for call-site symmetry; the failure carries no iteration
@@ -716,17 +717,23 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
     if (checkCancel && cancelRequested_.load(std::memory_order_acquire)) {
         return true;
     }
-    if (checkTolerance && !config_.runFixedIterations && !config_.fixedIterations) {
+        if (checkTolerance && config_.stoppingPolicy.steady.residualGateEnabled &&
+            convergenceMonitor_) {
         // Per-equation residuals must each be below their own tolerance for
         // `convergenceHoldIterations` consecutive iterations. A single lucky
-        // iteration is not a steady state.
-        if (residualsConverged_()) {
-            // The criterion must hold for `convergenceHoldIterations`
-            // consecutive iterations before the run is declared converged.
-            if (++convergedStreak_ >= std::max(1, config_.convergenceHoldIterations))
-                return true;
-        } else {
-            convergedStreak_ = 0;
+        // iteration is not a steady state. Momentum W is only consulted in 3D,
+        // k/omega only when turbulence exists — the policy already filtered
+        // those out, so we pass nullopt for the absent ones.
+        std::optional<double> momW, kResid, omegaResid;
+        if constexpr (Dim == 3) momW = lastMomResidW_;
+        if (turbulence_) {
+            kResid = turbulence_->finalKResid();
+            omegaResid = turbulence_->finalOmegaResid();
+        }
+        if (convergenceMonitor_->update(lastContResid_, lastMomResidU_,
+                                        lastMomResidV_, momW, kResid,
+                                        omegaResid)) {
+            return true;
         }
     }
     return false;
@@ -796,7 +803,8 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::printIterationOutput_(std::size_t iter) {
-    if ((iter + 1) % config_.printFrequency == 0 || iter + 1 == config_.maxIterations) {
+    if ((iter + 1) % config_.printFrequency == 0 ||
+        iter + 1 == config_.stoppingPolicy.steady.iterationLimit) {
         if (headerCounter_ % 25 == 0) printHeader_(false);
         ++headerCounter_;
 
@@ -904,7 +912,11 @@ void SIMPLE<Dim>::printFinalStats_() const {
               << " (u=" << lastMomResidU_ << " v=" << lastMomResidV_;
     if constexpr (Dim == 3) std::cerr << " w=" << lastMomResidW_;
     std::cerr << ") velocityChange=" << lastMomChange_
-              << " tolerance=" << config_.tolerance << "\n";
+              << " tolerance="
+              << (config_.stoppingPolicy.steady.effectiveTolerances.empty()
+                      ? config_.stopping.defaultTolerance
+                      : config_.stoppingPolicy.steady.effectiveTolerances.front())
+              << "\n";
     if (aborted_) {
         std::cerr << "  [final] ABORTED: " << failureText() << "\n";
     } else {
@@ -939,11 +951,16 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     initializeSolve_(velocity, pressure);
 
+    applyStoppingPolicy_();
+
     status_ = Status::NotConverged;
+
+    convergenceMonitor_ = std::make_unique<cfd::ConvergenceMonitor>(
+        config_.stoppingPolicy.steady);
 
     const auto steadyTotalStart = std::chrono::steady_clock::now();
 
-    for (std::size_t iter = startIteration_; iter < config_.maxIterations; ++iter) {
+    for (std::size_t iter = startIteration_; iter < config_.stoppingPolicy.steady.iterationLimit; ++iter) {
         m_iterStart = std::chrono::steady_clock::now();
         // Pause/step boundary. Placed before the iteration so a pause issued
         // after the previous iteration is observed before doing more work, and
@@ -1591,6 +1608,8 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     initializeSolve_(velocity, pressure);
 
+    applyStoppingPolicy_();
+
     // --- Transient state -------------------------------------------------
     // initializeSolve_ may have loaded a checkpoint. If that checkpoint carried
     // transient state we resume at the stored time with the stored dt and
@@ -1681,8 +1700,8 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         omegaNM1_ = Field<Dim>(mesh_, 0.0);
     }
     int nSteps = 1;
-    if (config_.transient.tEnd > 0 && dt_ > 0) {
-        nSteps = static_cast<int>(std::ceil(config_.transient.tEnd / dt_));
+    if (config_.stoppingPolicy.transientPolicy.tEnd > 0 && dt_ > 0) {
+        nSteps = static_cast<int>(std::ceil(config_.stoppingPolicy.transientPolicy.tEnd / dt_));
         if (nSteps < 1) nSteps = 1;
     }
     // If adaptive, nSteps is just upper bound; we loop on time
@@ -1690,13 +1709,15 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         std::string solverName = solverTypeToString(config_.solverType);
         // Legacy piso bool still honored for compat
         if (config_.transient.piso && config_.solverType==SolverType::SIMPLE) solverName="PISO";
-        std::cout << "Transient " << solverName << ": dt=" << dt_ << " tEnd=" << config_.transient.tEnd
+        std::cout << "Transient " << solverName << ": dt=" << dt_ << " tEnd="
+                  << config_.stoppingPolicy.transientPolicy.tEnd
                   << " scheme=" << (config_.transient.timeScheme==TimeScheme::BDF2?"BDF2":"Euler")
                   << " adaptive=" << (config_.transient.adaptiveCfl?"yes":"no")
-                  << " nOuter=" << config_.transient.maxOuterCorrectors
+                  << " nOuter="
+                  << config_.stoppingPolicy.transientPolicy.maxOuterCorrectors
                   << (config_.simplec ? " SIMPLEC" : "") << "\n";
     }
-    double tEnd = config_.transient.tEnd;
+    double tEnd = config_.stoppingPolicy.transientPolicy.tEnd;
     int step = timeStep_;
     if (!haveHistory) time_ = 0.0;
     // PISO on a collocated grid requires Rhie-Chow. Force it (and therefore
@@ -1707,7 +1728,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         applyPressureSolverConfig_();
     }
     // For adaptive we loop while time < tEnd
-    while (time_ < tEnd - 1e-12) {
+    while (time_ < config_.stoppingPolicy.transientPolicy.tEnd - 1e-12) {
         // A diverged run (NaN/inf or repeated residual growth) must stop, not
         // keep integrating garbage to tEnd while writing output.
         if (aborted_) break;
@@ -1737,7 +1758,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             config_.rhieChow = true;
     applyPressureSolverConfig_();
         }
-        int nOuter = std::max(1, config_.transient.maxOuterCorrectors);
+        int nOuter = std::max(1, config_.stoppingPolicy.transientPolicy.maxOuterCorrectors);
         if (isPISO) {
             // True PISO: 1 momentum predictor + nOuter pressure correctors (frozen dCoeff)
             // No under-relaxation, no adaptive alphaP reduction inside correctors
@@ -1747,21 +1768,44 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                 updateResiduals_();
                 lastIterations_ = step * nOuter + corr + 1;
                 {
-                    auto tolFor = [this](std::optional<double> v) {
-                        return v.value_or(config_.tolerance);
-                    };
-                    bool contOk = !config_.gateContinuity ||
-                                  lastContResid_ < tolFor(config_.contTol);
-                    bool momOk = true;
-                    if (config_.gateMomU &&
-                        lastMomResidU_ >= tolFor(config_.momUTol)) momOk = false;
-                    if (config_.gateMomV &&
-                        lastMomResidV_ >= tolFor(config_.momVTol)) momOk = false;
-                    if constexpr (Dim == 3) {
-                        if (config_.gateMomW &&
-                            lastMomResidW_ >= tolFor(config_.momWTol)) momOk = false;
+                    // Per-equation corrector early exit: stop the corrector
+                    // loop once every active (applicable + enabled) equation is
+                    // below its tolerance. The policy already filtered out
+                    // inapplicable equations (W in 2D, k/omega without
+                    // turbulence).
+                    bool converged = true;
+                    for (std::size_t i = 0;
+                         i < config_.stoppingPolicy.transientPolicy.activeEquations.size();
+                         ++i) {
+                        double t = config_.stoppingPolicy.transientPolicy
+                                       .effectiveTolerances[i];
+                        switch (config_.stoppingPolicy.transientPolicy
+                                    .activeEquations[i]) {
+                            case ResidualEquation::Continuity:
+                                converged = converged && lastContResid_ < t;
+                                break;
+                            case ResidualEquation::MomentumX:
+                                converged = converged && lastMomResidU_ < t;
+                                break;
+                            case ResidualEquation::MomentumY:
+                                converged = converged && lastMomResidV_ < t;
+                                break;
+                            case ResidualEquation::MomentumW:
+                                converged = converged && lastMomResidW_ < t;
+                                break;
+                            case ResidualEquation::TurbulenceK:
+                                converged =
+                                    converged && turbulence_ &&
+                                    turbulence_->finalKResid() < t;
+                                break;
+                            case ResidualEquation::TurbulenceOmega:
+                                converged =
+                                    converged && turbulence_ &&
+                                    turbulence_->finalOmegaResid() < t;
+                                break;
+                        }
                     }
-                    if (contOk && momOk) break;
+                    if (converged) break;
                 }
             }
             // checkConvergence_ detects NaN/inf divergence; act on it instead of
@@ -1795,21 +1839,40 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                 updateResiduals_();
                 lastIterations_ = step * nOuter + outer + 1;
                 {
-                    auto tolFor = [this](std::optional<double> v) {
-                        return v.value_or(config_.tolerance);
-                    };
-                    bool contOk = !config_.gateContinuity ||
-                                  lastContResid_ < tolFor(config_.contTol);
-                    bool momOk = true;
-                    if (config_.gateMomU &&
-                        lastMomResidU_ >= tolFor(config_.momUTol)) momOk = false;
-                    if (config_.gateMomV &&
-                        lastMomResidV_ >= tolFor(config_.momVTol)) momOk = false;
-                    if constexpr (Dim == 3) {
-                        if (config_.gateMomW &&
-                            lastMomResidW_ >= tolFor(config_.momWTol)) momOk = false;
+                    // Per-equation corrector early exit (SIMPLE transient path).
+                    bool converged = true;
+                    for (std::size_t i = 0;
+                         i < config_.stoppingPolicy.transientPolicy.activeEquations.size();
+                         ++i) {
+                        double t = config_.stoppingPolicy.transientPolicy
+                                       .effectiveTolerances[i];
+                        switch (config_.stoppingPolicy.transientPolicy
+                                    .activeEquations[i]) {
+                            case ResidualEquation::Continuity:
+                                converged = converged && lastContResid_ < t;
+                                break;
+                            case ResidualEquation::MomentumX:
+                                converged = converged && lastMomResidU_ < t;
+                                break;
+                            case ResidualEquation::MomentumY:
+                                converged = converged && lastMomResidV_ < t;
+                                break;
+                            case ResidualEquation::MomentumW:
+                                converged = converged && lastMomResidW_ < t;
+                                break;
+                            case ResidualEquation::TurbulenceK:
+                                converged =
+                                    converged && turbulence_ &&
+                                    turbulence_->finalKResid() < t;
+                                break;
+                            case ResidualEquation::TurbulenceOmega:
+                                converged =
+                                    converged && turbulence_ &&
+                                    turbulence_->finalOmegaResid() < t;
+                                break;
+                        }
                     }
-                    if (contOk && momOk) break;
+                    if (converged) break;
                 }
             }
             if (checkConvergence_(static_cast<std::size_t>(step), false, false)) break;

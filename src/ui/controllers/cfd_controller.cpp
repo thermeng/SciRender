@@ -1,6 +1,7 @@
 #include "ui/controllers/cfd_controller.h"
 
 #include "cfd/case_codec.h"
+#include "cfd/convergence_policy.h"
 #include "cfd/cfd_mesh_adapter.h"
 #include "cfd/cfd_session.h"
 #include "cfd/solution_state.h"
@@ -176,6 +177,37 @@ void CfdController::unload() {
 void CfdController::setError(const QString& msg) {
     m_lastError = msg;
     emit failed(msg);
+}
+
+bool CfdController::setStoppingCriteria(const cfd::StoppingCriteria& s,
+                                        bool applyToActiveRun) {
+    auto report = cfd::validateStoppingCriteria(s);
+    if (!report.ok) {
+        QStringList parts;
+        for (const auto& e : report.errors)
+            parts << QString::fromStdString(e.field + ": " + e.message);
+        setError("Stopping criteria invalid: " + parts.join("; "));
+        return false;
+    }
+    m_settings.stopping = s;
+
+    if (applyToActiveRun && m_running.load() && m_session &&
+        isPaused() && isPausedSettled()) {
+        const bool dim3 = (m_session->dim() == 3);
+        const bool turbulence = m_settings.turbulence;
+        const bool transient = m_settings.transient.enabled;
+        auto policy = cfd::resolveStoppingPolicy(s, dim3, turbulence, transient);
+        if (!policy) {
+            setError("Stopping criteria invalid: no applicable equation gated "
+                     "and no fixed iteration budget.");
+            return false;
+        }
+        if (!m_session->updateStoppingPolicy(*policy)) {
+            setError("Stopping criteria: could not apply to the active solver.");
+            return false;
+        }
+    }
+    return true;
 }
 
 void CfdController::captureLiveState() {

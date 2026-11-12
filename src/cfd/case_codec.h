@@ -137,14 +137,12 @@ inline const std::vector<Field<TransientSettings>>& transientFields() {
     static const std::vector<F> fields{
         flg("enabled", &TransientSettings::enabled),
         dbl("dt", &TransientSettings::dt),
-        dbl("tEnd", &TransientSettings::tEnd),
         enm("timeScheme", &TransientSettings::timeScheme),
         flg("adaptiveCfl", &TransientSettings::adaptiveCfl),
         dbl("cfl", &TransientSettings::cfl),
         dbl("minDt", &TransientSettings::minDt),
         dbl("maxDt", &TransientSettings::maxDt),
         i32("writeInterval", &TransientSettings::writeInterval),
-        i32("maxOuterCorrectors", &TransientSettings::maxOuterCorrectors),
         i32("nonOrthogonalCorrectors", &TransientSettings::nonOrthogonalCorrectors),
         str("pvdFile", &TransientSettings::pvdFile),
     };
@@ -205,6 +203,65 @@ inline bool deserializeAmg(const QJsonObject& o, AmgSettings& s) {
     return readObject(s, o, amgFields());
 }
 
+// ---------- StoppingCriteria ----------
+//
+// Stored as a nested object under "stopping". A missing key keeps the struct's
+// current value (defaults), so case files written before stopping criteria
+// existed still load.
+inline QJsonObject serializeStopping(const StoppingCriteria& s) {
+    QJsonObject o;
+    o["defaultTolerance"] = s.defaultTolerance;
+    QJsonArray eqArr;
+    for (const auto& eq : s.equations) {
+        QJsonObject e;
+        e["enabled"] = eq.enabled;
+        if (eq.tolerance) e["tolerance"] = *eq.tolerance;
+        eqArr.append(e);
+    }
+    o["equations"] = eqArr;
+    QJsonObject steady;
+    steady["maxIterations"] = QJsonValue(static_cast<qint64>(s.steady.maxIterations));
+    if (s.steady.fixedIterations)
+        steady["fixedIterations"] = QJsonValue(static_cast<qint64>(*s.steady.fixedIterations));
+    steady["convergenceHoldIterations"] = s.steady.convergenceHoldIterations;
+    o["steady"] = steady;
+    QJsonObject trans;
+    trans["tEnd"] = s.transient.tEnd;
+    trans["maxOuterCorrectors"] = s.transient.maxOuterCorrectors;
+    o["transient"] = trans;
+    return o;
+}
+
+inline bool deserializeStopping(const QJsonObject& o, StoppingCriteria& s) {
+    if (o.value("defaultTolerance").isDouble())
+        s.defaultTolerance = o.value("defaultTolerance").toDouble();
+    if (o.value("equations").isArray()) {
+        QJsonArray eqArr = o.value("equations").toArray();
+        for (int i = 0; i < eqArr.size() && i < (int)kResidualEquationCount; ++i) {
+            QJsonObject e = eqArr[i].toObject();
+            s.equations[i].enabled = e.value("enabled").toBool(true);
+            if (e.value("tolerance").isDouble())
+                s.equations[i].tolerance = e.value("tolerance").toDouble();
+        }
+    }
+    if (o.value("steady").isObject()) {
+        QJsonObject st = o.value("steady").toObject();
+        if (st.value("maxIterations").isDouble())
+            s.steady.maxIterations = static_cast<std::size_t>(st.value("maxIterations").toVariant().toULongLong());
+        if (st.value("fixedIterations").isDouble())
+            s.steady.fixedIterations = static_cast<std::size_t>(st.value("fixedIterations").toVariant().toULongLong());
+        if (st.value("convergenceHoldIterations").isDouble())
+            s.steady.convergenceHoldIterations = st.value("convergenceHoldIterations").toInt();
+    }
+    if (o.value("transient").isObject()) {
+        QJsonObject tr = o.value("transient").toObject();
+        if (tr.value("tEnd").isDouble()) s.transient.tEnd = tr.value("tEnd").toDouble();
+        if (tr.value("maxOuterCorrectors").isDouble())
+            s.transient.maxOuterCorrectors = tr.value("maxOuterCorrectors").toInt();
+    }
+    return true;
+}
+
 // ---------- PatchBC ----------
 
 inline const std::vector<Field<PatchBC>>& patchBCFields() {
@@ -235,10 +292,13 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
     static const std::vector<F> fields{
         dbl("rho", &CaseSettings::rho),
         dbl("nu", &CaseSettings::nu),
-        dbl("tolerance", &CaseSettings::tolerance),
-        num("maxIterations", &CaseSettings::maxIterations),
-        flg("runFixedIterations", &CaseSettings::runFixedIterations),
-        i32("convergenceHoldIterations", &CaseSettings::convergenceHoldIterations),
+        Field<CaseSettings>{
+            "stopping",
+            [](const CaseSettings& s) { return serializeStopping(s.stopping); },
+            [](CaseSettings& s, const QJsonValue& v) {
+                return deserializeStopping(v.toObject(), s.stopping);
+            },
+        },
         flg("normalizeResiduals", &CaseSettings::normalizeResiduals),
         num("residualNormalizationIterations", &CaseSettings::residualNormalizationIterations),
         dbl("alphaU", &CaseSettings::alphaU),

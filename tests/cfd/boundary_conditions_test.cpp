@@ -40,10 +40,10 @@ std::vector<std::size_t> boundaryFaces(const fvm::Mesh<2>& mesh, std::size_t d, 
 
 fvm::SIMPLE<2>::Config solverConfig() {
     fvm::SIMPLE<2>::Config cfg;
-    cfg.maxIterations = 30;
-    cfg.tolerance = 1e-6;
-    cfg.runFixedIterations = true;
-    cfg.convergenceHoldIterations = 2;
+    cfg.stopping.steady.maxIterations = 30;
+    cfg.stopping.defaultTolerance = 1e-6;
+    cfg.stopping.steady.fixedIterations = static_cast<std::size_t>(30);
+    cfg.stopping.steady.convergenceHoldIterations = 2;
     cfg.alphaU = 0.7;
     cfg.alphaP = 0.3;
     cfg.pressureCorrectors = 2;
