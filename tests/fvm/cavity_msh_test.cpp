@@ -37,6 +37,11 @@ namespace {
 constexpr double kLidSpeed = 1.0;
 constexpr double kReynolds = 400.0;
 constexpr int kIterations = 800;
+// The iteration budget used by the steady-state test. It only has to be large
+// enough for the tolerance to be met on its own; the run stops when every gated
+// residual is below kTolerance, not when the budget runs out.
+constexpr int kConvergedIterations = 3000;
+constexpr double kTolerance = 1e-4;
 
 struct CavitySetup {
     fvm::Mesh<2> mesh;
@@ -102,6 +107,10 @@ struct CavityRun {
     double continuity = 0.0;
     std::vector<double> sampled; // the centreline u at the interior reference heights
     CavityComparison cmp;
+    bool converged = false;      // the solver met the residual tolerance on its own
+    int iterations = 0;          // outer iterations actually performed
+    double maxResidual = 0.0;    // worst gated residual at the end (continuity, u, v)
+    double velocityChange = 0.0; // per-iteration relative velocity change at the end
 };
 
 // Runs the cavity and evaluates the centreline profile against the published
@@ -118,7 +127,7 @@ CavityRun runCavity(const CavitySetup& setup, int iterations) {
 
     fvm::SIMPLE<2>::Config cfg;
     cfg.maxIterations = static_cast<std::size_t>(iterations);
-    cfg.tolerance = 1e-4;
+    cfg.tolerance = kTolerance;
     cfg.runFixedIterations = false;
     cfg.convergenceHoldIterations = 3;
     cfg.pressureCorrectors = 1;
@@ -147,6 +156,11 @@ CavityRun runCavity(const CavitySetup& setup, int iterations) {
     for (std::size_t c = 0; c < setup.mesh.nCells(); ++c)
         run.maxU = std::max(run.maxU, std::abs(velocity[0][c]));
     run.continuity = solver.finalNormalizedContinuityResidual();
+    run.converged = solver.converged();
+    run.iterations = solver.lastIterations();
+    const auto mom = solver.finalMomentumResiduals();
+    run.maxResidual = std::max(run.continuity, std::max(mom[0], mom[1]));
+    run.velocityChange = solver.finalMomentumChange();
 
     // The interior reference points (the wall points are excluded).
     const auto& ref = ghia400();
@@ -240,21 +254,29 @@ TEST_CASE("slow.cavity_msh.re400_accuracy_target") {
                   "the centreline L2 error " << r.cmp.l2 << " exceeds 8% of the lid speed");
 }
 
-// The cavity must reach a steady state: doubling the iteration count must not
-// move the centreline profile.
+// The cavity must reach a steady state. Convergence is a TOLERANCE statement,
+// not an iteration count: the run is steady when the continuity and both
+// momentum residuals are below the tolerance and the solver reports convergence
+// on its own, before the iteration budget is spent. The per-iteration velocity
+// change is checked as a loose fixed-point sanity condition: the residual test
+// is the formal criterion, this one says the profile has actually stopped
+// moving.
 TEST_CASE("slow.cavity_msh.steady_state") {
     const CavitySetup setup = loadCavity();
-    const CavityRun a = runCavity(setup, kIterations);
-    const CavityRun b = runCavity(setup, kIterations * 2);
+    const CavityRun a = runCavity(setup, kConvergedIterations);
 
-    double maxDiff = 0.0;
-    for (std::size_t i = 0; i < a.sampled.size() && i < b.sampled.size(); ++i)
-        maxDiff = std::max(maxDiff, std::fabs(a.sampled[i] - b.sampled[i]));
-
-    // MESSAGE("steady state: max profile change between " << kIterations << " and " << kIterations * 2
-    //                                                     << " iterations = " << maxDiff);
-    CHECK_MESSAGE(maxDiff <= 0.05, "the cavity must reach a steady state (profile change " << maxDiff
-                                         << ")");
+    CHECK_MESSAGE(a.converged,
+                  "the cavity must converge by tolerance within " << kConvergedIterations
+                                                                  << " iterations (ran "
+                                                                  << a.iterations << ", worst residual "
+                                                                  << a.maxResidual << ")");
+    CHECK_MESSAGE(a.iterations < kConvergedIterations,
+                  "the run must stop on the tolerance, not on the iteration budget");
+    CHECK_MESSAGE(a.maxResidual < kTolerance,
+                  "continuity, x-momentum and y-momentum must all be below the tolerance");
+    CHECK_MESSAGE(a.velocityChange < 1e-3,
+                  "the profile must have stopped moving (per-iteration velocity change "
+                      << a.velocityChange << ")");
 }
 
 } // TEST_SUITE("slow")

@@ -198,6 +198,20 @@ struct CaseSettings {
     double kInf = 1e-3, omegaInf = 1.0;
     double alphaK = 0.7, alphaOmega = 0.7;
 
+    // Gradient (slope) limiter for the second-order upwind reconstruction.
+    // Mirrors fvm::SlopeLimiter::Kind / Aggregation / Span as plain ints so the
+    // UI and case-file layers never need to include fvm headers.
+    //   limiterKind      : 0 MinMod, 1 Venkatakrishnan, 2 Cubic
+    //   limiterAggregation: 0 CellWide, 1 ComponentWise
+    //   limiterSpan      : 0 FaceCentre, 1 CentroidLine
+    //   limiterK         : Venkatakrishnan smoothing, eps = k*(hi-lo)
+    //   cubicTransition  : Cubic transition point where limiter -> 1 (1..2)
+    int limiterKind = 0;              // MinMod (default)
+    int limiterAggregation = 0;       // CellWide (default)
+    int limiterSpan = 0;              // FaceCentre (default)
+    double limiterK = 0.1;            // Venkatakrishnan smoothing constant
+    double cubicTransition = 1.5;     // Cubic transition point where limiter -> 1
+
     // Advanced SIMPLE settings
     std::size_t pressureRefCell = 0; // 0 = auto: boundary-adjacent cell near domain corner
     int pressureCorrectors = 1;

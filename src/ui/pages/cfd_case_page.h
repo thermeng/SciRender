@@ -15,6 +15,7 @@ class QLabel;
 class QDialog;
 class QDoubleSpinBox;
 class QRadioButton;
+class QButtonGroup;
 class QLineEdit;
 class QTimer;
 class ScientificDoubleSpinBox;
@@ -124,6 +125,17 @@ private:
     QSpinBox* m_numThreads = nullptr;
     QCheckBox* m_momentumSolverStats = nullptr;
     AmgConfigWidget* m_momentumAmgWidget = nullptr;
+
+    // Slope limiter (Advanced dialog, "Gradients" tab).
+    QComboBox* m_limiterKind = nullptr;
+    QRadioButton* m_limiterFaceCentre = nullptr;
+    QRadioButton* m_limiterCentroidLine = nullptr;
+    QButtonGroup* m_limiterSpanGroup = nullptr;
+    QDoubleSpinBox* m_limiterK = nullptr;
+    QRadioButton* m_limiterCellWide = nullptr;
+    QRadioButton* m_limiterComponentWise = nullptr;
+    QButtonGroup* m_limiterAggregationGroup = nullptr;
+    QDoubleSpinBox* m_limiterCubicTransition = nullptr;
 
     // Turbulence AMG hierarchy
     AmgConfigWidget* m_turbulenceAmgWidget = nullptr;

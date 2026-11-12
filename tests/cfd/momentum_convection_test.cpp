@@ -89,6 +89,19 @@ std::array<fvm::Field<2>, 2> linearGradient(const fvm::Mesh<2>& mesh) {
     return grad;
 }
 
+// A cell whose whole donor stencil is interior. The per-cell limiter is
+// evaluated from every face of a cell, boundary faces included, so a cell that
+// touches a local extremum - which every boundary cell does on a linear field -
+// is clipped to first order, and its neighbours inherit that through the
+// deferred correction. The exactness contract below therefore holds only where
+// the cell and every cell that can be its donor are interior.
+bool interiorStencil(const fvm::Mesh<2>& mesh, std::size_t i) {
+    if (mesh.isBoundary(i)) return false;
+    for (std::size_t nb : mesh.cellNeighbors(i))
+        if (mesh.isBoundary(nb)) return false;
+    return true;
+}
+
 } // namespace
 
 TEST_SUITE("cfd") {
@@ -97,7 +110,7 @@ TEST_SUITE("cfd") {
 // divergence for a linear field. A sign error or a missing receiver share in
 // the deferred correction shows up here immediately.
 TEST_CASE("cfd.momentum.sou_linear_field_exact") {
-    const fvm::Mesh<2> mesh = uniform2D(4);
+    const fvm::Mesh<2> mesh = uniform2D(7);
     const double rho = 1.0;
     fvm::Momentum<2> mom(mesh, rho, 0.0);   // no diffusion: pure convection
     const fvm::VectorField<2> vel = linearDivergenceFree(mesh);
@@ -108,7 +121,7 @@ TEST_CASE("cfd.momentum.sou_linear_field_exact") {
     const Eigen::VectorXd r = residual(op, vel);
 
     for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i)) continue;   // the boundary faces are a different stencil
+        if (!interiorStencil(mesh, i)) continue;
         CAPTURE(i);
         const double x = mesh.cellCenter(i)[0];
         const double expected = rho * x * mesh.cellVolume(i);
@@ -120,7 +133,7 @@ TEST_CASE("cfd.momentum.sou_linear_field_exact") {
 // The same field through the central operator: for a linear field every second
 // order scheme has to agree with it.
 TEST_CASE("cfd.momentum.sou_matches_central_on_linear_field") {
-    const fvm::Mesh<2> mesh = uniform2D(4);
+    const fvm::Mesh<2> mesh = uniform2D(7);
     const double rho = 1.0;
     fvm::Momentum<2> mom(mesh, rho, 0.0);
     const fvm::VectorField<2> vel = linearDivergenceFree(mesh);
@@ -134,7 +147,7 @@ TEST_CASE("cfd.momentum.sou_matches_central_on_linear_field") {
     const Eigen::VectorXd rc = residual(central, vel);
 
     for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        if (mesh.isBoundary(i)) continue;
+        if (!interiorStencil(mesh, i)) continue;
         CAPTURE(i);
         CHECK_MESSAGE(std::abs(rs(static_cast<Eigen::Index>(i)) - rc(static_cast<Eigen::Index>(i))) < 1e-12,
                       "on a linear field the second order and the central operators must agree");

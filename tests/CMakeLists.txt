@@ -151,6 +151,7 @@ scirender_add_test_suite(scirender_cfd_tests
     SOURCES
         cfd/mesh_geometry_test.cpp
         cfd/gradient_test.cpp
+        cfd/slope_limiter_test.cpp
         cfd/divergence_test.cpp
         cfd/poisson_test.cpp
         cfd/convection_test.cpp

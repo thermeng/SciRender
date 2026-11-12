@@ -11,6 +11,7 @@
 #include "ui_cfd_case_page.h"
 
 #include <QAbstractSpinBox>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
@@ -408,6 +409,76 @@ void CfdCasePage::buildAdvancedDialog() {
     turbulenceLay->addWidget(m_turbulenceAmgWidget);
     turbulenceLay->addStretch(1);
 
+    // ── Gradients ─────────────────────────────────────────────────────────────
+    auto* gradientsLay = addScrollPage("Gradients");
+    auto* gradientsForm = addGroup(gradientsLay, "Slope Limiter");
+
+    m_limiterKind = styleSpin(new QComboBox);
+    m_limiterKind->addItem("MinMod", 0);
+    m_limiterKind->addItem("Venkatakrishnan", 1);
+    m_limiterKind->addItem("Cubic", 2);
+    m_limiterKind->setToolTip(
+        "MinMod = Barth-Jespersen minmod, one factor per cell.\n"
+        "Venkatakrishnan = smooth Venkatakrishnan function (Star-CCM+ default).\n"
+        "Cubic = Michalak-Ollivier-Gooch cubic fit, never exceeds 1 "
+        "(OpenFOAM-recommended).");
+    gradientsForm->addRow("Limiter Method", m_limiterKind);
+
+    auto* directionLay = new QVBoxLayout;
+    directionLay->setContentsMargins(0, 0, 0, 0);
+    directionLay->setSpacing(4);
+    m_limiterSpanGroup = new QButtonGroup(m_advancedDlg);
+    m_limiterFaceCentre = new QRadioButton("Face Centre");
+    m_limiterFaceCentre->setChecked(true);
+    m_limiterFaceCentre->setToolTip("d = x_face - x_upwind (default).");
+    m_limiterSpanGroup->addButton(m_limiterFaceCentre, 0);
+    m_limiterCentroidLine = new QRadioButton("Centroid Line");
+    m_limiterCentroidLine->setToolTip("d along the cell-centroid line, scaled to "
+                                      "the face plane.");
+    m_limiterSpanGroup->addButton(m_limiterCentroidLine, 1);
+    directionLay->addWidget(m_limiterFaceCentre);
+    directionLay->addWidget(m_limiterCentroidLine);
+    gradientsForm->addRow("Limiting Span", directionLay);
+
+    auto* aggLay = new QVBoxLayout;
+    aggLay->setContentsMargins(0, 0, 0, 0);
+    aggLay->setSpacing(4);
+    m_limiterAggregationGroup = new QButtonGroup(m_advancedDlg);
+    m_limiterCellWide = new QRadioButton("Cell-wide");
+    m_limiterCellWide->setChecked(true);
+    m_limiterCellWide->setToolTip("One scale factor per cell: the most restrictive "
+                                  "face limits every face of the cell.");
+    m_limiterAggregationGroup->addButton(m_limiterCellWide, 0);
+    m_limiterComponentWise = new QRadioButton("Per Face");
+    m_limiterComponentWise->setToolTip("One scale factor per face: only faces that "
+                                       "leave the bound set are clipped.");
+    m_limiterAggregationGroup->addButton(m_limiterComponentWise, 1);
+    aggLay->addWidget(m_limiterCellWide);
+    aggLay->addWidget(m_limiterComponentWise);
+    gradientsForm->addRow("Limiting Scope", aggLay);
+
+    m_limiterK = styleSpin(new QDoubleSpinBox);
+    m_limiterK->setRange(0.0, 1e6);
+    m_limiterK->setDecimals(4);
+    m_limiterK->setSingleStep(0.01);
+    m_limiterK->setValue(0.1);
+    m_limiterK->setToolTip(
+        "Venkatakrishnan smoothing: eps = k * (hi - lo), relative to the local "
+        "field variation. Only used by the Venkatakrishnan limiter.");
+    gradientsForm->addRow("Smoothing Constant (k)", m_limiterK);
+
+    m_limiterCubicTransition = styleSpin(new QDoubleSpinBox);
+    m_limiterCubicTransition->setRange(1.0, 2.0);
+    m_limiterCubicTransition->setDecimals(2);
+    m_limiterCubicTransition->setSingleStep(0.05);
+    m_limiterCubicTransition->setValue(1.5);
+    m_limiterCubicTransition->setToolTip(
+        "Cubic transition point where the limiter reaches 1 (OpenFOAM uses 1.5). "
+        "Only used by the Cubic limiter.");
+    gradientsForm->addRow("Cubic Transition", m_limiterCubicTransition);
+
+    gradientsLay->addStretch(1);
+
     // ── Diagnostics ──────────────────────────────────────────────────────────
     auto* diagLay = addScrollPage("Diagnostics");
     auto* diagForm = addGroup(diagLay, "Residual Monitoring");
@@ -496,6 +567,14 @@ void CfdCasePage::applyDialogDefaults() {
     m_printFrequency->setValue(static_cast<int>(d.printFrequency));
     m_residualHistoryWindow->setValue(static_cast<int>(d.residualHistoryWindow));
     m_numThreads->setValue(d.numThreads);
+
+    m_limiterKind->setCurrentIndex(d.limiterKind);
+    m_limiterFaceCentre->setChecked(d.limiterSpan == 0);
+    m_limiterCentroidLine->setChecked(d.limiterSpan == 1);
+    m_limiterCellWide->setChecked(d.limiterAggregation == 0);
+    m_limiterComponentWise->setChecked(d.limiterAggregation == 1);
+    m_limiterK->setValue(d.limiterK);
+    m_limiterCubicTransition->setValue(d.cubicTransition);
 
     // Checkbox signals only fire on an actual change, so sync explicitly.
     syncDialogDependencies();
@@ -606,6 +685,14 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_velocityCorrectionMaxGrowthRate->setValue(s.velocityCorrectionMaxGrowthRate);
     m_numThreads->setValue(s.numThreads);
 
+    m_limiterKind->setCurrentIndex(s.limiterKind);
+    m_limiterFaceCentre->setChecked(s.limiterSpan == 0);
+    m_limiterCentroidLine->setChecked(s.limiterSpan == 1);
+    m_limiterCellWide->setChecked(s.limiterAggregation == 0);
+    m_limiterComponentWise->setChecked(s.limiterAggregation == 1);
+    m_limiterK->setValue(s.limiterK);
+    m_limiterCubicTransition->setValue(s.cubicTransition);
+
     m_pressureAmgWidget->setConfig(s.pressureAmg);
 
     m_momentumSolverStats->setChecked(s.momentumSolverStats);
@@ -708,6 +795,14 @@ void CfdCasePage::collectSettings() {
     s.velocityCorrectionMaxUnlimitedSpeed = m_velocityCorrectionMaxUnlimitedSpeed->value();
     s.velocityCorrectionMaxGrowthRate = m_velocityCorrectionMaxGrowthRate->value();
     s.numThreads = m_numThreads->value();
+
+    s.limiterKind = m_limiterKind->currentIndex();
+    s.limiterAggregation = m_limiterAggregationGroup->checkedId();
+    if (s.limiterAggregation < 0) s.limiterAggregation = 0;
+    s.limiterSpan = m_limiterSpanGroup->checkedId();
+    if (s.limiterSpan < 0) s.limiterSpan = 0;
+    s.limiterK = m_limiterK->value();
+    s.cubicTransition = m_limiterCubicTransition->value();
 
     // Pressure linear solver
     s.pressureAmg = m_pressureAmgWidget->config();

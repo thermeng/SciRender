@@ -6,6 +6,7 @@
 #include "fvm/Types.h"
 #include "fvm/SIMPLETypes.h"
 #include "fvm/Convection.h"
+#include "fvm/SlopeLimiter.h"
 #include "core/AlignedBuffer.hpp"
 #include <vector>
 #include <cstddef>
@@ -59,6 +60,11 @@ public:
         const std::array<Field<Dim>, Dim>* phiGrad = nullptr,
         const MomentumBCs& bcs = {});
 
+    // The slope limiter applied to the second-order-upwind reconstruction of the
+    // momentum components. It limits the face value, never the base upwind
+    // operator, so it cannot change the upwind or central schemes.
+    void setLimiter(const SlopeLimiterConfig& config) { limiter_.configure(config); }
+
     void computePressureGradient(const Field<Dim>& pressure,
                                  std::array<Field<Dim>, Dim>& grad) const;
     // Fused Dim=3 single-pass pressure gradient — replaces Dim × O(nF) with 1 × O(nF)
@@ -80,6 +86,7 @@ private:
     const Mesh<Dim>& mesh_;
     double rho_;
     double nu_;
+    SlopeLimiter<Dim> limiter_;
 
     mutable AlignedBuffer<double> diagSum_;
     mutable AlignedBuffer<double> diagInc_;

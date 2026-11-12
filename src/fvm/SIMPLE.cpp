@@ -41,6 +41,13 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
       }()) {
     linearSolverDispatcher_.setAmgConfig(config_.momentumAmg);
     applyPressureSolverConfig_();
+    // Slope limiter for the SOU reconstruction (momentum + turbulence).
+    momentum_.setLimiter(fvm::SlopeLimiterConfig{
+        static_cast<fvm::LimiterKind>(config_.limiterKind),
+        static_cast<fvm::LimiterAggregation>(config_.limiterAggregation),
+        static_cast<fvm::LimiterSpan>(config_.limiterSpan),
+        config_.limiterK,
+        config_.cubicTransition});
     for (auto& dc : dCoeff_) dc.assign(mesh.nCells(), 0.0);
     for (auto& g : velGrad_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : pressureGrad_) g = Field<Dim>(mesh, 0.0);
@@ -212,6 +219,12 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
         } else {
             sstCfg.wallTreatment = WallTreatment::LowRe;
         }
+        sstCfg.limiter = fvm::SlopeLimiterConfig{
+            static_cast<fvm::LimiterKind>(config_.limiterKind),
+            static_cast<fvm::LimiterAggregation>(config_.limiterAggregation),
+            static_cast<fvm::LimiterSpan>(config_.limiterSpan),
+            config_.limiterK,
+            config_.cubicTransition};
         sstCfg.turbulenceAmgConfig = config_.turbulenceAmg;
         sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
         sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
@@ -283,6 +296,12 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
         sstCfg.turbulenceAmgConfig = config_.turbulenceAmg;
         sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
         sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
+        sstCfg.limiter = fvm::SlopeLimiterConfig{
+            static_cast<fvm::LimiterKind>(config_.limiterKind),
+            static_cast<fvm::LimiterAggregation>(config_.limiterAggregation),
+            static_cast<fvm::LimiterSpan>(config_.limiterSpan),
+            config_.limiterK,
+            config_.cubicTransition};
         if (!turbulence_) {
             turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
         } else {

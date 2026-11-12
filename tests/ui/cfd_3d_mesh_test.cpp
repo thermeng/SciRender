@@ -66,7 +66,7 @@ void configureTransient(CfdController& ctrl, double tEnd) {
     s.transient.tEnd = tEnd;
     s.transient.adaptiveCfl = false;
     s.transient.maxOuterCorrectors = 1;
-    s.transient.timeScheme = cfd::TransientSettings::TimeScheme::BackwardEuler;
+    s.transient.timeScheme = fvm::TimeScheme::Euler;
     s.transient.writeInterval = 0; // no VTU/PVD side effects in the test
     s.tolerance = 1e-4;
     s.numThreads = 1;

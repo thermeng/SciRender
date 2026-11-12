@@ -853,6 +853,7 @@ void SSTModel<Dim>::solveKTransportImpl(const VectorField<Dim>& velocity,
 
     std::array<const Field<Dim>*, Dim> velPtrs{};
     for (std::size_t d = 0; d < Dim; ++d) velPtrs[d] = &velocity[d];
+    convection_.setLimiter(config_.limiter);
     convection_.setScheme(scheme);
     convection_.discretize(A, b, k_, velPtrs,
                            ConvectionBCs{kBCMask_, kBCVals_, {}, {}}, &gradK_);
@@ -941,6 +942,7 @@ void SSTModel<Dim>::solveOmegaTransportImpl(const VectorField<Dim>& velocity,
 
     std::array<const Field<Dim>*, Dim> velPtrs{};
     for (std::size_t d = 0; d < Dim; ++d) velPtrs[d] = &velocity[d];
+    convection_.setLimiter(config_.limiter);
     convection_.setScheme(scheme);
     convection_.discretize(A, b, omega_, velPtrs,
                            ConvectionBCs{omegaBCMask_, omegaBCVals_, {}, {}}, &gradOmega_);
