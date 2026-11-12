@@ -205,6 +205,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/Laplacian.cpp
         src/fvm/Poisson.cpp
         src/fvm/Gradient.cpp
+        src/fvm/SlopeLimiter.cpp
         src/fvm/Divergence.cpp
         src/fvm/Convection.cpp
         src/fvm/Momentum.cpp

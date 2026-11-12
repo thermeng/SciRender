@@ -67,6 +67,8 @@ public:
         // Relative residual above which the turbulence AMG result is rejected
         // and the solve is redone with ILU.
         double turbulenceAmgMaxResidual = 0.1;
+        // Gradient limiter applied to the k/omega transport reconstruction.
+        fvm::SlopeLimiterConfig limiter;
     };
 
     SSTModel(const Mesh<Dim>& mesh, Config config);

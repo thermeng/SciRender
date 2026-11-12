@@ -4,42 +4,9 @@
 
 namespace fvm {
 
-// Helper: Barth-Jespersen limited SOU correction
 template<std::size_t Dim>
-inline double limitedSOUCorrection(
-    const Mesh<Dim>& mesh,
-    std::size_t up,
-    std::size_t f,
-    double gradDotR,
-    double phiUp,
-    const Field<Dim>& phi,
-    const std::vector<char>& dirichletMask,
-    const std::vector<double>& dirichletValues)
-{
-    // Find min/max among neighbors of up (including up itself)
-    double phiMin = phiUp;
-    double phiMax = phiUp;
-    const auto& neighbors = mesh.cellNeighbors(up);
-    for (std::size_t nb : neighbors) {
-        double val;
-        if (!dirichletMask.empty() && nb < dirichletMask.size() && dirichletMask[nb] &&
-            nb < dirichletValues.size()) {
-            val = dirichletValues[nb];
-        } else {
-            val = phi[nb];
-        }
-        if (val < phiMin) phiMin = val;
-        if (val > phiMax) phiMax = val;
-    }
-    double phiF = phiUp + gradDotR;
-    // Also consider up itself for bounds already, but clamp
-    if (phiF > phiMax) phiF = phiMax;
-    else if (phiF < phiMin) phiF = phiMin;
-    return phiF - phiUp;
-}
-
-template<std::size_t Dim>
-Convection<Dim>::Convection(const Mesh<Dim>& mesh) : mesh_(mesh) {}
+Convection<Dim>::Convection(const Mesh<Dim>& mesh)
+    : mesh_(mesh), limiter_(mesh) {}
 
 template<std::size_t Dim>
 void Convection<Dim>::setScheme(ConvectionScheme scheme) {
@@ -49,6 +16,11 @@ void Convection<Dim>::setScheme(ConvectionScheme scheme) {
 template<std::size_t Dim>
 ConvectionScheme Convection<Dim>::scheme() const {
     return scheme_;
+}
+
+template<std::size_t Dim>
+void Convection<Dim>::setLimiter(const SlopeLimiterConfig& config) {
+    limiter_.configure(config);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +55,12 @@ void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::Vect
 
     const std::array<Field<Dim>, Dim>* gradPtr = phiGrad;
     diagInc.assign(n, 0.0);
+
+    // The slope limiter is a property of the field, not of the flux, so it is
+    // evaluated once per field and read by every face below.
+    const std::vector<char>* maskPtr = hasMask ? &bcs.scalarMask : nullptr;
+    const std::vector<double>* valuesPtr = hasMask ? &bcs.scalarValues : nullptr;
+    if (useSOU) limiter_.prepare(phi, *gradPtr, maskPtr, valuesPtr);
 
     // The flux of a face, split between the two cells it separates.
     auto addConvFlux = [&](double flux, std::size_t from, std::size_t to) {
@@ -131,14 +109,8 @@ void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::Vect
                 // Outflow: the face value is the owner value.
                 diagInc[P] += F;
                 if (useSOU) {
-                    const double* xF = mesh_.faceCenterPtr(f);
-                    const double* xUp = mesh_.cellCenterPtr(P);
-                    double gradDotR = 0.0;
-                    for (std::size_t d = 0; d < Dim; ++d)
-                        gradDotR += (*gradPtr)[d][P] * (xF[d] - xUp[d]);
-                    double limited = limitedSOUCorrection(mesh_, P, f, gradDotR, phi[P], phi,
-                                                           bcs.scalarMask, bcs.scalarValues);
                     // Known LHS term -> RHS with a sign flip (see the SOU branch).
+                    const double limited = limiter_.correction(P, f);
                     b(P) -= F * limited;
                 }
             } else {
@@ -165,7 +137,6 @@ void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::Vect
         addConvFlux(F, P, N);
         addConvFlux(-F, N, P);
         if (useSOU) {
-            const double* xF = mesh_.faceCenterPtr(f);
             // Upwind cell is P for F >= 0 and N for F < 0. The deferred
             // correction belongs to both cells; the downwind cell always needs
             // its share, even when the upwind cell is prescribed (then the
@@ -177,12 +148,7 @@ void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::Vect
             const std::size_t downCell = upIsP ? N : P;
             const bool upPrescribed = hasMask && bcs.scalarMask[upCell];
             const bool downPrescribed = hasMask && bcs.scalarMask[downCell];
-            const double* xUp = mesh_.cellCenterPtr(upCell);
-            double gradDotR = 0.0;
-            for (std::size_t d = 0; d < Dim; ++d) gradDotR += (*gradPtr)[d][upCell] * (xF[d] - xUp[d]);
-            double phiUp = upPrescribed ? bcs.scalarValues[upCell] : phi[upCell];
-            double limited = limitedSOUCorrection(mesh_, upCell, f, gradDotR, phiUp, phi,
-                                                   bcs.scalarMask, bcs.scalarValues);
+            const double limited = limiter_.correction(upCell, f);
             if (upIsP) {
                 if (!upPrescribed) b(P) -= F * limited;
                 if (!downPrescribed) b(N) += F * limited;

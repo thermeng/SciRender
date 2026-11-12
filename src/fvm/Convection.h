@@ -3,6 +3,7 @@
 #include "mesh/Mesh.h"
 #include "field/Field.h"
 #include "fvm/Types.h"
+#include "fvm/SlopeLimiter.h"
 #include <array>
 #include <vector>
 #include <cstddef>
@@ -30,6 +31,12 @@ public:
 
     void setScheme(ConvectionScheme scheme);
     ConvectionScheme scheme() const;
+
+    // The slope limiter applied to the second-order-upwind reconstruction. It
+    // limits the face value, never the base upwind operator, so changing it
+    // cannot change the upwind or central schemes.
+    void setLimiter(const SlopeLimiterConfig& config);
+    const SlopeLimiterConfig& limiterConfig() const { return limiter_.config(); }
 
     // Assembles into a sparse matrix, which is ADDED to (the caller has
     // usually filled it with the diffusion operator first). The diagonal is
@@ -67,6 +74,7 @@ private:
 
     const Mesh<Dim>& mesh_;
     ConvectionScheme scheme_ = ConvectionScheme::Upwind;
+    SlopeLimiter<Dim> limiter_;
 };
 
 extern template class Convection<2>;

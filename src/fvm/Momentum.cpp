@@ -1,16 +1,19 @@
 #include "fvm/Momentum.h"
 #include "fvm/FaceState.h"
 #include "fvm/Gradient.h"
+
 #include "fvm/SSTConstants.h"
 #include "fvm/Validation.h"
+#include "fvm/SlopeLimiter.h"
 #include "mesh/BoundaryUtils.h"
 #include <algorithm>
+#include <stdexcept>
 
 namespace fvm {
 
 template<std::size_t Dim>
 Momentum<Dim>::Momentum(const Mesh<Dim>& mesh, double rho, double nu)
-    : mesh_(mesh), rho_(rho), nu_(nu) {}
+    : mesh_(mesh), rho_(rho), nu_(nu), limiter_(mesh) {}
 
 template<std::size_t Dim>
 void Momentum<Dim>::ensureWorkspace_(std::size_t n) const {
@@ -222,6 +225,20 @@ void Momentum<Dim>::assembleWithConvection(
     const bool hasSource = source.size() > 0;
     validateDirichlet(n, dirichletMask, dirichletValues);
 
+    const bool useSOU = (scheme == ConvectionScheme::SecondOrderUpwind);
+    // Second order upwind reconstructs from the cell gradient. Without one the
+    // call is rejected rather than silently degrading to plain upwind.
+    if (useSOU && phiGrad == nullptr)
+        throw std::invalid_argument(
+            "Momentum::assembleWithConvection: second order upwind needs the cell gradient");
+    const std::vector<char>* maskPtr = hasMask ? &dirichletMask : nullptr;
+    const std::vector<double>* valuesPtr = hasMask ? &dirichletValues : nullptr;
+    // The limiter is a property of the field, not of the flux: one prepare per
+    // velocity component, then every face reads it.
+    if (useSOU) limiter_.prepare(velocity[d], *phiGrad, maskPtr, valuesPtr);
+
+    ensureWorkspace_(n);
+
     ensureWorkspace_(n);
     diagSum_.fill(0.0);
     diagInc_.fill(0.0);
@@ -324,25 +341,15 @@ void Momentum<Dim>::assembleWithConvection(
                         // part F*corr moves to the right-hand side with a sign flip
                         // (b(P) -= F*corr). Adding it with the opposite sign turns the
                         // bounded second-order reconstruction into a downwind one.
-                        if (scheme == ConvectionScheme::SecondOrderUpwind && phiGrad != nullptr) {
-                            const double* xUp = mesh_.cellCenterPtr(P);
-                            double gradDotR = 0.0;
-                            for (std::size_t dd = 0; dd < Dim; ++dd) {
-                                double r = xF[dd] - xUp[dd];
-                                gradDotR += (*phiGrad)[dd][P] * r;
-                            }
-                            double phiUp = velocity[d][P];
-                            double phiMin = phiUp, phiMax = phiUp;
-                            for (auto nb : mesh_.cellNeighbors(P)) {
-                                double v = velocity[d][nb];
-                                if (hasMask) prescribedValue(dirichletMask, dirichletValues, nb, v);
-                                if (v < phiMin) phiMin = v;
-                                if (v > phiMax) phiMax = v;
-                            }
-                            double phiF = phiUp + gradDotR;
-                            if (phiF > phiMax) phiF = phiMax;
-                            else if (phiF < phiMin) phiF = phiMin;
-                            b(P) -= F * (phiF - phiUp);
+                        if (useSOU) {
+                            // Known LHS term -> RHS with a sign flip: the base
+                            // upwind assembly already carries F*phi_up, so only
+                            // the limited increment moves to the right-hand
+                            // side. Adding it with the opposite sign would turn
+                            // the bounded reconstruction into a downwind one.
+                            const double corr =
+                                limiter_.correction(P, f);
+                            b(P) -= F * corr;
                         }
                     } else {
                         // Inflow through this face: the upwind state is the
@@ -467,70 +474,22 @@ void Momentum<Dim>::assembleWithConvection(
             // BOTH shares are required. Dropping the receiver's share, or
             // flipping the sign, makes the convective operator
             // non-conservative and turns the bounded second-order scheme into
-            // an unbounded downwind one. This mirrors the scalar Convection
-            // operator (src/fvm/Convection.cpp), which is the tested
-            // reference for this contract.
-            if (scheme == ConvectionScheme::SecondOrderUpwind) {
+            // an unbounded downwind one.
+            //
+            // The limiter is the same SlopeLimiter the scalar Convection
+            // operator uses, prepared once before the face loop, so the two
+            // operators cannot drift apart.
+            if (useSOU) {
                 const bool upIsP = (F >= 0.0);
                 const std::size_t upCell = upIsP ? P : N;
                 const std::size_t downCell = upIsP ? N : P;
                 const bool upPrescribed = hasMask && dirichletMask[upCell];
                 const bool downPrescribed = hasMask && dirichletMask[downCell];
                 const double fluxMag = std::abs(F);
+                const double corr =
+                    limiter_.correction(upCell, f);
 
-                double corr = 0.0;
-                bool haveCorr = false;
-
-                if (phiGrad != nullptr) {
-                    // Gradient reconstruction, clamped to the bounds of the
-                    // upwind cell's neighbours (Barth-Jespersen style).
-                    const double* xF = mesh_.faceCenterPtr(f);
-                    const double* xUp = mesh_.cellCenterPtr(upCell);
-                    double gradDotR = 0.0;
-                    for (std::size_t dd = 0; dd < Dim; ++dd) {
-                        double r = xF[dd] - xUp[dd];
-                        gradDotR += (*phiGrad)[dd][upCell] * r;
-                    }
-                    double phiUp = upPrescribed ? dirichletValues[upCell] : velocity[d][upCell];
-                    double phiMin = phiUp, phiMax = phiUp;
-                    for (auto nb : mesh_.cellNeighbors(upCell)) {
-                        double v = (hasMask && dirichletMask[nb]) ? dirichletValues[nb] : velocity[d][nb];
-                        if (v < phiMin) phiMin = v;
-                        if (v > phiMax) phiMax = v;
-                    }
-                    double phiF = phiUp + gradDotR;
-                    if (phiF > phiMax) phiF = phiMax;
-                    else if (phiF < phiMin) phiF = phiMin;
-                    corr = phiF - phiUp;
-                    haveCorr = true;
-                } else {
-                    // Second order upwind without a cell gradient: fall back to
-                    // the distance-weighted two-cell extrapolation.
-                    std::array<double, Dim> fnArr{};
-                    for (std::size_t dd = 0; dd < Dim; ++dd) fnArr[dd] = fn[dd];
-                    auto upPair = secondOrderUpwindCells(mesh_, P, N, un, fnArr);
-                    const std::size_t up = upPair.first;
-                    const std::size_t up2 = upPair.second;
-                    if (up != up2) {
-                        const double phiUp = (hasMask && dirichletMask[up]) ? dirichletValues[up] : velocity[d][up];
-                        const double phiUp2 = velocity[d][up2];
-                        const double* xF2 = mesh_.faceCenterPtr(f);
-                        const double* xUp = mesh_.cellCenterPtr(up);
-                        const double* xUp2 = mesh_.cellCenterPtr(up2);
-                        double distF = 0, distUp = 0;
-                        for (std::size_t dd = 0; dd < Dim; ++dd) { double df = xF2[dd]-xUp[dd]; double du = xUp[dd]-xUp2[dd]; distF += df*df; distUp += du*du; }
-                        distF = std::sqrt(distF); distUp = std::sqrt(distUp);
-                        double wgt = (distUp > 1e-12 ? distF/distUp : 0.5); if (wgt > 2.0) wgt = 2.0;
-                        double phiF = phiUp + wgt * (phiUp - phiUp2);
-                        double phiMin = std::min(phiUp, phiUp2), phiMax = std::max(phiUp, phiUp2);
-                        for (auto nb : mesh_.cellNeighbors(up)) { double v = velocity[d][nb]; if (v < phiMin) phiMin = v; if (v > phiMax) phiMax = v; }
-                        if (phiF > phiMax) phiF = phiMax; else if (phiF < phiMin) phiF = phiMin;
-                        corr = phiF - phiUp;
-                        haveCorr = true;
-                    }
-                }
-
-                if (haveCorr && corr != 0.0 && fluxMag > 0.0) {
+                if (corr != 0.0 && fluxMag > 0.0) {
                     if (!upPrescribed) b(upCell) -= fluxMag * corr;
                     if (!downPrescribed) b(downCell) += fluxMag * corr;
                 }
