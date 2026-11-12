@@ -1152,7 +1152,6 @@ void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int s
     S()->onAnimationFrame(mesh, step, time);
     S()->setMeshUseScalarColor(hadScalarColor);
     m_iterValue->setText(QString::number(step));
-    log(QString("Transient: step %1, t = %2 s").arg(step).arg(time, 0, 'g', 6));
 }
 
 void CfdCasePage::onPauseSettled() {
