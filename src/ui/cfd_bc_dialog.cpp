@@ -71,7 +71,7 @@ const char* hintForType(cfd::BCType type) {
 QLabel* sectionHeader(const QString& text, QWidget* parent) {
     auto* label = new QLabel(text, parent);
     QFont f = label->font();
-    f.setPixelSize(11);
+    f.setPointSize(11);
     f.setWeight(QFont::Medium);
     f.setLetterSpacing(QFont::AbsoluteSpacing, 0.3);
     label->setFont(f);
@@ -81,16 +81,15 @@ QLabel* sectionHeader(const QString& text, QWidget* parent) {
 QLabel* fieldLabel(const QString& text, QWidget* parent) {
     auto* label = new QLabel(text, parent);
     QFont f = label->font();
-    f.setPixelSize(10);
+    f.setPointSize(10);
     label->setFont(f);
     return label;
 }
 
-QFrame* divider(QWidget* parent) {
+QFrame* divider(QWidget* parent, QFrame::Shape shape = QFrame::HLine) {
     auto* line = new QFrame(parent);
-    line->setFrameShape(QFrame::NoFrame);
-    line->setFixedHeight(1);
-    line->setStyleSheet("background-color: palette(mid);");
+    line->setFrameShape(shape);
+    line->setFrameShadow(QFrame::Sunken);
     return line;
 }
 
@@ -104,8 +103,11 @@ QDoubleSpinBox* makeCoefficientSpin(double value, QWidget* parent) {
     spin->setMinimumWidth(84);
     spin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     QFont f("JetBrains Mono");
-    f.setStyleHint(QFont::Monospace);
-    f.setPixelSize(11);
+    if (f.family().isEmpty()) {
+        f = QFont();
+        f.setStyleHint(QFont::Monospace);
+    }
+    f.setPointSize(11);
     spin->setFont(f);
     return spin;
 }
@@ -142,7 +144,7 @@ CfdBoundaryConditionsDialog::CfdBoundaryConditionsDialog(std::vector<cfd::PatchB
     auto* description = new QLabel(
         "Assign a condition to each mesh patch. Select a patch to edit its parameters.", this);
     description->setWordWrap(true);
-    description->setStyleSheet("color: palette(mid);");
+    description->setStyleSheet("color: palette(windowText);");
 
     auto* presetRow = new QHBoxLayout();
     presetRow->setSpacing(6);
@@ -244,7 +246,7 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     QFont metaFont = m_patchMeta->font();
     metaFont.setPixelSize(10);
     m_patchMeta->setFont(metaFont);
-    m_patchMeta->setStyleSheet("color: palette(mid);");
+    m_patchMeta->setStyleSheet("color: palette(windowText);");
 
     lay->addWidget(m_patchTitle);
     lay->addWidget(m_patchMeta);
@@ -373,7 +375,7 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     // ── Explanation for conditions with no parameters ──
     m_hint = new QLabel(detail);
     m_hint->setWordWrap(true);
-    m_hint->setStyleSheet("color: palette(mid);");
+    m_hint->setStyleSheet("color: palette(windowText);");
     lay->addWidget(m_hint);
 
     lay->addStretch(1);
