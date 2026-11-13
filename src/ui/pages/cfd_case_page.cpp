@@ -382,11 +382,15 @@ void CfdCasePage::buildAdvancedDialog() {
         "Cell that pins the pressure datum when no pressure outlet exists. auto = last cell.");
     pressureForm->addRow("Reference Cell", m_pressureRefCell);
 
+    m_pressureSolverStats = new QCheckBox("Pressure Solver Statistics");
+    m_pressureSolverStats->setToolTip("Print per-run pressure linear-solver statistics.");
+    pressureLay->addWidget(m_pressureSolverStats);
+
     pressureLay->addStretch(1);
 
     // ── Pressure AMG ─────────────────────────────────────────────────────────
     // The tab name already scopes these, so no caption is needed.
-    auto* pressureAmgLay = addScrollPage("Pressure AMG");
+    auto* pressureAmgLay = addScrollPage("Pressure");
     m_pressureAmgWidget = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults(), nullptr, true);
     pressureAmgLay->addWidget(m_pressureAmgWidget);
     pressureAmgLay->addWidget(dialogNote(
@@ -398,7 +402,7 @@ void CfdCasePage::buildAdvancedDialog() {
     // ── Momentum ─────────────────────────────────────────────────────────────
     auto* momentumLay = addScrollPage("Momentum");
 
-    m_momentumSolverStats = new QCheckBox("Momentum Solver Stats");
+    m_momentumSolverStats = new QCheckBox("Momentum Solver Statistics");
     m_momentumSolverStats->setToolTip("Print per-run momentum linear-solver statistics.");
     momentumLay->addWidget(m_momentumSolverStats);
 
@@ -427,7 +431,7 @@ void CfdCasePage::buildAdvancedDialog() {
     m_limiterKind->addItem("Cubic", 2);
     m_limiterKind->setToolTip(
         "MinMod = Barth-Jespersen minmod, one factor per cell.\n"
-        "Venkatakrishnan = smooth Venkatakrishnan function (Star-CCM+ default).\n"
+        "Venkatakrishnan = smooth Venkatakrishnan function.\n"
         "Cubic = Michalak-Ollivier-Gooch cubic fit, never exceeds 1 "
         "(OpenFOAM-recommended).");
     gradientsForm->addRow("Limiter Method", m_limiterKind);
@@ -568,6 +572,7 @@ void CfdCasePage::applyDialogDefaults() {
     m_pressureAmgWidget->resetToDefaults();
 
     m_momentumSolverStats->setChecked(d.momentumSolverStats);
+    m_pressureSolverStats->setChecked(d.pressureSolverStats);
     m_momentumAmgWidget->resetToDefaults();
 
     m_turbulenceAmgWidget->resetToDefaults();
@@ -709,6 +714,7 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_pressureAmgWidget->setConfig(s.pressureAmg);
 
     m_momentumSolverStats->setChecked(s.momentumSolverStats);
+    m_pressureSolverStats->setChecked(s.pressureSolverStats);
     m_momentumAmgWidget->setConfig(s.momentumAmg);
 
     m_transientRadio->setChecked(s.transient.enabled);
@@ -817,6 +823,7 @@ void CfdCasePage::collectSettings() {
 
     // Momentum linear solver
     s.momentumSolverStats = m_momentumSolverStats->isChecked();
+    s.pressureSolverStats = m_pressureSolverStats->isChecked();
     s.momentumAmg = m_momentumAmgWidget->config();
 
     // Turbulence AMG

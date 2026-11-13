@@ -68,6 +68,35 @@ struct MeshBuildPolicy {
                     rm.indices.push_back(static_cast<std::uint32_t>(cell[i + 1]));
                 }
             }
+            // Wireframe: emit boundary cycle edges of every cell, deduped so
+            // shared edges between adjacent cells draw once. Without this the
+            // wireframe pass falls back to GL_LINE on the triangulated index
+            // buffer and draws the diagonal of every quad.
+            std::vector<std::uint32_t> edges;
+            std::unordered_set<std::uint64_t> seenEdges;
+            seenEdges.reserve(m.cells().size() * 4);
+            auto emitEdge = [&](std::uint32_t a, std::uint32_t b) {
+                if (a > b) std::swap(a, b);
+                const std::uint64_t key =
+                    (static_cast<std::uint64_t>(a) << 32) | static_cast<std::uint64_t>(b);
+                if (seenEdges.insert(key).second) {
+                    edges.push_back(a);
+                    edges.push_back(b);
+                }
+            };
+            for (const auto& cell : m.cells()) {
+                if (cell.size() < 3) continue;
+                bool inRange = true;
+                for (std::size_t v : cell) {
+                    if (v >= m.vertices().size()) { inRange = false; break; }
+                }
+                if (!inRange) continue;
+                for (std::size_t i = 0; i < cell.size(); ++i) {
+                    emitEdge(static_cast<std::uint32_t>(cell[i]),
+                             static_cast<std::uint32_t>(cell[(i + 1) % cell.size()]));
+                }
+            }
+            rm.cellEdgeIndices = std::move(edges);
         } else {
             // A volume mesh renders its external surface: only faces without a
             // neighbour on the other side.

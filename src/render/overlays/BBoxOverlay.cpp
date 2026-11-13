@@ -54,9 +54,9 @@ void BBoxOverlay::draw(const RenderRenderState& state, const glm::mat4& view, co
     glUseProgram(m_program);
     glUniformMatrix4fv(m_mvpLoc, 1, GL_FALSE, glm::value_ptr(mvp));
     glUniform4f(m_colorLoc,
-                state.meshColor[0],
-                state.meshColor[1],
-                state.meshColor[2],
+                state.bboxColor[0],
+                state.bboxColor[1],
+                state.bboxColor[2],
                 1.0f);
 
     glBindVertexArray(m_vao);
