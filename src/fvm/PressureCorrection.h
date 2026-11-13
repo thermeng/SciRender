@@ -86,6 +86,11 @@ public:
     // keep the field usable, but the caller must abort rather than continue
     // from a correction that was never computed.
     bool lastSolveProducedNonFinite() const { return lastSolveProducedNonFinite_; }
+    // Pressure-outlet faces whose normal velocity is inward during the last
+    // solve. The diagnostic is a property of the flow state, not of any single
+    // corrector, so the caller reports it once per time step rather than letting
+    // every corrector repeat it. 0 means "no reverse flow at the outlets".
+    std::size_t lastReverseFlowFaces() const { return lastReverseFlowFaces_; }
     const PressureSolverStats& pressureStats() const { return pressureStats_; }
     void resetPressureStats() { pressureStats_ = PressureSolverStats{}; }
     // AMG hierarchy diagnostics (levels actually built and their sizes), for
@@ -141,6 +146,8 @@ private:
     std::size_t lastSolveIterations_ = 0;
     double lastSolveResidual_ = 0.0;
     bool lastSolveProducedNonFinite_ = false;
+    // Pressure-outlet faces with inward normal velocity during the last solve.
+    std::size_t lastReverseFlowFaces_ = 0;
     mutable PressureSolverStats pressureStats_{};
 
     Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,

@@ -18,6 +18,7 @@ class QRadioButton;
 class QButtonGroup;
 class QLineEdit;
 class QTimer;
+class QLayout;
 class ScientificDoubleSpinBox;
 
 namespace sidebar {
@@ -129,6 +130,10 @@ private:
 
     // Slope limiter (Advanced dialog, "Gradients" tab).
     QComboBox* m_limiterKind = nullptr;
+    // Limiter-only rows. They are hidden with their captions when another
+    // limiter is selected, so the Gradients tab does not carry dead fields.
+    QWidget* m_limiterKRow = nullptr;
+    QWidget* m_limiterCubicRow = nullptr;
     QRadioButton* m_limiterFaceCentre = nullptr;
     QRadioButton* m_limiterCentroidLine = nullptr;
     QButtonGroup* m_limiterSpanGroup = nullptr;

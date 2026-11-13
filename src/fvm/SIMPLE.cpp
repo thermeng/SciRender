@@ -887,6 +887,14 @@ void SIMPLE<Dim>::printIterationOutput_(std::size_t iter) {
         if (turbulence_) line << std::setw(wRes) << turbulence_->finalKResid()
                                << std::setw(wRes) << turbulence_->finalOmegaResid();
         std::cout << line.str() << std::endl;
+        // Once per printed outer iteration, not once per corrector: the pressure
+        // solve runs inside every corrector, so reading the count there printed
+        // the same line as many times as there were correctors.
+        const std::size_t reverseFlow = pressureCorrection_.lastReverseFlowFaces();
+        if (reverseFlow > 0) {
+            std::cerr << "  WARNING: " << reverseFlow
+                      << " pressure outlet face(s) with reverse flow\n";
+        }
     }
 }
 
@@ -1542,6 +1550,14 @@ void SIMPLE<Dim>::printTransientOutput_(int step, double time) {
     if (turbulence_) line << std::setw(wRes) << turbulence_->finalKResid()
                            << std::setw(wRes) << turbulence_->finalOmegaResid();
     std::cout << line.str() << std::endl;
+    // One reverse-flow line per time step. The pressure solve runs once per
+    // corrector, so reading the count there repeated the same warning for every
+    // corrector of a step; here the step is the unit the result is reported in.
+    const std::size_t reverseFlow = pressureCorrection_.lastReverseFlowFaces();
+    if (reverseFlow > 0) {
+        std::cerr << "  WARNING: " << reverseFlow
+                  << " pressure outlet face(s) with reverse flow\n";
+    }
 }
 
 template<std::size_t Dim>

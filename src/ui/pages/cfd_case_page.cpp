@@ -27,7 +27,6 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
-#include <QScrollArea>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTimer>
@@ -309,41 +308,46 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
 void CfdCasePage::buildAdvancedDialog() {
     m_advancedDlg = new QDialog(this);
     m_advancedDlg->setWindowTitle("Advanced Solver Settings");
-    m_advancedDlg->resize(780, 620);
 
     auto* tabs = new QTabWidget(m_advancedDlg);
     auto* outer = new QVBoxLayout(m_advancedDlg);
+    outer->setContentsMargins(8, 8, 8, 8);
+    outer->setSpacing(6);
     outer->addWidget(tabs);
 
-    // Every page is scrollable: the AMG pages are taller than the dialog.
-    // Content hugs the top because each page ends with a stretch; without it a
+    // No scroll area: every page is short enough to sit in a plain tab, so the
+    // dialog can be sized to its content and never grow a scrollbar. The page
+    // layout hugs the top because each page ends with a stretch; without it a
     // short page spreads its rows apart to fill the viewport, which is what
     // opened the large gaps between the pressure fields and their header.
-    auto addScrollPage = [&](const QString& title) {
+    auto addPage = [&](const QString& title) {
         auto* page = new QWidget;
         auto* lay = new QVBoxLayout(page);
-        lay->setContentsMargins(12, 12, 12, 12);
-        lay->setSpacing(10);
-        auto* scroll = new QScrollArea;
-        scroll->setWidgetResizable(true);
-        scroll->setFrameShape(QFrame::NoFrame);
-        scroll->setWidget(page);
-        tabs->addTab(scroll, title);
+        lay->setContentsMargins(8, 8, 8, 8);
+        lay->setSpacing(4);
+        tabs->addTab(page, title);
         return lay;
     };
     // A titled group per related set of settings. Titled frames make the
     // structure visible without the floating header labels the old layout had.
-    auto addGroup = [](QVBoxLayout* lay, const QString& title) {
+    // Returns the box and its form: a page places the box itself, so the caller
+    // decides whether the group is stacked or sits beside another one.
+    auto makeGroup = [](const QString& title) {
         auto* box = new QGroupBox(title);
         auto* form = new QFormLayout(box);
-        form->setContentsMargins(12, 8, 12, 12);
-        form->setSpacing(6);
+        form->setContentsMargins(8, 6, 8, 8);
+        form->setSpacing(4);
         form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
         form->setRowWrapPolicy(QFormLayout::DontWrapRows);
         form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
-        lay->addWidget(box);
-        return form;
+        return std::make_pair(box, form);
+    };
+    // Stacks one group under another in a plain page column.
+    auto addGroup = [makeGroup](QVBoxLayout* lay, const QString& title) {
+        auto group = makeGroup(title);
+        lay->addWidget(group.first);
+        return group.second;
     };
     auto styleSpin = [](auto* spin) {
         spin->setFixedWidth(110);
@@ -355,7 +359,7 @@ void CfdCasePage::buildAdvancedDialog() {
     };
 
     // ── Pressure ─────────────────────────────────────────────────────────────
-    auto* pressureLay = addScrollPage("Pressure");
+    auto* pressureLay = addPage("Pressure");
     auto* pressureForm = addGroup(pressureLay, "Pressure Correction");
 
     m_pressureCorrectors = styleSpin(new QSpinBox);
@@ -388,19 +392,15 @@ void CfdCasePage::buildAdvancedDialog() {
 
     pressureLay->addStretch(1);
 
-    // ── Pressure AMG ─────────────────────────────────────────────────────────
+    // ── Pressure ─────────────────────────────────────────────────────────
     // The tab name already scopes these, so no caption is needed.
-    auto* pressureAmgLay = addScrollPage("Pressure");
+    auto* pressureAmgLay = addPage("Pressure");
     m_pressureAmgWidget = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults(), nullptr, true);
     pressureAmgLay->addWidget(m_pressureAmgWidget);
-    pressureAmgLay->addWidget(dialogNote(
-        "The steady pressure operator is non-symmetric, so a Conjugate-gradient request\n"
-        "falls back to BiCGStab there. The PISO (compact Rhie-Chow) operator is SPD and\n"
-        "uses CG as requested."));
     pressureAmgLay->addStretch(1);
 
     // ── Momentum ─────────────────────────────────────────────────────────────
-    auto* momentumLay = addScrollPage("Momentum");
+    auto* momentumLay = addPage("Momentum");
 
     m_momentumSolverStats = new QCheckBox("Momentum Solver Statistics");
     m_momentumSolverStats->setToolTip("Print per-run momentum linear-solver statistics.");
@@ -413,7 +413,7 @@ void CfdCasePage::buildAdvancedDialog() {
     momentumLay->addStretch(1);
 
     // ── Turbulence ─────────────────────────────────────────────────────────────
-    auto* turbulenceLay = addScrollPage("Turbulence");
+    auto* turbulenceLay = addPage("Turbulence");
 
     auto* turbHierarchyCaption = dialogSectionHeader("Turbulence AMG hierarchy");
     turbulenceLay->addWidget(turbHierarchyCaption);
@@ -422,7 +422,7 @@ void CfdCasePage::buildAdvancedDialog() {
     turbulenceLay->addStretch(1);
 
     // ── Gradients ─────────────────────────────────────────────────────────────
-    auto* gradientsLay = addScrollPage("Gradients");
+    auto* gradientsLay = addPage("Gradients");
     auto* gradientsForm = addGroup(gradientsLay, "Slope Limiter");
 
     m_limiterKind = styleSpin(new QComboBox);
@@ -435,6 +435,39 @@ void CfdCasePage::buildAdvancedDialog() {
         "Cubic = Michalak-Ollivier-Gooch cubic fit, never exceeds 1 "
         "(OpenFOAM-recommended).");
     gradientsForm->addRow("Limiter Method", m_limiterKind);
+
+    // Each limiter-only field keeps its caption in the same row, so the row is
+    // hidden and re-shown as one unit when the limiter changes.
+    auto addLimiterRow = [gradientsForm](const QString& caption, QWidget* field) {
+        auto* row = new QWidget;
+        auto* lay = new QHBoxLayout(row);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(6);
+        lay->addWidget(new QLabel(caption));
+        lay->addWidget(field);
+        gradientsForm->addRow(row);
+        return row;
+    };
+
+    m_limiterK = styleSpin(new QDoubleSpinBox);
+    m_limiterK->setRange(0.0, 1e6);
+    m_limiterK->setDecimals(4);
+    m_limiterK->setSingleStep(0.01);
+    m_limiterK->setValue(0.1);
+    m_limiterK->setToolTip(
+        "Venkatakrishnan smoothing: eps = k * (hi - lo), relative to the local "
+        "field variation. Only used by the Venkatakrishnan limiter.");
+    m_limiterKRow = addLimiterRow("Smoothing Constant (k)", m_limiterK);
+
+    m_limiterCubicTransition = styleSpin(new QDoubleSpinBox);
+    m_limiterCubicTransition->setRange(1.0, 2.0);
+    m_limiterCubicTransition->setDecimals(2);
+    m_limiterCubicTransition->setSingleStep(0.05);
+    m_limiterCubicTransition->setValue(1.5);
+    m_limiterCubicTransition->setToolTip(
+        "Cubic transition point where the limiter reaches 1 (OpenFOAM uses 1.5). "
+        "Only used by the Cubic limiter.");
+    m_limiterCubicRow = addLimiterRow("Cubic Transition", m_limiterCubicTransition);
 
     auto* directionLay = new QVBoxLayout;
     directionLay->setContentsMargins(0, 0, 0, 0);
@@ -469,30 +502,10 @@ void CfdCasePage::buildAdvancedDialog() {
     aggLay->addWidget(m_limiterComponentWise);
     gradientsForm->addRow("Limiting Scope", aggLay);
 
-    m_limiterK = styleSpin(new QDoubleSpinBox);
-    m_limiterK->setRange(0.0, 1e6);
-    m_limiterK->setDecimals(4);
-    m_limiterK->setSingleStep(0.01);
-    m_limiterK->setValue(0.1);
-    m_limiterK->setToolTip(
-        "Venkatakrishnan smoothing: eps = k * (hi - lo), relative to the local "
-        "field variation. Only used by the Venkatakrishnan limiter.");
-    gradientsForm->addRow("Smoothing Constant (k)", m_limiterK);
-
-    m_limiterCubicTransition = styleSpin(new QDoubleSpinBox);
-    m_limiterCubicTransition->setRange(1.0, 2.0);
-    m_limiterCubicTransition->setDecimals(2);
-    m_limiterCubicTransition->setSingleStep(0.05);
-    m_limiterCubicTransition->setValue(1.5);
-    m_limiterCubicTransition->setToolTip(
-        "Cubic transition point where the limiter reaches 1 (OpenFOAM uses 1.5). "
-        "Only used by the Cubic limiter.");
-    gradientsForm->addRow("Cubic Transition", m_limiterCubicTransition);
-
     gradientsLay->addStretch(1);
 
     // ── Diagnostics ──────────────────────────────────────────────────────────
-    auto* diagLay = addScrollPage("Diagnostics");
+    auto* diagLay = addPage("Diagnostics");
     auto* diagForm = addGroup(diagLay, "Residual Monitoring");
 
     m_printFrequency = styleSpin(new QSpinBox);
@@ -551,10 +564,16 @@ void CfdCasePage::buildAdvancedDialog() {
     // ── Dependencies ─────────────────────────────────────────────────────────
     connect(m_limitPressureCorrection, &QCheckBox::toggled, this,
             [this](bool) { syncDialogDependencies(); });
+    connect(m_limiterKind, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) { syncDialogDependencies(); });
 
     // Seed every control from the shipped defaults, so the values the dialog
     // opens with and the values "Restore defaults" produces cannot drift.
     applyDialogDefaults();
+
+    // Sizing is by content only: the dialog used to be resized to 780x620, which
+    // is what made a short tab look empty and a tall one overflow. No scroll area
+    // is involved anywhere, so the tab widget simply reports the page's own hint.
 
     // Scrolling a page must not silently edit numeric fields under the cursor.
     installWheelGuard(m_advancedDlg);
@@ -602,6 +621,17 @@ void CfdCasePage::syncDialogDependencies() {
     // "Correctors" is usable in both steady (SIMPLE) and transient (PISO) runs.
     m_pressureCorrectors->setEnabled(true);
     m_pressureCorrectors->setToolTip("Pressure-corrector sweeps per iteration.");
+
+    // Each limiter reads exactly one of the two tuning fields, so the other one
+    // is hidden rather than left as an inert box that looks adjustable.
+    const int limiter = m_limiterKind->currentIndex();
+    m_limiterKRow->setVisible(limiter == 1);
+    m_limiterCubicRow->setVisible(limiter == 2);
+
+    // The Venkatakrishnan smoothing factor is a share of the local field
+    // variation, so the "Cubic" and "MinMod" cases have nothing to say about it.
+    m_limiterK->setEnabled(limiter == 1);
+    m_limiterCubicTransition->setEnabled(limiter == 2);
 }
 
 void CfdCasePage::syncTimeDependencies() {
