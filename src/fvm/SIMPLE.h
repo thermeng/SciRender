@@ -54,6 +54,10 @@ struct Config : public cfd::CaseSettings {
         static_cast<cfd::CaseSettings&>(*this) = s;
         return *this;
     }
+    // Freestream turbulence. Not part of CaseSettings: the session sets these
+    // from Initialize(), and enableTurbulence() copies them in.
+    double kInf = 1e-3;
+    double omegaInf = 1.0;
     SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
     ConvectionScheme convectionScheme = ConvectionScheme::Upwind;
     GradientScheme gradientScheme = GradientScheme::LeastSquares;

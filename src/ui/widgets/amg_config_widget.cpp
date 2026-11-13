@@ -1,57 +1,31 @@
 #include "ui/widgets/amg_config_widget.h"
 
+#include "ui/uikit.h"
 #include "ui/widgets/scientific_spin_box.h"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
-#include <QFont>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
-#include <QHBoxLayout>
-#include <QLabel>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
 namespace {
 
-constexpr int kSpinWidth = 110;
-constexpr int kComboWidth = 150;
-// Groups sit on a fixed three-column grid, so a group that is hidden later
-// (Flexible Cycle) never re-flows the ones beside it.
 constexpr int kGroupColumns = 3;
 constexpr int kGroupSpacing = 8;
 
-template <typename Spin>
-Spin* styleSpin(Spin* spin) {
-    spin->setFixedWidth(kSpinWidth);
-    QFont f("JetBrains Mono");
-    f.setStyleHint(QFont::Monospace);
-    f.setPixelSize(11);
-    spin->setFont(f);
-    return spin;
-}
-
 QComboBox* styleCombo(QComboBox* combo) {
-    combo->setFixedWidth(kComboWidth);
+    combo->setFixedWidth(uikit::kComboWidth);
     return combo;
 }
 
-QLabel* noteLabel(const QString& text) {
-    auto* label = new QLabel(text);
-    label->setWordWrap(true);
-    label->setStyleSheet("color: palette(mid);");
-    QFont f = label->font();
-    f.setPixelSize(10);
-    label->setFont(f);
-    return label;
-}
-
-// A scientific-entry spin box for the two tolerances  writes in
-// exponent form (Convergence tolerance, Epsilon).
+// A scientific-entry spin box for the two tolerances the AMG backend writes in
+// exponent form (Convergence Tolerance, Epsilon).
 ScientificDoubleSpinBox* toleranceSpin() {
-    auto* spin = styleSpin(new ScientificDoubleSpinBox);
+    auto* spin = uikit::numeric(new ScientificDoubleSpinBox);
     spin->setRange(1e-30, 1.0);
     spin->setDecimals(30);
     spin->setSingleStep(1e-9);
@@ -89,23 +63,17 @@ void AmgConfigWidget::buildUi() {
     // Returns the box and its form: only the box is ever hidden, but the caller
     // needs both, and the pairs keep the call sites uniform.
     auto makeGroup = [grid, &nextRow](const QString& title, int column) {
-        auto* box = new QGroupBox(title);
-        auto* form = new QFormLayout(box);
-        form->setContentsMargins(8, 6, 8, 8);
-        form->setSpacing(4);
-        form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-        form->setRowWrapPolicy(QFormLayout::DontWrapRows);
-        form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
+        QFormLayout* form = nullptr;
+        auto* box = uikit::group(title, &form);
         grid->addWidget(box, nextRow[column]++, column, Qt::AlignLeft | Qt::AlignTop);
         return std::make_pair(box, form);
     };
 
     // ── AMG linear solver ────────────────────────────────────────────────────
-    auto solverGroup = makeGroup("AMG linear solver", 0);
+    auto solverGroup = makeGroup("AMG Linear Solver", 0);
     QFormLayout* solver = solverGroup.second;
 
-    m_maxCycles = styleSpin(new QSpinBox(this));
+    m_maxCycles = uikit::numeric(new QSpinBox(this));
     m_maxCycles->setRange(1, 100000);
     m_maxCycles->setToolTip(
         "Maximum number of multimesh loops run while the linear-system residual is\n"
@@ -134,17 +102,17 @@ void AmgConfigWidget::buildUi() {
         "α=0.1 termination, β=0.7 reduction tolerance.");
     solver->addRow("Cycle Type", m_cycleType);
 
-    m_preSweeps = styleSpin(new QSpinBox(this));
+    m_preSweeps = uikit::numeric(new QSpinBox(this));
     m_preSweeps->setRange(0, 50);
     m_preSweeps->setToolTip("Smoothing sweeps before restricting to the coarser level.");
-    solver->addRow("Pre-smooths", m_preSweeps);
+    solver->addRow("Pre-Smooths", m_preSweeps);
 
-    m_postSweeps = styleSpin(new QSpinBox(this));
+    m_postSweeps = uikit::numeric(new QSpinBox(this));
     m_postSweeps->setRange(0, 50);
     m_postSweeps->setToolTip("Smoothing sweeps after prolongating from the coarser level.");
-    solver->addRow("Post-smooths", m_postSweeps);
+    solver->addRow("Post-Smooths", m_postSweeps);
 
-    m_maxLevels = styleSpin(new QSpinBox(this));
+    m_maxLevels = uikit::numeric(new QSpinBox(this));
     m_maxLevels->setRange(1, 100);
     m_maxLevels->setToolTip("Maximum number of multigrid levels in the sequence.");
     solver->addRow("Maximum Number Of Levels", m_maxLevels);
@@ -155,48 +123,48 @@ void AmgConfigWidget::buildUi() {
     auto flexGroup = makeGroup("Flexible Cycle", 1);
     m_flexGroup = flexGroup.first;
     QFormLayout* flex = flexGroup.second;
-    m_restrictionTolerance = styleSpin(new QDoubleSpinBox(this));
+    m_restrictionTolerance = uikit::numeric(new QDoubleSpinBox(this));
     m_restrictionTolerance->setRange(0.01, 0.99);
     m_restrictionTolerance->setDecimals(2);
     m_restrictionTolerance->setSingleStep(0.05);
     m_restrictionTolerance->setToolTip("Restriction tolerance (beta). Go coarser when R_i > beta * R_{i-1} (residual not dropping).");
     flex->addRow("Restriction", m_restrictionTolerance);
 
-    m_prolongationTolerance = styleSpin(new QDoubleSpinBox(this));
+    m_prolongationTolerance = uikit::numeric(new QDoubleSpinBox(this));
     m_prolongationTolerance->setRange(0.01, 0.99);
     m_prolongationTolerance->setDecimals(2);
     m_prolongationTolerance->setSingleStep(0.05);
     m_prolongationTolerance->setToolTip("Termination tolerance (alpha). Go finer / terminate when R_i < alpha * R_0 (correction converged).");
     flex->addRow("Termination", m_prolongationTolerance);
 
-    m_flexSweeps = styleSpin(new QSpinBox(this));
+    m_flexSweeps = uikit::numeric(new QSpinBox(this));
     m_flexSweeps->setRange(1, 100);
     flex->addRow("Sweeps", m_flexSweeps);
 
-    m_maxFineRelaxations = styleSpin(new QSpinBox(this));
+    m_maxFineRelaxations = uikit::numeric(new QSpinBox(this));
     m_maxFineRelaxations->setRange(1, 1000);
     flex->addRow("Max Fine Relaxations", m_maxFineRelaxations);
 
-    m_maxCoarseRelaxations = styleSpin(new QSpinBox(this));
+    m_maxCoarseRelaxations = uikit::numeric(new QSpinBox(this));
     m_maxCoarseRelaxations->setRange(1, 1000);
     flex->addRow("Max Coarse Relaxations", m_maxCoarseRelaxations);
 
     // ── Robustness (expert) ──────────────────────────────────────────────────
     QFormLayout* robust = makeGroup("Robustness (Expert)", 0).second;
 
-    m_stagnationFactor = styleSpin(new QDoubleSpinBox(this));
+    m_stagnationFactor = uikit::numeric(new QDoubleSpinBox(this));
     m_stagnationFactor->setRange(1.0, 10.0);
     m_stagnationFactor->setDecimals(2);
     m_stagnationFactor->setSingleStep(0.05);
     m_stagnationFactor->setToolTip("Residual growth ratio that counts as stagnation.");
     robust->addRow("Stagnation Factor", m_stagnationFactor);
 
-    m_stagnationMinIter = styleSpin(new QSpinBox(this));
+    m_stagnationMinIter = uikit::numeric(new QSpinBox(this));
     m_stagnationMinIter->setRange(0, 10000);
     m_stagnationMinIter->setToolTip("Cycles to run before stagnation may trigger.");
     robust->addRow("Stagnation Min Cycles", m_stagnationMinIter);
 
-    m_stagnationLoose = styleSpin(new QDoubleSpinBox(this));
+    m_stagnationLoose = uikit::numeric(new QDoubleSpinBox(this));
     m_stagnationLoose->setRange(1.0, 100.0);
     m_stagnationLoose->setDecimals(2);
     m_stagnationLoose->setSingleStep(0.5);
@@ -211,7 +179,7 @@ void AmgConfigWidget::buildUi() {
         "Solve the coarsest level directly instead of relaxing it.");
     coarse->addRow(m_directSolver);
 
-    m_directMaxEquations = styleSpin(new QSpinBox(this));
+    m_directMaxEquations = uikit::numeric(new QSpinBox(this));
     m_directMaxEquations->setRange(1, 100000);
     m_directMaxEquations->setToolTip(
         "Maximum number of equations handled by the direct coarse solve. Coarsening\n"
@@ -261,7 +229,7 @@ void AmgConfigWidget::buildUi() {
         "Automatic: STAR Auto = 2 (2D) / 4 (3D) with padding. Manual: set below.");
     aggregation->addRow("Group Size Control", m_groupSizeControl);
 
-    m_groupSize = styleSpin(new QSpinBox(this));
+    m_groupSize = uikit::numeric(new QSpinBox(this));
     m_groupSize->setRange(1, 16);
     m_groupSize->setToolTip(
         "Number of equations aggregated into one equation on the coarser level.\n"
@@ -279,14 +247,14 @@ void AmgConfigWidget::buildUi() {
         "operators. Ruge-Stuben is kept for comparison.");
     build->addRow("Coarsening", m_coarsening);
 
-    m_strength = styleSpin(new QDoubleSpinBox(this));
+    m_strength = uikit::numeric(new QDoubleSpinBox(this));
     m_strength->setRange(0.0, 1.0);
     m_strength->setDecimals(3);
     m_strength->setSingleStep(0.05);
     m_strength->setToolTip("Relative drop below which a matrix entry is not a strong connection.");
     build->addRow("Strength Threshold", m_strength);
 
-    m_truncation = styleSpin(new QDoubleSpinBox(this));
+    m_truncation = uikit::numeric(new QDoubleSpinBox(this));
     m_truncation->setRange(0.0, 1.0);
     m_truncation->setDecimals(3);
     m_truncation->setSingleStep(0.05);
@@ -295,7 +263,7 @@ void AmgConfigWidget::buildUi() {
         "(Ruge-Stuben only).");
     build->addRow("Truncation Threshold", m_truncation);
 
-    m_minCoarse = styleSpin(new QSpinBox(this));
+    m_minCoarse = uikit::numeric(new QSpinBox(this));
     m_minCoarse->setRange(1, 1000000);
     m_minCoarse->setToolTip("Stop coarsening once a level has this few unknowns.");
     build->addRow("Min Coarse Size", m_minCoarse);

@@ -363,8 +363,14 @@ if(SCIRENDER_BUILD_APP)
         src/ui/viewport_widget.h
         src/ui/colorbar_style_dialog.cpp
         src/ui/colorbar_style_dialog.h
+        src/ui/uikit.cpp
+        src/ui/uikit.h
         src/ui/cfd_bc_dialog.cpp
         src/ui/cfd_bc_dialog.h
+        src/ui/cfd_advanced_dialog.cpp
+        src/ui/cfd_advanced_dialog.h
+        src/ui/cfd_initialize_dialog.cpp
+        src/ui/cfd_initialize_dialog.h
         src/ui/widgets/colormap_combo.cpp
         src/ui/widgets/colormap_combo.h
         src/ui/widgets/scientific_spin_box.h

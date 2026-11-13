@@ -1,8 +1,8 @@
 #pragma once
 #include "sidebar_page.h"
 #include "ui/controllers/cfd_controller.h"
-#include "ui/widgets/amg_config_widget.h"
 #include "cfd/cfd_types.h"
+#include "ui/cfd_advanced_dialog.h"
 #include "ui/widgets/stopping_criteria_dialog.h"
 
 #include <QString>
@@ -12,13 +12,10 @@ class QSpinBox;
 class QComboBox;
 class QCheckBox;
 class QLabel;
-class QDialog;
 class QDoubleSpinBox;
 class QRadioButton;
-class QButtonGroup;
 class QLineEdit;
 class QTimer;
-class QLayout;
 class ScientificDoubleSpinBox;
 
 namespace sidebar {
@@ -62,13 +59,10 @@ private slots:
     void onPauseSettled();
 
 private:
-    void buildAdvancedDialog();
-    // Seed every control in the advanced dialog from the shipped defaults.
-    // Used both at construction and by the dialog's Restore defaults button,
-    // so the two can never disagree.
-    void applyDialogDefaults();
-    // Enable/disable controls whose meaning depends on a checkbox.
-    void syncDialogDependencies();
+    // Enable/disable every control whose availability depends on the run state.
+    // The pause/step/stopping state is also refreshed on each iteration, so this
+    // is the only place that spells it out.
+    void refreshRunControls();
     void syncTimeDependencies();
     void rebuildPatchTable();
     void collectSettings();
@@ -92,8 +86,6 @@ private:
     QComboBox* m_gradientScheme = nullptr;
     // Rhie-Chow is always on (no toggle).
     QCheckBox* m_turb = nullptr;
-    QDoubleSpinBox* m_kInf = nullptr;
-    QDoubleSpinBox* m_wInf = nullptr;
 
     QLabel* m_iterValue = nullptr;
     QLabel* m_contValue = nullptr;
@@ -108,43 +100,12 @@ private:
     QPushButton* m_stepBtn = nullptr;
     QPushButton* m_stoppingBtn = nullptr;
 
-    // Advanced solver settings live in one dialog, built up front and hidden.
-    QDialog* m_advancedDlg = nullptr;
+    // Advanced solver settings own their widgets and are the single reader of
+    // those CaseSettings fields; the page only reads them through collectInto().
+    // Built up front and kept hidden because a run reads them whether or not the
+    // dialog was ever opened.
+    CfdAdvancedDialog* m_advancedDlg = nullptr;
     cfd::StoppingCriteriaDialog* m_stoppingDlg = nullptr;
-    QCheckBox* m_pressureSolverStats = nullptr;
-    QSpinBox* m_pressureCorrectors = nullptr;
-    QCheckBox* m_limitPressureCorrection = nullptr;
-    QDoubleSpinBox* m_pressureCorrectionLimit = nullptr;
-    QSpinBox* m_pressureRefCell = nullptr;
-    AmgConfigWidget* m_pressureAmgWidget = nullptr;
-    QSpinBox* m_printFrequency = nullptr;
-    QSpinBox* m_residualHistoryWindow = nullptr;
-    QDoubleSpinBox* m_velocityCorrectionMaxUnlimitedSpeed = nullptr;
-    QDoubleSpinBox* m_velocityCorrectionMaxGrowthRate = nullptr;
-    // Consecutive iterations the residual criterion must hold before the run
-    // is declared converged.
-    QSpinBox* m_convergenceHold = nullptr;
-    QSpinBox* m_numThreads = nullptr;
-    QCheckBox* m_momentumSolverStats = nullptr;
-    AmgConfigWidget* m_momentumAmgWidget = nullptr;
-
-    // Slope limiter (Advanced dialog, "Gradients" tab).
-    QComboBox* m_limiterKind = nullptr;
-    // Limiter-only rows. They are hidden with their captions when another
-    // limiter is selected, so the Gradients tab does not carry dead fields.
-    QWidget* m_limiterKRow = nullptr;
-    QWidget* m_limiterCubicRow = nullptr;
-    QRadioButton* m_limiterFaceCentre = nullptr;
-    QRadioButton* m_limiterCentroidLine = nullptr;
-    QButtonGroup* m_limiterSpanGroup = nullptr;
-    QDoubleSpinBox* m_limiterK = nullptr;
-    QRadioButton* m_limiterCellWide = nullptr;
-    QRadioButton* m_limiterComponentWise = nullptr;
-    QButtonGroup* m_limiterAggregationGroup = nullptr;
-    QDoubleSpinBox* m_limiterCubicTransition = nullptr;
-
-    // Turbulence AMG hierarchy
-    AmgConfigWidget* m_turbulenceAmgWidget = nullptr;
 
     // ── Time mode (steady / transient) ──────────────────────────────
     QRadioButton* m_steadyRadio = nullptr;

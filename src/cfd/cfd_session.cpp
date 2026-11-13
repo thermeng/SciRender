@@ -110,6 +110,10 @@ public:
             }
             cfg.kInf = kInf;
             cfg.omegaInf = omegaInf;
+            // Initialize is the only entry point for the freestream turbulence
+            // values; remember them for the run that follows.
+            m_freestreamK = kInf;
+            m_freestreamOmega = omegaInf;
             cfg.alphaK = settings.alphaK;
             cfg.alphaOmega = settings.alphaOmega;
             cfg.wallFunction = settings.wallFunction;
@@ -203,9 +207,9 @@ public:
 
         auto solver = std::make_shared<Solver>(*m_mesh, settings.rho, settings.nu, sc);
         if (settings.turbulence) {
-            solver->enableTurbulence(settings.kInf, settings.omegaInf,
-                                     settings.alphaK, settings.alphaOmega,
-                                     settings.wallFunction);
+            solver->enableTurbulence(m_freestreamK, m_freestreamOmega,
+                                 settings.alphaK, settings.alphaOmega,
+                                 settings.wallFunction);
         }
         solver->bindVelocity(*m_velocity);
         solver->bindPressure(*m_pressure);
@@ -581,6 +585,9 @@ private:
     std::shared_ptr<Solver> m_solver;
     std::shared_ptr<const fvm::Mesh<Dim>> m_solverMesh;
     bool m_transientRun = false;
+    // Freestream turbulence set by initialize(); defaults match the solver's.
+    double m_freestreamK = 1e-3;
+    double m_freestreamOmega = 1.0;
 
     SolutionSnapshot m_state;
     mutable std::mutex m_mutex;

@@ -3,32 +3,26 @@
 #include "cfd/cfd_types.h"
 #include "render/settings/render_settings.h"
 #include "ui/cfd_bc_dialog.h"
+#include "ui/cfd_initialize_dialog.h"
 #include "ui/controllers/cfd_controller.h"
 #include "ui/panel_helpers.h"
+#include "ui/uikit.h"
 #include "ui/widgets/wheel_guard.h"
 #include "ui/widgets/scientific_spin_box.h"
-#include "ui/widgets/wheel_guard.h"
 #include "ui_cfd_case_page.h"
 
-#include <QAbstractSpinBox>
-#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
-#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <iostream>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFormLayout>
-#include <QFrame>
 #include <QGridLayout>
-#include <QGroupBox>
-#include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -44,36 +38,10 @@ QString readoutStyle() {
            "border: 1px solid palette(mid); border-radius: 4px;";
 }
 
-// Numeric telemetry reads better when the digits do not wander as values
-// change width, so residual/iteration values use a fixed-pitch face.
+// Numeric telemetry uses the shared mono face so digits do not wander as values
+// change width.
 QFont telemetryFont() {
-    QFont f("Consolas");
-    f.setStyleHint(QFont::Monospace);
-    f.setPixelSize(11);
-    return f;
-}
-
-// Section captions inside the advanced dialog. The page's own styling hook only
-// runs on the sidebar content, so the dialog labels carry their own font.
-QLabel* dialogSectionHeader(const QString& text) {
-    auto* label = new QLabel(text);
-    QFont f = label->font();
-    f.setPixelSize(11);
-    f.setWeight(QFont::Medium);
-    f.setLetterSpacing(QFont::AbsoluteSpacing, 0.3);
-    label->setFont(f);
-    return label;
-}
-
-// Muted explanatory text under a group of controls.
-QLabel* dialogNote(const QString& text) {
-    auto* label = new QLabel(text);
-    label->setWordWrap(true);
-    label->setStyleSheet("color: palette(mid);");
-    QFont f = label->font();
-    f.setPixelSize(10);
-    label->setFont(f);
-    return label;
+    return uikit::mono();
 }
 
 } // namespace
@@ -90,7 +58,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     connect(m_ctrl, &CfdController::caseLoaded, this, &CfdCasePage::onCaseLoaded);
 
 
-    connect(m_ctrl, &CfdController::progress, this, &CfdCasePage::onProgress);
     connect(m_ctrl, &CfdController::progress, this, &CfdCasePage::onProgress);
     connect(m_ctrl, &CfdController::residualsUpdated, this, [this](int iter, int dim, double cont,
                                                                    double momU, double momV, double momW,
@@ -240,12 +207,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
         if (!m_running) { m_stateTimer->stop(); return; }
         const bool paused = m_ctrl->isPaused();
         const bool settled = m_ctrl->isPausedSettled();
-        if (m_pauseBtn)
-            m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
-        if (m_stepBtn) m_stepBtn->setEnabled(settled);
-        if (m_cancelBtn && !m_ctrl->isCancelled()) m_cancelBtn->setEnabled(true);
-        const bool stoppingEditable = m_ctrl->isPaused() && settled;
-        if (m_stoppingBtn) m_stoppingBtn->setEnabled(stoppingEditable);
+        refreshRunControls();
         if (!paused) {
             m_pauseSettledLogged = false;
         } else if (settled && !m_pauseSettledLogged) {
@@ -265,18 +227,20 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
         if (m_stepBtn) m_stepBtn->setEnabled(false);
         log("Resumed.");
     });
-    // progress() -> onProgress() (line 93) already refreshes pause/step button state.
+    // progress() -> onProgress() already refreshes pause/step button state.
 
     // ── Advanced solver settings (dialog) ────────────────────────────────────
-    // Built up front and kept hidden. Its fields are read by collectSettings(),
-    // so they must exist from the start; creating them as children of the page
-    // and reparenting them only on first open would leave them painted over the
-    // top-left corner of the panel (a parented widget with no layout floats).
-    buildAdvancedDialog();
-    connect(m_advancedBtn, &QPushButton::clicked, this, [this] { m_advancedDlg->exec(); });
+    // Built up front and kept hidden. collectSettings() reads it before every
+    // run, so it must exist from the start; creating it lazily and reparenting
+    // it on first open would leave a parented widget with no layout floating
+    // over the panel's top-left corner.
+    m_advancedDlg = new CfdAdvancedDialog(this);
+    m_advancedDlg->hide();
+    connect(m_advancedBtn, &QPushButton::clicked, this,
+            [this] { m_advancedDlg->exec(); });
     connect(m_stoppingBtn, &QPushButton::clicked, this, &CfdCasePage::onStoppingCriteria);
 
-    syncTime(); // depends on dialog widgets; must run after buildAdvancedDialog()
+    syncTime();
     // ── Read-out boxes ───────────────────────────────────────────────────────
     QWidget* monitor = cfdUi.solveMonitor;
     monitor->setAttribute(Qt::WA_StyledBackground, true);
@@ -305,335 +269,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     setContent(content, true);
 }
 
-void CfdCasePage::buildAdvancedDialog() {
-    m_advancedDlg = new QDialog(this);
-    m_advancedDlg->setWindowTitle("Advanced Solver Settings");
-
-    auto* tabs = new QTabWidget(m_advancedDlg);
-    auto* outer = new QVBoxLayout(m_advancedDlg);
-    outer->setContentsMargins(8, 8, 8, 8);
-    outer->setSpacing(6);
-    outer->addWidget(tabs);
-
-    // No scroll area: every page is short enough to sit in a plain tab, so the
-    // dialog can be sized to its content and never grow a scrollbar. The page
-    // layout hugs the top because each page ends with a stretch; without it a
-    // short page spreads its rows apart to fill the viewport, which is what
-    // opened the large gaps between the pressure fields and their header.
-    auto addPage = [&](const QString& title) {
-        auto* page = new QWidget;
-        auto* lay = new QVBoxLayout(page);
-        lay->setContentsMargins(8, 8, 8, 8);
-        lay->setSpacing(4);
-        tabs->addTab(page, title);
-        return lay;
-    };
-    // A titled group per related set of settings. Titled frames make the
-    // structure visible without the floating header labels the old layout had.
-    // Returns the box and its form: a page places the box itself, so the caller
-    // decides whether the group is stacked or sits beside another one.
-    auto makeGroup = [](const QString& title) {
-        auto* box = new QGroupBox(title);
-        auto* form = new QFormLayout(box);
-        form->setContentsMargins(8, 6, 8, 8);
-        form->setSpacing(4);
-        form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-        form->setRowWrapPolicy(QFormLayout::DontWrapRows);
-        form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
-        return std::make_pair(box, form);
-    };
-    // Stacks one group under another in a plain page column.
-    auto addGroup = [makeGroup](QVBoxLayout* lay, const QString& title) {
-        auto group = makeGroup(title);
-        lay->addWidget(group.first);
-        return group.second;
-    };
-    auto styleSpin = [](auto* spin) {
-        spin->setFixedWidth(110);
-        QFont f("JetBrains Mono");
-        f.setStyleHint(QFont::Monospace);
-        f.setPixelSize(11);
-        spin->setFont(f);
-        return spin;
-    };
-
-    // ── Pressure ─────────────────────────────────────────────────────────────
-    auto* pressureLay = addPage("Pressure");
-    auto* pressureForm = addGroup(pressureLay, "Pressure Correction");
-
-    m_pressureCorrectors = styleSpin(new QSpinBox);
-    m_pressureCorrectors->setRange(1, 100);
-    m_pressureCorrectors->setToolTip("Pressure-corrector sweeps per SIMPLE iteration.");
-    pressureForm->addRow("Correctors", m_pressureCorrectors);
-
-    m_limitPressureCorrection = new QCheckBox("Limit P' Correction");
-    m_limitPressureCorrection->setToolTip(
-        "Clamp the pressure correction as a fraction of rho*U^2. Prevents the first\n"
-        "iterations from overshooting, at the cost of a weaker pressure-velocity coupling.");
-    pressureForm->addRow(m_limitPressureCorrection);
-
-    m_pressureCorrectionLimit = styleSpin(new QDoubleSpinBox);
-    m_pressureCorrectionLimit->setRange(0, 1000);
-    m_pressureCorrectionLimit->setDecimals(2);
-    m_pressureCorrectionLimit->setToolTip("Upper bound on |p'| as a multiple of rho*U_ref^2.");
-    pressureForm->addRow("Correction Limit", m_pressureCorrectionLimit);
-
-    m_pressureRefCell = styleSpin(new QSpinBox);
-    m_pressureRefCell->setRange(0, 1000000);
-    m_pressureRefCell->setSpecialValueText("auto");
-    m_pressureRefCell->setToolTip(
-        "Cell that pins the pressure datum when no pressure outlet exists. auto = last cell.");
-    pressureForm->addRow("Reference Cell", m_pressureRefCell);
-
-    m_pressureSolverStats = new QCheckBox("Pressure Solver Statistics");
-    m_pressureSolverStats->setToolTip("Print per-run pressure linear-solver statistics.");
-    pressureLay->addWidget(m_pressureSolverStats);
-
-    pressureLay->addStretch(1);
-
-    // ── Pressure ─────────────────────────────────────────────────────────
-    // The tab name already scopes these, so no caption is needed.
-    auto* pressureAmgLay = addPage("Pressure");
-    m_pressureAmgWidget = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults(), nullptr, true);
-    pressureAmgLay->addWidget(m_pressureAmgWidget);
-    pressureAmgLay->addStretch(1);
-
-    // ── Momentum ─────────────────────────────────────────────────────────────
-    auto* momentumLay = addPage("Momentum");
-
-    m_momentumSolverStats = new QCheckBox("Momentum Solver Statistics");
-    m_momentumSolverStats->setToolTip("Print per-run momentum linear-solver statistics.");
-    momentumLay->addWidget(m_momentumSolverStats);
-
-    auto* hierarchyCaption = dialogSectionHeader("Momentum AMG hierarchy");
-    momentumLay->addWidget(hierarchyCaption);
-    m_momentumAmgWidget = new AmgConfigWidget(cfd::AmgSettings::momentumDefaults());
-    momentumLay->addWidget(m_momentumAmgWidget);
-    momentumLay->addStretch(1);
-
-    // ── Turbulence ─────────────────────────────────────────────────────────────
-    auto* turbulenceLay = addPage("Turbulence");
-
-    auto* turbHierarchyCaption = dialogSectionHeader("Turbulence AMG hierarchy");
-    turbulenceLay->addWidget(turbHierarchyCaption);
-    m_turbulenceAmgWidget = new AmgConfigWidget(cfd::AmgSettings::momentumDefaults());
-    turbulenceLay->addWidget(m_turbulenceAmgWidget);
-    turbulenceLay->addStretch(1);
-
-    // ── Gradients ─────────────────────────────────────────────────────────────
-    auto* gradientsLay = addPage("Gradients");
-    auto* gradientsForm = addGroup(gradientsLay, "Slope Limiter");
-
-    m_limiterKind = styleSpin(new QComboBox);
-    m_limiterKind->addItem("MinMod", 0);
-    m_limiterKind->addItem("Venkatakrishnan", 1);
-    m_limiterKind->addItem("Cubic", 2);
-    m_limiterKind->setToolTip(
-        "MinMod = Barth-Jespersen minmod, one factor per cell.\n"
-        "Venkatakrishnan = smooth Venkatakrishnan function.\n"
-        "Cubic = Michalak-Ollivier-Gooch cubic fit, never exceeds 1 "
-        "(OpenFOAM-recommended).");
-    gradientsForm->addRow("Limiter Method", m_limiterKind);
-
-    // Each limiter-only field keeps its caption in the same row, so the row is
-    // hidden and re-shown as one unit when the limiter changes.
-    auto addLimiterRow = [gradientsForm](const QString& caption, QWidget* field) {
-        auto* row = new QWidget;
-        auto* lay = new QHBoxLayout(row);
-        lay->setContentsMargins(0, 0, 0, 0);
-        lay->setSpacing(6);
-        lay->addWidget(new QLabel(caption));
-        lay->addWidget(field);
-        gradientsForm->addRow(row);
-        return row;
-    };
-
-    m_limiterK = styleSpin(new QDoubleSpinBox);
-    m_limiterK->setRange(0.0, 1e6);
-    m_limiterK->setDecimals(4);
-    m_limiterK->setSingleStep(0.01);
-    m_limiterK->setValue(0.1);
-    m_limiterK->setToolTip(
-        "Venkatakrishnan smoothing: eps = k * (hi - lo), relative to the local "
-        "field variation. Only used by the Venkatakrishnan limiter.");
-    m_limiterKRow = addLimiterRow("Smoothing Constant (k)", m_limiterK);
-
-    m_limiterCubicTransition = styleSpin(new QDoubleSpinBox);
-    m_limiterCubicTransition->setRange(1.0, 2.0);
-    m_limiterCubicTransition->setDecimals(2);
-    m_limiterCubicTransition->setSingleStep(0.05);
-    m_limiterCubicTransition->setValue(1.5);
-    m_limiterCubicTransition->setToolTip(
-        "Cubic transition point where the limiter reaches 1 (OpenFOAM uses 1.5). "
-        "Only used by the Cubic limiter.");
-    m_limiterCubicRow = addLimiterRow("Cubic Transition", m_limiterCubicTransition);
-
-    auto* directionLay = new QVBoxLayout;
-    directionLay->setContentsMargins(0, 0, 0, 0);
-    directionLay->setSpacing(4);
-    m_limiterSpanGroup = new QButtonGroup(m_advancedDlg);
-    m_limiterFaceCentre = new QRadioButton("Face Centre");
-    m_limiterFaceCentre->setChecked(true);
-    m_limiterFaceCentre->setToolTip("d = x_face - x_upwind (default).");
-    m_limiterSpanGroup->addButton(m_limiterFaceCentre, 0);
-    m_limiterCentroidLine = new QRadioButton("Centroid Line");
-    m_limiterCentroidLine->setToolTip("d along the cell-centroid line, scaled to "
-                                      "the face plane.");
-    m_limiterSpanGroup->addButton(m_limiterCentroidLine, 1);
-    directionLay->addWidget(m_limiterFaceCentre);
-    directionLay->addWidget(m_limiterCentroidLine);
-    gradientsForm->addRow("Limiting Span", directionLay);
-
-    auto* aggLay = new QVBoxLayout;
-    aggLay->setContentsMargins(0, 0, 0, 0);
-    aggLay->setSpacing(4);
-    m_limiterAggregationGroup = new QButtonGroup(m_advancedDlg);
-    m_limiterCellWide = new QRadioButton("Cell-wide");
-    m_limiterCellWide->setChecked(true);
-    m_limiterCellWide->setToolTip("One scale factor per cell: the most restrictive "
-                                  "face limits every face of the cell.");
-    m_limiterAggregationGroup->addButton(m_limiterCellWide, 0);
-    m_limiterComponentWise = new QRadioButton("Per Face");
-    m_limiterComponentWise->setToolTip("One scale factor per face: only faces that "
-                                       "leave the bound set are clipped.");
-    m_limiterAggregationGroup->addButton(m_limiterComponentWise, 1);
-    aggLay->addWidget(m_limiterCellWide);
-    aggLay->addWidget(m_limiterComponentWise);
-    gradientsForm->addRow("Limiting Scope", aggLay);
-
-    gradientsLay->addStretch(1);
-
-    // ── Diagnostics ──────────────────────────────────────────────────────────
-    auto* diagLay = addPage("Diagnostics");
-    auto* diagForm = addGroup(diagLay, "Residual Monitoring");
-
-    m_printFrequency = styleSpin(new QSpinBox);
-    m_printFrequency->setRange(1, 100000);
-    m_printFrequency->setToolTip("Print a residual row every N outer iterations.");
-    diagForm->addRow("Print Frequency", m_printFrequency);
-
-    m_residualHistoryWindow = styleSpin(new QSpinBox);
-    m_residualHistoryWindow->setRange(1, 10000);
-    m_residualHistoryWindow->setToolTip(
-        "Iterations inspected when watching for a continuity residual that keeps growing.");
-    diagForm->addRow("Residual Window", m_residualHistoryWindow);
-
-    m_velocityCorrectionMaxUnlimitedSpeed = styleSpin(new QDoubleSpinBox);
-    m_velocityCorrectionMaxUnlimitedSpeed->setRange(0.0, 1e6);
-    m_velocityCorrectionMaxUnlimitedSpeed->setDecimals(2);
-    m_velocityCorrectionMaxUnlimitedSpeed->setValue(20.0);
-    m_velocityCorrectionMaxUnlimitedSpeed->setSuffix(" m/s");
-    m_velocityCorrectionMaxUnlimitedSpeed->setToolTip(
-        "Velocity growth limiting is only applied when cell speed exceeds "
-        "this threshold. Below it, no damping is applied.");
-    diagForm->addRow("Max Unlimited Speed", m_velocityCorrectionMaxUnlimitedSpeed);
-
-    m_velocityCorrectionMaxGrowthRate = styleSpin(new QDoubleSpinBox);
-    m_velocityCorrectionMaxGrowthRate->setRange(0.0, 1.0);
-    m_velocityCorrectionMaxGrowthRate->setDecimals(3);
-    m_velocityCorrectionMaxGrowthRate->setSingleStep(0.01);
-    m_velocityCorrectionMaxGrowthRate->setValue(0.15);
-    m_velocityCorrectionMaxGrowthRate->setToolTip(
-        "Maximum per-iteration velocity amplitude growth rate from pressure correction.");
-    diagForm->addRow("Acceptable Speed Growth Rate", m_velocityCorrectionMaxGrowthRate);
-
-    auto* perfForm = addGroup(diagLay, "Performance");
-    m_numThreads = styleSpin(new QSpinBox);
-    m_numThreads->setRange(0, 1024);
-    m_numThreads->setSpecialValueText("auto");
-    m_numThreads->setToolTip(
-        "OpenMP threads used by the solver (matrix assembly, AMG, residuals).\n"
-        "0 = runtime default (honours OMP_NUM_THREADS).");
-    perfForm->addRow("Threads", m_numThreads);
-
-    diagLay->addStretch(1);
-
-    // ── Footer ───────────────────────────────────────────────────────────────
-    auto* buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults,
-        m_advancedDlg);
-    auto* restoreBtn = buttons->button(QDialogButtonBox::RestoreDefaults);
-    restoreBtn->setText("Restore Defaults");
-    restoreBtn->setToolTip("Reset every setting on every tab of this dialog.");
-    outer->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, m_advancedDlg, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, m_advancedDlg, &QDialog::reject);
-    connect(restoreBtn, &QPushButton::clicked, this, [this] { applyDialogDefaults(); });
-
-    // ── Dependencies ─────────────────────────────────────────────────────────
-    connect(m_limitPressureCorrection, &QCheckBox::toggled, this,
-            [this](bool) { syncDialogDependencies(); });
-    connect(m_limiterKind, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-            [this](int) { syncDialogDependencies(); });
-
-    // Seed every control from the shipped defaults, so the values the dialog
-    // opens with and the values "Restore defaults" produces cannot drift.
-    applyDialogDefaults();
-
-    // Sizing is by content only: the dialog used to be resized to 780x620, which
-    // is what made a short tab look empty and a tall one overflow. No scroll area
-    // is involved anywhere, so the tab widget simply reports the page's own hint.
-
-    // Scrolling a page must not silently edit numeric fields under the cursor.
-    installWheelGuard(m_advancedDlg);
-}
-
-void CfdCasePage::applyDialogDefaults() {
-    // cfd::CaseSettings carries the defaults as member initialisers, which
-    // makes it the single source of truth for both the solver and this dialog.
-    const cfd::CaseSettings d;
-
-    m_pressureCorrectors->setValue(d.pressureCorrectors);
-    m_limitPressureCorrection->setChecked(d.limitPressureCorrection);
-    m_pressureCorrectionLimit->setValue(d.pressureCorrectionLimit);
-    m_pressureRefCell->setValue(static_cast<int>(d.pressureRefCell));
-    m_pressureAmgWidget->resetToDefaults();
-
-    m_momentumSolverStats->setChecked(d.momentumSolverStats);
-    m_pressureSolverStats->setChecked(d.pressureSolverStats);
-    m_momentumAmgWidget->resetToDefaults();
-
-    m_turbulenceAmgWidget->resetToDefaults();
-
-    m_printFrequency->setValue(static_cast<int>(d.printFrequency));
-    m_residualHistoryWindow->setValue(static_cast<int>(d.residualHistoryWindow));
-    m_numThreads->setValue(d.numThreads);
-
-    m_limiterKind->setCurrentIndex(d.limiterKind);
-    m_limiterFaceCentre->setChecked(d.limiterSpan == 0);
-    m_limiterCentroidLine->setChecked(d.limiterSpan == 1);
-    m_limiterCellWide->setChecked(d.limiterAggregation == 0);
-    m_limiterComponentWise->setChecked(d.limiterAggregation == 1);
-    m_limiterK->setValue(d.limiterK);
-    m_limiterCubicTransition->setValue(d.cubicTransition);
-
-    // Checkbox signals only fire on an actual change, so sync explicitly.
-    syncDialogDependencies();
-}
-
-void CfdCasePage::syncDialogDependencies() {
-    m_pressureCorrectionLimit->setEnabled(m_limitPressureCorrection->isChecked());
-
-    const bool turbulenceAmg = true; // turbulence AMG is always available
-    m_turbulenceAmgWidget->setEnabled(turbulenceAmg);
-
-    // "Correctors" is usable in both steady (SIMPLE) and transient (PISO) runs.
-    m_pressureCorrectors->setEnabled(true);
-    m_pressureCorrectors->setToolTip("Pressure-corrector sweeps per iteration.");
-
-    // Each limiter reads exactly one of the two tuning fields, so the other one
-    // is hidden rather than left as an inert box that looks adjustable.
-    const int limiter = m_limiterKind->currentIndex();
-    m_limiterKRow->setVisible(limiter == 1);
-    m_limiterCubicRow->setVisible(limiter == 2);
-
-    // The Venkatakrishnan smoothing factor is a share of the local field
-    // variation, so the "Cubic" and "MinMod" cases have nothing to say about it.
-    m_limiterK->setEnabled(limiter == 1);
-    m_limiterCubicTransition->setEnabled(limiter == 2);
-}
-
 void CfdCasePage::syncTimeDependencies() {
     const bool transient = m_transientRadio && m_transientRadio->isChecked();
     m_transientOptions->setVisible(transient);
@@ -655,39 +290,40 @@ void CfdCasePage::syncTimeDependencies() {
         m_alphaU->setToolTip("");
         m_alphaP->setToolTip("");
     }
+}
 
-    // Keep the dialog's gating in sync too.
-    syncDialogDependencies();
+void CfdCasePage::refreshRunControls() {
+    const bool paused = m_ctrl && m_ctrl->isPaused();
+    const bool settled = m_ctrl && m_ctrl->isPausedSettled();
+    const bool cancelled = m_ctrl && m_ctrl->isCancelled();
+    if (m_pauseBtn) {
+        m_pauseBtn->setEnabled(m_running && !cancelled);
+        m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
+    }
+    if (m_stepBtn) m_stepBtn->setEnabled(m_running && settled);
+    // Stopping criteria may be edited when idle, or when paused at a settled
+    // boundary (live edit). Disabled while actively running or pausing.
+    if (m_stoppingBtn) m_stoppingBtn->setEnabled(!m_running || (paused && settled));
 }
 
 void CfdCasePage::setRunning(bool running) {
     m_running = running;
     if (m_runBtn) m_runBtn->setEnabled(!running);
     if (m_initBtn) m_initBtn->setEnabled(!running);
-    if (m_pauseBtn) {
-        m_pauseBtn->setEnabled(running);
-        if (running) m_pauseBtn->setText("Pause");
-    }
-    if (m_stepBtn) m_stepBtn->setEnabled(false);
     if (m_cancelBtn) {
         m_cancelBtn->setText("Cancel");
         m_cancelBtn->setEnabled(running);
     }
     if (m_advancedBtn) m_advancedBtn->setEnabled(!running);
     if (m_bcEditBtn) m_bcEditBtn->setEnabled(!running && !m_patchBCs.empty());
-    // Stopping criteria may be edited when idle, or when paused at a settled
-    // boundary (live edit). Disabled while actively running or pausing.
-    const bool stoppingEditable = !running ||
-        (m_ctrl && m_ctrl->isPaused() && m_ctrl->isPausedSettled());
-    if (m_stoppingBtn) m_stoppingBtn->setEnabled(stoppingEditable);
     if (!running) {
         m_pauseSettledLogged = false;
-        if (m_pauseBtn) m_pauseBtn->setText("Pause");
         if (m_stateTimer) m_stateTimer->stop();
         m_lastFrame.reset();
-    } else {
-        if (m_stateTimer) m_stateTimer->start();
+    } else if (m_stateTimer) {
+        m_stateTimer->start();
     }
+    refreshRunControls();
 }
 
 void CfdCasePage::onLoadMesh() {
@@ -720,32 +356,8 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_gradientScheme->setCurrentIndex(s.gradientScheme);
     // Rhie-Chow is always on (no toggle).
     m_turb->setChecked(s.turbulence);
-    if (m_kInf) m_kInf->setValue(s.kInf);
-    if (m_wInf) m_wInf->setValue(s.omegaInf);
 
-    m_pressureCorrectors->setValue(s.pressureCorrectors);
-    m_limitPressureCorrection->setChecked(s.limitPressureCorrection);
-    m_pressureCorrectionLimit->setValue(s.pressureCorrectionLimit);
-    m_pressureRefCell->setValue((int)s.pressureRefCell);
-    m_printFrequency->setValue((int)s.printFrequency);
-    m_residualHistoryWindow->setValue((int)s.residualHistoryWindow);
-    m_velocityCorrectionMaxUnlimitedSpeed->setValue(s.velocityCorrectionMaxUnlimitedSpeed);
-    m_velocityCorrectionMaxGrowthRate->setValue(s.velocityCorrectionMaxGrowthRate);
-    m_numThreads->setValue(s.numThreads);
-
-    m_limiterKind->setCurrentIndex(s.limiterKind);
-    m_limiterFaceCentre->setChecked(s.limiterSpan == 0);
-    m_limiterCentroidLine->setChecked(s.limiterSpan == 1);
-    m_limiterCellWide->setChecked(s.limiterAggregation == 0);
-    m_limiterComponentWise->setChecked(s.limiterAggregation == 1);
-    m_limiterK->setValue(s.limiterK);
-    m_limiterCubicTransition->setValue(s.cubicTransition);
-
-    m_pressureAmgWidget->setConfig(s.pressureAmg);
-
-    m_momentumSolverStats->setChecked(s.momentumSolverStats);
-    m_pressureSolverStats->setChecked(s.pressureSolverStats);
-    m_momentumAmgWidget->setConfig(s.momentumAmg);
+    m_advancedDlg->setSettings(s);
 
     m_transientRadio->setChecked(s.transient.enabled);
     m_dtSpin->setValue(s.transient.dt);
@@ -758,7 +370,6 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_nonOrthCorrectorsSpin->setValue(s.transient.nonOrthogonalCorrectors);
     m_pvdFileEdit->setText(QString::fromStdString(s.transient.pvdFile));
 
-    syncDialogDependencies();
     syncTimeDependencies();
 }
 
@@ -817,47 +428,17 @@ void CfdCasePage::collectSettings() {
     // preserve the controller's defaults so stale widget values are not
     // leaked into the settings object.
     if (m_turb->isChecked()) {
-        s.kInf = m_kInf ? m_kInf->value() : m_ctrl->settings().kInf;
-        s.omegaInf = m_wInf ? m_wInf->value() : m_ctrl->settings().omegaInf;
         s.alphaK = m_alphaK ? m_alphaK->value() : m_ctrl->settings().alphaK;
         s.alphaOmega = m_alphaW ? m_alphaW->value() : m_ctrl->settings().alphaOmega;
         s.wallFunction = m_wallFuncCb ? m_wallFuncCb->isChecked() : m_ctrl->settings().wallFunction;
     } else {
-        s.kInf = m_ctrl->settings().kInf;
-        s.omegaInf = m_ctrl->settings().omegaInf;
         s.alphaK = m_ctrl->settings().alphaK;
         s.alphaOmega = m_ctrl->settings().alphaOmega;
         s.wallFunction = m_ctrl->settings().wallFunction;
     }
-    // Advanced
-    s.pressureCorrectors = m_pressureCorrectors->value();
-    s.limitPressureCorrection = m_limitPressureCorrection->isChecked();
-    s.pressureCorrectionLimit = m_pressureCorrectionLimit->value();
-    s.pressureRefCell = static_cast<std::size_t>(m_pressureRefCell->value());
-    s.printFrequency = static_cast<std::size_t>(m_printFrequency->value());
-    s.residualHistoryWindow = static_cast<std::size_t>(m_residualHistoryWindow->value());
-    s.velocityCorrectionMaxUnlimitedSpeed = m_velocityCorrectionMaxUnlimitedSpeed->value();
-    s.velocityCorrectionMaxGrowthRate = m_velocityCorrectionMaxGrowthRate->value();
-    s.numThreads = m_numThreads->value();
 
-    s.limiterKind = m_limiterKind->currentIndex();
-    s.limiterAggregation = m_limiterAggregationGroup->checkedId();
-    if (s.limiterAggregation < 0) s.limiterAggregation = 0;
-    s.limiterSpan = m_limiterSpanGroup->checkedId();
-    if (s.limiterSpan < 0) s.limiterSpan = 0;
-    s.limiterK = m_limiterK->value();
-    s.cubicTransition = m_limiterCubicTransition->value();
-
-    // Pressure linear solver
-    s.pressureAmg = m_pressureAmgWidget->config();
-
-    // Momentum linear solver
-    s.momentumSolverStats = m_momentumSolverStats->isChecked();
-    s.pressureSolverStats = m_pressureSolverStats->isChecked();
-    s.momentumAmg = m_momentumAmgWidget->config();
-
-    // Turbulence AMG
-    s.turbulenceAmg = m_turbulenceAmgWidget->config();
+    // Advanced dialog owns these fields.
+    m_advancedDlg->collectInto(s);
 
     // Time mode (steady / transient)
     s.transient.enabled = m_transientRadio->isChecked();
@@ -971,7 +552,6 @@ void CfdCasePage::onStep() {
 void CfdCasePage::onStoppingCriteria() {
     if (!m_stoppingDlg) {
         m_stoppingDlg = new cfd::StoppingCriteriaDialog(this);
-        m_stoppingDlg->setWindowModality(Qt::ApplicationModal);
     }
     const bool dim3 = m_ctrl->meshResult().dim == 3;
     const bool turbulence = m_ctrl->settings().turbulence;
@@ -1008,49 +588,12 @@ void CfdCasePage::onInitialize() {
     collectSettings();
     // (residuals are cleared only after the user confirms initialization)
 
-    QDialog dlg(this);
-    dlg.setWindowTitle("Initialize Solution");
-    auto* lay = new QVBoxLayout(&dlg);
-    auto* form = new QFormLayout;
-    auto* ux = new QDoubleSpinBox(&dlg); ux->setRange(-1e6, 1e6); ux->setDecimals(4); ux->setValue(0.0);
-    auto* uy = new QDoubleSpinBox(&dlg); uy->setRange(-1e6, 1e6); uy->setDecimals(4); uy->setValue(0.0);
-    QDoubleSpinBox* uz = nullptr;
-    if (dim >= 3) { uz = new QDoubleSpinBox(&dlg); uz->setRange(-1e6, 1e6); uz->setDecimals(4); uz->setValue(0.0); }
-    auto* p  = new QDoubleSpinBox(&dlg); p->setRange(-1e6, 1e6); p->setDecimals(4); p->setValue(0.0);
-    QDoubleSpinBox* k = nullptr;
-    QDoubleSpinBox* w = nullptr;
-    const bool turb = m_ctrl->settings().turbulence;
-    if (turb) {
-            k = new QDoubleSpinBox(&dlg); k->setRange(0.0, 1e3); k->setDecimals(4); k->setValue(0.0);
-            k->setSpecialValueText("auto");
-            w = new QDoubleSpinBox(&dlg); w->setRange(0.0, 1e6); w->setDecimals(4); w->setValue(0.0);
-            w->setSpecialValueText("auto");
-    }
-    form->addRow("U_x", ux);
-    form->addRow("U_y", uy);
-    if (dim >= 3) form->addRow("U_z", uz);
-    form->addRow("p", p);
-    if (turb) {
-        form->addRow("k", k);
-        form->addRow("omega", w);
-    }
-    lay->addLayout(form);
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-    lay->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-
+    CfdInitializeDialog dlg(dim, m_ctrl->settings().turbulence, this);
     if (dlg.exec() != QDialog::Accepted) return;
 
     emit residualsCleared();
 
-    cfd::InitConditions ic;
-    ic.ux = ux->value();
-    ic.uy = uy->value();
-    ic.uz = (dim >= 3 && uz) ? uz->value() : 0.0;
-    ic.pressure = p->value();
-    ic.k = (turb && k) ? k->value() : m_ctrl->settings().kInf;
-    ic.omega = (turb && w) ? w->value() : m_ctrl->settings().omegaInf;
+    const cfd::InitConditions ic = dlg.conditions();
 
     auto rm = m_ctrl->initialize(ic);
     if (!rm) {
@@ -1170,12 +713,7 @@ void CfdCasePage::onProgress(int iteration, double continuity, double momentum) 
     emit residualPoint(iteration, continuity, momentum);
     // Also refresh the pause/step button state on each iteration boundary so the
     // UI stays in sync with the solver's paused/settled state.
-    if (!m_running) return;
-    const bool paused = m_ctrl->isPaused();
-    const bool settled = m_ctrl->isPausedSettled();
-    if (m_pauseBtn)
-        m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
-    if (m_stepBtn) m_stepBtn->setEnabled(settled);
+    if (m_running) refreshRunControls();
 }
 
 void CfdCasePage::onTransientFrame(std::shared_ptr<const RenderMesh> mesh, int step, double time) {

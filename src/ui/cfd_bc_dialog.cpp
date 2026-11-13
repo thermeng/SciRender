@@ -1,5 +1,7 @@
 #include "ui/cfd_bc_dialog.h"
 
+#include "ui/uikit.h"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -12,6 +14,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
+#include <QSizePolicy>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
@@ -68,47 +71,16 @@ const char* hintForType(cfd::BCType type) {
     }
 }
 
-QLabel* sectionHeader(const QString& text, QWidget* parent) {
-    auto* label = new QLabel(text, parent);
-    QFont f = label->font();
-    f.setPointSize(11);
-    f.setWeight(QFont::Medium);
-    f.setLetterSpacing(QFont::AbsoluteSpacing, 0.3);
-    label->setFont(f);
-    return label;
-}
-
-QLabel* fieldLabel(const QString& text, QWidget* parent) {
-    auto* label = new QLabel(text, parent);
-    QFont f = label->font();
-    f.setPointSize(10);
-    label->setFont(f);
-    return label;
-}
-
-QFrame* divider(QWidget* parent, QFrame::Shape shape = QFrame::HLine) {
-    auto* line = new QFrame(parent);
-    line->setFrameShape(shape);
-    line->setFrameShadow(QFrame::Sunken);
-    return line;
-}
-
 // Fixed-pitch numerals keep the coefficient columns from shifting as values
 // change width; matches the range editor's spin boxes.
-QDoubleSpinBox* makeCoefficientSpin(double value, QWidget* parent) {
+QDoubleSpinBox* coefficientSpin(double value, QWidget* parent) {
     auto* spin = new QDoubleSpinBox(parent);
     spin->setRange(-1e6, 1e6);
     spin->setDecimals(4);
     spin->setValue(value);
     spin->setMinimumWidth(84);
     spin->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    QFont f("JetBrains Mono");
-    if (f.family().isEmpty()) {
-        f = QFont();
-        f.setStyleHint(QFont::Monospace);
-    }
-    f.setPointSize(11);
-    spin->setFont(f);
+    spin->setFont(uikit::mono());
     return spin;
 }
 
@@ -121,8 +93,6 @@ CfdBoundaryConditionsDialog::CfdBoundaryConditionsDialog(std::vector<cfd::PatchB
     : QDialog(parent), m_bcs(std::move(patchBCs)), m_faceCounts(std::move(faceCounts)),
       m_turbulenceEnabled(turbulenceEnabled) {
     setWindowTitle("Boundary Conditions");
-    setModal(true);
-    setMinimumSize(760, 470);
 
     buildTable();
 
@@ -134,32 +104,24 @@ CfdBoundaryConditionsDialog::CfdBoundaryConditionsDialog(std::vector<cfd::PatchB
     bodyLayout->setContentsMargins(0, 0, 0, 0);
     bodyLayout->setSpacing(14);
     bodyLayout->addWidget(m_table, 0);
-    auto* vline = new QFrame(body);
-    vline->setFrameShape(QFrame::VLine);
-    vline->setFrameShadow(QFrame::Plain);
-    vline->setStyleSheet("color: palette(mid);");
-    bodyLayout->addWidget(vline);
+    bodyLayout->addWidget(uikit::vline(body));
     bodyLayout->addWidget(detail, 1);
 
-    auto* description = new QLabel(
+    auto* description = uikit::note(
         "Assign a condition to each mesh patch. Select a patch to edit its parameters.", this);
-    description->setWordWrap(true);
-    description->setStyleSheet("color: palette(windowText);");
 
     auto* presetRow = new QHBoxLayout();
     presetRow->setSpacing(6);
-    presetRow->addWidget(fieldLabel("Presets", this));
+    presetRow->addWidget(uikit::note("Presets", this));
     auto* allNoSlip = new QPushButton("All: No-slip", this);
     auto* allSlip = new QPushButton("All: Slip", this);
     auto* allSymmetry = new QPushButton("All: Symmetry", this);
     for (QPushButton* b : {allNoSlip, allSlip, allSymmetry}) presetRow->addWidget(b);
     presetRow->addStretch(1);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    auto* buttons = uikit::buttons(this, false);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(12, 12, 12, 12);
-    root->setSpacing(10);
     root->addWidget(description);
     root->addWidget(body, 1);
     root->addLayout(presetRow);
@@ -193,10 +155,8 @@ CfdBoundaryConditionsDialog::CfdBoundaryConditionsDialog(std::vector<cfd::PatchB
     connect(allSlip, &QPushButton::clicked, this, [this] { applyToAll(cfd::BCType::SlipWall); });
     connect(allSymmetry, &QPushButton::clicked, this, [this] { applyToAll(cfd::BCType::Symmetry); });
 
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-
     if (!m_bcs.empty()) m_table->setCurrentCell(0, 0);
+    uikit::prepareDialog(this, 760, 470);
 }
 
 void CfdBoundaryConditionsDialog::buildTable() {
@@ -242,15 +202,11 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     titleFont.setWeight(QFont::DemiBold);
     m_patchTitle->setFont(titleFont);
 
-    m_patchMeta = new QLabel(detail);
-    QFont metaFont = m_patchMeta->font();
-    metaFont.setPixelSize(10);
-    m_patchMeta->setFont(metaFont);
-    m_patchMeta->setStyleSheet("color: palette(windowText);");
+    m_patchMeta = uikit::note(QString(), detail);
 
     lay->addWidget(m_patchTitle);
     lay->addWidget(m_patchMeta);
-    lay->addWidget(divider(detail));
+    lay->addWidget(uikit::hline(detail));
 
     // ── Condition ──
     auto* conditionForm = new QFormLayout;
@@ -260,7 +216,7 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     conditionForm->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_typeCombo = new QComboBox(detail);
     for (const BcTypeInfo& info : kBcTypes) m_typeCombo->addItem(QString::fromUtf8(info.label));
-    conditionForm->addRow(fieldLabel("Condition", detail), m_typeCombo);
+    conditionForm->addRow(uikit::note("Condition", detail), m_typeCombo);
     lay->addLayout(conditionForm);
 
     // ── Velocity (inlet / moving wall) ──
@@ -268,11 +224,11 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     auto* velocityLay = new QVBoxLayout(m_velocitySection);
     velocityLay->setContentsMargins(0, 0, 0, 0);
     velocityLay->setSpacing(4);
-    velocityLay->addWidget(sectionHeader("Velocity", m_velocitySection));
+    velocityLay->addWidget(uikit::header("Velocity", m_velocitySection));
 
-    m_u = makeCoefficientSpin(0.0, m_velocitySection);
-    m_v = makeCoefficientSpin(0.0, m_velocitySection);
-    m_w = makeCoefficientSpin(0.0, m_velocitySection);
+    m_u = coefficientSpin(0.0, m_velocitySection);
+    m_v = coefficientSpin(0.0, m_velocitySection);
+    m_w = coefficientSpin(0.0, m_velocitySection);
     {
         auto* grid = new QGridLayout;
         grid->setContentsMargins(0, 0, 0, 0);
@@ -281,7 +237,7 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
         const char* axis[3] = {"U_x", "U_y", "U_z"};
         QDoubleSpinBox* spins[3] = {m_u, m_v, m_w};
         for (int c = 0; c < 3; ++c) {
-            grid->addWidget(fieldLabel(QString::fromUtf8(axis[c]), m_velocitySection), 0, c * 2);
+            grid->addWidget(uikit::note(QString::fromUtf8(axis[c]), m_velocitySection), 0, c * 2);
             grid->addWidget(spins[c], 0, c * 2 + 1);
             grid->setColumnStretch(c * 2 + 1, 1);
         }
@@ -292,17 +248,17 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
      auto* turbLay = new QVBoxLayout(m_turbulenceBox);
      turbLay->setContentsMargins(0, 0, 0, 0);
      turbLay->setSpacing(4);
-     turbLay->addWidget(fieldLabel("Turbulence inlet", m_turbulenceBox));
-     m_kInlet = makeCoefficientSpin(1e-3, m_turbulenceBox);
-     m_omegaInlet = makeCoefficientSpin(1.0, m_turbulenceBox);
+     turbLay->addWidget(uikit::note("Turbulence inlet", m_turbulenceBox));
+     m_kInlet = coefficientSpin(1e-3, m_turbulenceBox);
+     m_omegaInlet = coefficientSpin(1.0, m_turbulenceBox);
      {
          auto* grid = new QGridLayout;
          grid->setContentsMargins(0, 0, 0, 0);
          grid->setHorizontalSpacing(8);
          grid->setVerticalSpacing(4);
-         grid->addWidget(fieldLabel("k", m_turbulenceBox), 0, 0);
+         grid->addWidget(uikit::note("k", m_turbulenceBox), 0, 0);
          grid->addWidget(m_kInlet, 0, 1);
-         grid->addWidget(fieldLabel("omega", m_turbulenceBox), 0, 2);
+         grid->addWidget(uikit::note("omega", m_turbulenceBox), 0, 2);
          grid->addWidget(m_omegaInlet, 0, 3);
          grid->setColumnStretch(1, 1);
          grid->setColumnStretch(3, 1);
@@ -317,16 +273,16 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     auto* pressureLay = new QVBoxLayout(m_pressureSection);
     pressureLay->setContentsMargins(0, 0, 0, 0);
     pressureLay->setSpacing(4);
-    pressureLay->addWidget(sectionHeader("Pressure & backflow", m_pressureSection));
+    pressureLay->addWidget(uikit::header("Pressure & backflow", m_pressureSection));
 
-    m_pressure = makeCoefficientSpin(0.0, m_pressureSection);
+    m_pressure = coefficientSpin(0.0, m_pressureSection);
     m_suppressBackflow = new QCheckBox("Suppress backflow", m_pressureSection);
     {
         auto* form = new QFormLayout;
         form->setContentsMargins(0, 0, 0, 0);
         form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
         form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        form->addRow(fieldLabel("Static pressure", m_pressureSection), m_pressure);
+        form->addRow(uikit::note("Static pressure", m_pressureSection), m_pressure);
         form->addRow(m_suppressBackflow);
         pressureLay->addLayout(form);
     }
@@ -335,10 +291,10 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     auto* backflowLay = new QVBoxLayout(m_backflowBox);
     backflowLay->setContentsMargins(0, 2, 0, 0);
     backflowLay->setSpacing(4);
-    backflowLay->addWidget(fieldLabel("Backflow velocity", m_backflowBox));
-    m_backflowU = makeCoefficientSpin(0.0, m_backflowBox);
-    m_backflowV = makeCoefficientSpin(0.0, m_backflowBox);
-    m_backflowW = makeCoefficientSpin(0.0, m_backflowBox);
+    backflowLay->addWidget(uikit::note("Backflow velocity", m_backflowBox));
+    m_backflowU = coefficientSpin(0.0, m_backflowBox);
+    m_backflowV = coefficientSpin(0.0, m_backflowBox);
+    m_backflowW = coefficientSpin(0.0, m_backflowBox);
     {
         auto* grid = new QGridLayout;
         grid->setContentsMargins(0, 0, 0, 0);
@@ -347,23 +303,23 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
         const char* axis[3] = {"U_x", "U_y", "U_z"};
         QDoubleSpinBox* spins[3] = {m_backflowU, m_backflowV, m_backflowW};
         for (int c = 0; c < 3; ++c) {
-            grid->addWidget(fieldLabel(QString::fromUtf8(axis[c]), m_backflowBox), 0, c * 2);
+            grid->addWidget(uikit::note(QString::fromUtf8(axis[c]), m_backflowBox), 0, c * 2);
             grid->addWidget(spins[c], 0, c * 2 + 1);
             grid->setColumnStretch(c * 2 + 1, 1);
         }
         backflowLay->addLayout(grid);
     }
-    backflowLay->addWidget(fieldLabel("Backflow turbulence", m_backflowBox));
-    m_backflowK = makeCoefficientSpin(0.0, m_backflowBox);
-    m_backflowOmega = makeCoefficientSpin(0.0, m_backflowBox);
+    backflowLay->addWidget(uikit::note("Backflow turbulence", m_backflowBox));
+    m_backflowK = coefficientSpin(0.0, m_backflowBox);
+    m_backflowOmega = coefficientSpin(0.0, m_backflowBox);
     {
         auto* grid = new QGridLayout;
         grid->setContentsMargins(0, 0, 0, 0);
         grid->setHorizontalSpacing(8);
         grid->setVerticalSpacing(4);
-        grid->addWidget(fieldLabel("Turbulent k", m_backflowBox), 0, 0);
+        grid->addWidget(uikit::note("Turbulent k", m_backflowBox), 0, 0);
         grid->addWidget(m_backflowK, 0, 1);
-        grid->addWidget(fieldLabel("Omega", m_backflowBox), 0, 2);
+        grid->addWidget(uikit::note("Omega", m_backflowBox), 0, 2);
         grid->addWidget(m_backflowOmega, 0, 3);
         grid->setColumnStretch(1, 1);
         grid->setColumnStretch(3, 1);
@@ -373,9 +329,7 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     lay->addWidget(m_pressureSection);
 
     // ── Explanation for conditions with no parameters ──
-    m_hint = new QLabel(detail);
-    m_hint->setWordWrap(true);
-    m_hint->setStyleSheet("color: palette(windowText);");
+    m_hint = uikit::note(QString(), detail);
     lay->addWidget(m_hint);
 
     lay->addStretch(1);
