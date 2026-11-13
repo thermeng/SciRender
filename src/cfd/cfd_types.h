@@ -212,6 +212,7 @@ struct CaseSettings {
     bool momentumAmgAsSolver = false;
     int momentumAmgCycles = 1;
         double momentumAmgMaxResidual = 0.1;
+    bool pressureSolverStats = false;
     bool momentumSolverStats = false;
     AmgSettings momentumAmg = AmgSettings::momentumDefaults();
 

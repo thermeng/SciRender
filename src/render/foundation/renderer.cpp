@@ -32,7 +32,8 @@ Renderer::Renderer()
     : m_state(), m_plotKernel(std::make_unique<PlotKernel>()) {
 
 
-    m_state.meshColor[0] = 0.4f; m_state.meshColor[1] = 0.9f; m_state.meshColor[2] = 0.4f;
+    m_state.meshColor[0] = 0.0f; m_state.meshColor[1] = 0.0f; m_state.meshColor[2] = 0.0f;
+    m_state.bboxColor[0] = 0.4f; m_state.bboxColor[1] = 0.9f; m_state.bboxColor[2] = 0.4f;
     m_state.surfaceColor[0] = 1.0f; m_state.surfaceColor[1] = 1.0f; m_state.surfaceColor[2] = 1.0f;
     m_state.bgColor[0] = 0.12f; m_state.bgColor[1] = 0.12f; m_state.bgColor[2] = 0.12f;
     m_state.worldCenterX = 0.0; m_state.worldCenterY = 0.0; m_state.worldCenterZ = 0.0;

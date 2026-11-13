@@ -328,6 +328,7 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
         flg("momentumAmgAsSolver", &CaseSettings::momentumAmgAsSolver),
         i32("momentumAmgCycles", &CaseSettings::momentumAmgCycles),
         flg("momentumSolverStats", &CaseSettings::momentumSolverStats),
+        flg("pressureSolverStats", &CaseSettings::pressureSolverStats),
         Field<CaseSettings>{
             "transient",
             [](const CaseSettings& s) { return serializeTransient(s.transient); },

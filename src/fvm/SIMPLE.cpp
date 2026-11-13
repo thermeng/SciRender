@@ -1002,7 +1002,7 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     }
 
     linearSolverDispatcher_.printStats();
-    printPressureSolverStats_();
+    if (config_.pressureSolverStats) printPressureSolverStats_();
     steadyTotalSeconds_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - steadyTotalStart).count();
     printFinalStats_();
 }
@@ -1927,7 +1927,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                   << "           correctors, or raising simple.pressure_correction_limit.\n";
     }
     linearSolverDispatcher_.printStats();
-    printPressureSolverStats_();
+    if (config_.pressureSolverStats) printPressureSolverStats_();
     printFinalStats_();
 }
 
