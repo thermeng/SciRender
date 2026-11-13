@@ -520,7 +520,10 @@ void PressureCorrection<Dim>::solve(
         for (std::size_t d = 0; d < Dim; ++d) un += uStar[d][P] * mesh_.faceNormal(f)[d];
         if (un < 0.0) ++nReverseFlow;
     }
-    if (nReverseFlow > 0) std::cerr << "  WARNING: " << nReverseFlow << " pressure outlet face(s) with reverse flow\n";
+    // Recorded, not printed: every corrector runs this solve, so printing here
+    // repeated the same line once per corrector. The caller reports it once per
+    // time step, where it describes the state of the flow rather than one solve.
+    lastReverseFlowFaces_ = nReverseFlow;
 
     for (std::size_t P = 0; P < n; ++P) {
         divU_[P] /= mesh_.cellVolume(P);

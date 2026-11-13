@@ -7,6 +7,7 @@
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QGroupBox;
 class QSpinBox;
 
 // -style AMG linear solver properties.
@@ -71,7 +72,9 @@ private:
     QSpinBox* m_stagnationMinIter = nullptr;
     QDoubleSpinBox* m_stagnationLoose = nullptr;
 
-    // Flexible cycle 
+    // Flexible cycle
+    // Owned by the grid; hidden unless the cycle type is Flexible.
+    QGroupBox* m_flexGroup = nullptr;
     QDoubleSpinBox* m_restrictionTolerance = nullptr;
     QDoubleSpinBox* m_prolongationTolerance = nullptr;
     QSpinBox* m_flexSweeps = nullptr;

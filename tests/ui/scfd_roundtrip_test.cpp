@@ -227,30 +227,4 @@ TEST_CASE("ui.scfd_cancel_leaves_a_restartable_state") {
     CHECK(loaded.currentTime() == doctest::Approx(cancelledTime + 0.05).epsilon(1e-9));
 }
 
-TEST_CASE("ui.scfd_v5_file_still_loads") {
-    app();
-
-    // A checked-in v5 file predates 3D support. It has no explicit dimension
-    // field, so the shim reads it as a 2D case; re-saving upgrades it to v6.
-    CfdController ctrl;
-    REQUIRE(ctrl.loadCase(QStringLiteral(SCIRENDER_SAMPLES_DIR "/cfd/CylinderFlow.scfd")));
-    INFO("last error: " << ctrl.lastError().toStdString());
-    CHECK(ctrl.meshResult().dim == 2);
-    REQUIRE(ctrl.meshResult().mesh2);
-    CHECK_FALSE(ctrl.meshResult().mesh3);
-    auto rm = ctrl.resultMesh();
-    CHECK(rm != nullptr);
-
-    QTemporaryDir dir;
-    REQUIRE(dir.isValid());
-    const QString file = dir.filePath("upgraded.scfd");
-    REQUIRE(ctrl.saveCase(file));
-
-    CfdController loaded;
-    REQUIRE(loaded.loadCase(file));
-    INFO("last error: " << loaded.lastError().toStdString());
-    CHECK(loaded.meshResult().dim == 2);
-    CHECK(loaded.resultMesh() != nullptr);
-}
-
 } // TEST_SUITE

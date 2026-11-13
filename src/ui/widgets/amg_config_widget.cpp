@@ -7,6 +7,7 @@
 #include <QDoubleSpinBox>
 #include <QFont>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -17,6 +18,10 @@ namespace {
 
 constexpr int kSpinWidth = 110;
 constexpr int kComboWidth = 150;
+// Groups sit on a fixed three-column grid, so a group that is hidden later
+// (Flexible Cycle) never re-flows the ones beside it.
+constexpr int kGroupColumns = 3;
+constexpr int kGroupSpacing = 8;
 
 template <typename Spin>
 Spin* styleSpin(Spin* spin) {
@@ -66,33 +71,39 @@ void AmgConfigWidget::buildUi() {
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    auto makeGroup = [](QVBoxLayout* column, const QString& title) {
+    // The groups live on one grid instead of nested per-column layouts. The grid
+    // is what decides how many groups sit side by side; each column keeps its own
+    // next-row counter, so hiding one group leaves no hole under the others.
+    auto* grid = new QGridLayout;
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setHorizontalSpacing(kGroupSpacing);
+    grid->setVerticalSpacing(kGroupSpacing);
+    root->addLayout(grid);
+
+    // Columns share the page width, so no single group decides how wide it is.
+    for (int column = 0; column < kGroupColumns; ++column) {
+        grid->setColumnStretch(column, 1);
+    }
+    int nextRow[kGroupColumns] = {0, 0, 0};
+
+    // Returns the box and its form: only the box is ever hidden, but the caller
+    // needs both, and the pairs keep the call sites uniform.
+    auto makeGroup = [grid, &nextRow](const QString& title, int column) {
         auto* box = new QGroupBox(title);
         auto* form = new QFormLayout(box);
-        form->setContentsMargins(12, 8, 12, 12);
-        form->setSpacing(5);
+        form->setContentsMargins(8, 6, 8, 8);
+        form->setSpacing(4);
         form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
         form->setRowWrapPolicy(QFormLayout::DontWrapRows);
         form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
         form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
-        column->addWidget(box);
-        return form;
+        grid->addWidget(box, nextRow[column]++, column, Qt::AlignLeft | Qt::AlignTop);
+        return std::make_pair(box, form);
     };
 
-    auto* columns = new QHBoxLayout;
-    columns->setContentsMargins(0, 0, 0, 0);
-    columns->setSpacing(12);
-
-    auto* leftCol = new QVBoxLayout;
-    leftCol->setSpacing(10);
-    auto* rightCol = new QVBoxLayout;
-    rightCol->setSpacing(10);
-    columns->addLayout(leftCol, 1);
-    columns->addLayout(rightCol, 1);
-    root->addLayout(columns);
-
     // ── AMG linear solver ────────────────────────────────────────────────────
-    QFormLayout* solver = makeGroup(leftCol, "AMG linear solver");
+    auto solverGroup = makeGroup("AMG linear solver", 0);
+    QFormLayout* solver = solverGroup.second;
 
     m_maxCycles = styleSpin(new QSpinBox(this));
     m_maxCycles->setRange(1, 100000);
@@ -139,7 +150,11 @@ void AmgConfigWidget::buildUi() {
     solver->addRow("Maximum Number Of Levels", m_maxLevels);
 
     // ── Flexible Cycle ──────────────────────────────────────
-    QFormLayout* flex = makeGroup(rightCol, "Flexible Cycle");
+    // Hidden until the cycle type asks for it: a flexible cycle is the only
+    // consumer of these five rows, and it is off by default.
+    auto flexGroup = makeGroup("Flexible Cycle", 1);
+    m_flexGroup = flexGroup.first;
+    QFormLayout* flex = flexGroup.second;
     m_restrictionTolerance = styleSpin(new QDoubleSpinBox(this));
     m_restrictionTolerance->setRange(0.01, 0.99);
     m_restrictionTolerance->setDecimals(2);
@@ -167,7 +182,7 @@ void AmgConfigWidget::buildUi() {
     flex->addRow("Max Coarse Relaxations", m_maxCoarseRelaxations);
 
     // ── Robustness (expert) ──────────────────────────────────────────────────
-    QFormLayout* robust = makeGroup(leftCol, "Robustness (Expert)");
+    QFormLayout* robust = makeGroup("Robustness (Expert)", 0).second;
 
     m_stagnationFactor = styleSpin(new QDoubleSpinBox(this));
     m_stagnationFactor->setRange(1.0, 10.0);
@@ -188,10 +203,8 @@ void AmgConfigWidget::buildUi() {
     m_stagnationLoose->setToolTip("Loosened residual factor accepted once stagnation is detected.");
     robust->addRow("Stagnation Loose Factor", m_stagnationLoose);
 
-    leftCol->addStretch(1);
-
     // ── Coarse solve ─────────────────────────────────────────────────────────
-    QFormLayout* coarse = makeGroup(rightCol, "Coarse Solve");
+    QFormLayout* coarse = makeGroup("Coarse Solve", 1).second;
 
     m_directSolver = new QCheckBox("Enable The Direct Solver", this);
     m_directSolver->setToolTip(
@@ -212,7 +225,7 @@ void AmgConfigWidget::buildUi() {
     coarse->addRow("Epsilon", m_epsilon);
 
     // ── Smoother and acceleration ────────────────────────────────────────────
-    QFormLayout* smoother = makeGroup(rightCol, "Smoother And Acceleration");
+    QFormLayout* smoother = makeGroup("Smoother And Acceleration", 2).second;
 
     m_smoother = styleCombo(new QComboBox(this));
     m_smoother->addItems({"Jacobi", "Gauss-Seidel", "ILU"});
@@ -240,7 +253,7 @@ void AmgConfigWidget::buildUi() {
     smoother->addRow("Proportional Scaling", m_scaling);
 
     // ── Aggregation ──────────────────────────────────────────────────────────
-    QFormLayout* aggregation = makeGroup(rightCol, "Aggregation");
+    QFormLayout* aggregation = makeGroup("Aggregation", 2).second;
 
     m_groupSizeControl = styleCombo(new QComboBox(this));
     m_groupSizeControl->addItems({"Automatic", "Manual"});
@@ -257,7 +270,7 @@ void AmgConfigWidget::buildUi() {
     aggregation->addRow("Group Size", m_groupSize);
 
     // ── Coarsening (expert) ──────────────────────────────────────────────────
-    QFormLayout* build = makeGroup(rightCol, "Coarsening (Expert)");
+    QFormLayout* build = makeGroup("Coarsening (Expert)", 0).second;
 
     m_coarsening = styleCombo(new QComboBox(this));
     m_coarsening->addItems({"Ruge-Stuben", "Smoothed Aggregation"});
@@ -298,8 +311,6 @@ void AmgConfigWidget::buildUi() {
         m_nonsymmetric->setEnabled(false);
     }
 
-    rightCol->addStretch(1);
-
     // ── Change notifications ─────────────────────────────────────────────────
     for (QSpinBox* spin : {m_maxCycles, m_preSweeps, m_postSweeps, m_maxLevels,
                            m_directMaxEquations, m_groupSize, m_minCoarse,
@@ -332,6 +343,10 @@ void AmgConfigWidget::buildUi() {
 
 void AmgConfigWidget::syncDependencies() {
     const bool flex = m_cycleType->currentIndex() == static_cast<int>(cfd::AmgSettings::CycleType::Flexible);
+    // A flexible cycle is the only reader of these rows. Hiding the group (rather
+    // than only disabling it) is what keeps the page compact by default; the
+    // values are still read by config(), so nothing is lost while hidden.
+    m_flexGroup->setVisible(flex);
     m_restrictionTolerance->setEnabled(flex);
     m_prolongationTolerance->setEnabled(flex);
     m_flexSweeps->setEnabled(flex);
