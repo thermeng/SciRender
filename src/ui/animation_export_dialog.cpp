@@ -1,5 +1,7 @@
 #include "ui/animation_export_dialog.h"
 
+#include "ui/uikit.h"
+
 #include "render/settings/animation_controller.h"
 
 #include <QCheckBox>
@@ -20,8 +22,6 @@ AnimationExportDialog::AnimationExportDialog(AnimationController* controller,
                                              QSize viewportSize, QWidget* parent)
     : QDialog(parent), m_controller(controller), m_viewportSize(viewportSize) {
     setWindowTitle("Export Animation");
-    setModal(true);
-    setMinimumWidth(420);
 
     const int frameCount = controller ? controller->frameCount() : 0;
 
@@ -108,7 +108,17 @@ AnimationExportDialog::AnimationExportDialog(AnimationController* controller,
     rangeLayout->addStretch(1);
     form->addRow("Frames", rangeRow);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    auto* buttons = uikit::buttons(this, false, [this]() {
+        if (!m_aviCheck->isChecked() && !m_pngCheck->isChecked()) {
+            m_aviCheck->setFocus();
+            return false;
+        }
+        if (m_from->value() > m_to->value()) {
+            m_from->setFocus();
+            return false;
+        }
+        return true;
+    });
 
     auto* root = new QVBoxLayout(this);
     root->addLayout(form);
@@ -118,18 +128,8 @@ AnimationExportDialog::AnimationExportDialog(AnimationController* controller,
     connect(pngBrowse, &QToolButton::clicked, this, &AnimationExportDialog::browsePngDir);
     connect(m_aviCheck, &QCheckBox::toggled, m_aviPath, &QLineEdit::setEnabled);
     connect(m_pngCheck, &QCheckBox::toggled, m_pngDir, &QLineEdit::setEnabled);
-    connect(buttons, &QDialogButtonBox::accepted, this, [this] {
-        if (!m_aviCheck->isChecked() && !m_pngCheck->isChecked()) {
-            m_aviCheck->setFocus();
-            return;
-        }
-        if (m_from->value() > m_to->value()) {
-            m_from->setFocus();
-            return;
-        }
-        accept();
-    });
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+    uikit::prepareDialog(this, 420);
 }
 
 void AnimationExportDialog::browseAvi() {

@@ -1,5 +1,7 @@
 #include "ui/widgets/range_editor.h"
 
+#include "ui/uikit.h"
+
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -19,11 +21,7 @@ RangeEditor::RangeEditor(QWidget* parent) : QWidget(parent) {
         sp->setButtonSymbols(QDoubleSpinBox::UpDownArrows);
         sp->setMinimumWidth(56);
         sp->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        QFont f = sp->font();
-        f.setFamily("JetBrains Mono");
-        f.setStyleHint(QFont::Monospace);
-        f.setPixelSize(11);
-        sp->setFont(f);
+        sp->setFont(uikit::mono());
     }
 
     m_resetBtn->setToolTip("Reset to full data range");

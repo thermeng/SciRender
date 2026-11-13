@@ -313,8 +313,6 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
         dbl("cubicTransition", &CaseSettings::cubicTransition),
         flg("rhieChow", &CaseSettings::rhieChow),
         flg("turbulence", &CaseSettings::turbulence),
-        dbl("kInf", &CaseSettings::kInf),
-        dbl("omegaInf", &CaseSettings::omegaInf),
         dbl("alphaK", &CaseSettings::alphaK),
         dbl("alphaOmega", &CaseSettings::alphaOmega),
         num("pressureRefCell", &CaseSettings::pressureRefCell),

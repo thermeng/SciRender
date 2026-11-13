@@ -1,4 +1,5 @@
 #include "ui/colorbar_style_dialog.h"
+#include "ui/uikit.h"
 #include "ui/widgets/colormap_combo.h"
 #include "ui/widgets/range_editor.h"
 
@@ -28,7 +29,6 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
     if (m_barSubtitle.startsWith("Slice")) m_barSubtitle = "Slice";
     setWindowTitle(displaySubtitle.isEmpty() ? QString("Colorbar Style")
                                              : QString("Colorbar Style — %1").arg(displaySubtitle));
-    setModal(true);
 
     m_initialFontFamily = m_settings->getColorbarFontFamily();
     m_initialFontBold = m_settings->getColorbarFontBold();
@@ -158,9 +158,8 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
     // swatch preview. Use Colormap toggle stays in sidebar per spec.
     {
         if (!m_barSubtitle.isEmpty()) {
-            auto* palHeader = new QLabel(QString("Palette — %1").arg(m_barSubtitle), this);
-            QFont f = palHeader->font(); f.setBold(true); palHeader->setFont(f);
-            form->addRow(palHeader);
+auto* palHeader = uikit::header(QString("Palette — %1").arg(m_barSubtitle), this);
+        form->addRow(palHeader);
         }
         auto paletteSetter = [this](int v) {
             if (m_barSubtitle == "Scalar") m_settings->setColormapChoice(v);
@@ -207,13 +206,12 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
 
     // Fixed Range per bar (RangeEditor + Enable checkbox). Adaptive for Vector/Streamline.
     {
-        auto* rangeHeader = new QLabel(QString("Fixed Range — %1").arg(m_barSubtitle.isEmpty() ? QString("scalar") : m_barSubtitle), this);
-        QFont hf = rangeHeader->font(); hf.setBold(true); rangeHeader->setFont(hf);
+        auto* rangeHeader = uikit::header(
+            QString("Fixed Range — %1").arg(m_barSubtitle.isEmpty() ? QString("scalar") : m_barSubtitle),
+            this);
         form->addRow(rangeHeader);
 
-        m_rangeModeLabel = new QLabel(this);
-        m_rangeModeLabel->setStyleSheet("color: gray; font-size: 10px;");
-        m_rangeModeLabel->setWordWrap(true);
+        m_rangeModeLabel = uikit::note(QString(), this);
         form->addRow(m_rangeModeLabel);
 
         m_rangeEnable = new QCheckBox("Fixed Range", this);
@@ -276,10 +274,8 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
             m_settings, &RenderSettings::setColorbarTicks);
     form->addRow("Ticks", m_ticksSpin);
 
-    auto* buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults, this);
+    auto* buttons = uikit::buttons(this, true);
     auto* defaultsBtn = buttons->button(QDialogButtonBox::RestoreDefaults);
-    defaultsBtn->setText("Reset Defaults");
 
     auto* root = new QVBoxLayout(this);
     root->addLayout(form);
@@ -333,8 +329,7 @@ ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString
         // RangeEditor Reset button will snap window to bounds, but also force sync
         // to clear override-driven window. Disabling already handled via toggled signal.
     });
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    uikit::prepareDialog(this, 480);
 }
 
 void ColorbarStyleDialog::reject() {

@@ -163,7 +163,6 @@ struct CaseSettings {
     bool rhieChow = true; // compact operator with Rhie-Chow: two-point stencil, stable at high Re
     bool turbulence = false;
     bool wallFunction = false;
-    double kInf = 1e-3, omegaInf = 1.0;
     double alphaK = 0.7, alphaOmega = 0.7;
 
     // Gradient (slope) limiter for the second-order upwind reconstruction.

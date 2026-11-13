@@ -202,10 +202,8 @@ void applyPanelStyling(QWidget* root) {
         std::sort(indices.begin(), indices.end(), std::greater<int>());
 
         for (int idx : indices) {
-            auto* line = new QFrame;
+            auto* line = uikit::hline();
             line->setProperty("isHeaderDivider", true); // Flag to prevent duplicate insertion on re-runs
-            line->setFrameShape(QFrame::NoFrame);
-            line->setFixedHeight(1);
             line->setStyleSheet("background-color: palette(mid); margin-top: 8px; margin-bottom: 4px;");
             it.key()->insertWidget(idx, line);
         }

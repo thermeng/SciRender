@@ -1,5 +1,7 @@
 #include "stopping_criteria_dialog.h"
 
+#include "ui/uikit.h"
+
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QLayout>
@@ -27,21 +29,17 @@ namespace cfd {
 StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
     : QDialog(parent) {
     setWindowTitle("Stopping Criteria");
-    setModal(true);
-    //resize(560, 640);
-    adjustSize();
 
     model_ = std::make_unique<StoppingCriteriaModel>(this);
 
     auto* main = new QVBoxLayout(this);
-    main->setContentsMargins(12, 12, 12, 12);
-    main->setSpacing(10);
 
     // ── Equation table ──────────────────────────────────────────────
-    eqGroup_ = new QGroupBox("Residual equations");
+    eqGroup_ = new QGroupBox("Residual Equations");
     auto* eqLay = new QVBoxLayout(eqGroup_);
-    eqLay->setContentsMargins(12, 12, 12, 12);
-    eqLay->setSpacing(10);
+    eqLay->setContentsMargins(uikit::kGroupMargin, uikit::kGroupMargin,
+                              uikit::kGroupMargin, uikit::kGroupMargin);
+    eqLay->setSpacing(uikit::kGroupSpacing);
     eqGrid_ = new QGridLayout();
     eqGrid_->setColumnStretch(0, 1);
     eqGrid_->setHorizontalSpacing(12);
@@ -63,26 +61,21 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
     main->addWidget(eqGroup_);
 
     // ── Steady policy ───────────────────────────────────────────────
-    steadyGroup_ = new QGroupBox("Steady stopping policy");
-    auto* sLay = new QFormLayout(steadyGroup_);
-    sLay->setContentsMargins(12, 8, 12, 12);
-    sLay->setSpacing(6);
-    sLay->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    QFormLayout* sLay = nullptr;
+    steadyGroup_ = uikit::group("Steady Stopping Policy", &sLay);
     sLay->setRowWrapPolicy(QFormLayout::WrapLongRows);
     sLay->setFormAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
-    defaultTolSpin_ = new QDoubleSpinBox;
+    defaultTolSpin_ = uikit::numeric(new QDoubleSpinBox);
     defaultTolSpin_->setDecimals(6);
     defaultTolSpin_->setRange(cfd::StoppingCriteriaLimits::kTolMin,
                               cfd::StoppingCriteriaLimits::kTolMax);
     defaultTolSpin_->setValue(cfd::defaultStoppingCriteria().defaultTolerance);
     defaultTolSpin_->setToolTip(
         "Default residual tolerance applied to every equation that inherits.");
-    defaultTolSpin_->setStyleSheet(
-        "QDoubleSpinBox::lineEdit { padding-left: 6px; padding-right: 6px; }");
-    sLay->addRow("Default tolerance", defaultTolSpin_);
+    sLay->addRow("Default Tolerance", defaultTolSpin_);
 
-    maxIterSpin_ = new QSpinBox;
+    maxIterSpin_ = uikit::numeric(new QSpinBox);
     maxIterSpin_->setRange(
         (int)cfd::StoppingCriteriaLimits::kIterMin,
         (int)cfd::StoppingCriteriaLimits::kIterMax);
@@ -90,71 +83,77 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
     maxIterSpin_->setToolTip(
         "Maximum iterations for residual mode. If the residual gate never "
         "fires the run stops here and reports \"max iterations reached\".");
-    sLay->addRow("Max iterations", maxIterSpin_);
+    sLay->addRow("Max Iterations", maxIterSpin_);
 
-    fixedIterCb_ = new QCheckBox("Fixed iteration limit");
+    fixedIterCb_ = new QCheckBox("Fixed Iteration Limit");
     fixedIterCb_->setToolTip(
         "When on, the solver runs exactly this many iterations and the "
         "residual tolerance gate is bypassed. Max iterations is ignored.");
     sLay->addRow(fixedIterCb_);
 
-    fixedIterSpin_ = new QSpinBox;
+    fixedIterSpin_ = uikit::numeric(new QSpinBox);
     fixedIterSpin_->setRange(
         (int)cfd::StoppingCriteriaLimits::kIterMin,
         (int)cfd::StoppingCriteriaLimits::kIterMax);
     fixedIterSpin_->setValue(cfd::defaultStoppingCriteria().steady.maxIterations);
     fixedIterSpin_->setEnabled(false);
     fixedIterSpin_->setToolTip("Exact iteration budget (fixed mode only).");
-    sLay->addRow("Fixed iterations", fixedIterSpin_);
+    sLay->addRow("Fixed Iterations", fixedIterSpin_);
 
-    holdSpin_ = new QSpinBox;
+    holdSpin_ = uikit::numeric(new QSpinBox);
     holdSpin_->setRange(cfd::StoppingCriteriaLimits::kHoldMin,
                         cfd::StoppingCriteriaLimits::kHoldMax);
     holdSpin_->setValue(cfd::defaultStoppingCriteria().steady.convergenceHoldIterations);
     holdSpin_->setToolTip(
         "Consecutive iterations every gated equation must stay below its "
         "tolerance before the run is declared converged.");
-    sLay->addRow("Convergence hold", holdSpin_);
+    sLay->addRow("Convergence Hold", holdSpin_);
 
     main->addWidget(steadyGroup_);
 
     // ── Transient policy ────────────────────────────────────────────
-    transientGroup_ = new QGroupBox("Transient stopping policy");
-    auto* tLay = new QFormLayout(transientGroup_);
-    tLay->setContentsMargins(12, 8, 12, 12);
-    tLay->setSpacing(6);
-    tLay->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    QFormLayout* tLay = nullptr;
+    transientGroup_ = uikit::group("Transient Stopping Policy", &tLay);
     tLay->setRowWrapPolicy(QFormLayout::WrapLongRows);
     tLay->setFormAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
-    tEndSpin_ = new QDoubleSpinBox;
+    tEndSpin_ = uikit::numeric(new QDoubleSpinBox);
     tEndSpin_->setDecimals(6);
     tEndSpin_->setRange(cfd::StoppingCriteriaLimits::kTEndMin,
                         cfd::StoppingCriteriaLimits::kTEndMax);
     tEndSpin_->setValue(cfd::defaultStoppingCriteria().transient.tEnd);
     tEndSpin_->setToolTip("Global end time; the run stops here regardless of "
                           "residuals.");
-    tEndSpin_->setStyleSheet(
-        "QDoubleSpinBox::lineEdit { padding-left: 6px; padding-right: 6px; }");
-    tLay->addRow("End time (s)", tEndSpin_);
+    tEndSpin_->setSuffix(" s");
+    tLay->addRow("End Time", tEndSpin_);
 
-    maxOuterSpin_ = new QSpinBox;
+    maxOuterSpin_ = uikit::numeric(new QSpinBox);
     maxOuterSpin_->setRange(cfd::StoppingCriteriaLimits::kOuterMin,
                             cfd::StoppingCriteriaLimits::kOuterMax);
     maxOuterSpin_->setValue(cfd::defaultStoppingCriteria().transient
                                 .maxOuterCorrectors);
     maxOuterSpin_->setToolTip(
         "Maximum pressure-corrector sweeps per time step.");
-    tLay->addRow("Max outer correctors", maxOuterSpin_);
+    tLay->addRow("Max Outer Correctors", maxOuterSpin_);
 
     transientGroup_->setVisible(false);
     main->addWidget(transientGroup_);
 
     // ── Buttons ─────────────────────────────────────────────────────
-    buttons_ = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel |
-        QDialogButtonBox::Reset);
-    buttons_->button(QDialogButtonBox::Reset)->setText("Reset to Defaults");
+    buttons_ = uikit::buttons(this, true, [this]() {
+        // Sync every tolerance field before accepting. editingFinished only
+        // fires on focus loss / Enter, so a user who types a new tolerance and
+        // clicks OK directly would otherwise commit a stale value.
+        for (auto it = rowWidgets_.cbegin(); it != rowWidgets_.cend(); ++it) {
+            auto& rw = it.value();
+            if (rw.override_->isChecked() && rw.tolerance->isEnabled()) {
+                model_->setEquationOverride(
+                    it.key(), cfd::parseTolerance(
+                        rw.tolerance->text().toStdString()));
+            }
+        }
+        return true;
+    });
     main->addWidget(buttons_);
 
     okBtn_ = buttons_->button(QDialogButtonBox::Ok);
@@ -165,25 +164,7 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
     connect(model_.get(), &StoppingCriteriaModel::changed, this,
             &StoppingCriteriaDialog::updateOkState);
 
-    connect(buttons_->button(QDialogButtonBox::Ok), &QPushButton::clicked,
-            this, [this]() {
-                // Sync every tolerance field before accepting. editingFinished
-                // only fires on focus loss / Enter, so a user who types a new
-                // tolerance and clicks OK directly would otherwise commit a
-                // stale value.
-                for (auto it = rowWidgets_.cbegin(); it != rowWidgets_.cend(); ++it) {
-                    auto& rw = it.value();
-                    if (rw.override_->isChecked() && rw.tolerance->isEnabled()) {
-                        model_->setEquationOverride(
-                            it.key(), cfd::parseTolerance(
-                                rw.tolerance->text().toStdString()));
-                    }
-                }
-                accept();
-            });
-    connect(buttons_->button(QDialogButtonBox::Cancel), &QPushButton::clicked,
-            this, &StoppingCriteriaDialog::reject);
-    connect(buttons_->button(QDialogButtonBox::Reset), &QPushButton::clicked,
+    connect(buttons_->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked,
             this, [this]() {
                 model_->resetToDefaults();
                 rebuildEquations();
@@ -220,6 +201,7 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
             [this](int v) { model_->setTransientMaxOuterCorrectors(v); });
 
     updateOkState();
+    uikit::prepareDialog(this, 520);
 }
 
 StoppingCriteriaDialog::~StoppingCriteriaDialog() = default;

@@ -8,6 +8,8 @@
 #include <QColorDialog>
 #include <QPushButton>
 
+#include "ui/uikit.h"
+
 class QLabel;
 class QVBoxLayout;
 class QWidget;
@@ -21,7 +23,7 @@ namespace sb {
 // Layout constants shared by every sidebar page.
 inline constexpr int kSidebarWidth = 240;
 inline constexpr int kNavWidthApprox = 140;
-inline constexpr int kLabelWidth = 72;
+inline constexpr int kLabelWidth = uikit::kLabelWidth;
 inline constexpr int kControlHeight = 24;
 
 // Labeled slider row (LightSlider equivalent): fixed-width label on the left,
