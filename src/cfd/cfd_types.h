@@ -186,6 +186,10 @@ struct CaseSettings {
     double pressureCorrectionLimit = 5.0;
     std::size_t printFrequency = 1;
     std::size_t residualHistoryWindow = 20;
+    // Append the process resident-set size to every transient row. Off by
+    // default: it exists to watch a long run for memory drift, and samples the
+    // OS once per time step, which is not part of normal solver output.
+    bool printResidentSet = false;
 
     // Velocity correction damping limits.
     // Per-iteration growth rate is capped at maxGrowthRate (e.g. 0.15 = 15%).

@@ -10,6 +10,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -212,6 +215,59 @@ TEST_CASE("fvm.transient.piso_inner_correctors_are_not_a_noop") {
     // And they must not make the mass balance worse.
     CHECK_MESSAGE(residualThree <= residualOne * 1.05 + 1e-14,
                   "additional inner PISO passes must not degrade continuity");
+}
+
+TEST_CASE("fvm.transient.resident_set_column_is_opt_in") {
+    // The rss(MiB) column samples the OS once per time step, so a normal run
+    // must not print it. It is enabled from the Expert tab's Diagnostics group.
+    auto tableFor = [](bool printResidentSet) {
+        fvm::Mesh<2> mesh = fvm::Mesh<2>(
+            std::array<std::size_t, 2>{8, 4},
+            std::array<double, 2>{2.0, 1.0});
+
+        std::vector<std::size_t> inlet, outlet, walls;
+        forEachBoundaryFace(mesh, 0, -1, [&](std::size_t f, std::size_t) { inlet.push_back(f); });
+        forEachBoundaryFace(mesh, 0, +1, [&](std::size_t f, std::size_t) { outlet.push_back(f); });
+        forEachBoundaryFace(mesh, 1, -1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
+        forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
+
+        fvm::SIMPLE<2>::Config cfg;
+        cfg.stopping.defaultTolerance = 1e-3;
+        cfg.pressureCorrectors = 1;
+        cfg.printFrequency = 1000;
+        cfg.convectionScheme = fvm::ConvectionScheme::Upwind;
+        cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
+        cfg.transient.enabled = true;
+        cfg.transient.dt = 0.01;
+        cfg.stopping.transient.tEnd = cfg.transient.dt;
+        cfg.stopping.transient.maxOuterCorrectors = 1;
+        cfg.solverType = fvm::SolverType::PISO;
+        cfg.printResidentSet = printResidentSet;
+
+        fvm::SIMPLE<2> solver(mesh, 1.0, kInletSpeed * kHeight / kReynolds, cfg);
+        solver.setVelocityBCOnFacesWithSlip(inlet, "inlet", kInletSpeed, 0.0, 0.0, false, 0.0);
+        solver.setVelocityBCOnFacesWithSlip(outlet, "pressure_outlet", 0.0, 0.0, 0.0, false, 0.0);
+        solver.setVelocityBCOnFacesWithSlip(walls, "wall", 0.0, 0.0, 0.0, false, 0.0);
+
+        fvm::VectorField<2> velocity(mesh, 0.0);
+        fvm::Field<2> pressure(mesh, 0.0);
+
+        struct Capture {
+            std::ostringstream stream;
+            std::streambuf* previous;
+            Capture() : previous(std::cout.rdbuf(stream.rdbuf())) {}
+            ~Capture() { std::cout.rdbuf(previous); }
+        } capture;
+        solver.solveTransient(velocity, pressure);
+        return capture.stream.str();
+    };
+
+    const std::string plain = tableFor(false);
+    const std::string withRss = tableFor(true);
+    CHECK_MESSAGE(plain.find("rss(MiB)") == std::string::npos,
+                  "a normal run must not print the RSS column");
+    CHECK_MESSAGE(withRss.find("rss(MiB)") != std::string::npos,
+                  "enabling the option must add the RSS column");
 }
 
 } // TEST_SUITE("fvm")
