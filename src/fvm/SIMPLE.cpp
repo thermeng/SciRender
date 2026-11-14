@@ -805,7 +805,7 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
     nCols += 1; // continuity
     nCols += Dim; // velocities
     if (turbulence_) nCols += 2;
-    if (isTransient) nCols += 1; // resident set size
+    if (isTransient && config_.printResidentSet) nCols += 1; // resident set size
     int width = wIter + nCols * wRes;
     if (width < 78) width = 78;
     std::ostringstream hdr;
@@ -819,7 +819,7 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
             << std::setw(wRes) << "y-velocity";
         if constexpr (Dim == 3) hdr << std::setw(wRes) << "z-velocity";
         if (turbulence_) hdr << std::setw(wRes) << "k" << std::setw(wRes) << "omega";
-        hdr << std::setw(wRes) << "rss(MiB)";
+        if (config_.printResidentSet) hdr << std::setw(wRes) << "rss(MiB)";
         hdr << "\n" << std::string(width, '-') ;
     } else {
         hdr << std::setw(wIter) << "iter"
@@ -1582,7 +1582,8 @@ void SIMPLE<Dim>::printTransientOutput_(int step, double time) {
     if constexpr (Dim == 3) line << std::setw(wRes) << lastMomResidW_;
     if (turbulence_) line << std::setw(wRes) << turbulence_->finalKResid()
                            << std::setw(wRes) << turbulence_->finalOmegaResid();
-    line << std::setw(wRes) << std::fixed << std::setprecision(1) << residentSetMiB();
+    if (config_.printResidentSet)
+        line << std::setw(wRes) << std::fixed << std::setprecision(1) << residentSetMiB();
     std::cout << line.str() << std::endl;
     // One reverse-flow line per time step. The pressure solve runs once per
     // corrector, so reading the count there repeated the same warning for every

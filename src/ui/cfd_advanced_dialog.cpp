@@ -124,6 +124,17 @@ void CfdAdvancedDialog::buildUi() {
         "0 = runtime default (honours OMP_NUM_THREADS).");
     perfForm->addRow("Threads", m_numThreads);
 
+    // Output-only diagnostics: extra columns for the run table.
+    QFormLayout* diagnosticsForm = nullptr;
+    pressureLay->addWidget(uikit::group("Diagnostics", &diagnosticsForm));
+
+    m_printResidentSet = new QCheckBox("Process Memory (RSS)");
+    m_printResidentSet->setToolTip(
+        "Append the process resident-set size to every transient row. Useful\n"
+        "when watching a long run for memory growth; off by default, because\n"
+        "sampling the OS every step is not part of normal solver output.");
+    diagnosticsForm->addRow(m_printResidentSet);
+
     pressureLay->addStretch(1);
 
     // ── Pressure AMG ─────────────────────────────────────────────────────────
@@ -269,6 +280,7 @@ void CfdAdvancedDialog::setSettings(const cfd::CaseSettings& s) {
     m_velocityCorrectionMaxSpeed->setValue(s.velocityCorrectionMaxUnlimitedSpeed);
     m_velocityCorrectionMaxGrowth->setValue(s.velocityCorrectionMaxGrowthRate);
     m_numThreads->setValue(s.numThreads);
+    m_printResidentSet->setChecked(s.printResidentSet);
 
     m_limiterKind->setCurrentIndex(s.limiterKind);
     m_limiterFaceCentre->setChecked(s.limiterSpan == 0);
@@ -298,6 +310,7 @@ void CfdAdvancedDialog::collectInto(cfd::CaseSettings& s) const {
     s.velocityCorrectionMaxUnlimitedSpeed = m_velocityCorrectionMaxSpeed->value();
     s.velocityCorrectionMaxGrowthRate = m_velocityCorrectionMaxGrowth->value();
     s.numThreads = m_numThreads->value();
+    s.printResidentSet = m_printResidentSet->isChecked();
 
     s.limiterKind = m_limiterKind->currentIndex();
     s.limiterSpan = m_limiterSpan->checkedId();

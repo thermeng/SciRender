@@ -321,6 +321,7 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
         dbl("pressureCorrectionLimit", &CaseSettings::pressureCorrectionLimit),
         num("printFrequency", &CaseSettings::printFrequency),
         num("residualHistoryWindow", &CaseSettings::residualHistoryWindow),
+        flg("printResidentSet", &CaseSettings::printResidentSet),
         i32("numThreads", &CaseSettings::numThreads),
         i32("pressureAmgPreconditionerCycles", &CaseSettings::pressureAmgPreconditionerCycles),
         flg("momentumAmgAsSolver", &CaseSettings::momentumAmgAsSolver),
