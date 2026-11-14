@@ -1029,6 +1029,12 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
         if (config_.iterationCallback) {
             config_.iterationCallback(static_cast<int>(iter + 1), lastContResid_, lastMomResid_);
         }
+        // Publish a render frame each iteration for steady runs (and each time
+        // step for transient runs). The caller decides how often to refresh the
+        // UI from these; see RunHooks.frame / visualizationInterval.
+        if (config_.renderCallback) {
+            config_.renderCallback(static_cast<int>(iter + 1), 0.0, velocity, pressure);
+        }
 
         saveCheckpoint_(iter);
 

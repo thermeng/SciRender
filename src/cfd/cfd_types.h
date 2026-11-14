@@ -228,6 +228,13 @@ struct CaseSettings {
 
     // Steady vs transient. See TransientSettings above.
     TransientSettings transient;
+
+    // Live visualization update cadence while the solver runs.
+    // Transient: publish a frame every N time steps.  Steady: publish a frame
+    // every N iterations. 1 = every step/iteration. The final state is always
+    // visualized when the run ends (or pauses at a settled boundary), so this
+    // only controls mid-run refresh frequency, not whether the end is shown.
+    int visualizationInterval = 1;
 };
 
 } // namespace cfd
