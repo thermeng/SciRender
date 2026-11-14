@@ -32,6 +32,12 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
 
     const std::size_t n = b.size();
 
+    // A non-finite right-hand side is already a broken system: every path
+    // below would either repair it to a zero solution (AMG) or return NaN.
+    // Report the failure so SIMPLE aborts with a reason instead of continuing
+    // on a silently repaired field.
+    if (!b.allFinite()) return {Eigen::VectorXd::Zero(n), true, 0};
+
     // Threshold 0 means "always use AMG".
     const std::size_t momThreshold = config_.amgThreshold;
     const bool amgEligible =

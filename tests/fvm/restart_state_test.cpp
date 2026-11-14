@@ -54,7 +54,10 @@ fvm::SIMPLE<2>::Config transientConfig() {
     cfg.convectionScheme = fvm::ConvectionScheme::Upwind;
     cfg.gradientScheme = fvm::GradientScheme::LeastSquares;
     cfg.stopping.steady.maxIterations = 100;
-    cfg.stopping.defaultTolerance = 0.0; // never "converges": the run is bounded by tEnd
+    // A valid but unreachable tolerance: the run is bounded by tEnd, not by
+    // convergence. (0.0 is rejected by validateStoppingCriteria, which used to
+    // make applyStoppingPolicy_ silently fall back to the default tEnd = 1.0.)
+    cfg.stopping.defaultTolerance = 1e-12;
     cfg.solverType = fvm::SolverType::SIMPLE;
     cfg.transient.enabled = true;
     cfg.transient.dt = 0.005;
@@ -62,6 +65,8 @@ fvm::SIMPLE<2>::Config transientConfig() {
     cfg.transient.timeScheme = fvm::TimeScheme::Euler;
     cfg.transient.adaptiveCfl = false;
     cfg.stopping.transient.maxOuterCorrectors = 1;
+    // min <= max is a cross-field rule; one corrector per step means min = 1.
+    cfg.stopping.transient.minOuterCorrectors = 1;
     return cfg;
 }
 
