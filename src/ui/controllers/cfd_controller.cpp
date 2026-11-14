@@ -333,20 +333,21 @@ bool CfdController::run() {
         }
     };
     // Frame bus (Phase 2): the solver publishes a self-contained snapshot each
-    // time step; the render-prep thread builds the mesh off the UI thread.
-    if (settings.transient.enabled) {
-        hooks.frame = [this, gen](const cfd::SolutionSnapshot& snapshot) {
-            if (gen != m_gen) return;
-            if (m_cancel.load()) return;
-            m_lastTime.store(snapshot.time);
-            auto step = std::make_shared<TransientStep>();
-            step->step = snapshot.step;
-            step->time = snapshot.time;
-            step->state = std::make_shared<const cfd::SolutionSnapshot>(snapshot);
-            step->gen = gen;
-            m_latestStep.store(std::shared_ptr<const TransientStep>(step));
-        };
-    }
+    // time step (transient) or iteration (steady); the render-prep thread builds
+    // the mesh off the UI thread. The render cadence is controlled by
+    // settings.visualizationInterval in the render-prep loop below, and is
+    // independent of the disk writer's writeInterval.
+    hooks.frame = [this, gen](const cfd::SolutionSnapshot& snapshot) {
+        if (gen != m_gen) return;
+        if (m_cancel.load()) return;
+        m_lastTime.store(snapshot.time);
+        auto step = std::make_shared<TransientStep>();
+        step->step = snapshot.step;
+        step->time = snapshot.time;
+        step->state = std::make_shared<const cfd::SolutionSnapshot>(snapshot);
+        step->gen = gen;
+        m_latestStep.store(std::shared_ptr<const TransientStep>(step));
+    };
 
     std::string startError;
     if (!session->startRun(settings, patchBCs, m_state, hooks, startError)) {
@@ -358,18 +359,29 @@ bool CfdController::run() {
     m_lastTime.store(settings.transient.enabled && m_state.transientValid
                          ? m_state.time : 0.0);
 
-    if (settings.transient.enabled) {
-        m_renderPrepRunning.store(true);
-        m_renderPrepThread = std::thread([this, gen, session, base, settings, patchBCs]() {
-            std::shared_ptr<const TransientStep> last;
-            while (m_renderPrepRunning.load() && gen == m_gen && !m_cancel.load()) {
-                auto step = m_latestStep.load();
-                if (!step || step == last || step->gen != gen) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                    continue;
-                }
-                if (m_cancel.load() || gen != m_gen) break;
-                auto rm = session->buildResult(base, *step->state, settings, patchBCs);
+    // Publish frames for both transient (per time step) and steady (per
+    // iteration) runs. The render-prep loop refreshes the live visualization at
+    // settings.visualizationInterval; the disk writer below is gated by
+    // writeInterval and is unaffected by this cadence.
+    m_renderPrepRunning.store(true);
+    m_renderPrepThread = std::thread([this, gen, session, base, settings, patchBCs]() {
+        std::shared_ptr<const TransientStep> last;
+        const int vizInterval = settings.visualizationInterval > 0
+            ? settings.visualizationInterval : 1;
+        while (m_renderPrepRunning.load() && gen == m_gen && !m_cancel.load()) {
+            auto step = m_latestStep.load();
+            if (!step || step == last || step->gen != gen) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                continue;
+            }
+            if (m_cancel.load() || gen != m_gen) break;
+            // Only rebuild the render mesh at the requested visualization
+            // cadence. Disk output (writeInterval) is independent of this.
+            if (step->step % vizInterval != 0) {
+                last = step;
+                continue;
+            }
+            auto rm = session->buildResult(base, *step->state, settings, patchBCs);
                 if (m_cancel.load() || gen != m_gen) break;
                 if (rm) {
                     // Publish mesh + post-field snapshot + status as ONE immutable
@@ -396,8 +408,6 @@ bool CfdController::run() {
                 last = step;
             }
         });
-    }
-
     if (settings.transient.enabled && settings.transient.writeInterval > 0) {
         m_diskWriterRunning.store(true);
 

@@ -183,9 +183,11 @@ public:
         // The render callback copies velocity, pressure and turbulence into a
         // self-contained snapshot on the solver thread. Reading turbulence
         // through the atomic pointer set below means the consumer never has to
-        // query the solver while it is running.
+        // query the solver while it is running. Published for both transient
+        // (every time step) and steady (every iteration) runs; the controller
+        // decides how often to actually refresh the visualization from them.
         auto turbSlot = std::make_shared<std::atomic<const fvm::SSTModel<Dim>*>>(nullptr);
-        if (settings.transient.enabled && hooks.frame) {
+        if (hooks.frame) {
             const std::size_t n = m_mesh->nCells();
             sc.renderCallback = [n, turbSlot, hooks](
                 int step, double time, const Velocity& velocity, const Scalar& pressure) {
