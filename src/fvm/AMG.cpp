@@ -11,8 +11,10 @@ namespace fvm {
 using cfd::AmgSettings;
 
 void AMGHierarchy::build(const SparseMatrix& A) {
-    levels_.clear(); cgrid_.clear(); built_ = false; amgHandle_.reset(); hypreMat_.reset(); hypreSolver_.reset();
+    levels_.clear(); cgrid_.clear(); built_ = false; amgHandle_.reset();
+    hypreMat_.reset(); hypreSolver_.reset();
     fineRows_.resize(0, 0); fineRowsReady_ = false; lazyBuild_ = false; hypreHierarchyReady_ = false;
+    hierarchyInfoReady_ = false;
     n_ = 0; nlevels_ = 0; levelSizes_.clear(); report_.clear();
     systemMatrix_ = A;
     if (A.rows() == 0 || A.cols() == 0) { buildTimeSec_ = 0.0; return; }
@@ -24,23 +26,18 @@ void AMGHierarchy::build(const SparseMatrix& A) {
     std::vector<double> sc;
     if (HypreSolver::buildSolver(A, config_, *mat, *solv, sc)) {
         hypreMat_ = mat; hypreSolver_ = solv; hypreScale_ = sc; useHypreActive_ = true;
-        // Report the real hierarchy: level count and per-level unknowns come
-        // from BoomerAMG itself, not a hardcoded single level.
-        std::vector<int> cgrid;
-        if (!HypreSolver::hierarchyLevelSizes(*solv, n_, levelSizes_, cgrid))
-            levelSizes_.assign(1, n_);
-        cgrid_ = cgrid;
-        nlevels_ = static_cast<int>(levelSizes_.size());
-        report_ = "Hypre BoomerAMG (IJ)\n";
-        for (int l = 0; l < nlevels_; ++l) {
-            report_ += "  level " + std::to_string(l) + ": " +
-                       std::to_string(levelSizes_[static_cast<std::size_t>(l)]) +
-                       " unknowns\n";
-        }
-        // Build per-level prolongation/restriction/operator from cgrid_ for the
-        // recursive Flexible cycle. For non-Flexible cycles these are unused.
-        if (config_.cycleType == AmgSettings::CycleType::Flexible)
+        hierarchyInfoReady_ = false;
+        // Only the Flexible cycle needs the C/F split to reconstruct its
+        // per-level operators. Other cycles (V/W/F) run natively in Hypre and
+        // must not pay for a metadata query inside the time-step loop.
+        if (config_.cycleType == AmgSettings::CycleType::Flexible) {
+            ensureHierarchyInfo_();
             buildLevelOperators_();
+        }
+        if (config_.verbosity >= AmgSettings::Verbosity::High) {
+            ensureHierarchyInfo_();
+            std::cerr << "  AMG hierarchy (" << n_ << " unknowns, Hypre)\n" << report_;
+        }
         if (config_.verbosity >= AmgSettings::Verbosity::High) {
             std::cerr << "  AMG hierarchy (" << n_ << " unknowns, Hypre)\n" << report_;
         }
@@ -76,6 +73,33 @@ bool AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) cons
     return HypreSolver::applyCycle(*mat, *solv, b, x, hypreScale_);
 }
 
+// Query BoomerAMG's grid hierarchy on first use. Kept out of build() so a
+// V/W/F-cycle run never calls a diagnostic getter in the time-step loop.
+void AMGHierarchy::ensureHierarchyInfo_() const {
+    if (hierarchyInfoReady_) return;
+    hierarchyInfoReady_ = true; // one attempt per build; do not retry on failure
+#ifdef FVM_HAVE_HYPRE
+    auto solv = std::static_pointer_cast<HypreSolver::HypreSolverImpl>(hypreSolver_);
+    if (solv && n_ > 0) {
+        std::vector<int> cgrid;
+        if (!HypreSolver::hierarchyLevelSizes(*solv, n_, levelSizes_, cgrid))
+            levelSizes_.assign(1, n_);
+        cgrid_ = std::move(cgrid);
+    }
+    else
+#endif
+    if (levelSizes_.empty() && n_ > 0) {
+        levelSizes_.assign(1, n_);
+    }
+    nlevels_ = static_cast<int>(levelSizes_.size());
+    report_ = "Hypre BoomerAMG (IJ)\n";
+    for (int l = 0; l < nlevels_; ++l) {
+        report_ += "  level " + std::to_string(l) + ": " +
+                   std::to_string(levelSizes_[static_cast<std::size_t>(l)]) +
+                   " unknowns\n";
+    }
+}
+
 bool AMGHierarchy::ensureHypreBuilt_() const {
     if (hypreHierarchyReady_) return true;
 #ifdef FVM_HAVE_HYPRE
@@ -86,18 +110,9 @@ bool AMGHierarchy::ensureHypreBuilt_() const {
     if (HypreSolver::buildSolver(systemMatrix_, config_, *mat, *solv, sc)) {
         hypreMat_ = mat; hypreSolver_ = solv; hypreScale_ = sc;
         levelSizes_.clear();
-        std::vector<int> cgrid;
-        if (!HypreSolver::hierarchyLevelSizes(*solv, n_, levelSizes_, cgrid))
-            levelSizes_.assign(1, n_);
-        cgrid_ = cgrid;
-        nlevels_ = static_cast<int>(levelSizes_.size());
+        hierarchyInfoReady_ = false;
+        ensureHierarchyInfo_();
         buildLevelOperators_();
-        report_ = "Hypre BoomerAMG (IJ)\n";
-        for (int l = 0; l < nlevels_; ++l) {
-            report_ += "  level " + std::to_string(l) + ": " +
-                       std::to_string(levelSizes_[static_cast<std::size_t>(l)]) +
-                       " unknowns\n";
-        }
         buildTimeSec_ += std::chrono::duration<double>(
             std::chrono::steady_clock::now() - buildStart).count();
         hypreHierarchyReady_ = true;

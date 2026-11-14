@@ -49,17 +49,21 @@ public:
     Eigen::VectorXd flexCycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x) const;
 
     bool isBuilt() const { return built_; }
-    void invalidate() { built_ = false; amgHandle_.reset(); hypreMat_.reset(); hypreSolver_.reset(); hypreScale_.clear(); useHypreActive_ = false; levels_.clear(); cgrid_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; lastResidualHistory_.clear(); buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; fineRows_.resize(0, 0); fineRowsReady_ = false; lazyBuild_ = false; hypreHierarchyReady_ = false; }
+    void invalidate() { built_ = false; amgHandle_.reset(); hypreMat_.reset(); hypreSolver_.reset(); hypreScale_.clear(); useHypreActive_ = false; levels_.clear(); cgrid_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; lastResidualHistory_.clear(); buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; fineRows_.resize(0, 0); fineRowsReady_ = false; lazyBuild_ = false; hypreHierarchyReady_ = false; hierarchyInfoReady_ = false; }
     void setConfig(Config config) { config_ = config; invalidate(); }
     const Config& config() const { return config_; }
     void updateFineValues(const SparseMatrix& A);
 
     // Number of levels actually built by amgcl (was hard-coded to 1, which
     // made the  level-by-level comparison impossible).
-    int numLevels() const { return nlevels_; }
+    // The hierarchy is queried lazily: a V/W/F-cycle solve never needs the
+    // C/F split, and the level table is only shown when stats or diagnosis
+    // verbosity are enabled. Querying it in every build would put a
+    // metadata-only getter on the time-step hot path.
+    int numLevels() const { ensureHierarchyInfo_(); return nlevels_; }
     int fineSize() const { return n_; }
-    const std::vector<int>& levelSizes() const { return levelSizes_; }
-    const std::string& hierarchyReport() const { return report_; }
+    const std::vector<int>& levelSizes() const { ensureHierarchyInfo_(); return levelSizes_; }
+    const std::string& hierarchyReport() const { ensureHierarchyInfo_(); return report_; }
     int lastIterations() const { return lastIterations_; }
     double lastResidual() const { return lastResidual_; }
     const std::vector<double>& lastResidualHistory() const { return lastResidualHistory_; }
@@ -95,6 +99,9 @@ private:
     // hierarchy). Used to build per-level prolongation/restriction operators.
     mutable std::vector<int> cgrid_;
     mutable std::string report_;
+    // Set once per build, after levelSizes_/cgrid_/report_ have been filled
+    // from HYPRE_BoomerAMGGetGridHierarchy.
+    mutable bool hierarchyInfoReady_ = false;
     // Hypre-only: workspaces per applyCycle
     mutable int lastIterations_ = 0;
     mutable double lastResidual_ = 0.0;
@@ -107,6 +114,11 @@ private:
     // Lazily set up the BoomerAMG hierarchy for a deferred Flexible build.
     // Returns true when the hierarchy is ready (possibly already was).
     bool ensureHypreBuilt_() const;
+
+    // Query BoomerAMG's grid hierarchy on first use: the C/F split for the
+    // Flexible cycle, or the level table when stats/diagnosis reporting is
+    // enabled. No-op when there is no live Hypre solver.
+    void ensureHierarchyInfo_() const;
 
     // Build per-level prolongation/restriction/operator from cgrid_ for the
     // recursive Flexible cycle. Called from build() after the Hypre hierarchy

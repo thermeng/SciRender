@@ -48,7 +48,9 @@ find_package(OpenMP REQUIRED)
 #     vendored configure succeeds, FvmCore additionally defines
 #     FVM_HAVE_HYPRE and AMGHierarchy can select the Hypre backend via
 #     Config::useHypre. When not found, everything falls back to amgcl and
-#     the build is unaffected. vendor/ sources are never modified.
+#     the build is unaffected. vendor/ sources are never modified in-tree;
+#     fixes for the upstream clone live in patches/ and are applied by the
+#     release workflow (see patches/README.md).
 # ---------------------------------------------------------------------------
 option(SCIRENDER_HYPRE_MPI "Build vendored Hypre with MPI support (default OFF)" OFF)
 option(SCIRENDER_BUILD_VENDORED_HYPRE "Build the vendored Hypre library (disable to use a system/installed HYPRE)" ON)

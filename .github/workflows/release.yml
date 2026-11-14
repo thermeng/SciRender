@@ -17,6 +17,12 @@ jobs:
       - name: Fetch vendored Hypre
         run: git clone --depth 1 --branch v3.2.1 https://github.com/hypre-space/hypre.git vendor/hypre
 
+      - name: Apply vendored Hypre patches
+        # The vendored clone is not committed, so release builds must reapply
+        # the fixes carried in patches/. Currently: hypre-space/hypre#1671
+        # (HYPRE_BoomerAMGGetGridHierarchy leaks its workspace buffer).
+        run: git -C vendor/hypre apply "$env:GITHUB_WORKSPACE/patches/hypre-3.2.1-getgridhierarchy-leak.patch"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:

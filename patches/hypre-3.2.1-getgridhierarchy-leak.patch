@@ -1,0 +1,16 @@
+diff --git a/src/parcsr_ls/par_amg.c b/src/parcsr_ls/par_amg.c
+index dd49e27..001704a 100644
+--- a/src/parcsr_ls/par_amg.c
++++ b/src/parcsr_ls/par_amg.c
+@@ -3333,8 +3333,9 @@ hypre_BoomerAMGGetGridHierarchy( void       *data,
+ 
+       // get local size and allocate some memory
+       local_size = hypre_CSRMatrixNumRows(hypre_ParCSRMatrixDiag(A_array[0]));
+-      wbuff  = hypre_CTAlloc(HYPRE_Int, (2 * local_size), HYPRE_MEMORY_HOST);
+-      cbuff  = wbuff + local_size;
++      ibuff  = hypre_CTAlloc(HYPRE_Int, (2 * local_size), HYPRE_MEMORY_HOST);
++      wbuff  = ibuff;
++      cbuff  = ibuff + local_size;
+ 
+       num_levels = hypre_ParAMGDataNumLevels(amg_data);
+       for (level = (num_levels - 2); level >= 0; level--)
