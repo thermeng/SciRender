@@ -233,6 +233,10 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
     )
     target_compile_features(FvmCore PUBLIC cxx_std_20)
     target_link_libraries(FvmCore PUBLIC CoreLib OpenMP::OpenMP_CXX)
+    if(WIN32)
+        # residentSetMiB() in SIMPLE.cpp uses GetProcessMemoryInfo.
+        target_link_libraries(FvmCore PUBLIC psapi)
+    endif()
     target_compile_definitions(FvmCore PUBLIC
         EIGEN_PARALLELIZE_OPENMP
         FVM_ALIGNMENT=64
