@@ -36,6 +36,8 @@ struct TransientStoppingPolicy {
     std::vector<double> effectiveTolerances;
     double tEnd = 1.0;
     int maxOuterCorrectors = 3;
+    int minOuterCorrectors = 2;
+    double residualReduction = 0.25;
 };
 
 struct ResolvedStoppingPolicy {

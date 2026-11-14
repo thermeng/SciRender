@@ -101,6 +101,15 @@ public:
         std::lock_guard<std::mutex> lock(m_monitorMutex);
         return m_monitorHistory;
     }
+    // Size without copying the history (diagnostics / long-run probes).
+    std::size_t monitorHistorySize() const {
+        std::lock_guard<std::mutex> lock(m_monitorMutex);
+        return m_monitorHistory.size();
+    }
+    std::size_t monitorHistoryCapacity() const {
+        std::lock_guard<std::mutex> lock(m_monitorMutex);
+        return m_monitorHistory.capacity();
+    }
     void clearMonitorHistory() {
         std::lock_guard<std::mutex> lock(m_monitorMutex);
         m_monitorHistory.clear();

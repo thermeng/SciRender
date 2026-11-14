@@ -136,6 +136,28 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
         "Maximum pressure-corrector sweeps per time step.");
     tLay->addRow("Max Outer Correctors", maxOuterSpin_);
 
+    minOuterSpin_ = uikit::numeric(new QSpinBox);
+    minOuterSpin_->setRange(cfd::StoppingCriteriaLimits::kOuterMin,
+                            cfd::StoppingCriteriaLimits::kOuterMax);
+    minOuterSpin_->setValue(cfd::defaultStoppingCriteria().transient
+                                .minOuterCorrectors);
+    minOuterSpin_->setToolTip(
+        "Minimum pressure-corrector sweeps per time step, even when the "
+        "residual target is already met.");
+    tLay->addRow("Minimum Correctors", minOuterSpin_);
+
+    reductionSpin_ = uikit::numeric(new QDoubleSpinBox);
+    reductionSpin_->setRange(cfd::StoppingCriteriaLimits::kReductionMin,
+                             cfd::StoppingCriteriaLimits::kReductionMax);
+    reductionSpin_->setDecimals(2);
+    reductionSpin_->setSingleStep(0.05);
+    reductionSpin_->setValue(cfd::defaultStoppingCriteria().transient
+                                 .residualReduction);
+    reductionSpin_->setToolTip(
+        "Stop the corrector loop once the continuity residual is this fraction "
+        "of its value at the start of the time step. 0 disables the test.");
+    tLay->addRow("Residual Reduction", reductionSpin_);
+
     transientGroup_->setVisible(false);
     main->addWidget(transientGroup_);
 
@@ -199,6 +221,12 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
             [this](double v) { model_->setTransientTEnd(v); });
     connect(maxOuterSpin_, qOverload<int>(&QSpinBox::valueChanged), this,
             [this](int v) { model_->setTransientMaxOuterCorrectors(v); });
+    connect(minOuterSpin_, qOverload<int>(&QSpinBox::valueChanged), this,
+            [this](int v) { model_->setTransientMinOuterCorrectors(v); });
+    connect(reductionSpin_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double v) {
+                model_->setTransientResidualReduction(v);
+            });
 
     updateOkState();
     uikit::prepareDialog(this, 520);
@@ -321,6 +349,8 @@ void StoppingCriteriaDialog::rebuildPolicy() {
 
     tEndSpin_->setValue(model_->draft().transient.tEnd);
     maxOuterSpin_->setValue(model_->draft().transient.maxOuterCorrectors);
+    minOuterSpin_->setValue(model_->draft().transient.minOuterCorrectors);
+    reductionSpin_->setValue(model_->draft().transient.residualReduction);
 }
 
 void StoppingCriteriaDialog::updateOkState() {

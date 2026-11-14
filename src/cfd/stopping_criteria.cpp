@@ -98,6 +98,25 @@ ValidationReport validateStoppingCriteria(const StoppingCriteria& s) {
             "max outer correctors must be within [1, 100]"});
     }
 
+    if (s.transient.minOuterCorrectors < StoppingCriteriaLimits::kOuterMin ||
+        s.transient.minOuterCorrectors > StoppingCriteriaLimits::kOuterMax) {
+        report.ok = false;
+        report.errors.push_back({"transient.minOuterCorrectors",
+            "minimum correctors must be within [1, 100]"});
+    }
+    if (s.transient.minOuterCorrectors > s.transient.maxOuterCorrectors) {
+        report.ok = false;
+        report.errors.push_back({"transient.minOuterCorrectors",
+            "minimum correctors must not exceed the maximum"});
+    }
+    if (!std::isfinite(s.transient.residualReduction) ||
+        s.transient.residualReduction < StoppingCriteriaLimits::kReductionMin ||
+        s.transient.residualReduction > StoppingCriteriaLimits::kReductionMax) {
+        report.ok = false;
+        report.errors.push_back({"transient.residualReduction",
+            "residual reduction must be within [0, 1]"});
+    }
+
     return report;
 }
 

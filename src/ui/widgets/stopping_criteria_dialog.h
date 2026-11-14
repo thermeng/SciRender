@@ -69,6 +69,8 @@ private:
     QGroupBox* transientGroup_ = nullptr;
     QDoubleSpinBox* tEndSpin_ = nullptr;
     QSpinBox* maxOuterSpin_ = nullptr;
+    QSpinBox* minOuterSpin_ = nullptr;
+    QDoubleSpinBox* reductionSpin_ = nullptr;
 
     QDialogButtonBox* buttons_ = nullptr;
     QPushButton* okBtn_ = nullptr;
