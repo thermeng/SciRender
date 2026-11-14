@@ -229,12 +229,18 @@ struct CaseSettings {
     // Steady vs transient. See TransientSettings above.
     TransientSettings transient;
 
-    // Live visualization update cadence while the solver runs.
-    // Transient: publish a frame every N time steps.  Steady: publish a frame
-    // every N iterations. 1 = every step/iteration. The final state is always
-    // visualized when the run ends (or pauses at a settled boundary), so this
-    // only controls mid-run refresh frequency, not whether the end is shown.
-    int visualizationInterval = 1;
+    // Result Update Policy: how often the live visualization refreshes mid-run.
+    // EveryNSteps : publish a frame every N solver steps (transient time steps
+    //               or steady iterations). EveryNTime: publish every N seconds
+    //               of solution time (transient only; steady has no advancing
+    //               sim time). Both: publish when either trigger fires.
+    // 1 = every step/iteration. The final state is always visualized when the
+    // run ends or pauses at a settled boundary, so this only controls mid-run
+    // refresh frequency, not whether the end is shown.
+    enum class ResultUpdateMode { EveryNSteps, EveryNTime, Both };
+    ResultUpdateMode resultUpdateMode = ResultUpdateMode::EveryNSteps;
+    int visualizationInterval = 1;           // steps (EveryNSteps / Both)
+    double resultUpdateTimeInterval = 0.0;   // seconds (EveryNTime / Both)
 };
 
 } // namespace cfd

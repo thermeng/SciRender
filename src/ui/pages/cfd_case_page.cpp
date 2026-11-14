@@ -138,6 +138,8 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_maxDtSpin = cfdUi.maxDtSpin;
     m_writeIntervalSpin = cfdUi.writeIntervalSpin;
     m_visualizationIntervalSpin = cfdUi.visualizationIntervalSpin;
+    m_resultUpdateModeCombo = cfdUi.resultUpdateModeCombo;
+    m_resultUpdateTimeSpin = cfdUi.resultUpdateTimeSpin;
     m_outerCorrectorsSpin = cfdUi.outerCorrectorsSpin;
     m_nonOrthCorrectorsSpin = cfdUi.nonOrthCorrectorsSpin;
     m_pvdFileEdit = cfdUi.pvdFileEdit;
@@ -173,6 +175,13 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_maxDtSpin->setRange(1e-12, 1e3); m_maxDtSpin->setDecimals(6); m_maxDtSpin->setValue(0.01);
     m_writeIntervalSpin->setRange(0, 1000000); m_writeIntervalSpin->setValue(1);
     m_visualizationIntervalSpin->setRange(1, 1000000); m_visualizationIntervalSpin->setValue(1);
+    m_resultUpdateModeCombo->addItems({"Every N steps", "Every N seconds", "Both"});
+    m_resultUpdateModeCombo->setCurrentIndex(0);
+    m_resultUpdateTimeSpin->setRange(0.0, 1e6);
+    m_resultUpdateTimeSpin->setDecimals(6);
+    m_resultUpdateTimeSpin->setValue(0.1);
+    m_resultUpdateTimeSpin->setSingleStep(0.1);
+    m_resultUpdateTimeSpin->setEnabled(false);
     m_outerCorrectorsSpin->setRange(1, 50); m_outerCorrectorsSpin->setValue(3);
     m_nonOrthCorrectorsSpin->setRange(0, 10); m_nonOrthCorrectorsSpin->setValue(1);
 
@@ -292,6 +301,31 @@ void CfdCasePage::syncTimeDependencies() {
         m_alphaU->setToolTip("");
         m_alphaP->setToolTip("");
     }
+
+    // Result Update Policy: steady runs only support every-N-steps.
+    // Transient can use steps, solution time, or both.
+    const bool transientMode = transient;
+    m_resultUpdateModeCombo->setEnabled(transientMode);
+    if (!transientMode) {
+        m_resultUpdateModeCombo->setCurrentIndex(
+            static_cast<int>(cfd::CaseSettings::ResultUpdateMode::EveryNSteps));
+    }
+    const int mode = m_resultUpdateModeCombo->currentIndex();
+    const bool timeEnabled = transientMode &&
+        (mode == static_cast<int>(cfd::CaseSettings::ResultUpdateMode::EveryNTime) ||
+         mode == static_cast<int>(cfd::CaseSettings::ResultUpdateMode::Both));
+    m_resultUpdateTimeSpin->setEnabled(timeEnabled);
+    // Steps spin applies to every mode for transient, and to the only mode
+    // (EveryNSteps) for steady.
+    m_visualizationIntervalSpin->setEnabled(true);
+
+    connect(m_resultUpdateModeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+        this, [this](int index) {
+            const bool timeEnabled =
+                (index == static_cast<int>(cfd::CaseSettings::ResultUpdateMode::EveryNTime) ||
+                 index == static_cast<int>(cfd::CaseSettings::ResultUpdateMode::Both));
+            m_resultUpdateTimeSpin->setEnabled(timeEnabled);
+        });
 }
 
 void CfdCasePage::refreshRunControls() {
@@ -370,6 +404,9 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_maxDtSpin->setValue(s.transient.maxDt);
     m_writeIntervalSpin->setValue(s.transient.writeInterval);
     m_visualizationIntervalSpin->setValue(s.visualizationInterval);
+    m_resultUpdateModeCombo->setCurrentIndex(
+        static_cast<int>(s.resultUpdateMode));
+    m_resultUpdateTimeSpin->setValue(s.resultUpdateTimeInterval);
     m_nonOrthCorrectorsSpin->setValue(s.transient.nonOrthogonalCorrectors);
     m_pvdFileEdit->setText(QString::fromStdString(s.transient.pvdFile));
 
@@ -455,6 +492,9 @@ void CfdCasePage::collectSettings() {
     s.transient.maxDt = m_maxDtSpin->value();
     s.transient.writeInterval = m_writeIntervalSpin->value();
     s.visualizationInterval = m_visualizationIntervalSpin->value();
+    s.resultUpdateMode = static_cast<cfd::CaseSettings::ResultUpdateMode>(
+        m_resultUpdateModeCombo->currentIndex());
+    s.resultUpdateTimeInterval = m_resultUpdateTimeSpin->value();
     s.transient.nonOrthogonalCorrectors = m_nonOrthCorrectorsSpin->value();
     s.transient.pvdFile = m_pvdFileEdit->text().toStdString();
 

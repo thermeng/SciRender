@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <limits>
 
 #include <omp.h>
 #include <Eigen/Core>
@@ -360,14 +361,22 @@ bool CfdController::run() {
                          ? m_state.time : 0.0);
 
     // Publish frames for both transient (per time step) and steady (per
-    // iteration) runs. The render-prep loop refreshes the live visualization at
-    // settings.visualizationInterval; the disk writer below is gated by
-    // writeInterval and is unaffected by this cadence.
+    // iteration) runs, gated by the Result Update Policy. Disk output
+    // (writeInterval / .pvd) is independent of this cadence.
     m_renderPrepRunning.store(true);
     m_renderPrepThread = std::thread([this, gen, session, base, settings, patchBCs]() {
         std::shared_ptr<const TransientStep> last;
         const int vizInterval = settings.visualizationInterval > 0
             ? settings.visualizationInterval : 1;
+        const bool wantSteps =
+            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::EveryNSteps ||
+            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::Both;
+        const bool wantTime =
+            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::EveryNTime ||
+            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::Both;
+        const double timeInterval = settings.resultUpdateTimeInterval;
+        // -inf so the very first published frame always goes through.
+        double lastPublishedTime = -std::numeric_limits<double>::infinity();
         while (m_renderPrepRunning.load() && gen == m_gen && !m_cancel.load()) {
             auto step = m_latestStep.load();
             if (!step || step == last || step->gen != gen) {
@@ -375,39 +384,41 @@ bool CfdController::run() {
                 continue;
             }
             if (m_cancel.load() || gen != m_gen) break;
-            // Only rebuild the render mesh at the requested visualization
-            // cadence. Disk output (writeInterval) is independent of this.
-            if (step->step % vizInterval != 0) {
+            const bool stepDue = wantSteps && step->step % vizInterval == 0;
+            const bool timeDue = wantTime &&
+                step->time - lastPublishedTime >= timeInterval;
+            if (!stepDue && !timeDue) {
                 last = step;
                 continue;
             }
             auto rm = session->buildResult(base, *step->state, settings, patchBCs);
-                if (m_cancel.load() || gen != m_gen) break;
-                if (rm) {
-                    // Publish mesh + post-field snapshot + status as ONE immutable
-                    // slot: the GUI then always sees a consistent time step, and
-                    // nothing here touches RenderSettings.
-                    auto slot = std::make_shared<CfdFrameSlot>();
-                    slot->mesh = rm;
-                    slot->step = step->step;
-                    slot->time = step->time;
-                    slot->gen = gen;
-                    if (m_postExtractor) {
-                        auto res = m_postExtractor(*rm);
-                        if (res.keepExisting) {
-                            auto prev = m_latestFrameSlot.load();
-                            slot->computed = prev ? prev->computed : nullptr;
-                        } else {
-                            slot->computed = res.ok ? res.snapshot : nullptr;
-                            slot->postStatus = std::move(res.status);
-                            slot->postExtracted = true;
-                        }
+            if (m_cancel.load() || gen != m_gen) break;
+            if (rm) {
+                // Publish mesh + post-field snapshot + status as ONE immutable
+                // slot: the GUI then always sees a consistent time step, and
+                // nothing here touches RenderSettings.
+                auto slot = std::make_shared<CfdFrameSlot>();
+                slot->mesh = rm;
+                slot->step = step->step;
+                slot->time = step->time;
+                slot->gen = gen;
+                if (m_postExtractor) {
+                    auto res = m_postExtractor(*rm);
+                    if (res.keepExisting) {
+                        auto prev = m_latestFrameSlot.load();
+                        slot->computed = prev ? prev->computed : nullptr;
+                    } else {
+                        slot->computed = res.ok ? res.snapshot : nullptr;
+                        slot->postStatus = std::move(res.status);
+                        slot->postExtracted = true;
                     }
-                    m_latestFrameSlot.store(std::move(slot));
                 }
-                last = step;
+                m_latestFrameSlot.store(std::move(slot));
+                if (timeDue) lastPublishedTime = step->time;
             }
-        });
+            last = step;
+        }
+    });
     if (settings.transient.enabled && settings.transient.writeInterval > 0) {
         m_diskWriterRunning.store(true);
 

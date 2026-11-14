@@ -316,30 +316,6 @@
     </item>
 
 
-
-   <item>
-    <widget class="QWidget" name="visualizationIntervalRow" native="true">
-     <layout class="QHBoxLayout" name="visualizationIntervalRowLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="visualizationIntervalLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Visualize Every</string></property>
-        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QSpinBox" name="visualizationIntervalSpin">
-        <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-
    <!-- Boundary Conditions -->
     <item>
      <widget class="QPushButton" name="bcEditBtn">
@@ -937,6 +913,79 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
       </item>
      </layout>
     </item>
+
+   <item>
+    <widget class="QWidget" name="visualizationIntervalRow" native="true">
+     <layout class="QHBoxLayout" name="visualizationIntervalRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="visualizationIntervalLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Visualize Every</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QSpinBox" name="visualizationIntervalSpin">
+        <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <item>
+    <widget class="QWidget" name="resultUpdateModeRow" native="true">
+     <layout class="QHBoxLayout" name="resultUpdateModeRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="resultUpdateModeLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Result Update Policy</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="resultUpdateModeCombo">
+        <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <item>
+    <widget class="QWidget" name="resultUpdateTimeRow" native="true">
+     <layout class="QHBoxLayout" name="resultUpdateTimeRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="resultUpdateTimeLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Every (solution time)</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="resultUpdateTimeSpin">
+        <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+        <property name="decimals"><number>6</number></property>
+        <property name="minimum"><double>0.0</double></property>
+        <property name="maximum"><double>1e6</double></property>
+        <property name="singleStep"><double>0.1</double></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
    </layout>
   </widget>
   <customwidgets>
