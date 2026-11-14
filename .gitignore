@@ -103,6 +103,11 @@ samples/pvd_animation/
 
 # Ignore vendors — source is tracked; build artifacts (*.a, *.o) already ignored above
 
+# vendor/hypre is a local clone fetched per patches/README.md, not tracked (CI
+# clones v3.2.1 itself). Keeping it out of the index stops its applied patch
+# from showing as a dirty gitlink in the parent working tree.
+vendor/hypre/
+
 # Ignore 
 /.hermes/
 CONTEXT.md
