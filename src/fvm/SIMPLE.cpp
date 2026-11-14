@@ -17,10 +17,41 @@
 #include <chrono>
 #include <thread>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace fvm {
 
 using cfd::ResolvedStoppingPolicy;
 using cfd::ResidualEquation;
+
+namespace {
+
+// Resident set size of this process in MiB -- the number Task Manager shows
+// for the application. Printed once per transient step so a long run can be
+// watched for memory drift directly in the solver table, without an external
+// sampler. The transient table is the run-level output, so one sample there is
+// enough to see whether a case leaks.
+double residentSetMiB() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc{};
+    if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0.0;
+    return static_cast<double>(pmc.WorkingSetSize) / (1024.0 * 1024.0);
+#else
+    std::ifstream statm("/proc/self/statm");
+    long totalPages = 0, residentPages = 0;
+    if (!(statm >> totalPages >> residentPages)) return 0.0;
+    const long pageSize = sysconf(_SC_PAGESIZE);
+    if (pageSize <= 0) return 0.0;
+    return static_cast<double>(residentPages) * pageSize / (1024.0 * 1024.0);
+#endif
+}
+
+} // namespace
 
 template<std::size_t Dim>
 SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& config)
@@ -774,6 +805,7 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
     nCols += 1; // continuity
     nCols += Dim; // velocities
     if (turbulence_) nCols += 2;
+    if (isTransient) nCols += 1; // resident set size
     int width = wIter + nCols * wRes;
     if (width < 78) width = 78;
     std::ostringstream hdr;
@@ -787,6 +819,7 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
             << std::setw(wRes) << "y-velocity";
         if constexpr (Dim == 3) hdr << std::setw(wRes) << "z-velocity";
         if (turbulence_) hdr << std::setw(wRes) << "k" << std::setw(wRes) << "omega";
+        hdr << std::setw(wRes) << "rss(MiB)";
         hdr << "\n" << std::string(width, '-') ;
     } else {
         hdr << std::setw(wIter) << "iter"
@@ -1549,6 +1582,7 @@ void SIMPLE<Dim>::printTransientOutput_(int step, double time) {
     if constexpr (Dim == 3) line << std::setw(wRes) << lastMomResidW_;
     if (turbulence_) line << std::setw(wRes) << turbulence_->finalKResid()
                            << std::setw(wRes) << turbulence_->finalOmegaResid();
+    line << std::setw(wRes) << std::fixed << std::setprecision(1) << residentSetMiB();
     std::cout << line.str() << std::endl;
     // One reverse-flow line per time step. The pressure solve runs once per
     // corrector, so reading the count there repeated the same warning for every
