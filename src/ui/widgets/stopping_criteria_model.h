@@ -60,6 +60,8 @@ public:
     void setSteadyHold(int v);
     void setTransientTEnd(double v);
     void setTransientMaxOuterCorrectors(int v);
+    void setTransientMinOuterCorrectors(int v);
+    void setTransientResidualReduction(double v);
 
     const std::vector<EquationRow>& equations() const { return rows_; }
 

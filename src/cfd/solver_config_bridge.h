@@ -39,8 +39,19 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     // turbulence, transient mode). Inapplicable equations (Momentum W in 2D,
     // k/omega without turbulence) are excluded from the gate here so the
     // solver never has to reason about dimension/turbulence inside the loop.
+    //
+    // A programmatic caller can hand us min > max (the UI validates, the
+    // controller setter and case loader do not). Clamp rather than reject the
+    // whole policy: falling back to defaults silently changes tEnd and the
+    // corrector cap, which is far worse than running one fewer corrector.
+    auto stopping = settings.stopping;
+    if (stopping.transient.minOuterCorrectors >
+        stopping.transient.maxOuterCorrectors) {
+        stopping.transient.minOuterCorrectors =
+            stopping.transient.maxOuterCorrectors;
+    }
     auto resolved = resolveStoppingPolicy(
-        settings.stopping, Dim == 3, settings.turbulence, settings.transient.enabled);
+        stopping, Dim == 3, settings.turbulence, settings.transient.enabled);
     // Callers validate before reaching here; fall back to an empty policy
     // (iteration limit 0) so an invalid config cannot run forever.
     sc.stoppingPolicy = resolved.value_or(cfd::ResolvedStoppingPolicy{});

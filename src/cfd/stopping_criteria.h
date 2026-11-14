@@ -73,6 +73,12 @@ struct TransientStopping {
     double tEnd = 1.0;
     // Maximum pressure-corrector sweeps per time step.
     int maxOuterCorrectors = 3;
+    // PISO residual reduction: run at least this many correctors, then stop
+    // once the continuity residual has fallen to `residualReduction` times its
+    // value at the start of the time step.
+    int minOuterCorrectors = 2;
+    // 0 disables the reduction test; the loop then always runs to the cap.
+    double residualReduction = 0.25;
 
     bool operator==(const TransientStopping&) const = default;
 };
@@ -106,6 +112,8 @@ struct StoppingCriteriaLimits {
     static constexpr double kTEndMax = 1e9;
     static constexpr int kOuterMin = 1;
     static constexpr int kOuterMax = 100;
+    static constexpr double kReductionMin = 0.0;
+    static constexpr double kReductionMax = 1.0;
 };
 
 // Validation result: per-field errors plus an overall ok flag.
@@ -124,6 +132,8 @@ struct ValidationReport {
 //   * hold must be within [kHoldMin, kHoldMax]
 //   * transient tEnd must be within [kTEndMin, kTEndMax]
 //   * maxOuterCorrectors must be within [kOuterMin, kOuterMax]
+//   * minOuterCorrectors must be within [kOuterMin, kOuterMax] and <= max
+//   * residualReduction must be within [0, 1]
 ValidationReport validateStoppingCriteria(const StoppingCriteria& s);
 
 // Resolve the effective tolerance for an equation (override if set, else

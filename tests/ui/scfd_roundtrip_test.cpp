@@ -39,6 +39,7 @@ void configureTransient(CfdController& ctrl, double tEnd) {
     s.stopping.transient.tEnd = tEnd;
     s.transient.adaptiveCfl = false;
     s.stopping.transient.maxOuterCorrectors = 1;
+    s.stopping.transient.minOuterCorrectors = 1; // must be <= max
     s.transient.timeScheme = fvm::TimeScheme::Euler;
     s.transient.writeInterval = 0; // no VTU/PVD side effects in the test
     s.stopping.defaultTolerance = 1e-4;

@@ -163,3 +163,15 @@ void StoppingCriteriaModel::setTransientMaxOuterCorrectors(int v) {
     validateAndNotify();
     emit changed();
 }
+
+void StoppingCriteriaModel::setTransientMinOuterCorrectors(int v) {
+    draft_.transient.minOuterCorrectors = v;
+    validateAndNotify();
+    emit changed();
+}
+
+void StoppingCriteriaModel::setTransientResidualReduction(double v) {
+    draft_.transient.residualReduction = v;
+    validateAndNotify();
+    emit changed();
+}

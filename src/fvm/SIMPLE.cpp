@@ -640,15 +640,20 @@ void SIMPLE<Dim>::capturePredictedContinuity_() {
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::updateResiduals_() {
-    lastContResidRaw_ = predictedContinuity_;
     ResidualResult resid = computeResiduals(mesh_, boundVelocity(), velocityOld_, diag_,
                                             divBuffer_, bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
                                             &bcDiscretization_.faceBCs(),
                                             &dCoeff_, &pressureBeforeCorrection_, &pressureGradBefore_, &pressureCorrection_.pressureMask(),
                                             config_.rhieChow && pressureCorrection_.usesCompactRhieChow());
     lastContResidPost_ = resid.continuity;
+    // Steady reports the predictor imbalance (the value the pressure correction
+    // is about to reduce). PISO reports the imbalance of the corrector that
+    // just ran, so the reduction test and the residual monitor both see the
+    // value that correction was built on.
+    lastContResidRaw_ = isPiso_() ? lastPisoPreCorrectorResidual_
+                                  : predictedContinuity_;
     if (!initialMassImbalanceSet_) {
-        initialMassImbalance_ = lastContResidRaw_;
+        initialMassImbalance_ = predictedContinuity_;
         initialMassImbalanceSet_ = true;
     }
 
@@ -1536,6 +1541,26 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
     for (int inner = 0; inner < nInner; ++inner) {
         updatePisoPredictor_();
 
+        // The imbalance this corrector is about to remove. Measured on u~
+        // before the pressure solve, with the same Rhie-Chow flux the matrix
+        // uses. The post-correction value is ~0 by construction and cannot
+        // drive the PISO reduction test. The mask is only populated once the
+        // first solve has run, so fall back to the uncorrected divergence
+        // until then (same rule as capturePredictedContinuity_).
+        {
+            const bool compactRC =
+                config_.rhieChow && pressureCorrection_.usesCompactRhieChow() &&
+                pressureCorrection_.pressureMask().size() == mesh_.nCells();
+            ResidualResult pre = computeResiduals(
+                mesh_, uStar_, velocityOld_, diag_, divBuffer_,
+                bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
+                &bcDiscretization_.faceBCs(), &dCoeff_,
+                compactRC ? &boundPressure() : nullptr,
+                compactRC ? &pressureGrad_ : nullptr,
+                &pressureCorrection_.pressureMask(), compactRC);
+            lastPisoPreCorrectorResidual_ = pre.continuity;
+        }
+
         pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
                                   bcDiscretization_, &cancelRequested_);
         if (pressureCorrection_.lastSolveProducedNonFinite())
@@ -1811,53 +1836,38 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         }
         int nOuter = std::max(1, config_.stoppingPolicy.transientPolicy.maxOuterCorrectors);
         if (isPISO) {
-            // True PISO: 1 momentum predictor + nOuter pressure correctors (frozen dCoeff)
-            // No under-relaxation, no adaptive alphaP reduction inside correctors
+            // True PISO: 1 momentum predictor + up to nOuter pressure correctors
+            // (frozen dCoeff). No under-relaxation, no adaptive alphaP reduction
+            // inside correctors.
             performPISOPredictor_(velocity, pressure);
+            // PISO residual reduction: the predictor continuity is the reference
+            // for this time step. Reset it every step, never carry it over.
+            pisoInitialResidual_ = predictedContinuity_;
+            const auto& tp = config_.stoppingPolicy.transientPolicy;
+            const int minCorrectors =
+                std::min(nOuter, std::max(1, tp.minOuterCorrectors));
+            const double reduction = tp.residualReduction;
             for (int corr = 0; corr < nOuter; ++corr) {
                 performPISOCorrector_(velocity, pressure);
                 updateResiduals_();
                 lastIterations_ = step * nOuter + corr + 1;
-                {
-                    // Per-equation corrector early exit: stop the corrector
-                    // loop once every active (applicable + enabled) equation is
-                    // below its tolerance. The policy already filtered out
-                    // inapplicable equations (W in 2D, k/omega without
-                    // turbulence).
-                    bool converged = true;
-                    for (std::size_t i = 0;
-                         i < config_.stoppingPolicy.transientPolicy.activeEquations.size();
-                         ++i) {
-                        double t = config_.stoppingPolicy.transientPolicy
-                                       .effectiveTolerances[i];
-                        switch (config_.stoppingPolicy.transientPolicy
-                                    .activeEquations[i]) {
-                            case ResidualEquation::Continuity:
-                                converged = converged && lastContResid_ < t;
-                                break;
-                            case ResidualEquation::MomentumX:
-                                converged = converged && lastMomResidU_ < t;
-                                break;
-                            case ResidualEquation::MomentumY:
-                                converged = converged && lastMomResidV_ < t;
-                                break;
-                            case ResidualEquation::MomentumW:
-                                converged = converged && lastMomResidW_ < t;
-                                break;
-                            case ResidualEquation::TurbulenceK:
-                                converged =
-                                    converged && turbulence_ &&
-                                    turbulence_->finalKResid() < t;
-                                break;
-                            case ResidualEquation::TurbulenceOmega:
-                                converged =
-                                    converged && turbulence_ &&
-                                    turbulence_->finalOmegaResid() < t;
-                                break;
-                        }
+
+                // Run at least minCorrectors, then stop once the continuity
+                // residual has fallen to `reduction` times the start-of-step
+                // value. reduction == 0 disables the test (always run to the
+                // cap). A zero initial residual is already converged.
+                bool reductionMet = false;
+                if (reduction > 0.0) {
+                    if (!std::isfinite(pisoInitialResidual_)) {
+                        reductionMet = false; // no usable reference: run to cap
+                    } else if (pisoInitialResidual_ <= 0.0) {
+                        reductionMet = true;
+                    } else {
+                        reductionMet = lastPisoPreCorrectorResidual_ <=
+                                       reduction * pisoInitialResidual_;
                     }
-                    if (converged) break;
                 }
+                if (corr + 1 >= minCorrectors && reductionMet) break;
             }
             // checkConvergence_ detects NaN/inf divergence; act on it instead of
             // discarding the result and marching on to tEnd. Cancellation is

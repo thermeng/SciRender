@@ -46,6 +46,8 @@ std::optional<ResolvedStoppingPolicy> resolveStoppingPolicy(
         policy.transientPolicy.effectiveTolerances = std::move(effTols);
         policy.transientPolicy.tEnd = s.transient.tEnd;
         policy.transientPolicy.maxOuterCorrectors = s.transient.maxOuterCorrectors;
+        policy.transientPolicy.minOuterCorrectors = s.transient.minOuterCorrectors;
+        policy.transientPolicy.residualReduction = s.transient.residualReduction;
     } else {
         if (active.empty() && !s.steady.fixedIterations) {
             // No applicable equation is gated and there is no fixed budget:

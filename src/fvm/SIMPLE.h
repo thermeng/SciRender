@@ -406,6 +406,14 @@ private:
     // (with more than one corrector: to machine precision), which is why the
     // old post-correction value sat at ~1e-15 for the whole run.
     double predictedContinuity_ = 0.0;
+    // Continuity residual at the start of the current PISO time step. The
+    // corrector loop compares the current residual against
+    // residualReduction * this value; reset after every momentum predictor.
+    double pisoInitialResidual_ = 0.0;
+    // Continuity imbalance the current corrector is about to remove (u~ before
+    // the pressure solve). This is the PISO residual reduction quantity, not
+    // the post-correction value (which the solve drives to ~0).
+    double lastPisoPreCorrectorResidual_ = 0.0;
     double contResidRef_ = 0.0;
     std::size_t contResidRefSamples_ = 0;
     std::array<double, Dim> momResidRaw_{};
