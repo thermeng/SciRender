@@ -145,17 +145,17 @@ void AMGHierarchy::buildLevelOperators_() const {
         const int nFine = levelSizes_[static_cast<std::size_t>(L)];
         const int nCoarse = levelSizes_[static_cast<std::size_t>(L + 1)];
 
-        // Local index mappings: original fine id -> local index at each level.
-        std::vector<int> fineNodes, coarseNodes;
-        std::vector<int> fineLocal(n_, -1), coarseLocal(n_, -1);
+        // fineNodes: local level-L index -> original id.
+        // coarseLocal: original id -> local level-(L+1) index.
+        std::vector<int> fineNodes;
+        std::vector<int> coarseLocal(n_, -1);
+        int coarseSeen = 0;
         for (int i = 0; i < n_; ++i) {
             if (cgrid_[static_cast<std::size_t>(i)] >= L) {
-                fineLocal[static_cast<std::size_t>(i)] = static_cast<int>(fineNodes.size());
                 fineNodes.push_back(i);
             }
             if (cgrid_[static_cast<std::size_t>(i)] >= L + 1) {
-                coarseLocal[static_cast<std::size_t>(i)] = static_cast<int>(coarseNodes.size());
-                coarseNodes.push_back(i);
+                coarseLocal[static_cast<std::size_t>(i)] = coarseSeen++;
             }
         }
 
@@ -310,8 +310,13 @@ bool AMGHierarchy::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
     auto solveStart = std::chrono::steady_clock::now();
     const int n = n_;
     if ((int)x.size() != n) { x.resize(n); x.setZero(); }
-    double bnorm = b.norm();
-    if (!std::isfinite(bnorm) || bnorm < 1e-30) { x.setZero(); return true; }
+    // A non-finite right-hand side is a broken system, not a converged one.
+    // Returning a zero correction would hide the NaN and let the caller report
+    // a bogus success. Only a genuinely zero RHS has the exact answer 0.
+    if (!b.allFinite()) return false;
+    const double bnorm = b.norm();
+    if (!std::isfinite(bnorm)) return false; // norm overflowed
+    if (bnorm < 1e-30) { x.setZero(); return true; }
     const int maxIt = std::max(1, config_.maxIterations);
     const double tol = std::max(1e-16, config_.tolerance);
     const double r0 = (b - systemMatrix_ * x).norm();
@@ -352,8 +357,13 @@ bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x, const std
     auto solveStart = std::chrono::steady_clock::now();
     const int n = n_;
     if ((int)x.size() != n) { x.resize(n); x.setZero(); }
-    double bnorm = b.norm();
-    if (!std::isfinite(bnorm) || bnorm < 1e-30) { x.setZero(); return true; }
+    // A non-finite right-hand side is a broken system, not a converged one.
+    // Returning a zero correction would hide the NaN and let the caller report
+    // a bogus success. Only a genuinely zero RHS has the exact answer 0.
+    if (!b.allFinite()) return false;
+    const double bnorm = b.norm();
+    if (!std::isfinite(bnorm)) return false; // norm overflowed
+    if (bnorm < 1e-30) { x.setZero(); return true; }
     const int maxIt = std::max(1, config_.maxIterations);
     const double tol = std::max(1e-16, config_.tolerance);
     double prev = std::numeric_limits<double>::max();
