@@ -330,6 +330,8 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
         flg("printResidentSet", &CaseSettings::printResidentSet),
         i32("numThreads", &CaseSettings::numThreads),
         i32("visualizationInterval", &CaseSettings::visualizationInterval),
+        enm("resultUpdateMode", &CaseSettings::resultUpdateMode),
+        dbl("resultUpdateTimeInterval", &CaseSettings::resultUpdateTimeInterval),
         i32("pressureAmgPreconditionerCycles", &CaseSettings::pressureAmgPreconditionerCycles),
         flg("momentumAmgAsSolver", &CaseSettings::momentumAmgAsSolver),
         i32("momentumAmgCycles", &CaseSettings::momentumAmgCycles),
