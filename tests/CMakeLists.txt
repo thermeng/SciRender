@@ -123,8 +123,11 @@ if(SCIRENDER_BUILD_APP)
             ui/scfd_roundtrip_test.cpp
             ui/cfd_3d_mesh_test.cpp
             ui/unstructured_render_test.cpp
+            ui/cli_options_test.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.h
+            ${PROJECT_SOURCE_DIR}/src/app/cli_options.cpp
+            ${PROJECT_SOURCE_DIR}/src/app/cli_options.h
         LIBRARIES
             CfdLib
             FvmCore

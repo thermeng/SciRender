@@ -49,6 +49,8 @@ TEST_CASE("fvm.transient.steady_defaults") {
     CHECK_NEAR(c.maxDt, 0.01);
     CHECK_MESSAGE(c.writeInterval == 1, "writeInterval maps");
     CHECK_MESSAGE(cfg.stopping.transient.maxOuterCorrectors == 3, "maxOuterCorrectors maps");
+    CHECK_MESSAGE(cfg.stoppingPolicy.transientPolicy.maxTimeSteps == 0,
+                  "maxTimeSteps defaults to unlimited");
     CHECK_MESSAGE(c.pvdFile.empty(), "pvdFile maps (empty)");
     CHECK_MESSAGE(cfg.solverType == fvm::SolverType::SIMPLE, "steady -> SIMPLE");
 }
@@ -68,6 +70,7 @@ TEST_CASE("fvm.transient.transient_mapping") {
     s.pvdFile = "case.pvd";
     settings.stopping.transient.tEnd = 4.0;
     settings.stopping.transient.maxOuterCorrectors = 5;
+    settings.stopping.transient.maxTimeSteps = 12;
 
     auto cfg = cfd::toFvmConfig<2>(settings);
     auto c = cfg.transient;
@@ -81,6 +84,8 @@ TEST_CASE("fvm.transient.transient_mapping") {
     CHECK_NEAR(c.maxDt, 5e-3);
     CHECK_MESSAGE(c.writeInterval == 7, "writeInterval maps");
     CHECK_MESSAGE(cfg.stopping.transient.maxOuterCorrectors == 5, "maxOuterCorrectors maps");
+    CHECK_MESSAGE(cfg.stoppingPolicy.transientPolicy.maxTimeSteps == 12,
+                  "maxTimeSteps maps");
     CHECK_MESSAGE(c.pvdFile == "case.pvd", "pvdFile maps");
     CHECK_MESSAGE(cfg.solverType == fvm::SolverType::PISO, "transient -> PISO");
 }
