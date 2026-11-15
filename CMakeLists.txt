@@ -365,6 +365,10 @@ if(SCIRENDER_BUILD_APP)
     add_executable(SciRender
         src/app/main.cpp
         src/app/gpu_preference.cpp
+        src/app/cli_options.cpp
+        src/app/cli_options.h
+        src/app/cli_runner.cpp
+        src/app/cli_runner.h
         src/ui/viewport_widget.cpp
         src/ui/viewport_widget.h
         src/ui/colorbar_style_dialog.cpp

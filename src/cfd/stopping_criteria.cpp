@@ -75,6 +75,11 @@ ValidationReport validateStoppingCriteria(const StoppingCriteria& s) {
     if (s.steady.fixedIterations) {
         checkIter("steady.fixedIterations", *s.steady.fixedIterations);
     }
+    if (s.transient.maxTimeSteps > StoppingCriteriaLimits::kIterMax) {
+        report.ok = false;
+        report.errors.push_back({"transient.maxTimeSteps",
+            "time-step budget must be within [0, 1000000] (0 = unlimited)"});
+    }
 
     if (s.steady.convergenceHoldIterations < StoppingCriteriaLimits::kHoldMin ||
         s.steady.convergenceHoldIterations > StoppingCriteriaLimits::kHoldMax) {

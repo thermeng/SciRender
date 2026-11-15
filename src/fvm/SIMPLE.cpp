@@ -1801,6 +1801,8 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
     }
     double tEnd = config_.stoppingPolicy.transientPolicy.tEnd;
     int step = timeStep_;
+    const int firstStep = step;
+    const std::size_t stepBudget = config_.stoppingPolicy.transientPolicy.maxTimeSteps;
     if (!haveHistory) time_ = 0.0;
     // PISO on a collocated grid requires Rhie-Chow. Force it (and therefore
     // the compact face-normal pressure operator) once, before the first solve,
@@ -1972,6 +1974,8 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
             config_.transientCallback(step, time_, velocity, pressure);
         }
         if (step >= 1000000) break; // safety
+        if (stepBudget > 0 &&
+            static_cast<std::size_t>(step - firstStep) >= stepBudget) break;
         if (!config_.transient.adaptiveCfl && step >= nSteps) break;
     }
     hasRestoredTransientState_ = false;

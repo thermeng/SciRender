@@ -1,10 +1,14 @@
 #include <QApplication>
+#include <QCoreApplication>
 #include <QDebug>
 #include <QIcon>
 #include <QFile>
 #include <QSurfaceFormat>
 #include <cstdlib>
+#include <iostream>
 
+#include "app/cli_options.h"
+#include "app/cli_runner.h"
 #include "ui/main_window.h"
 
 int main(int argc, char *argv[]) {
@@ -17,6 +21,25 @@ int main(int argc, char *argv[]) {
         std::abort();
     });
     if (std::getenv("SCIRENDER_DEBUG")) qDebug() << "[LAUNCH DIAGNOSTIC 1/4] Main entry executed. Allocating resources...";
+
+    // Headless solver: no window, no OpenGL, no QApplication.
+    if (cli::wantsCli(argc, argv)) {
+        std::string error;
+        auto options = cli::parse(argc, argv, error);
+        if (!options) {
+            std::cerr << error << "\n\n" << cli::usage();
+            return 2;
+        }
+        if (options->help) {
+            std::cout << cli::usage();
+            return 0;
+        }
+
+        QCoreApplication app(argc, argv);
+        QCoreApplication::setOrganizationName("SciRender");
+        QCoreApplication::setApplicationName("SciRender");
+        return cli::runHeadlessCase(*options);
+    }
 
     // Stable QSettings scope (must be set before any QSettings access)
     QCoreApplication::setOrganizationName("SciRender");

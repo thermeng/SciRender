@@ -35,6 +35,8 @@ struct TransientStoppingPolicy {
     // Effective tolerance per active equation.
     std::vector<double> effectiveTolerances;
     double tEnd = 1.0;
+    // Steps this run may complete from its restart point; 0 = unlimited.
+    std::size_t maxTimeSteps = 0;
     int maxOuterCorrectors = 3;
     int minOuterCorrectors = 2;
     double residualReduction = 0.25;

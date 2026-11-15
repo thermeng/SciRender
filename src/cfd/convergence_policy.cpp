@@ -45,6 +45,7 @@ std::optional<ResolvedStoppingPolicy> resolveStoppingPolicy(
         policy.transientPolicy.activeEquations = std::move(active);
         policy.transientPolicy.effectiveTolerances = std::move(effTols);
         policy.transientPolicy.tEnd = s.transient.tEnd;
+        policy.transientPolicy.maxTimeSteps = s.transient.maxTimeSteps;
         policy.transientPolicy.maxOuterCorrectors = s.transient.maxOuterCorrectors;
         policy.transientPolicy.minOuterCorrectors = s.transient.minOuterCorrectors;
         policy.transientPolicy.residualReduction = s.transient.residualReduction;

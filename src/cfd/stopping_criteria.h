@@ -71,6 +71,9 @@ struct SteadyStopping {
 struct TransientStopping {
     // Global end time; the run stops here regardless of residuals.
     double tEnd = 1.0;
+    // Maximum number of time steps this run may complete from its restart
+    // point. 0 = unlimited (tEnd only).
+    std::size_t maxTimeSteps = 0;
     // Maximum pressure-corrector sweeps per time step.
     int maxOuterCorrectors = 3;
     // PISO residual reduction: run at least this many correctors, then stop

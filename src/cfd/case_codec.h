@@ -227,6 +227,7 @@ inline QJsonObject serializeStopping(const StoppingCriteria& s) {
     o["steady"] = steady;
     QJsonObject trans;
     trans["tEnd"] = s.transient.tEnd;
+    trans["maxTimeSteps"] = QJsonValue(static_cast<qint64>(s.transient.maxTimeSteps));
     trans["maxOuterCorrectors"] = s.transient.maxOuterCorrectors;
     trans["minOuterCorrectors"] = s.transient.minOuterCorrectors;
     trans["residualReduction"] = s.transient.residualReduction;
@@ -258,6 +259,9 @@ inline bool deserializeStopping(const QJsonObject& o, StoppingCriteria& s) {
     if (o.value("transient").isObject()) {
         QJsonObject tr = o.value("transient").toObject();
         if (tr.value("tEnd").isDouble()) s.transient.tEnd = tr.value("tEnd").toDouble();
+        if (tr.value("maxTimeSteps").isDouble())
+            s.transient.maxTimeSteps = static_cast<std::size_t>(
+                tr.value("maxTimeSteps").toVariant().toULongLong());
         if (tr.value("maxOuterCorrectors").isDouble())
             s.transient.maxOuterCorrectors = tr.value("maxOuterCorrectors").toInt();
         if (tr.value("minOuterCorrectors").isDouble())
