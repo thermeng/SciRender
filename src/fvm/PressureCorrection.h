@@ -37,7 +37,7 @@ public:
     // the solve it accelerates. At high Reynolds numbers the matrix changes
     // quickly, so a value of 1 (rebuild every iteration) keeps the
     // preconditioner effective.
-    std::size_t amgRebuildInterval = 1;
+    std::size_t amgRebuildInterval = 4;
 };
 
     struct PressureSolverStats {

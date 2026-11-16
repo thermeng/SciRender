@@ -78,7 +78,10 @@ inline Field<Struct> i32(const char* name, T Struct::*m) {
         name,
         [m](const Struct& s) { return QJsonValue(static_cast<int>(s.*m)); },
         [m](Struct& s, const QJsonValue& v) {
-            if (!v.isDouble()) return false;
+            // A missing key keeps the struct's current value so case
+            // files written before the field existed still load.
+            if (!v.isUndefined() && !v.isDouble()) return false;
+            if (v.isDouble())
             s.*m = static_cast<T>(v.toInt(static_cast<int>(s.*m)));
             return true;
         }};
@@ -91,8 +94,11 @@ inline Field<Struct> enm(const char* name, T Struct::*m) {
         name,
         [m](const Struct& s) { return QJsonValue(static_cast<int>(s.*m)); },
         [m](Struct& s, const QJsonValue& v) {
-            if (!v.isDouble()) return false;
-            s.*m = static_cast<T>(v.toInt(static_cast<int>(s.*m)));
+            // A missing key keeps the current value so case files
+            // written before the field existed still load.
+            if (!v.isUndefined() && !v.isDouble()) return false;
+            if (v.isDouble())
+                s.*m = static_cast<T>(v.toInt(static_cast<int>(s.*m)));
             return true;
         }};
 }
@@ -177,6 +183,7 @@ inline const std::vector<Field<AmgSettings>>& amgFields() {
         enm("scaling", &AmgSettings::scaling),
         enm("groupSizeControl", &AmgSettings::groupSizeControl),
         i32("blockSize", &AmgSettings::blockSize),
+        enm("backend", &AmgSettings::backend),
         i32("preSweeps", &AmgSettings::preSweeps),
         i32("postSweeps", &AmgSettings::postSweeps),
         i32("maxLevels", &AmgSettings::maxLevels),
@@ -191,7 +198,10 @@ inline const std::vector<Field<AmgSettings>>& amgFields() {
         flg("nonsymmetric", &AmgSettings::nonsymmetric),
         dbl("flexAlpha", &AmgSettings::flexAlpha),
         dbl("flexBeta", &AmgSettings::flexBeta),
-        i32("flexMaxSweeps", &AmgSettings::flexMaxSweeps)
+        i32("flexMaxSweeps", &AmgSettings::flexMaxSweeps),
+        flg("smoothedProlongation", &AmgSettings::smoothedProlongation),
+        dbl("saOmega", &AmgSettings::saOmega),
+        i32("saDegree", &AmgSettings::saDegree)
     };
     return fields;
 }

@@ -51,6 +51,16 @@ struct AmgSettings {
     ProportionalScaling scaling = ProportionalScaling::Automatic;
     GroupSizeControl groupSizeControl = GroupSizeControl::Automatic;
     int blockSize = 1;           // Group size (Manual)
+    // Which AMG backend builds the hierarchy. BoomerAMG is the
+    // default: a full value-dependent coarsening every setup. The
+    // cached aggregation backend reuses its aggregation maps and only
+    // refreshes the level operators (O(nnz)), which is far cheaper per
+    // outer iteration but needs more smoothing to converge as tightly.
+    enum class Backend { BoomerAMG, CachedAggregation };
+    // Cached aggregation is the default: its setup is an O(nnz) restriction
+    // over cached maps instead of a full BoomerAMG coarsening, which is what
+    // makes the per-iteration cost competitive with   / OpenFOAM GAMG.
+    Backend backend = Backend::CachedAggregation;
 
     // --- Smoothing / hierarchy -------------------------------------------
     int preSweeps = 1;           // Pre-smooths
@@ -72,11 +82,30 @@ struct AmgSettings {
     // Flexible cycle struct (Hypre-style ints: -2 terminate, -1 coarser, 0 stay, 1 finer).
     std::vector<int> flexStruct;
     
-    double flexAlpha = 0.1;
-    double flexBeta = 0.7;
-    int flexMaxSweeps = 2;
+    //   Flex Cycle defaults: Restriction Tolerance = 0.9
+    // (residual ratio below which the level is considered resolved),
+    // Prolongation Tolerance = 0.5 (ratio above which the correction
+    // is accepted), Sweeps = 1.
+    double flexAlpha = 0.9;
+    double flexBeta = 0.5;
+    int flexMaxSweeps = 1;
     int flexMaxFineRelaxations = 30;
     int flexMaxCoarseRelaxations = 20;
+
+    // --- Smoothed Aggregation prolongation -------------------------------
+    // When true, the tentative piecewise-constant prolongation T is smoothed
+    // before use: P = (I - omega * D^-1 * A)^degree * T (Jacobi smoothing).
+    // This spreads each coarse basis function to neighbors of its aggregate,
+    // letting the coarse grid represent smooth error modes that piecewise-
+    // constant injection cannot. The near-nullspace constraint P*B = T*B is
+    // preserved (constant mode interpolated exactly). Invalid for Hypre
+    // backend (ignored there); only the cached-aggregation backend uses it.
+    bool smoothedProlongation = false;
+    // Jacobi damping parameter for prolongation smoothing. 2/3 is the
+    // classical value; 4/3 is pyamg's default.
+    double saOmega = 2.0 / 3.0;
+    // Number of Jacobi smoothing passes applied to the tentative prolongator.
+    int saDegree = 1;
 
     static AmgSettings pressureDefaults() {
         AmgSettings s;
@@ -111,6 +140,16 @@ struct AmgSettings {
         s.strengthThreshold = 0.25;
         s.truncThreshold = 0.5;
         return s;
+    }
+
+    // Effective group size for Hypre's systems AMG.   uses "Group
+    // Size = Auto" -> 2 (2D) / 4 (3D); Manual uses the configured
+    // blockSize. Returns 1 (scalar AMG) when grouping is not possible.
+    int effectiveBlockSize(int dim) const {
+        if (groupSizeControl == GroupSizeControl::Manual)
+            return std::max(1, blockSize);
+        //   automatic group size: 2 in 2D, 4 in 3D.
+        return (dim >= 3) ? 4 : 2;
     }
 };
 

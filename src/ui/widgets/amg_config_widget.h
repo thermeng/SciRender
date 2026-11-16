@@ -27,18 +27,25 @@ public:
 signals:
     void changed();
 
+public:
+    void setDimension(int dim);
+
 private:
     void buildUi();
     void syncDependencies();
 
     bool m_lockNonsymmetric = false;
     cfd::AmgSettings m_defaults;
+    // Mesh dimension: 2 or 3. Used to display the STAR Auto group size
+    // (2 for 2D, 4 for 3D) and to round-trip it into blockSize for Automatic.
+    int m_dim = 2;
 
     // AMG linear solver
     QSpinBox* m_maxCycles = nullptr;
     QComboBox* m_verbosity = nullptr;
     QDoubleSpinBox* m_tolerance = nullptr;
     QComboBox* m_cycleType = nullptr;
+    QComboBox* m_backend = nullptr;
     QSpinBox* m_preSweeps = nullptr;
     QSpinBox* m_postSweeps = nullptr;
     QSpinBox* m_maxLevels = nullptr;
@@ -59,6 +66,11 @@ private:
     // Last value entered while Manual was active, so switching Automatic ->
     // Manual restores it instead of resetting to 1.
     int m_manualGroupSize = 1;
+
+    // Smoothed Aggregation prolongation
+    QCheckBox* m_smoothedProlongation = nullptr;
+    QDoubleSpinBox* m_saOmega = nullptr;
+    QSpinBox* m_saDegree = nullptr;
 
     // Coarsening (expert)
     QComboBox* m_coarsening = nullptr;

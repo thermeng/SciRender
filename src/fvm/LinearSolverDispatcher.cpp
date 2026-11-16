@@ -14,6 +14,7 @@ LinearSolverDispatcher<Dim>::LinearSolverDispatcher(const Mesh<Dim>& mesh, const
     : mesh_(mesh), config_(config) {
     for (std::size_t d = 0; d < Dim; ++d) {
         amg_[d].setConfig(config_.amgConfig);
+        amg_[d] = AMGHierarchy(config_.amgConfig, static_cast<int>(Dim));
         amgPrec_[d].setAMG(nullptr);
         amgSolver_[d].setMaxIterations(5000);
         amgSolver_[d].setTolerance(config_.amgMaxResidual);
@@ -28,6 +29,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
                                     const Eigen::VectorXd& b,
                                     const Eigen::VectorXd& warmStart,
                                     const std::atomic<bool>* cancelRequested) {
+    const auto tDispatch0 = std::chrono::steady_clock::now();
     ++stats_.solves;
 
     const std::size_t n = b.size();
@@ -97,7 +99,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     if (needBuild) {
         amgPatternAnalyzed_[component] = false;
         const auto t0 = std::chrono::steady_clock::now();
-        amg_[component].setConfig(config_.amgConfig);
+        amg_[component] = AMGHierarchy(config_.amgConfig, static_cast<int>(Dim));
         amg_[component].build(A);
         amgPatternHash_[component] = hash;
         amgBuilt_[component] = amg_[component].isBuilt();
@@ -109,19 +111,26 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
                       << "]: WARNING: matrix has positive off-diagonals; AMG robustness may suffer\n";
         }
     } else {
-        // A standalone AMG cycle solves the operator it was set up with. In a
-        // preconditioner role the outer Krylov method absorbs stale values, but
-        // with Acceleration = None the hierarchy *is* the solver, so reusing a
-        // hierarchy built from ~5 outer iterations ago makes it converge (by
-        // its own residual test) to the wrong linear system. At Re=1000 that
-        // showed up as "AMG relative residual 1%" but a true residual of 30%
-        // and up against the current matrix, and the SIMPLE loop diverged.
-        // Refresh the fine-level values on every standalone solve.
-        const std::size_t interval =
-            standaloneAmg ? 1 : std::max<std::size_t>(1, config_.amgRebuildInterval);
-        if (++amgValueUpdates_[component] >= interval) {
-            amgValueUpdates_[component] = 0;
-            amg_[component].updateFineValues(A);
+        // Cached aggregation: the maps depend only on the sparsity pattern,
+        // so the level operators are refreshed from the current values by an
+        // O(nnz) restriction - no re-coarsening, no strength matrix, no
+        // interpolation weights. That keeps the standalone residual test valid
+        // without paying for a full AMG setup every iteration.
+        if (amg_[component].hasCachedAggregation()) {
+            const auto tRefresh = std::chrono::steady_clock::now();
+            amg_[component].build(A);
+            stats_.buildSeconds += std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - tRefresh).count();
+        } else {
+            // Standalone AMG solves the operator it was set up with; the
+            // hierarchy *is* the solver, so refresh the fine values on every
+            // standalone solve (see the divergence note above).
+            const std::size_t interval =
+                standaloneAmg ? 1 : std::max<std::size_t>(1, config_.amgRebuildInterval);
+            if (++amgValueUpdates_[component] >= interval) {
+                amgValueUpdates_[component] = 0;
+                amg_[component].updateFineValues(A);
+            }
         }
     }
 
@@ -164,6 +173,8 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         }
         ++stats_.amgSolves;
         ++stats_.amgStandaloneSolves;
+        stats_.dispatchSeconds += std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - tDispatch0).count();
         return {std::move(x), false, 0};
     }
 
@@ -315,9 +326,7 @@ template<std::size_t Dim>
 void LinearSolverDispatcher<Dim>::printStats() const {
     if (!config_.solverStats) return;
     std::cerr << "\n  Momentum linear solver statistics\n";
-    std::cerr << "    solves:            " << stats_.solves << "\n";
     std::cerr << "    AMG solves:        " << stats_.amgSolves << "\n";
-    std::cerr << "    ILU solves:        " << stats_.iluSolves << "\n";
     std::cerr << "    AMG builds:        " << stats_.amgBuilds << "\n";
     std::cerr << "    AMG rejected:      " << stats_.amgRejected
               << "  (fell back to ILU)\n";
@@ -338,7 +347,6 @@ void LinearSolverDispatcher<Dim>::printStats() const {
     }
     std::cerr << "    AMG build time:    " << stats_.buildSeconds << " s\n";
     std::cerr << "    AMG solve time:    " << stats_.amgSeconds << " s\n";
-    std::cerr << "    ILU solve time:    " << stats_.iluSeconds << " s\n";
     for (std::size_t d = 0; d < Dim; ++d) {
         if (!amg_[d].isBuilt()) continue;
         std::cerr << "    momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W")

@@ -27,6 +27,7 @@ Arg splitArg(const std::string& arg) {
 
 bool isKnownOption(std::string_view name) {
     return name == "--scfd" || name == "--iter" || name == "--verbosity" ||
+           name == "--cached-aggregation" || name == "--smoothed-aggregation" ||
            name == "--help" || name == "-h";
 }
 
@@ -112,6 +113,16 @@ std::optional<Options> parse(int argc, char** argv, std::string& error) {
             continue;
         }
 
+        if (parsed.name == "--cached-aggregation") {
+            options.cachedAggregation = true;
+            continue;
+        }
+
+        if (parsed.name == "--smoothed-aggregation") {
+            options.smoothedAggregation = true;
+            continue;
+        }
+
         if (parsed.name == "--verbosity") {
             const auto value = takeValue(parsed, i, argc, argv);
             if (!value) {
@@ -149,6 +160,9 @@ std::string usage() {
         "  --iter <n>           Steady: run exactly n iterations.\n"
         "                       Transient: run n time steps from the restart point.\n"
         "  --verbosity <level>  AMG verbosity: low, high or diagnosis.\n"
+        "  --cached-aggregation  Use the cached-aggregation AMG backend.\n"
+        "  --smoothed-aggregation  Enable smoothed prolongation on top of cached\n"
+        "                        aggregation (Smoothed Aggregation AMG).\n"
         "  --help, -h           Show this help.\n"
         "\n"
         "Without --scfd the GUI starts. CLI runs write no result files.\n";

@@ -136,6 +136,7 @@ void SIMPLE<Dim>::applyPressureSolverConfig_() {
     pcCfg.compactRhieChow = config_.rhieChow;
     pcCfg.useAMG = config_.pressureUseAMG;
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
+    pcCfg.pressureAmg = config_.pressureAmg;
     pressureCorrection_.setConfig(pcCfg);
 }
 
@@ -492,6 +493,8 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     residualHistory_.clear();
     steadyTotalSeconds_ = 0.0;
     steadyMomentumSeconds_ = 0.0;
+    steadyMomentumAssemblySeconds_ = 0.0;
+    steadyMomentumSolveSeconds_ = 0.0;
     steadyPredictedContinuitySeconds_ = 0.0;
     steadyPressureSeconds_ = 0.0;
     steadyVelocityCorrectionSeconds_ = 0.0;
@@ -990,6 +993,18 @@ void SIMPLE<Dim>::printFinalStats_() const {
                   << " pressure=" << steadyPressureSeconds_ << " s"
                   << " velocityCorrection=" << steadyVelocityCorrectionSeconds_ << " s"
                   << " residuals=" << steadyResidualSeconds_ << " s\n";
+        std::cerr << "  [timing] momentum: assembly=" << steadyMomentumAssemblySeconds_
+                  << " s linear-solve=" << steadyMomentumSolveSeconds_
+                  << " s dispatch=" << linearSolverDispatcher_.dispatchSeconds()
+                  << " s\n";
+        const auto& ps = pressureCorrection_.pressureStats();
+        std::cerr << "  [timing] AMG: momentum build=" << linearSolverDispatcher_.buildSeconds()
+                  << " s solve=" << linearSolverDispatcher_.amgSeconds()
+                  << " s builds=" << linearSolverDispatcher_.amgBuilds()
+                  << " | pressure build=" << ps.buildSeconds
+                  << " s solve=" << ps.amgSeconds
+                  << " s builds=" << ps.amgBuilds
+                  << " krylov=" << ps.amgKrylovIters << "\n";
     }
 }
 
@@ -1154,6 +1169,7 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
     SparseMatrix& momA = momAsnap_[d];
     Eigen::VectorXd& momB = momBsnap_[d];
 
+    const auto tAsm0 = std::chrono::steady_clock::now();
     const Field<Dim>* nutPtr = turbulence_ ? &turbulence_->nut() : nullptr;
 
     gradientCalc_->compute((boundVelocity())[d], velGrad_);
@@ -1184,6 +1200,9 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
     for (std::size_t i = 0; i < mesh_.nCells(); ++i)
         momentumWarmStart_(static_cast<Eigen::Index>(i)) = velPtr[i];
 
+    steadyMomentumAssemblySeconds_ += std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - tAsm0).count();
+    const auto tSol0 = std::chrono::steady_clock::now();
     auto result = linearSolverDispatcher_.solve(d, momA, momB, momentumWarmStart_,
                                                 &cancelRequested_);
     if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);

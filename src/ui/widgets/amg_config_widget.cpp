@@ -102,6 +102,16 @@ void AmgConfigWidget::buildUi() {
         "α=0.1 termination, β=0.7 reduction tolerance.");
     solver->addRow("Cycle Type", m_cycleType);
 
+    m_backend = styleCombo(new QComboBox(this));
+    m_backend->addItems({"BoomerAMG", "Cached Aggregation"});
+    m_backend->setToolTip(
+        "BoomerAMG: full value-dependent coarsening on every setup (robust,"
+        "but re-coarsens every outer iteration).\n"
+        "Cached Aggregation: aggregation maps are built once per sparsity pattern;"
+        "later iterations only refresh the level operators (O(nnz)) - much "
+        "cheaper per iteration, matching   / OpenFOAM GAMG.");
+    solver->addRow("Backend", m_backend);
+
     m_preSweeps = uikit::numeric(new QSpinBox(this));
     m_preSweeps->setRange(0, 50);
     m_preSweeps->setToolTip("Smoothing sweeps before restricting to the coarser level.");
@@ -127,14 +137,14 @@ void AmgConfigWidget::buildUi() {
     m_restrictionTolerance->setRange(0.01, 0.99);
     m_restrictionTolerance->setDecimals(2);
     m_restrictionTolerance->setSingleStep(0.05);
-    m_restrictionTolerance->setToolTip("Restriction tolerance (beta). Go coarser when R_i > beta * R_{i-1} (residual not dropping).");
+    m_restrictionTolerance->setToolTip("Restriction tolerance (STAR: Restriction Tolerance = 0.9). Go coarser when R_i < alpha * R_{i-1}.");
     flex->addRow("Restriction", m_restrictionTolerance);
 
     m_prolongationTolerance = uikit::numeric(new QDoubleSpinBox(this));
     m_prolongationTolerance->setRange(0.01, 0.99);
     m_prolongationTolerance->setDecimals(2);
     m_prolongationTolerance->setSingleStep(0.05);
-    m_prolongationTolerance->setToolTip("Termination tolerance (alpha). Go finer / terminate when R_i < alpha * R_0 (correction converged).");
+    m_prolongationTolerance->setToolTip("Termination tolerance (STAR: Prolongation Tolerance = 0.5). Stop refining when R_i < beta * R_0.");
     flex->addRow("Termination", m_prolongationTolerance);
 
     m_flexSweeps = uikit::numeric(new QSpinBox(this));
@@ -233,9 +243,36 @@ void AmgConfigWidget::buildUi() {
     m_groupSize->setRange(1, 16);
     m_groupSize->setToolTip(
         "Number of equations aggregated into one equation on the coarser level.\n"
-        "Read-only under Automatic: our pressure and momentum systems are scalar, so\n"
-        "the automatic group size is 1.");
+        "Read-only under Automatic: STAR Auto = 2 (2D) / 4 (3D); the solver"
+        "resolves the value from the case dimension.");
     aggregation->addRow("Group Size", m_groupSize);
+
+    // Smoothed Aggregation prolongation: smooth the tentative piecewise-constant
+    // prolongation so the coarse grid can represent smooth error modes.
+    m_smoothedProlongation = new QCheckBox("Smoothed Prolongation", this);
+    m_smoothedProlongation->setToolTip(
+        "Smoothed Aggregation: Jacobi-smooth the tentative piecewise-constant\n"
+        "prolongation so coarse basis functions spread to neighbors of their\n"
+        "aggregate. Improves coarse-grid correction at the cost of setup time.\n"
+        "Only used by the cached-aggregation backend.");
+    aggregation->addRow(m_smoothedProlongation);
+
+    m_saOmega = uikit::numeric(new QDoubleSpinBox(this));
+    m_saOmega->setRange(0.1, 2.0);
+    m_saOmega->setDecimals(3);
+    m_saOmega->setSingleStep(0.1);
+    m_saOmega->setValue(2.0 / 3.0);
+    m_saOmega->setToolTip(
+        "Jacobi damping parameter for prolongation smoothing.\n"
+        "Classical value 2/3; pyamg default 4/3.");
+    aggregation->addRow("SA Omega", m_saOmega);
+
+    m_saDegree = uikit::numeric(new QSpinBox(this));
+    m_saDegree->setRange(1, 10);
+    m_saDegree->setValue(1);
+    m_saDegree->setToolTip(
+        "Number of Jacobi smoothing passes applied to the tentative prolongator.");
+    aggregation->addRow("SA Degree", m_saDegree);
 
     // ── Coarsening (expert) ──────────────────────────────────────────────────
     QFormLayout* build = makeGroup("Coarsening (Expert)", 0).second;
@@ -282,17 +319,18 @@ void AmgConfigWidget::buildUi() {
     // ── Change notifications ─────────────────────────────────────────────────
     for (QSpinBox* spin : {m_maxCycles, m_preSweeps, m_postSweeps, m_maxLevels,
                            m_directMaxEquations, m_groupSize, m_minCoarse,
-                           m_stagnationMinIter, m_flexSweeps}) {
+                           m_stagnationMinIter, m_flexSweeps, m_saDegree}) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit changed(); });
     }
     for (QDoubleSpinBox* spin : {m_tolerance, m_epsilon,
                                  m_strength, m_truncation, m_stagnationFactor,
                                  m_stagnationLoose, m_restrictionTolerance,
-                                 m_prolongationTolerance}) {
+                                 m_prolongationTolerance, m_saOmega}) {
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
                 [this](double) { emit changed(); });
     }
-    for (QComboBox* combo : {m_verbosity, m_cycleType, m_smoother, m_acceleration,
+    connect(m_smoothedProlongation, &QCheckBox::toggled, this, [this](bool) { syncDependencies(); emit changed(); });
+    for (QComboBox* combo : {m_verbosity, m_cycleType, m_backend, m_smoother, m_acceleration,
                              m_scaling, m_groupSizeControl, m_coarsening}) {
         connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
                 [this](int) { syncDependencies(); emit changed(); });
@@ -328,20 +366,28 @@ void AmgConfigWidget::syncDependencies() {
         m_coarsening->currentIndex() == static_cast<int>(cfd::AmgSettings::Coarsening::SmoothedAggregation) ||
         m_nonsymmetric->isChecked();
     m_groupSizeControl->setEnabled(aggregation);
+    m_smoothedProlongation->setEnabled(aggregation);
+    m_saOmega->setEnabled(aggregation && m_smoothedProlongation->isChecked());
+    m_saDegree->setEnabled(aggregation && m_smoothedProlongation->isChecked());
     if (manualGroup && aggregation) {
         m_groupSize->setEnabled(true);
         m_groupSize->setValue(m_manualGroupSize);
     } else {
         if (m_groupSize->isEnabled()) m_manualGroupSize = m_groupSize->value();
-        // Automatic (or Ruge-Stuben, which has no aggregation) resolves to the
-        // scalar group size. Show the value the solver will use, read-only.
+        // Automatic resolves to the STAR auto group size: 2 (2D) / 4 (3D),
+        // resolved from the mesh dimension.
         m_groupSize->setEnabled(false);
-        m_groupSize->setValue(1);
+        m_groupSize->setValue((m_dim >= 3) ? 4 : 2);
     }
 
     // Aggregation coarsening is forced for a nonsymmetric operator, so the
     // coarsening choice is not the user's to make in that case.
     m_coarsening->setEnabled(!m_nonsymmetric->isChecked());
+}
+
+void AmgConfigWidget::setDimension(int dim) {
+    m_dim = dim;
+    syncDependencies();
 }
 
 void AmgConfigWidget::resetToDefaults() {
@@ -354,6 +400,7 @@ void AmgConfigWidget::setConfig(const cfd::AmgSettings& s) {
     m_verbosity->setCurrentIndex(static_cast<int>(s.verbosity));
     m_tolerance->setValue(s.tolerance);
     m_cycleType->setCurrentIndex(static_cast<int>(s.cycleType));
+    m_backend->setCurrentIndex(static_cast<int>(s.backend));
     m_preSweeps->setValue(s.preSweeps);
     m_postSweeps->setValue(s.postSweeps);
     m_maxLevels->setValue(s.maxLevels);
@@ -370,6 +417,10 @@ void AmgConfigWidget::setConfig(const cfd::AmgSettings& s) {
     m_manualGroupSize = (s.blockSize > 0) ? s.blockSize : 1;
     m_groupSize->setValue(m_manualGroupSize);
 
+    m_smoothedProlongation->setChecked(s.smoothedProlongation);
+    m_saOmega->setValue(s.saOmega);
+    m_saDegree->setValue(s.saDegree);
+
     m_coarsening->setCurrentIndex(static_cast<int>(s.coarsening));
     m_strength->setValue(s.strengthThreshold);
     m_truncation->setValue(s.truncThreshold);
@@ -380,8 +431,8 @@ void AmgConfigWidget::setConfig(const cfd::AmgSettings& s) {
     m_stagnationMinIter->setValue(s.stagnationMinIter);
     m_stagnationLoose->setValue(s.stagnationLooseFactor);
 
-    m_restrictionTolerance->setValue(s.flexBeta);
-    m_prolongationTolerance->setValue(s.flexAlpha);
+    m_restrictionTolerance->setValue(s.flexAlpha);
+    m_prolongationTolerance->setValue(s.flexBeta);
     m_flexSweeps->setValue(s.flexMaxSweeps);
     m_maxFineRelaxations->setValue(s.flexMaxFineRelaxations);
     m_maxCoarseRelaxations->setValue(s.flexMaxCoarseRelaxations);
@@ -395,6 +446,7 @@ cfd::AmgSettings AmgConfigWidget::config() const {
     s.verbosity = static_cast<cfd::AmgSettings::Verbosity>(m_verbosity->currentIndex());
     s.tolerance = m_tolerance->value();
     s.cycleType = static_cast<cfd::AmgSettings::CycleType>(m_cycleType->currentIndex());
+    s.backend = static_cast<cfd::AmgSettings::Backend>(m_backend->currentIndex());
     s.preSweeps = m_preSweeps->value();
     s.postSweeps = m_postSweeps->value();
     s.maxLevels = m_maxLevels->value();
@@ -409,13 +461,17 @@ cfd::AmgSettings AmgConfigWidget::config() const {
 
     s.groupSizeControl =
         static_cast<cfd::AmgSettings::GroupSizeControl>(m_groupSizeControl->currentIndex());
-    // Under Automatic the solver uses 1 for a scalar system; store that rather
-    // than whatever the disabled spin box last displayed.
+    // Manual: store whatever the user entered. Automatic: store STAR Auto = 2
+    // (2D) / 4 (3D) so the case file round-trips what the UI displays.
     if (s.groupSizeControl == cfd::AmgSettings::GroupSizeControl::Manual) {
         s.blockSize = m_groupSize->value();
     } else {
-        s.blockSize = 1;
+        s.blockSize = (m_dim >= 3) ? 4 : 2; // STAR Auto: 2 (2D) / 4 (3D)
     }
+
+    s.smoothedProlongation = m_smoothedProlongation->isChecked();
+    s.saOmega = m_saOmega->value();
+    s.saDegree = m_saDegree->value();
 
     s.coarsening = static_cast<cfd::AmgSettings::Coarsening>(m_coarsening->currentIndex());
     s.strengthThreshold = m_strength->value();
@@ -427,8 +483,8 @@ cfd::AmgSettings AmgConfigWidget::config() const {
     s.stagnationMinIter = m_stagnationMinIter->value();
     s.stagnationLooseFactor = m_stagnationLoose->value();
 
-    s.flexBeta = m_restrictionTolerance->value();
-    s.flexAlpha = m_prolongationTolerance->value();
+    s.flexAlpha = m_restrictionTolerance->value();
+    s.flexBeta = m_prolongationTolerance->value();
     s.flexMaxSweeps = m_flexSweeps->value();
     s.flexMaxFineRelaxations = m_maxFineRelaxations->value();
     s.flexMaxCoarseRelaxations = m_maxCoarseRelaxations->value();

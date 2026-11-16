@@ -70,6 +70,7 @@ public:
     double iluSeconds() const { return stats_.iluSeconds; }
     double amgSeconds() const { return stats_.amgSeconds; }
     double buildSeconds() const { return stats_.buildSeconds; }
+    double dispatchSeconds() const { return stats_.dispatchSeconds; }
 
     void printStats() const;
 
@@ -116,6 +117,8 @@ private:
         double iluSeconds = 0.0;
         double amgSeconds = 0.0;
         double buildSeconds = 0.0;
+        double dispatchSeconds = 0.0;
+        double preSolveSeconds = 0.0;
     };
     mutable Stats stats_{};
 

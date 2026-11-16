@@ -14,11 +14,13 @@ namespace fvm {
 
 template<std::size_t Dim>
 PressureCorrection<Dim>::PressureCorrection(const Mesh<Dim>& mesh, const Config& config)
-    : mesh_(mesh), config_(config), divU_(mesh, 0.0) {}
+    : mesh_(mesh), config_(config),
+      amg_(config_.pressureAmg, static_cast<int>(Dim)), divU_(mesh, 0.0) {}
 
 template<std::size_t Dim>
 PressureCorrection<Dim>::PressureCorrection(const Mesh<Dim>& mesh)
-    : mesh_(mesh), config_{}, divU_(mesh, 0.0) {}
+    : mesh_(mesh), config_{},
+      amg_(config_.pressureAmg, static_cast<int>(Dim)), divU_(mesh, 0.0) {}
 
 template<std::size_t Dim>
 void PressureCorrection<Dim>::refreshPressureGradient(const Field<Dim>& pressure) {
@@ -42,6 +44,7 @@ void PressureCorrection<Dim>::solve(
     const std::size_t nF = mesh_.nFaces();
     if (n == 0) return;
 
+    const auto tSolveStart = std::chrono::steady_clock::now();
     pressureStats_.solves++;
 
     if (!gradientCalc_) {
@@ -49,6 +52,7 @@ void PressureCorrection<Dim>::solve(
         for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
     }
 
+    const auto tGrad0 = std::chrono::steady_clock::now();
     if (config_.compactRhieChow) {
         // Least-squares pressure gradient: the operator the velocity
         // correction applies and the one the compact Rhie-Chow flux needs.
@@ -79,6 +83,8 @@ void PressureCorrection<Dim>::solve(
             }
         }
     }
+    const double gradSec = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - tGrad0).count();
     const std::size_t* ownerPtr = mesh_.ownerPtr();
     const std::size_t* neighborPtr = mesh_.neighborPtr();
     const double* areaPtr = mesh_.faceAreaPtr();
@@ -258,6 +264,8 @@ void PressureCorrection<Dim>::solve(
             divU[N] -= flux;
         }
     }
+    const double divSec = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - tGrad0).count() - gradSec;
     for (std::size_t i = 0; i < n; ++i) divU_[i] = divU[i];
 
     // ------------------------------------------------------------------
@@ -529,7 +537,13 @@ void PressureCorrection<Dim>::solve(
         divU_[P] /= mesh_.cellVolume(P);
     }
 
-    Eigen::VectorXd x;
+    // Warm start the pressure correction from the previous p' value:
+    // the SIMPLE outer iterations change the operator only slightly, so
+    // the previous correction is a much better initial guess than zero and
+    // the Krylov iteration converges in fewer steps.
+    Eigen::VectorXd x(n);
+    for (std::size_t i = 0; i < n; ++i)
+        x(static_cast<Eigen::Index>(i)) = pPrime[i];
     bool converged = false;
 
     // The stopping criterion of the linear solve has to follow the mesh: the
@@ -600,16 +614,19 @@ void PressureCorrection<Dim>::solve(
             int pos = aTripletToValuePos_[t];
             if (pos >= 0) vals[pos] = triplets_[t].value();
         }
-        // Values changed but pattern same -> rebuild the full AMG hierarchy
-        // (coarse operators P^T A P depend on A values, not just the pattern).
-        // With amgRebuildInterval = 1 this rebuilds every outer iteration,
-        // keeping the preconditioner effective even when dCoeff changes
-        // rapidly at high Reynolds numbers.
+        // Values changed but pattern same -> refresh the operators from the
+        // cached aggregation maps (O(nnz) restriction), or rebuild the full
+        // hierarchy when no aggregation backend is active (coarse operators
+        // P^T A P depend on A values, not just the pattern). With
+        // amgRebuildInterval = 1 this refreshes every outer iteration,
+        // keeping the preconditioner effective at high Reynolds numbers.
         if (amg_.isBuilt() && ++amgValueUpdates_ >= std::max<std::size_t>(1, config_.amgRebuildInterval)) {
             amgValueUpdates_ = 0;
-            amg_.invalidate();
-            auto amgCfg = config_.pressureAmg;
-            amg_.setConfig(amgCfg);
+            // Refresh the level operators from the cached aggregation maps
+            // (O(nnz) restriction through the cached scatter) instead of
+            // tearing the hierarchy down and rebuilding it. build() reuses the
+            // cached maps when the sparsity pattern is unchanged; a full
+            // re-coarsening only happens when the pattern actually changes.
             amg_.build(A_);
         }
     }
@@ -651,18 +668,25 @@ void PressureCorrection<Dim>::solve(
             }
             amgPathLogged_ = true;
         }
+        if (config_.pressureAmg.verbosity >= cfd::AmgSettings::Verbosity::High &&
+            config_.pressureAmg.effectiveBlockSize(static_cast<int>(Dim)) > 1) {
+            std::cerr << "  pressure: block size "
+                      << config_.pressureAmg.effectiveBlockSize(static_cast<int>(Dim))
+                      << " (systems AMG).\n";
+        }
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
-            amg_.invalidate();
-            auto amgCfg = config_.pressureAmg;
-            amg_.setConfig(amgCfg);
             auto tBuild = std::chrono::steady_clock::now();
-            amg_.build(A_);
+            if (amg_.hasCachedAggregation()) {
+                amg_.build(A_);
+            } else {
+                amg_.invalidate();
+                auto amgCfg = config_.pressureAmg;
+                amg_ = AMGHierarchy(amgCfg, static_cast<int>(Dim));
+                amg_.setConfig(amgCfg);
+                amg_.build(A_);
+            }
             pressureStats_.amgBuilds++;
             pressureStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tBuild).count();
-            amgPrec_.setAMG(&amg_);
-            // Only mark built when the hierarchy actually exists: setting this
-            // unconditionally meant a failed build was never retried for the
-            // same pattern and AMG silently stayed on the ILU fallback.
             amgBuilt_ = amg_.isBuilt();
             amgValueUpdates_ = 0;
             amgPatternHash_ = patternHash;
@@ -702,16 +726,23 @@ void PressureCorrection<Dim>::solve(
                 cgAmgSolver_.factorize(A_);
                 cgAmgSolver_.preconditioner().setAMG(&amg_);
                 cgAmgSolver_.preconditioner().setCycles(config_.pressureAmgPreconditionerCycles);
+                const double cgRhsNorm = bVec_.norm();
                 x = cgAmgSolver_.solve(bVec_);
                 pressureStats_.amgKrylovIters += cgAmgSolver_.iterations();
+                // Eigen reports error() relative to the initial residual; the
+                // configured tolerance is an absolute target on the preconditioned
+                // residual (STAR parity). Comparing the two directly sent every
+                // converged-but-not-to-machine-precision solve into the 10k-
+                // iteration ILU fallback, which dominated the pressure time.
+                const double cgAbsResid = cgAmgSolver_.error() * cgRhsNorm;
                 converged = (cgAmgSolver_.info() == Eigen::Success) ||
-                            (cgAmgSolver_.error() < krylovTol);
+                            (cgAbsResid < krylovTol);
                 lastSolveIterations_ = cgAmgSolver_.iterations();
-                lastSolveResidual_ = cgAmgSolver_.error();
+                lastSolveResidual_ = cgAbsResid;
                 if (!converged) {
                     pressureStats_.amgRejected++;
                     std::cerr << "  WARNING: AMG-preconditioned CG did not converge (iters="
-                              << cgAmgSolver_.iterations() << ", resid=" << cgAmgSolver_.error()
+                              << cgAmgSolver_.iterations() << ", resid=" << cgAbsResid
                               << "), falling back to CG+IC\n";
                 }
             } else if (useGmres) {
@@ -756,12 +787,23 @@ void PressureCorrection<Dim>::solve(
             std::cerr << "  pressure: using standalone AMG solve.\n";
             amgPathLogged_ = true;
         }
+        if (config_.pressureAmg.verbosity >= cfd::AmgSettings::Verbosity::High &&
+            config_.pressureAmg.effectiveBlockSize(static_cast<int>(Dim)) > 1) {
+            std::cerr << "  pressure: block size "
+                      << config_.pressureAmg.effectiveBlockSize(static_cast<int>(Dim))
+                      << " (systems AMG).\n";
+        }
         if (!amgBuilt_ || patternHash != amgPatternHash_) {
-            amg_.invalidate();
-            auto amgCfg = config_.pressureAmg;
-            amg_.setConfig(amgCfg);
             auto tBuild = std::chrono::steady_clock::now();
-            amg_.build(A_);
+            if (amg_.hasCachedAggregation()) {
+                amg_.build(A_);
+            } else {
+                amg_.invalidate();
+                auto amgCfg = config_.pressureAmg;
+                amg_ = AMGHierarchy(amgCfg, static_cast<int>(Dim));
+                amg_.setConfig(amgCfg);
+                amg_.build(A_);
+            }
             pressureStats_.amgBuilds++;
             pressureStats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tBuild).count();
             amgBuilt_ = amg_.isBuilt();
@@ -773,7 +815,11 @@ void PressureCorrection<Dim>::solve(
             // Standalone: the hierarchy is the solver, so it must carry the
             // current operator. A hierarchy built on an older pressure matrix
             // reports convergence against a system that no longer exists.
-            amg_.updateFineValues(A_);
+            if (amg_.hasCachedAggregation()) {
+                amg_.build(A_);
+            } else {
+                amg_.updateFineValues(A_);
+            }
         }
 
         if (amg_.isBuilt()) {

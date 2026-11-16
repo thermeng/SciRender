@@ -70,7 +70,17 @@ public:
     static bool buildSolver(const SparseMatrix& A,
                             const cfd::AmgSettings& cfg,
                             HypreMat& mat, HypreSolverImpl& solver,
-                            std::vector<double>& scale);
+                            std::vector<double>& scale,
+                            int blockDim = 2);
+    // Refresh the values of an already-built hierarchy: overwrite the
+    // assembled IJ matrix values (same sparsity pattern) and re-run
+    // BoomerAMGSetup on the same solver object. No IJ
+    // create/initialize/assemble and no new hierarchy wrapper, so this
+    // is far cheaper than buildSolver(); the caller must guarantee the
+    // sparsity pattern is unchanged.
+    static bool updateSolverValues(HypreMat& mat, HypreSolverImpl& solver,
+                                   const SparseMatrix& A,
+                                   const std::vector<double>& scale);
     // Apply one BoomerAMG cycle (MaxIter is forced to 1 in buildSolver) to
     // the caller's current guess `x`, never discarding it. Returns false on
     // failure or non-finite output.
@@ -171,12 +181,14 @@ inline HypreSolver::HypreSolverImpl::~HypreSolverImpl() {
 inline bool HypreSolver::buildSolver(const SparseMatrix& A,
                                      const cfd::AmgSettings& cfg,
                                      HypreMat& mat, HypreSolverImpl& solver,
-                                     std::vector<double>& scale) {
-    // BoomerAMG has no block-size option (scalar coarsening only), so the
-    // STAR "Group Size = Auto" (2 in 2D) padding has no purpose here. Padding
-    // must not be done with SparseMatrix::resize(): resize() deallocates every
-    // nonzero, which silently handed Hypre an empty matrix for any odd n
-    // (16641 unknowns on the 129x129 cavity) and made AMG setup fail.
+                                     std::vector<double>& scale,
+                                     int blockDim) {
+    // The matrix is scalar (one unknown per row). STAR's "Group Size"
+    // (2 in 2D / 4 in 3D) is handled below via Hypre's systems-AMG
+    // interface (SetNumFunctions + SetDofFunc + SetNodal), not by padding
+    // the matrix: padding with SparseMatrix::resize() would deallocate
+    // every nonzero (it handed Hypre an empty matrix for odd n, e.g. the
+    // 16,641 unknowns of the 129x129 cavity) and make setup fail.
     int n = static_cast<int>(A.rows());
     SparseMatrix Aeff = A;
     if (n <= 0 || static_cast<int>(A.cols()) != n) return false;
@@ -295,7 +307,9 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     if (HYPRE_Int rc = HYPRE_BoomerAMGCreate(&amg); rc != 0) return fail("BoomerAMGCreate", rc);
     solver.solver = static_cast<void*>(amg);
 
-    // V-cycle (1) / W-cycle (2).
+    // V-cycle (1) / W-cycle (2). Flexible has no Hypre-native equivalent and
+    // is normally run by AMGHierarchy's own flexCycle; under nodal (systems)
+    // coarsening that path is unavailable, so Flexible maps to V here.
     const HYPRE_Int cycleType =
         (cfg.cycleType == cfd::AmgSettings::CycleType::WCycle) ? 2 : 1;
     HYPRE_BoomerAMGSetCycleType(amg, cycleType);
@@ -308,7 +322,8 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     // AMGHierarchy::flexCycle, which evaluates alpha/beta gates at every
     // level. BoomerAMG is only used here to build the hierarchy (cgrid +
     // level sizes); the actual multigrid cycling is done by AMGHierarchy.
-    if (cfg.cycleType == cfd::AmgSettings::CycleType::Flexible) {
+    if (cfg.cycleType == cfd::AmgSettings::CycleType::Flexible &&
+        cfg.effectiveBlockSize(blockDim) <= 1) {
         const HYPRE_Int sweeps =
             cfg.flexMaxSweeps > 0 ? static_cast<HYPRE_Int>(cfg.flexMaxSweeps) : 1;
         HYPRE_BoomerAMGSetNumSweeps(amg, sweeps);
@@ -333,7 +348,10 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     // Pre/post smoothing sweeps. STAR exposes 1/1 for pressure and a single
     // sweep count for momentum. A Flexible cycle already applied its own
     // flexMaxSweeps above, so only the fixed cycles map pre/post separately.
-    if (cfg.cycleType != cfd::AmgSettings::CycleType::Flexible) {
+    // Under nodal coarsening Flexible runs as a V-cycle, so it maps pre/post
+    // here too.
+    if (cfg.cycleType != cfd::AmgSettings::CycleType::Flexible ||
+        cfg.effectiveBlockSize(blockDim) > 1) {
         const HYPRE_Int pre =
             static_cast<HYPRE_Int>(cfg.preSweeps > 0 ? cfg.preSweeps : 1);
         const HYPRE_Int post =
@@ -368,6 +386,26 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     // separate proportional-scaling flag for BoomerAMG, so nothing to set.
     (void)cfg.scaling;
 
+    // --- Systems (block) AMG ---------------------------------------------
+    //   uses "Group Size = Auto" (2 in 2D, 4 in 3D): the unknowns
+    // of a cell are grouped into one aggregate so coarsening, interpolation
+    // and relaxation treat the group as a single node. Hypre's systems-AMG
+    // interface provides exactly this: num_functions = group size, a
+    // dof_func map (unknown -> function index), and Nodal > 1 turns on
+    // nodal coarsening/interpolation. Group size 1 keeps the scalar path.
+    {
+        const HYPRE_Int groupSize =
+            static_cast<HYPRE_Int>(cfg.effectiveBlockSize(blockDim));
+        if (groupSize > 1 && n % groupSize == 0) {
+            HYPRE_BoomerAMGSetNumFunctions(amg, groupSize);
+            HYPRE_BoomerAMGSetNodal(amg, 1);
+            HYPRE_BoomerAMGSetNodalLevels(amg, 1);
+            std::vector<HYPRE_Int> dof(static_cast<std::size_t>(n));
+            for (int i = 0; i < n; ++i)
+                dof[static_cast<std::size_t>(i)] = i % groupSize;
+            HYPRE_BoomerAMGSetDofFunc(amg, dof.data());
+        }
+    }
     // One cycle per applyCycle(): solver tolerance off, max 1 iteration.
     HYPRE_BoomerAMGSetTol(amg, 0.0);
     HYPRE_BoomerAMGSetMaxIter(amg, 1);
@@ -424,6 +462,116 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
                   << " strength=" << strength << "\n";
         return false;
     }
+    return true;
+}
+
+inline bool HypreSolver::updateSolverValues(HypreMat& mat, HypreSolverImpl& solver,
+                                           const SparseMatrix& A,
+                                           const std::vector<double>& scale) {
+    if (!mat.ok() || !solver.ok()) return false;
+    const int n = static_cast<int>(A.rows());
+    if (n <= 0 || static_cast<int>(A.cols()) != n) return false;
+
+    HYPRE_IJMatrix ij = static_cast<HYPRE_IJMatrix>(mat.mat);
+    hypre_detail::ensureHypreInitialized();
+    HYPRE_ClearAllErrors();
+
+    // Apply the same diagonal equilibration buildSolver used.
+    SparseMatrix Aeff = A;
+    if (!scale.empty()) {
+        const int* outer = Aeff.outerIndexPtr();
+        const int* inner = Aeff.innerIndexPtr();
+        double* vals = Aeff.valuePtr();
+        for (int col = 0; col < n; ++col) {
+            for (int k = outer[col]; k < outer[col + 1]; ++k) {
+                const int row = inner[k];
+                vals[k] *= scale[static_cast<std::size_t>(row)] *
+                           scale[static_cast<std::size_t>(col)];
+            }
+        }
+    }
+
+    // Same sparsity pattern: only the values change, so SetValues refills
+    // the assembled IJ matrix without create/initialize/assemble.
+    Eigen::SparseMatrix<double, Eigen::RowMajor> AR = Aeff;
+    AR.makeCompressed();
+    std::vector<HYPRE_Int> ncols(static_cast<std::size_t>(n), 0);
+    std::vector<HYPRE_BigInt> rows(static_cast<std::size_t>(n), 0);
+    std::vector<HYPRE_BigInt> cols;
+    std::vector<HYPRE_Complex> values;
+    {
+        const int* outer = AR.outerIndexPtr();
+        const int* inner = AR.innerIndexPtr();
+        const double* vals = AR.valuePtr();
+        cols.reserve(static_cast<std::size_t>(AR.nonZeros()));
+        values.reserve(static_cast<std::size_t>(AR.nonZeros()));
+        for (int i = 0; i < n; ++i) {
+            const int begin = outer[i];
+            const int end = outer[i + 1];
+            ncols[static_cast<std::size_t>(i)] = static_cast<HYPRE_Int>(end - begin);
+            rows[static_cast<std::size_t>(i)] = static_cast<HYPRE_BigInt>(i);
+            for (int k = begin; k < end; ++k) {
+                cols.push_back(static_cast<HYPRE_BigInt>(inner[k]));
+                values.push_back(static_cast<HYPRE_Complex>(vals[k]));
+            }
+        }
+    }
+
+    if (HYPRE_Int rc = HYPRE_IJMatrixSetValues(ij, static_cast<HYPRE_Int>(n),
+                                               ncols.data(), rows.data(),
+                                               cols.data(), values.data());
+        rc != 0) {
+        char descr[256] = {0};
+        HYPRE_DescribeError(rc, descr);
+        std::cerr << "  Hypre: IJMatrixSetValues (refresh) failed (rc=" << rc
+                  << ") " << descr << "\n";
+        return false;
+    }
+
+    // Re-run the BoomerAMG setup so the coarse operators / interpolation
+    // weights match the refreshed values. The solver object (and its
+    // configuration) is reused as-is.
+    HYPRE_ParCSRMatrix parA = nullptr;
+    if (HYPRE_IJMatrixGetObject(ij, reinterpret_cast<void**>(&parA)) != 0 || !parA)
+        return false;
+
+    HYPRE_IJVector bvec = nullptr, xvec = nullptr;
+    HYPRE_ParVector parB = nullptr, parX = nullptr;
+    std::vector<HYPRE_BigInt> indices(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i)
+        indices[static_cast<std::size_t>(i)] = static_cast<HYPRE_BigInt>(i);
+    std::vector<HYPRE_Real> zeros(static_cast<std::size_t>(n), 0.0);
+    const HYPRE_BigInt ilower = 0, iupper = static_cast<HYPRE_BigInt>(n - 1);
+    if (HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &bvec) != 0 ||
+        HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &xvec) != 0) {
+        if (bvec) HYPRE_IJVectorDestroy(bvec);
+        if (xvec) HYPRE_IJVectorDestroy(xvec);
+        return false;
+    }
+    HYPRE_IJVectorSetObjectType(bvec, HYPRE_PARCSR);
+    HYPRE_IJVectorSetObjectType(xvec, HYPRE_PARCSR);
+    HYPRE_IJVectorInitialize(bvec);
+    HYPRE_IJVectorInitialize(xvec);
+    HYPRE_IJVectorSetValues(bvec, static_cast<HYPRE_Int>(n), indices.data(), zeros.data());
+    HYPRE_IJVectorSetValues(xvec, static_cast<HYPRE_Int>(n), indices.data(), zeros.data());
+    HYPRE_IJVectorAssemble(bvec);
+    HYPRE_IJVectorAssemble(xvec);
+    HYPRE_IJVectorGetObject(bvec, reinterpret_cast<void**>(&parB));
+    HYPRE_IJVectorGetObject(xvec, reinterpret_cast<void**>(&parX));
+    const HYPRE_Int setupRc =
+        (parB && parX)
+            ? HYPRE_BoomerAMGSetup(static_cast<HYPRE_Solver>(solver.solver), parA, parB, parX)
+            : -1;
+    if (bvec) HYPRE_IJVectorDestroy(bvec);
+    if (xvec) HYPRE_IJVectorDestroy(xvec);
+    if (setupRc != 0) {
+        char descr[256] = {0};
+        HYPRE_DescribeError(setupRc, descr);
+        std::cerr << "  Hypre: BoomerAMGSetup (refresh) failed (rc=" << setupRc
+                  << ") " << descr << "\n";
+        return false;
+    }
+    HYPRE_ClearAllErrors();
     return true;
 }
 
