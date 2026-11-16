@@ -5,6 +5,7 @@
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
 #include <Eigen/LU>
+#include <Eigen/Cholesky>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -30,7 +31,8 @@ public:
     using Config = cfd::AmgSettings;
 
     AMGHierarchy() = default;
-    explicit AMGHierarchy(Config config) : config_(config) {}
+    explicit AMGHierarchy(Config config, int blockDim = 2)
+        : config_(config), blockDim_(std::max(1, blockDim)) {}
 
     void build(const SparseMatrix& A);
 
@@ -49,10 +51,23 @@ public:
     Eigen::VectorXd flexCycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x) const;
 
     bool isBuilt() const { return built_; }
+    // True when the active backend caches its aggregation maps (operators can
+    // be refreshed in O(nnz) instead of re-coarsened).
+    bool hasCachedAggregation() const;
     void invalidate() { built_ = false; amgHandle_.reset(); hypreMat_.reset(); hypreSolver_.reset(); hypreScale_.clear(); useHypreActive_ = false; levels_.clear(); cgrid_.clear(); n_ = 0; systemMatrix_.resize(0, 0); nlevels_ = 0; levelSizes_.clear(); report_.clear(); scale_.clear(); lastIterations_ = 0; lastResidual_ = 0.0; lastResidualHistory_.clear(); buildTimeSec_ = 0.0; solveTimeSec_ = 0.0; fineRows_.resize(0, 0); fineRowsReady_ = false; lazyBuild_ = false; hypreHierarchyReady_ = false; hierarchyInfoReady_ = false; }
     void setConfig(Config config) { config_ = config; invalidate(); }
     const Config& config() const { return config_; }
     void updateFineValues(const SparseMatrix& A);
+
+    // --- Hierarchy reuse (preconditioner role) ---------------------------
+    // A BoomerAMG hierarchy built from a slightly older matrix is still a
+    // valid preconditioner: the outer Krylov method corrects the stale
+    // coarse operators. Reusing it avoids a ~20 ms setup per outer
+    // iteration. The caller must only use this when a Krylov method wraps
+    // the hierarchy (Acceleration != None); a standalone AMG solve would
+    // converge to the wrong system.
+    bool hierarchyCurrent() const { return built_ && useHypreActive_; }
+    void refreshHierarchyValues(const SparseMatrix& A);
 
     // Number of levels actually built by amgcl (was hard-coded to 1, which
     // made the  level-by-level comparison impossible).
@@ -72,6 +87,9 @@ public:
 
 private:
     Config config_;
+    // Unknowns per node (1 = scalar, 2 = 2D group size, 4 = 3D).
+    // Passed to Hypre systems AMG (SetNumFunctions + SetDofFunc).
+    int blockDim_ = 2;
     mutable std::vector<AMGLevel> levels_;
     bool built_ = false;
     std::shared_ptr<void> amgHandle_;
@@ -102,6 +120,23 @@ private:
     // Set once per build, after levelSizes_/cgrid_/report_ have been filled
     // from HYPRE_BoomerAMGGetGridHierarchy.
     mutable bool hierarchyInfoReady_ = false;
+    // --- Cached aggregation AMG (no Hypre) ----------------------------
+    // aggMaps_[L] maps a level-L unknown to its level-(L+1) aggregate.
+    // Built once per sparsity pattern; later iterations only refresh the
+    // level operators by O(nnz) restriction, so setup is ~100x cheaper
+    // than a fresh BoomerAMG coarsening.
+    mutable std::vector<std::vector<int>> aggMaps_;
+    mutable std::vector<int> aggSizes_;
+    mutable std::size_t aggPatternHash_ = 0;
+    // Per-level scatter cache: fine-level nnz index -> value index in
+    // the next-coarser operator. The aggregation maps (and therefore
+    // the coarse sparsity pattern) are fixed, so this is built once
+    // and lets the per-iteration refresh run as an O(nnz) accumulation
+    // instead of a sort-based setFromTriplets per level.
+    struct AggLevelCache {
+        std::vector<int> scatter;
+    };
+    mutable std::vector<AggLevelCache> aggCaches_;
     // Hypre-only: workspaces per applyCycle
     mutable int lastIterations_ = 0;
     mutable double lastResidual_ = 0.0;
@@ -124,6 +159,40 @@ private:
     // recursive Flexible cycle. Called from build() after the Hypre hierarchy
     // is constructed.
     void buildLevelOperators_() const;
+
+    // --- Cached aggregation AMG ---------------------------------------
+    // True when the configured coarsening is aggregation-based. BoomerAMG
+    // has no smoothed-aggregation variant, so this path delivers the
+    // coarsening the configuration asks for instead of silently mapping it
+    // to HMIS.
+    bool useAggregation() const {
+        return config_.backend == Config::Backend::CachedAggregation;
+    }
+    void buildAggregation_(const SparseMatrix& A);
+    // Recompute level operators from cached maps and the current values.
+    void refreshAggregationOperators_(const SparseMatrix& A);
+    void buildAggScatterCaches_();
+    // Greedy maximal-matching aggregation: every unassigned unknown starts a
+    // group and absorbs its strongest unassigned neighbours up to groupSize.
+    int aggregate_(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
+                 int groupSize, std::vector<int>& agg) const;
+    // ARM_coarse = P^T A P with piecewise-constant P (sum over aggregate).
+    Eigen::SparseMatrix<double, Eigen::RowMajor> coarsenByAggregation_(
+        const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
+        const std::vector<int>& agg, int nCoarse) const;
+    bool aggregationVcycle_(int level, const Eigen::VectorXd& b,
+                              Eigen::VectorXd& x) const;
+    bool solveAggregation_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                           const std::atomic<bool>* cancel) const;
+    // STAR Flex-Cycle fine-only path (Acceleration = None): a residual-gated
+    // fine-level Gauss-Seidel iteration with no coarse hierarchy. One "cycle"
+    // = a fine sweep; the loop repeats while the residual falls by the
+    // restriction tolerance each sweep.
+    bool applyFlexibleFineCycle_(const Eigen::VectorXd& b,
+                                 Eigen::VectorXd& x) const;
+    bool solveFlexibleFine_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                            const std::atomic<bool>* cancel) const;
+
 
     // Level-0 Gauss-Seidel smoother for the residual-gated Flexible cycle.
     void fineGaussSeidel_(const Eigen::VectorXd& b, Eigen::VectorXd& x,

@@ -293,6 +293,12 @@ void CfdAdvancedDialog::setSettings(const cfd::CaseSettings& s) {
     syncDependencies();
 }
 
+void CfdAdvancedDialog::setDimension(int dim) {
+    m_pressureAmg->setDimension(dim);
+    m_momentumAmg->setDimension(dim);
+    m_turbulenceAmg->setDimension(dim);
+}
+
 void CfdAdvancedDialog::collectInto(cfd::CaseSettings& s) const {
     s.pressureCorrectors = m_pressureCorrectors->value();
     s.limitPressureCorrection = m_limitPressureCorrection->isChecked();

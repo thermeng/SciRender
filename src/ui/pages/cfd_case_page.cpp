@@ -435,6 +435,7 @@ void CfdCasePage::onMeshLoaded() {
                           .arg(m_meshName.isEmpty() ? "Mesh" : m_meshName)
                           .arg(res.dim)
                           .arg(res.patches.size()));
+    if (m_advancedDlg) m_advancedDlg->setDimension(static_cast<int>(res.dim));
     setRunning(m_running);
 }
 

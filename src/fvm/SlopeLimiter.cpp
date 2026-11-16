@@ -32,7 +32,7 @@ double minmodFactor(double lo, double hi, double phiUp, double corr) {
 }
 
 // Venkatakrishnan smooth minmod (Venkatakrishnan 1993; the form used by
-// OpenFOAM and Star-CCM+). With beta the distance from the upwind value to the
+// OpenFOAM and  ). With beta the distance from the upwind value to the
 // violated bound and a = |corr|,
 //
 //   psi = [ (beta^2 + eps^2) a + 2 a^2 beta ] / [ a (beta^2 + 2 a^2 + beta a + eps^2) ]

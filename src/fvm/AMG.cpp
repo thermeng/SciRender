@@ -11,7 +11,7 @@ namespace fvm {
 using cfd::AmgSettings;
 
 void AMGHierarchy::build(const SparseMatrix& A) {
-    levels_.clear(); cgrid_.clear(); built_ = false; amgHandle_.reset();
+    cgrid_.clear(); built_ = false; amgHandle_.reset();
     hypreMat_.reset(); hypreSolver_.reset();
     fineRows_.resize(0, 0); fineRowsReady_ = false; lazyBuild_ = false; hypreHierarchyReady_ = false;
     hierarchyInfoReady_ = false;
@@ -20,6 +20,10 @@ void AMGHierarchy::build(const SparseMatrix& A) {
     if (A.rows() == 0 || A.cols() == 0) { buildTimeSec_ = 0.0; return; }
     n_ = static_cast<int>(A.rows());
     auto buildStart = std::chrono::steady_clock::now();
+    // Cached aggregation backend: no Hypre setup, no value-dependent
+    // coarsening. The maps are built once per sparsity pattern; later
+    // iterations refresh only the level operators (O(nnz)).
+    if (useAggregation()) { buildAggregation_(A); return; }
 #ifdef FVM_HAVE_HYPRE
     auto mat = std::make_shared<typename HypreSolver::HypreMat>();
     auto solv = std::make_shared<typename HypreSolver::HypreSolverImpl>();
@@ -62,7 +66,15 @@ void AMGHierarchy::build(const SparseMatrix& A) {
 
 bool AMGHierarchy::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
     if (!config_.flexStruct.empty() && config_.flexStruct[0] == static_cast<int>(AmgSettings::FlexMove::Terminate)) return true;
-    if (!built_ || !useHypreActive_) return false;
+    if (!built_) return false;
+    if (useAggregation()) {
+        const bool flexFineOnly =
+            config_.cycleType == AmgSettings::CycleType::Flexible &&
+            config_.acceleration == AmgSettings::Acceleration::None;
+        if (flexFineOnly) return applyFlexibleFineCycle_(b, x);
+        return aggregationVcycle_(0, b, x);
+    }
+    if (!useHypreActive_) return false;
     // Flexible cycles are residual-gated: fine sweep first, coarse correction
     // only when the restriction tolerance asks for it.
     if (config_.cycleType == AmgSettings::CycleType::Flexible) return applyFlexibleCycle_(b, x);
@@ -352,7 +364,9 @@ bool AMGHierarchy::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
 }
 
 bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x, const std::atomic<bool>* cancel) const {
-    if (!built_ || !useHypreActive_) return false;
+    if (!built_) return false;
+    if (useAggregation()) return solveAggregation_(b, x, cancel);
+    if (!useHypreActive_) return false;
     if (config_.cycleType == AmgSettings::CycleType::Flexible) return solveFlexible_(b, x, cancel);
     auto solveStart = std::chrono::steady_clock::now();
     const int n = n_;
@@ -395,7 +409,495 @@ bool AMGHierarchy::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x, const std
     return lastResidual_ < tol * config_.stagnationLooseFactor;
 }
 
-void AMGHierarchy::updateFineValues(const SparseMatrix& A) { build(A); }
+void AMGHierarchy::updateFineValues(const SparseMatrix& A) {
+    // Rebuild the hierarchy from scratch. For cached aggregation this reuses
+    // the cached maps and refreshes the level operators in O(nnz); for
+    // BoomerAMG this does a clean full Hypre rebuild (new IJ matrix, new
+    // BoomerAMG solver, fresh BoomerAMGSetup). Using Hypre's
+    // updateSolverValues() here would call HYPRE_IJMatrixSetValues on an
+    // already-assembled ParCSR matrix, which accumulates values instead of
+    // replacing them, and BoomerAMGSetup repeatedly on the same solver object,
+    // both of which corrupt the hierarchy over repeated calls.
+    build(A);
+}
+// Preconditioner-role refresh for the BoomerAMG backend: overwrite the values
+// of the existing assembled IJ matrix and re-run BoomerAMGSetup on the same
+// solver object. The caller must only use this when a Krylov method wraps the
+// hierarchy (Acceleration != None) so the stale coarse operators are corrected
+// by the outer iteration.
+void AMGHierarchy::refreshHierarchyValues(const SparseMatrix& A) {
+#ifdef FVM_HAVE_HYPRE
+    if (!built_ || !useHypreActive_ || !hypreMat_ || !hypreSolver_) return;
+    if (A.rows() == 0 || static_cast<int>(A.cols()) != static_cast<int>(A.rows())) return;
+    if (!HypreSolver::updateSolverValues(
+            *std::static_pointer_cast<HypreSolver::HypreMat>(hypreMat_),
+            *std::static_pointer_cast<HypreSolver::HypreSolverImpl>(hypreSolver_),
+            A, hypreScale_))
+        return;
+    systemMatrix_ = A;
+    fineRows_.resize(0, 0);
+    fineRowsReady_ = false;
+#else
+    (void)A;
+#endif
+}
+
+// --- Cached aggregation AMG ------------------------------------------------
+//
+// Classical AMG (BoomerAMG) re-derives its coarsening from the matrix values
+// on every setup. On a SIMPLE outer iteration the sparsity pattern never
+// changes, so this backend keeps the aggregation instead: the maps are built
+// once per pattern, and later iterations only refresh the level operators by
+// accumulating values through the cached scatter (O(nnz), no sort). This is
+// the OpenFOAM GAMG structure and what makes the per-iteration setup cost
+// competitive with   /  .
+
+namespace {
+
+using AggRowMatrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
+
+// P^T A P with piecewise-constant P: every fine coefficient is added to the
+// (aggregate(row), aggregate(col)) entry.
+AggRowMatrix coarsenByAggregation(const AggRowMatrix& A,
+                                  const std::vector<int>& agg, int nCoarse) {
+    // P^T A P with piecewise-constant P, then a per-row sparsification: keep
+    // the diagonal and the largest entries, drop the rest. The unsmoothed
+    // Galerkin product over a group of `g` unknowns produces a stencil up to
+    // g^2 times wider than the fine one (a 5-point fine stencil becomes 9-
+    // point at level 1, 25-point at level 2, ...), which is what makes the
+    // coarse levels dense and the V-cycle expensive.   and OpenFOAM
+    // both truncate the coarse operator to a compact stencil; this keeps the
+    // per-level nnz ~constant instead of growing.
+    std::vector<Eigen::Triplet<double>> triplets;
+    triplets.reserve(static_cast<std::size_t>(A.nonZeros()));
+    for (int row = 0; row < A.outerSize(); ++row) {
+        const int ci = agg[static_cast<std::size_t>(row)];
+        for (AggRowMatrix::InnerIterator it(A, row); it; ++it)
+            triplets.emplace_back(ci, agg[static_cast<std::size_t>(it.col())], it.value());
+    }
+    Eigen::SparseMatrix<double, Eigen::RowMajor> out(static_cast<Eigen::Index>(nCoarse),
+                                                    static_cast<Eigen::Index>(nCoarse));
+    out.setFromTriplets(triplets.begin(), triplets.end());
+    out.makeCompressed();
+
+    // Sparsify: keep the diagonal plus up to maxPerRow largest-magnitude
+    // off-diagonal entries per row. maxPerRow = 8 keeps a 9-point stencil
+    // (the 2D 5-point + diagonals); it does not truncate at these levels,
+    constexpr int maxPerRow = 8;
+    std::vector<Eigen::Triplet<double>> kept;
+    kept.reserve(static_cast<std::size_t>(out.nonZeros()));
+    for (int row = 0; row < out.outerSize(); ++row) {
+        double diag = 0.0;
+        // (magnitude, signed value, column) - sort by magnitude, keep value.
+        std::vector<std::tuple<double, double, int>> offdiag;
+        for (Eigen::SparseMatrix<double, Eigen::RowMajor>::InnerIterator it(out, row); it; ++it) {
+            if (it.col() == row) diag = it.value();
+            else offdiag.emplace_back(std::abs(it.value()), it.value(), it.col());
+        }
+        std::sort(offdiag.begin(), offdiag.end(),
+                  [](const auto& a, const auto& b) { return std::get<0>(a) > std::get<0>(b); });
+        const int keep = std::min(maxPerRow, static_cast<int>(offdiag.size()));
+        for (int k = 0; k < keep; ++k)
+            kept.emplace_back(row, std::get<2>(offdiag[static_cast<std::size_t>(k)]),
+                              std::get<1>(offdiag[static_cast<std::size_t>(k)]));
+        if (diag != 0.0) kept.emplace_back(row, row, diag);
+    }
+    out.setFromTriplets(kept.begin(), kept.end());
+    out.makeCompressed();
+    AggRowMatrix result = out;
+    result.makeCompressed();
+    return result;
+}
+
+// Greedy maximal-matching aggregation: every unassigned unknown opens a group
+// and absorbs its strongest unassigned neighbours (relative to the row's
+    // largest off-diagonal) up to groupSize members. O(nnz).
+int aggregateGreedy(const AggRowMatrix& A, int groupSize, double strengthThreshold,
+                    std::vector<int>& agg) {
+    const int n = static_cast<int>(A.rows());
+    agg.assign(static_cast<std::size_t>(n), -1);
+    if (groupSize <= 1 || n <= 1) {
+        for (int i = 0; i < n; ++i) agg[static_cast<std::size_t>(i)] = i;
+        return n;
+    }
+    int nGroups = 0;
+    for (int i = 0; i < n; ++i) {
+        if (agg[static_cast<std::size_t>(i)] >= 0) continue;
+        const int group = nGroups++;
+        agg[static_cast<std::size_t>(i)] = group;
+        int members = 1;
+        if (members < groupSize) {
+            double maxOff = 0.0;
+            for (AggRowMatrix::InnerIterator it(A, i); it; ++it)
+                if (it.col() != i) maxOff = std::max(maxOff, std::abs(it.value()));
+            const double limit = strengthThreshold * maxOff;
+            if (limit > 0.0) {
+                for (AggRowMatrix::InnerIterator it(A, i); it; ++it) {
+                    if (members >= groupSize) break;
+                    const int j = it.col();
+                    if (j == i || agg[static_cast<std::size_t>(j)] >= 0) continue;
+                    if (std::abs(it.value()) < limit) continue;
+                    agg[static_cast<std::size_t>(j)] = group;
+                    ++members;
+                }
+            }
+        }
+    }
+    return nGroups;
+}
+
+// --- Smoothed Aggregation prolongation helpers --------------------------
+
+// Build the tentative prolongation T (piecewise constant): T(i, agg[i]) = 1.
+// Dimensions: n_fine x n_coarse. Each fine node belongs to exactly one
+// aggregate, so T has exactly one nonzero per row.
+SparseMatrix buildTentativeProlongation(const SparseMatrix& A,
+                                         const std::vector<int>& agg,
+                                         int nCoarse) {
+    int n = static_cast<int>(A.rows());
+    std::vector<Eigen::Triplet<double>> triplets;
+    triplets.reserve(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i)
+        triplets.emplace_back(i, agg[static_cast<std::size_t>(i)], 1.0);
+    SparseMatrix T(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(nCoarse));
+    T.setFromTriplets(triplets.begin(), triplets.end());
+    T.makeCompressed();
+    return T;
+}
+
+// Jacobi-smooth the tentative prolongator:
+//   P = (I - omega * D^-1 * A)^degree * T
+// where D = diag(A). Each pass spreads each coarse basis function to the
+// neighbours of its aggregate, letting the coarse grid represent smooth
+// error modes that piecewise-constant injection cannot. The near-nullspace
+// constraint P*B = T*B is preserved (constant mode interpolated exactly).
+SparseMatrix smoothProlongationJacobi(const SparseMatrix& A, const SparseMatrix& T,
+                                       double omega, int degree) {
+    int n = static_cast<int>(A.rows());
+    // Extract diagonal of A.
+    std::vector<double> D(static_cast<std::size_t>(n), 1.0);
+    for (int i = 0; i < n; ++i) {
+        double diag = A.coeff(i, i);
+        if (std::abs(diag) > 1e-14)
+            D[static_cast<std::size_t>(i)] = diag;
+    }
+    SparseMatrix P = T;
+    for (int d = 0; d < degree; ++d) {
+        SparseMatrix AP = A * P;  // n_fine x n_coarse (ColMajor)
+        // Scale ROWS of AP by omega / D[row].  AP is ColMajor, so iterate over
+        // columns and scale each entry by its row's diagonal weight.
+        for (int j = 0; j < AP.outerSize(); ++j) {
+            for (SparseMatrix::InnerIterator it(AP, j); it; ++it) {
+                const int row = it.row();
+                it.valueRef() *= (omega / D[static_cast<std::size_t>(row)]);
+            }
+        }
+        P = P - AP;
+        P.makeCompressed();
+        P.prune(0.0);
+    }
+    return P;
+}
+
+// Galerkin coarse operator with smoothed prolongation:
+//   A_c = P^T * A * P
+SparseMatrix galerkinProductPAP(const SparseMatrix& P, const SparseMatrix& A) {
+    SparseMatrix AP = A * P;            // n_fine x n_coarse
+    SparseMatrix Ac = P.transpose() * AP;  // n_coarse x n_coarse
+    Ac.makeCompressed();
+    Ac.prune(0.0);
+    return Ac;
+}
+
+} // namespace
+
+bool AMGHierarchy::hasCachedAggregation() const {
+    return useAggregation() && !aggMaps_.empty();
+}
+
+int AMGHierarchy::aggregate_(const AggRowMatrix& A, int groupSize,
+                             std::vector<int>& agg) const {
+    return aggregateGreedy(A, groupSize, config_.strengthThreshold, agg);
+}
+
+AggRowMatrix AMGHierarchy::coarsenByAggregation_(const AggRowMatrix& A,
+                                                 const std::vector<int>& agg,
+                                                 int nCoarse) const {
+    return coarsenByAggregation(A, agg, nCoarse);
+}
+
+void AMGHierarchy::buildAggregation_(const SparseMatrix& A) {
+    const std::size_t hash = detail::sparsityHash(A);
+    const bool mapsValid = !aggMaps_.empty() && hash == aggPatternHash_;
+    const auto buildStart = std::chrono::steady_clock::now();
+
+    if (!mapsValid) {
+        // First build for this pattern: derive the aggregate maps while the
+        // operators from the previous level are available.
+        aggMaps_.clear();
+        aggSizes_.clear();
+        aggCaches_.clear();
+        // The level operators were built from the previous maps, so they are
+        // stale now; force a full operator rebuild in refreshAggregationOperators_().
+        levels_.clear();
+        levelSizes_.clear();
+        aggPatternHash_ = hash;
+
+        AggRowMatrix level = A;
+        level.makeCompressed();
+        const int groupSize = std::max(2, config_.effectiveBlockSize(blockDim_));
+        // Stop coarsening at a few hundred unknowns: each level below that
+        // costs an operator rebuild per iteration but removes almost no error.
+        const int coarseTarget = 128;
+        for (int depth = 0; depth < config_.maxLevels; ++depth) {
+            const int n = static_cast<int>(level.rows());
+            std::vector<int> agg;
+            const int nCoarse = aggregate_(level, groupSize, agg);
+            if (nCoarse >= n || nCoarse <= 0) break;
+            aggMaps_.push_back(std::move(agg));
+            aggSizes_.push_back(nCoarse);
+            level = coarsenByAggregation_(level, aggMaps_.back(), nCoarse);
+            if (nCoarse <= coarseTarget) break;
+        }
+    }
+
+    // Build (or refresh) the level operators, then the scatter caches when the
+    // maps were just created. Scatter caches are only used by the plain
+    // aggregation fast path; Smoothed Aggregation always rebuilds P and coarse
+    // operators from current values, so skip cache build for SA.
+    refreshAggregationOperators_(A);
+    if (!config_.smoothedProlongation && aggCaches_.size() != aggMaps_.size())
+        buildAggScatterCaches_();
+
+    nlevels_ = static_cast<int>(levels_.size());
+    if (config_.verbosity >= cfd::AmgSettings::Verbosity::High ||
+        std::getenv("SCIRENDER_AGG_TIMING")) {
+        for (int l = 0; l < nlevels_; ++l)
+            std::cerr << "  level " << l << ": " << levelSizes_[l]
+                      << " unknowns, " << levels_[l].ARM.nonZeros() << " nnz\n";
+    }
+    built_ = !levels_.empty();
+    useHypreActive_ = false;
+    hypreHierarchyReady_ = false;
+    buildTimeSec_ = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - buildStart).count();
+}
+
+void AMGHierarchy::buildAggScatterCaches_() {
+    aggCaches_.clear();
+    aggCaches_.resize(aggMaps_.size());
+    for (std::size_t l = 0; l < aggMaps_.size() && l + 1 < levels_.size(); ++l) {
+        const auto& fine = levels_[l].ARM;
+        const auto& coarse = levels_[l + 1].ARM;
+        const auto& agg = aggMaps_[l];
+        auto& scatter = aggCaches_[l].scatter;
+        scatter.resize(static_cast<std::size_t>(fine.nonZeros()));
+        const int* outer = coarse.outerIndexPtr();
+        const int* inner = coarse.innerIndexPtr();
+        int k = 0;
+        for (int row = 0; row < fine.outerSize(); ++row) {
+            const int ci = agg[static_cast<std::size_t>(row)];
+            for (AggRowMatrix::InnerIterator it(fine, row); it; ++it, ++k) {
+                const int cj = agg[static_cast<std::size_t>(it.col())];
+                const int* lb = std::lower_bound(
+                    inner + outer[ci], inner + outer[ci + 1], cj);
+                scatter[static_cast<std::size_t>(k)] =
+                    (lb < inner + outer[ci + 1] && *lb == cj)
+                        ? static_cast<int>(lb - inner) : -1;
+            }
+        }
+    }
+}
+
+void AMGHierarchy::refreshAggregationOperators_(const SparseMatrix& A) {
+    // Fast path: the level patterns already exist (built once from the cached
+    // maps). Refresh only the values: level 0 from the fine matrix, then each
+    // coarse level by accumulating the level above through the cached scatter.
+    const bool havePattern =
+        !config_.smoothedProlongation &&   // SA: P depends on A values, always rebuild
+        levels_.size() == aggMaps_.size() + 1 && !levels_.empty() &&
+        levels_[0].ARM.rows() == A.rows() &&
+        aggCaches_.size() == aggMaps_.size();
+    if (havePattern) {
+        levels_[0].ARM = A;
+        for (std::size_t l = 0; l < aggMaps_.size(); ++l) {
+            auto& coarse = levels_[l + 1].ARM;
+            auto* coarseVals = coarse.valuePtr();
+            std::fill(coarseVals, coarseVals + coarse.nonZeros(), 0.0);
+            const auto& fineVals = levels_[l].ARM.valuePtr();
+            const auto& scatter = aggCaches_[l].scatter;
+            const int count = std::min(
+                static_cast<int>(scatter.size()),
+                static_cast<int>(levels_[l].ARM.nonZeros()));
+            for (int k = 0; k < count; ++k) {
+                const int pos = scatter[static_cast<std::size_t>(k)];
+                if (pos >= 0) coarseVals[pos] += fineVals[k];
+            }
+        }
+        return;
+    }
+    // Slow path: first build or pattern change. Build the level patterns with
+    // the sort-based path; the scatter caches are rebuilt by the caller.
+    levels_.assign(aggMaps_.size() + 1, AMGLevel{});
+    levelSizes_.assign(aggMaps_.size() + 1, 0);
+    AggRowMatrix level = A;
+    level.makeCompressed();
+    for (std::size_t l = 0; l < levels_.size(); ++l) {
+        levels_[l].ARM = level;
+        levels_[l].ARM.makeCompressed();
+        levelSizes_[l] = static_cast<int>(level.rows());
+        if (l >= aggMaps_.size()) break;
+        if (config_.smoothedProlongation) {
+            // Smoothed Aggregation: build tentative prolongation T from the
+            // aggregation map, smooth it with Jacobi, then form the Galerkin
+            // coarse operator A_c = P^T * A * P. This replaces plain
+            // piecewise-constant injection, giving the coarse grid the ability
+            // to represent smooth error modes.
+            SparseMatrix T = buildTentativeProlongation(level, aggMaps_[l], aggSizes_[l]);
+            SparseMatrix P = smoothProlongationJacobi(level, T,
+                                                      config_.saOmega, config_.saDegree);
+            SparseMatrix R = P.transpose();
+            R.makeCompressed();
+            levels_[l].P = std::move(P);
+            levels_[l].R = std::move(R);
+            level = galerkinProductPAP(levels_[l].P, level);
+        } else {
+            level = coarsenByAggregation_(level, aggMaps_[l], aggSizes_[l]);
+        }
+    }
+}
+
+// One V-cycle over the cached aggregation hierarchy.
+bool AMGHierarchy::aggregationVcycle_(int level, const Eigen::VectorXd& b,
+                                      Eigen::VectorXd& x) const {
+    if (level < 0 || static_cast<std::size_t>(level) >= levels_.size())
+        return false;
+    const auto& A = levels_[static_cast<std::size_t>(level)].ARM;
+    const int n = static_cast<int>(A.rows());
+    if (n == 0 || b.size() != n || x.size() != n) return false;
+
+    // STAR's pressure preconditioner is a fixed V-cycle. The exact
+    // per-level sweep counts in its log (level 0: 1/3, levels >= 1: 5/5)
+    // make each coarse level expensive with our Galerkin operators, so the
+    // measured optimum here is 2/2 everywhere; the strength comes from the
+    // number of cycles per application (setCycles).
+    const int pre = std::max(2, config_.preSweeps);
+    const int post = std::max(2, config_.postSweeps);
+
+    for (int s = 0; s < pre; ++s) gaussSeidel(A, b, x, 1, true);
+
+    const bool hasCoarse = static_cast<std::size_t>(level) < aggMaps_.size();
+    if (hasCoarse) {
+        const auto& P = levels_[static_cast<std::size_t>(level)].P;
+        const auto& R = levels_[static_cast<std::size_t>(level)].R;
+        const int nCoarse = aggSizes_[static_cast<std::size_t>(level)];
+        Eigen::VectorXd residual = b - A * x;
+        Eigen::VectorXd coarseRhs;
+        if (P.cols() > 0 && R.rows() > 0 && P.cols() == nCoarse) {
+            // Smoothed Aggregation: restrict via P^T (prolongation transpose)
+            coarseRhs = R * residual;
+        } else {
+            // Plain aggregation: sum residual into aggregates
+            const auto& agg = aggMaps_[static_cast<std::size_t>(level)];
+            coarseRhs = Eigen::VectorXd::Zero(nCoarse);
+            for (int i = 0; i < n; ++i)
+                coarseRhs[agg[static_cast<std::size_t>(i)]] += residual[i];
+        }
+        Eigen::VectorXd coarseCorr = Eigen::VectorXd::Zero(nCoarse);
+        if (!aggregationVcycle_(level + 1, coarseRhs, coarseCorr)) return false;
+        if (P.cols() > 0 && P.cols() == nCoarse) {
+            // Smoothed Aggregation: prolongate via P
+            x += P * coarseCorr;
+        } else {
+            // Plain aggregation: gather correction from aggregate
+            const auto& agg = aggMaps_[static_cast<std::size_t>(level)];
+            for (int i = 0; i < n; ++i)
+                x[i] += coarseCorr[agg[static_cast<std::size_t>(i)]];
+        }
+    } else {
+        // Coarsest level: dense direct solve (small by construction).
+        Eigen::MatrixXd dense(n, n);
+        for (int row = 0; row < n; ++row) {
+            dense.row(row).setZero();
+            for (AggRowMatrix::InnerIterator it(A, row); it; ++it)
+                dense(row, it.col()) = it.value();
+        }
+        const Eigen::LDLT<Eigen::MatrixXd> factor(dense);
+        if (factor.info() != Eigen::Success) return false;
+        x = factor.solve(b);
+        if (!x.allFinite()) return false;
+        return true;
+    }
+
+    for (int s = 0; s < post; ++s) gaussSeidel(A, b, x, 1, true);
+    return x.allFinite();
+}
+
+// Standalone solve. When Acceleration = None and CycleType = Flexible
+// (momentum/turbulence default) this delegates to the flexible fine-only
+// path: residual-gated Gauss-Seidel, no hierarchy, no V-cycle, no
+// acceleration wrapper. Otherwise the V-cycle is iterated as a
+// preconditioned Richardson (fixed-point) iteration to tolerance. The
+// SIMPLE outer loop owns the final accuracy.
+bool AMGHierarchy::solveAggregation_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                                     const std::atomic<bool>* cancel) const {
+    if (!built_ || levels_.empty()) return false;
+    if (static_cast<int>(x.size()) != n_) { x.resize(n_); x.setZero(); }
+    if (!b.allFinite()) return false;
+    const double bnorm = b.norm();
+    if (!std::isfinite(bnorm)) return false;
+    if (bnorm < 1e-30) { x.setZero(); return true; }
+
+    const int maxIt = std::max(1, config_.maxIterations);
+    const double tol = std::max(1e-16, config_.tolerance);
+
+    lastResidualHistory_.clear();
+    lastResidualHistory_.push_back((b - systemMatrix_ * x).norm() / bnorm);
+    lastIterations_ = 0;
+    lastResidual_ = (b - systemMatrix_ * x).norm() / bnorm;
+
+    // STAR Flex-Cycle fine-only path (momentum/turbulence default):
+    // Acceleration = None means no Krylov wrapper; Flexible cycle means
+    // residual-gated fine-level Gauss-Seidel only — no hierarchy, no V-cycle,
+    // no acceleration. This matches   exactly: one cycle = one fine
+    // GS sweep, repeated while the residual falls by flexAlpha each sweep.
+    if (config_.cycleType == AmgSettings::CycleType::Flexible &&
+        config_.acceleration == AmgSettings::Acceleration::None) {
+        return solveFlexibleFine_(b, x, cancel);
+    }
+
+    // Fixed-point (Richardson) iteration: apply one V-cycle to the current
+    // residual and add the correction, repeated to tolerance. Unlike the
+    // Conjugate-Gradient algebra used previously this makes no symmetry or
+    // positive-definiteness assumption, so it is valid for nonsymmetric
+    // systems (e.g. pressure on the legacy nonsymmetric operator). The
+    // V-cycle uses Gauss-Seidel smoothing only — no acceleration wrapper.
+    Eigen::VectorXd r = b - systemMatrix_ * x;
+    Eigen::VectorXd z(n_);
+    for (int iter = 0; iter < maxIt; ++iter) {
+        if (cancel && cancel->load()) return false;
+        z.setZero();
+        if (!aggregationVcycle_(0, r, z)) return false;
+        if (!z.allFinite()) return false;
+        x += z;
+        r = b - systemMatrix_ * x;
+        if (!r.allFinite()) return false;
+        const double rel = r.norm() / bnorm;
+        lastResidualHistory_.push_back(rel);
+        lastIterations_ = iter + 1;
+        lastResidual_ = rel;
+        if (rel < tol) return true;
+        // Stagnation: the residual stopped falling. Accept a loose pass so the
+        // SIMPLE outer loop can still make progress instead of triggering an
+        // ILU fallback.
+        if (iter >= config_.stagnationMinIter &&
+            rel > lastResidualHistory_[static_cast<std::size_t>(iter)] *
+                      config_.stagnationFactor) {
+            return rel < tol * config_.stagnationLooseFactor;
+        }
+    }
+    return lastResidual_ < tol * config_.stagnationLooseFactor;
+}
 
 void AMGHierarchy::strengthOfConnection(const Eigen::SparseMatrix<double, Eigen::RowMajor>& A,
                                          std::vector<std::vector<int>>& strongNeighbors) const {
@@ -491,6 +993,73 @@ void AMGHierarchy::smoothPost_(const Eigen::SparseMatrix<double, Eigen::RowMajor
     // For nonsymmetric operators, post-sweep is also forward so the composed
     // preconditioner remains a fixed linear operator.
     gaussSeidel(ARM, b, x, numSweeps, true);
+}
+
+
+// --- STAR Flex-Cycle fine-only path (Acceleration = None) ------------------
+//
+//   default momentum AMG: "Flex Cycle", Restriction Tolerance = 0.9,
+// Prolongation Tolerance = 0.5, Sweeps = 1, Acceleration = None. When the fine
+// level alone keeps the residual falling by the restriction tolerance each
+// sweep, STAR never builds a coarse level (its log shows a single "level 0"
+// row and Restriction/Prolongation time = 0). This is the residual-gated
+// fine iteration: O(nnz) per cycle, no hierarchy, no setup.
+
+bool AMGHierarchy::applyFlexibleFineCycle_(const Eigen::VectorXd& b,
+                                          Eigen::VectorXd& x) const {
+    const int n = n_;
+    if ((int)x.size() != n) { x.resize(n); x.setZero(); }
+    if (!b.allFinite()) return false;
+    const double bnorm = b.norm();
+    if (!std::isfinite(bnorm) || bnorm < 1e-30) return true;
+
+    // One fine sweep; the restriction tolerance (flexAlpha) decides whether
+    // the level is resolved. flexMaxSweeps caps the sweeps per cycle (STAR
+    // Sweeps = 1 by default).
+    const int sweeps = std::max(1, config_.flexMaxSweeps);
+    const double r0 = (b - systemMatrix_ * x).norm();
+    if (!std::isfinite(r0) || r0 == 0.0) return true;
+    const double gate = config_.flexAlpha * r0;
+    for (int s = 0; s < sweeps; ++s) {
+        fineGaussSeidel_(b, x, 1);
+        const double res = (b - systemMatrix_ * x).norm();
+        if (!std::isfinite(res)) { x.setZero(); return false; }
+        if (res < gate) break; // restriction tolerance met: stop refining
+    }
+    return x.allFinite();
+}
+
+bool AMGHierarchy::solveFlexibleFine_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                                      const std::atomic<bool>* cancel) const {
+    if (static_cast<int>(x.size()) != n_) { x.resize(n_); x.setZero(); }
+    if (!b.allFinite()) return false;
+    const double bnorm = b.norm();
+    if (!std::isfinite(bnorm)) return false;
+    if (bnorm < 1e-30) { x.setZero(); return true; }
+
+    const int maxIt = std::max(1, config_.maxIterations);
+    const double tol = std::max(1e-16, config_.tolerance);
+    const double r0 = (b - systemMatrix_ * x).norm();
+    double prev = std::numeric_limits<double>::max();
+    lastResidualHistory_.clear();
+    // Cycle-0 baseline, mirroring the fixed-cycle path.
+    lastResidualHistory_.push_back(r0 / bnorm);
+    lastIterations_ = 0;
+    lastResidual_ = r0 / bnorm;
+    for (int iter = 0; iter < maxIt; ++iter) {
+        if (cancel && cancel->load()) return false;
+        if (!applyFlexibleFineCycle_(b, x)) return false;
+        const double rel = (b - systemMatrix_ * x).norm() / bnorm;
+        lastResidualHistory_.push_back(rel);
+        lastIterations_ = iter + 1;
+        lastResidual_ = rel;
+        if (rel < tol) return true;
+        if (rel > prev * config_.stagnationFactor && iter >= config_.stagnationMinIter)
+            return rel < tol * config_.stagnationLooseFactor;
+        prev = rel;
+    }
+    lastResidual_ = (b - systemMatrix_ * x).norm() / bnorm;
+    return lastResidual_ < tol * config_.stagnationLooseFactor;
 }
 
 } // namespace fvm

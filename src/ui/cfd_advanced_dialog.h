@@ -31,6 +31,9 @@ public:
     void setSettings(const cfd::CaseSettings& s);
     // Write the widgets back into `s` (before a run or save).
     void collectInto(cfd::CaseSettings& s) const;
+    // Propagate the mesh dimension to all AMG widgets so the group size
+    // display resolves 2 (2D) / 4 (3D) under Automatic.
+    void setDimension(int dim);
 
 private:
     void buildUi();

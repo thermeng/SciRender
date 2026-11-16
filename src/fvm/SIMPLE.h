@@ -449,6 +449,8 @@ private:
     // Steady-path wall-time accumulators (seconds).
     double steadyTotalSeconds_ = 0.0;
     double steadyMomentumSeconds_ = 0.0;
+    double steadyMomentumAssemblySeconds_ = 0.0;
+    double steadyMomentumSolveSeconds_ = 0.0;
     double steadyPredictedContinuitySeconds_ = 0.0;
     double steadyPressureSeconds_ = 0.0;
     double steadyVelocityCorrectionSeconds_ = 0.0;
