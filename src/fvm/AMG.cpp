@@ -21,36 +21,80 @@ public:
     void setConfig(const Config& config) override { config_ = config; }
     const Config& config() const override { return config_; }
 
-    void build(const SparseMatrix& A) override { /* TODO */ }
+    void build(const SparseMatrix& A) override;
     void invalidate() override { /* TODO */ }
-    bool isBuilt() const override { return false; }
+    bool isBuilt() const override { return built_; }
 
     bool solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
-               const std::atomic<bool>* cancel = nullptr) override { return false; }
+               const std::atomic<bool>* cancel = nullptr) override {
+        if (!built_ || !useHypreActive_) return false;
+        HYPRE_IJVector bvec = nullptr, xvec = nullptr;
+        HYPRE_IJVectorCreate(hypre_detail::hypreComm(), 0, n_ - 1, &bvec);
+        HYPRE_IJVectorCreate(hypre_detail::hypreComm(), 0, n_ - 1, &xvec);
+        HYPRE_IJVectorSetObjectType(bvec, HYPRE_PARCSR);
+        HYPRE_IJVectorSetObjectType(xvec, HYPRE_PARCSR);
+        HYPRE_IJVectorInitialize(bvec);
+        HYPRE_IJVectorInitialize(xvec);
+        HYPRE_IJVectorSetValues(bvec, n_, indices_.data(), b.data());
+        HYPRE_IJVectorSetValues(xvec, n_, indices_.data(), x.data());
+        HYPRE_IJVectorAssemble(bvec);
+        HYPRE_IJVectorAssemble(xvec);
+        HYPRE_ParVector parB = nullptr, parX = nullptr;
+        HYPRE_IJVectorGetObject(bvec, reinterpret_cast<void**>(&parB));
+        HYPRE_IJVectorGetObject(xvec, reinterpret_cast<void**>(&parX));
+        HYPRE_BoomerAMGSolve(solver_, parA_, parB, parX);
+        HYPRE_IJVectorGetObject(xvec, reinterpret_cast<void**>(&parX));
+        HYPRE_IJVectorGetValues(xvec, n_, indices_.data(), x.data());
+        HYPRE_IJVectorDestroy(bvec);
+        HYPRE_IJVectorDestroy(xvec);
+        return true;
+    }
     bool applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const override { return false; }
     Eigen::VectorXd flexCycle(int level, const Eigen::VectorXd& b,
                               Eigen::VectorXd& x) const override { return {}; }
 
-    int numLevels() const override { return 0; }
-    int fineSize() const override { return 0; }
-    const std::vector<int>& levelSizes() const override { return emptyLevels_; }
-    std::string hierarchyReport() const override { return "BoomerAMG (stub)"; }
-    int lastIterations() const override { return 0; }
-    double lastResidual() const override { return 0.0; }
-    const std::vector<double>& lastResidualHistory() const override { return emptyHistory_; }
-    double buildTime() const override { return 0.0; }
-    double solveTime() const override { return 0.0; }
+    int numLevels() const override { return nlevels_; }
+    int fineSize() const override { return n_; }
+    const std::vector<int>& levelSizes() const override { return levelSizes_; }
+    std::string hierarchyReport() const override { return report_; }
+    int lastIterations() const override { return lastIterations_; }
+    double lastResidual() const override { return lastResidual_; }
+    const std::vector<double>& lastResidualHistory() const override { return lastResidualHistory_; }
+    double buildTime() const override { return buildTimeSec_; }
+    double solveTime() const override { return solveTimeSec_; }
 
     bool hasCachedAggregation() const override { return false; }
-    bool hierarchyCurrent() const override { return false; }
-    void refreshHierarchyValues(const SparseMatrix& A) override {}
-    void updateFineValues(const SparseMatrix& A) override {}
+    bool hierarchyCurrent() const override { return built_ && useHypreActive_; }
+    void refreshHierarchyValues(const SparseMatrix& A) override { /* TODO */ }
+    void updateFineValues(const SparseMatrix& A) override { /* TODO */ }
 
 private:
     Config config_;
     int blockDim_ = 2;
-    std::vector<int> emptyLevels_;
-    std::vector<double> emptyHistory_;
+    int n_ = 0;
+    SparseMatrix systemMatrix_;
+    std::vector<double> hypreScale_;
+    std::shared_ptr<void> hypreMat_;
+    std::shared_ptr<void> hypreSolver_;
+    std::vector<double> scale_;
+    std::vector<double> lastResidualHistory_;
+    double lastResidual_ = 0.0;
+    int lastIterations_ = 0;
+    std::vector<HYPRE_BigInt> indices_;
+    HYPRE_IJMatrix ij_ = nullptr;
+    HYPRE_ParCSRMatrix parA_ = nullptr;
+    HYPRE_Solver solver_ = nullptr;
+    bool built_ = false;
+    bool useHypreActive_ = false;
+    int nlevels_ = 0;
+    std::vector<int> levelSizes_;
+    std::vector<int> cgrid_;
+    std::string report_;
+    bool hierarchyInfoReady_ = false;
+    double buildTimeSec_ = 0.0;
+    double solveTimeSec_ = 0.0;
+
+    void ensureHierarchyInfo_() const;
 };
 
 // ============================================================================
@@ -95,6 +139,194 @@ private:
     std::vector<int> emptyLevels_;
     std::vector<double> emptyHistory_;
 };
+
+void BoomerAMGBackend::build(const SparseMatrix& A) {
+    invalidate();
+    n_ = static_cast<int>(A.rows());
+    if (n_ <= 0 || static_cast<int>(A.cols()) != n_) return;
+    systemMatrix_ = A;
+
+    auto buildStart = std::chrono::steady_clock::now();
+
+    hypre_detail::ensureHypreInitialized();
+    HYPRE_ClearAllErrors();
+
+    scale_.clear();
+    if (config_.scaling == cfd::AmgSettings::ProportionalScaling::Automatic) {
+        scale_.assign(n_, 1.0);
+        for (int i = 0; i < n_; ++i) {
+            const double diag = A.coeff(i, i);
+            if (std::abs(diag) > 0.0)
+                scale_[i] = 1.0 / std::sqrt(std::abs(diag));
+        }
+    }
+
+    const HYPRE_BigInt ilower = 0;
+    const HYPRE_BigInt iupper = static_cast<HYPRE_BigInt>(n_ - 1);
+    const HYPRE_BigInt jlower = 0;
+    const HYPRE_BigInt jupper = static_cast<HYPRE_BigInt>(n_ - 1);
+
+    HYPRE_IJMatrix ij = nullptr;
+    HYPRE_IJMatrixCreate(hypre_detail::hypreComm(), ilower, iupper, jlower, jupper, &ij);
+    HYPRE_IJMatrixSetObjectType(ij, HYPRE_PARCSR);
+    HYPRE_IJMatrixInitialize(ij);
+
+    std::vector<HYPRE_Int> rowSizes(static_cast<std::size_t>(n_), 0);
+    std::vector<HYPRE_Int> ncols(static_cast<std::size_t>(n_), 0);
+    std::vector<HYPRE_BigInt> rows(static_cast<std::size_t>(n_), 0);
+    std::vector<HYPRE_BigInt> cols;
+    std::vector<HYPRE_Real> values;
+    cols.reserve(static_cast<std::size_t>(A.nonZeros()));
+    values.reserve(static_cast<std::size_t>(A.nonZeros()));
+
+    SparseMatrix Aeff = A;
+    if (!scale_.empty()) {
+        const int* outer = Aeff.outerIndexPtr();
+        const int* inner = Aeff.innerIndexPtr();
+        double* vals = Aeff.valuePtr();
+        for (int col = 0; col < n_; ++col) {
+            for (int k = outer[col]; k < outer[col + 1]; ++k) {
+                const int row = inner[k];
+                vals[k] *= scale_[static_cast<std::size_t>(row)] *
+                           scale_[static_cast<std::size_t>(col)];
+            }
+        }
+    }
+
+    Eigen::SparseMatrix<double, Eigen::RowMajor> AR = Aeff;
+    AR.makeCompressed();
+    const int* outer = AR.outerIndexPtr();
+    const int* inner = AR.innerIndexPtr();
+    const double* vals = AR.valuePtr();
+    for (int i = 0; i < n_; ++i) {
+        const int begin = outer[i];
+        const int end = outer[i + 1];
+        const int cnt = end - begin;
+        rowSizes[static_cast<std::size_t>(i)] = static_cast<HYPRE_Int>(cnt);
+        ncols[static_cast<std::size_t>(i)] = static_cast<HYPRE_Int>(cnt);
+        rows[static_cast<std::size_t>(i)] = static_cast<HYPRE_BigInt>(i);
+        for (int k = begin; k < end; ++k) {
+            cols.push_back(static_cast<HYPRE_BigInt>(inner[k]));
+            values.push_back(static_cast<HYPRE_Real>(vals[k]));
+        }
+    }
+
+    HYPRE_IJMatrixSetRowSizes(ij, rowSizes.data());
+    HYPRE_IJMatrixSetValues(ij, n_, ncols.data(), rows.data(), cols.data(), values.data());
+    HYPRE_IJMatrixAssemble(ij);
+
+    HYPRE_IJMatrixGetObject(ij, reinterpret_cast<void**>(&parA_));
+
+    HYPRE_Solver amg = nullptr;
+    HYPRE_BoomerAMGCreate(&amg);
+    solver_ = amg;
+
+    const HYPRE_Int cycleType =
+        (config_.cycleType == cfd::AmgSettings::CycleType::WCycle) ? 2 : 1;
+    HYPRE_BoomerAMGSetCycleType(amg, cycleType);
+    if (config_.cycleType == cfd::AmgSettings::CycleType::FCycle)
+        HYPRE_BoomerAMGSetFCycle(amg, 1);
+
+    if (config_.cycleType == cfd::AmgSettings::CycleType::Flexible &&
+        config_.effectiveBlockSize(blockDim_) <= 1) {
+        const HYPRE_Int sweeps =
+            config_.flexMaxSweeps > 0 ? static_cast<HYPRE_Int>(config_.flexMaxSweeps) : 1;
+        HYPRE_BoomerAMGSetNumSweeps(amg, sweeps);
+    }
+
+    {
+        const HYPRE_Int relaxType =
+            (config_.smoother == cfd::AmgSettings::Smoother::Jacobi) ? 0 : 3;
+        if (config_.smoother == cfd::AmgSettings::Smoother::ILU) {
+            std::cerr << "  Hypre: smoother ILU0/SPAI0 has no BoomerAMG "
+                         "equivalent; using Gauss-Seidel.\n";
+        }
+        HYPRE_BoomerAMGSetRelaxType(amg, relaxType);
+    }
+    HYPRE_BoomerAMGSetCycleRelaxType(amg, 4, 2);
+    HYPRE_BoomerAMGSetCycleRelaxType(amg, 9, 3);
+
+    if (config_.cycleType != cfd::AmgSettings::CycleType::Flexible ||
+        config_.effectiveBlockSize(blockDim_) > 1) {
+        const HYPRE_Int pre =
+            static_cast<HYPRE_Int>(config_.preSweeps > 0 ? config_.preSweeps : 1);
+        const HYPRE_Int post =
+            static_cast<HYPRE_Int>(config_.postSweeps > 0 ? config_.postSweeps : 1);
+        HYPRE_BoomerAMGSetCycleNumSweeps(amg, pre, 1);
+        HYPRE_BoomerAMGSetCycleNumSweeps(amg, post, 2);
+    }
+
+    const double strength =
+        (config_.strengthThreshold > 0.0) ? config_.strengthThreshold : 0.5;
+    HYPRE_BoomerAMGSetStrongThreshold(amg, strength);
+
+    const HYPRE_Int coarsenType =
+        (config_.coarsening == cfd::AmgSettings::Coarsening::RugeStuben) ? 3 : 10;
+    HYPRE_BoomerAMGSetCoarsenType(amg, coarsenType);
+    HYPRE_BoomerAMGSetInterpType(amg, 6);
+    HYPRE_BoomerAMGSetMaxRowSum(amg, 1.0);
+    HYPRE_BoomerAMGSetMaxLevels(amg,
+        config_.maxLevels > 0 ? static_cast<HYPRE_Int>(config_.maxLevels) : 50);
+    HYPRE_BoomerAMGSetMaxCoarseSize(amg,
+        config_.coarseEnough > 0 ? static_cast<HYPRE_Int>(config_.coarseEnough) : 2);
+
+    {
+        const HYPRE_Int groupSize =
+            static_cast<HYPRE_Int>(config_.effectiveBlockSize(blockDim_));
+        if (groupSize > 1 && n_ % groupSize == 0) {
+            HYPRE_BoomerAMGSetNumFunctions(amg, groupSize);
+            HYPRE_BoomerAMGSetNodal(amg, 1);
+            HYPRE_BoomerAMGSetNodalLevels(amg, 1);
+        }
+    }
+
+    HYPRE_BoomerAMGSetTol(amg, 0.0);
+    HYPRE_BoomerAMGSetMaxIter(amg, 1);
+    HYPRE_BoomerAMGSetPrintLevel(amg, 0);
+
+    HYPRE_IJVector bvec = nullptr, xvec = nullptr;
+    HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &bvec);
+    HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &xvec);
+    HYPRE_IJVectorSetObjectType(bvec, HYPRE_PARCSR);
+    HYPRE_IJVectorSetObjectType(xvec, HYPRE_PARCSR);
+    HYPRE_IJVectorInitialize(bvec);
+    HYPRE_IJVectorInitialize(xvec);
+    std::vector<HYPRE_Real> zeros(static_cast<std::size_t>(n_), 0.0);
+    indices_.resize(static_cast<std::size_t>(n_));
+    for (int i = 0; i < n_; ++i)
+        indices_[static_cast<std::size_t>(i)] = static_cast<HYPRE_BigInt>(i);
+    HYPRE_IJVectorSetValues(bvec, static_cast<HYPRE_Int>(n_), indices_.data(), zeros.data());
+    HYPRE_IJVectorSetValues(xvec, static_cast<HYPRE_Int>(n_), indices_.data(), zeros.data());
+    HYPRE_IJVectorAssemble(bvec);
+    HYPRE_IJVectorAssemble(xvec);
+    HYPRE_ParVector parB = nullptr, parX = nullptr;
+    HYPRE_IJVectorGetObject(bvec, reinterpret_cast<void**>(&parB));
+    HYPRE_IJVectorGetObject(xvec, reinterpret_cast<void**>(&parX));
+
+    const HYPRE_Int setupRc = (parB && parX) ? HYPRE_BoomerAMGSetup(amg, parA_, parB, parX) : -1;
+    HYPRE_IJVectorDestroy(bvec);
+    HYPRE_IJVectorDestroy(xvec);
+
+    if (setupRc != 0) {
+        char descr[256] = {0};
+        HYPRE_DescribeError(setupRc, descr);
+        std::cerr << "  Hypre: BoomerAMGSetup failed (rc=" << setupRc << ") " << descr << "\n";
+        built_ = false;
+        return;
+    }
+
+    ij_ = ij;
+    hypreMat_ = std::shared_ptr<void>(ij, [](void* p) { HYPRE_IJMatrixDestroy(static_cast<HYPRE_IJMatrix>(p)); });
+    hypreSolver_ = std::shared_ptr<void>(amg, [](void* p) { HYPRE_BoomerAMGDestroy(static_cast<HYPRE_Solver>(p)); });
+    hypreScale_ = scale_;
+
+    built_ = true;
+    useHypreActive_ = true;
+    hierarchyInfoReady_ = false;
+
+    auto tBuild = std::chrono::steady_clock::now();
+    buildTimeSec_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - buildStart).count();
+}
 
 AMGHierarchy::AMGHierarchy(Config config, int blockDim)
     : config_(config), blockDim_(std::max(1, blockDim)) {
