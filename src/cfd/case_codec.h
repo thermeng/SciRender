@@ -131,7 +131,13 @@ inline bool readObject(Struct& s, const QJsonObject& o,
                        const std::vector<Field<Struct>>& fields) {
     bool ok = true;
     for (const auto& f : fields) {
-        if (!f.fromJson(s, o.value(QString::fromUtf8(f.name)))) ok = false;
+        const QJsonValue v = o.value(QString::fromUtf8(f.name));
+        // A key that a newer build added is absent from older case files.
+        // Skipping it keeps the struct's current (default) value, which is what
+        // keeps existing files loadable across schema changes. Treating absence
+        // as a parse failure made every added field reject every old file.
+        if (v.isUndefined()) continue;
+        if (!f.fromJson(s, v)) ok = false;
     }
     return ok;
 }
@@ -187,8 +193,6 @@ inline const std::vector<Field<AmgSettings>>& amgFields() {
         i32("preSweeps", &AmgSettings::preSweeps),
         i32("postSweeps", &AmgSettings::postSweeps),
         i32("maxLevels", &AmgSettings::maxLevels),
-        flg("directCoarse", &AmgSettings::directCoarse),
-        i32("coarseEnough", &AmgSettings::coarseEnough),
         i32("minCoarseSize", &AmgSettings::minCoarseSize),
         dbl("strengthThreshold", &AmgSettings::strengthThreshold),
         dbl("truncThreshold", &AmgSettings::truncThreshold),
@@ -349,6 +353,9 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
         i32("pressureAmgPreconditionerCycles", &CaseSettings::pressureAmgPreconditionerCycles),
         flg("momentumAmgAsSolver", &CaseSettings::momentumAmgAsSolver),
         i32("momentumAmgCycles", &CaseSettings::momentumAmgCycles),
+        dbl("momentumAmgMaxResidual", &CaseSettings::momentumAmgMaxResidual),
+        i32("turbulenceAmgCycles", &CaseSettings::turbulenceAmgCycles),
+        dbl("turbulenceAmgMaxResidual", &CaseSettings::turbulenceAmgMaxResidual),
         flg("momentumSolverStats", &CaseSettings::momentumSolverStats),
         flg("pressureSolverStats", &CaseSettings::pressureSolverStats),
         Field<CaseSettings>{
@@ -370,6 +377,13 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
             [](const CaseSettings& s) { return serializeAmg(s.momentumAmg); },
             [](CaseSettings& s, const QJsonValue& v) {
                 return deserializeAmg(v.toObject(), s.momentumAmg);
+            },
+        },
+        Field<CaseSettings>{
+            "turbulenceAmg",
+            [](const CaseSettings& s) { return serializeAmg(s.turbulenceAmg); },
+            [](CaseSettings& s, const QJsonValue& v) {
+                return deserializeAmg(v.toObject(), s.turbulenceAmg);
             },
         },
     };

@@ -59,11 +59,10 @@ struct Config : public cfd::CaseSettings {
     double kInf = 1e-3;
     double omegaInf = 1.0;
     SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
-    ConvectionScheme convectionScheme = ConvectionScheme::Upwind;
+    ConvectionScheme convectionScheme = ConvectionScheme::SecondOrderUpwind;
     GradientScheme gradientScheme = GradientScheme::LeastSquares;
     bool pressureUseAMG = true;
     bool pressureUseAMGPreconditioner = true;
-    std::size_t pressureAmgThreshold = 0;
     // Override CaseSettings defaults where the solver needs different values:
     int pressureCorrectors = 3;           // CaseSettings: 1
     bool limitPressureCorrection = true;   // CaseSettings: false
@@ -80,30 +79,6 @@ struct Config : public cfd::CaseSettings {
         // Resolved stopping policy (populated by solver_config_bridge). The
         // iteration loop consults this instead of raw optional fields.
         cfd::ResolvedStoppingPolicy stoppingPolicy;
-
-        // A configuration that mirrors the  129x129 cavity run:
-        // one pressure corrector, AMG for both equations, a V cycle with CG
-        // acceleration for the pressure system and a variable (flex) cycle with
-        // Gauss-Seidel smoothing for momentum, and loose linear tolerances (0.1)
-        // that leave the outer loop to converge the solution. Use it as a
-        // starting point and override the physics settings (rho, nu, BCs) as
-        // needed.
-        static Config cavityLike() {
-            Config c;
-            c.pressureCorrectors = 1;
-            c.pressureUseAMG = true;
-            c.pressureUseAMGPreconditioner = true;
-            c.pressureAmgThreshold = 0;
-            c.pressureAmgPreconditionerCycles = 1;
-            c.pressureAmg.preSweeps = 1;
-            c.pressureAmg.postSweeps = 1;
-            c.pressureAmg.coarsening = cfd::AmgSettings::Coarsening::SmoothedAggregation;
-            c.pressureAmg.smoother = cfd::AmgSettings::Smoother::GaussSeidel;
-            c.pressureAmg.coarseEnough = 2;
-            c.pressureAmg.cycleType = cfd::AmgSettings::CycleType::VCycle;
-            c.pressureAmg.acceleration = cfd::AmgSettings::Acceleration::ConjugateGradient;
-            return c;
-        }
     };
 
     using VelocityBCType = ::fvm::VelocityBCType;
@@ -141,7 +116,7 @@ struct Config : public cfd::CaseSettings {
                                               double k, double omega);
 
     void enableTurbulence(double kInf = 1e-3, double omegaInf = 1.0,
-                          double alphaK = 0.7, double alphaOmega = 0.7,
+                          double alphaK = 0.8, double alphaOmega = 0.8,
                           bool wallFunction = false);
 
     void solve(VectorField<Dim>& velocity, Field<Dim>& pressure);
@@ -224,7 +199,6 @@ struct Config : public cfd::CaseSettings {
     void setRestartState(RestartState state) { restartState_ = std::move(state); }
     bool hasRestartState() const { return restartState_.has_value(); }
 
-    const Field<Dim>& pressure() const;
     double currentTime() const { return time_; }
     double currentDt() const { return dt_; }
     double currentDtPrev() const { return dtPrev_; }
@@ -425,7 +399,6 @@ private:
     // first rather than whichever check ran last.
     Failure failure_ = Failure::None;
     void fail_(Failure reason);
-    double adaptiveAlphaP_ = 0.0;
     double maxInletSpeed_ = 0.0;
     double prevContResid_ = 0.0;
     std::size_t stallCount_ = 0;
@@ -467,7 +440,6 @@ private:
     // Temporary output of computeDCoeffAndRelax; copied into diag_[d].
     mutable Field<Dim> momDiag_;
     // Reusable per-component temporaries (avoid reallocation each iteration).
-    mutable std::vector<Triplet> momTriplets_;
     mutable std::array<Field<Dim>, Dim> velGrad_;
     mutable std::array<Field<Dim>, Dim> pressureGrad_;
 

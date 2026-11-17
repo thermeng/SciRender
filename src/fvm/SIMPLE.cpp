@@ -1,7 +1,6 @@
 #include "fvm/SIMPLE.h"
 
 #include "fvm/PressureCorrection.h"
-#include "fvm/Gmres.h"
 #include "fvm/Residual.h"
 #include "fvm/VelocityCorrection.h"
 #include "fvm/SSTConstants.h"
@@ -71,9 +70,9 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
           c.amgAsSolver = config_.momentumAmgAsSolver;
           c.amgMaxResidual = config_.momentumAmgMaxResidual;
           c.solverStats = config_.momentumSolverStats;
+          c.amgConfig = config_.momentumAmg;
           return c;
       }()) {
-    linearSolverDispatcher_.setAmgConfig(config_.momentumAmg);
     applyPressureSolverConfig_();
     // Slope limiter for the SOU reconstruction (momentum + turbulence).
     momentum_.setLimiter(fvm::SlopeLimiterConfig{
@@ -138,6 +137,7 @@ void SIMPLE<Dim>::applyPressureSolverConfig_() {
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
     pcCfg.pressureAmg = config_.pressureAmg;
     pressureCorrection_.setConfig(pcCfg);
+    pressureCorrection_.setPressureGradient(pressureGradientCalc_.get());
 }
 
 template<std::size_t Dim>
@@ -286,7 +286,7 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
         sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
         sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
         turbulence_ = std::make_unique<SSTModel<Dim>>(mesh_, sstCfg);
-        turbulence_->initialize(nu_ * rho_, rho_);
+        turbulence_->initialize(nu_ * rho_, rho_, maxInletSpeed_);
     }
 }
 
@@ -312,7 +312,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     convergedStreak_ = 0;
     aborted_ = false;
     failure_ = Failure::None;
-    adaptiveAlphaP_ = isPiso_() ? 1.0 : config_.alphaP;
+    const double alphaP = isPiso_() ? 1.0 : config_.alphaP;
     prevContResid_ = 0.0;
     stallCount_ = 0;
     headerCounter_ = 0;
@@ -362,7 +362,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
             // the caller cached stays valid for the whole run.
             turbulence_->setConfig(sstCfg);
         }
-        turbulence_->initialize(nu_ * rho_, rho_);
+        turbulence_->initialize(nu_ * rho_, rho_, maxInletSpeed_);
         turbulence_->setBoundaryConditions(bcDiscretization_.faceBCs());
         for (const auto& it : config_.inletTurbulence) {
             auto git = mesh_.boundaryGroups().find(it.patch);
@@ -381,7 +381,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     if (!config_.checkpoint.restartFrom.empty()) {
         std::size_t savedIter = 0;
         double savedCont = 0.0, savedMom = 0.0;
-        double savedAlphaP = config_.alphaP;
+        double savedAlphaP = 0.0; // checkpoint API requires this field
         std::size_t savedStall = 0;
         double savedPrev = 0.0;
 
@@ -401,7 +401,6 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
                              kPtr, omegaPtr, nutPtr)) {
             startIteration_ = savedIter;
             restarting_ = true;
-            adaptiveAlphaP_ = isPiso_() ? 1.0 : savedAlphaP;
             stallCount_ = savedStall;
             prevContResid_ = savedPrev;
             lastContResid_ = std::numeric_limits<double>::max();
@@ -502,6 +501,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure, std::size_t iter) {
+    const double alphaP = isPiso_() ? 1.0 : config_.alphaP;
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
@@ -541,13 +541,13 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
                     &bcDiscretization_.faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
-                    adaptiveAlphaP_,
+                    alphaP,
                     pressureGradientCalc_.get());
         steadyVelocityCorrectionSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tCorrection).count();
 
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
-            (boundPressure())[i] += adaptiveAlphaP_ * pPrime_[i];
+            (boundPressure())[i] += alphaP * pPrime_[i];
         }
 
         // Face-based pressure outlet (exact per-face pRef, fixes cell dedup loss)
@@ -708,7 +708,7 @@ void SIMPLE<Dim>::updateResiduals_() {
         }
     }
 
-    if (isPiso_()) adaptiveAlphaP_ = 1.0;
+    
     prevContResid_ = lastContResid_;
 
     residualHistory_.push_back(lastContResid_);
@@ -790,7 +790,7 @@ void SIMPLE<Dim>::saveCheckpoint_(std::size_t iter, const TransientBlock<Dim>* t
         }
         Checkpoint::save(config_.checkpoint, iter + 1,
                          lastContResid_, lastMomResid_,
-                         adaptiveAlphaP_, stallCount_, prevContResid_,
+                         isPiso_() ? 1.0 : config_.alphaP, stallCount_, prevContResid_,
                          boundVelocity(), boundPressure(),
                          kPtr, omegaPtr, nutPtr, transient);
     }
@@ -1398,7 +1398,8 @@ double SIMPLE<Dim>::computeAdaptiveDt_() const {
 template<std::size_t Dim>
 void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     // PISO: no pressure under-relaxation. PIMPLE keeps SIMPLE relaxation.
-    if (isPiso_()) adaptiveAlphaP_ = 1.0;
+    const double alphaP = isPiso_() ? 1.0 : config_.alphaP;
+    
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
@@ -1417,11 +1418,11 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
                     &bcDiscretization_.faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
-                    adaptiveAlphaP_,
+                    alphaP,
                     pressureGradientCalc_.get());
     #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
-        (boundPressure())[i] += adaptiveAlphaP_ * pPrime_[i];
+        (boundPressure())[i] += alphaP * pPrime_[i];
     }
     applyPressureOutletReference_(boundPressure());
     if (turbulence_) {
@@ -1459,7 +1460,6 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     (void)velocity;
     (void)pressure;
-    adaptiveAlphaP_ = 1.0;
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
@@ -1544,6 +1544,7 @@ template<std::size_t Dim>
 void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     (void)velocity;
     (void)pressure;
+    const double alphaP = 1.0; // PISO: no under-relaxation
     // nonOrthogonalCorrectors is the number of inner PISO passes per outer
     // corrector. Each pass reconstructs the momentum residual at the velocity
     // the previous pass produced and projects it again; this is not a no-op
@@ -1588,7 +1589,7 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
                         &bcDiscretization_.faceBCs(),
                         config_.velocityCorrectionMaxUnlimitedSpeed,
                         config_.velocityCorrectionMaxGrowthRate,
-                        adaptiveAlphaP_,
+                        alphaP,
                         pressureGradientCalc_.get());
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
@@ -1706,6 +1707,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
     // top of a mid-run field and lost u^{n-1}.
     bool haveHistory = false;
     if (restarting_) {
+        double alphaP = config_.alphaP; // checkpoint API requires this field
         TransientBlock<Dim> tb;
         tb.velocityN = &velocityN_;
         tb.velocityNM1 = &velocityNM1_;
@@ -1715,7 +1717,7 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         tb.omegaNM1 = turbulence_ ? &omegaNM1_ : nullptr;
         if (Checkpoint::load(config_.checkpoint.restartFrom, mesh_,
                              startIteration_, lastContResid_, lastMomResid_,
-                             adaptiveAlphaP_, stallCount_, prevContResid_,
+                             alphaP, stallCount_, prevContResid_,
                              velocity, pressure,
                              turbulence_ ? &turbulence_->k() : nullptr,
                              turbulence_ ? &turbulence_->omega() : nullptr,

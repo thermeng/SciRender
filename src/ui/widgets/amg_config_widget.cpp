@@ -137,14 +137,14 @@ void AmgConfigWidget::buildUi() {
     m_restrictionTolerance->setRange(0.01, 0.99);
     m_restrictionTolerance->setDecimals(2);
     m_restrictionTolerance->setSingleStep(0.05);
-    m_restrictionTolerance->setToolTip("Restriction tolerance (STAR: Restriction Tolerance = 0.9). Go coarser when R_i < alpha * R_{i-1}.");
+    m_restrictionTolerance->setToolTip("Restriction tolerance (STAR: Restriction Tolerance = 0.9).\nGo coarser when R_i > β * R_{i-1} (residual not dropping fast enough).");
     flex->addRow("Restriction", m_restrictionTolerance);
 
     m_prolongationTolerance = uikit::numeric(new QDoubleSpinBox(this));
     m_prolongationTolerance->setRange(0.01, 0.99);
     m_prolongationTolerance->setDecimals(2);
     m_prolongationTolerance->setSingleStep(0.05);
-    m_prolongationTolerance->setToolTip("Termination tolerance (STAR: Prolongation Tolerance = 0.5). Stop refining when R_i < beta * R_0.");
+    m_prolongationTolerance->setToolTip("Prolongation tolerance (STAR: Prolongation Tolerance = 0.5).\nStop refining when R_i < α * R_0 (level sufficiently resolved).");
     flex->addRow("Termination", m_prolongationTolerance);
 
     m_flexSweeps = uikit::numeric(new QSpinBox(this));
@@ -184,18 +184,6 @@ void AmgConfigWidget::buildUi() {
     // ── Coarse solve ─────────────────────────────────────────────────────────
     QFormLayout* coarse = makeGroup("Coarse Solve", 1).second;
 
-    m_directSolver = new QCheckBox("Enable The Direct Solver", this);
-    m_directSolver->setToolTip(
-        "Solve the coarsest level directly instead of relaxing it.");
-    coarse->addRow(m_directSolver);
-
-    m_directMaxEquations = uikit::numeric(new QSpinBox(this));
-    m_directMaxEquations->setRange(1, 100000);
-    m_directMaxEquations->setToolTip(
-        "Maximum number of equations handled by the direct coarse solve. Coarsening\n"
-        "stops once a level has at most this many unknowns.");
-    coarse->addRow("Maximum Direct Solver Equations", m_directMaxEquations);
-
     m_epsilon = toleranceSpin();
     m_epsilon->setToolTip(
         "Absolute linear-system residual floor. Below this value the multimesh loop\n"
@@ -225,9 +213,10 @@ void AmgConfigWidget::buildUi() {
     m_scaling = styleCombo(new QComboBox(this));
     m_scaling->addItems({"Automatic", "Disabled"});
     m_scaling->setToolTip(
-        "Proportional scaling of the coarse-level correction. Applicable to symmetric\n"
-        "positive definite matrices; the amgcl backend stores the choice but does not\n"
-        "apply scaling.");
+        "Diagonal equilibration of the system matrix before AMG setup.\n"
+        "Automatic: scale by 1/sqrt(|diag|) — improves convergence for SPD\n"
+        "matrices (pressure). Disabled: use raw operator — correct for\n"
+        "nonsymmetric matrices (momentum, turbulence).");
     smoother->addRow("Proportional Scaling", m_scaling);
 
     // ── Aggregation ──────────────────────────────────────────────────────────
@@ -318,8 +307,8 @@ void AmgConfigWidget::buildUi() {
 
     // ── Change notifications ─────────────────────────────────────────────────
     for (QSpinBox* spin : {m_maxCycles, m_preSweeps, m_postSweeps, m_maxLevels,
-                           m_directMaxEquations, m_groupSize, m_minCoarse,
-                           m_stagnationMinIter, m_flexSweeps, m_saDegree}) {
+                           m_groupSize, m_minCoarse, m_stagnationMinIter,
+                           m_flexSweeps, m_saDegree}) {
         connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit changed(); });
     }
     for (QDoubleSpinBox* spin : {m_tolerance, m_epsilon,
@@ -335,10 +324,6 @@ void AmgConfigWidget::buildUi() {
         connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
                 [this](int) { syncDependencies(); emit changed(); });
     }
-    connect(m_directSolver, &QCheckBox::toggled, this, [this](bool) {
-        syncDependencies();
-        emit changed();
-    });
     connect(m_nonsymmetric, &QCheckBox::toggled, this, [this](bool) {
         syncDependencies();
         emit changed();
@@ -358,13 +343,17 @@ void AmgConfigWidget::syncDependencies() {
     m_flexSweeps->setEnabled(flex);
     m_maxFineRelaxations->setEnabled(flex);
     m_maxCoarseRelaxations->setEnabled(flex);
-    m_directMaxEquations->setEnabled(m_directSolver->isChecked());
 
     const bool manualGroup =
         m_groupSizeControl->currentIndex() == static_cast<int>(cfd::AmgSettings::GroupSizeControl::Manual);
+    const bool isBoomerAMG =
+        m_backend->currentIndex() == static_cast<int>(cfd::AmgSettings::Backend::BoomerAMG);
+    // Smoothed Aggregation prolongation is only meaningful for the cached
+    // aggregation backend; BoomerAMG uses HMIS coarsening instead.
     const bool aggregation =
-        m_coarsening->currentIndex() == static_cast<int>(cfd::AmgSettings::Coarsening::SmoothedAggregation) ||
-        m_nonsymmetric->isChecked();
+        !isBoomerAMG &&
+        (m_coarsening->currentIndex() == static_cast<int>(cfd::AmgSettings::Coarsening::SmoothedAggregation) ||
+         m_nonsymmetric->isChecked());
     m_groupSizeControl->setEnabled(aggregation);
     m_smoothedProlongation->setEnabled(aggregation);
     m_saOmega->setEnabled(aggregation && m_smoothedProlongation->isChecked());
@@ -405,8 +394,6 @@ void AmgConfigWidget::setConfig(const cfd::AmgSettings& s) {
     m_postSweeps->setValue(s.postSweeps);
     m_maxLevels->setValue(s.maxLevels);
 
-    m_directSolver->setChecked(s.directCoarse);
-    m_directMaxEquations->setValue(s.coarseEnough);
     m_epsilon->setValue(s.epsilon);
 
     m_smoother->setCurrentIndex(static_cast<int>(s.smoother));
@@ -451,8 +438,6 @@ cfd::AmgSettings AmgConfigWidget::config() const {
     s.postSweeps = m_postSweeps->value();
     s.maxLevels = m_maxLevels->value();
 
-    s.directCoarse = m_directSolver->isChecked();
-    s.coarseEnough = m_directMaxEquations->value();
     s.epsilon = m_epsilon->value();
 
     s.smoother = static_cast<cfd::AmgSettings::Smoother>(m_smoother->currentIndex());

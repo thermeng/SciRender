@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace fvm {
@@ -36,7 +37,23 @@ public:
         int amgCycles = 2;
         double amgMaxResidual = 1e-8;
         bool solverStats = false;
+        // When true, the Krylov step uses CG instead of BiCGSTAB. Only valid
+        // for SPD operators (the compact Rhie-Chow pressure matrix).
+        bool preferCG = false;
         cfd::AmgSettings amgConfig;
+        // Diagnostic name per component, used by every solver log line. The
+        // defaults name the momentum components because that is the only
+        // multi-component equation; pressure and turbulence override their
+        // single entry.
+        std::array<std::string, Dim> labels = defaultLabels();
+
+        static std::array<std::string, Dim> defaultLabels() {
+            constexpr const char* kNames[] = {"momentum[U]", "momentum[V]", "momentum[W]"};
+            std::array<std::string, Dim> l;
+            for (std::size_t d = 0; d < Dim; ++d)
+                l[d] = (d < 3) ? kNames[d] : "momentum";
+            return l;
+        }
     };
 
     struct Result {
@@ -47,7 +64,11 @@ public:
 
     LinearSolverDispatcher(const Mesh<Dim>& mesh, const Config& config);
 
-    void setAmgConfig(const cfd::AmgSettings& cfg) { config_.amgConfig = cfg; }
+    // Replace the whole solver configuration. Any hierarchy built under the
+    // previous configuration is discarded and rebuilt on the next solve, so a
+    // changed backend/coarsening/tolerance actually takes effect instead of
+    // being masked by a warm hierarchy.
+    void setConfig(const Config& config);
 
     // Solve A x = b for momentum component d. The solve uses amgMaxResidual
     // from the config as the |r|/|b| convergence tolerance. The solution is
@@ -88,6 +109,8 @@ private:
     mutable std::array<AMGHierarchy, Dim> amg_;
     mutable std::array<AMGPreconditioner, Dim> amgPrec_;
     mutable std::array<Eigen::BiCGSTAB<SparseMatrix, AMGPreconditioner>, Dim> amgSolver_;
+    mutable std::array<Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
+                                                 AMGPreconditioner>, Dim> cgAmgSolver_;
     mutable std::array<bool, Dim> amgBuilt_{};
     mutable std::array<std::size_t, Dim> amgPatternHash_{};
     mutable std::array<std::size_t, Dim> amgValueUpdates_{};
@@ -109,6 +132,11 @@ private:
     mutable Stats stats_{};
 
     static bool hasPositiveOffDiagonals_(const SparseMatrix& A);
+
+    // Diagnostic name used in log lines for this dispatcher's equation.
+    const std::string& label_(std::size_t component) const {
+        return config_.labels[component];
+    }
 };
 
 extern template class LinearSolverDispatcher<2>;
