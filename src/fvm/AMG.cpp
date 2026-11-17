@@ -10,6 +10,103 @@ namespace fvm {
 
 using cfd::AmgSettings;
 
+// ============================================================================
+// BoomerAMGBackend — stub (full implementation migrated from AMGHierarchy below)
+// ============================================================================
+class BoomerAMGBackend : public AMGBackend {
+public:
+    explicit BoomerAMGBackend(Config config, int blockDim)
+        : config_(config), blockDim_(std::max(1, blockDim)) {}
+
+    void setConfig(const Config& config) override { config_ = config; }
+    const Config& config() const override { return config_; }
+
+    void build(const SparseMatrix& A) override { /* TODO */ }
+    void invalidate() override { /* TODO */ }
+    bool isBuilt() const override { return false; }
+
+    bool solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+               const std::atomic<bool>* cancel = nullptr) override { return false; }
+    bool applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const override { return false; }
+    Eigen::VectorXd flexCycle(int level, const Eigen::VectorXd& b,
+                              Eigen::VectorXd& x) const override { return {}; }
+
+    int numLevels() const override { return 0; }
+    int fineSize() const override { return 0; }
+    const std::vector<int>& levelSizes() const override { return emptyLevels_; }
+    std::string hierarchyReport() const override { return "BoomerAMG (stub)"; }
+    int lastIterations() const override { return 0; }
+    double lastResidual() const override { return 0.0; }
+    const std::vector<double>& lastResidualHistory() const override { return emptyHistory_; }
+    double buildTime() const override { return 0.0; }
+    double solveTime() const override { return 0.0; }
+
+    bool hasCachedAggregation() const override { return false; }
+    bool hierarchyCurrent() const override { return false; }
+    void refreshHierarchyValues(const SparseMatrix& A) override {}
+    void updateFineValues(const SparseMatrix& A) override {}
+
+private:
+    Config config_;
+    int blockDim_ = 2;
+    std::vector<int> emptyLevels_;
+    std::vector<double> emptyHistory_;
+};
+
+// ============================================================================
+// AggregationBackend — stub (full implementation migrated from AMGHierarchy below)
+// ============================================================================
+class AggregationBackend : public AMGBackend {
+public:
+    explicit AggregationBackend(Config config, int blockDim)
+        : config_(config), blockDim_(std::max(1, blockDim)) {}
+
+    void setConfig(const Config& config) override { config_ = config; }
+    const Config& config() const override { return config_; }
+
+    void build(const SparseMatrix& A) override { /* TODO */ }
+    void invalidate() override { /* TODO */ }
+    bool isBuilt() const override { return false; }
+
+    bool solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+               const std::atomic<bool>* cancel = nullptr) override { return false; }
+    bool applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const override { return false; }
+    Eigen::VectorXd flexCycle(int level, const Eigen::VectorXd& b,
+                              Eigen::VectorXd& x) const override { return {}; }
+
+    int numLevels() const override { return 0; }
+    int fineSize() const override { return 0; }
+    const std::vector<int>& levelSizes() const override { return emptyLevels_; }
+    std::string hierarchyReport() const override { return "Cached Aggregation (stub)"; }
+    int lastIterations() const override { return 0; }
+    double lastResidual() const override { return 0.0; }
+    const std::vector<double>& lastResidualHistory() const override { return emptyHistory_; }
+    double buildTime() const override { return 0.0; }
+    double solveTime() const override { return 0.0; }
+
+    bool hasCachedAggregation() const override { return true; }
+    bool hierarchyCurrent() const override { return false; }
+    void refreshHierarchyValues(const SparseMatrix& A) override {}
+    void updateFineValues(const SparseMatrix& A) override {}
+
+private:
+    Config config_;
+    int blockDim_ = 2;
+    std::vector<int> emptyLevels_;
+    std::vector<double> emptyHistory_;
+};
+
+AMGHierarchy::AMGHierarchy(Config config, int blockDim)
+    : config_(config), blockDim_(std::max(1, blockDim)) {
+    if (config.backend == Config::Backend::CachedAggregation) {
+        backend_.reset(new AggregationBackend(config, blockDim));
+    } else {
+        backend_.reset(new BoomerAMGBackend(config, blockDim));
+    }
+}
+
+AMGHierarchy::~AMGHierarchy() = default;
+
 void AMGHierarchy::build(const SparseMatrix& A) {
     cgrid_.clear(); built_ = false; amgHandle_.reset();
     hypreMat_.reset(); hypreSolver_.reset();

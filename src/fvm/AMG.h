@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cfd/cfd_types.h"
+#include "fvm/AMGBackend.h"
 #include "fvm/Types.h"
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
@@ -26,13 +27,25 @@ struct AMGLevel {
 
 struct AmgHandleBase { virtual ~AmgHandleBase() = default; };
 
+class AMGBackend;
+class BoomerAMGBackend;
+class AggregationBackend;
+
 class AMGHierarchy {
 public:
     using Config = cfd::AmgSettings;
 
     AMGHierarchy() = default;
-    explicit AMGHierarchy(Config config, int blockDim = 2)
-        : config_(config), blockDim_(std::max(1, blockDim)) {}
+    explicit AMGHierarchy(Config config, int blockDim = 2);
+    ~AMGHierarchy();
+    AMGHierarchy(const AMGHierarchy&) = delete;
+    AMGHierarchy& operator=(const AMGHierarchy&) = delete;
+    AMGHierarchy(AMGHierarchy&&) = default;
+    AMGHierarchy& operator=(AMGHierarchy&&) = default;
+
+    // Backend accessor
+    AMGBackend* backend() { return backend_.get(); }
+    const AMGBackend* backend() const { return backend_.get(); }
 
     void build(const SparseMatrix& A);
 
@@ -87,6 +100,7 @@ public:
 
 private:
     Config config_;
+    std::unique_ptr<AMGBackend> backend_;
     // Unknowns per node (1 = scalar, 2 = 2D group size, 4 = 3D).
     // Passed to Hypre systems AMG (SetNumFunctions + SetDofFunc).
     int blockDim_ = 2;
