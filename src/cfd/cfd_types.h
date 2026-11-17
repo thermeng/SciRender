@@ -51,16 +51,14 @@ struct AmgSettings {
     ProportionalScaling scaling = ProportionalScaling::Automatic;
     GroupSizeControl groupSizeControl = GroupSizeControl::Automatic;
     int blockSize = 1;           // Group size (Manual)
-    // Which AMG backend builds the hierarchy. BoomerAMG is the
-    // default: a full value-dependent coarsening every setup. The
-    // cached aggregation backend reuses its aggregation maps and only
-    // refreshes the level operators (O(nnz)), which is far cheaper per
-    // outer iteration but needs more smoothing to converge as tightly.
+    // Which AMG backend builds the hierarchy. Cached aggregation is the
+    // default: it reuses its aggregation maps and only refreshes the level
+    // operators (O(nnz)) on each outer iteration. BoomerAMG (Hypre) is a full
+    // value-dependent coarsening on every setup — more robust per iteration,
+    // but it re-coarsens the whole hierarchy each time.
     enum class Backend { BoomerAMG, CachedAggregation };
-    // BoomerAMG is the default backend: full value-dependent coarsening on
-    // every setup gives the strongest convergence per outer iteration.
-    // Cached aggregation remains available for cheaper per-iteration setup.
-    Backend backend = Backend::BoomerAMG;
+    // Cached aggregation is the default backend (UI and CLI agree).
+    Backend backend = Backend::CachedAggregation;
 
     // --- Smoothing / hierarchy -------------------------------------------
     int preSweeps = 1;           // Pre-smooths
@@ -114,12 +112,11 @@ struct AmgSettings {
         s.scaling = ProportionalScaling::Automatic;
         s.strengthThreshold = 0.25;
         s.truncThreshold = 0.2;
-        // BoomerAMG (Hypre) is the robust choice for pressure: classical
-        // Ruge-Stuben coarsening with proper interpolation handles 3D Laplacians
-        // far better than unsmoothed aggregation. Cached aggregation is still
-        // available by explicitly selecting it, but BoomerAMG is the default
-        // because it converges in ~2 CG iterations vs ~10+ for unsmoothed.
-        s.backend = Backend::BoomerAMG;
+        // Cached aggregation matches the struct default and the UI/CLI default:
+        // aggregation maps are reused, so only the level operators are refreshed
+        // per outer iteration. Select BoomerAMG explicitly when the extra
+        // robustness of full value-dependent coarsening is worth the setup cost.
+        s.backend = Backend::CachedAggregation;
         return s;
     }
     static AmgSettings momentumDefaults() {

@@ -46,6 +46,10 @@ private:
     Renderer& m_renderer;
     std::shared_ptr<const RenderMesh> m_mesh;
     QFutureWatcher<BuildResult> m_watcher;
+    // Last grid handed to the renderer. Kept so a same-topology re-upload
+    // (Renderer::uploadMesh drops the grid on every mesh upload) can restore it
+    // without rebuilding.
+    std::shared_ptr<const volume::DerivedGrid> m_grid;
     uint64_t m_token = 0;       // bumped for every launch / clear
     uint64_t m_signature = 0;   // topology of m_mesh, 0 = not eligible
 };

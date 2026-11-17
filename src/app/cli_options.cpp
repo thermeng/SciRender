@@ -166,10 +166,11 @@ std::string usage() {
         "  --iter <n>           Steady: run exactly n iterations.\n"
         "                       Transient: run n time steps from the restart point.\n"
         "  --verbosity <level>  AMG verbosity: low, high or diagnosis.\n"
-        "  --cached-aggregation  Use the cached-aggregation AMG backend.\n"
+        "  --cached-aggregation  Use the cached-aggregation AMG backend (default).\n"
         "  --smoothed-aggregation  Enable smoothed prolongation on top of cached\n"
         "                        aggregation (Smoothed Aggregation AMG).\n"
-        "  --boomer              Force BoomerAMG (Hypre) backend.\n"
+        "  --boomer              Force BoomerAMG (Hypre) instead of the default\n"
+        "                        cached-aggregation backend.\n"
         "  --help, -h           Show this help.\n"
         "\n"
         "Without --scfd the GUI starts. CLI runs write no result files.\n";
