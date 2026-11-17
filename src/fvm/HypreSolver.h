@@ -185,10 +185,10 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
                                      int blockDim) {
     // The matrix is scalar (one unknown per row). STAR's "Group Size"
     // (2 in 2D / 4 in 3D) is handled below via Hypre's systems-AMG
-    // interface (SetNumFunctions + SetDofFunc + SetNodal), not by padding
-    // the matrix: padding with SparseMatrix::resize() would deallocate
-    // every nonzero (it handed Hypre an empty matrix for odd n, e.g. the
-    // 16,641 unknowns of the 129x129 cavity) and make setup fail.
+    // interface (SetNumFunctions + SetNodal; Hypre owns the dof map), not by
+    // padding the matrix: padding with SparseMatrix::resize() would
+    // deallocate every nonzero (it handed Hypre an empty matrix for odd n,
+    // e.g. the 16,641 unknowns of the 129x129 cavity) and make setup fail.
     int n = static_cast<int>(A.rows());
     SparseMatrix Aeff = A;
     if (n <= 0 || static_cast<int>(A.cols()) != n) return false;
@@ -390,9 +390,18 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     //   uses "Group Size = Auto" (2 in 2D, 4 in 3D): the unknowns
     // of a cell are grouped into one aggregate so coarsening, interpolation
     // and relaxation treat the group as a single node. Hypre's systems-AMG
-    // interface provides exactly this: num_functions = group size, a
-    // dof_func map (unknown -> function index), and Nodal > 1 turns on
+    // interface provides exactly this: num_functions = group size plus a
+    // dof_func map (unknown -> function index) and Nodal > 1 to turn on
     // nodal coarsening/interpolation. Group size 1 keeps the scalar path.
+    //
+    // Do NOT supply the map with HYPRE_BoomerAMGSetDofFunc(): that call
+    // stores the caller's raw pointer (hypre_IntArrayCreate(-1) +
+    // IntArrayData = dof_func) and destroys it, freeing the buffer, when the
+    // hierarchy is refreshed or destroyed. A pointer to a local vector is
+    // therefore a use-after-free during setup/solve and a double free at
+    // teardown. When no map is set, BoomerAMG allocates and owns one in
+    // HYPRE_BoomerAMGSetup, filled with (i + offset) % num_functions -
+    // exactly the interleaved map this code used to build by hand.
     {
         const HYPRE_Int groupSize =
             static_cast<HYPRE_Int>(cfg.effectiveBlockSize(blockDim));
@@ -400,10 +409,6 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
             HYPRE_BoomerAMGSetNumFunctions(amg, groupSize);
             HYPRE_BoomerAMGSetNodal(amg, 1);
             HYPRE_BoomerAMGSetNodalLevels(amg, 1);
-            std::vector<HYPRE_Int> dof(static_cast<std::size_t>(n));
-            for (int i = 0; i < n; ++i)
-                dof[static_cast<std::size_t>(i)] = i % groupSize;
-            HYPRE_BoomerAMGSetDofFunc(amg, dof.data());
         }
     }
     // One cycle per applyCycle(): solver tolerance off, max 1 iteration.

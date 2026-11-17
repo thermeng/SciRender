@@ -15,8 +15,8 @@ enum class GradientScheme { LeastSquares, GreenGaussCellBased, GreenGaussNodeBas
 // Cell-centred gradient of a scalar field.
 //
 // The three schemes differ only in how the value AT A FACE is obtained:
-//   LeastSquares        - a weighted least-squares fit over the neighbouring
-//                          cell centres, with a mirrored ghost cell at a wall;
+//   LeastSquares        - a least-squares fit over the neighbouring cell
+//                          centres;
 //   GreenGaussCellBased - the exact linear interpolation between the two cell
 //                          centres of the face;
 //   GreenGaussNodeBased - the average of the nodal values on the face.
@@ -44,9 +44,9 @@ public:
     // out[d][cell] lists (column, coefficient) pairs with
     //   (G phi)[d][cell] = sum over (c, k) in out[d][cell] of k * phi[c],
     // using exactly the weights compute() applies for the LeastSquares scheme
-    // (the fit over the interior neighbours, the singular-mesh fallback). The
-    // scheme must therefore be LeastSquares when this is asked for; another
-    // scheme throws.
+    // (the fit over the interior neighbours, with rank-truncated inversion of
+    // the normal matrix). The scheme must therefore be LeastSquares when this
+    // is asked for; another scheme throws.
     void buildMatrices(std::array<std::vector<std::vector<std::pair<std::size_t, double>>>, Dim>& out) const;
 
     const Mesh<Dim>& mesh() const;
@@ -74,12 +74,19 @@ private:
                               const std::vector<char>& dirichletMask,
                               const std::vector<double>& dirichletValues) const;
 
-    // Geometry-only normal matrix of the least-squares fit. Built once.
+    // Geometry-only normal matrix of the least-squares fit, together with its
+    // rank-truncated pseudo-inverse. Built once.
     void buildNormalMatrix_() const;
 
     const Mesh<Dim>& mesh_;
     GradientScheme scheme_ = GradientScheme::LeastSquares;
     mutable std::vector<Eigen::Matrix<double, Dim, Dim>> M_all_;
+    // Pseudo-inverse of M_all_, with eigenvalues below a relative threshold
+    // dropped. A cell on a wall edge has only Dim-1 interior neighbours, so its
+    // normal matrix is rank deficient; a plain inverse divides by a
+    // roundoff-sized determinant and produces an O(1/eps) gradient that
+    // destroys the run.
+    mutable std::vector<Eigen::Matrix<double, Dim, Dim>> Mpinv_all_;
     mutable std::vector<Eigen::Matrix<double, Dim, 1>> rhs_all_;
     mutable bool normalMatrixBuilt_ = false;
 };

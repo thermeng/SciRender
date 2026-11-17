@@ -65,12 +65,6 @@ public:
     // operator, so it cannot change the upwind or central schemes.
     void setLimiter(const SlopeLimiterConfig& config) { limiter_.configure(config); }
 
-    void computePressureGradient(const Field<Dim>& pressure,
-                                 std::array<Field<Dim>, Dim>& grad) const;
-    // Fused Dim=3 single-pass pressure gradient — replaces Dim × O(nF) with 1 × O(nF)
-    void computePressureGradientFused_(const Field<Dim>& pressure,
-                                       std::array<Field<Dim>, Dim>& grad) const;
-
     void computeDCoeffAndRelax(SparseMatrix& A, Eigen::VectorXd& b,
                                const std::vector<char>& dirichletMask,
                                const Field<Dim>& velocityOld,

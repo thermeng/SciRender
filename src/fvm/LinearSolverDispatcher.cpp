@@ -19,8 +19,6 @@ LinearSolverDispatcher<Dim>::LinearSolverDispatcher(const Mesh<Dim>& mesh, const
         amgSolver_[d].setMaxIterations(5000);
         amgSolver_[d].setTolerance(config_.amgMaxResidual);
     }
-    iluSolver_.setMaxIterations(50000);
-    iluSolver_.setTolerance(1e-8);
 }
 
 template<std::size_t Dim>
@@ -39,38 +37,6 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     // Report the failure so SIMPLE aborts with a reason instead of continuing
     // on a silently repaired field.
     if (!b.allFinite()) return {Eigen::VectorXd::Zero(n), true, 0};
-
-    // Threshold 0 means "always use AMG".
-    const std::size_t momThreshold = config_.amgThreshold;
-    const bool amgEligible =
-        config_.useAMG &&
-        !amgDisabledReason_[component] &&
-        (momThreshold == 0 || n >= momThreshold);
-
-    if (!amgEligible) {
-        if (config_.useAMG && !amgDisabledReason_[component] &&
-            momThreshold != 0 && n < momThreshold) {
-            amgDisabledReason_[component] = true;
-        }
-        if (!amgPathLogged_[component]) {
-            if (!config_.useAMG) {
-                std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
-                          << "]: AMG disabled by config; using BiCGSTAB+ILU.\n";
-            } else if (momThreshold != 0 && n < momThreshold) {
-                std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
-                          << "]: AMG skipped (n=" << n << " < threshold " << momThreshold
-                          << "); using BiCGSTAB+ILU.\n";
-            }
-            amgPathLogged_[component] = true;
-        }
-        std::size_t iters = 0;
-        const auto t0 = std::chrono::steady_clock::now();
-        Eigen::VectorXd x = solveILU_(component, A, b, iters);
-        stats_.iluSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        ++stats_.iluSolves;
-        stats_.krylovIters += iters;
-        return {std::move(x), false, iters};
-    }
 
     // STAR parity: Acceleration Method = None means the AMG hierarchy *is*
     // the solver (its own Max Cycle / Convergence Tolerance drive it), not a
@@ -122,9 +88,6 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
             stats_.buildSeconds += std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - tRefresh).count();
         } else {
-            // Standalone AMG solves the operator it was set up with; the
-            // hierarchy *is* the solver, so refresh the fine values on every
-            // standalone solve (see the divergence note above).
             const std::size_t interval =
                 standaloneAmg ? 1 : std::max<std::size_t>(1, config_.amgRebuildInterval);
             if (++amgValueUpdates_[component] >= interval) {
@@ -135,11 +98,9 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     }
 
     if (!amgBuilt_[component]) {
-        std::size_t iters = 0;
-        Eigen::VectorXd x = solveILU_(component, A, b, iters);
-        ++stats_.iluSolves;
-        stats_.krylovIters += iters;
-        return {std::move(x), false, iters};
+        std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
+                  << "]: AMG hierarchy failed to build\n";
+        return {Eigen::VectorXd::Zero(b.size()), true, 0};
     }
 
     const auto momAccel = config_.amgConfig.acceleration;
@@ -156,19 +117,9 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
             return {Eigen::VectorXd::Zero(b.size()), true, 0};
         }
 
-        if (!ok && (!x.allFinite() || !std::isfinite(amg_[component].lastResidual()))) {
-            std::size_t iters = 0;
-            x = solveILU_(component, A, b, iters);
-            stats_.iluSolves++;
-            stats_.krylovIters += iters;
-            ++stats_.amgRejected;
-            if (!x.allFinite()) {
-                return {Eigen::VectorXd::Zero(b.size()), true, 0};
-            }
-            return {std::move(x), false, iters};
-        }
-
-        if (!x.allFinite()) {
+        if (!ok || !x.allFinite() || !std::isfinite(amg_[component].lastResidual())) {
+            std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
+                      << "]: AMG solve failed (resid=" << amg_[component].lastResidual() << ")\n";
             return {Eigen::VectorXd::Zero(b.size()), true, 0};
         }
         ++stats_.amgSolves;
@@ -255,62 +206,22 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     double rnorm = (A * x - b).norm();
     double rel = bnorm > 0.0 ? rnorm / bnorm : rnorm;
 
-    bool bad =
+    const bool bad =
         !std::isfinite(rel) ||
         !x.allFinite() ||
         !std::isfinite(rnorm);
 
-    if (bad && !(cancelRequested && cancelRequested->load(std::memory_order_acquire))) {
-        std::size_t iters = 0;
-        x = solveILU_(component, A, b, iters);
-        stats_.iluSolves++;
-        stats_.krylovIters += iters;
-        if (x.allFinite()) {
-            rnorm = (A * x - b).norm();
-            rel = bnorm > 0.0 ? rnorm / bnorm : rnorm;
-            bad = !std::isfinite(rel) || !x.allFinite() || !std::isfinite(rnorm);
-        }
-    }
-
     if (bad) {
-        if (!x.allFinite() || !std::isfinite(rel) || !std::isfinite(rnorm)) {
-            return {Eigen::VectorXd::Zero(b.size()), true, 0};
-        }
-        if (!x.allFinite()) {
-            x = Eigen::VectorXd::Zero(b.size());
-        }
-        return {std::move(x), false, 0};
+        std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
+                  << "]: AMG-preconditioned Krylov solve failed (resid=" << rel << ")\n";
+        return {Eigen::VectorXd::Zero(b.size()), true, 0};
     }
 
     ++stats_.amgSolves;
     return {std::move(x), false, 0};
 }
 
-template<std::size_t Dim>
-Eigen::VectorXd LinearSolverDispatcher<Dim>::solveILU_(std::size_t d, const SparseMatrix& A,
-                                                        const Eigen::VectorXd& b,
-                                                        std::size_t& itersOut) {
-    if (!iluPatternAnalyzed_[d]) {
-        iluSolver_.setMaxIterations(50000);
-        iluSolver_.setTolerance(1e-8);
-        iluSolver_.analyzePattern(A);
-        iluPatternAnalyzed_[d] = true;
-    }
-    iluSolver_.factorize(A);
-    Eigen::VectorXd x = iluSolver_.solve(b);
-    itersOut = static_cast<std::size_t>(iluSolver_.iterations());
-    if (iluSolver_.info() != Eigen::Success) {
-        std::cerr << "  WARNING: momentum-" << (d == 0 ? "U" : d == 1 ? "V" : "W")
-                  << " BiCGSTAB failed (iters=" << iluSolver_.iterations()
-                  << ", resid=" << iluSolver_.error() << ")\n";
-        if (!std::isfinite(iluSolver_.error()) || !x.allFinite() ||
-            iluSolver_.info() == Eigen::NumericalIssue ||
-            iluSolver_.info() == Eigen::InvalidInput) {
-            // Solver breakdown - caller checks x.allFinite()
-        }
-    }
-    return x;
-}
+// solveILU_ removed: AMG is the only solver. If AMG fails, the caller aborts.
 
 template<std::size_t Dim>
 bool LinearSolverDispatcher<Dim>::hasPositiveOffDiagonals_(const SparseMatrix& A) {
@@ -328,8 +239,6 @@ void LinearSolverDispatcher<Dim>::printStats() const {
     std::cerr << "\n  Momentum linear solver statistics\n";
     std::cerr << "    AMG solves:        " << stats_.amgSolves << "\n";
     std::cerr << "    AMG builds:        " << stats_.amgBuilds << "\n";
-    std::cerr << "    AMG rejected:      " << stats_.amgRejected
-              << "  (fell back to ILU)\n";
     std::cerr << "    Krylov iters:      " << stats_.krylovIters << "\n";
     if (stats_.solves > 0) {
         std::cerr << "    Krylov iters/solve:"

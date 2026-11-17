@@ -372,7 +372,10 @@ void GmshReader<Dim>::parseElements_(std::ifstream& in,
             }
             cells.push_back(std::move(cell));
             elemPhysTags.push_back(effectiveTag);
-        } else if (elemType == boundaryType) {
+        } else if (elemType == boundaryType || (Dim == 3 && elemType == 3)) {
+            // A 3D mesh may bound its volume cells with triangles (type 2) or
+            // quads (type 3); both are faces of the reconstructed mesh, so
+            // both must be collected or the patches built from them vanish.
             int physicalTag = 0;
             int elementaryTag = 0;
             for (int t = 0; t < nTags; ++t) {
@@ -381,14 +384,40 @@ void GmshReader<Dim>::parseElements_(std::ifstream& in,
                 else if (t == 1) elementaryTag = tv;
             }
             int effectiveTag = (physicalTag != 0) ? physicalTag : elementaryTag;
-            int vertsPerBoundary = boundaryType + 1;
+            int vertsPerBoundary = elemType + 1;
             auto verts = resolveNodeTags_(line, pos, vertsPerBoundary, nodeTagMap);
             std::sort(verts.begin(), verts.end());
             boundaryFaces.emplace_back(std::move(verts), effectiveTag);
         } else {
-            for (int t = 0; t < nTags + elemType; ++t) {
-                parseInt_(line, pos);
+            // Skip this element line. `nTags + elemType` is not a token count:
+            // the Gmsh type id happens to equal the node count for a prism
+            // (type 6, 6 nodes) and does not for a pyramid (type 7, 5 nodes),
+            // so the old loop silently dropped prisms and read past the end of
+            // the line on pyramids. Both are volume cells, and dropping one
+            // leaves a hole that the boundary faces still reference, so refuse
+            // rather than build a silently incomplete FVM mesh.
+            if constexpr (Dim == 3) {
+                switch (elemType) {
+                case 6:  // prism
+                case 7:  // pyramid
+                case 11: // tet10
+                case 12: // hex27
+                case 13: // prism18
+                case 14: // pyramid14
+                case 17: // hex20
+                case 18: // prism15
+                case 19: // pyramid13
+                    throw std::runtime_error(
+                        "GmshReader: unsupported 3D cell type " +
+                        std::to_string(elemType) + " at element " +
+                        std::to_string(i) +
+                        "; prisms, pyramids and high-order cells are not "
+                        "supported");
+                default:
+                    break;
+                }
             }
+            pos = line.size();
         }
     }
     skipTo_(in, "$EndElements");

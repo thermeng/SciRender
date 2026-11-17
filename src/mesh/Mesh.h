@@ -45,8 +45,9 @@ public:
     // topology is not implied by its vertex count (a prism, a pyramid, a general
     // polyhedron) or whose vertices are not in the VTK/Gmsh element order
     // (hexahedra read from other formats). When it is empty the topology is
-    // inferred: edges for 2D polygons, the four triangles of a tetrahedron and
-    // the six VTK-ordered faces of a hexahedron.
+    // inferred for exactly two 3D cell types: the four triangles of a
+    // tetrahedron and the six VTK-ordered faces of a hexahedron. Any other 3D
+    // vertex count is rejected rather than guessed.
     Mesh(std::vector<std::array<double, Dim>> vertices,
          std::vector<std::vector<std::size_t>> cells,
          std::vector<std::vector<std::vector<std::size_t>>> cellFaces = {});

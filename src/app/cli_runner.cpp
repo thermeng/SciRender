@@ -53,6 +53,9 @@ int runHeadlessCase(const Options& options) {
         settings.momentumAmg.smoothedProlongation = true;
         settings.turbulenceAmg.smoothedProlongation = true;
     }
+    if (options.boomerAmg) {
+        settings.pressureAmg.backend = cfd::AmgSettings::Backend::BoomerAMG;
+    }
 
     // Logs only: no result files, no live frame builds. The solver's own
     // iteration table goes straight to stdout because the GUI's output sink is

@@ -268,7 +268,6 @@ struct Config : public cfd::CaseSettings {
     std::size_t momentumAmgStandaloneSolves() const {
         return linearSolverDispatcher_.amgStandaloneSolves();
     }
-    std::size_t momentumAmgRejected() const { return linearSolverDispatcher_.amgRejected(); }
     std::size_t momentumAmgBuilds() const { return linearSolverDispatcher_.amgBuilds(); }
     // Per-outer-iteration relative velocity change. Diagnostic only: it tracks
     // iteration progress rather than equation satisfaction.
@@ -364,6 +363,11 @@ private:
     const Mesh<Dim>& mesh_;
     double rho_, nu_;
     Config config_;
+    // Gradient instances declared before pressureCorrection_ so they are
+    // destroyed AFTER it (reverse declaration order). pressureCorrection_
+    // holds a non-owning pointer to pressureGradientCalc_.
+    std::unique_ptr<Gradient<Dim>> gradientCalc_;
+    std::unique_ptr<Gradient<Dim>> pressureGradientCalc_;
 
     Momentum<Dim> momentum_;
     PressureCorrection<Dim> pressureCorrection_;
@@ -375,19 +379,7 @@ private:
     VectorField<Dim> uStar_;
     std::array<Field<Dim>, Dim> dpdx_{};
     std::array<Field<Dim>, Dim> diag_{};
-    std::array<std::vector<double>, Dim> dCoeff_{};
-
-    std::unique_ptr<Gradient<Dim>> gradientCalc_;
-    // Least-squares pressure gradient used by the transient momentum
-    // predictor, the PISO corrector and the pressure correction's Rhie-Chow
-    // term. It is deliberately independent of gradientCalc_ (which follows
-    // Config::gradientScheme and is used for the convective reconstruction):
-    // the pressure operator must be the same one the pressure matrix and the
-    // velocity correction are built from.
-    std::unique_ptr<Gradient<Dim>> pressureGradientCalc_;
-    // Least-squares gradient of p' for the velocity correction. Reused across
-    // correctors instead of constructing a Gradient (and its workspace) per call.
-    std::unique_ptr<Gradient<Dim>> pPrimeGradientCalc_;
+    std::array<std::vector<double>, Dim> dCoeff_;
 
     std::optional<std::reference_wrapper<VectorField<Dim>>> velocity_;
     std::optional<std::reference_wrapper<Field<Dim>>> pressure_;

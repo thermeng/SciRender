@@ -121,6 +121,12 @@ struct AmgSettings {
         s.scaling = ProportionalScaling::Automatic;
         s.strengthThreshold = 0.25;
         s.truncThreshold = 0.2;
+        // BoomerAMG (Hypre) is the robust choice for pressure: classical
+        // Ruge-Stuben coarsening with proper interpolation handles 3D Laplacians
+        // far better than unsmoothed aggregation. Cached aggregation is still
+        // available by explicitly selecting it, but BoomerAMG is the default
+        // because it converges in ~2 CG iterations vs ~10+ for unsmoothed.
+        s.backend = Backend::BoomerAMG;
         return s;
     }
     static AmgSettings momentumDefaults() {

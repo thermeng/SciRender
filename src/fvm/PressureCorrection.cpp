@@ -5,6 +5,7 @@
 #include "mesh/BoundaryUtils.h"
 
 #include <array>
+#include <chrono>
 #include <iostream>
 #include <cmath>
 #include <limits>

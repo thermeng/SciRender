@@ -17,8 +17,7 @@
 namespace fvm {
 
 // LinearSolverDispatcher<Dim> owns all momentum linear-solver dispatch:
-// AMG hierarchies (per component), BiCGSTAB+ILU fallback, warm-start handling,
-// and the AMG-vs-ILU decision logic.
+// AMG hierarchies (per component), warm-start handling.
 //
 // The SIMPLE orchestrator no longer needs to know about AMG rebuild intervals,
 // sparsity hashes, or preconditioner cycles — it simply asks the dispatcher to
@@ -26,13 +25,12 @@ namespace fvm {
 //
 // This is a deep module: its interface (solve() + stats) is much smaller than
 // its implementation (~500 lines of AMG hierarchy bookkeeping, BiCGSTAB loops,
-// GMRES acceleration, ILU fallback, and warm-start logic).
+// GMRES acceleration, and warm-start logic).
 template<std::size_t Dim>
 class LinearSolverDispatcher {
 public:
     struct Config {
         bool useAMG = true;
-        std::size_t amgThreshold = 0;
         bool amgAsSolver = false;
         std::size_t amgRebuildInterval = 5;
         int amgCycles = 2;
@@ -62,12 +60,9 @@ public:
     std::size_t solves() const { return stats_.solves; }
     std::size_t amgSolves() const { return stats_.amgSolves; }
     std::size_t amgStandaloneSolves() const { return stats_.amgStandaloneSolves; }
-    std::size_t iluSolves() const { return stats_.iluSolves; }
     std::size_t amgBuilds() const { return stats_.amgBuilds; }
-    std::size_t amgRejected() const { return stats_.amgRejected; }
     std::size_t krylovIters() const { return stats_.krylovIters; }
     std::size_t amgCycleIters() const { return stats_.amgCycleIters; }
-    double iluSeconds() const { return stats_.iluSeconds; }
     double amgSeconds() const { return stats_.amgSeconds; }
     double buildSeconds() const { return stats_.buildSeconds; }
     double dispatchSeconds() const { return stats_.dispatchSeconds; }
@@ -97,34 +92,23 @@ private:
     mutable std::array<std::size_t, Dim> amgPatternHash_{};
     mutable std::array<std::size_t, Dim> amgValueUpdates_{};
     mutable std::array<bool, Dim> amgPatternAnalyzed_{};
-    mutable std::array<bool, Dim> amgDisabledReason_{};
     mutable std::array<bool, Dim> amgPathLogged_{};
-
-    // BiCGSTAB+ILU solver (shared across components)
-    mutable Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> iluSolver_;
-    mutable std::array<bool, Dim> iluPatternAnalyzed_{};
 
     // Stats
     struct Stats {
         std::size_t solves = 0;
         std::size_t amgSolves = 0;
         std::size_t amgStandaloneSolves = 0;
-        std::size_t iluSolves = 0;
         std::size_t amgBuilds = 0;
-        std::size_t amgRejected = 0;
-    std::size_t krylovIters = 0;
-    std::size_t amgCycleIters = 0; // AMG multigrid cycle counts (standalone AMG path only; not Krylov iterations)
-        double iluSeconds = 0.0;
+        std::size_t krylovIters = 0;
+        std::size_t amgCycleIters = 0;
         double amgSeconds = 0.0;
         double buildSeconds = 0.0;
         double dispatchSeconds = 0.0;
-        double preSolveSeconds = 0.0;
     };
     mutable Stats stats_{};
 
     static bool hasPositiveOffDiagonals_(const SparseMatrix& A);
-    Eigen::VectorXd solveILU_(std::size_t d, const SparseMatrix& A, const Eigen::VectorXd& b,
-                              std::size_t& itersOut);
 };
 
 extern template class LinearSolverDispatcher<2>;

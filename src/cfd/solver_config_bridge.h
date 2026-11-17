@@ -24,6 +24,15 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
     // The solver reads the derived member, so it must be set explicitly or UI
     // transient knobs are silently ignored.
     sc.transient = settings.transient;
+    // Config also redeclares these CaseSettings fields with solver-side
+    // defaults (see SIMPLE.h). operator= above only copies the base
+    // subobject, so without forwarding them here the case values are silently
+    // ignored: the 3D hurdle case asks for 1 pressure corrector and the solver
+    // ran 3, which made p' grow 100 -> 702 -> 1.3e5 inside one outer iteration.
+    sc.pressureCorrectors = settings.pressureCorrectors;
+    sc.limitPressureCorrection = settings.limitPressureCorrection;
+    sc.pressureCorrectionLimit = settings.pressureCorrectionLimit;
+    sc.turbulenceAmgMaxResidual = settings.turbulenceAmgMaxResidual;
     sc.solverType = settings.transient.enabled ? fvm::SolverType::PISO : fvm::SolverType::SIMPLE;
     sc.convectionScheme = settings.scheme == 1 ? fvm::ConvectionScheme::Central
                            : (settings.scheme == 2 ? fvm::ConvectionScheme::SecondOrderUpwind
