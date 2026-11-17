@@ -57,18 +57,16 @@ struct AmgSettings {
     // refreshes the level operators (O(nnz)), which is far cheaper per
     // outer iteration but needs more smoothing to converge as tightly.
     enum class Backend { BoomerAMG, CachedAggregation };
-    // Cached aggregation is the default: its setup is an O(nnz) restriction
-    // over cached maps instead of a full BoomerAMG coarsening, which is what
-    // makes the per-iteration cost competitive with   / OpenFOAM GAMG.
-    Backend backend = Backend::CachedAggregation;
+    // BoomerAMG is the default backend: full value-dependent coarsening on
+    // every setup gives the strongest convergence per outer iteration.
+    // Cached aggregation remains available for cheaper per-iteration setup.
+    Backend backend = Backend::BoomerAMG;
 
     // --- Smoothing / hierarchy -------------------------------------------
     int preSweeps = 1;           // Pre-smooths
     int postSweeps = 1;          // Post-smooths
     int maxLevels = 50;          // Maximum number of levels
-    bool directCoarse = true;    // Enable the direct solver
-    int coarseEnough = 2;        // Maximum direct solver equations
-    int minCoarseSize = 10;
+    int minCoarseSize = 10;      // Stop coarsening once a level has this few unknowns
 
     // --- Expert -----------------------------------------------------------
     double strengthThreshold = 0.25;
@@ -142,7 +140,9 @@ struct AmgSettings {
         s.cycleType = CycleType::Flexible;
         s.smoother = Smoother::GaussSeidel;
         s.acceleration = Acceleration::None;
-        s.scaling = ProportionalScaling::Automatic;
+        // Proportional scaling is only valid for SPD matrices (pressure).
+        // Momentum and turbulence are nonsymmetric — disable by default.
+        s.scaling = ProportionalScaling::Disabled;
         s.strengthThreshold = 0.25;
         s.truncThreshold = 0.5;
         return s;
@@ -202,13 +202,13 @@ struct CaseSettings {
     std::size_t residualNormalizationIterations = 5;
     double alphaU = 0.7, alphaP = 0.3;
     bool simplec = false;
-    int scheme = 0; // 0 upwind, 1 central, 2 second-order upwind
+    int scheme = 2; // 0 upwind, 1 central, 2 second-order upwind
     // 0 least squares, 1 green-gauss cell based, 2 green-gauss node based
     int gradientScheme = 0;
     bool rhieChow = true; // compact operator with Rhie-Chow: two-point stencil, stable at high Re
     bool turbulence = false;
     bool wallFunction = false;
-    double alphaK = 0.7, alphaOmega = 0.7;
+    double alphaK = 0.8, alphaOmega = 0.8;
 
     // Gradient (slope) limiter for the second-order upwind reconstruction.
     // Mirrors fvm::SlopeLimiter::Kind / Aggregation / Span as plain ints so the
@@ -265,7 +265,6 @@ struct CaseSettings {
     AmgSettings momentumAmg = AmgSettings::momentumDefaults();
 
     // Turbulence (k/omega) linear solver (see fvm::SSTModel::Config)
-    bool useAMGTurbulence = true;
     int turbulenceAmgCycles = 1;
         double turbulenceAmgMaxResidual = 0.1;
     // Flexible also default for turbulence (per request); pressure stays V.

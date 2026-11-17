@@ -41,7 +41,6 @@ inline typename fvm::SIMPLE<Dim>::Config toFvmConfig(const CaseSettings& setting
                    : (settings.gradientScheme == 2 ? fvm::GradientScheme::GreenGaussNodeBased : fvm::GradientScheme::LeastSquares);
     sc.pressureUseAMG = true;
     sc.pressureUseAMGPreconditioner = true;
-    sc.pressureAmgThreshold = 0;
     sc.pressureRefCell = settings.pressureRefCell == 0 ? SIZE_MAX : settings.pressureRefCell;
 
     // Resolve stopping criteria against the solve context (dimension,

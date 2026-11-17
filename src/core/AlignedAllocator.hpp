@@ -13,6 +13,9 @@ namespace fvm {
 
 template<typename T, std::size_t Alignment = 64>
 struct AlignedAllocator {
+    static_assert(Alignment >= sizeof(void*) && (Alignment & (Alignment - 1)) == 0,
+                  "Alignment must be a power of two and at least sizeof(void*)");
+
     using value_type = T;
     using pointer = T*;
     using const_pointer = const T*;
@@ -30,6 +33,7 @@ struct AlignedAllocator {
     constexpr AlignedAllocator(const AlignedAllocator<U, Alignment>&) noexcept {}
 
     [[nodiscard]] pointer allocate(size_type n) {
+        if (n == 0) return nullptr;
         if (n > std::numeric_limits<size_type>::max() / sizeof(T))
             throw std::bad_array_new_length();
 
@@ -51,14 +55,6 @@ struct AlignedAllocator {
         free(p);
 #endif
     }
-
-    template<typename U, typename... Args>
-    void construct(U* p, Args&&... args) {
-        ::new(static_cast<void*>(p)) U(std::forward<Args>(args)...);
-    }
-
-    template<typename U>
-    void destroy(U* p) { p->~U(); }
 
     constexpr bool operator==(const AlignedAllocator&) const noexcept { return true; }
     constexpr bool operator!=(const AlignedAllocator&) const noexcept { return false; }

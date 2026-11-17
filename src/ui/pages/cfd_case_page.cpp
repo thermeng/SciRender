@@ -252,6 +252,11 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     connect(m_stoppingBtn, &QPushButton::clicked, this, &CfdCasePage::onStoppingCriteria);
 
     syncTime();
+    // Push backend defaults into the UI so a fresh page shows them
+    // (e.g. Second-Order Upwind, BoomerAMG) instead of the .ui file's
+    // hard-coded index 0. applySettings() is also called from onCaseLoaded()
+    // when a saved case overrides these defaults.
+    applySettings(m_ctrl->settings());
     // ── Read-out boxes ───────────────────────────────────────────────────────
     QWidget* monitor = cfdUi.solveMonitor;
     monitor->setAttribute(Qt::WA_StyledBackground, true);

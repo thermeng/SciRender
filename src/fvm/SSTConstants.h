@@ -5,13 +5,13 @@
 namespace fvm {
 
 struct SSTConstants {
-    double sigma_k1 = 0.85;
-    double sigma_w1 = 0.5;
+    double sigma_k1 = 1.176;
+    double sigma_w1 = 2.0;
     double beta1    = 0.075;
     double alpha1   = 0.5532;
 
     double sigma_k2 = 1.0;
-    double sigma_w2 = 0.856;
+    double sigma_w2 = 1.168;
     double beta2    = 0.0828;
     double alpha2   = 0.4403;
 
@@ -32,9 +32,7 @@ constexpr double pressureUnderRelax = 0.1;
 
 constexpr double simplexMinDenomRatio = 0.3;
 constexpr double sstProductionLimitFactor = 10.0;
-constexpr std::size_t sstMaxIterations = 50000;
-constexpr double sstTolerance = 1e-8;
-constexpr double nutUnderRelax = 0.5;
+constexpr double nutUnderRelax = 0.8;
 constexpr double divergenceStallThreshold = 0.95;
 constexpr double divergenceAlphaPReduction = 0.5;
 constexpr double divergenceAbortAlphaPMin = 0.01;

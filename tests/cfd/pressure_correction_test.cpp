@@ -295,7 +295,6 @@ TEST_CASE("cfd.pressure.amg_solve_removes_divergence") {
     fvm::PressureCorrection<2>::Config cfg;
     cfg.useAMG = true;
     cfg.useAMGPreconditioner = true;
-    cfg.pressureAmgThreshold = 0;
     cfg.pressureAmgPreconditionerCycles = 2;
     fvm::PressureCorrection<2> pc(mesh, cfg);
 

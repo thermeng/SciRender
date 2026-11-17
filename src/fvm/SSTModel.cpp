@@ -46,20 +46,8 @@ SSTModel<Dim>::SSTModel(const Mesh<Dim>& mesh, Config config)
       F2_(mesh, 0.0),
       poisson_(mesh),
       convection_(mesh),
-      kDispatcher_(mesh, [&]{
-          typename LinearSolverDispatcher<Dim>::Config c;
-          c.amgCycles = config_.turbulenceAmgCycles;
-          c.amgMaxResidual = config_.turbulenceAmgMaxResidual;
-          return c;
-      }()),
-      omegaDispatcher_(mesh, [&]{
-          typename LinearSolverDispatcher<Dim>::Config c;
-          c.amgCycles = config_.turbulenceAmgCycles;
-          c.amgMaxResidual = config_.turbulenceAmgMaxResidual;
-          return c;
-      }()) {
-    kDispatcher_.setAmgConfig(config_.turbulenceAmgConfig);
-    omegaDispatcher_.setAmgConfig(config_.turbulenceAmgConfig);
+      kDispatcher_(mesh, dispatcherConfig_(config, "turbulence[k]")),
+      omegaDispatcher_(mesh, dispatcherConfig_(config, "turbulence[omega]")) {
     for (auto& g : gradK_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : gradOmega_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : scalarGradBuffer_) g = Field<Dim>(mesh, 0.0);
@@ -72,21 +60,29 @@ SSTModel<Dim>::SSTModel(const Mesh<Dim>& mesh, Config config)
 }
 
 template<std::size_t Dim>
-void SSTModel<Dim>::initialize(double mu, double rho) {
+void SSTModel<Dim>::initialize(double mu, double rho, double U_ref) {
     mu_ = mu;
     rho_ = rho;
     const std::size_t n = mesh_.nCells();
     const double nu = (rho_ > 1e-30) ? mu_ / rho_ : mu_;
     const double nutCap = config_.nutMaxFactor * nu;
-    const double kk = clampPositive(config_.kInf, config_.kMin);
-    const double ww = clampPositive(config_.omegaInf, config_.omegaMin);
+
+    // Physics-based initialization
+    //   k = 1.5 * (I * U_ref)^2   where I = 5% turbulence intensity
+    //   ω = k / ν_T               where ν_T = (μ_T/μ) * ν, μ_T/μ = 100
+    constexpr double I = 0.05;       // 5% turbulence intensity
+    constexpr double muT_mu = 100.0; // turbulent viscosity ratio
+    const double U = std::max(std::abs(U_ref), 1e-12);
+    const double kInit = 1.5 * (I * U) * (I * U);
+    const double nuT = muT_mu * nu;
+    const double omegaInit = (nuT > 1e-30) ? kInit / nuT : config_.omegaInf;
+
+    const double kk = std::clamp(kInit, config_.kMin, config_.kMax);
+    const double ww = std::clamp(omegaInit, config_.omegaMin, config_.omegaMax);
+
     for (std::size_t i = 0; i < n; ++i) {
         k_[i] = kk;
         omega_[i] = ww;
-        // Seed eddy viscosity from the initial k/omega so the first momentum
-        // solve already feels the turbulent viscosity instead of running
-        // laminar. The a1 limiter is inactive at S=0, so nut = k/omega; the
-        // cap matters when omegaInf is very small (or zero).
         nut_[i] = std::min(kk / ww, nutCap);
     }
     maxYPlus_ = 0.0;
@@ -730,7 +726,8 @@ void SSTModel<Dim>::computeKDiffusionSource_(Field<Dim>& diff,
     const std::size_t n = mesh_.nCells();
     const auto& c = config_.constants;
     for (std::size_t i = 0; i < n; ++i) {
-        const double sigmaK = F1_[i] * c.sigma_k1 + (1.0 - F1_[i]) * c.sigma_k2;
+        // Harmonic mean blending (Eq 4.5-37): σ_k = 1/(F₁/σ_k1 + (1-F₁)/σ_k2)
+        const double sigmaK = 1.0 / (F1_[i] / c.sigma_k1 + (1.0 - F1_[i]) / c.sigma_k2);
         diff[i] = (mu_ / rho_) + sigmaK * std::max(nut_[i], 0.0);
 
         const double k = std::max(k_[i], config_.kMin);
@@ -746,7 +743,8 @@ void SSTModel<Dim>::computeOmegaDiffusionSource_(Field<Dim>& diff,
     const std::size_t n = mesh_.nCells();
     const auto& c = config_.constants;
     for (std::size_t i = 0; i < n; ++i) {
-        const double sigmaW = F1_[i] * c.sigma_w1 + (1.0 - F1_[i]) * c.sigma_w2;
+        // Harmonic mean blending (Eq 4.5-38): σ_ω = 1/(F₁/σ_ω1 + (1-F₁)/σ_ω2)
+        const double sigmaW = 1.0 / (F1_[i] / c.sigma_w1 + (1.0 - F1_[i]) / c.sigma_w2);
         diff[i] = (mu_ / rho_) + sigmaW * std::max(nut_[i], 0.0);
 
         const double w = std::max(omega_[i], config_.omegaMin);

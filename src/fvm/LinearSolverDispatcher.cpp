@@ -11,13 +11,23 @@ namespace fvm {
 
 template<std::size_t Dim>
 LinearSolverDispatcher<Dim>::LinearSolverDispatcher(const Mesh<Dim>& mesh, const Config& config)
-    : mesh_(mesh), config_(config) {
+    : mesh_(mesh) {
+    setConfig(config);
+}
+
+template<std::size_t Dim>
+void LinearSolverDispatcher<Dim>::setConfig(const Config& config) {
+    config_ = config;
     for (std::size_t d = 0; d < Dim; ++d) {
-        amg_[d].setConfig(config_.amgConfig);
         amg_[d] = AMGHierarchy(config_.amgConfig, static_cast<int>(Dim));
         amgPrec_[d].setAMG(nullptr);
         amgSolver_[d].setMaxIterations(5000);
         amgSolver_[d].setTolerance(config_.amgMaxResidual);
+        cgAmgSolver_[d].setMaxIterations(5000);
+        cgAmgSolver_[d].setTolerance(config_.amgMaxResidual);
+        amgBuilt_[d] = false;
+        amgPatternAnalyzed_[d] = false;
+        amgPathLogged_[d] = false;
     }
 }
 
@@ -46,12 +56,13 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         config_.amgConfig.acceleration == cfd::AmgSettings::Acceleration::None;
     if (!amgPathLogged_[component]) {
         const auto acc = config_.amgConfig.acceleration;
-        std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
-                  << "]: using ";
+        std::cerr << "  " << label_(component) << ": using ";
         if (standaloneAmg) {
             std::cerr << "AMG cycles.";
         } else if (acc == cfd::AmgSettings::Acceleration::GMRES) {
             std::cerr << "AMG-preconditioned GMRES.";
+        } else if (config_.preferCG) {
+            std::cerr << "AMG-preconditioned CG.";
         } else {
             std::cerr << "AMG-preconditioned BiCGSTAB.";
         }
@@ -73,8 +84,8 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         ++stats_.amgBuilds;
         stats_.buildSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         if (amg_[component].isBuilt() && hasPositiveOffDiagonals_(A)) {
-            std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
-                      << "]: WARNING: matrix has positive off-diagonals; AMG robustness may suffer\n";
+            std::cerr << "  " << label_(component)
+                      << ": WARNING: matrix has positive off-diagonals; AMG robustness may suffer\n";
         }
     } else {
         // Cached aggregation: the maps depend only on the sparsity pattern,
@@ -98,8 +109,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
     }
 
     if (!amgBuilt_[component]) {
-        std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
-                  << "]: AMG hierarchy failed to build\n";
+        std::cerr << "  " << label_(component) << ": AMG hierarchy failed to build\n";
         return {Eigen::VectorXd::Zero(b.size()), true, 0};
     }
 
@@ -118,8 +128,8 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         }
 
         if (!ok || !x.allFinite() || !std::isfinite(amg_[component].lastResidual())) {
-            std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
-                      << "]: AMG solve failed (resid=" << amg_[component].lastResidual() << ")\n";
+            std::cerr << "  " << label_(component)
+                      << ": AMG solve failed (resid=" << amg_[component].lastResidual() << ")\n";
             return {Eigen::VectorXd::Zero(b.size()), true, 0};
         }
         ++stats_.amgSolves;
@@ -135,6 +145,9 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         amgSolver_[component].setMaxIterations(5000);
         amgSolver_[component].setTolerance(effTol);
         amgSolver_[component].analyzePattern(A);
+        cgAmgSolver_[component].setMaxIterations(5000);
+        cgAmgSolver_[component].setTolerance(effTol);
+        cgAmgSolver_[component].analyzePattern(A);
         amgPatternAnalyzed_[component] = true;
     }
 
@@ -148,6 +161,14 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
             effTol, 5000, 30,
             cancelRequested ? cancelRequested : nullptr);
         stats_.krylovIters += static_cast<std::size_t>(gres.iterations);
+        if (cancelRequested && cancelRequested->load(std::memory_order_acquire)) {
+            return {Eigen::VectorXd::Zero(b.size()), true, 0};
+        }
+    } else if (config_.preferCG) {
+        cgAmgSolver_[component].preconditioner().setAMG(&amg_[component]);
+        cgAmgSolver_[component].preconditioner().setCycles(config_.amgCycles);
+        x = cgAmgSolver_[component].solve(b);
+        stats_.krylovIters += static_cast<std::size_t>(cgAmgSolver_[component].iterations());
         if (cancelRequested && cancelRequested->load(std::memory_order_acquire)) {
             return {Eigen::VectorXd::Zero(b.size()), true, 0};
         }
@@ -212,8 +233,8 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         !std::isfinite(rnorm);
 
     if (bad) {
-        std::cerr << "  momentum[" << (component == 0 ? "U" : component == 1 ? "V" : "W")
-                  << "]: AMG-preconditioned Krylov solve failed (resid=" << rel << ")\n";
+        std::cerr << "  " << label_(component)
+                  << ": AMG-preconditioned Krylov solve failed (resid=" << rel << ")\n";
         return {Eigen::VectorXd::Zero(b.size()), true, 0};
     }
 
@@ -236,7 +257,7 @@ bool LinearSolverDispatcher<Dim>::hasPositiveOffDiagonals_(const SparseMatrix& A
 template<std::size_t Dim>
 void LinearSolverDispatcher<Dim>::printStats() const {
     if (!config_.solverStats) return;
-    std::cerr << "\n  Momentum linear solver statistics\n";
+    std::cerr << "\n  Linear solver statistics\n";
     std::cerr << "    AMG solves:        " << stats_.amgSolves << "\n";
     std::cerr << "    AMG builds:        " << stats_.amgBuilds << "\n";
     std::cerr << "    Krylov iters:      " << stats_.krylovIters << "\n";
@@ -258,8 +279,7 @@ void LinearSolverDispatcher<Dim>::printStats() const {
     std::cerr << "    AMG solve time:    " << stats_.amgSeconds << " s\n";
     for (std::size_t d = 0; d < Dim; ++d) {
         if (!amg_[d].isBuilt()) continue;
-        std::cerr << "    momentum[" << (d == 0 ? "U" : d == 1 ? "V" : "W")
-                  << "] AMG levels: " << amg_[d].numLevels() << " (";
+        std::cerr << "    " << label_(d) << " AMG levels: " << amg_[d].numLevels() << " (";
         for (int size : amg_[d].levelSizes()) std::cerr << size << " ";
         std::cerr << ")\n";
     }

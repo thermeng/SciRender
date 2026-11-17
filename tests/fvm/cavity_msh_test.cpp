@@ -36,7 +36,7 @@ namespace {
 
 constexpr double kLidSpeed = 1.0;
 constexpr double kReynolds = 400.0;
-constexpr int kIterations = 800;
+constexpr int kIterations = 8000;
 // The iteration budget used by the steady-state test. It only has to be large
 // enough for the tolerance to be met on its own; the run stops when every gated
 // residual is below kTolerance, not when the budget runs out.
@@ -179,14 +179,6 @@ CavityRun runCavity(const CavitySetup& setup, int iterations) {
 
 TEST_SUITE("slow") {
 
-// The cavity on the ANSYS mesh - the same case Fluent was run on.
-//
-// This is the CAPABILITY gate: what the solver reproduces today on this mesh.
-// The shape of the flow, the vortex centre, the mass balance and the peak
-// velocity must all be right, and the profile must agree with Ghia's
-// published table to within what a 129x129 second-order upwind mesh can deliver
-// - the remaining error sits in the near-wall region, where the scheme's
-// numerical diffusion dominates.
 TEST_CASE("slow.cavity_msh.re400_centreline") {
     const CavitySetup setup = loadCavity();
     // MESSAGE("mesh: ", setup.mesh.nCells(), " cells, ", setup.mesh.nFaces(), " faces, domain x[",

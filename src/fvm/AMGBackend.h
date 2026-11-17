@@ -29,7 +29,6 @@ public:
 
     // --- Configuration ---------------------------------------------------
     virtual void setConfig(const Config& config) = 0;
-    virtual const Config& config() const = 0;
 
     // --- Build / invalidate ---------------------------------------------
     virtual void build(const SparseMatrix& A) = 0;
@@ -59,6 +58,7 @@ public:
     // --- Backend-specific ------------------------------------------------
     virtual bool hasCachedAggregation() const = 0;
     virtual bool hierarchyCurrent() const = 0;
+    virtual bool useAggregation() const { return false; }
     virtual void refreshHierarchyValues(const SparseMatrix& A) = 0;
     virtual void updateFineValues(const SparseMatrix& A) = 0;
 };

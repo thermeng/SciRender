@@ -28,8 +28,8 @@ public:
         SSTConstants constants;
         double kInf       = 1e-3;
         double omegaInf   = 1.0;
-        double alphaK     = 0.7;
-        double alphaOmega = 0.7;
+        double alphaK     = 0.8;
+        double alphaOmega = 0.8;
         double kMin       = 1e-14;
         double omegaMin   = 1e-14;
         double kMax       = 1e3;
@@ -48,59 +48,28 @@ public:
 
         // Turbulence linear-solver multigrid configuration, forwarded to the
         // LinearSolverDispatcher for both the k and omega transport equations.
-        // Mirrors SIMPLE::Config::momentumAmgConfig.
-        cfd::AmgSettings turbulenceAmgConfig = []{
-            cfd::AmgSettings c;
-            c.strengthThreshold = 0.16;
-            c.truncThreshold = 0.2;
-            c.preSweeps = 1;
-            c.postSweeps = 2;
-            c.maxIterations = 100;
-            c.tolerance = 1e-8;
-            c.verbosity = cfd::AmgSettings::Verbosity::None;
-            c.acceleration = cfd::AmgSettings::Acceleration::None;
-            return c;
-        }();
+        // Same defaults as momentum (standalone AMG, acceleration None): the
+        // transport equations are nonsymmetric, so a Krylov acceleration and
+        // proportional scaling are not appropriate.
+        cfd::AmgSettings turbulenceAmgConfig = cfd::AmgSettings::momentumDefaults();
 
-        // Number of AMG cycles per preconditioner application for turbulence.
         int turbulenceAmgCycles = 1;
-        // Relative residual above which the turbulence AMG result is rejected
-        // and the solve is redone with ILU.
         double turbulenceAmgMaxResidual = 0.1;
-        // Gradient limiter applied to the k/omega transport reconstruction.
         fvm::SlopeLimiterConfig limiter;
     };
 
     SSTModel(const Mesh<Dim>& mesh, Config config);
-
-    // Reset k/omega/nut to the freestream state and set the fluid properties.
-    void initialize(double mu, double rho);
-
-    // Adopt a new configuration without touching the fields. Used when the
-    // caller reconfigures turbulence after the model already exists (the model
-    // instance must stay alive across solves because callers cache its pointer).
-    void setConfig(const Config& config) { config_ = config; }
+    void initialize(double mu, double rho, double U_ref = 1.0);
+    void setConfig(const Config& config) {
+        config_ = config;
+        kDispatcher_.setConfig(dispatcherConfig_(config_, "turbulence[k]"));
+        omegaDispatcher_.setConfig(dispatcherConfig_(config_, "turbulence[omega]"));
+    }
     const Config& config() const { return config_; }
-
-    // Classify every boundary face from the momentum face BCs, rebuild the
-    // k/omega Dirichlet masks and recompute the wall distance from the faces
-    // that are actually walls. `faceBCs` is indexed by mesh face; interior
-    // entries are ignored. A boundary face without an entry is treated as a
-    // no-slip wall, matching the momentum discretization's own fallback.
     void setBoundaryConditions(const std::vector<FaceVelocityBC>& faceBCs);
-
-    // Wall distance seeded only from faces classified as walls. Inlets,
-    // outlets and symmetry planes are not wall sources.
     void computeWallDistance(const std::vector<FaceVelocityBC>& faceBCs);
-
-    // Override the k/omega inlet values on explicit faces. Applied after
-    // setBoundaryConditions(), so a named inlet patch wins over kInf/omegaInf.
     void setInletTurbulence(const std::vector<std::size_t>& faces, double k, double omega);
-
-    // Clamp interior cells into the configured bounds. Boundary cells keep
-    // their prescribed value: a cap must never silently rewrite a BC.
     void clampFields();
-
     void solveIteration(const VectorField<Dim>& velocity,
                         ConvectionScheme scheme);
     void solveIterationTransient(const VectorField<Dim>& velocity,
@@ -292,6 +261,19 @@ private:
 
     Poisson<Dim>    poisson_;
     Convection<Dim> convection_;
+
+    // Map the turbulence config onto the shared linear-solver dispatcher.
+    // The k and omega transport equations each own one dispatcher; `label`
+    // distinguishes them in the solver log.
+    static typename LinearSolverDispatcher<Dim>::Config
+    dispatcherConfig_(const Config& config, const char* label) {
+        typename LinearSolverDispatcher<Dim>::Config c;
+        c.amgConfig = config.turbulenceAmgConfig;
+        c.amgCycles = config.turbulenceAmgCycles;
+        c.amgMaxResidual = config.turbulenceAmgMaxResidual;
+        c.labels[0] = label;
+        return c;
+    }
 
     // AMG-preconditioned Krylov solvers for the k and omega transport equations,
     // mirroring the momentum setup in SIMPLE::linearSolverDispatcher_.

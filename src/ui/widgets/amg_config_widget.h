@@ -50,9 +50,6 @@ private:
     QSpinBox* m_postSweeps = nullptr;
     QSpinBox* m_maxLevels = nullptr;
 
-    // Coarse solve
-    QCheckBox* m_directSolver = nullptr;
-    QSpinBox* m_directMaxEquations = nullptr;
     QDoubleSpinBox* m_epsilon = nullptr;
 
     // Smoother / acceleration

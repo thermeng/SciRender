@@ -17,10 +17,6 @@
 
 namespace fvm {
 
-#ifdef FVM_HAVE_HYPRE
-class HypreAMGHierarchy;
-#endif
-
 // SparseMatrix -> HYPRE_IJMatrix (+ BoomerAMG) converter + solver wrapper.
 // Serial use: the matrix/vector live on a single rank (MPI_COMM_WORLD when
 // MPI is on, a dummy communicator when Hypre is built with MPI OFF).
@@ -94,9 +90,6 @@ public:
     static bool hierarchyLevelSizes(HypreSolverImpl& solver, int n,
                                     std::vector<int>& levelSizes,
                                     std::vector<int>& cgrid);
-    static bool hypreAvailable() { return true; }
-#else
-    static bool hypreAvailable() { return false; }
 #endif
 };
 
@@ -378,9 +371,9 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
     // Max levels 50.
     HYPRE_BoomerAMGSetMaxLevels(amg,
         cfg.maxLevels > 0 ? static_cast<HYPRE_Int>(cfg.maxLevels) : 50);
-    // Coarse solve direct at <= 2 unknowns (Gaussian elimination above).
+    // Coarse solve direct at <= minCoarseSize unknowns.
     HYPRE_BoomerAMGSetMaxCoarseSize(amg,
-        cfg.coarseEnough > 0 ? static_cast<HYPRE_Int>(cfg.coarseEnough) : 2);
+        cfg.minCoarseSize > 0 ? static_cast<HYPRE_Int>(cfg.minCoarseSize) : 2);
     // Automatic proportional scaling: the equilibration above (scale_) is
     // the Automatic rule; Disabled keeps the raw operator. Hypre has no
     // separate proportional-scaling flag for BoomerAMG, so nothing to set.
