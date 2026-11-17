@@ -79,7 +79,6 @@ public:
     static bool save(const CheckpointConfig& config,
                      std::size_t iteration,
                      double contResid, double momResid,
-                     double adaptiveAlphaP, std::size_t stallCount, double prevContResid,
                      const VectorField<Dim>& velocity,
                      const Field<Dim>& pressure,
                      const Field<Dim>* k = nullptr,
@@ -107,9 +106,6 @@ public:
         metadata << "\"iteration\":" << iteration << ",";
         metadata << "\"cont_resid\":" << std::scientific << contResid << ",";
         metadata << "\"mom_resid\":" << std::scientific << momResid << ",";
-        metadata << "\"adaptive_alpha_p\":" << std::scientific << adaptiveAlphaP << ",";
-        metadata << "\"stall_count\":" << stallCount << ",";
-        metadata << "\"prev_cont_resid\":" << std::scientific << prevContResid << ",";
         metadata << "\"turbulence_enabled\":" << (hasTurbulence ? "true" : "false") << ",";
         metadata << "\"has_transient\":" << (hasTransient ? "true" : "false") << ",";
         metadata << "\"transient_turbulence_enabled\":"
@@ -168,7 +164,6 @@ public:
                      const Mesh<Dim>& mesh,
                      std::size_t& iteration,
                      double& contResid, double& momResid,
-                     double& adaptiveAlphaP, std::size_t& stallCount, double& prevContResid,
                      VectorField<Dim>& velocity,
                      Field<Dim>& pressure,
                      Field<Dim>* k = nullptr,
@@ -201,9 +196,6 @@ public:
         if (j.contains("iteration"))      iteration      = j["iteration"].get<std::size_t>();
         if (j.contains("cont_resid"))     contResid      = j["cont_resid"].get<double>();
         if (j.contains("mom_resid"))      momResid       = j["mom_resid"].get<double>();
-        if (j.contains("adaptive_alpha_p")) adaptiveAlphaP = j["adaptive_alpha_p"].get<double>();
-        if (j.contains("stall_count"))    stallCount     = j["stall_count"].get<std::size_t>();
-        if (j.contains("prev_cont_resid")) prevContResid = j["prev_cont_resid"].get<double>();
 
         std::size_t nCells = mesh.nCells();
 

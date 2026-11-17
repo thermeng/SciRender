@@ -4,7 +4,6 @@
 #include "mesh/BoundaryUtils.h"
 #include "field/Field.h"
 #include "field/VectorField.h"
-#include "fvm/Divergence.h"
 #include "fvm/FaceState.h"
 #include "fvm/RhieChow.h"
 #include "fvm/SIMPLETypes.h"

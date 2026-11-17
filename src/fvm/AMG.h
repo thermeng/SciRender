@@ -7,7 +7,6 @@
 #include <memory>
 #include <vector>
 #include <cstddef>
-#include <string>
 
 namespace fvm {
 
@@ -35,10 +34,6 @@ public:
     AMGHierarchy(AMGHierarchy&&) = default;
     AMGHierarchy& operator=(AMGHierarchy&&) = default;
 
-    // Backend accessor
-    AMGBackend* backend() { return backend_.get(); }
-    const AMGBackend* backend() const { return backend_.get(); }
-
     void build(const SparseMatrix& A) { backend_->build(A); }
 
     bool solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
@@ -53,32 +48,11 @@ public:
         return backend_->applyCycle(b, x);
     }
 
-    // Recursive style flexible cycle. Evaluates alpha (termination) and
-    // beta (restriction) gates at every level, allowing multi-level traversal
-    // (e.g. 0-1-2-3-2-3-2-1-0) instead of a depth-capped static walk.
-    // Returns the correction at this level (x - x_start); x is modified in place.
-    Eigen::VectorXd flexCycle(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
-        return backend_->flexCycle(level, b, x);
-    }
-
     bool isBuilt() const { return backend_->isBuilt(); }
     // True when the active backend caches its aggregation maps (operators can
     // be refreshed in O(nnz) instead of re-coarsened).
     bool hasCachedAggregation() const { return backend_->hasCachedAggregation(); }
-    void invalidate() { backend_->invalidate(); }
-    void setConfig(Config config) { config_ = config; if (backend_) { backend_->setConfig(config); backend_->invalidate(); } }
-    const Config& config() const { return config_; }
     void updateFineValues(const SparseMatrix& A) { backend_->updateFineValues(A); }
-
-    // --- Hierarchy reuse (preconditioner role) ---------------------------
-    // A BoomerAMG hierarchy built from a slightly older matrix is still a
-    // valid preconditioner: the outer Krylov method corrects the stale
-    // coarse operators. Reusing it avoids a ~20 ms setup per outer
-    // iteration. The caller must only use this when a Krylov method wraps
-    // the hierarchy (Acceleration != None); a standalone AMG solve would
-    // converge to the wrong system.
-    bool hierarchyCurrent() const { return backend_->hierarchyCurrent(); }
-    void refreshHierarchyValues(const SparseMatrix& A) { backend_->refreshHierarchyValues(A); }
 
     int numLevels() const { return backend_->numLevels(); }
     int fineSize() const { return backend_->fineSize(); }
@@ -88,11 +62,7 @@ public:
     const std::vector<double>& lastResidualHistory() const { return backend_->lastResidualHistory(); }
 
 private:
-    Config config_;
     std::unique_ptr<AMGBackend> backend_;
-    // Unknowns per node (1 = scalar, 2 = 2D group size, 4 = 3D).
-    // Passed to Hypre systems AMG (SetNumFunctions + SetDofFunc).
-    int blockDim_ = 2;
 };
 
 class AMGPreconditioner {

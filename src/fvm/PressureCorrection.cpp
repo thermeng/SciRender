@@ -220,6 +220,12 @@ void PressureCorrection<Dim>::solve(
             pVals_[i] = 0.0;
         }
     }
+    if (isolatedCellCount_ > 0 && !isolatedCellsReported_) {
+        isolatedCellsReported_ = true;
+        std::cerr << "  Pressure: " << isolatedCellCount_
+                  << " isolated cell(s) have no pressure equation; their mass"
+                     " balance cannot be corrected\n";
+    }
 
     std::vector<double> divU(n, 0.0);
     #pragma omp parallel for schedule(dynamic)

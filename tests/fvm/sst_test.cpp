@@ -162,12 +162,11 @@ TEST_CASE("Checkpoint load keeps the stream aligned when turbulence is not reque
     cc.retainCount = 0; // do not rotate/delete anything
     cc.saveEvery = 1;
 
-    REQUIRE(Checkpoint::save(cc, 7, 1e-4, 2e-4, 0.3, 1, 0.0,
+    REQUIRE(Checkpoint::save(cc, 7, 1e-4, 2e-4,
                              velocity, pressure, &k, &omega, &nut));
 
     std::size_t iter = 0;
-    double cont = 0.0, mom = 0.0, alphaP = 0.0, prev = 0.0;
-    std::size_t stall = 0;
+    double cont = 0.0, mom = 0.0;
 
     // Load WITHOUT turbulence pointers. The writer recorded k/omega/nut, so
     // the reader must consume them rather than reading only what the caller
@@ -175,8 +174,7 @@ TEST_CASE("Checkpoint load keeps the stream aligned when turbulence is not reque
     {
         VectorField<2> v2(mesh, 0.0);
         Field<2> p2(mesh, 0.0);
-        REQUIRE(Checkpoint::load(cc.file, mesh, iter, cont, mom, alphaP,
-                                 stall, prev, v2, p2));
+        REQUIRE(Checkpoint::load(cc.file, mesh, iter, cont, mom, v2, p2));
         CHECK(iter == 7);
         CHECK(v2[0][0] == doctest::Approx(1.0));
         CHECK(v2[1][0] == doctest::Approx(2.0));
@@ -188,8 +186,7 @@ TEST_CASE("Checkpoint load keeps the stream aligned when turbulence is not reque
         VectorField<2> v2(mesh, 0.0);
         Field<2> p2(mesh, 0.0);
         Field<2> k2(mesh, 0.0), omega2(mesh, 0.0), nut2(mesh, 0.0);
-        REQUIRE(Checkpoint::load(cc.file, mesh, iter, cont, mom, alphaP,
-                                 stall, prev, v2, p2, &k2, &omega2, &nut2));
+        REQUIRE(Checkpoint::load(cc.file, mesh, iter, cont, mom, v2, p2, &k2, &omega2, &nut2));
         CHECK(k2[0] == doctest::Approx(0.25));
         CHECK(omega2[0] == doctest::Approx(5.0));
         CHECK(nut2[0] == doctest::Approx(0.5));

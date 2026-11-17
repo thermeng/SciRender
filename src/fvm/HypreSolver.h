@@ -59,24 +59,15 @@ public:
     };
 
     // Build a BoomerAMG hierarchy for `A` (already optionally scaled by the
-    // caller). `cycleType`, `flexStruct`, `flexAlpha`, `flexBeta` and
-    // `flexMaxSweeps` select V/W/F/Flexible exactly as AMGHierarchy::Config
-    // describes. Returns true on success.
+    // caller). `cycleType`, `flexAlpha`, `flexBeta` and `flexMaxSweeps` select
+    // V/W/F/Flexible exactly as AMGHierarchy::Config describes. Returns true
+    // on success.
 #ifdef FVM_HAVE_HYPRE
     static bool buildSolver(const SparseMatrix& A,
                             const cfd::AmgSettings& cfg,
                             HypreMat& mat, HypreSolverImpl& solver,
                             std::vector<double>& scale,
                             int blockDim = 2);
-    // Refresh the values of an already-built hierarchy: overwrite the
-    // assembled IJ matrix values (same sparsity pattern) and re-run
-    // BoomerAMGSetup on the same solver object. No IJ
-    // create/initialize/assemble and no new hierarchy wrapper, so this
-    // is far cheaper than buildSolver(); the caller must guarantee the
-    // sparsity pattern is unchanged.
-    static bool updateSolverValues(HypreMat& mat, HypreSolverImpl& solver,
-                                   const SparseMatrix& A,
-                                   const std::vector<double>& scale);
     // Apply one BoomerAMG cycle (MaxIter is forced to 1 in buildSolver) to
     // the caller's current guess `x`, never discarding it. Returns false on
     // failure or non-finite output.
@@ -460,116 +451,6 @@ inline bool HypreSolver::buildSolver(const SparseMatrix& A,
                   << " strength=" << strength << "\n";
         return false;
     }
-    return true;
-}
-
-inline bool HypreSolver::updateSolverValues(HypreMat& mat, HypreSolverImpl& solver,
-                                           const SparseMatrix& A,
-                                           const std::vector<double>& scale) {
-    if (!mat.ok() || !solver.ok()) return false;
-    const int n = static_cast<int>(A.rows());
-    if (n <= 0 || static_cast<int>(A.cols()) != n) return false;
-
-    HYPRE_IJMatrix ij = static_cast<HYPRE_IJMatrix>(mat.mat);
-    hypre_detail::ensureHypreInitialized();
-    HYPRE_ClearAllErrors();
-
-    // Apply the same diagonal equilibration buildSolver used.
-    SparseMatrix Aeff = A;
-    if (!scale.empty()) {
-        const int* outer = Aeff.outerIndexPtr();
-        const int* inner = Aeff.innerIndexPtr();
-        double* vals = Aeff.valuePtr();
-        for (int col = 0; col < n; ++col) {
-            for (int k = outer[col]; k < outer[col + 1]; ++k) {
-                const int row = inner[k];
-                vals[k] *= scale[static_cast<std::size_t>(row)] *
-                           scale[static_cast<std::size_t>(col)];
-            }
-        }
-    }
-
-    // Same sparsity pattern: only the values change, so SetValues refills
-    // the assembled IJ matrix without create/initialize/assemble.
-    Eigen::SparseMatrix<double, Eigen::RowMajor> AR = Aeff;
-    AR.makeCompressed();
-    std::vector<HYPRE_Int> ncols(static_cast<std::size_t>(n), 0);
-    std::vector<HYPRE_BigInt> rows(static_cast<std::size_t>(n), 0);
-    std::vector<HYPRE_BigInt> cols;
-    std::vector<HYPRE_Complex> values;
-    {
-        const int* outer = AR.outerIndexPtr();
-        const int* inner = AR.innerIndexPtr();
-        const double* vals = AR.valuePtr();
-        cols.reserve(static_cast<std::size_t>(AR.nonZeros()));
-        values.reserve(static_cast<std::size_t>(AR.nonZeros()));
-        for (int i = 0; i < n; ++i) {
-            const int begin = outer[i];
-            const int end = outer[i + 1];
-            ncols[static_cast<std::size_t>(i)] = static_cast<HYPRE_Int>(end - begin);
-            rows[static_cast<std::size_t>(i)] = static_cast<HYPRE_BigInt>(i);
-            for (int k = begin; k < end; ++k) {
-                cols.push_back(static_cast<HYPRE_BigInt>(inner[k]));
-                values.push_back(static_cast<HYPRE_Complex>(vals[k]));
-            }
-        }
-    }
-
-    if (HYPRE_Int rc = HYPRE_IJMatrixSetValues(ij, static_cast<HYPRE_Int>(n),
-                                               ncols.data(), rows.data(),
-                                               cols.data(), values.data());
-        rc != 0) {
-        char descr[256] = {0};
-        HYPRE_DescribeError(rc, descr);
-        std::cerr << "  Hypre: IJMatrixSetValues (refresh) failed (rc=" << rc
-                  << ") " << descr << "\n";
-        return false;
-    }
-
-    // Re-run the BoomerAMG setup so the coarse operators / interpolation
-    // weights match the refreshed values. The solver object (and its
-    // configuration) is reused as-is.
-    HYPRE_ParCSRMatrix parA = nullptr;
-    if (HYPRE_IJMatrixGetObject(ij, reinterpret_cast<void**>(&parA)) != 0 || !parA)
-        return false;
-
-    HYPRE_IJVector bvec = nullptr, xvec = nullptr;
-    HYPRE_ParVector parB = nullptr, parX = nullptr;
-    std::vector<HYPRE_BigInt> indices(static_cast<std::size_t>(n));
-    for (int i = 0; i < n; ++i)
-        indices[static_cast<std::size_t>(i)] = static_cast<HYPRE_BigInt>(i);
-    std::vector<HYPRE_Real> zeros(static_cast<std::size_t>(n), 0.0);
-    const HYPRE_BigInt ilower = 0, iupper = static_cast<HYPRE_BigInt>(n - 1);
-    if (HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &bvec) != 0 ||
-        HYPRE_IJVectorCreate(hypre_detail::hypreComm(), ilower, iupper, &xvec) != 0) {
-        if (bvec) HYPRE_IJVectorDestroy(bvec);
-        if (xvec) HYPRE_IJVectorDestroy(xvec);
-        return false;
-    }
-    HYPRE_IJVectorSetObjectType(bvec, HYPRE_PARCSR);
-    HYPRE_IJVectorSetObjectType(xvec, HYPRE_PARCSR);
-    HYPRE_IJVectorInitialize(bvec);
-    HYPRE_IJVectorInitialize(xvec);
-    HYPRE_IJVectorSetValues(bvec, static_cast<HYPRE_Int>(n), indices.data(), zeros.data());
-    HYPRE_IJVectorSetValues(xvec, static_cast<HYPRE_Int>(n), indices.data(), zeros.data());
-    HYPRE_IJVectorAssemble(bvec);
-    HYPRE_IJVectorAssemble(xvec);
-    HYPRE_IJVectorGetObject(bvec, reinterpret_cast<void**>(&parB));
-    HYPRE_IJVectorGetObject(xvec, reinterpret_cast<void**>(&parX));
-    const HYPRE_Int setupRc =
-        (parB && parX)
-            ? HYPRE_BoomerAMGSetup(static_cast<HYPRE_Solver>(solver.solver), parA, parB, parX)
-            : -1;
-    if (bvec) HYPRE_IJVectorDestroy(bvec);
-    if (xvec) HYPRE_IJVectorDestroy(xvec);
-    if (setupRc != 0) {
-        char descr[256] = {0};
-        HYPRE_DescribeError(setupRc, descr);
-        std::cerr << "  Hypre: BoomerAMGSetup (refresh) failed (rc=" << setupRc
-                  << ") " << descr << "\n";
-        return false;
-    }
-    HYPRE_ClearAllErrors();
     return true;
 }
 

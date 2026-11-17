@@ -23,7 +23,6 @@ class PressureCorrection {
 public:
     struct Config : public cfd::CaseSettings {
     bool compactRhieChow = false;
-    bool useAMG = true;
     bool useAMGPreconditioner = true;
 };
 
@@ -139,6 +138,7 @@ private:
     // unknowns and its mass balance can never be corrected, so the count is
     // reported - otherwise the run silently never converges.
     std::size_t isolatedCellCount_ = 0;
+    bool isolatedCellsReported_ = false;
     // Diagnostics of the last linear solve.
     std::size_t lastSolveIterations_ = 0;
     double lastSolveResidual_ = 0.0;

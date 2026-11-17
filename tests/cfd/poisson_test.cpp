@@ -1,4 +1,4 @@
-// Laplacian and Poisson operators.
+// Poisson operator.
 //
 // Contract pinned here:
 //   A phi = b  with  A = -div(c grad(phi))  - a positive diagonal, non-positive
@@ -12,7 +12,6 @@
 //   boundary cell is masked; a masked cell gets an identity row and its
 //   unmasked neighbours pick the prescribed value up in the right-hand side.
 #include "doctest/doctest.h"
-#include "fvm/Laplacian.h"
 #include "fvm/Poisson.h"
 #include "support/fvm_fixtures.h"
 
@@ -222,40 +221,6 @@ TEST_CASE("cfd.poisson.dirichlet_influences_neighbour") {
     const Eigen::VectorXd phiFree = solveDense(A0, b0);
     CHECK_MESSAGE(std::abs(phiPrescribed[static_cast<int>(N)] - phiFree[static_cast<int>(N)]) > 1e-9,
                   "the neighbour value must be influenced by the prescribed cell");
-}
-
-// Laplacian(k) and Poisson(c = k, source = 0) must produce the same solution
-// for the same boundary conditions: both solve the same physical problem.
-// Comparing solutions (not matrix entries) pins the shared purpose.
-TEST_CASE("cfd.poisson.laplacian_solves_the_same_problem") {
-    const fvm::Mesh<2> mesh = uniform2D(5);
-    const std::vector<char> mask = boundaryMask(mesh);
-    std::vector<double> values(mesh.nCells(), 0.0);
-
-    fvm::Field<2> c(mesh, 2.5);
-    fvm::Field<2> source(mesh, 1.0);
-
-    fvm::Laplacian<2> laplacian(mesh, 2.5);
-    fvm::SparseMatrix A;
-    Eigen::VectorXd b;
-    {
-        std::vector<double> src(mesh.nCells(), 1.0);
-        laplacian.discretize(A, b, mask, values, std::span<const double>(src.data(), src.size()));
-    }
-    const Eigen::VectorXd phiLaplacian = solveDense(A, b);
-
-    fvm::Poisson<2> poisson(mesh);
-    fvm::SparseMatrix A2;
-    Eigen::VectorXd b2;
-    poisson.discretize(A2, b2, c, source, mask, values);
-    const Eigen::VectorXd phiPoisson = solveDense(A2, b2);
-
-    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
-        CAPTURE(i);
-        CHECK_MESSAGE(std::isfinite(phiLaplacian[static_cast<int>(i)]), "the Laplacian solution must be finite");
-        CHECK_MESSAGE(std::abs(phiLaplacian[static_cast<int>(i)] - phiPoisson[static_cast<int>(i)]) < 1e-9,
-                      "Laplacian and Poisson must solve the same problem");
-    }
 }
 
 // On an orthogonal mesh the non-orthogonal correction must not change the

@@ -7,7 +7,6 @@
 #include <atomic>
 #include <cstddef>
 #include <memory>
-#include <string>
 #include <vector>
 
 namespace fvm {
@@ -27,9 +26,6 @@ public:
 
     virtual ~AMGBackend() = default;
 
-    // --- Configuration ---------------------------------------------------
-    virtual void setConfig(const Config& config) = 0;
-
     // --- Build / invalidate ---------------------------------------------
     virtual void build(const SparseMatrix& A) = 0;
     virtual void invalidate() = 0;
@@ -46,20 +42,14 @@ public:
     virtual int numLevels() const = 0;
     virtual int fineSize() const = 0;
     virtual const std::vector<int>& levelSizes() const = 0;
-    virtual std::string hierarchyReport() const = 0;
 
     // --- Stats -----------------------------------------------------------
     virtual int lastIterations() const = 0;
     virtual double lastResidual() const = 0;
     virtual const std::vector<double>& lastResidualHistory() const = 0;
-    virtual double buildTime() const = 0;
-    virtual double solveTime() const = 0;
 
     // --- Backend-specific ------------------------------------------------
     virtual bool hasCachedAggregation() const = 0;
-    virtual bool hierarchyCurrent() const = 0;
-    virtual bool useAggregation() const { return false; }
-    virtual void refreshHierarchyValues(const SparseMatrix& A) = 0;
     virtual void updateFineValues(const SparseMatrix& A) = 0;
 };
 

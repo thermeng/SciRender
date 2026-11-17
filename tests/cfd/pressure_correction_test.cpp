@@ -55,7 +55,6 @@ CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = fal
 
     fvm::PressureCorrection<2>::Config cfg;
     cfg.compactRhieChow = compact;
-    cfg.useAMG = false;
     fvm::PressureCorrection<2> pc(mesh, cfg);
     pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
@@ -235,7 +234,6 @@ TEST_CASE("cfd.pressure.compact_rhie_chow_cancels_checkerboard") {
 
     fvm::PressureCorrection<2>::Config cfg;
     cfg.compactRhieChow = true;
-    cfg.useAMG = false;
     fvm::PressureCorrection<2> pc(mesh, cfg);
     pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
@@ -293,7 +291,6 @@ TEST_CASE("cfd.pressure.amg_solve_removes_divergence") {
         if (!mesh.isBoundary(i)) before = std::max(before, std::abs(divBeforeField[i]));
 
     fvm::PressureCorrection<2>::Config cfg;
-    cfg.useAMG = true;
     cfg.useAMGPreconditioner = true;
     cfg.pressureAmgPreconditionerCycles = 2;
     fvm::PressureCorrection<2> pc(mesh, cfg);

@@ -31,7 +31,6 @@ template<std::size_t Dim>
 class LinearSolverDispatcher {
 public:
     struct Config {
-        bool useAMG = true;
         bool amgAsSolver = false;
         std::size_t amgRebuildInterval = 5;
         int amgCycles = 2;
