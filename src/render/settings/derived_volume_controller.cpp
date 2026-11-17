@@ -31,6 +31,7 @@ void DerivedVolumeController::setCurrentMesh(std::shared_ptr<const RenderMesh> m
         // A 2D/surface mesh has nothing to voxelize; drop any previous grid.
         m_mesh = std::move(mesh);
         m_signature = 0;
+        m_grid.reset();
         ++m_token;
         m_renderer.setPendingDerivedVolume(nullptr);
         return;
@@ -39,10 +40,17 @@ void DerivedVolumeController::setCurrentMesh(std::shared_ptr<const RenderMesh> m
     const std::uint64_t sig = topologySignature(*mesh);
     m_mesh = std::move(mesh);
     // Same topology (a re-solved frame, or a scalar-only refresh): the built or
-    // in-flight grid is still valid.
-    if (sig == m_signature) return;
+    // in-flight grid is still valid. Re-publish it: Renderer::uploadMesh drops
+    // m_derivedVolume on every full mesh upload (e.g. the re-upload done when a
+    // CFD run is paused or finishes), and without the grid an unstructured mesh
+    // has no volume texture at all.
+    if (sig == m_signature) {
+        if (m_grid) m_renderer.setPendingDerivedVolume(m_grid);
+        return;
+    }
 
     m_signature = sig;
+    m_grid.reset(); // a new topology invalidates the previous grid
     launch();
 }
 
@@ -71,6 +79,7 @@ void DerivedVolumeController::onBuilt() {
     if (!future.isFinished() || future.resultCount() == 0) return;
     BuildResult result = m_watcher.result();
     if (result.token != m_token) return; // superseded by a newer mesh / clear
+    m_grid = result.grid;
     m_renderer.setPendingDerivedVolume(std::move(result.grid));
     emit built();
 }
@@ -80,6 +89,7 @@ void DerivedVolumeController::clear() {
     m_watcher.waitForFinished();
     m_watcher.setFuture(QFuture<BuildResult>());
     m_mesh.reset();
+    m_grid.reset();
     m_signature = 0;
     m_renderer.setPendingDerivedVolume(nullptr);
 }

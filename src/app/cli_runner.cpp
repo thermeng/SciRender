@@ -55,6 +55,8 @@ int runHeadlessCase(const Options& options) {
     }
     if (options.boomerAmg) {
         settings.pressureAmg.backend = cfd::AmgSettings::Backend::BoomerAMG;
+        settings.momentumAmg.backend = cfd::AmgSettings::Backend::BoomerAMG;
+        settings.turbulenceAmg.backend = cfd::AmgSettings::Backend::BoomerAMG;
     }
 
     // Logs only: no result files, no live frame builds. The solver's own

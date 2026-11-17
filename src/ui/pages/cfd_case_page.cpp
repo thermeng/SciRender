@@ -253,7 +253,7 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
 
     syncTime();
     // Push backend defaults into the UI so a fresh page shows them
-    // (e.g. Second-Order Upwind, BoomerAMG) instead of the .ui file's
+    // (e.g. Second-Order Upwind, Cached Aggregation) instead of the .ui file's
     // hard-coded index 0. applySettings() is also called from onCaseLoaded()
     // when a saved case overrides these defaults.
     applySettings(m_ctrl->settings());
