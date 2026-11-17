@@ -25,6 +25,8 @@ struct Options {
     // tentative piecewise-constant prolongation is Jacobi-smoothed so the
     // coarse grid can represent smooth error modes.
     bool smoothedAggregation = false;
+    // Force BoomerAMG (Hypre) backend instead of cached aggregation.
+    bool boomerAmg = false;
     bool help = false;
 };
 

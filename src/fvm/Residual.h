@@ -45,10 +45,25 @@ inline ResidualResult computeResiduals(
     // This mirrors PressureCorrection's divergence for consistency
     const std::size_t nF = mesh.nFaces();
     const std::size_t n = mesh.nCells();
-    const char* isBnd = mesh.isBoundaryPtr();
     const double* volPtr = mesh.cellVolumePtr();
     std::vector<char> emptyMask;
     const std::vector<char>& maskRef = pMask ? *pMask : emptyMask;
+    // A cell whose velocity is prescribed in EVERY component has no momentum
+    // equation, so it is excluded from the residual. Every other cell is
+    // included - in particular the shell of cells that merely OWNS a boundary
+    // face, which is where a boundary layer fails first. Excluding the whole
+    // boundary shell (the old mesh.isBoundary() rule) made a divergent
+    // wall/outlet region invisible in the convergence history.
+    std::vector<char> prescribed(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        bool all = true;
+        for (std::size_t d = 0; d < Dim; ++d) {
+            if (d >= dirichletMask.size()) { all = false; break; }
+            const auto& m = dirichletMask[d];
+            if (i >= m.size() || !m[i]) { all = false; break; }
+        }
+        prescribed[i] = all ? 1 : 0;
+    }
     for (std::size_t i = 0; i < n; ++i) divBuffer[i] = 0.0;
     double sumFlux = 0.0;
     for (std::size_t f = 0; f < nF; ++f) {
@@ -92,7 +107,7 @@ inline ResidualResult computeResiduals(
     double totalVol = 0.0;
     #pragma omp parallel for reduction(max:maxDiv) reduction(+:sumAbsDivVol,totalVol) schedule(static)
     for (std::size_t i = 0; i < n; ++i) {
-        if (isBnd[i]) continue;
+        if (prescribed[i]) continue;
         double ad = std::abs(divBuffer[i]);
         if (ad > maxDiv) maxDiv = ad;
         sumAbsDivVol += ad * volPtr[i];
@@ -105,7 +120,7 @@ inline ResidualResult computeResiduals(
         contResid = sumAbsDivVol / sumFlux;
     } else {
         double maxUmag = 0.0;
-        for (std::size_t i = 0; i < n; ++i) if (!isBnd[i]) {
+        for (std::size_t i = 0; i < n; ++i) if (!prescribed[i]) {
             double um2 = 0.0;
             for (std::size_t d = 0; d < Dim; ++d) um2 += velocity[d][i]*velocity[d][i];
             double um = std::sqrt(um2);
@@ -120,7 +135,7 @@ inline ResidualResult computeResiduals(
     double maxU = 0.0, maxV = 0.0, maxW = 0.0;
     #pragma omp parallel for reduction(max:maxUChange,maxVChange,maxWChange,maxU,maxV,maxW) schedule(static)
     for (std::size_t i = 0; i < n; ++i) {
-        if (isBnd[i]) continue;
+        if (prescribed[i]) continue;
         double du = std::abs(velocity[0][i] - velocityOld[0][i]);
         if (du > maxUChange) maxUChange = du;
         double dv = std::abs(velocity[1][i] - velocityOld[1][i]);

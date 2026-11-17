@@ -85,7 +85,7 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const Config& 
     for (auto& dc : dCoeff_) dc.assign(mesh.nCells(), 0.0);
     for (auto& g : velGrad_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : pressureGrad_) g = Field<Dim>(mesh, 0.0);
-    pPrimeGradientCalc_ = std::make_unique<Gradient<Dim>>(
+    pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
         mesh, GradientScheme::LeastSquares);
 }
 
@@ -331,10 +331,6 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
 
     gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_);
     gradientCalc_->setScheme(config_.gradientScheme);
-    // The pressure operator is always least squares: the pressure matrix, the
-    // PISO corrector and the velocity correction are built from it.
-    pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
-        mesh_, GradientScheme::LeastSquares);
     for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
 
     // Build the boundary discretization before the turbulence model: the
@@ -546,7 +542,7 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
                     adaptiveAlphaP_,
-                    pPrimeGradientCalc_.get());
+                    pressureGradientCalc_.get());
         steadyVelocityCorrectionSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tCorrection).count();
 
         #pragma omp parallel for schedule(static)
@@ -581,9 +577,7 @@ void SIMPLE<Dim>::printPressureSolverStats_() const {
     std::cerr << "\n  Pressure linear solver statistics\n";
     std::cerr << "    solves:            " << s.solves << "\n";
     std::cerr << "    AMG solves:        " << s.amgSolves << "\n";
-    std::cerr << "    ILU solves:        " << s.iluSolves << "\n";
     std::cerr << "    AMG builds:        " << s.amgBuilds << "\n";
-    std::cerr << "    AMG rejected:      " << s.amgRejected << "  (fell back to ILU/CG)\n";
     std::cerr << "    Krylov iters:      " << s.krylovIters << "\n";
     std::cerr << "    AMG Krylov iters:  " << s.amgKrylovIters << "\n";
     if (s.solves > 0) {
@@ -593,7 +587,6 @@ void SIMPLE<Dim>::printPressureSolverStats_() const {
     }
     std::cerr << "    AMG build time:    " << s.buildSeconds << " s\n";
     std::cerr << "    AMG solve time:    " << s.amgSeconds << " s\n";
-    std::cerr << "    ILU solve time:    " << s.iluSeconds << " s\n";
     if (pressureCorrection_.amgBuilt()) {
         std::cerr << "    pressure AMG levels: "
                   << pressureCorrection_.amgLevels() << " (";
@@ -1147,7 +1140,7 @@ const Field<Dim>& SIMPLE<Dim>::zeroSource_() const {
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::solveMomentum_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld) {
-    momentum_.computePressureGradient(boundPressure(), pressureGrad_);
+    pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
 
     if constexpr (Dim == 2) {
         solveMomentumComponent_(0, uStar, velocityOld, pressureGrad_);
@@ -1222,9 +1215,6 @@ void SIMPLE<Dim>::solveMomentumTransient_(VectorField<Dim>& uStar, const VectorF
     // gradient used to be used here, which made the predictor solve a
     // different pressure term than the corrector cancelled; the mismatch is
     // largest on skewed/non-uniform meshes.
-    if (!pressureGradientCalc_)
-        pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
-            mesh_, GradientScheme::LeastSquares);
     pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
     if constexpr (Dim == 2) {
         solveMomentumComponentTransient_(0, uStar, velocityOld, pressureGrad_);
@@ -1428,7 +1418,7 @@ void SIMPLE<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<D
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
                     adaptiveAlphaP_,
-                    pPrimeGradientCalc_.get());
+                    pressureGradientCalc_.get());
     #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         (boundPressure())[i] += adaptiveAlphaP_ * pPrime_[i];
@@ -1512,9 +1502,6 @@ void SIMPLE<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& 
 // repeating the same frozen-u* projection would be a no-op.
 template<std::size_t Dim>
 void SIMPLE<Dim>::updatePisoPredictor_() {
-    if (!pressureGradientCalc_)
-        pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
-            mesh_, GradientScheme::LeastSquares);
     pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
 
     const auto& u = boundVelocity();
@@ -1602,7 +1589,7 @@ void SIMPLE<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& 
                         config_.velocityCorrectionMaxUnlimitedSpeed,
                         config_.velocityCorrectionMaxGrowthRate,
                         adaptiveAlphaP_,
-                        pPrimeGradientCalc_.get());
+                        pressureGradientCalc_.get());
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
             (boundPressure())[i] += pPrime_[i]; // alphaP = 1 for PISO

@@ -383,12 +383,17 @@ std::vector<std::vector<std::size_t>> Mesh<Dim>::cellFaceLoops_(std::size_t ci) 
                      {cell[0], cell[3], cell[7], cell[4]},
                      {cell[1], cell[2], cell[6], cell[5]}};
         } else {
-            // Fallback: a triangle fan from vertex 0. Only valid for convex
-            // cells whose faces are triangles. Any other polyhedral cell must
-            // be supplied with an explicit face list.
-            for (std::size_t i = 0; i + 1 < nv; ++i) {
-                loops.push_back({cell[0], cell[i], cell[i + 1]});
-            }
+            // No topology is implied by this vertex count: a pyramid has 5
+            // vertices, a prism 6, a general polyhedron any number, and their
+            // faces are not a triangle fan from vertex 0. Inferring one does
+            // not merely lose accuracy - the faces do not match the
+            // neighbour's, so the mesh grows phantom boundary faces and wrong
+            // volumes. Refuse instead of silently building a corrupt mesh.
+            throw std::runtime_error(
+                "Mesh: cell " + std::to_string(ci) + " has " +
+                std::to_string(nv) +
+                " vertices and no explicit face list; only tetrahedra (4) and "
+                "hexahedra (8) can be inferred in 3D");
         }
     }
     return loops;

@@ -164,46 +164,6 @@ double Momentum<Dim>::nuEff_(std::size_t P, std::size_t N,
 }
 
 template<std::size_t Dim>
-void Momentum<Dim>::computePressureGradientFused_(const Field<Dim>& pressure,
-                                                 std::array<Field<Dim>, Dim>& grad) const {
-    const std::size_t n = mesh_.nCells();
-    const std::size_t nF = mesh_.nFaces();
-    for (auto& g : grad) g = Field<Dim>(mesh_, 0.0);
-
-    // Precompute 1/vol to replace divisions in inner loop
-    std::vector<double> invVol(n);
-    const double* volPtr = mesh_.cellVolumePtr();
-    for (std::size_t i = 0; i < n; ++i) {
-        double v = volPtr[i];
-        invVol[i] = (v > 1e-30) ? 1.0 / v : 0.0;
-    }
-    const std::size_t* ownerPtr = mesh_.ownerPtr();
-    const std::size_t* neighborPtr = mesh_.neighborPtr();
-    const double* areaPtr = mesh_.faceAreaPtr();
-    const double* weightPtr = mesh_.faceWeightPtr();
-
-    for (std::size_t f = 0; f < nF; ++f) {
-        const std::size_t P = ownerPtr[f];
-        const std::size_t N = neighborPtr[f];
-        double w = weightPtr[f];
-        double pFace = (N == std::size_t(-1)) ? pressure[P] : (1.0 - w) * pressure[P] + w * pressure[N];
-        const double* fn = mesh_.faceNormalPtr(f);
-        double area = areaPtr[f];
-        for (std::size_t d = 0; d < Dim; ++d) {
-            double contrib = pFace * fn[d] * area;
-            grad[d][P] += contrib * invVol[P];
-            if (N != std::size_t(-1)) grad[d][N] -= contrib * invVol[N];
-        }
-    }
-}
-
-template<std::size_t Dim>
-void Momentum<Dim>::computePressureGradient(const Field<Dim>& pressure,
-                                            std::array<Field<Dim>, Dim>& grad) const {
-    computePressureGradientFused_(pressure, grad);
-}
-
-template<std::size_t Dim>
 void Momentum<Dim>::assembleWithConvection(
     std::size_t d,
     const VectorField<Dim>& velocity,
@@ -271,14 +231,27 @@ void Momentum<Dim>::assembleWithConvection(
                 for (std::size_t dd = 0; dd < Dim; ++dd)
                     dotSfd += fn[dd] * (xF[dd] - xP[dd]);
 
-                // One face BC entry drives every boundary decision below: the
-                // diffusion classification and the convective face value.
-                const bool hasFaceBC = bcs.faceBC &&
-                                       f < bcs.faceBC->size() &&
-                                       (*bcs.faceBC)[f].type != VelocityBCType::NoSlip;
+                // Two separate questions, and conflating them leaks mass:
+                //   hasFaceEntry - is there a BC policy for this face? Every
+                //                  boundary face has one.
+                //   hasFaceBC    - does the DIFFUSION stencil treat it as a
+                //                  Dirichlet face? A no-slip wall is a
+                //                  homogeneous Dirichlet row (diagonal only, no
+                //                  RHS term), so it is excluded here.
+                // The convective mass flux must use the face policy for EVERY
+                // boundary face, including no-slip, where boundaryFaceState
+                // gives normalVelocity = 0. Falling back to u_P.n convects mass
+                // through a solid wall, while the pressure correction (which
+                // uses the face policy) builds its divergence with zero wall
+                // flux; the two operators then disagree exactly at the wall.
+                const bool hasFaceEntry = bcs.faceBC &&
+                                          f < bcs.faceBC->size();
+                const bool hasFaceBC =
+                    hasFaceEntry &&
+                    (*bcs.faceBC)[f].type != VelocityBCType::NoSlip;
                 const BoundaryFaceState<Dim> faceState =
-                    hasFaceBC ? boundaryFaceState<Dim>(velocity, P, fn, (*bcs.faceBC)[f])
-                              : BoundaryFaceState<Dim>{};
+                    hasFaceEntry ? boundaryFaceState<Dim>(velocity, P, fn, (*bcs.faceBC)[f])
+                                 : BoundaryFaceState<Dim>{};
 
                 // Face-based slip handling (exact normal) — supersedes cell-based bcs.slipWallMask shim
                 bool isSlipFace = false;
@@ -321,7 +294,7 @@ void Momentum<Dim>::assembleWithConvection(
                     // prescribed velocity, outlets are zero-gradient with the
                     // backflow rule already applied.
                     double un = 0.0;
-                    if (hasFaceBC) {
+                    if (hasFaceEntry) {
                         un = faceState.normalVelocity;
                     } else {
                         for (std::size_t dd = 0; dd < Dim; ++dd) {
