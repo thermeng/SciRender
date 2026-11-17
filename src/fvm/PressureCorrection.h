@@ -43,12 +43,10 @@ public:
     struct PressureSolverStats {
         std::size_t solves = 0;
         std::size_t amgSolves = 0;
-        std::size_t iluSolves = 0;
         std::size_t amgBuilds = 0;
         std::size_t amgRejected = 0;
         std::size_t krylovIters = 0;
         std::size_t amgKrylovIters = 0;
-        double iluSeconds = 0.0;
         double amgSeconds = 0.0;
         double buildSeconds = 0.0;
     };
@@ -150,18 +148,12 @@ private:
     std::size_t lastReverseFlowFaces_ = 0;
     mutable PressureSolverStats pressureStats_{};
 
-    Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
-                             Eigen::IncompleteCholesky<double>> cgSolver_;
-    //  solves the pressure equation with PCG preconditioned by AMG
-    // ("Preconditioned Conjugate-Gradient solve of SPD-system"). That is valid
-    // for the compact Rhie-Chow operator, which is symmetric positive definite.
-    Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
-                             AMGPreconditioner> cgAmgSolver_;
     Eigen::BiCGSTAB<SparseMatrix, AMGPreconditioner> bicgSolver_;
     // GMRES is not part of Eigen's supported iterative solvers; the AMG
     // acceleration "GMRES" uses fvm::gmresRestarted (fvm/Gmres.h) instead of a
     // member here.
-    Eigen::BiCGSTAB<SparseMatrix, Eigen::IncompleteLUT<double>> bicgFallbackSolver_;
+    Eigen::ConjugateGradient<SparseMatrix, Eigen::Lower|Eigen::Upper,
+                             AMGPreconditioner> cgAmgSolver_;
     bool pPatternAnalyzed_ = false;
     // The fallback ILU/CG solvers are analysed separately from the AMG Krylov
     // solvers: an AMG solve can succeed without ever touching them, and a
