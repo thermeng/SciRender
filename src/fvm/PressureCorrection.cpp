@@ -832,73 +832,25 @@ void PressureCorrection<Dim>::solve(
             lastSolveResidual_ = amg_.lastResidual();
             if (!converged) {
                 pressureStats_.amgRejected++;
-                std::cerr << "  WARNING: AMG solve did not converge, falling back to CG+IC\n";
+                std::cerr << "  ERROR: AMG solve did not converge, aborting\n";
             }
         }
     }
     if (!amgPathLogged_) {
         if (!config_.useAMG) {
-            std::cerr << "  pressure: AMG disabled by config; using CG+IC/ILU.\n";
+            std::cerr << "  ERROR: AMG disabled by config, aborting solver\n";
         } else if (!amgEligible) {
-            std::cerr << "  pressure: AMG skipped (n=" << n << " < threshold "
-                      << amgThreshold << "); using CG+IC/ILU.\n";
+            std::cerr << "  ERROR: AMG skipped (n=" << n << " < threshold "
+                      << amgThreshold << "), aborting solver\n";
         }
         amgPathLogged_ = true;
     }
 
     if (!converged) {
-        std::size_t nz = triplets_.size();
-        if (!fallbackPatternAnalyzed_ || maskChanged || compactChanged || patternHash != fallbackPatternHash_) {
-            // Fallback is a safety net, not the STAR path: keep it accurate
-            // but clamp the old 1e-8 * volScale (also below double precision
-            // at fine meshes) to a reachable relative residual.
-            const double fallbackTol = std::max(1e-12, 1e-8 * volScale);
-            bicgFallbackSolver_.setMaxIterations(10000);
-            bicgFallbackSolver_.setTolerance(fallbackTol);
-            bicgFallbackSolver_.analyzePattern(A_);
-            cgSolver_.setMaxIterations(10000);
-            cgSolver_.setTolerance(fallbackTol);
-            cgSolver_.analyzePattern(A_);
-            fallbackPatternAnalyzed_ = true;
-            fallbackPatternHash_ = patternHash;
-            prevPMask_ = pMask_;
-            prevNonZeroPattern_ = nz;
-            prevCompact_ = config_.compactRhieChow;
-        }
-        // The legacy composed pressure matrix is NOT symmetric: its rows are
-        // built from one-sided least-squares gradient fits, so A = A^T fails
-        // almost everywhere. CG + Incomplete Cholesky is only meaningful for
-        // SPD systems and either stalls or diverges there, so the nonsymmetric
-        // Krylov solve (BiCGSTAB + ILU) goes first and CG stays as a fallback.
-        // The compact Rhie-Chow matrix is the two-point Laplacian stored with
-        // the opposite sign (positive diagonal, negative off-diagonal), i.e.
-        // SPD; BiCGSTAB still solves it, and CG remains the fallback.
-        auto tIlu = std::chrono::steady_clock::now();
-        bicgFallbackSolver_.factorize(A_);
-        x = bicgFallbackSolver_.solve(bVec_);
-        pressureStats_.iluSolves++;
-        pressureStats_.krylovIters += bicgFallbackSolver_.iterations();
-        pressureStats_.iluSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - tIlu).count();
-        converged = (bicgFallbackSolver_.info() == Eigen::Success);
-        lastSolveIterations_ = bicgFallbackSolver_.iterations();
-        lastSolveResidual_ = bicgFallbackSolver_.error();
-        if (!converged) {
-            std::cerr << "  WARNING: pressure BiCGSTAB+ILU failed (iters=" << bicgFallbackSolver_.iterations()
-                      << ", resid=" << bicgFallbackSolver_.error() << "), falling back to CG+IC\n";
-        }
-        if (!converged) {
-            cgSolver_.factorize(A_);
-            x = cgSolver_.solve(bVec_);
-            pressureStats_.krylovIters += cgSolver_.iterations();
-            converged = (cgSolver_.info() == Eigen::Success);
-            lastSolveIterations_ = cgSolver_.iterations();
-            lastSolveResidual_ = cgSolver_.error();
-
-            if (!converged) {
-                std::cerr << "  WARNING: pressure CG fallback also failed (iters=" << cgSolver_.iterations()
-                          << ", resid=" << cgSolver_.error() << ")\n";
-            }
-        }
+        // AMG is the sole pressure solver per the design: if AMG fails, stop
+        // the solver rather than falling back to Eigen's CG/BiCGSTAB which
+        // cannot handle very large cases reliably.
+        std::cerr << "  ERROR: pressure AMG solve failed, aborting solver\n";
     }
 
     bool nonFinite = false;
