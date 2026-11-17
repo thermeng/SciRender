@@ -204,7 +204,6 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/mesh/BoundaryUtils.cpp
         src/field/Field.cpp
         src/field/VectorField.cpp
-        src/fvm/Laplacian.cpp
         src/fvm/Poisson.cpp
         src/fvm/Gradient.cpp
         src/fvm/SlopeLimiter.cpp
@@ -213,13 +212,11 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/Momentum.cpp
         src/fvm/BoundaryConditions.cpp
         src/fvm/SSTModel.cpp
-        src/fvm/Solver.cpp
         src/fvm/SIMPLE.cpp
         src/fvm/LinearSolverDispatcher.cpp
         src/fvm/SIMPLEBoundaryConditions.cpp
         src/fvm/PressureCorrection.cpp
         src/fvm/AMG.cpp
-        src/fvm/HypreSolver.h
         src/fvm/HypreSolver.h
         src/io/VTKXMLWriter.cpp
         src/io/ANSYSMeshReader.cpp

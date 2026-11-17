@@ -142,7 +142,7 @@ void CfdAdvancedDialog::buildUi() {
     m_pressureSolverStats = new QCheckBox("Pressure Solver Statistics");
     m_pressureSolverStats->setToolTip("Print per-run pressure linear-solver statistics.");
     pressureAmgLay->addWidget(m_pressureSolverStats);
-    m_pressureAmg = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults(), nullptr, true);
+    m_pressureAmg = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults());
     pressureAmgLay->addWidget(m_pressureAmg);
     pressureAmgLay->addStretch(1);
 

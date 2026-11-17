@@ -10,7 +10,6 @@
 #include "fvm/SIMPLETypes.h"
 #include "fvm/SIMPLEBoundaryConditions.h"
 #include "fvm/Momentum.h"
-#include "fvm/Divergence.h"
 #include "fvm/SSTModel.h"
 #include "fvm/Gradient.h"
 #include "fvm/PressureCorrection.h"
@@ -61,7 +60,6 @@ struct Config : public cfd::CaseSettings {
     SolverType solverType = SolverType::SIMPLE; // explicit: SIMPLE (steady/transient), PISO, PIMPLE
     ConvectionScheme convectionScheme = ConvectionScheme::SecondOrderUpwind;
     GradientScheme gradientScheme = GradientScheme::LeastSquares;
-    bool pressureUseAMG = true;
     bool pressureUseAMGPreconditioner = true;
     // Override CaseSettings defaults where the solver needs different values:
     int pressureCorrectors = 3;           // CaseSettings: 1
@@ -400,8 +398,6 @@ private:
     Failure failure_ = Failure::None;
     void fail_(Failure reason);
     double maxInletSpeed_ = 0.0;
-    double prevContResid_ = 0.0;
-    std::size_t stallCount_ = 0;
     // Number of consecutive iterations the residual criterion has held.
     int convergedStreak_ = 0;
     // Convergence monitor built from the resolved stopping policy at run start

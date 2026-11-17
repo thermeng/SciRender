@@ -12,9 +12,8 @@
 //   - the mass flux through the inlet and through the outlet must balance;
 //   - the centreline profile must be smooth (no checkerboard).
 //
-// AMG is the default linear solver for both pressure and momentum
-// (pressureUseAMG = true, useAMGMomentum = true in SIMPLE<2>::Config), so this
-// test exercises the AMG-preconditioned BiCGSTAB path without needing to set
+// AMG is the only linear solver for both pressure and momentum, so this test
+// exercises the AMG-preconditioned CG/BiCGSTAB paths without needing to set
 // anything explicitly. The old channel_amg_tmp_test.cpp only added
 // momentumSolverStats = true, which generates noisy diagnostic logs; that line
 // is kept below but commented out.

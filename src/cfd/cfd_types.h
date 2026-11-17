@@ -74,12 +74,7 @@ struct AmgSettings {
     double stagnationFactor = 1.05;
     int stagnationMinIter = 10;
     double stagnationLooseFactor = 5.0;
-    // Non-symmetric operator (momentum). Forces aggregation coarsening, which
-    // is the robust choice for a nonsymmetric matrix.
-    bool nonsymmetric = false;
-    // Flexible cycle struct (Hypre-style ints: -2 terminate, -1 coarser, 0 stay, 1 finer).
-    std::vector<int> flexStruct;
-    
+
     //   Flex Cycle defaults: Restriction Tolerance = 0.9
     // (residual ratio below which the level is considered resolved),
     // Prolongation Tolerance = 0.5 (ratio above which the correction
@@ -135,7 +130,6 @@ struct AmgSettings {
         s.preSweeps = 1;
         s.postSweeps = 1;
         s.maxLevels = 50;
-        s.nonsymmetric = true;
         // Flexible is the default for momentum & turbulence.
         s.cycleType = CycleType::Flexible;
         s.smoother = Smoother::GaussSeidel;

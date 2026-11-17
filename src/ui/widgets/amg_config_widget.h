@@ -17,7 +17,7 @@ class QSpinBox;
 class AmgConfigWidget : public QWidget {
     Q_OBJECT
 public:
-    explicit AmgConfigWidget(const cfd::AmgSettings& defaults, QWidget* parent = nullptr, bool lockNonsymmetric = false);
+    explicit AmgConfigWidget(const cfd::AmgSettings& defaults, QWidget* parent = nullptr);
 
     void setConfig(const cfd::AmgSettings& settings);
     cfd::AmgSettings config() const;
@@ -34,7 +34,6 @@ private:
     void buildUi();
     void syncDependencies();
 
-    bool m_lockNonsymmetric = false;
     cfd::AmgSettings m_defaults;
     // Mesh dimension: 2 or 3. Used to display the STAR Auto group size
     // (2 for 2D, 4 for 3D) and to round-trip it into blockSize for Automatic.
@@ -74,7 +73,6 @@ private:
     QDoubleSpinBox* m_strength = nullptr;
     QDoubleSpinBox* m_truncation = nullptr;
     QSpinBox* m_minCoarse = nullptr;
-    QCheckBox* m_nonsymmetric = nullptr;
 
     // Robustness (expert)
     QDoubleSpinBox* m_stagnationFactor = nullptr;

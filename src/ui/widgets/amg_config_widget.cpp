@@ -34,8 +34,8 @@ ScientificDoubleSpinBox* toleranceSpin() {
 
 } // namespace
 
-AmgConfigWidget::AmgConfigWidget(const cfd::AmgSettings& defaults, QWidget* parent, bool lockNonsymmetric)
-    : QWidget(parent), m_lockNonsymmetric(lockNonsymmetric), m_defaults(defaults) {
+AmgConfigWidget::AmgConfigWidget(const cfd::AmgSettings& defaults, QWidget* parent)
+    : QWidget(parent), m_defaults(defaults) {
     buildUi();
     setConfig(defaults);
 }
@@ -294,17 +294,6 @@ void AmgConfigWidget::buildUi() {
     m_minCoarse->setToolTip("Stop coarsening once a level has this few unknowns.");
     build->addRow("Min Coarse Size", m_minCoarse);
 
-    m_nonsymmetric = new QCheckBox("Non-Symmetric Operator (Momentum)", this);
-    m_nonsymmetric->setToolTip(
-        "Forces smoothed-aggregation coarsening, the robust choice for the\n"
-        "convection-diffusion momentum operator.");
-    build->addRow("Non-Symmetric", m_nonsymmetric);
-
-    if (m_lockNonsymmetric) {
-        m_nonsymmetric->setChecked(false);
-        m_nonsymmetric->setEnabled(false);
-    }
-
     // ── Change notifications ─────────────────────────────────────────────────
     for (QSpinBox* spin : {m_maxCycles, m_preSweeps, m_postSweeps, m_maxLevels,
                            m_groupSize, m_minCoarse, m_stagnationMinIter,
@@ -324,10 +313,6 @@ void AmgConfigWidget::buildUi() {
         connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
                 [this](int) { syncDependencies(); emit changed(); });
     }
-    connect(m_nonsymmetric, &QCheckBox::toggled, this, [this](bool) {
-        syncDependencies();
-        emit changed();
-    });
 
     syncDependencies();
 }
@@ -352,8 +337,7 @@ void AmgConfigWidget::syncDependencies() {
     // aggregation backend; BoomerAMG uses HMIS coarsening instead.
     const bool aggregation =
         !isBoomerAMG &&
-        (m_coarsening->currentIndex() == static_cast<int>(cfd::AmgSettings::Coarsening::SmoothedAggregation) ||
-         m_nonsymmetric->isChecked());
+        m_coarsening->currentIndex() == static_cast<int>(cfd::AmgSettings::Coarsening::SmoothedAggregation);
     m_groupSizeControl->setEnabled(aggregation);
     m_smoothedProlongation->setEnabled(aggregation);
     m_saOmega->setEnabled(aggregation && m_smoothedProlongation->isChecked());
@@ -368,10 +352,6 @@ void AmgConfigWidget::syncDependencies() {
         m_groupSize->setEnabled(false);
         m_groupSize->setValue((m_dim >= 3) ? 4 : 2);
     }
-
-    // Aggregation coarsening is forced for a nonsymmetric operator, so the
-    // coarsening choice is not the user's to make in that case.
-    m_coarsening->setEnabled(!m_nonsymmetric->isChecked());
 }
 
 void AmgConfigWidget::setDimension(int dim) {
@@ -412,7 +392,6 @@ void AmgConfigWidget::setConfig(const cfd::AmgSettings& s) {
     m_strength->setValue(s.strengthThreshold);
     m_truncation->setValue(s.truncThreshold);
     m_minCoarse->setValue(s.minCoarseSize);
-    m_nonsymmetric->setChecked(m_lockNonsymmetric ? false : s.nonsymmetric);
 
     m_stagnationFactor->setValue(s.stagnationFactor);
     m_stagnationMinIter->setValue(s.stagnationMinIter);
@@ -462,7 +441,6 @@ cfd::AmgSettings AmgConfigWidget::config() const {
     s.strengthThreshold = m_strength->value();
     s.truncThreshold = m_truncation->value();
     s.minCoarseSize = m_minCoarse->value();
-    s.nonsymmetric = m_lockNonsymmetric ? false : m_nonsymmetric->isChecked();
 
     s.stagnationFactor = m_stagnationFactor->value();
     s.stagnationMinIter = m_stagnationMinIter->value();

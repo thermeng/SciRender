@@ -2,7 +2,6 @@
 #include "fvm/AMG.h"
 #include "fvm/HypreSolver.h"
 #include <Eigen/LU>
-#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -21,8 +20,6 @@ public:
     explicit BoomerAMGBackend(Config config, int blockDim)
         : config_(config), blockDim_(std::max(1, blockDim)) {}
 
-    void setConfig(const Config& config) override { config_ = config; }
-
     void build(const SparseMatrix& A) override;
     void invalidate() override;
     bool isBuilt() const override { return built_; }
@@ -36,18 +33,12 @@ public:
     int numLevels() const override { return nlevels_; }
     int fineSize() const override { return n_; }
     const std::vector<int>& levelSizes() const override { return levelSizes_; }
-    std::string hierarchyReport() const override { return report_; }
     int lastIterations() const override { return lastIterations_; }
     double lastResidual() const override { return lastResidual_; }
     const std::vector<double>& lastResidualHistory() const override { return lastResidualHistory_; }
-    double buildTime() const override { return buildTimeSec_; }
-    double solveTime() const override { return solveTimeSec_; }
 
     bool hasCachedAggregation() const override { return false; }
-    bool hierarchyCurrent() const override { return built_ && useHypreActive_; }
-    void refreshHierarchyValues(const SparseMatrix& A) override;
     void updateFineValues(const SparseMatrix& A) override { build(A); }
-    bool useAggregation() const override { return false; }
 
 private:
     Config config_;
@@ -70,10 +61,7 @@ private:
     mutable int nlevels_ = 0;
     mutable std::vector<int> levelSizes_;
     mutable std::vector<int> cgrid_;
-    mutable std::string report_;
     mutable bool hierarchyInfoReady_ = false;
-    mutable double buildTimeSec_ = 0.0;
-    mutable double solveTimeSec_ = 0.0;
     // Per-level operators for the recursive Flexible cycle (Hypre path).
     mutable std::vector<AMGLevel> levels_;
     mutable bool fineRowsReady_ = false;
@@ -108,8 +96,6 @@ public:
     explicit AggregationBackend(Config config, int blockDim)
         : config_(config), blockDim_(std::max(1, blockDim)) {}
 
-    void setConfig(const Config& config) override { config_ = config; }
-
     void build(const SparseMatrix& A) override;
     void invalidate() override;
     bool isBuilt() const override { return built_; }
@@ -123,18 +109,12 @@ public:
     int numLevels() const override { return nlevels_; }
     int fineSize() const override { return n_; }
     const std::vector<int>& levelSizes() const override { return levelSizes_; }
-    std::string hierarchyReport() const override { return report_; }
     int lastIterations() const override { return lastIterations_; }
     double lastResidual() const override { return lastResidual_; }
     const std::vector<double>& lastResidualHistory() const override { return lastResidualHistory_; }
-    double buildTime() const override { return buildTimeSec_; }
-    double solveTime() const override { return solveTimeSec_; }
 
     bool hasCachedAggregation() const override { return true; }
-    bool hierarchyCurrent() const override { return built_; }
-    void refreshHierarchyValues(const SparseMatrix& A) override {}
     void updateFineValues(const SparseMatrix& A) override { build(A); }
-    bool useAggregation() const override { return true; }
 
 private:
     using AggRowMatrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
@@ -154,18 +134,13 @@ private:
     std::vector<int> levelSizes_;
     int nlevels_ = 0;
     bool built_ = false;
-    bool useHypreActive_ = false;
     mutable int lastIterations_ = 0;
     mutable double lastResidual_ = 0.0;
     mutable std::vector<double> lastResidualHistory_;
-    mutable double buildTimeSec_ = 0.0;
-    mutable double solveTimeSec_ = 0.0;
     mutable Eigen::SparseMatrix<double, Eigen::RowMajor> fineRows_;
     mutable bool fineRowsReady_ = false;
     std::vector<double> scale_;
-    std::string report_;
 
-    void buildAggregation_(const SparseMatrix& A);
     void refreshAggregationOperators_(const SparseMatrix& A);
     void buildAggScatterCaches_();
     int aggregate_(const AggRowMatrix& A, int groupSize, std::vector<int>& agg) const;
@@ -342,7 +317,6 @@ void BoomerAMGBackend::invalidate() {
     nlevels_ = 0;
     levelSizes_.clear();
     cgrid_.clear();
-    report_.clear();
     systemMatrix_.resize(0, 0);
     hypreMat_.reset();
     hypreSolver_.reset();
@@ -355,8 +329,6 @@ void BoomerAMGBackend::invalidate() {
     lastIterations_ = 0;
     lastResidual_ = 0.0;
     lastResidualHistory_.clear();
-    buildTimeSec_ = 0.0;
-    solveTimeSec_ = 0.0;
     levels_.clear();
     fineRows_.resize(0, 0);
     fineRowsReady_ = false;
@@ -370,8 +342,6 @@ void BoomerAMGBackend::build(const SparseMatrix& A) {
     n_ = static_cast<int>(A.rows());
     if (n_ <= 0 || static_cast<int>(A.cols()) != n_) return;
     systemMatrix_ = A;
-
-    auto buildStart = std::chrono::steady_clock::now();
 
     hypre_detail::ensureHypreInitialized();
     HYPRE_ClearAllErrors();
@@ -558,8 +528,6 @@ void BoomerAMGBackend::build(const SparseMatrix& A) {
     built_ = true;
     useHypreActive_ = true;
     hierarchyInfoReady_ = false;
-
-    buildTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - buildStart).count();
 }
 
 bool BoomerAMGBackend::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
@@ -568,7 +536,6 @@ bool BoomerAMGBackend::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
     if (config_.cycleType == AmgSettings::CycleType::Flexible)
         return solveFlexible_(b, x, cancel);
 
-    auto solveStart = std::chrono::steady_clock::now();
     const int n = n_;
     if ((int)x.size() != n) { x.resize(n); x.setZero(); }
     if (!b.allFinite()) return false;
@@ -589,19 +556,16 @@ bool BoomerAMGBackend::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
         lastResidualHistory_.push_back(rel);
         lastIterations_ = iter + 1; lastResidual_ = rel;
         if (rel < tol || (config_.epsilon > 0 && res < config_.epsilon)) {
-            solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
             return true;
         }
         if (res > prev * config_.stagnationFactor && iter >= config_.stagnationMinIter) {
             bool ok = rel < tol * config_.stagnationLooseFactor;
-            solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
             return ok;
         }
         prev = res;
     }
     Eigen::VectorXd r = b - systemMatrix_ * x;
     lastResidual_ = r.norm() / bnorm;
-    solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
     return lastResidual_ < tol * config_.stagnationLooseFactor;
 }
 
@@ -702,23 +666,6 @@ Eigen::VectorXd BoomerAMGBackend::flexCycle(int level, const Eigen::VectorXd& b,
     return x - xStart;
 }
 
-void BoomerAMGBackend::refreshHierarchyValues(const SparseMatrix& A) {
-#ifdef FVM_HAVE_HYPRE
-    if (!built_ || !useHypreActive_ || !hypreMat_ || !hypreSolver_) return;
-    if (A.rows() == 0 || static_cast<int>(A.cols()) != static_cast<int>(A.rows())) return;
-    if (!HypreSolver::updateSolverValues(
-            *std::static_pointer_cast<HypreSolver::HypreMat>(hypreMat_),
-            *std::static_pointer_cast<HypreSolver::HypreSolverImpl>(hypreSolver_),
-            A, hypreScale_))
-        return;
-    systemMatrix_ = A;
-    fineRows_.resize(0, 0);
-    fineRowsReady_ = false;
-#else
-    (void)A;
-#endif
-}
-
 void BoomerAMGBackend::ensureHierarchyInfo_() const {
     if (hierarchyInfoReady_) return;
     hierarchyInfoReady_ = true;
@@ -736,18 +683,11 @@ void BoomerAMGBackend::ensureHierarchyInfo_() const {
         levelSizes_.assign(1, n_);
     }
     nlevels_ = static_cast<int>(levelSizes_.size());
-    report_ = "Hypre BoomerAMG (IJ)\n";
-    for (int l = 0; l < nlevels_; ++l) {
-        report_ += "  level " + std::to_string(l) + ": " +
-                    std::to_string(levelSizes_[static_cast<std::size_t>(l)]) +
-                    " unknowns\n";
-    }
 }
 
 bool BoomerAMGBackend::ensureHypreBuilt_() const {
     if (hypreHierarchyReady_) return true;
 #ifdef FVM_HAVE_HYPRE
-    auto buildStart = std::chrono::steady_clock::now();
     auto mat = std::make_shared<typename HypreSolver::HypreMat>();
     auto solv = std::make_shared<typename HypreSolver::HypreSolverImpl>();
     std::vector<double> sc;
@@ -759,8 +699,6 @@ bool BoomerAMGBackend::ensureHypreBuilt_() const {
         hierarchyInfoReady_ = false;
         ensureHierarchyInfo_();
         buildLevelOperators_();
-        buildTimeSec_ += std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - buildStart).count();
         hypreHierarchyReady_ = true;
         return true;
     }
@@ -862,7 +800,6 @@ bool BoomerAMGBackend::applyFlexibleCycle_(const Eigen::VectorXd& b, Eigen::Vect
 
 bool BoomerAMGBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                                       const std::atomic<bool>* cancel) const {
-    auto solveStart = std::chrono::steady_clock::now();
     const int n = n_;
     if ((int)x.size() != n) { x.resize(n); x.setZero(); }
     if (!b.allFinite()) return false;
@@ -885,19 +822,16 @@ bool BoomerAMGBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd&
         lastResidualHistory_.push_back(rel);
         lastIterations_ = iter + 1; lastResidual_ = rel;
         if (rel < tol || (config_.epsilon > 0 && res < config_.epsilon)) {
-            solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
             return true;
         }
         if (res > prev * config_.stagnationFactor && iter >= config_.stagnationMinIter) {
             bool ok = rel < tol * config_.stagnationLooseFactor;
-            solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
             return ok;
         }
         prev = res;
     }
     Eigen::VectorXd r = b - systemMatrix_ * x;
     lastResidual_ = r.norm() / bnorm;
-    solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
     return lastResidual_ < tol * config_.stagnationLooseFactor;
 }
 
@@ -973,7 +907,6 @@ void BoomerAMGBackend::strengthOfConnection(const Eigen::SparseMatrix<double, Ei
 
 void AggregationBackend::invalidate() {
     built_ = false;
-    useHypreActive_ = false;
     n_ = 0;
     nlevels_ = 0;
     levelSizes_.clear();
@@ -986,12 +919,9 @@ void AggregationBackend::invalidate() {
     lastIterations_ = 0;
     lastResidual_ = 0.0;
     lastResidualHistory_.clear();
-    buildTimeSec_ = 0.0;
-    solveTimeSec_ = 0.0;
     fineRows_.resize(0, 0);
     fineRowsReady_ = false;
     scale_.clear();
-    report_.clear();
 }
 
 void AggregationBackend::build(const SparseMatrix& A) {
@@ -999,7 +929,6 @@ void AggregationBackend::build(const SparseMatrix& A) {
     systemMatrix_ = A;
     const std::size_t hash = detail::sparsityHash(A);
     const bool mapsValid = !aggMaps_.empty() && hash == aggPatternHash_;
-    const auto buildStart = std::chrono::steady_clock::now();
 
     if (!mapsValid) {
         aggMaps_.clear();
@@ -1037,13 +966,6 @@ void AggregationBackend::build(const SparseMatrix& A) {
                       << " unknowns, " << levels_[l].ARM.nonZeros() << " nnz\n";
     }
     built_ = !levels_.empty();
-    useHypreActive_ = false;
-    buildTimeSec_ = std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - buildStart).count();
-}
-
-void AggregationBackend::buildAggregation_(const SparseMatrix& A) {
-    build(A);
 }
 
 void AggregationBackend::buildAggScatterCaches_() {
@@ -1404,7 +1326,6 @@ Eigen::VectorXd AggregationBackend::flexCycle(int level, const Eigen::VectorXd& 
 
 bool AggregationBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                                        const std::atomic<bool>* cancel) const {
-    auto solveStart = std::chrono::steady_clock::now();
     const int n = n_;
     if ((int)x.size() != n) { x.resize(n); x.setZero(); }
     if (!b.allFinite()) return false;
@@ -1427,19 +1348,16 @@ bool AggregationBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorX
         lastResidualHistory_.push_back(rel);
         lastIterations_ = iter + 1; lastResidual_ = rel;
         if (rel < tol || (config_.epsilon > 0 && res < config_.epsilon)) {
-            solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
             return true;
         }
         if (res > prev * config_.stagnationFactor && iter >= config_.stagnationMinIter) {
             bool ok = rel < tol * config_.stagnationLooseFactor;
-            solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
             return ok;
         }
         prev = res;
     }
     Eigen::VectorXd r = b - systemMatrix_ * x;
     lastResidual_ = r.norm() / bnorm;
-    solveTimeSec_ = std::chrono::duration<double>(std::chrono::steady_clock::now()-solveStart).count();
     return lastResidual_ < tol * config_.stagnationLooseFactor;
 }
 
@@ -1518,8 +1436,7 @@ int AggregationBackend::aggregate_(const AggRowMatrix& A, int groupSize,
 // AMGHierarchy implementation
 // ============================================================================
 
-AMGHierarchy::AMGHierarchy(Config config, int blockDim)
-    : config_(config), blockDim_(std::max(1, blockDim)) {
+AMGHierarchy::AMGHierarchy(Config config, int blockDim) {
     if (config.backend == Config::Backend::CachedAggregation) {
         backend_.reset(new AggregationBackend(config, blockDim));
     } else {

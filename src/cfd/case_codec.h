@@ -199,7 +199,6 @@ inline const std::vector<Field<AmgSettings>>& amgFields() {
         dbl("stagnationFactor", &AmgSettings::stagnationFactor),
         i32("stagnationMinIter", &AmgSettings::stagnationMinIter),
         dbl("stagnationLooseFactor", &AmgSettings::stagnationLooseFactor),
-        flg("nonsymmetric", &AmgSettings::nonsymmetric),
         dbl("flexAlpha", &AmgSettings::flexAlpha),
         dbl("flexBeta", &AmgSettings::flexBeta),
         i32("flexMaxSweeps", &AmgSettings::flexMaxSweeps),

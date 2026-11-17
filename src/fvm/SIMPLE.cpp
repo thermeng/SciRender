@@ -133,7 +133,6 @@ void SIMPLE<Dim>::applyPressureSolverConfig_() {
     // nonsymmetric and forced a BiCGSTAB solve regardless of the acceleration
     // method chosen in the UI.
     pcCfg.compactRhieChow = config_.rhieChow;
-    pcCfg.useAMG = config_.pressureUseAMG;
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
     pcCfg.pressureAmg = config_.pressureAmg;
     pressureCorrection_.setConfig(pcCfg);
@@ -313,8 +312,6 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     aborted_ = false;
     failure_ = Failure::None;
     const double alphaP = isPiso_() ? 1.0 : config_.alphaP;
-    prevContResid_ = 0.0;
-    stallCount_ = 0;
     headerCounter_ = 0;
     // Cleared at the start of every run; only the checkpoint load below may
     // set it again. Leaving it set from a previous run made solveTransient()
@@ -381,9 +378,6 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     if (!config_.checkpoint.restartFrom.empty()) {
         std::size_t savedIter = 0;
         double savedCont = 0.0, savedMom = 0.0;
-        double savedAlphaP = 0.0; // checkpoint API requires this field
-        std::size_t savedStall = 0;
-        double savedPrev = 0.0;
 
         Field<Dim>* kPtr = nullptr;
         Field<Dim>* omegaPtr = nullptr;
@@ -396,13 +390,10 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
 
         if (Checkpoint::load(config_.checkpoint.restartFrom, mesh_,
                              savedIter, savedCont, savedMom,
-                             savedAlphaP, savedStall, savedPrev,
                              velocity, pressure,
                              kPtr, omegaPtr, nutPtr)) {
             startIteration_ = savedIter;
             restarting_ = true;
-            stallCount_ = savedStall;
-            prevContResid_ = savedPrev;
             lastContResid_ = std::numeric_limits<double>::max();
             lastMomResid_ = std::numeric_limits<double>::max();
             if (turbulence_) turbulence_->clampFields();
@@ -495,8 +486,6 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     steadyVelocityCorrectionSeconds_ = 0.0;
     steadyResidualSeconds_ = 0.0;
     divergenceCount_ = 0;
-    stallCount_ = 0;
-    prevContResid_ = 0.0;
 }
 
 template<std::size_t Dim>
@@ -708,9 +697,6 @@ void SIMPLE<Dim>::updateResiduals_() {
         }
     }
 
-    
-    prevContResid_ = lastContResid_;
-
     residualHistory_.push_back(lastContResid_);
     if (residualHistory_.size() > config_.residualHistoryWindow) {
         bool diverging = true;
@@ -790,7 +776,6 @@ void SIMPLE<Dim>::saveCheckpoint_(std::size_t iter, const TransientBlock<Dim>* t
         }
         Checkpoint::save(config_.checkpoint, iter + 1,
                          lastContResid_, lastMomResid_,
-                         isPiso_() ? 1.0 : config_.alphaP, stallCount_, prevContResid_,
                          boundVelocity(), boundPressure(),
                          kPtr, omegaPtr, nutPtr, transient);
     }
@@ -1707,7 +1692,6 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
     // top of a mid-run field and lost u^{n-1}.
     bool haveHistory = false;
     if (restarting_) {
-        double alphaP = config_.alphaP; // checkpoint API requires this field
         TransientBlock<Dim> tb;
         tb.velocityN = &velocityN_;
         tb.velocityNM1 = &velocityNM1_;
@@ -1717,7 +1701,6 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
         tb.omegaNM1 = turbulence_ ? &omegaNM1_ : nullptr;
         if (Checkpoint::load(config_.checkpoint.restartFrom, mesh_,
                              startIteration_, lastContResid_, lastMomResid_,
-                             alphaP, stallCount_, prevContResid_,
                              velocity, pressure,
                              turbulence_ ? &turbulence_->k() : nullptr,
                              turbulence_ ? &turbulence_->omega() : nullptr,
