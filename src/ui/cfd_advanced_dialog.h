@@ -73,6 +73,8 @@ private:
     QDoubleSpinBox* m_velocityCorrectionMaxGrowth = nullptr;
     QSpinBox* m_numThreads = nullptr;
     QCheckBox* m_printResidentSet = nullptr;
+    QCheckBox* m_printIterationTime = nullptr;
+    QCheckBox* m_printTotalTime = nullptr;
 };
 
 } // namespace sidebar

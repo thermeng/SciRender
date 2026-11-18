@@ -50,7 +50,6 @@ SSTModel<Dim>::SSTModel(const Mesh<Dim>& mesh, Config config)
       omegaDispatcher_(mesh, dispatcherConfig_(config, "turbulence[omega]")) {
     for (auto& g : gradK_) g = Field<Dim>(mesh, 0.0);
     for (auto& g : gradOmega_) g = Field<Dim>(mesh, 0.0);
-    for (auto& g : scalarGradBuffer_) g = Field<Dim>(mesh, 0.0);
     const double* volPtr = mesh_.cellVolumePtr();
     invVol_.resize(mesh_.nCells());
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
@@ -351,8 +350,8 @@ void SSTModel<Dim>::solveIteration(const VectorField<Dim>& velocity,
     // below the threshold use the low-Re wall BC (k=0, omega=6nu/(beta1*y^2)),
     // cells above it use wall-function BCs.
     updateWallBCs_(velocity);
-    gradK_ = computeScalarGradients(k_, kBCMask_, kBCVals_);
-    gradOmega_ = computeScalarGradients(omega_, omegaBCMask_, omegaBCVals_);
+    computeScalarGradients(gradK_, k_, kBCMask_, kBCVals_);
+    computeScalarGradients(gradOmega_, omega_, omegaBCMask_, omegaBCVals_);
     computeBlendingFunctions();
     computeEddyViscosity();
     solveKTransport(velocity, scheme);
@@ -387,11 +386,12 @@ Field<Dim>& SSTModel<Dim>::omega() { return omega_; }
 // --- Private method implementations ---
 
 template<std::size_t Dim>
-std::array<Field<Dim>, Dim> SSTModel<Dim>::computeScalarGradients(
+void SSTModel<Dim>::computeScalarGradients(
+    std::array<Field<Dim>, Dim>& out,
     const Field<Dim>& phi,
     const std::vector<char>& mask,
     const std::vector<double>& vals) const {
-    for (auto& g : scalarGradBuffer_) g.assign(0.0);
+    for (auto& g : out) g.assign(0.0);
 
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
@@ -431,11 +431,10 @@ std::array<Field<Dim>, Dim> SSTModel<Dim>::computeScalarGradients(
         double phiArea = phiFace * area;
         for (std::size_t d = 0; d < Dim; ++d) {
             double contrib = phiArea * fn[d];
-            scalarGradBuffer_[d][P] += contrib * invVol_[P];
-            if (N != std::size_t(-1)) scalarGradBuffer_[d][N] -= contrib * invVol_[N];
+            out[d][P] += contrib * invVol_[P];
+            if (N != std::size_t(-1)) out[d][N] -= contrib * invVol_[N];
         }
     }
-    return scalarGradBuffer_;
 }
 
 template<std::size_t Dim>
@@ -819,8 +818,8 @@ void SSTModel<Dim>::solveIterationTransient(const VectorField<Dim>& velocity,
     computeStrainRate(velocity);
     updateBackflowBCs_(velocity);
     updateWallBCs_(velocity);
-    gradK_ = computeScalarGradients(k_, kBCMask_, kBCVals_);
-    gradOmega_ = computeScalarGradients(omega_, omegaBCMask_, omegaBCVals_);
+    computeScalarGradients(gradK_, k_, kBCMask_, kBCVals_);
+    computeScalarGradients(gradOmega_, omega_, omegaBCMask_, omegaBCVals_);
     computeBlendingFunctions();
     computeEddyViscosity();
     solveKTransportTransient(velocity, scheme, dt, dtPrev, timeScheme, kOld, kOldPrev);

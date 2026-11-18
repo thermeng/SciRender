@@ -135,6 +135,18 @@ void CfdAdvancedDialog::buildUi() {
         "sampling the OS every step is not part of normal solver output.");
     diagnosticsForm->addRow(m_printResidentSet);
 
+    m_printIterationTime = new QCheckBox("Iteration Time");
+    m_printIterationTime->setToolTip(
+        "Append the per-iteration wall time as the last column of the residual\n"
+        "table. Off by default: it is a diagnostic, not normal solver output.");
+    diagnosticsForm->addRow(m_printIterationTime);
+
+    m_printTotalTime = new QCheckBox("Total Time");
+    m_printTotalTime->setToolTip(
+        "Print the per-phase timing breakdown (momentum / pressure / turbulence\n"
+        "/ AMG setup) at the end of the run. Off by default.");
+    diagnosticsForm->addRow(m_printTotalTime);
+
     pressureLay->addStretch(1);
 
     // ── Pressure AMG ─────────────────────────────────────────────────────────
@@ -281,6 +293,8 @@ void CfdAdvancedDialog::setSettings(const cfd::CaseSettings& s) {
     m_velocityCorrectionMaxGrowth->setValue(s.velocityCorrectionMaxGrowthRate);
     m_numThreads->setValue(s.numThreads);
     m_printResidentSet->setChecked(s.printResidentSet);
+    m_printIterationTime->setChecked(s.printIterationTime);
+    m_printTotalTime->setChecked(s.printTotalTime);
 
     m_limiterKind->setCurrentIndex(s.limiterKind);
     m_limiterFaceCentre->setChecked(s.limiterSpan == 0);
@@ -317,6 +331,8 @@ void CfdAdvancedDialog::collectInto(cfd::CaseSettings& s) const {
     s.velocityCorrectionMaxGrowthRate = m_velocityCorrectionMaxGrowth->value();
     s.numThreads = m_numThreads->value();
     s.printResidentSet = m_printResidentSet->isChecked();
+    s.printIterationTime = m_printIterationTime->isChecked();
+    s.printTotalTime = m_printTotalTime->isChecked();
 
     s.limiterKind = m_limiterKind->currentIndex();
     s.limiterSpan = m_limiterSpan->checkedId();

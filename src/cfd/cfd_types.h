@@ -72,16 +72,11 @@ struct AmgSettings {
     double stagnationFactor = 1.05;
     int stagnationMinIter = 10;
     double stagnationLooseFactor = 5.0;
-
-    //   Flex Cycle defaults: Restriction Tolerance = 0.9
-    // (residual ratio below which the level is considered resolved),
-    // Prolongation Tolerance = 0.5 (ratio above which the correction
-    // is accepted), Sweeps = 1.
     double flexAlpha = 0.9;
     double flexBeta = 0.5;
     int flexMaxSweeps = 1;
-    int flexMaxFineRelaxations = 30;
-    int flexMaxCoarseRelaxations = 20;
+    int flexMaxFineRelaxations = 1;
+    int flexMaxCoarseRelaxations = 1;
 
     // --- Smoothed Aggregation prolongation -------------------------------
     // When true, the tentative piecewise-constant prolongation T is smoothed
@@ -92,10 +87,7 @@ struct AmgSettings {
     // preserved (constant mode interpolated exactly). Invalid for Hypre
     // backend (ignored there); only the cached-aggregation backend uses it.
     bool smoothedProlongation = false;
-    // Jacobi damping parameter for prolongation smoothing. 2/3 is the
-    // classical value; 4/3 is pyamg's default.
     double saOmega = 2.0 / 3.0;
-    // Number of Jacobi smoothing passes applied to the tentative prolongator.
     int saDegree = 1;
 
     static AmgSettings pressureDefaults() {
@@ -180,23 +172,14 @@ struct TransientSettings {
 
 struct CaseSettings {
     double rho = 1.0, nu = 0.01;
-    // Stopping criteria (residual tolerances, iteration caps, transient end
-    // time / corrector cap). Replaces the previous flat tolerance /
-    // maxIterations / runFixedIterations / gate* / contTol* fields.
     StoppingCriteria stopping = defaultStoppingCriteria();
-    // continuity is measured on the
-    // momentum predictor (before the pressure correction) and every residual is
-    // normalized by its maximum over the first `residualNormalizationIterations`
-    // iterations. With this on, the monitor curve starts at ~1 and is directly
-    // comparable to a  residual plot.
     bool normalizeResiduals = true;
     std::size_t residualNormalizationIterations = 5;
     double alphaU = 0.7, alphaP = 0.3;
     bool simplec = false;
-    int scheme = 2; // 0 upwind, 1 central, 2 second-order upwind
-    // 0 least squares, 1 green-gauss cell based, 2 green-gauss node based
-    int gradientScheme = 0;
-    bool rhieChow = true; // compact operator with Rhie-Chow: two-point stencil, stable at high Re
+    int scheme = 2;             // 0 upwind, 1 central, 2 second-order upwind
+    int gradientScheme = 0;     // 0 least squares, 1 green-gauss cell based, 2 green-gauss node based
+    bool rhieChow = true;       // compact operator with Rhie-Chow: two-point stencil, stable at high Re
     bool turbulence = false;
     bool wallFunction = false;
     double alphaK = 0.8, alphaOmega = 0.8;
@@ -226,6 +209,12 @@ struct CaseSettings {
     // default: it exists to watch a long run for memory drift, and samples the
     // OS once per time step, which is not part of normal solver output.
     bool printResidentSet = false;
+    // Append the per-iteration wall time as the last column of the residual
+    // table. Off by default: it is a diagnostic, not normal solver output.
+    bool printIterationTime = false;
+    // Print the per-phase [timing] breakdown at the end of a run. Off by
+    // default: it exists to attribute a slow run, not for normal output.
+    bool printTotalTime = false;
 
     // Velocity correction damping limits.
     // Per-iteration growth rate is capped at maxGrowthRate (e.g. 0.15 = 15%).

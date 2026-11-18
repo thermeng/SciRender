@@ -97,6 +97,7 @@ public:
         : config_(config), blockDim_(std::max(1, blockDim)) {}
 
     void build(const SparseMatrix& A) override;
+    void build(const SparseMatrix& A, std::size_t patternHash) override;
     void invalidate() override;
     bool isBuilt() const override { return built_; }
 
@@ -122,7 +123,6 @@ private:
     Config config_;
     int blockDim_ = 2;
     int n_ = 0;
-    SparseMatrix systemMatrix_;
     std::vector<std::vector<int>> aggMaps_;
     std::vector<int> aggSizes_;
     std::size_t aggPatternHash_ = 0;
@@ -137,16 +137,27 @@ private:
     mutable int lastIterations_ = 0;
     mutable double lastResidual_ = 0.0;
     mutable std::vector<double> lastResidualHistory_;
-    mutable Eigen::SparseMatrix<double, Eigen::RowMajor> fineRows_;
-    mutable bool fineRowsReady_ = false;
+    // SparseMatrix (ColMajor) value index -> levels_[0].ARM (RowMajor) value
+    // index. Built once per sparsity pattern so a value refresh is a flat
+    // scatter instead of a structural conversion.
+    std::vector<int> fineScatter_;
+    bool fineScatterReady_ = false;
+    // Per-level scratch for the Flexible-cycle coarse correction, so a cycle
+    // does not allocate rCoarse/xCoarse on every level visit. The recursion is
+    // depth-first, so each level owns its slot.
+    mutable std::vector<Eigen::VectorXd> flexRCoarseScratch_;
+    mutable std::vector<Eigen::VectorXd> flexXCoarseScratch_;
     std::vector<double> scale_;
 
     void refreshAggregationOperators_(const SparseMatrix& A);
     void buildAggScatterCaches_();
+    void buildFineScatter_(const SparseMatrix& A);
+    void buildDiagCache_(AMGLevel& level);
     int aggregate_(const AggRowMatrix& A, int groupSize, std::vector<int>& agg) const;
     bool aggregationVcycle_(int level, const Eigen::VectorXd& b,
                               Eigen::VectorXd& x) const;
-    bool applyFlexibleCycle_(const Eigen::VectorXd& b, Eigen::VectorXd& x) const;
+    bool applyFlexibleCycle_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                             double* outResNorm = nullptr) const;
     bool solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                         const std::atomic<bool>* cancel) const;
     bool solveAggregation_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
@@ -159,12 +170,26 @@ private:
                           int sweeps) const;
     void strengthOfConnection(const AggRowMatrix& A,
                               std::vector<std::vector<int>>& strongNeighbors) const;
-    void gaussSeidel(const AggRowMatrix& ARM,
+    // One Flexible cycle on `level`, updating x in place. b is the level right
+    // hand side. outResNorm (optional) receives ||b - A x|| on exit so the
+    // caller does not recompute it with a full matvec.
+    void flexCycleImpl_(int level, const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                        double* outResNorm) const;
+    // Restrict r to the next level, run one Flexible cycle there, prolong the
+    // correction back into x. Used by both Flexible-cycle exits.
+    void coarsenAndProlong_(int level, const Eigen::VectorXd& r,
+                            Eigen::VectorXd& x) const;
+    void gaussSeidel(const AMGLevel& level,
                      const Eigen::VectorXd& b, Eigen::VectorXd& x,
                      int numSweeps, bool forward) const;
-    void smoothPre_(const AggRowMatrix& ARM,
+    // Gauss-Seidel sweep that also maintains r = b - A x incrementally, using
+    // the cached per-level transpose. r must be current on entry.
+    void gaussSeidelResidual_(const AMGLevel& level, const Eigen::VectorXd& b,
+                              Eigen::VectorXd& x, Eigen::VectorXd& r,
+                              int numSweeps, bool forward) const;
+    void smoothPre_(const AMGLevel& level,
                     const Eigen::VectorXd& b, Eigen::VectorXd& x, int numSweeps) const;
-    void smoothPost_(const AggRowMatrix& ARM,
+    void smoothPost_(const AMGLevel& level,
                      const Eigen::VectorXd& b, Eigen::VectorXd& x, int numSweeps) const;
 };
 
@@ -217,9 +242,14 @@ AggRowMatrix coarsenByAggregation(const AggRowMatrix& A,
     return out;
 }
 
-// Greedy maximal-matching aggregation: every unassigned unknown opens a group
-// and absorbs its strongest unassigned neighbours up to groupSize members. O(nnz).
-int aggregateGreedy(const AggRowMatrix& A, int groupSize, double strengthThreshold,
+// Greedy aggregation: every ungrouped unknown opens a group and absorbs its
+// strongest currently-ungrouped neighbour, up to groupSize members. This is
+// the rule ("grouped with one or more of its
+// strongest neighbors, with a preference given to currently ungrouped
+// neighbors"). No magnitude cutoff: a cell that still has an ungrouped
+// neighbour always pairs, which is what keeps the coarsening ratio near the
+// group size instead of collapsing to singletons. O(nnz * groupSize).
+int aggregateGreedy(const AggRowMatrix& A, int groupSize, double /*strengthThreshold*/,
                     std::vector<int>& agg) {
     const int n = static_cast<int>(A.rows());
     agg.assign(static_cast<std::size_t>(n), -1);
@@ -228,26 +258,30 @@ int aggregateGreedy(const AggRowMatrix& A, int groupSize, double strengthThresho
         return n;
     }
     int nGroups = 0;
+    std::vector<int> members;
+    members.reserve(static_cast<std::size_t>(groupSize));
     for (int i = 0; i < n; ++i) {
         if (agg[static_cast<std::size_t>(i)] >= 0) continue;
         const int group = nGroups++;
         agg[static_cast<std::size_t>(i)] = group;
-        int members = 1;
-        if (members < groupSize) {
-            double maxOff = 0.0;
-            for (AggRowMatrix::InnerIterator it(A, i); it; ++it)
-                if (it.col() != i) maxOff = std::max(maxOff, std::abs(it.value()));
-            const double limit = strengthThreshold * maxOff;
-            if (limit > 0.0) {
-                for (AggRowMatrix::InnerIterator it(A, i); it; ++it) {
-                    if (members >= groupSize) break;
+        members.clear();
+        members.push_back(i);
+        int count = 1;
+        while (count < groupSize) {
+            int bestJ = -1;
+            double bestVal = -1.0;
+            for (int m : members) {
+                for (AggRowMatrix::InnerIterator it(A, m); it; ++it) {
                     const int j = it.col();
-                    if (j == i || agg[static_cast<std::size_t>(j)] >= 0) continue;
-                    if (std::abs(it.value()) < limit) continue;
-                    agg[static_cast<std::size_t>(j)] = group;
-                    ++members;
+                    if (j == m || agg[static_cast<std::size_t>(j)] >= 0) continue;
+                    const double v = std::abs(it.value());
+                    if (v > bestVal) { bestVal = v; bestJ = j; }
                 }
             }
+            if (bestJ < 0) break;
+            agg[static_cast<std::size_t>(bestJ)] = group;
+            members.push_back(bestJ);
+            ++count;
         }
     }
     return nGroups;
@@ -910,7 +944,6 @@ void AggregationBackend::invalidate() {
     n_ = 0;
     nlevels_ = 0;
     levelSizes_.clear();
-    systemMatrix_.resize(0, 0);
     aggMaps_.clear();
     aggSizes_.clear();
     aggPatternHash_ = 0;
@@ -919,15 +952,17 @@ void AggregationBackend::invalidate() {
     lastIterations_ = 0;
     lastResidual_ = 0.0;
     lastResidualHistory_.clear();
-    fineRows_.resize(0, 0);
-    fineRowsReady_ = false;
+    fineScatter_.clear();
+    fineScatterReady_ = false;
     scale_.clear();
 }
 
 void AggregationBackend::build(const SparseMatrix& A) {
+    build(A, detail::sparsityHash(A));
+}
+
+void AggregationBackend::build(const SparseMatrix& A, std::size_t hash) {
     n_ = static_cast<int>(A.rows());
-    systemMatrix_ = A;
-    const std::size_t hash = detail::sparsityHash(A);
     const bool mapsValid = !aggMaps_.empty() && hash == aggPatternHash_;
 
     if (!mapsValid) {
@@ -936,6 +971,8 @@ void AggregationBackend::build(const SparseMatrix& A) {
         aggCaches_.clear();
         levels_.clear();
         levelSizes_.clear();
+        fineScatter_.clear();
+        fineScatterReady_ = false;
         aggPatternHash_ = hash;
 
         AggRowMatrix level = A;
@@ -966,6 +1003,64 @@ void AggregationBackend::build(const SparseMatrix& A) {
                       << " unknowns, " << levels_[l].ARM.nonZeros() << " nnz\n";
     }
     built_ = !levels_.empty();
+}
+
+void AggregationBackend::buildFineScatter_(const SparseMatrix& A) {
+    // The fine operator is levels_[0].ARM (RowMajor). A is ColMajor. For every
+    // A value index k, record the RowMajor value index holding the same (i,j)
+    // entry. A row scan of the RowMajor matrix plus a binary search in the
+    // ColMajor column gives the mapping in O(nnz log deg).
+    auto& fine = levels_[0].ARM;
+    const int nnz = A.nonZeros();
+    fineScatter_.assign(static_cast<std::size_t>(nnz), -1);
+    const int* aOuter = A.outerIndexPtr();
+    const int* aInner = A.innerIndexPtr();
+    int p = 0;
+    for (int row = 0; row < fine.outerSize(); ++row) {
+        for (AggRowMatrix::InnerIterator it(fine, row); it; ++it, ++p) {
+            const int col = it.col();
+            const int* b = aInner + aOuter[col];
+            const int* e = aInner + aOuter[col + 1];
+            const int* lb = std::lower_bound(b, e, row);
+            if (lb != e && *lb == row)
+                fineScatter_[static_cast<std::size_t>(lb - aInner)] = p;
+        }
+    }
+    fineScatterReady_ = true;
+}
+
+void AggregationBackend::buildDiagCache_(AMGLevel& level) {
+    const AggRowMatrix& A = level.ARM;
+    const int n = static_cast<int>(A.rows());
+    const int* outer = A.outerIndexPtr();
+    const int* inner = A.innerIndexPtr();
+    const double* vals = A.valuePtr();
+    level.invDiag.assign(static_cast<std::size_t>(n), 0.0);
+    level.diagPos.assign(static_cast<std::size_t>(n), -1);
+    for (int i = 0; i < n; ++i) {
+        const int ib = outer[i];
+        const int ie = outer[i + 1];
+        int pos = -1;
+        for (int k = ib; k < ie; ++k) {
+            if (inner[k] == i) { pos = k - ib; break; }
+        }
+        level.diagPos[static_cast<std::size_t>(i)] = pos;
+        if (pos >= 0) {
+            const double d = vals[ib + pos];
+            if (std::isfinite(d) && std::abs(d) >= 1e-14)
+                level.invDiag[static_cast<std::size_t>(i)] = 1.0 / d;
+        }
+    }
+    // Row i of AT is column i of ARM: the residual update after a
+    // Gauss-Seidel row change is then an O(nnz) sweep. Only the Flexible
+    // cycle maintains that residual, so the V-cycle smoother never needs AT
+    // and must not pay for the transpose.
+    if (config_.cycleType == AmgSettings::CycleType::Flexible) {
+        level.AT = A.transpose();
+        level.AT.makeCompressed();
+    } else if (level.AT.nonZeros() != 0) {
+        level.AT.resize(0, 0);
+    }
 }
 
 void AggregationBackend::buildAggScatterCaches_() {
@@ -1001,7 +1096,22 @@ void AggregationBackend::refreshAggregationOperators_(const SparseMatrix& A) {
         levels_[0].ARM.rows() == A.rows() &&
         aggCaches_.size() == aggMaps_.size();
     if (havePattern) {
-        levels_[0].ARM = A;
+        // O(nnz) value refresh: copy A's values into the cached RowMajor fine
+        // operator through the scatter built once per pattern.
+        auto& fine = levels_[0].ARM;
+        if (fineScatterReady_ &&
+            fineScatter_.size() == static_cast<std::size_t>(A.nonZeros()) &&
+            fine.nonZeros() == A.nonZeros()) {
+            double* fv = fine.valuePtr();
+            const double* av = A.valuePtr();
+            const int nnz = A.nonZeros();
+            for (int k = 0; k < nnz; ++k)
+                fv[static_cast<std::size_t>(fineScatter_[static_cast<std::size_t>(k)])] = av[k];
+        } else {
+            fine = A;   // structural fallback (first refresh after a rebuild)
+            fine.makeCompressed();
+            buildFineScatter_(A);
+        }
         for (std::size_t l = 0; l < aggMaps_.size(); ++l) {
             auto& coarse = levels_[l + 1].ARM;
             auto* coarseVals = coarse.valuePtr();
@@ -1016,6 +1126,8 @@ void AggregationBackend::refreshAggregationOperators_(const SparseMatrix& A) {
                 if (pos >= 0) coarseVals[pos] += fineVals[k];
             }
         }
+        for (std::size_t l = 0; l < levels_.size(); ++l)
+            buildDiagCache_(levels_[l]);
         return;
     }
     levels_.assign(aggMaps_.size() + 1, AMGLevel{});
@@ -1040,20 +1152,23 @@ void AggregationBackend::refreshAggregationOperators_(const SparseMatrix& A) {
             level = coarsenByAggregation(level, aggMaps_[l], aggSizes_[l]);
         }
     }
+    for (std::size_t l = 0; l < levels_.size(); ++l)
+        buildDiagCache_(levels_[l]);
 }
 
 bool AggregationBackend::aggregationVcycle_(int level, const Eigen::VectorXd& b,
                                              Eigen::VectorXd& x) const {
     if (level < 0 || static_cast<std::size_t>(level) >= levels_.size())
         return false;
-    const auto& A = levels_[static_cast<std::size_t>(level)].ARM;
+    const auto& lev = levels_[static_cast<std::size_t>(level)];
+    const auto& A = lev.ARM;
     const int n = static_cast<int>(A.rows());
     if (n == 0 || b.size() != n || x.size() != n) return false;
 
     const int pre = std::max(2, config_.preSweeps);
     const int post = std::max(2, config_.postSweeps);
 
-    for (int s = 0; s < pre; ++s) gaussSeidel(A, b, x, 1, true);
+    for (int s = 0; s < pre; ++s) gaussSeidel(lev, b, x, 1, true);
 
     const bool hasCoarse = static_cast<std::size_t>(level) < aggMaps_.size();
     if (hasCoarse) {
@@ -1093,7 +1208,7 @@ bool AggregationBackend::aggregationVcycle_(int level, const Eigen::VectorXd& b,
         return true;
     }
 
-    for (int s = 0; s < post; ++s) gaussSeidel(A, b, x, 1, true);
+    for (int s = 0; s < post; ++s) gaussSeidel(lev, b, x, 1, true);
     return x.allFinite();
 }
 
@@ -1110,16 +1225,16 @@ bool AggregationBackend::solveAggregation_(const Eigen::VectorXd& b, Eigen::Vect
     const double tol = std::max(1e-16, config_.tolerance);
 
     lastResidualHistory_.clear();
-    lastResidualHistory_.push_back((b - systemMatrix_ * x).norm() / bnorm);
+    lastResidualHistory_.push_back((b - levels_[0].ARM * x).norm() / bnorm);
     lastIterations_ = 0;
-    lastResidual_ = (b - systemMatrix_ * x).norm() / bnorm;
+    lastResidual_ = (b - levels_[0].ARM * x).norm() / bnorm;
 
     if (config_.cycleType == AmgSettings::CycleType::Flexible &&
         config_.acceleration == AmgSettings::Acceleration::None) {
         return solveFlexible_(b, x, cancel);
     }
 
-    Eigen::VectorXd r = b - systemMatrix_ * x;
+    Eigen::VectorXd r = b - levels_[0].ARM * x;
     Eigen::VectorXd z(n_);
     for (int iter = 0; iter < maxIt; ++iter) {
         if (cancel && cancel->load()) return false;
@@ -1127,7 +1242,7 @@ bool AggregationBackend::solveAggregation_(const Eigen::VectorXd& b, Eigen::Vect
         if (!aggregationVcycle_(0, r, z)) return false;
         if (!z.allFinite()) return false;
         x += z;
-        r = b - systemMatrix_ * x;
+        r = b - levels_[0].ARM * x;
         if (!r.allFinite()) return false;
         const double rel = r.norm() / bnorm;
         lastResidualHistory_.push_back(rel);
@@ -1152,12 +1267,12 @@ bool AggregationBackend::applyFlexibleFineCycle_(const Eigen::VectorXd& b,
     if (!std::isfinite(bnorm) || bnorm < 1e-30) return true;
 
     const int sweeps = std::max(1, config_.flexMaxSweeps);
-    const double r0 = (b - systemMatrix_ * x).norm();
+    const double r0 = (b - levels_[0].ARM * x).norm();
     if (!std::isfinite(r0) || r0 == 0.0) return true;
     const double gate = config_.flexAlpha * r0;
     for (int s = 0; s < sweeps; ++s) {
         fineGaussSeidel_(b, x, 1);
-        const double res = (b - systemMatrix_ * x).norm();
+        const double res = (b - levels_[0].ARM * x).norm();
         if (!std::isfinite(res)) { x.setZero(); return false; }
         if (res < gate) break;
     }
@@ -1174,7 +1289,7 @@ bool AggregationBackend::solveFlexibleFine_(const Eigen::VectorXd& b, Eigen::Vec
 
     const int maxIt = std::max(1, config_.maxIterations);
     const double tol = std::max(1e-16, config_.tolerance);
-    const double r0 = (b - systemMatrix_ * x).norm();
+    const double r0 = (b - levels_[0].ARM * x).norm();
     double prev = std::numeric_limits<double>::max();
     lastResidualHistory_.clear();
     lastResidualHistory_.push_back(r0 / bnorm);
@@ -1183,7 +1298,7 @@ bool AggregationBackend::solveFlexibleFine_(const Eigen::VectorXd& b, Eigen::Vec
     for (int iter = 0; iter < maxIt; ++iter) {
         if (cancel && cancel->load()) return false;
         if (!applyFlexibleFineCycle_(b, x)) return false;
-        const double rel = (b - systemMatrix_ * x).norm() / bnorm;
+        const double rel = (b - levels_[0].ARM * x).norm() / bnorm;
         lastResidualHistory_.push_back(rel);
         lastIterations_ = iter + 1;
         lastResidual_ = rel;
@@ -1192,7 +1307,7 @@ bool AggregationBackend::solveFlexibleFine_(const Eigen::VectorXd& b, Eigen::Vec
             return rel < tol * config_.stagnationLooseFactor;
         prev = rel;
     }
-    lastResidual_ = (b - systemMatrix_ * x).norm() / bnorm;
+    lastResidual_ = (b - levels_[0].ARM * x).norm() / bnorm;
     return lastResidual_ < tol * config_.stagnationLooseFactor;
 }
 
@@ -1209,25 +1324,48 @@ bool AggregationBackend::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x
     return aggregationVcycle_(0, b, x);
 }
 
-bool AggregationBackend::applyFlexibleCycle_(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
+bool AggregationBackend::applyFlexibleCycle_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
+                                             double* outResNorm) const {
     if (!built_ || levels_.empty()) return false;
     if (static_cast<int>(x.size()) != n_) { x.resize(n_); x.setZero(); }
-    flexCycle(0, b, x);
+    double res = 0.0;
+    flexCycleImpl_(0, b, x, &res);
+    if (outResNorm) *outResNorm = res;
     return x.allFinite();
 }
 
 Eigen::VectorXd AggregationBackend::flexCycle(int level, const Eigen::VectorXd& b,
                                                Eigen::VectorXd& x) const {
-    if (level < 0 || static_cast<std::size_t>(level) >= levels_.size())
-        return Eigen::VectorXd();
-    const auto& A = levels_[static_cast<std::size_t>(level)].ARM;
+    // Interface entry point: the cycle updates x in place. Every caller that
+    // uses the return value (the recursion) passes a zero initial guess, so the
+    // correction is x itself and no x - xStart copy is needed.
+    flexCycleImpl_(level, b, x, nullptr);
+    return x;
+}
+
+void AggregationBackend::flexCycleImpl_(int level, const Eigen::VectorXd& b,
+                                        Eigen::VectorXd& x, double* outResNorm) const {
+    if (level < 0 || static_cast<std::size_t>(level) >= levels_.size()) {
+        if (outResNorm) *outResNorm = std::numeric_limits<double>::infinity();
+        return;
+    }
+    const AMGLevel& lev = levels_[static_cast<std::size_t>(level)];
+    const AggRowMatrix& A = lev.ARM;
     const int n = static_cast<int>(A.rows());
-    if (n == 0 || b.size() != n || x.size() != n) return Eigen::VectorXd();
+    if (n == 0 || b.size() != n || x.size() != n) {
+        if (outResNorm) *outResNorm = std::numeric_limits<double>::infinity();
+        return;
+    }
 
-    const Eigen::VectorXd xStart = x;
-
-    const double r0 = (b - A * x).norm();
-    if (!std::isfinite(r0) || r0 == 0.0) return Eigen::VectorXd::Zero(n);
+    // One matvec per level entry, not per sweep: r is maintained incrementally
+    // from here on by gaussSeidelResidual_.
+    Eigen::VectorXd r = b - A * x;
+    double res = r.norm();
+    const double r0 = res;
+    if (!std::isfinite(res) || res == 0.0) {
+        if (outResNorm) *outResNorm = res;
+        return;
+    }
 
     //   Restriction Tolerance (flexAlpha, default 0.9) = β: if R_i > β*R_{i-1},
     //     residual not dropping fast enough → go coarser.
@@ -1236,92 +1374,99 @@ Eigen::VectorXd AggregationBackend::flexCycle(int level, const Eigen::VectorXd& 
     const double restrictionTol = config_.flexAlpha;   // β
     const double prolongationTol = config_.flexBeta;   // α
 
-    const int maxSweeps =
-        (level == 0 && config_.flexMaxFineRelaxations > 0)
-            ? config_.flexMaxFineRelaxations
-        : (level > 0 && config_.flexMaxCoarseRelaxations > 0)
-            ? config_.flexMaxCoarseRelaxations
-            : (config_.flexMaxSweeps > 0 ? config_.flexMaxSweeps : 1);
+    // i_max = sweeps for this level (fine vs coarse). The loop below mirrors
+    // the reference variable-cycle algorithm: relax, i++, terminate on α or
+    // i > i_max, and when the restriction gate fires apply the coarse
+    // correction and KEEP sweeping (not return).
+    const int maxSweeps = std::max(
+        0, (level == 0) ? config_.flexMaxFineRelaxations
+                        : config_.flexMaxCoarseRelaxations);
+
+    const bool hasTranspose = lev.AT.rows() == n && lev.AT.nonZeros() > 0;
+    const bool canCoarsen =
+        level < nlevels_ - 1 &&
+        levelSizes_[static_cast<std::size_t>(level + 1)] > 0;
 
     double rPrev = r0;
-    for (int sweep = 0; sweep < maxSweeps; ++sweep) {
-        gaussSeidel(A, b, x, 1, true);
-        const double res = (b - A * x).norm();
-        if (!std::isfinite(res)) { x.setZero(); return Eigen::VectorXd::Zero(n); }
-
-        // Prolongation gate (α): residual reduced to α * R_0 → level resolved
-        if (res < prolongationTol * r0) return x - xStart;
-
-        // Restriction gate (β): residual not dropping → go coarser
-        if (res > restrictionTol * rPrev) {
-            if (level < nlevels_ - 1) {
-                const int nCoarse = levelSizes_[static_cast<std::size_t>(level + 1)];
-                if (nCoarse > 0) {
-                    const Eigen::VectorXd residual = b - A * x;
-                    Eigen::VectorXd rCoarse;
-
-                    const auto& P = levels_[static_cast<std::size_t>(level)].P;
-                    const auto& R = levels_[static_cast<std::size_t>(level)].R;
-                    if (P.cols() > 0 && R.rows() > 0 && P.cols() == nCoarse) {
-                        rCoarse = R * residual;
-                    } else {
-                        rCoarse = Eigen::VectorXd::Zero(nCoarse);
-                        const auto& agg = aggMaps_[static_cast<std::size_t>(level)];
-                        for (int i = 0; i < n; ++i)
-                            rCoarse[agg[static_cast<std::size_t>(i)]] += residual[i];
-                    }
-
-                    Eigen::VectorXd xCoarse = Eigen::VectorXd::Zero(nCoarse);
-                    const Eigen::VectorXd correctionCoarse = flexCycle(level + 1, rCoarse, xCoarse);
-
-                    if (P.cols() > 0 && P.cols() == nCoarse) {
-                        x += P * correctionCoarse;
-                    } else {
-                        const auto& agg = aggMaps_[static_cast<std::size_t>(level)];
-                        for (int i = 0; i < n; ++i)
-                            x[i] += correctionCoarse[agg[static_cast<std::size_t>(i)]];
-                    }
-                }
-            }
-            return x - xStart;
+    int i = 0;
+    while (true) {
+        if (hasTranspose)
+            gaussSeidelResidual_(lev, b, x, r, 1, true);
+        else {
+            gaussSeidel(lev, b, x, 1, true);
+            r = b - A * x;
+        }
+        ++i;
+        res = r.norm();
+        if (!std::isfinite(res)) {
+            x.setZero();
+            if (outResNorm) *outResNorm = res;
+            return;
         }
 
-        // Residual is dropping — keep relaxing on this level
+        // Prolongation / termination: level resolved, or sweep budget spent.
+        if (res < prolongationTol * r0 || i > maxSweeps) {
+            if (outResNorm) *outResNorm = res;
+            return;
+        }
+
+        // Restriction: residual reduction too slow → coarse correction, then
+        // continue sweeping on this level.
+        if (res > restrictionTol * rPrev && canCoarsen) {
+            coarsenAndProlong_(level, r, x);
+            // x changed: the incrementally maintained residual is now stale.
+            r = b - A * x;
+            res = r.norm();
+            if (!std::isfinite(res)) {
+                x.setZero();
+                if (outResNorm) *outResNorm = res;
+                return;
+            }
+        }
+
         rPrev = res;
     }
+}
 
-    // Max sweeps reached without gates triggering — go coarser if possible
-    if (level < nlevels_ - 1) {
-        const int nCoarse = levelSizes_[static_cast<std::size_t>(level + 1)];
-        if (nCoarse > 0) {
-            const Eigen::VectorXd residual = b - A * x;
-            Eigen::VectorXd rCoarse;
+void AggregationBackend::coarsenAndProlong_(int level, const Eigen::VectorXd& r,
+                                            Eigen::VectorXd& x) const {
+    const auto& lev = levels_[static_cast<std::size_t>(level)];
+    const AggRowMatrix& A = lev.ARM;
+    const int n = static_cast<int>(A.rows());
+    const int nCoarse = levelSizes_[static_cast<std::size_t>(level + 1)];
+    if (nCoarse <= 0) return;
 
-            const auto& P = levels_[static_cast<std::size_t>(level)].P;
-            const auto& R = levels_[static_cast<std::size_t>(level)].R;
-            if (P.cols() > 0 && R.rows() > 0 && P.cols() == nCoarse) {
-                rCoarse = R * residual;
-            } else {
-                rCoarse = Eigen::VectorXd::Zero(nCoarse);
-                const auto& agg = aggMaps_[static_cast<std::size_t>(level)];
-                for (int i = 0; i < n; ++i)
-                    rCoarse[agg[static_cast<std::size_t>(i)]] += residual[i];
-            }
+    const auto& P = lev.P;
+    const auto& R = lev.R;
+    const bool matrixPath = P.cols() > 0 && R.rows() > 0 && P.cols() == nCoarse;
 
-            Eigen::VectorXd xCoarse = Eigen::VectorXd::Zero(nCoarse);
-            const Eigen::VectorXd correctionCoarse = flexCycle(level + 1, rCoarse, xCoarse);
+    if (static_cast<std::size_t>(level) >= flexRCoarseScratch_.size()) {
+        flexRCoarseScratch_.resize(static_cast<std::size_t>(level) + 1);
+        flexXCoarseScratch_.resize(static_cast<std::size_t>(level) + 1);
+    }
+    Eigen::VectorXd& rCoarse = flexRCoarseScratch_[static_cast<std::size_t>(level)];
+    Eigen::VectorXd& xCoarse = flexXCoarseScratch_[static_cast<std::size_t>(level)];
 
-            if (P.cols() > 0 && P.cols() == nCoarse) {
-                x += P * correctionCoarse;
-            } else {
-                const auto& agg = aggMaps_[static_cast<std::size_t>(level)];
-                for (int i = 0; i < n; ++i)
-                    x[i] += correctionCoarse[agg[static_cast<std::size_t>(i)]];
-            }
-        }
+    if (matrixPath) {
+        rCoarse = R * r;
+    } else {
+        rCoarse.setZero(nCoarse);
+        const auto& agg = aggMaps_[static_cast<std::size_t>(level)];
+        for (int i = 0; i < n; ++i)
+            rCoarse[agg[static_cast<std::size_t>(i)]] += r[i];
     }
 
-    return x - xStart;
+    // The coarse solve starts from zero, so its result IS the correction.
+    xCoarse.setZero(nCoarse);
+    flexCycleImpl_(level + 1, rCoarse, xCoarse, nullptr);
+
+    if (matrixPath) {
+        x += P * xCoarse;
+    } else {
+        const auto& agg = aggMaps_[static_cast<std::size_t>(level)];
+        for (int i = 0; i < n; ++i)
+            x[i] += xCoarse[agg[static_cast<std::size_t>(i)]];
+    }
 }
 
 bool AggregationBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
@@ -1334,17 +1479,16 @@ bool AggregationBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorX
     if (bnorm < 1e-30) { x.setZero(); return true; }
     const int maxIt = std::max(1, config_.maxIterations);
     const double tol = std::max(1e-16, config_.tolerance);
-    const double r0 = (b - systemMatrix_ * x).norm();
+    double res = (b - levels_[0].ARM * x).norm();
     double prev = std::numeric_limits<double>::max();
     lastResidualHistory_.clear();
-    lastResidualHistory_.push_back(r0 / bnorm);
-    lastIterations_ = 0; lastResidual_ = r0 / bnorm;
+    lastResidualHistory_.push_back(res / bnorm);
+    lastIterations_ = 0; lastResidual_ = res / bnorm;
     for (int iter = 0; iter < maxIt; ++iter) {
         if (cancel && cancel->load()) return false;
-        if (!applyFlexibleCycle_(b, x)) return false;
-        Eigen::VectorXd r = b - systemMatrix_ * x;
-        double res = r.norm();
-        double rel = res / bnorm;
+        // The cycle reports the residual it achieved, so no extra matvec here.
+        if (!applyFlexibleCycle_(b, x, &res)) return false;
+        const double rel = res / bnorm;
         lastResidualHistory_.push_back(rel);
         lastIterations_ = iter + 1; lastResidual_ = rel;
         if (rel < tol || (config_.epsilon > 0 && res < config_.epsilon)) {
@@ -1356,56 +1500,145 @@ bool AggregationBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorX
         }
         prev = res;
     }
-    Eigen::VectorXd r = b - systemMatrix_ * x;
-    lastResidual_ = r.norm() / bnorm;
+    res = (b - levels_[0].ARM * x).norm();
+    lastResidual_ = res / bnorm;
     return lastResidual_ < tol * config_.stagnationLooseFactor;
 }
 
 void AggregationBackend::fineGaussSeidel_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                                           int sweeps) const {
-    if (!fineRowsReady_) { fineRows_ = systemMatrix_; fineRowsReady_ = true; }
-    gaussSeidel(fineRows_, b, x, sweeps, true);
+    if (levels_.empty()) return;
+    gaussSeidel(levels_[0], b, x, sweeps, true);
 }
 
-void AggregationBackend::gaussSeidel(const AggRowMatrix& ARM,
+void AggregationBackend::gaussSeidel(const AMGLevel& level,
                                      const Eigen::VectorXd& b, Eigen::VectorXd& x,
                                      int numSweeps, bool forward) const {
-    const int n = static_cast<int>(ARM.rows());
+    const AggRowMatrix& A = level.ARM;
+    const int n = static_cast<int>(A.rows());
+    if (static_cast<int>(level.invDiag.size()) != n) return;
+    const int* outer = A.outerIndexPtr();
+    const int* inner = A.innerIndexPtr();
+    const double* vals = A.valuePtr();
+    const double* invDiag = level.invDiag.data();
+    const int* diagPos = level.diagPos.data();
+    const double* bp = b.data();
+    double* xp = x.data();
+
     for (int s = 0; s < numSweeps; ++s) {
         if (forward) {
             for (int i = 0; i < n; ++i) {
-                double diag = 0.0, sum = 0.0;
-                for (AggRowMatrix::InnerIterator it(ARM, i); it; ++it) {
-                    if (it.col() == i) diag = it.value();
-                    else sum += it.value() * x[it.col()];
-                }
-                if (std::abs(diag) < 1e-14 || !std::isfinite(diag)) continue;
-                if (!std::isfinite(b[i]) || !std::isfinite(sum)) continue;
-                x[i] = (b[i] - sum) / diag;
+                const double inv = invDiag[i];
+                const int dp = diagPos[i];
+                if (inv == 0.0 || dp < 0) continue;
+                if (!std::isfinite(bp[i])) continue;
+                const int ib = outer[i];
+                const int len = outer[i + 1] - ib;
+                const int* idx = inner + ib;
+                const double* v = vals + ib;
+                double sum = 0.0;
+                // The cached diagonal index splits the row: the off-diagonal
+                // sum keeps the exact accumulation order of the old
+                // col()!=i loop, with no per-entry branch.
+                for (int k = 0; k < dp; ++k) sum += v[k] * xp[idx[k]];
+                for (int k = dp + 1; k < len; ++k) sum += v[k] * xp[idx[k]];
+                if (!std::isfinite(sum)) continue;
+                xp[i] = (bp[i] - sum) * inv;
             }
         } else {
             for (int i = n - 1; i >= 0; --i) {
-                double diag = 0.0, sum = 0.0;
-                for (AggRowMatrix::InnerIterator it(ARM, i); it; ++it) {
-                    if (it.col() == i) diag = it.value();
-                    else sum += it.value() * x[it.col()];
-                }
-                if (std::abs(diag) < 1e-14 || !std::isfinite(diag)) continue;
-                if (!std::isfinite(b[i]) || !std::isfinite(sum)) continue;
-                x[i] = (b[i] - sum) / diag;
+                const double inv = invDiag[i];
+                const int dp = diagPos[i];
+                if (inv == 0.0 || dp < 0) continue;
+                if (!std::isfinite(bp[i])) continue;
+                const int ib = outer[i];
+                const int len = outer[i + 1] - ib;
+                const int* idx = inner + ib;
+                const double* v = vals + ib;
+                double sum = 0.0;
+                for (int k = 0; k < dp; ++k) sum += v[k] * xp[idx[k]];
+                for (int k = dp + 1; k < len; ++k) sum += v[k] * xp[idx[k]];
+                if (!std::isfinite(sum)) continue;
+                xp[i] = (bp[i] - sum) * inv;
             }
         }
     }
 }
 
-void AggregationBackend::smoothPre_(const AggRowMatrix& ARM,
-                                    const Eigen::VectorXd& b, Eigen::VectorXd& x, int numSweeps) const {
-    gaussSeidel(ARM, b, x, numSweeps, true);
+void AggregationBackend::gaussSeidelResidual_(const AMGLevel& level,
+                                              const Eigen::VectorXd& b,
+                                              Eigen::VectorXd& x, Eigen::VectorXd& r,
+                                              int numSweeps, bool forward) const {
+    const AggRowMatrix& A = level.ARM;
+    const int n = static_cast<int>(A.rows());
+    if (static_cast<int>(level.invDiag.size()) != n) return;
+    const int* outer = A.outerIndexPtr();
+    const int* inner = A.innerIndexPtr();
+    const double* vals = A.valuePtr();
+    const double* invDiag = level.invDiag.data();
+    const int* diagPos = level.diagPos.data();
+    // Row i of AT is column i of A: relaxing x[i] by delta updates
+    // r[j] -= A[j,i] * delta for every j, in one O(nnz) sweep.
+    const int* tOuter = level.AT.outerIndexPtr();
+    const int* tInner = level.AT.innerIndexPtr();
+    const double* tVals = level.AT.valuePtr();
+    const double* bp = b.data();
+    double* xp = x.data();
+    double* rp = r.data();
+
+    for (int s = 0; s < numSweeps; ++s) {
+        if (forward) {
+            for (int i = 0; i < n; ++i) {
+                const double inv = invDiag[i];
+                const int dp = diagPos[i];
+                if (inv == 0.0 || dp < 0) continue;
+                if (!std::isfinite(bp[i])) continue;
+                const int ib = outer[i];
+                const int len = outer[i + 1] - ib;
+                const int* idx = inner + ib;
+                const double* v = vals + ib;
+                double sum = 0.0;
+                for (int k = 0; k < dp; ++k) sum += v[k] * xp[idx[k]];
+                for (int k = dp + 1; k < len; ++k) sum += v[k] * xp[idx[k]];
+                if (!std::isfinite(sum)) continue;
+                const double xNew = (bp[i] - sum) * inv;
+                const double delta = xNew - xp[i];
+                xp[i] = xNew;
+                for (int k = tOuter[i]; k < tOuter[i + 1]; ++k)
+                    rp[tInner[k]] -= tVals[k] * delta;
+            }
+        } else {
+            for (int i = n - 1; i >= 0; --i) {
+                const double inv = invDiag[i];
+                const int dp = diagPos[i];
+                if (inv == 0.0 || dp < 0) continue;
+                if (!std::isfinite(bp[i])) continue;
+                const int ib = outer[i];
+                const int len = outer[i + 1] - ib;
+                const int* idx = inner + ib;
+                const double* v = vals + ib;
+                double sum = 0.0;
+                for (int k = 0; k < dp; ++k) sum += v[k] * xp[idx[k]];
+                for (int k = dp + 1; k < len; ++k) sum += v[k] * xp[idx[k]];
+                if (!std::isfinite(sum)) continue;
+                const double xNew = (bp[i] - sum) * inv;
+                const double delta = xNew - xp[i];
+                xp[i] = xNew;
+                for (int k = tOuter[i]; k < tOuter[i + 1]; ++k)
+                    rp[tInner[k]] -= tVals[k] * delta;
+            }
+        }
+    }
 }
 
-void AggregationBackend::smoothPost_(const AggRowMatrix& ARM,
+void AggregationBackend::smoothPre_(const AMGLevel& level,
+                                    const Eigen::VectorXd& b, Eigen::VectorXd& x, int numSweeps) const {
+    gaussSeidel(level, b, x, numSweeps, true);
+}
+
+void AggregationBackend::smoothPost_(const AMGLevel& level,
                                      const Eigen::VectorXd& b, Eigen::VectorXd& x, int numSweeps) const {
-    gaussSeidel(ARM, b, x, numSweeps, true);
+    gaussSeidel(level, b, x, numSweeps, true);
 }
 
 void AggregationBackend::strengthOfConnection(const AggRowMatrix& A,

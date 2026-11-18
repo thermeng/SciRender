@@ -77,7 +77,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         amgPatternAnalyzed_[component] = false;
         const auto t0 = std::chrono::steady_clock::now();
         amg_[component] = AMGHierarchy(config_.amgConfig, static_cast<int>(Dim));
-        amg_[component].build(A);
+        amg_[component].build(A, hash);
         amgPatternHash_[component] = hash;
         amgBuilt_[component] = amg_[component].isBuilt();
         amgValueUpdates_[component] = 0;
@@ -95,7 +95,7 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         // without paying for a full AMG setup every iteration.
         if (amg_[component].hasCachedAggregation()) {
             const auto tRefresh = std::chrono::steady_clock::now();
-            amg_[component].build(A);
+            amg_[component].build(A, hash);
             stats_.buildSeconds += std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - tRefresh).count();
         } else {

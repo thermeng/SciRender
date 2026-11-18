@@ -95,6 +95,19 @@ public:
     double finalKResid() const { return kResidual_; }
     double finalOmegaResid() const { return omegaResidual_; }
 
+    // Turbulence linear-solver timing (cumulative): AMG setup vs cycle time
+    // across both the k and omega transport solves. Lets the caller attribute
+    // the turbulence phase to setup versus smoothing.
+    double turbulenceBuildSeconds() const {
+        return kDispatcher_.buildSeconds() + omegaDispatcher_.buildSeconds();
+    }
+    double turbulenceSolveSeconds() const {
+        return kDispatcher_.amgSeconds() + omegaDispatcher_.amgSeconds();
+    }
+    std::size_t turbulenceBuilds() const {
+        return kDispatcher_.amgBuilds() + omegaDispatcher_.amgBuilds();
+    }
+
     // Largest y+ over the wall-adjacent cells. The model is a low-Re
     // formulation: y+ should be O(1). A large value means the first cell is
     // inside the log layer and the wall shear is not resolved (unless wall
@@ -129,7 +142,10 @@ private:
     VelocityBCType faceBCType_(const std::vector<FaceVelocityBC>& faceBCs,
                                std::size_t f) const;
 
-    std::array<Field<Dim>, Dim> computeScalarGradients(
+    // Fills `out` with the gradient of `phi`; writing straight into the
+    // caller's array avoids a Dim-field copy per call.
+    void computeScalarGradients(
+        std::array<Field<Dim>, Dim>& out,
         const Field<Dim>& phi,
         const std::vector<char>& mask,
         const std::vector<double>& vals) const;
@@ -217,7 +233,6 @@ private:
     Field<Dim> F2_;
     std::array<Field<Dim>, Dim> gradK_{};
     std::array<Field<Dim>, Dim> gradOmega_{};
-    mutable std::array<Field<Dim>, Dim> scalarGradBuffer_{};
     // Reusable strain-rate buffer to avoid per-iteration Field allocations (Dim x Dim fields)
     mutable std::array<std::array<Field<Dim>, Dim>, Dim> dUdxBuffer_{};
     mutable bool dUdxInitialized_ = false;
