@@ -34,6 +34,9 @@ public:
     // Resolved per-patch conditions after the dialog is accepted.
     const std::vector<cfd::PatchBC>& patchBCs() const { return m_bcs; }
 
+protected:
+    void changeEvent(QEvent* ev) override;
+
 private:
     void buildTable();
     void buildDetail(QWidget* detail);
@@ -62,8 +65,8 @@ private:
     QDoubleSpinBox* m_u = nullptr;
     QDoubleSpinBox* m_v = nullptr;
     QDoubleSpinBox* m_w = nullptr;
-    QDoubleSpinBox* m_kInlet = nullptr;
-    QDoubleSpinBox* m_omegaInlet = nullptr;
+    QDoubleSpinBox* m_intensity = nullptr;       // inlet turbulence intensity (%)
+    QDoubleSpinBox* m_viscosityRatio = nullptr;  // turbulent viscosity ratio
     QWidget* m_turbulenceBox = nullptr;
 
     QWidget* m_pressureSection = nullptr;

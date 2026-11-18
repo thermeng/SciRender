@@ -6,6 +6,7 @@
 #include "ui/widgets/stopping_criteria_dialog.h"
 
 #include <QString>
+#include <QRadioButton>
 
 class QPushButton;
 class QSpinBox;
@@ -29,9 +30,17 @@ signals:
                                double k, double omega, double maxYPlus, bool hasTurbulence);
     void residualsCleared();
     void monitorHistoryRestored();
+    // Emitted whenever the solver starts/stops, so the toolbar can enable or
+    // disable the live-update policy control.
+    void runningChanged(bool running);
+    // Emitted after a case/settings load, so the toolbar can refresh its label.
+    void settingsChanged();
 public:
     explicit CfdCasePage(RenderSettings* settings, QWidget* parent = nullptr);
     CfdController* controller() const { return m_ctrl; }
+    // Current steady/transient selection (the radio is the live source of
+    // truth; the controller settings only refresh on run).
+    bool isTransient() const { return m_transientRadio && m_transientRadio->isChecked(); }
     void loadMeshFromPath(const QString& path);
     void loadCaseFromPath(const QString& path);
 
@@ -119,9 +128,6 @@ private:
     ScientificDoubleSpinBox* m_minDtSpin = nullptr;
     ScientificDoubleSpinBox* m_maxDtSpin = nullptr;
     QSpinBox* m_writeIntervalSpin = nullptr;
-    QSpinBox* m_visualizationIntervalSpin = nullptr;
-    QComboBox* m_resultUpdateModeCombo = nullptr;
-    QDoubleSpinBox* m_resultUpdateTimeSpin = nullptr;
     QSpinBox* m_outerCorrectorsSpin = nullptr;
     QSpinBox* m_nonOrthCorrectorsSpin = nullptr;
     QLineEdit* m_pvdFileEdit = nullptr;

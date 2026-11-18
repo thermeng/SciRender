@@ -66,4 +66,10 @@ QDialogButtonBox* buttons(QDialog* dlg, bool resetDefaults = false,
 // dimension alone.
 void prepareDialog(QDialog* dlg, int minW = 560, int minH = 0);
 
+// Re-apply every non-empty stylesheet under `root`. Stylesheets that use
+// palette(...) cache the resolved colour at polish time, so after a light/dark
+// theme switch the widgets would otherwise keep the old colour. Re-setting the
+// same sheet forces a repolish and a fresh resolve.
+void repolishTheme(QWidget* root);
+
 } // namespace uikit

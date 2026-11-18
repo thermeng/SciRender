@@ -28,11 +28,22 @@ QLabel* header(const QString& text, QWidget* parent) {
     label->setFont(f);
     return label;
 }
-
+/*
 QLabel* note(const QString& text, QWidget* parent) {
     auto* label = new QLabel(text, parent);
     label->setWordWrap(true);
     label->setStyleSheet("color: palette(mid);");
+    QFont f = label->font();
+    f.setPixelSize(10);
+    label->setFont(f);
+    return label;
+}
+*/
+QLabel* note(const QString& text, QWidget* parent) {
+    auto* label = new QLabel(text, parent);
+    label->setWordWrap(true);
+    // Use placeholder-text for accessible secondary text contrast in dark/light themes
+    label->setStyleSheet("color: palette(placeholder-text);");
     QFont f = label->font();
     f.setPixelSize(10);
     label->setFont(f);
@@ -99,6 +110,18 @@ void prepareDialog(QDialog* dlg, int minW, int minH) {
     if (minW > 0) dlg->setMinimumWidth(minW);
     if (minH > 0) dlg->setMinimumHeight(minH);
     installWheelGuard(dlg);
+}
+
+void repolishTheme(QWidget* root) {
+    if (!root) return;
+    for (QLabel* lbl : root->findChildren<QLabel*>()) {
+        const QString ss = lbl->styleSheet();
+        if (!ss.isEmpty()) lbl->setStyleSheet(ss);
+    }
+    for (QFrame* f : root->findChildren<QFrame*>()) {
+        const QString ss = f->styleSheet();
+        if (!ss.isEmpty()) f->setStyleSheet(ss);
+    }
 }
 
 } // namespace uikit

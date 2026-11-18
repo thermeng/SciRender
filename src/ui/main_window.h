@@ -8,6 +8,9 @@
 #include <QTimer>
 #include <QLabel>
 #include <QToolButton>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QMenu>
 #include <QShortcut>
 #include <QActionGroup>
 #include <QList>
@@ -95,6 +98,14 @@ private:
     QAction* m_tbSurface = nullptr;
     QAction* m_tbVolume = nullptr;
     QAction* m_clearAction = nullptr;
+    QToolButton* m_tbUpdatePolicy = nullptr;
+    // Drop-down panel attached to the update-policy button (mode + value).
+    QMenu* m_updateMenu = nullptr;
+    QWidget* m_updatePanel = nullptr;
+    QWidget* m_updateTriggerRow = nullptr;
+    QComboBox* m_updateModeCombo = nullptr;
+    QDoubleSpinBox* m_updateValueSpin = nullptr;
+    QLabel* m_updateValueLabel = nullptr;
 
     // Sidebar
     QDockWidget* m_sidebarDock = nullptr;
@@ -124,6 +135,10 @@ private:
     void registerSectionFactory(int section, std::function<sidebar::SidebarPage*()> factory);
     void ensureSectionPage(int section);
     sidebar::CfdCasePage* ensureCfdPage();
+    // Toolbar "Update: ..." control: label follows the controller's result
+    // update policy; the popup edits it and is blocked while a run is active.
+    void updateUpdatePolicyLabel();
+    void syncUpdatePolicyControls();
     PlotWindow* ensurePlotWindow();
     // Both the CFD page and the plot surface are built lazily and in either
     // order, so their monitor wiring is established here once both exist.

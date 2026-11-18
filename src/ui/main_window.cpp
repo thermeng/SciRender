@@ -4,12 +4,18 @@
 #include "animation_export_dialog.h"
 #include "ui/widgets/plot_window.h"
 #include "ui/panel_helpers.h"
+#include "ui/uikit.h"
 #include <cmath>
 #include <QApplication>
 #include <QClipboard>
 #include <QMenuBar>
 #include <QMenu>
 #include <QProgressDialog>
+#include <QMessageBox>
+#include <QDialog>
+#include <QFormLayout>
+#include <QDialogButtonBox>
+#include <QWidgetAction>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -38,6 +44,7 @@
 #include <QStyle>
 #include <algorithm>
 #include <QStyledItemDelegate>
+
 // Helper: Does a widget want typing/navigation keys (so viewport shortcuts
 // must stay out of the way)?
 
@@ -709,6 +716,15 @@ sidebar::CfdCasePage* MainWindow::ensureCfdPage() {
     // Wire residual history into the plot window once both exist. The plot
     // window is lazy too, so this may run again from ensurePlotWindow().
     wireCfdMonitor();
+    if (m_tbUpdatePolicy) {
+        // The update-policy button mirrors the solver's run state: editable only
+        // while idle.
+        connect(m_cfdPage, &sidebar::CfdCasePage::runningChanged,
+                this, [this](bool running) { m_tbUpdatePolicy->setEnabled(!running); });
+        connect(m_cfdPage, &sidebar::CfdCasePage::settingsChanged,
+                this, [this]() { updateUpdatePolicyLabel(); });
+        updateUpdatePolicyLabel();
+    }
     return m_cfdPage;
 }
 
@@ -952,6 +968,68 @@ void MainWindow::setupTopToolbar() {
     // Reset camera
     auto* resetAct = m_topToolbar->addAction(QIcon(":/src/resources/icons/reset.svg"), "Reset Camera");
     connect(resetAct, &QAction::triggered, m_settings, &RenderSettings::resetCamera);
+
+    m_topToolbar->addSeparator();
+
+    // Result update policy: a tool button with a drop-down panel (mode + value)
+    // anchored to it. Disabled while a run is active (see runningChanged).
+    m_tbUpdatePolicy = new QToolButton(m_topToolbar);
+    m_tbUpdatePolicy->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_tbUpdatePolicy->setMinimumWidth(120);
+    m_tbUpdatePolicy->setToolTip("How often the viewport refreshes during a run");
+    m_tbUpdatePolicy->setPopupMode(QToolButton::InstantPopup);
+    // Give it real button chrome (the toolbar style is transparent until hover,
+    // which reads as a label) so it looks clickable.
+    m_tbUpdatePolicy->setStyleSheet(
+        "QToolButton { background: palette(button); border: 1px solid palette(mid);"
+        " border-radius: 4px; padding: 2px 10px; color: palette(button-text); }"
+        "QToolButton:hover { background: palette(midlight); border: 1px solid palette(dark); }"
+        "QToolButton:pressed { background: palette(mid); }");
+
+    m_updateMenu = new QMenu(m_tbUpdatePolicy);
+    auto* panel = new QWidget(m_updateMenu);
+    m_updatePanel = panel;
+    panel->setFixedWidth(180);
+    auto* panelLay = new QVBoxLayout(panel);
+    panelLay->setContentsMargins(8, 8, 8, 8);
+    panelLay->setSpacing(6);
+
+    m_updateTriggerRow = new QWidget(panel);
+    auto* triggerLay = new QHBoxLayout(m_updateTriggerRow);
+    triggerLay->setContentsMargins(0, 0, 0, 0);
+    auto* triggerLabel = new QLabel("Trigger", m_updateTriggerRow);
+    triggerLabel->setFixedWidth(72);
+    triggerLay->addWidget(triggerLabel);
+    m_updateModeCombo = new QComboBox(m_updateTriggerRow);
+    m_updateModeCombo->addItem("Time Steps");
+    m_updateModeCombo->addItem("Seconds");
+    triggerLay->addWidget(m_updateModeCombo, 1);
+    panelLay->addWidget(m_updateTriggerRow);
+
+    auto* valueRow = new QWidget(panel);
+    auto* valueLay = new QHBoxLayout(valueRow);
+    valueLay->setContentsMargins(0, 0, 0, 0);
+    m_updateValueLabel = new QLabel("Iterations", valueRow);
+    m_updateValueLabel->setFixedWidth(72);
+    valueLay->addWidget(m_updateValueLabel);
+    m_updateValueSpin = new QDoubleSpinBox(valueRow);
+    m_updateValueSpin->setRange(1.0, 1e6);
+    m_updateValueSpin->setDecimals(0);
+    valueLay->addWidget(m_updateValueSpin, 1);
+    panelLay->addWidget(valueRow);
+    auto* panelAction = new QWidgetAction(m_updateMenu);
+    panelAction->setDefaultWidget(panel);
+    m_updateMenu->addAction(panelAction);
+    m_tbUpdatePolicy->setMenu(m_updateMenu);
+
+    connect(m_updateModeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, [this](int) { syncUpdatePolicyControls(); });
+    connect(m_updateValueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+            this, [this](double) { syncUpdatePolicyControls(); });
+
+    m_topToolbar->addWidget(m_tbUpdatePolicy);
+    syncUpdatePolicyControls();
+    updateUpdatePolicyLabel();
 }
 
 void MainWindow::syncTopToolbar() {
@@ -961,6 +1039,76 @@ void MainWindow::syncTopToolbar() {
         m_tbVolume->setEnabled(m_settings->hasVolumeData());
         m_tbVolume->setChecked(m_settings->getShowVolume());
     }
+}
+
+void MainWindow::updateUpdatePolicyLabel() {
+    cfd::CaseSettings::ResultUpdateMode mode = cfd::CaseSettings::ResultUpdateMode::EveryNSteps;
+    int steps = 1;
+    double seconds = 0.1;
+    bool transient = false;
+    if (m_cfdPage && m_cfdPage->controller()) {
+        const auto& s = m_cfdPage->controller()->settings();
+        mode = s.resultUpdateMode;
+        steps = s.visualizationInterval;
+        seconds = s.resultUpdateTimeInterval;
+        transient = m_cfdPage->isTransient();
+        // Steady has no time-based mode: force it back to iterations.
+        if (!transient && mode != cfd::CaseSettings::ResultUpdateMode::EveryNSteps) {
+            mode = cfd::CaseSettings::ResultUpdateMode::EveryNSteps;
+            seconds = 0.0;
+            m_cfdPage->controller()->setResultUpdatePolicy(
+                cfd::CaseSettings::ResultUpdateMode::EveryNSteps, steps, 0.0);
+        }
+    }
+    const bool toTime = mode == cfd::CaseSettings::ResultUpdateMode::EveryNTime;
+    // Keep BOTH rows always present. Hiding the trigger row made the popup keep
+    // the old (shorter) height and clip it after a mode switch. Steady simply
+    // fixes the trigger to iterations and disables it.
+    if (m_updateModeCombo) {
+        m_updateModeCombo->blockSignals(true);
+        m_updateModeCombo->clear();
+        if (transient) {
+            m_updateModeCombo->addItem("Time Steps");
+            m_updateModeCombo->addItem("Seconds");
+            m_updateModeCombo->setCurrentIndex(toTime ? 1 : 0);
+            m_updateModeCombo->setEnabled(true);
+        } else {
+            m_updateModeCombo->addItem("Iterations");
+            m_updateModeCombo->setCurrentIndex(0);
+            m_updateModeCombo->setEnabled(false);
+        }
+        m_updateModeCombo->blockSignals(false);
+    }
+    if (m_updateValueSpin) {
+        m_updateValueSpin->setDecimals(toTime ? 6 : 0);
+        m_updateValueSpin->setRange(toTime ? 0.0 : 1.0, 1e6);
+        m_updateValueSpin->setValue(toTime ? seconds : steps);
+    }
+    if (m_updateValueLabel)
+        m_updateValueLabel->setText(toTime ? "Seconds" : (transient ? "Time Steps" : "Iterations"));
+    if (m_tbUpdatePolicy) {
+        // The trailing chevron is the affordance: without it the text reads as a
+        // static label.
+        if (toTime) m_tbUpdatePolicy->setText(QString("Update: %1 s  ▾").arg(seconds));
+        else if (transient) m_tbUpdatePolicy->setText(QString("Update: %1 Step  ▾").arg(steps));
+        else m_tbUpdatePolicy->setText(QString("Update: %1 Iteration  ▾").arg(steps));
+    }
+}
+
+void MainWindow::syncUpdatePolicyControls() {
+    // Widget -> controller. The menu is only usable while idle (the button is
+    // disabled during a run, and this guard is the second line of defence).
+    if (m_updateModeCombo && m_updateValueSpin && m_cfdPage && m_cfdPage->controller()
+        && !m_cfdPage->controller()->isRunning()) {
+        const bool transient = m_cfdPage->isTransient();
+        const bool toTime = transient && m_updateModeCombo->currentIndex() == 1;
+        m_cfdPage->controller()->setResultUpdatePolicy(
+            toTime ? cfd::CaseSettings::ResultUpdateMode::EveryNTime
+                   : cfd::CaseSettings::ResultUpdateMode::EveryNSteps,
+            toTime ? 1 : static_cast<int>(m_updateValueSpin->value()),
+            toTime ? m_updateValueSpin->value() : 0.0);
+    }
+    updateUpdatePolicyLabel();
 }
 
 void MainWindow::setupKeyboardShortcuts() {
@@ -1047,6 +1195,7 @@ void MainWindow::openRecent(const QString& path) {
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix == "scfd") {
         ensureCfdPage()->loadCaseFromPath(path);
+        updateUpdatePolicyLabel();
     } else if (suffix == "msh") {
         ensureCfdPage()->loadMeshFromPath(path);
     } else {
@@ -1221,6 +1370,10 @@ void MainWindow::applyThemeAwareStylesheets() {
     // Availability banners are styled in addSectionPage() at construction, not
     // here: this function only runs on QEvent::PaletteChange, which never fires
     // at startup.
+
+    // Re-apply every remaining stylesheet so palette(...) (uikit::note, the
+    // sidebar pages, ...) re-resolves against the new light/dark palette.
+    uikit::repolishTheme(this);
 }
 
 void MainWindow::recreateViewport() {
