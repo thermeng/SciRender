@@ -22,9 +22,11 @@ uniform float uNumBands = 0.0; // 0 = continuous, >1 = discrete bands
 
 out vec4 FragColor;
 
+// Thin cylinders expose a narrow range of normals, so the material is tuned
+// flatter than the surface one: the hue must stay readable at silhouette.
 float uMatAmbient()  { return 0.35; }
-float uMatDiffuse()  { return 0.65; }
-float uMatSpecular() { return 0.15; }
+float uMatDiffuse()  { return 0.50; }
+float uMatSpecular() { return 0.05; }
 float uMatRoughness() { return uPBR.x; }
 float uMatMetallic()  { return uPBR.y; }
 
@@ -75,6 +77,10 @@ void main() {
     vec3 totalDiffuse = vec3(0.0);
     vec3 totalSpecular = vec3(0.0);
     lightContributionPBR(L, n, 1.0, vec3(1.0), viewDir, baseColor, totalDiffuse, totalSpecular);
+    // Camera fill. A single key light leaves the half facing away at ambient,
+    // which reads as a dull, desaturated colormap color; the eye-direction lobe
+    // keeps the hue visible across the whole silhouette.
+    lightContributionPBR(viewDir, n, 0.55, vec3(1.0), viewDir, baseColor, totalDiffuse, totalSpecular);
 
     vec3 col = baseColor * uMatAmbient() + totalDiffuse + totalSpecular;
     FragColor = vec4(col, 1.0);
