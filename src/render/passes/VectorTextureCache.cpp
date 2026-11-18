@@ -400,9 +400,6 @@ std::string VectorTextureCache::makeKey(const std::string& name, bool isCell) {
     // Canonical key: no boundary mode (always Repeat). Legacy "#B*" suffix dropped.
     return name + (isCell ? "#C" : "#P");
 }
-std::string VectorTextureCache::makeKey(const std::string& name, bool isCell, int /*licBoundaryMode*/) {
-    return makeKey(name, isCell);
-}
 
 void VectorTextureCache::touch(Entry& e, const std::string& key) {
     if (e.hasLru) {
@@ -426,7 +423,7 @@ void VectorTextureCache::evictIfNeeded() {
 
 GLuint VectorTextureCache::textureForField(const std::string& name, const RenderMesh* mesh,
                                              const glm::vec3& boxMin, const glm::vec3& boxMax,
-                                             int placement, int licBoundaryMode,
+                                             int placement,
                                              const postfields::ComputedSnapshot* snap) {
     if (!mesh || name.empty()) return 0;
 
@@ -477,12 +474,12 @@ GLuint VectorTextureCache::textureForField(const std::string& name, const Render
         }
     }
 
-    return buildTexture(name, mesh, boxMin, boxMax, placement, licBoundaryMode, snap);
+    return buildTexture(name, mesh, boxMin, boxMax, placement, snap);
 }
 
 GLuint VectorTextureCache::buildTexture(const std::string& name, const RenderMesh* mesh,
                                          const glm::vec3& boxMin, const glm::vec3& boxMax,
-                                         int placement, int licBoundaryMode,
+                                         int placement,
                                          const postfields::ComputedSnapshot* snap) {
     (void)boxMin; (void)boxMax; (void)placement;
     const glm::vec3* data = nullptr;
@@ -501,7 +498,6 @@ GLuint VectorTextureCache::buildTexture(const std::string& name, const RenderMes
     int texDimX = dimX, texDimY = dimY, texDimZ = dimZ;
     const glm::vec3* texData = grid.data();
     const int wrapMode = GL_CLAMP_TO_EDGE; // fixed: Clamp; a trace that leaves the domain stops
-    (void)licBoundaryMode; // deprecated — ignored, kept for API compat
 
     if (texDimX <= 0 || texDimY <= 0 || texDimZ <= 0) return 0;
     {
@@ -622,11 +618,6 @@ bool VectorTextureCache::getTextureDims(const std::string& name, int& dimX, int&
     return false;
 }
 
-bool VectorTextureCache::getTextureDims(const std::string& name, int /*licBoundaryMode*/, int& dimX, int& dimY, int& dimZ) const {
-    // Deprecated mode param ignored — delegate to canonical.
-    return getTextureDims(name, dimX, dimY, dimZ);
-}
-
 float VectorTextureCache::getMaxMagnitude(const std::string& name, int placement, const RenderMesh* mesh,
                                           const postfields::ComputedSnapshot* snap) const {
     if (mesh) {
@@ -673,7 +664,7 @@ float VectorTextureCache::getRobustFloor(const std::string& name, int placement,
     return 0.0f;
 }
 
-bool VectorTextureCache::getTextureDims(const std::string& name, int placement, int /*licBoundaryMode*/, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ,
+bool VectorTextureCache::getTextureDims(const std::string& name, int placement, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ,
                                         const postfields::ComputedSnapshot* snap) const {
     if (mesh) {
         const glm::vec3* d = nullptr;

@@ -221,7 +221,6 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/io/VTKXMLWriter.cpp
         src/io/ANSYSMeshReader.cpp
         src/io/GmshReader.cpp
-        src/io/Checkpoint.cpp
     )
     target_include_directories(FvmCore SYSTEM PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -522,7 +521,6 @@ if(SCIRENDER_BUILD_APP)
             src/resources/icons/wireframe.svg
             src/resources/icons/surface.svg
             src/resources/icons/volume.svg
-            src/resources/icons/slice.svg
             src/resources/icons/ortho_px.svg
             src/resources/icons/ortho_nx.svg
             src/resources/icons/ortho_py.svg
@@ -530,7 +528,6 @@ if(SCIRENDER_BUILD_APP)
             src/resources/icons/ortho_pz.svg
             src/resources/icons/ortho_nz.svg
             src/resources/icons/reset.svg
-            src/resources/icons/collapse.svg
     )
 
     # -----------------------------------------------------------------------

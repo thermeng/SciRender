@@ -30,16 +30,39 @@ using cfd::ResidualEquation;
 
 namespace {
 
-// Resident set size of this process in MiB -- the number Task Manager shows
-// for the application. Printed once per transient step so a long run can be
-// watched for memory drift directly in the solver table, without an external
-// sampler. The transient table is the run-level output, so one sample there is
-// enough to see whether a case leaks.
+// Resident set size of this process in MiB -- Task Manager's Memory column,
+// i.e. the private working set. The whole working set also counts pages shared
+// with system DLLs, which is why it reads ~100 MiB higher than Task Manager.
+// Printed once per printed solver row (steady iteration or transient step) so a
+// long run can be watched for memory drift without an external sampler.
+#ifdef _WIN32
+// ABI defined by the Windows SDK (Windows 10); the MinGW headers ship an older
+// psapi.h without it. GetProcessMemoryInfo fills it when cb is its size.
+struct ProcessMemoryCountersEx2 {
+    DWORD cb;
+    DWORD PageFaultCount;
+    SIZE_T PeakWorkingSetSize;
+    SIZE_T WorkingSetSize;
+    SIZE_T QuotaPeakPagedPoolUsage;
+    SIZE_T QuotaPagedPoolUsage;
+    SIZE_T QuotaPeakNonPagedPoolUsage;
+    SIZE_T QuotaNonPagedPoolUsage;
+    SIZE_T PagefileUsage;
+    SIZE_T PeakPagefileUsage;
+    SIZE_T PrivateUsage;
+    SIZE_T PrivateWorkingSetSize;
+    ULONG64 SharedCommitUsage;
+};
+#endif
+
 double residentSetMiB() {
 #ifdef _WIN32
-    PROCESS_MEMORY_COUNTERS pmc{};
-    if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0.0;
-    return static_cast<double>(pmc.WorkingSetSize) / (1024.0 * 1024.0);
+    ProcessMemoryCountersEx2 pmc{};
+    pmc.cb = sizeof(pmc);
+    if (!GetProcessMemoryInfo(GetCurrentProcess(),
+                              reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc),
+                              sizeof(pmc))) return 0.0;
+    return static_cast<double>(pmc.PrivateWorkingSetSize) / (1024.0 * 1024.0);
 #else
     std::ifstream statm("/proc/self/statm");
     long totalPages = 0, residentPages = 0;
@@ -812,7 +835,7 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
     nCols += 1; // continuity
     nCols += Dim; // velocities
     if (turbulence_) nCols += 2;
-    if (isTransient && config_.printResidentSet) nCols += 1; // resident set size
+    if (config_.printResidentSet) nCols += 1; // resident set size
     int width = wIter + nCols * wRes;
     if (width < 78) width = 78;
     std::ostringstream hdr;
@@ -826,7 +849,7 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
             << std::setw(wRes) << "y-velocity";
         if constexpr (Dim == 3) hdr << std::setw(wRes) << "z-velocity";
         if (turbulence_) hdr << std::setw(wRes) << "k" << std::setw(wRes) << "omega";
-        if (config_.printResidentSet) hdr << std::setw(wRes) << "rss(MiB)";
+        if (config_.printResidentSet) hdr << std::setw(wRes) << "mem(MiB)";
         hdr << "\n" << std::string(width, '-') ;
     } else {
         hdr << std::setw(wIter) << "iter"
@@ -835,6 +858,7 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
             << std::setw(wRes) << "y-velocity";
         if constexpr (Dim == 3) hdr << std::setw(wRes) << "z-velocity";
         if (turbulence_) hdr << std::setw(wRes) << "k" << std::setw(wRes) << "omega";
+        if (config_.printResidentSet) hdr << std::setw(wRes) << "mem(MiB)";
         if (config_.printIterationTime) hdr << std::setw(wTime) << "time/iter";
         hdr << "\n" << std::string(width, '-') ;
     }
@@ -925,6 +949,9 @@ void SIMPLE<Dim>::printIterationOutput_(std::size_t iter) {
         if constexpr (Dim == 3) line << std::setw(wRes) << lastMomResidW_;
         if (turbulence_) line << std::setw(wRes) << lastKResid_
                                << std::setw(wRes) << lastOmegaResid_;
+        // Resident-set size before the timing column so time stays last.
+        if (config_.printResidentSet)
+            line << std::fixed << std::setprecision(1) << std::setw(wRes) << residentSetMiB();
         // Time stays last so it never splits the residual columns.
         if (config_.printIterationTime)
             line << std::fixed << std::setprecision(4) << std::setw(wTime) << iterTime;

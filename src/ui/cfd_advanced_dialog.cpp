@@ -128,11 +128,12 @@ void CfdAdvancedDialog::buildUi() {
     QFormLayout* diagnosticsForm = nullptr;
     pressureLay->addWidget(uikit::group("Diagnostics", &diagnosticsForm));
 
-    m_printResidentSet = new QCheckBox("Process Memory (RSS)");
+    m_printResidentSet = new QCheckBox("Process Memory (MiB)");
     m_printResidentSet->setToolTip(
-        "Append the process resident-set size to every transient row. Useful\n"
-        "when watching a long run for memory growth; off by default, because\n"
-        "sampling the OS every step is not part of normal solver output.");
+        "Append the process private working set to every printed solver row\n"
+        "(steady iteration or transient step): the same number as Task Manager's\n"
+        "Memory column. Useful when watching a long run for memory growth; off by\n"
+        "default, because sampling the OS is not part of normal solver output.");
     diagnosticsForm->addRow(m_printResidentSet);
 
     m_printIterationTime = new QCheckBox("Iteration Time");

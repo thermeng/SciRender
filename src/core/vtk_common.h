@@ -213,35 +213,17 @@ std::vector<std::vector<uint32_t>> triangulateUnstructuredCells(
         }
         idx += numPointsInCell;
     }
-    // Surface-only: face → count map
-    auto sortedKey = [](const std::vector<uint32_t>& f){ std::vector<uint32_t> k=f; std::sort(k.begin(),k.end()); return k; };
-    struct VecHash { size_t operator()(const std::vector<uint32_t>& v) const noexcept {
-        size_t h=v.size()*1315423911u; for(uint32_t x: v) h ^= std::hash<uint32_t>{}(x)+0x9e3779b9+(h<<6)+(h>>2); return h; } };
-    std::unordered_map<std::vector<uint32_t>, int, VecHash> faceCount;
+    // Surface-only: face → count map (shared enumeration with mesh_loader)
+    std::unordered_map<std::vector<uint32_t>, int, mesh_utils::detail::VecHash> faceCount;
     faceCount.reserve(totalCells*6);
     for (int c=0;c<totalCells;++c) {
         if (cellToVertices[c].empty()) continue;
-        int type = resolvedTypes[c];
-        const auto& v = cellToVertices[c];
-        std::vector<std::vector<uint32_t>> faces;
-        switch (type) {
-        case 5: if(v.size()>=3) faces.push_back({v[0],v[1],v[2]}); break;
-        case 7: if(!v.empty()) faces.push_back(v); break;
-        case 8: if(v.size()>=4) faces.push_back({v[0],v[1],v[3],v[2]}); break;
-        case 9: if(v.size()>=4) faces.push_back({v[0],v[1],v[2],v[3]}); break;
-        case 10: if(v.size()>=4) { faces.push_back({v[0],v[1],v[2]}); faces.push_back({v[0],v[1],v[3]}); faces.push_back({v[1],v[2],v[3]}); faces.push_back({v[2],v[0],v[3]}); } break;
-        case 12: if(v.size()>=8) { faces.push_back({v[0],v[1],v[2],v[3]}); faces.push_back({v[4],v[5],v[6],v[7]}); faces.push_back({v[0],v[1],v[5],v[4]}); faces.push_back({v[1],v[2],v[6],v[5]}); faces.push_back({v[2],v[3],v[7],v[6]}); faces.push_back({v[3],v[0],v[4],v[7]}); } break;
-        case 13: if(v.size()>=6) { faces.push_back({v[0],v[1],v[2]}); faces.push_back({v[3],v[4],v[5]}); faces.push_back({v[0],v[1],v[4],v[3]}); faces.push_back({v[1],v[2],v[5],v[4]}); faces.push_back({v[2],v[0],v[3],v[5]}); } break;
-        case 14: if(v.size()>=5) { faces.push_back({v[0],v[1],v[2],v[3]}); faces.push_back({v[0],v[1],v[4]}); faces.push_back({v[1],v[2],v[4]}); faces.push_back({v[2],v[3],v[4]}); faces.push_back({v[3],v[0],v[4]}); } break;
-        case 15: if(v.size()>=10) { faces.push_back({v[0],v[1],v[2],v[3],v[4]}); faces.push_back({v[5],v[6],v[7],v[8],v[9]}); faces.push_back({v[0],v[1],v[6],v[5]}); faces.push_back({v[1],v[2],v[7],v[6]}); faces.push_back({v[2],v[3],v[8],v[7]}); faces.push_back({v[3],v[4],v[9],v[8]}); faces.push_back({v[0],v[4],v[9],v[5]}); } break;
-        case 6: for(size_t i=0;i+2<v.size();++i) faces.push_back({v[i],v[i+1],v[i+2]}); break;
-        default: if(!v.empty() && v.size()>=3) faces.push_back(v); break;
-        }
-        for (auto &f: faces) if(f.size()>=3) ++faceCount[sortedKey(f)];
+        for (auto &f : mesh_utils::detail::cellBoundaryFaces(cellToVertices[c], resolvedTypes[c]))
+            if (f.size()>=3) ++faceCount[mesh_utils::detail::sortedKey(f)];
     }
     auto isBoundary = [&](const std::vector<uint32_t>& f)->bool{
         if(f.size()<3) return false;
-        auto it = faceCount.find(sortedKey(f));
+        auto it = faceCount.find(mesh_utils::detail::sortedKey(f));
         return it!=faceCount.end() && it->second==1;
     };
     // Emit only boundary faces, preserving original triangulation

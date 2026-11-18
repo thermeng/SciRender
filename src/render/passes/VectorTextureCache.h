@@ -13,11 +13,12 @@ class VectorTextureCache {
 public:
     VectorTextureCache() = default;
 
-    // licBoundaryMode is deprecated (always Clamp/GL_CLAMP_TO_EDGE); kept in signature for API compat but ignored.
+    // Texture wrap is fixed to Clamp (GL_CLAMP_TO_EDGE); a trace leaving the
+    // domain stops instead of wrapping.
     // snap: computed post-proc snapshot (null = mesh fields only).
     GLuint textureForField(const std::string& name, const RenderMesh* mesh,
                            const glm::vec3& boxMin, const glm::vec3& boxMax,
-                           int placement = -1, int licBoundaryMode = 1,
+                           int placement = -1,
                            const postfields::ComputedSnapshot* snap = nullptr);
 
     bool getTextureDims(const std::string& name, int& dimX, int& dimY, int& dimZ) const;
@@ -29,9 +30,8 @@ public:
     // rejected by a maxMagnitude-relative cut-off dominated by a fast lid.
     float getRobustFloor(const std::string& name, int placement = -1, const RenderMesh* mesh = nullptr,
                          const postfields::ComputedSnapshot* snap = nullptr) const;
-    // Deprecated licBoundaryMode variants — forward to canonical; mode ignored.
-    bool getTextureDims(const std::string& name, int licBoundaryMode, int& dimX, int& dimY, int& dimZ) const;
-    bool getTextureDims(const std::string& name, int placement, int licBoundaryMode, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ,
+    // Resolve by placement (cell vs point), falling back to a name-only lookup.
+    bool getTextureDims(const std::string& name, int placement, const RenderMesh* mesh, int& dimX, int& dimY, int& dimZ,
                         const postfields::ComputedSnapshot* snap = nullptr) const;
 
     void invalidate(const std::string& name);
@@ -76,15 +76,13 @@ private:
 
     GLuint buildTexture(const std::string& name, const RenderMesh* mesh,
                         const glm::vec3& boxMin, const glm::vec3& boxMax,
-                        int placement, int licBoundaryMode,
+                        int placement,
                         const postfields::ComputedSnapshot* snap);
     bool resolveField(const RenderMesh& mesh, const std::string& name, int placement,
                       const glm::vec3*& outData, size_t& outCount, bool& outIsCell,
                       const postfields::ComputedSnapshot* snap) const;
 
     static std::string makeKey(const std::string& name, bool isCell);
-    // Deprecated compat — ignores mode, forwards to canonical makeKey(name,isCell)
-    static std::string makeKey(const std::string& name, bool isCell, int licBoundaryMode);
 
     std::unordered_map<std::string, Entry> m_entries;
     std::list<std::string> m_lru;

@@ -192,7 +192,6 @@ class RenderSettings : public QObject {
     Q_PROPERTY(double licStepSize READ getLicStepSize WRITE setLicStepSize NOTIFY viewChanged)
     Q_PROPERTY(double licNoiseFreq READ getLicNoiseFreq WRITE setLicNoiseFreq NOTIFY viewChanged)
     Q_PROPERTY(int licNoiseGrain READ getLicNoiseGrain WRITE setLicNoiseGrain NOTIFY viewChanged)
-    Q_PROPERTY(int licBoundaryMode READ getLicBoundaryMode WRITE setLicBoundaryMode NOTIFY viewChanged)
     Q_PROPERTY(bool licEnhanced READ getLicEnhanced WRITE setLicEnhanced NOTIFY viewChanged)
     Q_PROPERTY(bool licOnly READ getLicOnly WRITE setLicOnly NOTIFY viewChanged)
     Q_PROPERTY(int licIntegrator READ getLicIntegrator WRITE setLicIntegrator NOTIFY viewChanged)
@@ -545,10 +544,6 @@ public:
     Q_INVOKABLE void pan(double dx, double dy) { cancelCameraTransition(); m_state.camera.pan(dx, dy); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
     Q_INVOKABLE void dolly(double factor) { cancelCameraTransition(); m_state.camera.dolly(factor); m_renderer.markCameraMoving(); markStateDirty(); emit viewChanged(ChangeFlag::Camera); }
 
-    float* getMeshColor() { return m_state.meshColor; }
-    float* getSurfaceColor() { return m_state.surfaceColor; }
-    float* getBgColor() { return m_state.bgColor; }
-
     Q_INVOKABLE void setSidebarWidth(float w) { sidebarWidth = w; }
 
     // ---- post-field extraction handoff (GUI thread only) -------------------
@@ -662,13 +657,6 @@ public:
         int g = (v <= 64) ? 64 : 128;
         if (m_state.licNoiseGrain != g) { m_state.licNoiseGrain = g; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
     }
-    // Deprecated: fixed to Clamp (GL_CLAMP_TO_EDGE). Legacy setter coerces any persisted value to 1.
-    // Texture key no longer includes boundary mode; VectorTextureCache ignores the argument.
-    int getLicBoundaryMode() const { return 1; }
-    void setLicBoundaryMode(int) {
-        if (m_state.licBoundaryMode != 1) { m_state.licBoundaryMode = 1; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
-    }
-    QStringList getLicBoundaryModeOptions() const { return {"Clamp"}; }
     bool getLicEnhanced() const { return m_state.licEnhanced; }
     void setLicEnhanced(bool v) {
         if (m_state.licEnhanced != v) { m_state.licEnhanced = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); }
@@ -808,7 +796,6 @@ public:
       // Range of the contour field under the iso placement (drives the spin bounds).
       std::pair<float,float> isosurfaceFieldRange() const;
       bool getIsosurfaceAvailable() const { return m_isoController.isAvailable(); }
-      Q_INVOKABLE void recomputeIsosurface() { m_isoController.recompute(); }
       // ---- post-processed fields ----
       QString getPostVelocitySource() const { return QString::fromStdString(m_postVelocitySource); }
       void setPostVelocitySource(const QString& s) { m_postVelocitySource = s.toStdString(); emit meshDataUpdated(); }
@@ -905,13 +892,6 @@ enum class PlotMode { Histogram = 0, Line = 1, Monitor = 2 };
       // scene while the plots window is closed. Not persisted.
       bool getLineProbeWindowOpen() const { return m_lineProbeWindowOpen; }
       void setLineProbeWindowOpen(bool v) { if (m_lineProbeWindowOpen != v) { m_lineProbeWindowOpen = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-
-
-     // LIC diagnostics: surfaced from Renderer::m_lastLicError after each frame.
-     QString lastLicError() const {
-         std::string s = m_renderer.getLastLicError();
-         return s.empty() ? QString() : QString::fromStdString(s);
-     }
 
 
     int getVectorColorMode() const { return m_state.vectorColorMode; }
@@ -1137,7 +1117,6 @@ enum class PlotMode { Histogram = 0, Line = 1, Monitor = 2 };
     // camera over ~400 ms. Any manual camera input cancels immediately.
     void beginCameraTransition(const CameraPose& to);
     void cancelCameraTransition();
-    bool isCameraTransitioning() const { return m_camAnimating; }
     void tickCameraTransition();
 
     // One delayed repaint after camera motion stops (~postMotionRedrawMs).

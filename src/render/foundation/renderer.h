@@ -319,7 +319,6 @@ struct RenderRenderState {
     float licStepSize = 0.005f;  // fraction of scene diagonal; MeshPass converts to worldStep = licStepSize*diag, clamped to [1e-6, diag*2]
     float licNoiseFreq = 8.0f;  // UI [0.5..64], upload clamped to same
     int licNoiseGrain = 64;     // 3D noise resolution; supported set {64,128}
-    int licBoundaryMode = 1;    // deprecated: fixed to Clamp (GL_CLAMP_TO_EDGE). Persisted values coerced to 1; not used for texture key.
     bool licEnhanced = false;   // Enhanced LIC: 2-pass (second convolution sharpens coherence)
     bool licOnly = false;       // Skip PBR lighting, output unshaded LIC color
     int licIntegrator = 2;      // 0=Euler, 1=Midpoint, 2=RK4
@@ -723,8 +722,6 @@ private:
 
     void ensureLicNoiseTexture(int grain);
     void shutdownLic();
-  public:
-    const std::string& getLastLicError() const { return m_lastLicError; }
   private:
 
 
@@ -827,7 +824,7 @@ private:
     VolumeSliceOverlay m_volumeSliceOverlay;
     GlTexture m_licNoiseTex;
     int m_licNoiseGrain = 0;
-    std::string m_lastLicError;      // surfaced via getLastLicError() for status bar
+    std::string m_lastLicError;      // per-frame LIC failure reason (logged, not exposed)
     std::string m_loggedLicError;    // last message sent to qWarning(), to stop per-frame log spam
 
 

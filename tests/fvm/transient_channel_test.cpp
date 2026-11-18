@@ -257,7 +257,7 @@ TEST_CASE("fvm.transient.max_time_steps_caps_the_run") {
 }
 
 TEST_CASE("fvm.transient.resident_set_column_is_opt_in") {
-    // The rss(MiB) column samples the OS once per time step, so a normal run
+    // The mem(MiB) column samples the OS once per time step, so a normal run
     // must not print it. It is enabled from the Expert tab's Diagnostics group.
     auto tableFor = [](bool printResidentSet) {
         fvm::Mesh<2> mesh = fvm::Mesh<2>(
@@ -303,10 +303,10 @@ TEST_CASE("fvm.transient.resident_set_column_is_opt_in") {
 
     const std::string plain = tableFor(false);
     const std::string withRss = tableFor(true);
-    CHECK_MESSAGE(plain.find("rss(MiB)") == std::string::npos,
-                  "a normal run must not print the RSS column");
-    CHECK_MESSAGE(withRss.find("rss(MiB)") != std::string::npos,
-                  "enabling the option must add the RSS column");
+    CHECK_MESSAGE(plain.find("mem(MiB)") == std::string::npos,
+                  "a normal run must not print the memory column");
+    CHECK_MESSAGE(withRss.find("mem(MiB)") != std::string::npos,
+                  "enabling the option must add the memory column");
 }
 
 } // TEST_SUITE("fvm")
