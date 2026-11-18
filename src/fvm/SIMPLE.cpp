@@ -308,6 +308,11 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     lastMomResidU_ = 0.0;
     lastMomResidV_ = 0.0;
     lastMomResidW_ = 0.0;
+    lastKResid_ = 0.0;
+    lastOmegaResid_ = 0.0;
+    kResidRef_ = 0.0;
+    omegaResidRef_ = 0.0;
+    turbResidRefSamples_ = 0;
     convergedStreak_ = 0;
     aborted_ = false;
     failure_ = Failure::None;
@@ -485,6 +490,7 @@ void SIMPLE<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& press
     steadyPressureSeconds_ = 0.0;
     steadyVelocityCorrectionSeconds_ = 0.0;
     steadyResidualSeconds_ = 0.0;
+    steadyTurbulenceSeconds_ = 0.0;
     divergenceCount_ = 0;
 }
 
@@ -549,8 +555,10 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
     }
 
     if (turbulence_) {
+        auto tTurb = std::chrono::steady_clock::now();
         nutOld_ = turbulence_->nut();
         turbulence_->solveIteration(boundVelocity(), config_.convectionScheme);
+        steadyTurbulenceSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tTurb).count();
         double alphaNut = nutUnderRelax;
         auto& nut = turbulence_->nut();
         #pragma omp parallel for schedule(static)
@@ -659,7 +667,8 @@ void SIMPLE<Dim>::updateResiduals_() {
         }
     }
     const auto scaled = [](double raw, double ref) {
-        return (ref > 0.0 && std::isfinite(ref)) ? raw / ref : raw;
+        if (ref > 0.0) return std::isfinite(ref) ? raw / ref : raw;
+        return 1.0;
     };
     if (config_.normalizeResiduals) {
         lastContResid_ = scaled(lastContResidRaw_, contResidRef_);
@@ -690,10 +699,22 @@ void SIMPLE<Dim>::updateResiduals_() {
     // garbage. Treat it like a diverged flow residual instead of letting the
     // run continue with NaN fields.
     if (turbulence_) {
-        const double tk = turbulence_->finalKResid();
-        const double to = turbulence_->finalOmegaResid();
-        if (!std::isfinite(tk) || !std::isfinite(to)) {
+        const double rawK = turbulence_->finalKResid();
+        const double rawO = turbulence_->finalOmegaResid();
+        if (!std::isfinite(rawK) || !std::isfinite(rawO)) {
             fail_(Failure::NonFiniteTurbulence);
+        }
+        ++turbResidRefSamples_;
+        if (turbResidRefSamples_ <= window) {
+            kResidRef_ = std::max(kResidRef_, rawK);
+            omegaResidRef_ = std::max(omegaResidRef_, rawO);
+        }
+        if (config_.normalizeResiduals) {
+            lastKResid_ = scaled(rawK, kResidRef_);
+            lastOmegaResid_ = scaled(rawO, omegaResidRef_);
+        } else {
+            lastKResid_ = rawK;
+            lastOmegaResid_ = rawO;
         }
     }
 
@@ -745,8 +766,8 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
         std::optional<double> momW, kResid, omegaResid;
         if constexpr (Dim == 3) momW = lastMomResidW_;
         if (turbulence_) {
-            kResid = turbulence_->finalKResid();
-            omegaResid = turbulence_->finalOmegaResid();
+            kResid = lastKResid_;
+            omegaResid = lastOmegaResid_;
         }
         if (convergenceMonitor_->update(lastContResid_, lastMomResidU_,
                                         lastMomResidV_, momW, kResid,
@@ -811,10 +832,10 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
         hdr << std::setw(wIter) << "iter"
             << std::setw(wRes) << "continuity"
             << std::setw(wRes) << "x-velocity"
-            << std::setw(wRes) << "y-velocity"
-            << std::setw(wTime) << "time/iter";
+            << std::setw(wRes) << "y-velocity";
         if constexpr (Dim == 3) hdr << std::setw(wRes) << "z-velocity";
         if (turbulence_) hdr << std::setw(wRes) << "k" << std::setw(wRes) << "omega";
+        if (config_.printIterationTime) hdr << std::setw(wTime) << "time/iter";
         hdr << "\n" << std::string(width, '-') ;
     }
     std::cout << hdr.str() << std::endl;
@@ -892,7 +913,7 @@ void SIMPLE<Dim>::printIterationOutput_(std::size_t iter) {
 
         constexpr int wIter = 6;
         constexpr int wRes = 13;
-        constexpr int wTime = 10;
+        constexpr int wTime = 13;
         const double iterTime = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - m_iterStart).count();
         std::ostringstream line;
@@ -900,11 +921,13 @@ void SIMPLE<Dim>::printIterationOutput_(std::size_t iter) {
              << std::scientific << std::setprecision(4)
              << std::setw(wRes) << lastContResid_
              << std::setw(wRes) << lastMomResidU_
-             << std::setw(wRes) << lastMomResidV_
-             << std::fixed << std::setprecision(4) << std::setw(wTime) << iterTime;
+             << std::setw(wRes) << lastMomResidV_;
         if constexpr (Dim == 3) line << std::setw(wRes) << lastMomResidW_;
-        if (turbulence_) line << std::setw(wRes) << turbulence_->finalKResid()
-                               << std::setw(wRes) << turbulence_->finalOmegaResid();
+        if (turbulence_) line << std::setw(wRes) << lastKResid_
+                               << std::setw(wRes) << lastOmegaResid_;
+        // Time stays last so it never splits the residual columns.
+        if (config_.printIterationTime)
+            line << std::fixed << std::setprecision(4) << std::setw(wTime) << iterTime;
         std::cout << line.str() << std::endl;
         // Once per printed outer iteration, not once per corrector: the pressure
         // solve runs inside every corrector, so reading the count there printed
@@ -964,13 +987,14 @@ void SIMPLE<Dim>::printFinalStats_() const {
                       "         y+ ~ 1. Refine the near-wall mesh (or accept that the wall\n"
                       "         shear is mesh-dependent).\n";
     }
-    if (steadyTotalSeconds_ > 0.0) {
+    if (config_.printTotalTime && steadyTotalSeconds_ > 0.0) {
         std::cerr << "  [timing] steady SIMPLE total=" << steadyTotalSeconds_ << " s"
                   << " momentum=" << steadyMomentumSeconds_ << " s"
                   << " predictedContinuity=" << steadyPredictedContinuitySeconds_ << " s"
                   << " pressure=" << steadyPressureSeconds_ << " s"
                   << " velocityCorrection=" << steadyVelocityCorrectionSeconds_ << " s"
-                  << " residuals=" << steadyResidualSeconds_ << " s\n";
+                  << " residuals=" << steadyResidualSeconds_ << " s"
+                  << " turbulence=" << steadyTurbulenceSeconds_ << " s\n";
         std::cerr << "  [timing] momentum: assembly=" << steadyMomentumAssemblySeconds_
                   << " s linear-solve=" << steadyMomentumSolveSeconds_
                   << " s dispatch=" << linearSolverDispatcher_.dispatchSeconds()
@@ -983,6 +1007,12 @@ void SIMPLE<Dim>::printFinalStats_() const {
                   << " s solve=" << ps.amgSeconds
                   << " s builds=" << ps.amgBuilds
                   << " krylov=" << ps.amgKrylovIters << "\n";
+        if (turbulence_) {
+            std::cerr << "  [timing] AMG: turbulence build="
+                      << turbulence_->turbulenceBuildSeconds()
+                      << " s solve=" << turbulence_->turbulenceSolveSeconds()
+                      << " s builds=" << turbulence_->turbulenceBuilds() << "\n";
+        }
     }
 }
 
@@ -1603,8 +1633,8 @@ void SIMPLE<Dim>::printTransientOutput_(int step, double time) {
          << std::setw(wRes) << lastMomResidU_
          << std::setw(wRes) << lastMomResidV_;
     if constexpr (Dim == 3) line << std::setw(wRes) << lastMomResidW_;
-    if (turbulence_) line << std::setw(wRes) << turbulence_->finalKResid()
-                           << std::setw(wRes) << turbulence_->finalOmegaResid();
+    if (turbulence_) line << std::setw(wRes) << lastKResid_
+                           << std::setw(wRes) << lastOmegaResid_;
     if (config_.printResidentSet)
         line << std::setw(wRes) << std::fixed << std::setprecision(1) << residentSetMiB();
     std::cout << line.str() << std::endl;
@@ -1923,12 +1953,12 @@ void SIMPLE<Dim>::solveTransient(VectorField<Dim>& velocity, Field<Dim>& pressur
                             case ResidualEquation::TurbulenceK:
                                 converged =
                                     converged && turbulence_ &&
-                                    turbulence_->finalKResid() < t;
+                                    lastKResid_ < t;
                                 break;
                             case ResidualEquation::TurbulenceOmega:
                                 converged =
                                     converged && turbulence_ &&
-                                    turbulence_->finalOmegaResid() < t;
+                                    lastOmegaResid_ < t;
                                 break;
                         }
                     }

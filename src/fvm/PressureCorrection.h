@@ -89,7 +89,9 @@ public:
     // comparing against a  "Level / Size" table.
     bool amgBuilt() const { return amgBuilt_; }
     int amgLevels() const { return linearSolver_.amgLevels(0); }
-    const std::vector<int>& amgLevelSizes() const { return linearSolver_.amgLevelSizes(0); }
+    // Returned by value: the dispatcher's accessor yields a temporary, so a
+    // reference return here would dangle (crashed the diagnosis print).
+    std::vector<int> amgLevelSizes() const { return linearSolver_.amgLevelSizes(0); }
     // Per-cycle relative residuals from the last AMG build/solve.
     const std::vector<double>& amgLastResidualHistory() const { return linearSolver_.amgLastResidualHistory(0); }
 

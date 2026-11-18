@@ -28,6 +28,13 @@ public:
 
     // --- Build / invalidate ---------------------------------------------
     virtual void build(const SparseMatrix& A) = 0;
+    // Build with a sparsity hash the caller already computed. Backends that
+    // reuse a cached hierarchy use it to skip an O(nnz) hash pass; the default
+    // simply forwards to build(A).
+    virtual void build(const SparseMatrix& A, std::size_t patternHash) {
+        (void)patternHash;
+        build(A);
+    }
     virtual void invalidate() = 0;
     virtual bool isBuilt() const = 0;
 

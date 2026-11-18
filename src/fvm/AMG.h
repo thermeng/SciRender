@@ -14,6 +14,16 @@ struct AMGLevel {
     SparseMatrix P;
     SparseMatrix R;
     Eigen::SparseMatrix<double, Eigen::RowMajor> ARM;
+    // Cached inverse diagonal (1/diag, 0 where the row has no usable
+    // diagonal) and the row-local position of the diagonal entry. A
+    // Gauss-Seidel sweep then sums the off-diagonals without searching each
+    // row for its diagonal.
+    std::vector<double> invDiag;
+    std::vector<int> diagPos;
+    // Row i of AT is column i of ARM. Relaxing row i changes x[i] by delta,
+    // which changes r by -delta * A[:, i]; AT makes that update an O(nnz)
+    // sweep instead of a full matvec.
+    Eigen::SparseMatrix<double, Eigen::RowMajor> AT;
     std::vector<int> cfSplit;
     int nCoarse = 0;
 };
@@ -35,6 +45,11 @@ public:
     AMGHierarchy& operator=(AMGHierarchy&&) = default;
 
     void build(const SparseMatrix& A) { backend_->build(A); }
+    // Build with a sparsity hash the caller already computed (avoids the
+    // O(nnz) hash pass inside the backend on every cached refresh).
+    void build(const SparseMatrix& A, std::size_t patternHash) {
+        backend_->build(A, patternHash);
+    }
 
     bool solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                const std::atomic<bool>* cancel = nullptr) const {

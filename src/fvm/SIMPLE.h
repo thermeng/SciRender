@@ -387,6 +387,14 @@ private:
     double lastMomResidU_ = 0.0;
     double lastMomResidV_ = 0.0;
     double lastMomResidW_ = 0.0;
+    // Turbulence residuals are normalized the same way as continuity and
+    // momentum: raw |b-Ax|/|b| divided by the largest raw value over the first
+    // `residualNormalizationIterations` samples, so they start at 1.0.
+    double lastKResid_ = 0.0;
+    double lastOmegaResid_ = 0.0;
+    double kResidRef_ = 0.0;
+    double omegaResidRef_ = 0.0;
+    std::size_t turbResidRefSamples_ = 0;
     // Per-outer-iteration relative velocity change. Diagnostic only: it tracks
     // iteration progress, not how well the momentum equation is satisfied.
     double lastMomChange_ = 0.0;
@@ -416,6 +424,9 @@ private:
     double steadyPressureSeconds_ = 0.0;
     double steadyVelocityCorrectionSeconds_ = 0.0;
     double steadyResidualSeconds_ = 0.0;
+    // Turbulence (k + omega transport) is not part of any other timer; without
+    // this the steady breakdown leaves the largest phase unaccounted for.
+    double steadyTurbulenceSeconds_ = 0.0;
     // Wall-clock time at the start of the current outer iteration, used for
     // the "time/iter" column of the iteration table under Diagnosis verbosity.
     std::chrono::steady_clock::time_point m_iterStart;

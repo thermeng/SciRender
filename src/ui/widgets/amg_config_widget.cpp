@@ -342,6 +342,11 @@ void AmgConfigWidget::syncDependencies() {
     m_smoothedProlongation->setEnabled(aggregation);
     m_saOmega->setEnabled(aggregation && m_smoothedProlongation->isChecked());
     m_saDegree->setEnabled(aggregation && m_smoothedProlongation->isChecked());
+    // Strength / truncation thresholds are read only by BoomerAMG (Hypre). The
+    // cached aggregation backend derives its coarse operators from the Galerkin
+    // product over a fixed sparsity pattern and ignores both.
+    m_strength->setEnabled(isBoomerAMG);
+    m_truncation->setEnabled(isBoomerAMG);
     if (manualGroup && aggregation) {
         m_groupSize->setEnabled(true);
         m_groupSize->setValue(m_manualGroupSize);

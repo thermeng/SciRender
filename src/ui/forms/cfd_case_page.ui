@@ -338,7 +338,7 @@
    <item>
     <widget class="QLabel" name="physicsHeader">
      <property name="text">
-      <string>Physics</string>
+      <string>Material Properties   </string>
      </property>
     </widget>
    </item>
@@ -416,142 +416,6 @@
     </item>
 
     <item>
-     <widget class="QWidget" name="alphaKRow" native="true">
-      <property name="visible">
-       <bool>false</bool>
-      </property>
-      <layout class="QHBoxLayout" name="alphaKRowLayout">
-       <property name="spacing">
-        <number>6</number>
-       </property>
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
-       <item>
-        <widget class="QLabel" name="alphaKLabel">
-         <property name="minimumSize">
-          <size>
-           <width>72</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>72</width>
-           <height>16777215</height>
-          </size>
-         </property>
-         <property name="text">
-          <string>alpha K</string>
-         </property>
-         <property name="alignment">
-          <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QDoubleSpinBox" name="alphaKSpin">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-           <horstretch>1</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="decimals">
-          <number>3</number>
-         </property>
-         <property name="minimum">
-          <double>0.01000000000000000</double>
-         </property>
-         <property name="maximum">
-          <double>1.00000000000000000</double>
-         </property>
-         <property name="value">
-          <double>0.70000000000000000</double>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
-    <item>
-     <widget class="QWidget" name="alphaWRow" native="true">
-      <property name="visible">
-       <bool>false</bool>
-      </property>
-      <layout class="QHBoxLayout" name="alphaWRowLayout">
-       <property name="spacing">
-        <number>6</number>
-       </property>
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
-       <item>
-        <widget class="QLabel" name="alphaWLabel">
-         <property name="minimumSize">
-          <size>
-           <width>72</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>72</width>
-           <height>16777215</height>
-          </size>
-         </property>
-         <property name="text">
-          <string>alpha W</string>
-         </property>
-         <property name="alignment">
-          <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QDoubleSpinBox" name="alphaWSpin">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-           <horstretch>1</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="decimals">
-          <number>3</number>
-         </property>
-         <property name="minimum">
-          <double>0.01000000000000000</double>
-         </property>
-         <property name="maximum">
-          <double>1.00000000000000000</double>
-         </property>
-         <property name="value">
-          <double>0.70000000000000000</double>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
-    <item>
      <widget class="QWidget" name="wallFuncRow" native="true">
       <layout class="QHBoxLayout" name="wallFuncRowLayout">
        <property name="spacing">
@@ -594,7 +458,7 @@
        <item>
         <widget class="QCheckBox" name="wallFuncCb">
          <property name="text">
-          <string>All y+ treatment</string>
+          <string>All Y+ treatment</string>
          </property>
          <property name="toolTip">
           <string>All-y+ wall treatment: per-cell switch between low-Re (resolving the
@@ -615,66 +479,130 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
      </property>
     </widget>
    </item>
-   <item>
-    <widget class="QWidget" name="alphaURow" native="true">
-     <layout class="QHBoxLayout" name="alphaURowLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="alphaULabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Velocity Relax</string></property>
-        <property name="toolTip"><string>alpha_u</string></property>
-        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QDoubleSpinBox" name="alphaUSpin">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-          <horstretch>1</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QWidget" name="alphaPRow" native="true">
-     <layout class="QHBoxLayout" name="alphaPRowLayout">
-      <property name="spacing"><number>6</number></property>
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
-      <item>
-       <widget class="QLabel" name="alphaPLabel">
-        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Pressure Relax</string></property>
-        <property name="toolTip"><string>alpha_p</string></property>
-        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QDoubleSpinBox" name="alphaPSpin">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-          <horstretch>1</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
+    <item>
+        <widget class="QWidget" name="alphaURow" native="true">
+        <layout class="QHBoxLayout" name="alphaURowLayout">
+        <property name="spacing"><number>6</number></property>
+        <property name="leftMargin"><number>0</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
+        <item>
+        <widget class="QLabel" name="alphaULabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>alpha U</string></property>
+            <property name="toolTip"><string>Velocity Under-Relaxation factor</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+        </widget>
+        </item>
+        <item>
+        <widget class="QDoubleSpinBox" name="alphaUSpin">
+            <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>1</horstretch>
+            <verstretch>0</verstretch>
+            </sizepolicy>
+            </property>
+        </widget>
+        </item>
+        </layout>
+        </widget>
+    </item>
+    <item>
+        <widget class="QWidget" name="alphaPRow" native="true">
+        <layout class="QHBoxLayout" name="alphaPRowLayout">
+        <property name="spacing"><number>6</number></property>
+        <property name="leftMargin"><number>0</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
+        <item>
+        <widget class="QLabel" name="alphaPLabel">
+            <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+            <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+            <property name="text"><string>alpha P</string></property>
+            <property name="toolTip"><string>Pressure Under-Relaxation factor</string></property>
+            <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+        </widget>
+        </item>
+        <item>
+        <widget class="QDoubleSpinBox" name="alphaPSpin">
+            <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>1</horstretch>
+            <verstretch>0</verstretch>
+            </sizepolicy>
+            </property>
+        </widget>
+        </item>
+        </layout>
+        </widget>
+    </item>
+    <item>
+     <widget class="QWidget" name="alphaKRow" native="true">
+      <property name="visible">
+       <bool>false</bool>
+      </property>
+      <layout class="QHBoxLayout" name="alphaKRowLayout">
+       <property name="spacing"><number>6</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QLabel" name="alphaKLabel">
+         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+         <property name="text"><string>alpha K</string></property>
+         <property name="toolTip"><string>Turbulent Kinetic Energy Under-Relaxation factor</string></property>
+         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="alphaKSpin">
+         <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+         <property name="decimals"><number>3</number></property>
+         <property name="minimum"><double>0.01000000000000000</double></property>
+         <property name="maximum"><double>1.00000000000000000</double></property>
+         <property name="value"><double>0.80000000000000000</double></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QWidget" name="alphaWRow" native="true">
+      <property name="visible">
+       <bool>false</bool>
+      </property>
+      <layout class="QHBoxLayout" name="alphaWRowLayout">
+       <property name="spacing"><number>6</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QLabel" name="alphaWLabel">
+         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+         <property name="text"><string>alpha W</string></property>
+         <property name="toolTip"><string>Specific Dissipation Rate Under-Relaxation factor</string></property>
+         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="alphaWSpin">
+         <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+         <property name="decimals"><number>3</number></property>
+         <property name="minimum"><double>0.01000000000000000</double></property>
+         <property name="maximum"><double>1.00000000000000000</double></property>
+         <property name="value"><double>0.80000000000000000</double></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
    <item>
     <widget class="QWidget" name="schemeRow" native="true">
      <layout class="QHBoxLayout" name="schemeRowLayout">

@@ -687,7 +687,7 @@ void CfdCasePage::onSaveCase() {
     // persist the settings the solver is actually using, not the edit buffer.
     if (!m_running) collectSettings();
     if (m_ctrl->saveCase(path)) {
-        log("Saved " + QFileInfo(path).fileName());
+        log("\nSaved to " + QFileInfo(path).absoluteFilePath());
         if (S()) S()->addRecentFile(path);
     }
     else log("Save failed: " + m_ctrl->lastError());
@@ -744,7 +744,7 @@ void CfdCasePage::onCaseLoaded() {
         const double t = m_ctrl->currentTime();
         m_iterValue->setText(QString::number(step));
         if (step > 0 || t > 0.0) {
-            log(QString("Loaded step %1, t = %2 s (Run continues from here)").arg(step).arg(t, 0, 'g', 8));
+            log(QString("Loaded step %1, t = %2 s (Solver continues from here, if not initialized)").arg(step).arg(t, 0, 'g', 8));
         } else {
             log("Loaded case (fresh transient start at t = 0).");
         }
