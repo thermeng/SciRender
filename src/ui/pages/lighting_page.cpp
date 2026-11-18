@@ -206,6 +206,9 @@ LightingPage::LightingPage(RenderSettings* settings, QWidget* parent)
     });
 
     setContent(content);
+    // The .ui value labels hold placeholders; initialise them (and every slider)
+    // from the actual settings so the page matches the defaults on open.
+    syncPage();
 }
 
 void LightingPage::syncPage() {

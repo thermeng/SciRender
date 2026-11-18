@@ -304,6 +304,8 @@ inline const std::vector<Field<PatchBC>>& patchBCFields() {
         dbl("backflowOmega", &PatchBC::backflowOmega),
         dbl("kInlet", &PatchBC::kInlet),
         dbl("omegaInlet", &PatchBC::omegaInlet),
+        dbl("turbulenceIntensity", &PatchBC::turbulenceIntensity),
+        dbl("turbulentViscosityRatio", &PatchBC::turbulentViscosityRatio),
     };
     return fields;
 }

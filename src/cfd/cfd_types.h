@@ -19,8 +19,13 @@ struct PatchBC {
     bool suppressBackflow = false;
     double backflowU = 0.0, backflowV = 0.0, backflowW = 0.0;
     double backflowK = 0.0, backflowOmega = 0.0;
-    // Turbulence inlet values (used for velocity inlets).
+    // Turbulence inlet values (used for velocity inlets). When
+    // turbulenceIntensity > 0 the transport quantities are derived from it and
+    // turbulentViscosityRatio (k = 1.5 (I U)^2, omega = k / (ratio * nu));
+    // otherwise the stored kInlet/omegaInlet are used directly.
     double kInlet = 1e-3, omegaInlet = 1.0;
+    double turbulenceIntensity = 0.05;      // 0..1
+    double turbulentViscosityRatio = 1.0;   // nut / nu
 };
 
 // Single source of truth for AMG linear solver configuration.
@@ -246,7 +251,7 @@ struct CaseSettings {
 
     // Turbulence (k/omega) linear solver (see fvm::SSTModel::Config)
     int turbulenceAmgCycles = 1;
-        double turbulenceAmgMaxResidual = 0.1;
+    double turbulenceAmgMaxResidual = 0.1;
     // Flexible also default for turbulence (per request); pressure stays V.
     AmgSettings turbulenceAmg = AmgSettings::momentumDefaults();
 
@@ -261,7 +266,7 @@ struct CaseSettings {
     // 1 = every step/iteration. The final state is always visualized when the
     // run ends or pauses at a settled boundary, so this only controls mid-run
     // refresh frequency, not whether the end is shown.
-    enum class ResultUpdateMode { EveryNSteps, EveryNTime, Both };
+    enum class ResultUpdateMode { EveryNSteps, EveryNTime };
     ResultUpdateMode resultUpdateMode = ResultUpdateMode::EveryNSteps;
     int visualizationInterval = 1;           // steps (EveryNSteps / Both)
     double resultUpdateTimeInterval = 0.0;   // seconds (EveryNTime / Both)

@@ -369,11 +369,9 @@ bool CfdController::run() {
         const int vizInterval = settings.visualizationInterval > 0
             ? settings.visualizationInterval : 1;
         const bool wantSteps =
-            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::EveryNSteps ||
-            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::Both;
+            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::EveryNSteps;
         const bool wantTime =
-            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::EveryNTime ||
-            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::Both;
+            settings.resultUpdateMode == cfd::CaseSettings::ResultUpdateMode::EveryNTime;
         const double timeInterval = settings.resultUpdateTimeInterval;
         // -inf so the very first published frame always goes through.
         double lastPublishedTime = -std::numeric_limits<double>::infinity();

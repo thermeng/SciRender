@@ -6,6 +6,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFont>
 #include <QFormLayout>
 #include <QFrame>
@@ -146,7 +147,7 @@ CfdBoundaryConditionsDialog::CfdBoundaryConditionsDialog(std::vector<cfd::PatchB
     });
 
     for (QDoubleSpinBox* spin : {m_u, m_v, m_w, m_pressure, m_backflowU, m_backflowV, m_backflowW,
-                                 m_backflowK, m_backflowOmega, m_kInlet, m_omegaInlet}) {
+                                 m_backflowK, m_backflowOmega, m_intensity, m_viscosityRatio}) {
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
                 [this](double) { if (!m_syncing) commitCurrent(); });
     }
@@ -249,17 +250,18 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
      turbLay->setContentsMargins(0, 0, 0, 0);
      turbLay->setSpacing(4);
      turbLay->addWidget(uikit::note("Turbulence inlet", m_turbulenceBox));
-     m_kInlet = coefficientSpin(1e-3, m_turbulenceBox);
-     m_omegaInlet = coefficientSpin(1.0, m_turbulenceBox);
+     m_intensity = coefficientSpin(5.0, m_turbulenceBox);
+     m_intensity->setRange(0.0, 100.0);
+     m_viscosityRatio = coefficientSpin(1.0, m_turbulenceBox);
      {
          auto* grid = new QGridLayout;
          grid->setContentsMargins(0, 0, 0, 0);
          grid->setHorizontalSpacing(8);
          grid->setVerticalSpacing(4);
-         grid->addWidget(uikit::note("k", m_turbulenceBox), 0, 0);
-         grid->addWidget(m_kInlet, 0, 1);
-         grid->addWidget(uikit::note("omega", m_turbulenceBox), 0, 2);
-         grid->addWidget(m_omegaInlet, 0, 3);
+         grid->addWidget(uikit::note("Intensity (%)", m_turbulenceBox), 0, 0);
+         grid->addWidget(m_intensity, 0, 1);
+         grid->addWidget(uikit::note("Viscosity Ratio", m_turbulenceBox), 0, 2);
+         grid->addWidget(m_viscosityRatio, 0, 3);
          grid->setColumnStretch(1, 1);
          grid->setColumnStretch(3, 1);
          turbLay->addLayout(grid);
@@ -361,8 +363,8 @@ void CfdBoundaryConditionsDialog::loadCurrent() {
     m_backflowW->setValue(bc.backflowW);
     m_backflowK->setValue(bc.backflowK);
     m_backflowOmega->setValue(bc.backflowOmega);
-    if (m_kInlet) m_kInlet->setValue(bc.kInlet);
-    if (m_omegaInlet) m_omegaInlet->setValue(bc.omegaInlet);
+    if (m_intensity) m_intensity->setValue(bc.turbulenceIntensity * 100.0);
+    if (m_viscosityRatio) m_viscosityRatio->setValue(bc.turbulentViscosityRatio);
     m_syncing = false;
 
     updateConditionVisibility();
@@ -383,8 +385,8 @@ void CfdBoundaryConditionsDialog::commitCurrent() {
     bc.backflowW = m_backflowW->value();
     bc.backflowK = m_backflowK->value();
     bc.backflowOmega = m_backflowOmega->value();
-    if (m_kInlet) bc.kInlet = m_kInlet->value();
-    if (m_omegaInlet) bc.omegaInlet = m_omegaInlet->value();
+    if (m_intensity) bc.turbulenceIntensity = m_intensity->value() / 100.0;
+    if (m_viscosityRatio) bc.turbulentViscosityRatio = m_viscosityRatio->value();
 }
 
 void CfdBoundaryConditionsDialog::refreshConditionCell(int row) {
@@ -415,4 +417,12 @@ void CfdBoundaryConditionsDialog::applyToAll(cfd::BCType type) {
     for (cfd::PatchBC& bc : m_bcs) bc.type = type;
     for (int row = 0; row < int(m_bcs.size()); ++row) refreshConditionCell(row);
     loadCurrent(); // reflect the new condition for the selected patch
+}
+
+void CfdBoundaryConditionsDialog::changeEvent(QEvent* ev) {
+    QDialog::changeEvent(ev);
+    // palette()-based stylesheets (uikit::note / hline / vline) cache their
+    // resolved colour, so re-apply them when the OS light/dark theme flips
+    // while the dialog is open.
+    if (ev->type() == QEvent::PaletteChange) uikit::repolishTheme(this);
 }

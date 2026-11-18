@@ -171,6 +171,20 @@ public:
                 it.patch = pbc.patchName;
                 it.k = pbc.kInlet;
                 it.omega = pbc.omegaInlet;
+                // Derive the inlet turbulence from intensity + viscosity ratio
+                // when the user specified one. k = 1.5 (I U)^2 and, since
+                // nut = k/omega, omega = k / (ratio * nu).
+                if (pbc.turbulenceIntensity > 0.0) {
+                    const double U = std::sqrt(pbc.u * pbc.u + pbc.v * pbc.v + pbc.w * pbc.w);
+                    const double I = pbc.turbulenceIntensity;
+                    const double k = 1.5 * I * I * U * U;
+                    if (k > 1e-30) {
+                        it.k = k;
+                        const double R = pbc.turbulentViscosityRatio;
+                        if (R > 1e-30 && settings.nu > 1e-30)
+                            it.omega = k / (R * settings.nu);
+                    }
+                }
                 sc.inletTurbulence.push_back(it);
             }
         }

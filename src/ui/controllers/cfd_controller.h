@@ -65,6 +65,14 @@ public:
     const cfd::MeshLoadResult& meshResult() const { return m_mesh; }
     const cfd::CaseSettings& settings() const { return m_settings; }
     void setSettings(const cfd::CaseSettings& s) { m_settings = s; }
+    // Targeted setter for the live-update cadence so the toolbar can change it
+    // without touching any other field.
+    void setResultUpdatePolicy(cfd::CaseSettings::ResultUpdateMode mode, int steps,
+                               double seconds) {
+        m_settings.resultUpdateMode = mode;
+        if (steps > 0) m_settings.visualizationInterval = steps;
+        m_settings.resultUpdateTimeInterval = seconds;
+    }
     // Validated accessor/mutator for stopping criteria. Returns false (and
     // emits failed()) when the criteria fail validation or cannot be applied
     // to a live paused run.
