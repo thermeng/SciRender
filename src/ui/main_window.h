@@ -22,9 +22,6 @@
 #include <QTextEdit>
 #include <QCheckBox>
 #include "viewport_widget.h"
-#include "solver_output_sink.h"
-#include <QTextEdit>
-#include <QCheckBox>
 #include "render/settings/render_settings.h"
 #include "ui/pages/lighting_page.h"
 #include "ui/pages/clipping_page.h"

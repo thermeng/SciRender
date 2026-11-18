@@ -328,7 +328,43 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.colorbarPanelEnabled != state.colorbarPanelEnabled
         || m_state.colorbarPanelOpacity != state.colorbarPanelOpacity
         || m_state.colorbarShowAnnotation != state.colorbarShowAnnotation;
-    if (colormapChanged || scalarRangeChanged || colorbarStyleChanged) {
+    // The set of colorbars shown is derived from these visibility/availability
+    // and band-count fields, not just colormap/range. Without this the model
+    // goes stale until an unrelated event (e.g. enabling a slice) marks it dirty.
+    bool colorbarBarsChanged =
+        m_state.hasMeshLoaded != state.hasMeshLoaded
+        || m_state.meshHasScalars != state.meshHasScalars
+        || m_state.meshHasVectors != state.meshHasVectors
+        || m_state.meshHasCellVectors != state.meshHasCellVectors
+        || m_state.meshUseScalarColor != state.meshUseScalarColor
+        || m_state.showScalarColorbar != state.showScalarColorbar
+        || m_state.showIsosurface != state.showIsosurface
+        || m_state.showVectors != state.showVectors
+        || m_state.vectorColorMode != state.vectorColorMode
+        || m_state.vectorPlacement != state.vectorPlacement
+        || m_state.vectorMagTransform != state.vectorMagTransform
+        || m_state.vectorField != state.vectorField
+        || m_state.showStreamlines != state.showStreamlines
+        || m_state.streamlineColorMode != state.streamlineColorMode
+        || m_state.streamlineVectorField != state.streamlineVectorField
+        || m_state.showVolume != state.showVolume
+        || m_state.volumeUseColormap != state.volumeUseColormap
+        || m_state.volumeSliceUseColormap != state.volumeSliceUseColormap
+        || m_state.slicePlaneEnabled[0] != state.slicePlaneEnabled[0]
+        || m_state.slicePlaneEnabled[1] != state.slicePlaneEnabled[1]
+        || m_state.slicePlaneEnabled[2] != state.slicePlaneEnabled[2]
+        || m_state.slicePlaneShowColorbar[0] != state.slicePlaneShowColorbar[0]
+        || m_state.slicePlaneShowColorbar[1] != state.slicePlaneShowColorbar[1]
+        || m_state.slicePlaneShowColorbar[2] != state.slicePlaneShowColorbar[2]
+        || m_state.sliceScalarName[0] != state.sliceScalarName[0]
+        || m_state.sliceScalarName[1] != state.sliceScalarName[1]
+        || m_state.sliceScalarName[2] != state.sliceScalarName[2]
+        || m_state.scalarColorBands != state.scalarColorBands
+        || m_state.vectorColorBands != state.vectorColorBands
+        || m_state.streamlineColorBands != state.streamlineColorBands
+        || m_state.volumeColorBands != state.volumeColorBands
+        || m_state.volumeSliceColorBands != state.volumeSliceColorBands;
+    if (colormapChanged || scalarRangeChanged || colorbarStyleChanged || colorbarBarsChanged) {
         markColorbarDirty();
     }
     // A new computed-fields snapshot invalidates everything derived from
@@ -740,6 +776,7 @@ void Renderer::buildColorbarModel() {
     };
 
     if (m_state.hasMeshLoaded && m_state.meshHasScalars &&
+        m_state.meshUseScalarColor &&
         m_state.showScalarColorbar &&
         !m_state.showIsosurface) {
         const float mapMin = m_state.colorMapMin();
@@ -1272,7 +1309,7 @@ void Renderer::renderFrame() {
                                   static_cast<float>(m_dataMesh->bounds.maxZ));
                 ensureLicNoiseTexture(m_state.licNoiseGrain);
                 GLuint vecTex = m_vectorCache.textureForField(
-                    m_state.vectorField, m_dataMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.licBoundaryMode, m_state.computed.get());
+                    m_state.vectorField, m_dataMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.computed.get());
                 if (vecTex == 0) {
                     m_lastLicError = "LIC disabled: vector field '" + m_state.vectorField + "' unavailable for placement " +
                         std::to_string(m_state.vectorPlacement) + " (check cellCenters)";
@@ -1281,7 +1318,7 @@ void Renderer::renderFrame() {
                 } else {
                     int tdx = 0, tdy = 0, tdz = 0;
                     if (m_vectorCache.getTextureDims(m_state.vectorField, m_state.vectorPlacement,
-                                                     m_state.licBoundaryMode, m_dataMesh.get(),
+                                                     m_dataMesh.get(),
                                                      tdx, tdy, tdz, m_state.computed.get()) &&
                         tdx > 0 && tdy > 0 && tdz > 0) {
                         licRes.vectorTex = vecTex;
@@ -1296,7 +1333,7 @@ void Renderer::renderFrame() {
                         licRes.robustFloor = m_vectorCache.getRobustFloor(
                             m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(), m_state.computed.get());
                     } else {
-                        m_lastLicError = "LIC disabled: vector texture dims unavailable (mode " + std::to_string(m_state.licBoundaryMode) + ")";
+                        m_lastLicError = "LIC disabled: vector texture dims unavailable";
                     }
                 }
             }

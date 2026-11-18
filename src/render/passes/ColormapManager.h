@@ -23,25 +23,21 @@ public:
     bool  vectorReversed() const { return vectorReversed_; }
     void  setVectorChoice(int c) { vectorChoice_ = c; }
     void  setVectorReversed(bool r) { vectorReversed_ = r; }
-    void  markVectorLutDirty() { vectorLutDirty_ = true; }
 
     int   streamlineChoice() const { return streamlineChoice_; }
     bool  streamlineReversed() const { return streamlineReversed_; }
     void  setStreamlineChoice(int c) { streamlineChoice_ = c; }
     void  setStreamlineReversed(bool r) { streamlineReversed_ = r; }
-    void  markStreamlineLutDirty() { streamlineLutDirty_ = true; }
 
     int   volumeChoice() const { return volumeChoice_; }
     bool  volumeReversed() const { return volumeReversed_; }
     void  setVolumeChoice(int c) { volumeChoice_ = c; }
     void  setVolumeReversed(bool r) { volumeReversed_ = r; }
-    void  markVolumeLutDirty() { volumeLutDirty_ = true; }
 
     int   volumeSliceChoice() const { return volumeSliceChoice_; }
     bool  volumeSliceReversed() const { return volumeSliceReversed_; }
     void  setVolumeSliceChoice(int c) { volumeSliceChoice_ = c; }
     void  setVolumeSliceReversed(bool r) { volumeSliceReversed_ = r; }
-    void  markVolumeSliceLutDirty() { volumeSliceLutDirty_ = true; }
     GLuint volumeSliceTexture() const { return volumeSliceTex_.get(); }
 
     void sync(const struct RenderRenderState& state);
