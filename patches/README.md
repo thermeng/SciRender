@@ -1,8 +1,12 @@
 # Vendored dependency patches
 
+Local bootstrap: `python tools/build_vendored_deps.py` fetches `vendor/hypre`,
+applies these patches, and prebuilds HYPRE into `build-vendored-lib/install`
+(it also builds the CGNS import stack).
+
 `vendor/hypre` is fetched as a pristine upstream clone in CI
 (`.github/workflows/release.yml`), so fixes to it are carried here as patches and
-applied after the clone. Patch the local clone the same way:
+applied after the clone. Manual equivalent of the script's HYPRE step:
 
 ```powershell
 git clone --depth 1 --branch v3.2.1 https://github.com/hypre-space/hypre.git vendor/hypre

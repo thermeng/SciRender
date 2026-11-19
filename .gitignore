@@ -109,7 +109,7 @@ samples/pvd_animation/
 vendor/hypre/
 
 # vendor/cgns + vendor/hdf5: pinned shallow clones fetched by
-# tools/build_cgns_deps.py (CGNS import stack), same convention as hypre.
+# tools/build_vendored_deps.py (CGNS import stack), same convention as hypre.
 vendor/cgns/
 vendor/hdf5/
 

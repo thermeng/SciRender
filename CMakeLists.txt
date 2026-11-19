@@ -123,14 +123,14 @@ message(STATUS "SciRender: Hypre BoomerAMG backend ENABLED (Config::useHypre sel
 # 1c. Optional CGNS — .cgns mesh import for CFD
 #
 #     Vendored at vendor/cgns (4.5.2) + vendor/hdf5 (1.14.6). Build the static
-#     stack once with `python tools/build_cgns_deps.py`; it installs into
+#     stack once with `python tools/build_vendored_deps.py`; it installs into
 #     build-vendored-lib/install, the same prefix as vendored HYPRE, so the
 #     debug-vendored / release-vendored presets pick it up automatically.
 #     Other presets configure without CGNS and the reader compiles out
 #     (SCIRENDER_HAVE_CGNS undefined); cfd::loadMesh then reports a clear
 #     diagnostic for .cgns files.
 # ---------------------------------------------------------------------------
-option(SCIRENDER_ENABLE_CGNS "Enable CGNS mesh import (needs tools/build_cgns_deps.py)" ON)
+option(SCIRENDER_ENABLE_CGNS "Enable CGNS mesh import (needs tools/build_vendored_deps.py)" ON)
 set(SCIRENDER_HAVE_CGNS OFF)
 if(SCIRENDER_ENABLE_CGNS)
     # CGNS's exported target links hdf5-static, whose link interface needs
@@ -143,7 +143,7 @@ if(SCIRENDER_ENABLE_CGNS)
         set(SCIRENDER_HAVE_CGNS ON)
         message(STATUS "SciRender: CGNS mesh import ENABLED")
     else()
-        message(STATUS "SciRender: CGNS not found - .cgns import disabled (run tools/build_cgns_deps.py)")
+        message(STATUS "SciRender: CGNS not found - .cgns import disabled (run tools/build_vendored_deps.py)")
     endif()
 endif()
 
