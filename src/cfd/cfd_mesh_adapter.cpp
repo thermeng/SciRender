@@ -2,6 +2,7 @@
 
 #include "cfd/mesh_build_policy.h"
 #include "io/ANSYSMeshReader.h"
+#include "io/CGNSReader.h"
 #include "io/GmshReader.h"
 #include "mesh/Mesh.h"
 #include "core/cell_topology.h"
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <unordered_set>
@@ -28,7 +30,11 @@ std::string sniffFormat(const std::string& path) {
     std::string header(buf);
     if (header.find("(0") == 0) return "fluent";
     if (header.find("$Mesh") != std::string::npos) return "gmsh";
+    // HDF5 superblock signature: modern CGNS files are HDF5 containers.
+    static const char kHdf5Magic[8] = {'\x89', 'H', 'D', 'F', '\r', '\n', '\x1a', '\n'};
+    if (std::memcmp(buf, kHdf5Magic, 8) == 0) return "cgns";
     // extension fallback
+    if (path.size() >= 5 && path.substr(path.size()-5) == ".cgns") return "cgns";
     if (path.size() >= 4 && path.substr(path.size()-4) == ".msh") return "fluent";
     return "gmsh";
 }
@@ -54,12 +60,13 @@ void canonicalCell(const fvm::Mesh<3>& m, std::size_t cellIndex,
 }
 
 template<std::size_t Dim>
-std::shared_ptr<const RenderMesh> buildRenderMesh(const fvm::Mesh<Dim>& m) {
+std::shared_ptr<const RenderMesh> buildRenderMesh(const fvm::Mesh<Dim>& m,
+                                                  const char* fileFormat = "MSH") {
     using Policy = cfd::mesh_build::MeshBuildPolicy<Dim>;
 
     RenderMesh rm;
     rm.datasetType = "CFD MESH";
-    rm.fileFormat = "MSH";
+    rm.fileFormat = fileFormat;
 
     Policy::buildVertices(rm, m);
     Policy::buildSurface(rm, m);
@@ -110,10 +117,26 @@ void fillResult(const fvm::Mesh<Dim>& mesh, MeshLoadResult& res) {
 MeshLoadResult loadMesh(const std::string& path) {
     MeshLoadResult res;
     const std::string fmt = sniffFormat(path);
+#ifndef SCIRENDER_HAVE_CGNS
+    if (fmt == "cgns") {
+        res.error = "CGNS support is not built in. Build the vendored stack "
+                    "(python tools/build_cgns_deps.py) and reconfigure with a "
+                    "vendored preset (or -DCMAKE_PREFIX_PATH pointing at its "
+                    "install prefix).";
+        return res;
+    }
+#endif
     try {
-        const int dim = (fmt == "fluent")
-            ? fvm::ANSYSMeshReader<2>::detectDimension(path)
-            : fvm::GmshReader<2>::detectDimension(path);
+        int dim = 2;
+        if (fmt == "fluent") {
+            dim = fvm::ANSYSMeshReader<2>::detectDimension(path);
+        } else if (fmt == "cgns") {
+#ifdef SCIRENDER_HAVE_CGNS
+            dim = fvm::CGNSReader<2>::detectDimension(path);
+#endif
+        } else {
+            dim = fvm::GmshReader<2>::detectDimension(path);
+        }
         res.dim = dim;
 
         if (dim == 3) {
@@ -122,6 +145,13 @@ MeshLoadResult loadMesh(const std::string& path) {
                 auto mesh = std::make_shared<const fvm::Mesh<3>>(std::move(r.mesh));
                 fillResult(*mesh, res);
                 res.mesh3 = std::move(mesh);
+            } else if (fmt == "cgns") {
+#ifdef SCIRENDER_HAVE_CGNS
+                auto r = fvm::CGNSReader<3>::read(path);
+                auto mesh = std::make_shared<const fvm::Mesh<3>>(std::move(r.mesh));
+                fillResult(*mesh, res);
+                res.mesh3 = std::move(mesh);
+#endif
             } else {
                 auto r = fvm::GmshReader<3>::read(path);
                 auto mesh = std::make_shared<const fvm::Mesh<3>>(std::move(r.mesh));
@@ -132,13 +162,20 @@ MeshLoadResult loadMesh(const std::string& path) {
                 res.error = "The 3D mesh could not be read.";
                 return res;
             }
-            res.renderMesh = buildRenderMesh(*res.mesh3);
+            res.renderMesh = buildRenderMesh(*res.mesh3, fmt == "cgns" ? "CGNS" : "MSH");
         } else {
             if (fmt == "fluent") {
                 auto r = fvm::ANSYSMeshReader<2>::read(path);
                 auto mesh = std::make_shared<const fvm::Mesh<2>>(std::move(r.mesh));
                 fillResult(*mesh, res);
                 res.mesh2 = std::move(mesh);
+            } else if (fmt == "cgns") {
+#ifdef SCIRENDER_HAVE_CGNS
+                auto r = fvm::CGNSReader<2>::read(path);
+                auto mesh = std::make_shared<const fvm::Mesh<2>>(std::move(r.mesh));
+                fillResult(*mesh, res);
+                res.mesh2 = std::move(mesh);
+#endif
             } else {
                 auto r = fvm::GmshReader<2>::read(path);
                 auto mesh = std::make_shared<const fvm::Mesh<2>>(std::move(r.mesh));
@@ -149,7 +186,7 @@ MeshLoadResult loadMesh(const std::string& path) {
                 res.error = "The 2D mesh could not be read.";
                 return res;
             }
-            res.renderMesh = buildRenderMesh(*res.mesh2);
+            res.renderMesh = buildRenderMesh(*res.mesh2, fmt == "cgns" ? "CGNS" : "MSH");
         }
     } catch (const std::exception& e) {
         res.error = e.what();

@@ -108,6 +108,11 @@ samples/pvd_animation/
 # from showing as a dirty gitlink in the parent working tree.
 vendor/hypre/
 
+# vendor/cgns + vendor/hdf5: pinned shallow clones fetched by
+# tools/build_cgns_deps.py (CGNS import stack), same convention as hypre.
+vendor/cgns/
+vendor/hdf5/
+
 # Ignore 
 /.hermes/
 CONTEXT.md

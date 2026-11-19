@@ -119,6 +119,34 @@ if(NOT SCIRENDER_HAVE_HYPRE)
 endif()
 message(STATUS "SciRender: Hypre BoomerAMG backend ENABLED (Config::useHypre selects it)")
 
+# ---------------------------------------------------------------------------
+# 1c. Optional CGNS — .cgns mesh import for CFD
+#
+#     Vendored at vendor/cgns (4.5.2) + vendor/hdf5 (1.14.6). Build the static
+#     stack once with `python tools/build_cgns_deps.py`; it installs into
+#     build-vendored-lib/install, the same prefix as vendored HYPRE, so the
+#     debug-vendored / release-vendored presets pick it up automatically.
+#     Other presets configure without CGNS and the reader compiles out
+#     (SCIRENDER_HAVE_CGNS undefined); cfd::loadMesh then reports a clear
+#     diagnostic for .cgns files.
+# ---------------------------------------------------------------------------
+option(SCIRENDER_ENABLE_CGNS "Enable CGNS mesh import (needs tools/build_cgns_deps.py)" ON)
+set(SCIRENDER_HAVE_CGNS OFF)
+if(SCIRENDER_ENABLE_CGNS)
+    # CGNS's exported target links hdf5-static, whose link interface needs
+    # ZLIB::ZLIB; neither config package find_dependency's the other, so
+    # resolve the whole chain here (all live in the vendored install prefix).
+    find_package(ZLIB QUIET)
+    find_package(HDF5 NAMES hdf5 QUIET COMPONENTS C static)
+    find_package(CGNS QUIET)
+    if(CGNS_FOUND AND TARGET CGNS::cgns_static AND TARGET hdf5-static AND TARGET ZLIB::ZLIB)
+        set(SCIRENDER_HAVE_CGNS ON)
+        message(STATUS "SciRender: CGNS mesh import ENABLED")
+    else()
+        message(STATUS "SciRender: CGNS not found - .cgns import disabled (run tools/build_cgns_deps.py)")
+    endif()
+endif()
+
 if(SCIRENDER_BUILD_APP)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
@@ -247,6 +275,11 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         target_include_directories(FvmCore SYSTEM PUBLIC ${SCIRENDER_HYPRE_INCLUDE_DIRS})
         target_link_libraries(FvmCore PUBLIC
             ${SCIRENDER_HYPRE_LIBRARIES})
+    endif()
+    if(SCIRENDER_HAVE_CGNS)
+        target_sources(FvmCore PRIVATE src/io/CGNSReader.cpp)
+        target_compile_definitions(FvmCore PUBLIC SCIRENDER_HAVE_CGNS=1)
+        target_link_libraries(FvmCore PUBLIC CGNS::cgns_static)
     endif()
     # NOTE: no -ffast-math / /fp:fast here.
     #

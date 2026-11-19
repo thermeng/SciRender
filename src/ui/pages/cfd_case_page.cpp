@@ -344,7 +344,7 @@ void CfdCasePage::onLoadMesh() {
         return;
     }
     const QString path = QFileDialog::getOpenFileName(
-        this, "Load CFD Mesh", QString(), "Mesh (*.msh *.vtk *.vtu);;All files (*)");
+        this, "Load CFD Mesh", QString(), "Mesh (*.msh *.vtk *.vtu *.cgns);;All files (*)");
     if (path.isEmpty()) return;
     log("Loading " + QFileInfo(path).fileName() + "...");
     if (m_ctrl->loadMesh(path)) {
