@@ -6,6 +6,9 @@
 //    empty space around a mesh is skipped instead of fogged;
 //  * each occupied voxel knows its cell (and tet), so cell-centred fields are
 //    exact and point fields interpolate;
+//  * the baked interpolation weights are a partition of unity (non-negative,
+//    sum 1), so the per-frame scatter dot product reproduces the barycentric
+//    interpolation it replaced;
 //  * the grid is bounded by maxVoxels for pathological resolutions.
 
 #include "core/unstructured_volume.h"
@@ -308,4 +311,106 @@ TEST_CASE("volume.eligibility_rejects_2d_meshes") {
     volume::DerivedGrid grid;
     CHECK_FALSE(volume::build(mesh, options(8), grid));
     CHECK(grid.empty());
+}
+
+namespace {
+
+// The baked weights must be exactly the coefficients the old per-frame
+// barycentric solve applied: non-negative, summing to 1.
+void checkWeights(const volume::DerivedGrid& grid) {
+    REQUIRE(grid.weight.size() == grid.cellVoxels.size() * 4);
+    for (std::size_t k = 0; k < grid.cellVoxels.size(); ++k) {
+        const float* w = &grid.weight[k * 4];
+        double sum = 0.0;
+        for (int j = 0; j < 4; ++j) {
+            CHECK(w[j] >= 0.0f);
+            CHECK(w[j] <= 1.0f + 1e-5f);
+            sum += w[j];
+        }
+        CHECK(sum == doctest::Approx(1.0).epsilon(1e-5));
+    }
+}
+
+} // namespace
+
+TEST_CASE("volume.baked_weights_form_a_partition_of_unity") {
+    SUBCASE("hex") {
+        const RenderMesh mesh = makeMesh(cubePoints(), {{0, 1, 2, 3, 4, 5, 6, 7}}, {12});
+        volume::DerivedGrid grid;
+        REQUIRE(volume::build(mesh, options(8), grid));
+        checkWeights(grid);
+    }
+    SUBCASE("tet") {
+        const std::vector<Point> points = {
+            {0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1},
+        };
+        const RenderMesh mesh = makeMesh(points, {{0, 1, 2, 3}}, {10});
+        volume::DerivedGrid grid;
+        REQUIRE(volume::build(mesh, options(24), grid));
+        checkWeights(grid);
+    }
+    SUBCASE("sheared hex") {
+        const std::vector<Point> points = {
+            {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 1.0, 0.0},
+            {0.5, 0.0, 1.0}, {1.5, 0.0, 1.0}, {1.5, 1.0, 1.0}, {0.5, 1.0, 1.0},
+        };
+        const RenderMesh mesh = makeMesh(points, {{0, 1, 2, 3, 4, 5, 6, 7}}, {12});
+        volume::DerivedGrid grid;
+        REQUIRE(volume::build(mesh, options(16), grid));
+        checkWeights(grid);
+    }
+}
+
+TEST_CASE("volume.subvoxel_cell_is_pinned_and_scatters") {
+    // A unit cube plus a tet far thinner than one voxel, inside it. The tiny
+    // cell owns no voxel centre, so build pins it to the voxel containing its
+    // centre (last writer wins over the cube). It must still scatter.
+    std::vector<Point> points = cubePoints();
+    points.push_back({0.5, 0.5, 0.5});
+    points.push_back({0.5001, 0.5, 0.5});
+    points.push_back({0.5, 0.5001, 0.5});
+    points.push_back({0.5, 0.5, 0.5001});
+    const RenderMesh mesh = makeMesh(points,
+        {{0, 1, 2, 3, 4, 5, 6, 7}, {8, 9, 10, 11}}, {12, 10});
+    REQUIRE(volume::eligible(mesh));
+
+    volume::DerivedGrid grid;
+    REQUIRE(volume::build(mesh, options(8), grid));
+    checkWeights(grid);
+
+    std::size_t pinned = 0;
+    std::size_t pinnedIdx = 0;
+    std::size_t occupied = 0;
+    for (std::size_t i = 0; i < grid.voxelCount(); ++i) {
+        if (grid.cellId[i] == volume::DerivedGrid::kEmpty) continue;
+        ++occupied;
+        if (grid.cellId[i] == 1) { ++pinned; pinnedIdx = i; }
+    }
+    // The cube fills the union AABB; the tiny cell overwrites exactly one voxel.
+    CHECK(occupied == grid.voxelCount());
+    REQUIRE(pinned == 1);
+
+    SUBCASE("cell placement reaches the pinned voxel") {
+        const std::vector<float> cellValues = {0.0f, 5.0f};
+        volume::ScalarGrid scattered;
+        volume::scatter(mesh, grid, &cellValues, true, scattered);
+        CHECK(scattered.occupancy[pinnedIdx] == 1);
+        CHECK(scattered.value[pinnedIdx] == doctest::Approx(5.0f));
+        for (std::size_t i = 0; i < grid.voxelCount(); ++i) {
+            if (i == pinnedIdx) continue;
+            CHECK(scattered.value[i] == doctest::Approx(0.0f));
+        }
+    }
+    SUBCASE("point placement interpolates the tiny cell's corners") {
+        // Cube corners carry the linear field x; the tiny tet's corners are 7.
+        std::vector<float> pointValues;
+        for (std::size_t i = 0; i < 8; ++i) pointValues.push_back(static_cast<float>(points[i][0]));
+        for (int i = 0; i < 4; ++i) pointValues.push_back(7.0f);
+        volume::ScalarGrid scattered;
+        volume::scatter(mesh, grid, &pointValues, false, scattered);
+        CHECK(scattered.occupancy[pinnedIdx] == 1);
+        // All four corners are 7, so any partition of unity yields 7 — not the
+        // ~0.56 the cube's linear field would give at this voxel centre.
+        CHECK(scattered.value[pinnedIdx] == doctest::Approx(7.0f).epsilon(1e-4));
+    }
 }

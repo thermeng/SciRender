@@ -117,7 +117,7 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
 
         auto wireFilterSlider = [this, s](QSlider* slider, QLineEdit* field, bool isMin) {
             connect(slider, &QSlider::valueChanged, this, [field, s, isMin](int raw) {
-                double v = raw / 1000.0;
+                double v = sb::filterValueForTick(raw, s->getDataScalarMinQml(), s->getDataScalarMaxQml());
                 field->setText(QString::number(v, 'f', 3));
                 if (isMin) s->setVolumeFilterMin(static_cast<float>(v));
                 else s->setVolumeFilterMax(static_cast<float>(v));
@@ -129,7 +129,7 @@ VolumePage::VolumePage(RenderSettings* settings, QWidget* parent)
                 v = qBound(s->getDataScalarMinQml(), v, s->getDataScalarMaxQml());
                 if (isMin) v = std::min(v, static_cast<double>(s->getVolumeFilterMax()));
                 else v = std::max(v, static_cast<double>(s->getVolumeFilterMin()));
-                slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
+                slider->setValue(sb::filterTickForValue(v, s->getDataScalarMinQml(), s->getDataScalarMaxQml()));
                 if (isMin) s->setVolumeFilterMin(static_cast<float>(v));
                 else s->setVolumeFilterMax(static_cast<float>(v));
             });
@@ -351,16 +351,14 @@ void VolumePage::refreshVolumeFilterRange() {
     const double hi = s->getVolumeFilterMax();
     {
         QSignalBlocker block(m_volumeFilterMinSlider);
-        m_volumeFilterMinSlider->setRange(static_cast<int>(std::lround(minVal * 1000.0)),
-                                         static_cast<int>(std::lround(maxVal * 1000.0)));
-        m_volumeFilterMinSlider->setValue(static_cast<int>(std::lround(lo * 1000.0)));
+        m_volumeFilterMinSlider->setRange(0, 1000);
+        m_volumeFilterMinSlider->setValue(sb::filterTickForValue(lo, minVal, maxVal));
     }
     if (m_volumeFilterMinField) m_volumeFilterMinField->setText(QString::number(lo, 'f', 3));
     {
         QSignalBlocker block(m_volumeFilterMaxSlider);
-        m_volumeFilterMaxSlider->setRange(static_cast<int>(std::lround(minVal * 1000.0)),
-                                         static_cast<int>(std::lround(maxVal * 1000.0)));
-        m_volumeFilterMaxSlider->setValue(static_cast<int>(std::lround(hi * 1000.0)));
+        m_volumeFilterMaxSlider->setRange(0, 1000);
+        m_volumeFilterMaxSlider->setValue(sb::filterTickForValue(hi, minVal, maxVal));
     }
     if (m_volumeFilterMaxField) m_volumeFilterMaxField->setText(QString::number(hi, 'f', 3));
     const bool en = s->getVolumeFilterEnabled() && s->hasVolumeData();

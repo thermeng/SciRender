@@ -6,6 +6,7 @@
 #include "core/unstructured_volume.h"
 #include <glm/glm.hpp>
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -44,7 +45,12 @@ public:
     // voxel grid and uploads the occupancy mask with it.
     // placement: 0=Vertex (point), 1=Cell Center (cell) — mirrors scalarPlacement.
     // snap: computed post-proc snapshot (null = mesh fields only).
-    VolumeTexture textureFor(const std::string& name, const RenderMesh* mesh,
+    // mesh is shared so a cache entry can pin the exact field array it was
+    // built from: RenderMesh is immutable once published, so (mesh identity,
+    // data pointer, size) is a sound content token and a stale entry cannot
+    // survive a missed invalidation.
+    VolumeTexture textureFor(const std::string& name,
+                             const std::shared_ptr<const RenderMesh>& mesh,
                              const std::shared_ptr<const volume::DerivedGrid>& derived,
                              const glm::vec3& boxMin, const glm::vec3& boxMax,
                              int placement = 0,
@@ -70,6 +76,14 @@ private:
         // Identifies the derived grid the entry was built from. A new grid
         // (topology change) expires the entry even when the dims match.
         std::weak_ptr<const volume::DerivedGrid> derivedOwner;
+        // Content token for the scattered field: the mesh keeps the array
+        // alive (immutable), so pointer + size equality means same contents.
+        // snapToken covers snapshot-backed fields (snapshot swaps are
+        // invalidated by the renderer; the pointer guards the rest).
+        std::shared_ptr<const RenderMesh> meshOwner;
+        const postfields::ComputedSnapshot* snapToken = nullptr;
+        const void* fieldData = nullptr;
+        std::size_t fieldCount = 0;
         std::shared_ptr<const VolumePlaneRanges> planes;
     };
 
@@ -78,6 +92,10 @@ private:
                         const postfields::ComputedSnapshot* snap);
     const std::vector<float>* resolveField(const RenderMesh& mesh, const std::string& name, int placement,
                                            const postfields::ComputedSnapshot* snap) const;
+    // Single upload path for 3D textures (scalar R32F and occupancy R8):
+    // double-buffered PBO with a direct-upload fallback.
+    void upload3D(GLuint tex, int dimX, int dimY, int dimZ, GLenum format, GLenum type,
+                  const void* data, std::size_t bytes);
 
     std::unordered_map<std::string, Entry> m_entries;
     GlBuffer m_pbo[2];

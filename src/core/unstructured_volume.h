@@ -50,6 +50,15 @@ struct DerivedGrid {
     std::vector<std::uint32_t> cellVoxelStart;
     std::vector<std::uint32_t> cellVoxels;
 
+    // Barycentric interpolation weights, baked once at build time because
+    // they depend only on geometry. Four floats per occupied voxel, laid out
+    // like cellVoxels: voxel cellVoxels[k] interpolates its tet's corner
+    // values with weight[4k .. 4k+3]. Non-negative and summing to 1 (the
+    // positive-part renormalization scatter applies), so a per-frame scatter
+    // is a gather of four corner values plus a dot product — no barycentric
+    // solve, no voxel-index decode.
+    std::vector<float> weight;
+
     static constexpr std::uint32_t kEmpty = 0xFFFFFFFFu;
 
     bool empty() const { return dimX <= 0 || cellId.empty(); }
@@ -111,11 +120,15 @@ bool sourcePointValues(const RenderMesh& mesh, const std::vector<float>& values,
                        std::vector<float>& scratch,
                        const std::vector<float>*& out);
 
-// Rasterize `mesh` into `out`. Returns false (and leaves `out` empty) when the
-// mesh is not eligible or the topology does not match the RenderMesh CSR.
+// Rasterize `mesh` into `out`, baking the per-voxel interpolation weights
+// (geometry only, so transient frames never recompute them). Returns false
+// (and leaves `out` empty) when the mesh is not eligible or the topology does
+// not match the RenderMesh CSR.
 bool build(const RenderMesh& mesh, const BuildOptions& options, DerivedGrid& out);
 
-// Scatter one field into the derived grid.
+// Scatter one field into the derived grid. Point placement interpolates with
+// the weights baked by build(); per voxel this is four corner-value gathers
+// and a dot product.
 //
 // `cellPlacement == false` treats `values` as point data indexed in the
 // pre-split vertex space (the space `RenderMesh::cellConnectivity` indexes);
