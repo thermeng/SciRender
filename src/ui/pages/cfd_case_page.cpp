@@ -19,9 +19,11 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGridLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -88,12 +90,23 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_stepBtn = cfdUi.stepBtn;
 
     m_rho = cfdUi.rhoSpin;
-    m_nu = cfdUi.nuSpin;
+    m_mu = cfdUi.muSpin;
+    m_materialCombo = cfdUi.materialCombo;
+    m_nuValue = cfdUi.nuValue;
+    m_saveMaterialBtn = cfdUi.saveMaterialBtn;
+    m_deleteMaterialBtn = cfdUi.deleteMaterialBtn;
     // Constrain density and viscosity to finite positive numbers.
     auto* posDoubleVal = new QDoubleValidator(1e-12, 1e12, 10, m_rho);
     posDoubleVal->setNotation(QDoubleValidator::StandardNotation);
     m_rho->setValidator(posDoubleVal);
-    m_nu->setValidator(posDoubleVal);
+    m_mu->setValidator(posDoubleVal);
+    refreshMaterialCombo(QStringLiteral("Custom"));
+    connect(m_materialCombo, &QComboBox::currentTextChanged,
+            this, &CfdCasePage::onMaterialSelected);
+    connect(m_rho, &QLineEdit::textEdited, this, [this](const QString&) { updateNuDisplay(); });
+    connect(m_mu, &QLineEdit::textEdited, this, [this](const QString&) { updateNuDisplay(); });
+    connect(m_saveMaterialBtn, &QPushButton::clicked, this, &CfdCasePage::onSaveMaterial);
+    connect(m_deleteMaterialBtn, &QPushButton::clicked, this, &CfdCasePage::onDeleteMaterial);
     m_alphaU = cfdUi.alphaUSpin;
     m_alphaP = cfdUi.alphaPSpin;
     m_simplec = cfdUi.simplecCb;
@@ -149,8 +162,11 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     cfdUi.outerCorrectorsRow->setVisible(false);
 
     // ── Physics defaults ─────────────────────────────────────────────────────
+    // Custom with the historical generic values; picking Air/Water fills in
+    // the reference properties.
     m_rho->setText("1.0");
-    m_nu->setText("0.01");
+    m_mu->setText("0.01");
+    updateNuDisplay();
     // ── Solver defaults ──────────────────────────────────────────────────────
     m_alphaU->setRange(0.01, 1.0); m_alphaU->setDecimals(2); m_alphaU->setValue(0.7);
     m_alphaP->setRange(0.01, 1.0); m_alphaP->setDecimals(2); m_alphaP->setValue(0.3);
@@ -352,13 +368,117 @@ void CfdCasePage::onLoadMesh() {
     }
 }
 
+void CfdCasePage::refreshMaterialCombo(const QString& selectName) {
+    QSignalBlocker block(m_materialCombo);
+    m_materialCombo->clear();
+    for (const auto& m : m_materialLib.allMaterials())
+        m_materialCombo->addItem(QString::fromStdString(m.name));
+    m_materialCombo->addItem(QLatin1String(cfd::materials::customName()));
+    const int idx = m_materialCombo->findText(selectName, Qt::MatchFixedString);
+    m_materialCombo->setCurrentIndex(
+        idx >= 0 ? idx : m_materialCombo->findText(QLatin1String(cfd::materials::customName())));
+    bool isUser = false;
+    for (const auto& u : m_materialLib.userMaterials()) {
+        if (QString::fromStdString(u.name).compare(m_materialCombo->currentText(),
+                                                   Qt::CaseInsensitive) == 0)
+            isUser = true;
+    }
+    m_deleteMaterialBtn->setEnabled(isUser);
+}
+
+void CfdCasePage::onMaterialSelected(const QString& name) {
+    const auto mat = m_materialLib.find(name);
+    if (mat) {
+        // Library properties are definitions, not suggestions: show them and
+        // lock the fields. Switch to Custom to type different values.
+        m_rho->setText(QString::number(mat->rho, 'g', 10));
+        m_mu->setText(QString::number(mat->mu, 'g', 10));
+        m_rho->setReadOnly(true);
+        m_mu->setReadOnly(true);
+    } else {
+        m_rho->setReadOnly(false);
+        m_mu->setReadOnly(false);
+    }
+    bool isUser = false;
+    for (const auto& u : m_materialLib.userMaterials()) {
+        if (QString::fromStdString(u.name).compare(name, Qt::CaseInsensitive) == 0)
+            isUser = true;
+    }
+    m_deleteMaterialBtn->setEnabled(isUser);
+    updateNuDisplay();
+}
+
+void CfdCasePage::onSaveMaterial() {
+    bool okRho, okMu;
+    const double rho = m_rho->text().toDouble(&okRho);
+    const double mu = m_mu->text().toDouble(&okMu);
+    if (!okRho || !okMu || rho <= 0.0 || mu <= 0.0) {
+        log("Density and viscosity must be positive numbers.");
+        return;
+    }
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, "Save Material",
+                                               "Material name:", QLineEdit::Normal,
+                                               QString(), &ok).trimmed();
+    if (!ok || name.isEmpty()) return;
+    cfd::Material m;
+    m.name = name.toStdString();
+    m.rho = rho;
+    m.mu = mu;
+    if (!m_materialLib.saveUserMaterial(m)) {
+        log(QString("Cannot save material '%1' (reserved name or invalid properties).").arg(name));
+        return;
+    }
+    refreshMaterialCombo(name);
+    onMaterialSelected(name);
+    log(QString("Material '%1' saved (rho = %2 kg/m³, mu = %3 Pa·s).")
+            .arg(name).arg(rho).arg(mu));
+}
+
+void CfdCasePage::onDeleteMaterial() {
+    const QString name = m_materialCombo->currentText();
+    if (!m_materialLib.removeUserMaterial(name)) return;
+    // Keep the numbers on screen as a Custom starting point.
+    refreshMaterialCombo(QStringLiteral("Custom"));
+    onMaterialSelected(QStringLiteral("Custom"));
+}
+
+void CfdCasePage::updateNuDisplay() {
+    bool okRho, okMu;
+    const double rho = m_rho->text().toDouble(&okRho);
+    const double mu = m_mu->text().toDouble(&okMu);
+    if (okRho && okMu && rho > 0.0 && mu > 0.0)
+        m_nuValue->setText(QString::number(mu / rho, 'g', 6));
+    else
+        m_nuValue->setText(QStringLiteral("—"));
+}
+
 void CfdCasePage::log(const QString& msg) {
     std::cout << msg.toStdString() << std::endl;
 }
 
 void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
-    m_rho->setText(QString::number(s.rho));
-    m_nu->setText(QString::number(s.nu));
+    // A named material wins over the stored numbers (they should agree, but
+    // the library is the definition); unknown/empty names load as Custom
+    // with the stored rho and mu = nu*rho.
+    const auto mat = m_materialLib.find(QString::fromStdString(s.materialName));
+    {
+        QSignalBlocker block(m_materialCombo);
+        refreshMaterialCombo(mat ? QString::fromStdString(mat->name)
+                                 : QStringLiteral("Custom"));
+    }
+    if (mat) {
+        m_rho->setText(QString::number(mat->rho, 'g', 10));
+        m_mu->setText(QString::number(mat->mu, 'g', 10));
+        m_rho->setReadOnly(true);
+        m_mu->setReadOnly(true);
+    } else {
+        m_rho->setText(QString::number(s.rho, 'g', 10));
+        m_mu->setText(QString::number(s.nu * s.rho, 'g', 10));
+        m_rho->setReadOnly(false);
+        m_mu->setReadOnly(false);
+    }
+    updateNuDisplay();
     m_alphaU->setValue(s.alphaU);
     if (m_alphaK) m_alphaK->setValue(s.alphaK);
     if (m_alphaW) m_alphaW->setValue(s.alphaOmega);
@@ -424,12 +544,23 @@ void CfdCasePage::rebuildPatchTable() {
 
 void CfdCasePage::collectSettings() {
     cfd::CaseSettings s = m_ctrl->settings();
-    bool okRho, okNu;
-    s.rho = m_rho->text().toDouble(&okRho);
-    s.nu = m_nu->text().toDouble(&okNu);
-    if (!okRho || !okNu || s.rho <= 0.0 || s.nu <= 0.0) {
-        log("Density and viscosity must be positive numbers.");
-        return;
+    const QString material = m_materialCombo->currentText();
+    const auto mat = m_materialLib.find(material);
+    if (mat) {
+        s.materialName = mat->name;
+        s.rho = mat->rho;
+        s.nu = mat->nu();
+    } else {
+        bool okRho, okMu;
+        const double rho = m_rho->text().toDouble(&okRho);
+        const double mu = m_mu->text().toDouble(&okMu);
+        if (!okRho || !okMu || rho <= 0.0 || mu <= 0.0) {
+            log("Density and viscosity must be positive numbers.");
+            return;
+        }
+        s.materialName = cfd::materials::customName();
+        s.rho = rho;
+        s.nu = mu / rho;
     }
     s.alphaU = m_alphaU->value();
     s.alphaP = m_alphaP->value();

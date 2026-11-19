@@ -3,6 +3,7 @@
 #include "ui/controllers/cfd_controller.h"
 #include "cfd/cfd_types.h"
 #include "ui/cfd_advanced_dialog.h"
+#include "ui/cfd_material_library.h"
 #include "ui/widgets/stopping_criteria_dialog.h"
 
 #include <QString>
@@ -77,6 +78,13 @@ private:
     void collectSettings();
     void applySettings(const cfd::CaseSettings& s);
 
+    // ── Material selection ──────────────────────────────────────────
+    void refreshMaterialCombo(const QString& selectName);
+    void onMaterialSelected(const QString& name);
+    void onSaveMaterial();
+    void onDeleteMaterial();
+    void updateNuDisplay();
+
     void setRunning(bool running);
 
     CfdController* m_ctrl = nullptr;
@@ -84,7 +92,12 @@ private:
     QString m_meshName;
 
     QLineEdit* m_rho = nullptr;
-    QLineEdit* m_nu = nullptr;
+    QLineEdit* m_mu = nullptr;
+    QComboBox* m_materialCombo = nullptr;
+    QLabel* m_nuValue = nullptr;
+    QPushButton* m_saveMaterialBtn = nullptr;
+    QPushButton* m_deleteMaterialBtn = nullptr;
+    cfdUi::MaterialLibrary m_materialLib;
     QDoubleSpinBox* m_alphaU = nullptr;
     QDoubleSpinBox* m_alphaP = nullptr;
     QDoubleSpinBox* m_alphaK = nullptr;

@@ -37,13 +37,16 @@
     {
       "name": "tests",
       "displayName": "Tests (no Qt, no OpenGL)",
-      "description": "Test-only build: the application is not built, so the suite needs neither Qt nor an OpenGL context.",
+      "description": "Test-only build against the prebuilt vendored libs (build-vendored-lib/install): no Qt, no OpenGL, no HYPRE/CGNS rebuilds. Run tools/build_vendored_deps.py once first.",
       "inherits": "base",
-      "binaryDir": "${sourceDir}/build-tests",
+      "binaryDir": "${sourceDir}/build-vendored-lib/tests",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "SCIRENDER_BUILD_APP": "OFF",
-        "SCIRENDER_BUILD_TESTS": "ON"
+        "SCIRENDER_BUILD_TESTS": "ON",
+        "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
+        "HYPRE_DIR": "${sourceDir}/build-vendored-lib/install/lib/cmake/HYPRE",
+        "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install"
       }
     },
     {

@@ -343,6 +343,36 @@
     </widget>
    </item>
    <item>
+    <widget class="QWidget" name="materialRow" native="true">
+     <layout class="QHBoxLayout" name="materialRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="materialLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Material</string></property>
+        <property name="toolTip"><string>Built-in reference materials (20 °C, 1 atm), your saved materials, or Custom for hand-typed properties.</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="materialCombo">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QWidget" name="rhoRow" native="true">
      <layout class="QHBoxLayout" name="rhoRowLayout">
       <property name="spacing">
@@ -357,7 +387,7 @@
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Density</string></property>
-        <property name="toolTip"><string>rho</string></property>
+        <property name="toolTip"><string>rho — density</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
       </item>
@@ -369,6 +399,46 @@
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="rhoUnits">
+        <property name="text"><string>kg/m³</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="muRow" native="true">
+     <layout class="QHBoxLayout" name="muRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QLabel" name="muLabel">
+        <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+        <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+        <property name="text"><string>Viscosity</string></property>
+        <property name="toolTip"><string>mu — dynamic viscosity</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="muSpin">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="muUnits">
+        <property name="text"><string>Pa·s</string></property>
        </widget>
       </item>
      </layout>
@@ -386,19 +456,48 @@
        <widget class="QLabel" name="nuLabel">
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-        <property name="text"><string>Viscosity</string></property>
-        <property name="toolTip"><string>nu</string></property>
+        <property name="text"><string>Kinematic ν</string></property>
+        <property name="toolTip"><string>nu = mu / rho — derived, what the solver uses</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
       </item>
       <item>
-       <widget class="QLineEdit" name="nuSpin">
+       <widget class="QLabel" name="nuValue">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+         <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
           <horstretch>1</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <property name="text"><string>—</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="nuUnits">
+        <property name="text"><string>m²/s</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="materialBtnRow" native="true">
+     <layout class="QHBoxLayout" name="materialBtnRowLayout">
+      <property name="spacing"><number>6</number></property>
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QPushButton" name="saveMaterialBtn">
+        <property name="text"><string>Save as Material…</string></property>
+        <property name="toolTip"><string>Store the current density and viscosity as a named material, available in all future cases.</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="deleteMaterialBtn">
+        <property name="text"><string>Delete</string></property>
+        <property name="toolTip"><string>Remove the selected user-defined material from the library.</string></property>
        </widget>
       </item>
      </layout>

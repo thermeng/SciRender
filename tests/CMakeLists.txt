@@ -125,8 +125,11 @@ if(SCIRENDER_BUILD_APP)
             ui/cfd_3d_mesh_test.cpp
             ui/unstructured_render_test.cpp
             ui/cli_options_test.cpp
+            ui/material_library_test.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.cpp
             ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.h
+            ${PROJECT_SOURCE_DIR}/src/ui/cfd_material_library.cpp
+            ${PROJECT_SOURCE_DIR}/src/ui/cfd_material_library.h
             ${PROJECT_SOURCE_DIR}/src/app/cli_options.cpp
             ${PROJECT_SOURCE_DIR}/src/app/cli_options.h
         LIBRARIES
@@ -166,6 +169,7 @@ scirender_add_test_suite(scirender_cfd_tests
         cfd/residual_test.cpp
         cfd/mesh_adapter_test.cpp
         cfd/cgns_adapter_test.cpp
+        cfd/material_test.cpp
         ${SCIRENDER_FVM_TEST_SUPPORT_SOURCES}
     LIBRARIES
         FvmCore

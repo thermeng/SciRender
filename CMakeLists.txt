@@ -308,6 +308,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
     add_library(CfdLib STATIC
         src/cfd/cfd_types.h
         src/cfd/case_codec.h
+        src/cfd/material.h
         src/cfd/convergence_policy.h
         src/cfd/convergence_policy.cpp
         src/cfd/field_utils.h
@@ -406,6 +407,8 @@ if(SCIRENDER_BUILD_APP)
         src/ui/uikit.h
         src/ui/cfd_bc_dialog.cpp
         src/ui/cfd_bc_dialog.h
+        src/ui/cfd_material_library.cpp
+        src/ui/cfd_material_library.h
         src/ui/cfd_advanced_dialog.cpp
         src/ui/cfd_advanced_dialog.h
         src/ui/cfd_initialize_dialog.cpp

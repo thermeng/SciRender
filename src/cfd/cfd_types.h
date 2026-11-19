@@ -177,6 +177,11 @@ struct TransientSettings {
 
 struct CaseSettings {
     double rho = 1.0, nu = 0.01;
+    // Selected material ("Air", "Water", a user-library name, or "Custom").
+    // rho/nu above remain the solver's source of truth; when a library
+    // material is selected they carry its properties. Empty or "Custom"
+    // means hand-typed values (also the behaviour of pre-material case files).
+    std::string materialName;
     StoppingCriteria stopping = defaultStoppingCriteria();
     bool normalizeResiduals = true;
     std::size_t residualNormalizationIterations = 5;

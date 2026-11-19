@@ -317,6 +317,7 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
     static const std::vector<F> fields{
         dbl("rho", &CaseSettings::rho),
         dbl("nu", &CaseSettings::nu),
+        str("materialName", &CaseSettings::materialName),
         Field<CaseSettings>{
             "stopping",
             [](const CaseSettings& s) { return serializeStopping(s.stopping); },
