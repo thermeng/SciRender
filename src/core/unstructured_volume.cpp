@@ -45,6 +45,36 @@ bool barycentric(const dvec3 p[4], const dvec3& x, double w[4]) {
     return true;
 }
 
+// Bake the interpolation weights for one voxel: positive-part renormalized
+// barycentric weights, falling back to a one-hot at the nearest corner for a
+// degenerate tet. These are exactly the coefficients scatter() applies to the
+// tet's corner values, stored as floats so the per-frame scatter is a dot
+// product. Geometry only — computed once in build().
+void bakeWeights(const dvec3 p[4], const dvec3& point, float* out) {
+    double w[4];
+    if (barycentric(p, point, w)) {
+        double sum = 0.0;
+        for (int j = 0; j < 4; ++j) {
+            if (w[j] > 0.0) sum += w[j];
+        }
+        if (sum > 0.0) {
+            const double inv = 1.0 / sum;
+            for (int j = 0; j < 4; ++j) {
+                out[j] = w[j] > 0.0 ? static_cast<float>(w[j] * inv) : 0.0f;
+            }
+            return;
+        }
+    }
+    double best = std::numeric_limits<double>::max();
+    int nearest = 0;
+    for (int j = 0; j < 4; ++j) {
+        const dvec3 delta = p[j] - point;
+        const double d = glm::dot(delta, delta);
+        if (d < best) { best = d; nearest = j; }
+    }
+    for (int j = 0; j < 4; ++j) out[j] = (j == nearest) ? 1.0f : 0.0f;
+}
+
 bool boundsOf(const RenderMesh& mesh, dvec3& lo, dvec3& hi) {
     const auto& b = mesh.bounds;
     if (b.maxX >= b.minX && b.maxY >= b.minY && b.maxZ >= b.minZ &&
@@ -333,6 +363,69 @@ bool build(const RenderMesh& mesh, const BuildOptions& options, DerivedGrid& out
         }
     }
 
+    // Bake the per-voxel interpolation weights once (geometry only). This
+    // mirrors the point-placement interpolation scatter() applies per frame:
+    // same tet selection (pinned sub-voxel cells fall back to tet 0), same
+    // positive-part renormalization and nearest-corner fallback — so scatter
+    // reduces to gathering corner values and a dot product.
+    out.weight.resize(out.cellVoxels.size() * 4);
+    {
+        std::vector<std::array<std::uint32_t, 4>> bakeTets;
+        for (std::size_t c = 0; c < nCells; ++c) {
+            const std::uint32_t vLo = out.cellVoxelStart[c];
+            const std::uint32_t vHi = out.cellVoxelStart[c + 1];
+            if (vLo >= vHi) continue;
+
+            const std::uint8_t type = mesh.cellTypes[c];
+            if (!cell_topology::isVolumeCell(type)) continue;
+            const std::uint32_t begin = (c == 0) ? 0u : mesh.cellOffsets[c - 1];
+            const std::uint32_t end = mesh.cellOffsets[c];
+            const int corners = cell_topology::cornerCount(type);
+            if (end <= begin) continue;
+            if (static_cast<std::size_t>(end - begin) < static_cast<std::size_t>(corners)) continue;
+
+            // Corner positions + the centroid slot, as in the rasterizer.
+            dvec3 cp[9];
+            dvec3 centre(0.0);
+            bool ok = true;
+            for (int k = 0; k < corners; ++k) {
+                const std::uint32_t id = mesh.cellConnectivity[begin + static_cast<std::size_t>(k)];
+                if (id >= vertexCount) { ok = false; break; }
+                cp[k] = dvec3(verts[id * 3], verts[id * 3 + 1], verts[id * 3 + 2]);
+                centre += cp[k];
+            }
+            if (!ok) continue;
+            cp[corners] = centre / static_cast<double>(corners);
+
+            bakeTets.clear();
+            cell_topology::tets(type,
+                std::span<const std::uint32_t>(mesh.cellConnectivity.data() + begin,
+                                               static_cast<std::size_t>(corners)),
+                bakeTets);
+            if (bakeTets.empty()) continue;
+
+            for (std::uint32_t k = vLo; k < vHi; ++k) {
+                const std::uint32_t voxel = out.cellVoxels[k];
+                std::size_t t = out.tet[voxel];
+                if (t >= bakeTets.size()) t = 0; // pinned sub-voxel cell centre
+
+                dvec3 p[4];
+                for (int j = 0; j < 4; ++j) {
+                    p[j] = cp[bakeTets[t][static_cast<std::size_t>(j)]];
+                }
+
+                const std::size_t x = voxel % static_cast<std::size_t>(dims[0]);
+                const std::size_t rest = voxel / static_cast<std::size_t>(dims[0]);
+                const std::size_t y = rest % static_cast<std::size_t>(dims[1]);
+                const std::size_t z = rest / static_cast<std::size_t>(dims[1]);
+                const dvec3 point(loArr[0] + (static_cast<double>(x) + 0.5) * stepArr[0],
+                                  loArr[1] + (static_cast<double>(y) + 0.5) * stepArr[1],
+                                  loArr[2] + (static_cast<double>(z) + 0.5) * stepArr[2]);
+                bakeWeights(p, point, &out.weight[static_cast<std::size_t>(k) * 4]);
+            }
+        }
+    }
+
     return true;
 }
 
@@ -372,14 +465,11 @@ void scatter(const RenderMesh& mesh, const DerivedGrid& grid,
         pointValues = resolved;
     }
 
-    const float* verts = mesh.vertices.data();
     const std::size_t vertexCount = mesh.vertices.size() / 3;
-    const double stepArr[3] = {
-        grid.extent.x / static_cast<double>(grid.dimX),
-        grid.extent.y / static_cast<double>(grid.dimY),
-        grid.extent.z / static_cast<double>(grid.dimZ),
-    };
-    const double loArr[3] = {grid.origin.x, grid.origin.y, grid.origin.z};
+
+    // Point placement interpolates with the weights baked at build time; a
+    // grid without them cannot scatter point data.
+    if (!cellValues && grid.weight.size() != grid.cellVoxels.size() * 4) return;
 
     std::vector<std::array<std::uint32_t, 4>> tets;
 
@@ -408,28 +498,20 @@ void scatter(const RenderMesh& mesh, const DerivedGrid& grid,
         const int corners = cell_topology::cornerCount(type);
         if (static_cast<std::size_t>(end - begin) < static_cast<std::size_t>(corners)) continue;
 
-        // 8 corners + the centroid slot.
-        dvec3 cp[9];
+        // Corner values + the centroid slot (their average). No positions are
+        // needed here: the geometry lives in the baked weights.
         float cv[9];
         bool ok = true;
         for (int k = 0; k < corners; ++k) {
             const std::uint32_t id = mesh.cellConnectivity[begin + static_cast<std::size_t>(k)];
             if (id >= vertexCount || id >= pointValues->size()) { ok = false; break; }
-            cp[k] = dvec3(verts[id * 3], verts[id * 3 + 1], verts[id * 3 + 2]);
             cv[k] = (*pointValues)[id];
         }
         if (!ok) continue;
 
-        dvec3 centre(0.0);
         double centreValue = 0.0;
-        for (int k = 0; k < corners; ++k) {
-            centre += cp[k];
-            centreValue += static_cast<double>(cv[k]);
-        }
-        centre /= static_cast<double>(corners);
-        centreValue /= static_cast<double>(corners);
-        cp[corners] = centre;
-        cv[corners] = static_cast<float>(centreValue);
+        for (int k = 0; k < corners; ++k) centreValue += static_cast<double>(cv[k]);
+        cv[corners] = static_cast<float>(centreValue / static_cast<double>(corners));
 
         tets.clear();
         cell_topology::tets(type,
@@ -443,49 +525,12 @@ void scatter(const RenderMesh& mesh, const DerivedGrid& grid,
             std::size_t t = grid.tet[voxel];
             if (t >= tets.size()) t = 0; // pinned sub-voxel cell centre
 
-            dvec3 p[4];
-            double tv[4];
-            for (int j = 0; j < 4; ++j) {
-                const std::uint32_t slot = tets[t][static_cast<std::size_t>(j)];
-                p[j] = cp[slot];
-                tv[j] = static_cast<double>(cv[slot]);
-            }
-
-            const std::size_t x = voxel % static_cast<std::size_t>(grid.dimX);
-            const std::size_t rest = voxel / static_cast<std::size_t>(grid.dimX);
-            const std::size_t y = rest % static_cast<std::size_t>(grid.dimY);
-            const std::size_t z = rest / static_cast<std::size_t>(grid.dimY);
-            const dvec3 point(loArr[0] + (static_cast<double>(x) + 0.5) * stepArr[0],
-                              loArr[1] + (static_cast<double>(y) + 0.5) * stepArr[1],
-                              loArr[2] + (static_cast<double>(z) + 0.5) * stepArr[2]);
-
-            double w[4];
-            double value = 0.0;
-            bool have = false;
-            if (barycentric(p, point, w)) {
-                double sum = 0.0;
-                for (int j = 0; j < 4; ++j) {
-                    if (w[j] > 0.0) sum += w[j];
-                }
-                if (sum > 0.0) {
-                    for (int j = 0; j < 4; ++j) {
-                        if (w[j] > 0.0) value += (w[j] / sum) * tv[j];
-                    }
-                    have = true;
-                }
-            }
-            if (!have) {
-                // Epsilon-outside or degenerate: clamp to the nearest corner.
-                double best = std::numeric_limits<double>::max();
-                for (int j = 0; j < 4; ++j) {
-                    const dvec3 delta = p[j] - point;
-                    const double d = glm::dot(delta, delta);
-                    if (d < best) { best = d; value = tv[j]; }
-                }
-            }
-
+            const auto& slots = tets[t];
+            const float* w = &grid.weight[static_cast<std::size_t>(k) * 4];
+            const float value = w[0] * cv[slots[0]] + w[1] * cv[slots[1]]
+                              + w[2] * cv[slots[2]] + w[3] * cv[slots[3]];
             if (!std::isfinite(value)) continue;
-            out.value[voxel] = static_cast<float>(value);
+            out.value[voxel] = value;
             out.occupancy[voxel] = 1;
         }
     }

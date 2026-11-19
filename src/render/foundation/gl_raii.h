@@ -6,6 +6,7 @@
 
 typedef unsigned int GLuint;
 typedef int GLint;
+typedef unsigned int GLenum;
 
 // Pluggable check so RenderCore (Qt-free) can gate GL deletions on a live
 // context. Qt layer installs a check returning QOpenGLContext::currentContext()

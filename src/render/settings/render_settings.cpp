@@ -766,10 +766,7 @@ void RenderSettings::onMeshParsed() {
     else m_state.scalarPlacement = 0;
 }
         recomputeScalarRange();
-        m_state.filterEnabled = false;
-        setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
-        m_state.volumeFilterEnabled = false;
-        setVolumeFilterMin(m_state.dataScalarMin); setVolumeFilterMax(m_state.dataScalarMax);
+        resetFilters(m_state.dataScalarMin, m_state.dataScalarMax);
         resetColorRangeOverride();
         resetVolumeColorRangeOverride();
         resetSliceColorRangeOverride();
@@ -796,11 +793,8 @@ void RenderSettings::onMeshParsed() {
                     m_state.scalarPlacement = f.isCell ? 1 : 0;
                 }
             }
-            m_state.filterEnabled = false;
-            // Ensure filter range matches derived range
-            setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
-            m_state.volumeFilterEnabled = false;
-            setVolumeFilterMin(m_state.dataScalarMin); setVolumeFilterMax(m_state.dataScalarMax);
+            // Filters restart off at the derived range
+            resetFilters(m_state.dataScalarMin, m_state.dataScalarMax);
             resetColorRangeOverride();
             resetVolumeColorRangeOverride();
             resetSliceColorRangeOverride();
@@ -834,10 +828,7 @@ void RenderSettings::onMeshParsed() {
                     m_state.dataScalarMax = 1.0f;
                 }
             }
-            m_state.filterEnabled = false;
-            setFilterMin(m_state.dataScalarMin); setFilterMax(m_state.dataScalarMax);
-            m_state.volumeFilterEnabled = false;
-            setVolumeFilterMin(m_state.dataScalarMin); setVolumeFilterMax(m_state.dataScalarMax);
+            resetFilters(m_state.dataScalarMin, m_state.dataScalarMax);
             resetColorRangeOverride();
             resetVolumeColorRangeOverride();
             resetSliceColorRangeOverride();
@@ -1014,10 +1005,7 @@ if (const std::vector<float>* legacy =
         // Do not auto-enable scalar visualization — user must enable manually
         m_state.meshUseScalarColor = false;
         m_state.showScalarColorbar = m_state.meshHasScalars;
-        m_state.filterEnabled = false;
-        setFilterMin(effMin); setFilterMax(effMax);
-        m_state.volumeFilterEnabled = false;
-        setVolumeFilterMin(effMin); setVolumeFilterMax(effMax);
+        resetFilters(effMin, effMax);
         { auto [isoLo, isoHi] = isosurfaceFieldRange(); m_isoController.reset(isoLo, isoHi); }
         resetColorRangeOverride(effMin, effMax);
         resetVolumeColorRangeOverride();
@@ -1301,6 +1289,15 @@ void RenderSettings::recomputeScalarRange() {
     m_state.scalarMin = mn; m_state.scalarMax = mx;
 }
 
+void RenderSettings::resetFilters(float mn, float mx) {
+    m_state.filterEnabled = false;
+    m_state.volumeFilterEnabled = false;
+    m_state.filterMin = mn;
+    m_state.filterMax = mx;
+    m_state.volumeFilterMin = mn;
+    m_state.volumeFilterMax = mx;
+}
+
 void RenderSettings::setActiveScalarField(const QString& fieldName) {
     if (fieldName.toStdString() == m_state.activeScalarName) return;
     if (!m_meshData.loadedMesh) return;
@@ -1343,8 +1340,9 @@ void RenderSettings::setActiveScalarField(const QString& fieldName) {
     m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
     m_state.scalarMin = mn;     m_state.scalarMax = mx;
     recomputeScalarRange();
-    m_state.filterMin = m_state.dataScalarMin;
-    m_state.filterMax = m_state.dataScalarMax;
+    // Filters restart off at the new field's range: the old window was
+    // narrowed on the previous field (resetFilters explains why not setters).
+    resetFilters(m_state.dataScalarMin, m_state.dataScalarMax);
     resetColorRangeOverride();
     resetVolumeColorRangeOverride();
     resetSliceColorRangeOverride();
@@ -1544,8 +1542,9 @@ void RenderSettings::setScalarPlacement(int v) {
             m_state.dataScalarMax = mx;
             m_state.scalarMin = mn;
             m_state.scalarMax = mx;
-            m_state.filterMin = mn;
-            m_state.filterMax = mx;
+            // Same invariant as setActiveScalarField: filters restart off at
+            // the effective range of the placement actually resolved.
+            resetFilters(mn, mx);
             resetColorRangeOverride();
             resetVolumeColorRangeOverride();
             resetSliceColorRangeOverride();

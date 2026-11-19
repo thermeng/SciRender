@@ -16,7 +16,38 @@ void configureTex3D(GLuint tex, GLenum minFilter) {
     glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, minFilter);
 }
 
+// Single source of truth for cache keys: lookup, store and invalidate all
+// build them here, so a new variant cannot silently escape invalidation.
+std::string volumeKey(const std::string& name, int placement, bool derived) {
+    return name + (placement == 1 ? "#cell" : "#vert") + (derived ? "#derived" : "");
+}
+
 } // namespace
+
+void VolumeTextureCache::upload3D(GLuint tex, int dimX, int dimY, int dimZ,
+                                  GLenum format, GLenum type, const void* data,
+                                  std::size_t bytes) {
+    if (!m_pboInitialized) {
+        for (int i = 0; i < 2; ++i)
+            if (!m_pbo[i].has()) glCreateBuffers(1, m_pbo[i].ptr());
+        m_pboInitialized = true;
+    }
+    if (m_pbo[0].has() && bytes > 0) {
+        GlBuffer& pbo = m_pbo[m_pboIndex];
+        m_pboIndex = (m_pboIndex + 1) % 2;
+        glNamedBufferData(pbo, bytes, nullptr, GL_STREAM_DRAW);
+        void* ptr = glMapNamedBufferRange(pbo, 0, bytes, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+        if (ptr) {
+            std::memcpy(ptr, data, bytes);
+            glUnmapNamedBuffer(pbo);
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo.get());
+            glTextureSubImage3D(tex, 0, 0, 0, 0, dimX, dimY, dimZ, format, type, nullptr);
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            return;
+        }
+    }
+    glTextureSubImage3D(tex, 0, 0, 0, 0, dimX, dimY, dimZ, format, type, data);
+}
 
 bool VolumePlaneRanges::range(int axis, float frac, float& outMin, float& outMax) const {
     if (axis < 0 || axis > 2) return false;
@@ -46,7 +77,8 @@ const std::vector<float>* VolumeTextureCache::resolveField(const RenderMesh& mes
     return FieldStore::scalarData(mesh, name, mn, mx, p, snap);
 }
 
-VolumeTexture VolumeTextureCache::textureFor(const std::string& name, const RenderMesh* mesh,
+VolumeTexture VolumeTextureCache::textureFor(const std::string& name,
+                                             const std::shared_ptr<const RenderMesh>& mesh,
                                              const std::shared_ptr<const volume::DerivedGrid>& derived,
                                              const glm::vec3& boxMin, const glm::vec3& boxMax,
                                              int placement,
@@ -56,29 +88,18 @@ VolumeTexture VolumeTextureCache::textureFor(const std::string& name, const Rend
 
     if (!derived || derived->empty()) {
         // Structured grids keep the existing unmasked path.
-        out.scalar = textureForField(name, mesh, boxMin, boxMax, placement, snap);
+        out.scalar = textureForField(name, mesh.get(), boxMin, boxMax, placement, snap);
         out.dimX = mesh->gridDimX;
         out.dimY = mesh->gridDimY;
         out.dimZ = mesh->gridDimZ;
         return out;
     }
 
-    const std::string key = name + (placement == 1 ? "#cell" : "#vert") + "#derived";
-    auto it = m_entries.find(key);
-    if (it != m_entries.end() && it->second.derived && it->second.tex.has()
-        && it->second.derivedOwner.lock().get() == derived.get()
-        && it->second.dimX == derived->dimX && it->second.dimY == derived->dimY
-        && it->second.dimZ == derived->dimZ
-        && it->second.placement == placement) {
-        out.scalar = it->second.tex.get();
-        out.occupancy = it->second.occupancy.get();
-        out.dimX = it->second.dimX;
-        out.dimY = it->second.dimY;
-        out.dimZ = it->second.dimZ;
-        out.planes = it->second.planes;
-        return out;
-    }
-
+    // Resolve the field before the lookup: an entry is reusable only when it
+    // was built from the same live array. The entry pins the mesh, so the
+    // array cannot be freed and its address reused while the entry exists —
+    // (mesh identity, data pointer, size) is a sound content token even if a
+    // caller forgets to invalidate.
     const std::size_t nCells = mesh->cellOffsets.size();
     const std::vector<float>* values = nullptr;
     bool cellPlacement = false;
@@ -98,6 +119,26 @@ VolumeTexture VolumeTextureCache::textureFor(const std::string& name, const Rend
         if (!values || values->empty()) return out;
     }
 
+    const std::string key = volumeKey(name, placement, true);
+    auto it = m_entries.find(key);
+    if (it != m_entries.end() && it->second.derived && it->second.tex.has()
+        && it->second.derivedOwner.lock().get() == derived.get()
+        && it->second.meshOwner.get() == mesh.get()
+        && it->second.snapToken == snap
+        && it->second.fieldData == values->data()
+        && it->second.fieldCount == values->size()
+        && it->second.dimX == derived->dimX && it->second.dimY == derived->dimY
+        && it->second.dimZ == derived->dimZ
+        && it->second.placement == placement) {
+        out.scalar = it->second.tex.get();
+        out.occupancy = it->second.occupancy.get();
+        out.dimX = it->second.dimX;
+        out.dimY = it->second.dimY;
+        out.dimZ = it->second.dimZ;
+        out.planes = it->second.planes;
+        return out;
+    }
+
     volume::ScalarGrid scattered;
     volume::scatter(*mesh, *derived, values, cellPlacement, scattered);
     if (scattered.empty()) return out;
@@ -111,33 +152,8 @@ VolumeTexture VolumeTextureCache::textureFor(const std::string& name, const Rend
     glCreateTextures(GL_TEXTURE_3D, 1, &scalarRaw);
     glTextureStorage3D(scalarRaw, 1, GL_R32F, derived->dimX, derived->dimY, derived->dimZ);
     configureTex3D(scalarRaw, GL_LINEAR);
-
-    const std::size_t bytes = expected * sizeof(float);
-    if (!m_pboInitialized) {
-        for (int i = 0; i < 2; ++i)
-            if (!m_pbo[i].has()) glCreateBuffers(1, m_pbo[i].ptr());
-        m_pboInitialized = true;
-    }
-    bool uploaded = false;
-    if (m_pbo[0].has() && bytes > 0) {
-        GlBuffer& pbo = m_pbo[m_pboIndex];
-        m_pboIndex = (m_pboIndex + 1) % 2;
-        glNamedBufferData(pbo, bytes, nullptr, GL_STREAM_DRAW);
-        void* ptr = glMapNamedBufferRange(pbo, 0, bytes, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-        if (ptr) {
-            std::memcpy(ptr, scattered.value.data(), bytes);
-            glUnmapNamedBuffer(pbo);
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo.get());
-            glTextureSubImage3D(scalarRaw, 0, 0, 0, 0, derived->dimX, derived->dimY, derived->dimZ,
-                                GL_RED, GL_FLOAT, nullptr);
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-            uploaded = true;
-        }
-    }
-    if (!uploaded) {
-        glTextureSubImage3D(scalarRaw, 0, 0, 0, 0, derived->dimX, derived->dimY, derived->dimZ,
-                            GL_RED, GL_FLOAT, scattered.value.data());
-    }
+    upload3D(scalarRaw, derived->dimX, derived->dimY, derived->dimZ, GL_RED, GL_FLOAT,
+             scattered.value.data(), expected * sizeof(float));
 
     // Occupancy mask: one byte per voxel, nearest-filtered so the volume/slice
     // shaders can discard empty space exactly instead of blurring the boundary.
@@ -145,8 +161,8 @@ VolumeTexture VolumeTextureCache::textureFor(const std::string& name, const Rend
     glCreateTextures(GL_TEXTURE_3D, 1, &occRaw);
     glTextureStorage3D(occRaw, 1, GL_R8, derived->dimX, derived->dimY, derived->dimZ);
     configureTex3D(occRaw, GL_NEAREST);
-    glTextureSubImage3D(occRaw, 0, 0, 0, 0, derived->dimX, derived->dimY, derived->dimZ,
-                        GL_RED, GL_UNSIGNED_BYTE, scattered.occupancy.data());
+    upload3D(occRaw, derived->dimX, derived->dimY, derived->dimZ, GL_RED, GL_UNSIGNED_BYTE,
+             scattered.occupancy.data(), expected);
 
     auto planes = std::make_shared<VolumePlaneRanges>();
     planes->minValue = std::move(scattered.planeMin);
@@ -161,6 +177,10 @@ VolumeTexture VolumeTextureCache::textureFor(const std::string& name, const Rend
     e.placement = placement;
     e.derived = true;
     e.derivedOwner = derived;
+    e.meshOwner = mesh;
+    e.snapToken = snap;
+    e.fieldData = values->data();
+    e.fieldCount = values->size();
     e.planes = planes;
 
     out.scalar = scalarRaw;
@@ -181,7 +201,7 @@ GLuint VolumeTextureCache::textureForField(const std::string& name, const Render
     if (dimX <= 0 || dimY <= 0 || dimZ <= 0) return 0;
 
     // Cache key includes placement so Vertex vs Cell textures are distinct.
-    std::string key = name + (placement == 1 ? "#cell" : "#vert");
+    const std::string key = volumeKey(name, placement, false);
     auto it = m_entries.find(key);
     if (it != m_entries.end() && it->second.tex.has()
         && it->second.dimX == dimX && it->second.dimY == dimY && it->second.dimZ == dimZ
@@ -207,46 +227,27 @@ GLuint VolumeTextureCache::buildTexture(const std::string& name, const RenderMes
     configureTex3D(raw, GL_LINEAR);
 
     size_t bytes = data->size() * sizeof(float);
-    if (!m_pboInitialized) {
-        for (int i = 0; i < 2; ++i)
-            if (!m_pbo[i].has()) glCreateBuffers(1, m_pbo[i].ptr());
-        m_pboInitialized = true;
-    }
-    if (m_pbo[0].has() && bytes > 0) {
-        GlBuffer& pbo = m_pbo[m_pboIndex];
-        m_pboIndex = (m_pboIndex + 1) % 2;
-        glNamedBufferData(pbo, bytes, nullptr, GL_STREAM_DRAW);
-        void* ptr = glMapNamedBufferRange(pbo, 0, bytes, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-        if (ptr) {
-            std::memcpy(ptr, data->data(), bytes);
-            glUnmapNamedBuffer(pbo);
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo.get());
-            glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, nullptr);
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-        } else {
-            glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, data->data());
-        }
-    } else {
-        glTextureSubImage3D(raw, 0, 0, 0, 0, dimX, dimY, dimZ, GL_RED, GL_FLOAT, data->data());
-    }
+    upload3D(raw, dimX, dimY, dimZ, GL_RED, GL_FLOAT, data->data(), bytes);
 
-    std::string key = name + (placement == 1 ? "#cell" : "#vert");
+    const std::string key = volumeKey(name, placement, false);
     Entry& e = m_entries[key];
     e.tex.reset(raw);
     e.occupancy.reset();
     e.dimX = dimX; e.dimY = dimY; e.dimZ = dimZ; e.placement = placement;
     e.derived = false;
     e.derivedOwner.reset();
+    e.meshOwner.reset();
+    e.snapToken = nullptr;
+    e.fieldData = nullptr;
+    e.fieldCount = 0;
     e.planes.reset();
     return raw;
 }
 
 void VolumeTextureCache::invalidate(const std::string& name) {
-    m_entries.erase(name);
-    m_entries.erase(name + "#cell");
-    m_entries.erase(name + "#vert");
-    m_entries.erase(name + "#cell#derived");
-    m_entries.erase(name + "#vert#derived");
+    for (int placement = 0; placement < 2; ++placement)
+        for (int derived = 0; derived < 2; ++derived)
+            m_entries.erase(volumeKey(name, placement, derived != 0));
 }
 
 void VolumeTextureCache::invalidateAll() {

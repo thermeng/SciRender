@@ -3,6 +3,8 @@
 // Shared helpers for sidebar panel pages. These used to live as static
 // functions at the top of main_window.cpp; every session page uses them.
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <QColor>
 #include <QColorDialog>
@@ -25,6 +27,19 @@ inline constexpr int kSidebarWidth = 240;
 inline constexpr int kNavWidthApprox = 140;
 inline constexpr int kLabelWidth = uikit::kLabelWidth;
 inline constexpr int kControlHeight = 24;
+
+// Filter sliders (Scalar + Volume pages) use a fixed 0..1000 tick range
+// normalized over the field's data range. Absolute value*1000 ticks overflow
+// int once |value| exceeds ~2.1e6 (e.g. pressure in Pa); normalization is
+// magnitude-independent. The line edits still carry the exact absolute value.
+inline int filterTickForValue(double v, double lo, double hi) {
+    const double span = hi - lo;
+    if (!(span > 0.0)) return 0;
+    return static_cast<int>(std::lround(std::clamp((v - lo) / span * 1000.0, 0.0, 1000.0)));
+}
+inline double filterValueForTick(int tick, double lo, double hi) {
+    return lo + (hi - lo) * (std::clamp(tick, 0, 1000) / 1000.0);
+}
 
 // Labeled slider row (LightSlider equivalent): fixed-width label on the left,
 // H slider in the middle, right-aligned numeric value label on the right.

@@ -82,7 +82,7 @@ ScalarPage::ScalarPage(RenderSettings* settings, QWidget* parent)
         m_filterMinSlider = slider;
         m_filterMinField = field;
         connect(slider, &QSlider::valueChanged, this, [field, s](int raw) {
-            double v = raw / 1000.0;
+            double v = sb::filterValueForTick(raw, s->getDataScalarMinQml(), s->getDataScalarMaxQml());
             field->setText(QString::number(v, 'f', 3));
             s->setFilterMin(v);
         });
@@ -92,7 +92,7 @@ ScalarPage::ScalarPage(RenderSettings* settings, QWidget* parent)
             if (!ok) v = s->getFilterMin();
             v = qBound(s->getDataScalarMinQml(), v, s->getDataScalarMaxQml());
             v = std::min(v, static_cast<double>(s->getFilterMax()));
-            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
+            slider->setValue(sb::filterTickForValue(v, s->getDataScalarMinQml(), s->getDataScalarMaxQml()));
             s->setFilterMin(v);
         });
     }
@@ -102,7 +102,7 @@ ScalarPage::ScalarPage(RenderSettings* settings, QWidget* parent)
         m_filterMaxSlider = slider;
         m_filterMaxField = field;
         connect(slider, &QSlider::valueChanged, this, [field, s](int raw) {
-            double v = raw / 1000.0;
+            double v = sb::filterValueForTick(raw, s->getDataScalarMinQml(), s->getDataScalarMaxQml());
             field->setText(QString::number(v, 'f', 3));
             s->setFilterMax(v);
         });
@@ -112,7 +112,7 @@ ScalarPage::ScalarPage(RenderSettings* settings, QWidget* parent)
             if (!ok) v = s->getFilterMax();
             v = qBound(s->getDataScalarMinQml(), v, s->getDataScalarMaxQml());
             v = std::max(v, static_cast<double>(s->getFilterMin()));
-            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
+            slider->setValue(sb::filterTickForValue(v, s->getDataScalarMinQml(), s->getDataScalarMaxQml()));
             s->setFilterMax(v);
         });
     }
@@ -171,9 +171,8 @@ void ScalarPage::refreshFilterRange() {
     const double maxVal = s->getDataScalarMaxQml();
     auto applyOne = [minVal, maxVal](QSlider* slider, QLineEdit* field, double filterVal) {
         if (!slider || !field) return;
-        slider->setRange(static_cast<int>(std::lround(minVal * 1000.0)),
-                         static_cast<int>(std::lround(maxVal * 1000.0)));
-        int vi = static_cast<int>(std::lround(filterVal * 1000.0));
+        slider->setRange(0, 1000);
+        int vi = sb::filterTickForValue(filterVal, minVal, maxVal);
         slider->blockSignals(true);
         slider->setValue(vi);
         slider->blockSignals(false);

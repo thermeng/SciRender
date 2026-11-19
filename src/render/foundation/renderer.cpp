@@ -1413,7 +1413,7 @@ void Renderer::renderFrame() {
         boxMax = glm::vec3(m_dataMesh->bounds.maxX, m_dataMesh->bounds.maxY, m_dataMesh->bounds.maxZ);
     }
 
-    VolumeTexture volTex = m_volumeCache.textureFor(m_state.activeScalarName, m_dataMesh.get(),
+    VolumeTexture volTex = m_volumeCache.textureFor(m_state.activeScalarName, m_dataMesh,
                                                    m_derivedVolume, boxMin, boxMax,
                                                    m_state.scalarPlacement, m_state.computed.get());
     m_volume.draw(m_state, view, proj, colormap, pixelFootprintScale, volTex.scalar,
@@ -1426,7 +1426,7 @@ void Renderer::renderFrame() {
         if (!m_state.slicePlaneEnabled[axis]) continue;
         const std::string& field = m_state.sliceScalarName[axis].empty()
             ? m_state.activeScalarName : m_state.sliceScalarName[axis];
-        sliceTextures[axis] = m_volumeCache.textureFor(field, m_dataMesh.get(), m_derivedVolume,
+        sliceTextures[axis] = m_volumeCache.textureFor(field, m_dataMesh, m_derivedVolume,
                                                        boxMin, boxMax, m_state.scalarPlacement,
                                                        m_state.computed.get());
         sliceTex[axis] = sliceTextures[axis].scalar;

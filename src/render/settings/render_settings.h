@@ -1106,6 +1106,13 @@ enum class PlotMode { Histogram = 0, Line = 1, Monitor = 2 };
   private:
     void setStatus(const QString& msg);
     void recomputeScalarRange();
+    // Reset both filters to OFF at the full effective data range: a window
+    // narrowed on the previous field/placement is meaningless on the new one,
+    // and "checked at full range" reads as filtering when nothing is filtered.
+    // Direct state assignment: the public setters cross-clamp against the OLD
+    // opposite bound and the OLD data range, corrupting disjoint-range resets.
+    // Callers emit their own refresh signals afterwards.
+    void resetFilters(float mn, float mx);
 
     // Marks the render-state snapshot stale; the next publishRenderState()
     // re-assembles it. Called from every GUI-state mutation (see emit sites).
