@@ -344,7 +344,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
                       << " dtPrev=" << dtPrev_ << "\n";
         } else {
             std::cerr << "  [transient] checkpoint had no transient state"
-                      << " â€” restarting from t=0\n";
+                      << " - restarting from t=0\n";
         }
     }
 
@@ -375,7 +375,6 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
     dt_ = std::max(s.config_.transient.minDt, std::min(dt_, s.config_.transient.maxDt));
     dtPrev_ = std::max(s.config_.transient.minDt,
                        std::min(dtPrev_, s.config_.transient.maxDt));
-    pressureN_ = pressure;
     // Determine base name for PVD from transient.pvdFile or default
     pvdBaseName_ = s.config_.transient.pvdFile;
     if (pvdBaseName_.empty()) pvdBaseName_ = "transient";
@@ -542,7 +541,6 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
         velocityNM1_ = velocityN_;
         s.hasVelocityHistory_ = true;
         velocityN_ = velocity;
-        pressureN_ = pressure;
         dtPrev_ = dt_;
         if (s.turbulence_) {
             kNM1_ = kN_;
@@ -578,16 +576,9 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
     }
     std::cout << "Transient solve " << s.statusText()
               << ": steps=" << step << " time=" << time_ << " dt=" << dt_ << "\n";
-    if (s.pPrimeLimiterHits_ > 0) {
-        std::cerr << "  WARNING: p' magnitude limiter fired " << s.pPrimeLimiterHits_
-                  << " time(s). This imposes an effective alphaP=alphaU<1 and breaks the\n"
-                     "           PISO pressure/velocity coupling (continuity is not exactly\n"
-                     "           satisfied at the end of a corrector). Consider a smaller dt, more\n"
-                     "           correctors, or raising simple.pressure_correction_limit.\n";
-    }
     s.linearSolverDispatcher_.printStats();
     if (s.config_.pressureSolverStats) s.printPressureSolverStats_();
-    s.printFinalStats_();
+    s.printFinalStats_(/*isTransient=*/true);
 }
 
 template class TransientDriver<2>;

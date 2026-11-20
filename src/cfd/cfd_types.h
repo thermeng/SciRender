@@ -151,8 +151,8 @@ struct AmgSettings {
 // Used by the UI, case file I/O, and the solver (fvm::SIMPLE) directly.
 // Plain enums so the UI layer never has to include fvm headers beyond Types.
 //
-// Defaults match fvm::SIMPLE::TransientConfig's initialisers so the UI,
-// the solver and "Restore defaults" cannot disagree.
+// These defaults are the values the solver starts from, so the UI, the solver
+// and "Restore defaults" cannot disagree.
 struct TransientSettings {
     // The solver's TimeScheme::Euler is implicit, i.e. backward Euler.
     // false = steady: the transient controls are not shown and not consulted.
@@ -245,7 +245,7 @@ struct CaseSettings {
     int pressureAmgPreconditionerCycles = 1;
     AmgSettings pressureAmg = AmgSettings::pressureDefaults();
 
-    // Momentum linear solver (see fvm::SIMPLE::Config)
+    // Momentum linear solver (see fvm::CFDSolver::Config)
     // AMG is always used; momentumAmgCycles controls cycles per application.
     bool momentumAmgAsSolver = false;
     int momentumAmgCycles = 1;

@@ -287,13 +287,12 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
     steadyTotalSeconds_ = 0.0;
     steadyMomentumSeconds_ = 0.0;
     steadyMomentumAssemblySeconds_ = 0.0;
-    steadyMomentumSolveSeconds_ = 0.0;
     steadyPredictedContinuitySeconds_ = 0.0;
     steadyPressureSeconds_ = 0.0;
-    steadyVelocityCorrectionSeconds_ = 0.0;
     steadyResidualSeconds_ = 0.0;
     steadyTurbulenceSeconds_ = 0.0;
     divergenceCount_ = 0;
+    pPrimeLimiterHits_ = 0;
 }
 
 template<std::size_t Dim>
@@ -465,7 +464,7 @@ bool CFDSolver<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
         // Per-equation residuals must each be below their own tolerance for
         // `convergenceHoldIterations` consecutive iterations. A single lucky
         // iteration is not a steady state. Momentum W is only consulted in 3D,
-        // k/omega only when turbulence exists ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the policy already filtered
+        // k/omega only when turbulence exists; the policy already filtered
         // those out, so we pass nullopt for the absent ones.
         std::optional<double> momW, kResid, omegaResid;
         if constexpr (Dim == 3) momW = lastMomResidW_;
@@ -595,7 +594,7 @@ void CFDSolver<Dim>::printHeader_(bool isTransient) const {
 }
 
 template<std::size_t Dim>
-void CFDSolver<Dim>::printFinalStats_() const {
+void CFDSolver<Dim>::printFinalStats_(bool isTransient) const {
     double maxU = 0.0, maxV = 0.0;
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         if (mesh_.isBoundary(i)) continue;
@@ -603,9 +602,8 @@ void CFDSolver<Dim>::printFinalStats_() const {
         maxV = std::max(maxV, std::abs((boundVelocity())[1][i]));
     }
     // The verdict comes first: "max|u|" alone says nothing about whether the
-    // result is a steady state. Report the quantities the convergence test
-    // actually graded (scaled, same as the iteration table) next to the
-    // un-normalized values, so "converged" is auditable against the tolerance.
+    // run met its stop criterion. Report the graded quantities (scaled, same as
+    // the iteration table) next to the un-normalized values.
     std::cerr << "  [final] status: " << statusText()
               << "  (iterations=" << lastIterations_
               << ", continuity=" << lastContResid_
@@ -615,12 +613,14 @@ void CFDSolver<Dim>::printFinalStats_() const {
               << " momentum=" << lastMomResid_
               << " (u=" << lastMomResidU_ << " v=" << lastMomResidV_;
     if constexpr (Dim == 3) std::cerr << " w=" << lastMomResidW_;
-    std::cerr << ") velocityChange=" << lastMomChange_
-              << " tolerance="
-              << (config_.stoppingPolicy.steady.effectiveTolerances.empty()
-                      ? config_.stopping.defaultTolerance
-                      : config_.stoppingPolicy.steady.effectiveTolerances.front())
-              << "\n";
+    std::cerr << ") velocityChange=" << lastMomChange_;
+    if (!isTransient) {
+        std::cerr << " tolerance="
+                  << (config_.stoppingPolicy.steady.effectiveTolerances.empty()
+                          ? config_.stopping.defaultTolerance
+                          : config_.stoppingPolicy.steady.effectiveTolerances.front());
+    }
+    std::cerr << "\n";
     if (aborted_) {
         std::cerr << "  [final] ABORTED: " << failureText() << "\n";
     } else {
@@ -641,16 +641,14 @@ void CFDSolver<Dim>::printFinalStats_() const {
                       "         y+ ~ 1. Refine the near-wall mesh (or accept that the wall\n"
                       "         shear is mesh-dependent).\n";
     }
-    if (config_.printTotalTime && steadyTotalSeconds_ > 0.0) {
+    if (!isTransient && config_.printTotalTime && steadyTotalSeconds_ > 0.0) {
         std::cerr << "  [timing] steady SIMPLE total=" << steadyTotalSeconds_ << " s"
                   << " momentum=" << steadyMomentumSeconds_ << " s"
                   << " predictedContinuity=" << steadyPredictedContinuitySeconds_ << " s"
                   << " pressure=" << steadyPressureSeconds_ << " s"
-                  << " velocityCorrection=" << steadyVelocityCorrectionSeconds_ << " s"
                   << " residuals=" << steadyResidualSeconds_ << " s"
                   << " turbulence=" << steadyTurbulenceSeconds_ << " s\n";
         std::cerr << "  [timing] momentum: assembly=" << steadyMomentumAssemblySeconds_
-                  << " s linear-solve=" << steadyMomentumSolveSeconds_
                   << " s dispatch=" << linearSolverDispatcher_.dispatchSeconds()
                   << " s\n";
         const auto& ps = pressureCorrection_.pressureStats();

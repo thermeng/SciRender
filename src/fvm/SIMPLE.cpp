@@ -97,7 +97,6 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const typename
 
 
 
-// Shared pressure-correction core Ã¢â‚¬â€ see SIMPLE.h.
 
 
 
@@ -304,7 +303,7 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     this->linearSolverDispatcher_.printStats();
     if (this->config_.pressureSolverStats) this->printPressureSolverStats_();
     this->steadyTotalSeconds_ = std::chrono::duration<double>(std::chrono::steady_clock::now() - steadyTotalStart).count();
-    this->printFinalStats_();
+    this->printFinalStats_(/*isTransient=*/false);
 }
 
 

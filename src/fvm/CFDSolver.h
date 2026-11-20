@@ -253,7 +253,7 @@ private:
 
     void printHeader_(bool isTransient) const;
     void printIterationRow_(bool isTransient, int iter, double time, double dt);
-    void printFinalStats_() const;
+    void printFinalStats_(bool isTransient) const;
     void printPressureSolverStats_() const;
     mutable int headerCounter_ = 0; // for repeating header every N lines
 
@@ -363,10 +363,8 @@ private:
     double steadyTotalSeconds_ = 0.0;
     double steadyMomentumSeconds_ = 0.0;
     double steadyMomentumAssemblySeconds_ = 0.0;
-    double steadyMomentumSolveSeconds_ = 0.0;
     double steadyPredictedContinuitySeconds_ = 0.0;
     double steadyPressureSeconds_ = 0.0;
-    double steadyVelocityCorrectionSeconds_ = 0.0;
     double steadyResidualSeconds_ = 0.0;
     // Turbulence (k + omega transport) is not part of any other timer; without
     // this the steady breakdown leaves the largest phase unaccounted for.

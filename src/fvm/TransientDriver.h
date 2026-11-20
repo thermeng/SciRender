@@ -64,7 +64,6 @@ private:
     // BDF2 history.
     VectorField<Dim> velocityN_;
     VectorField<Dim> velocityNM1_;
-    Field<Dim> pressureN_;
     Field<Dim> kN_;
     Field<Dim> omegaN_;
     Field<Dim> kNM1_;

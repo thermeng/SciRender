@@ -8,8 +8,8 @@
 namespace cfd {
 
 // Single place where CaseSettings becomes the solver's SIMPLE config, so the
-// UI controller never has to spell out the 40-field mapping and a knob added
-// to fvm::SIMPLE::Config surfaces here as a compile error.
+// UI controller never has to spell out the 40-field mapping. New config knobs
+// still need a line here when they must reach the solver.
 //
 // Stopping criteria now live in the nested CaseSettings::stopping object and
 // are resolved into an immutable ResolvedStoppingPolicy that the solver reads

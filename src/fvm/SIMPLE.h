@@ -6,9 +6,9 @@
 
 namespace fvm {
 
-// Steady driver of the CFD solver: the SIMPLE/PIMPLE algorithm on the
-// CFDSolver context. All transient paths (time loop, PISO, BDF2, adaptive
-// dt, PVD output) live in TransientDriver, driven from solveTransient().
+// Public driver of the CFD solver: the SIMPLE/PIMPLE algorithm over the
+// CFDSolver context. The time loop lives in TransientDriver; this class keeps
+// solveTransient() and the transient-state accessors as the public API.
 template<std::size_t Dim>
 class SIMPLE : public CFDSolver<Dim> {
 public:

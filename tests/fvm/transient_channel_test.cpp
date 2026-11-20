@@ -308,4 +308,38 @@ TEST_CASE("fvm.transient.resident_set_column_is_opt_in") {
                   "enabling the option must add the memory column");
 }
 
+TEST_CASE("fvm.transient.final_stats_do_not_use_steady_labels") {
+    const fvm::Mesh<2> mesh(std::array<std::size_t, 2>{6, 3},
+                            std::array<double, 2>{4.0, 1.0});
+    fvm::SIMPLE<2>::Config cfg;
+    cfg.transient.enabled = true;
+    cfg.transient.dt = 0.01;
+    cfg.stopping.transient.tEnd = 0.02;
+    cfg.stopping.transient.maxOuterCorrectors = 2;
+    cfg.printFrequency = 1000000;
+    cfg.solverType = fvm::SolverType::PISO;
+
+    std::vector<std::size_t> inlet, outlet, walls;
+    forEachBoundaryFace(mesh, 0, -1, [&](std::size_t f, std::size_t) { inlet.push_back(f); });
+    forEachBoundaryFace(mesh, 0, +1, [&](std::size_t f, std::size_t) { outlet.push_back(f); });
+    forEachBoundaryFace(mesh, 1, -1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
+    forEachBoundaryFace(mesh, 1, +1, [&](std::size_t f, std::size_t) { walls.push_back(f); });
+
+    fvm::SIMPLE<2> solver(mesh, 1.0, 0.01, cfg);
+    solver.setVelocityBCOnFacesWithSlip(inlet, "inlet", 1.0, 0.0, 0.0, false, 0.0);
+    solver.setVelocityBCOnFacesWithSlip(outlet, "pressure_outlet", 0.0, 0.0, 0.0, false, 0.0);
+    solver.setVelocityBCOnFacesWithSlip(walls, "wall", 0.0, 0.0, 0.0, false, 0.0);
+    fvm::VectorField<2> velocity(mesh, 0.0);
+    fvm::Field<2> pressure(mesh, 0.0);
+
+    std::ostringstream captured;
+    auto* previous = std::cerr.rdbuf(captured.rdbuf());
+    solver.solveTransient(velocity, pressure);
+    std::cerr.rdbuf(previous);
+
+    const std::string log = captured.str();
+    CHECK(log.find("steady SIMPLE total") == std::string::npos);
+    CHECK(log.find("tolerance=") == std::string::npos);
+}
+
 } // TEST_SUITE("fvm")
