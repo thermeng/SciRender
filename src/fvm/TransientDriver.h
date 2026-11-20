@@ -35,6 +35,13 @@ public:
 private:
     friend class SIMPLE<Dim>;
 
+    // The transient momentum solves, moved here from SIMPLE — this module
+    // owns the whole transient path, so its momentum assembly lives with it.
+    void solveMomentumTransient_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld);
+    void solveMomentumComponentTransient_(std::size_t d, VectorField<Dim>& uStar,
+                                          const VectorField<Dim>& velocityOld,
+                                          const std::array<Field<Dim>, Dim>& pressureGrad);
+
     void performTransientIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure);
     void performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& pressure);
     void performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& pressure);

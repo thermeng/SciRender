@@ -777,7 +777,7 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
         // Per-equation residuals must each be below their own tolerance for
         // `convergenceHoldIterations` consecutive iterations. A single lucky
         // iteration is not a steady state. Momentum W is only consulted in 3D,
-        // k/omega only when turbulence exists â€” the policy already filtered
+        // k/omega only when turbulence exists Ã¢â‚¬â€ the policy already filtered
         // those out, so we pass nullopt for the absent ones.
         std::optional<double> momW, kResid, omegaResid;
         if constexpr (Dim == 3) momW = lastMomResidW_;
@@ -1231,88 +1231,6 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
     steadyMomentumAssemblySeconds_ += std::chrono::duration<double>(
         std::chrono::steady_clock::now() - tAsm0).count();
     const auto tSol0 = std::chrono::steady_clock::now();
-    auto result = linearSolverDispatcher_.solve(d, momA, momB, momentumWarmStart_,
-                                                &cancelRequested_);
-    if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);
-
-    for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
-        double val = result.x(static_cast<Eigen::Index>(i));
-        if (std::isnan(val) || std::isinf(val)) val = (boundVelocity())[d][i];
-        if (bcDiscretization_.dirichletMask(d)[i]) val = bcDiscretization_.dirichletVals(d)[i];
-        uStar[d][i] = val;
-    }
-}
-
-template<std::size_t Dim>
-void SIMPLE<Dim>::solveMomentumTransient_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld) {
-    // The pressure source in the transient momentum equation must use the same
-    // least-squares operator as the pressure correction. The Green-Gauss
-    // gradient used to be used here, which made the predictor solve a
-    // different pressure term than the corrector cancelled; the mismatch is
-    // largest on skewed/non-uniform meshes.
-    pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
-    if constexpr (Dim == 2) {
-        solveMomentumComponentTransient_(0, uStar, velocityOld, pressureGrad_);
-        solveMomentumComponentTransient_(1, uStar, velocityOld, pressureGrad_);
-    } else {
-        solveMomentumComponentTransient_(0, uStar, velocityOld, pressureGrad_);
-        solveMomentumComponentTransient_(1, uStar, velocityOld, pressureGrad_);
-        solveMomentumComponentTransient_(2, uStar, velocityOld, pressureGrad_);
-    }
-}
-template<std::size_t Dim>
-void SIMPLE<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Dim>& uStar,
-                                                   const VectorField<Dim>& velocityOld,
-                                                   const std::array<Field<Dim>, Dim>& pressureGrad) {
-    // Assemble in place into the per-component snapshot (see the steady path).
-    SparseMatrix& momA = momAsnap_[d];
-    Eigen::VectorXd& momB = momBsnap_[d];
-    const Field<Dim>* nutPtr = turbulence_ ? &turbulence_->nut() : nullptr;
-    gradientCalc_->compute((boundVelocity())[d], velGrad_);
-    const std::array<Field<Dim>, Dim>* velGradPtr = &velGrad_;
-
-    const Field<Dim>* oldTime = &transientDriver_->velocityN_[d];
-    const Field<Dim>* oldTimePrev = nullptr;
-    // BDF2 needs two levels of history. dtPrev_ == 0 additionally forces
-    // explicit Euler for this step (handled inside the assembler), which is
-    // what a restart from a fresh field must do.
-    if (config_.transient.timeScheme == TimeScheme::BDF2 && timeStep_ > 1 && transientDriver_->dtPrev_ > 0.0 && hasVelocityHistory_) {
-        oldTimePrev = &transientDriver_->velocityNM1_[d];
-    }
-    TimeScheme ts = config_.transient.timeScheme;
-    if (timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
-
-    if (!hasVelocityHistory_ && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
-
-    fvm::MomentumBCs momBCs;
-    momBCs.slipWallMask = &bcDiscretization_.slipWallMask(d);
-    momBCs.dirichletMaskAll = &bcDiscretization_.dirichletMask();
-    momBCs.dirichletValsAll = &bcDiscretization_.dirichletVals();
-    momBCs.faceBC = &bcDiscretization_.faceBCs();
-
-    momentum_.assembleWithConvectionTransient(d, boundVelocity(), pressureGrad,
-                                             zeroSource_(),
-                                             bcDiscretization_.dirichletMask(d), bcDiscretization_.dirichletVals(d),
-                                             momA, momB, momDiag_,
-                                             transientDriver_->dt_, transientDriver_->dtPrev_, oldTime, oldTimePrev, ts,
-                                             config_.convectionScheme,
-                                             nutPtr, velGradPtr,
-                                             momBCs);
-    diag_[d] = momDiag_;
-    // PISO: no momentum under-relaxation (alphaU=1). PIMPLE/SIMPLE use config.alphaU.
-    // solverType is explicit; legacy piso bool kept for compat.
-    double alphaU = isPiso_() ? 1.0 : config_.alphaU;
-    momentum_.computeDCoeffAndRelax(momA, momB, bcDiscretization_.dirichletMask(d),
-                                    velocityOld[d], alphaU,
-                                    dCoeff_[d], config_.simplec);
-    // Transient greatly increases diagonal dominance, keep pattern re-analysis cheap: still cache
-    // For transient, matrix pattern identical, but values change with dt:
-    // the linear-solver dispatch below re-factorizes / rebuilds as needed.
-    momentumWarmStart_.resize(static_cast<Eigen::Index>(mesh_.nCells()));
-    const double* velPtr = (boundVelocity())[d].ptr();
-    for (std::size_t i = 0; i < mesh_.nCells(); ++i)
-        momentumWarmStart_(static_cast<Eigen::Index>(i)) = velPtr[i];
-
     auto result = linearSolverDispatcher_.solve(d, momA, momB, momentumWarmStart_,
                                                 &cancelRequested_);
     if (result.failed || !result.x.allFinite()) fail_(Failure::MomentumSolveFailed);

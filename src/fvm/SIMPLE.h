@@ -267,11 +267,6 @@ private:
     void solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar,
                                  const VectorField<Dim>& velocityOld,
                                  const std::array<Field<Dim>, Dim>& pressureGrad);
-    void solveMomentumTransient_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld);
-    void solveMomentumComponentTransient_(std::size_t d, VectorField<Dim>& uStar,
-                                         const VectorField<Dim>& velocityOld,
-                                         const std::array<Field<Dim>, Dim>& pressureGrad);
-
     void initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pressure);
     // Rebuild the pressure-correction linear-solver configuration from
     // Config. Called at construction and again whenever the transient path
@@ -297,7 +292,7 @@ private:
     void printPressureSolverStats_() const;
     // Returns true when the caller should stop solving. `checkTolerance` gates
     // the "residuals are below tolerance" clause: the steady path wants it, the
-    // transient path does not — a converged corrector loop at one time step
+    // transient path does not Ã¢â‚¬â€ a converged corrector loop at one time step
     // says nothing about whether the transient simulation is finished, so a
     // transient run must keep marching to tEnd (NaN/divergence and Cancel still
     // stop it in both modes).
@@ -445,7 +440,7 @@ private:
     // Linear solver dispatch: AMG hierarchies, BiCGSTAB+ILU fallback,
     // warm-start handling, and the AMG-vs-ILU decision. The SIMPLE orchestrator
     // no longer knows about sparsity hashes, rebuild intervals, or preconditioner
-    // cycles — it simply asks the dispatcher to solve A x = b.
+    // cycles Ã¢â‚¬â€ it simply asks the dispatcher to solve A x = b.
     LinearSolverDispatcher<Dim> linearSolverDispatcher_;
 
     VectorField<Dim> velocityOld_;
