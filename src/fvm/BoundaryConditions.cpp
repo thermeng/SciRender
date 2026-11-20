@@ -276,7 +276,7 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                 if (a > maxA) { maxA = a; wall_d = d; }
             }
             const int sign = (fn[wall_d] < 0.0) ? -1 : 1;
-            if (maxA >= 0.5) {
+            if (maxA >= 0.9) {
                 // The face is aligned with a coordinate direction: use the
                 // direction based boundary condition.
                 const auto& bc = spec.velBcs[wall_d * 2 + (sign < 0 ? 0 : 1)];
@@ -290,13 +290,6 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                 FaceVelocityBC& fb = disc.faceBCs_[f];
                 fb.type = VelocityBCType::NoSlip;
                 disc.faceHasBC_[f] = 1;
-                // A no-slip wall is a pressure-Neumann boundary. Without this flag the
-                // owning cell fails the "every boundary face is Neumann" test below,
-                // and PressureCorrection then drops that cell from the Poisson system
-                // as a p' = 0 Dirichlet cell - i.e. it invents a p = 0 constraint on a
-                // wall that the momentum equation treats as a solid no-slip surface.
-                // The two must agree, otherwise the pressure field that drives the
-                // recirculation is corrupted exactly at the boundary.
             }
         }
     }

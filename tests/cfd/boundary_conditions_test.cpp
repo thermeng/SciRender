@@ -11,6 +11,7 @@
 #include "mesh/BoundaryUtils.h"
 #include "support/fvm_fixtures.h"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -185,6 +186,29 @@ TEST_CASE("cfd.bc.unstructured_uses_face_path") {
     }
     MESSAGE("worst normal velocity at a wall = ", worstNormal);
     CHECK_MESSAGE(worstNormal < 1e-6, "a no-slip wall must be impermeable");
+}
+
+TEST_CASE("cfd.bc.unstructured_3d_oblique_face_ignores_axis_direction") {
+    const fvm::Mesh<3> mesh(
+        {{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
+        {{0, 1, 2, 3}});
+    fvm::BoundaryConditions<3> bc(mesh);
+
+    bc.setVelocityBC(0, +1, fvm::VelocityBCType::Inlet, 1.0, 0.0, 0.0);
+    for (std::size_t d = 0; d < 3; ++d) {
+        bc.setVelocityBC(d, -1, fvm::VelocityBCType::NoSlip);
+        if (d != 0) bc.setVelocityBC(d, +1, fvm::VelocityBCType::NoSlip);
+    }
+
+    std::size_t slanted = mesh.nFaces();
+    for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
+        if (mesh.neighbor(f) != std::size_t(-1)) continue;
+        const auto& n = mesh.faceNormal(f);
+        const double mx = std::max({std::abs(n[0]), std::abs(n[1]), std::abs(n[2])});
+        if (mx < 0.8) { slanted = f; break; }
+    }
+    REQUIRE(slanted < mesh.nFaces());
+    CHECK(bc.discretization().faceBCs()[slanted].type == fvm::VelocityBCType::NoSlip);
 }
 
 } // TEST_SUITE("cfd")
