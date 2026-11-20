@@ -45,8 +45,7 @@ private:
     friend class CFDSolver<Dim>;
 
     // Driver methods, operating on the shared context through solver_.
-    // One momentum solve for transient callers: SIMPLE::solveMomentum_ has
-    // been absorbed into the shared CFDSolver::solveMomentumComponent_.
+    // Momentum assembly uses the shared CFDSolver::solveMomentumComponent_.
     void solveMomentumTransient_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld);
     // TransientParams for one momentum component, from driver state.
     TransientParams<Dim> momentumTp_(std::size_t d) const;

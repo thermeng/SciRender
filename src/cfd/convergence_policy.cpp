@@ -72,6 +72,15 @@ std::optional<ResolvedStoppingPolicy> resolveStoppingPolicy(
     return policy;
 }
 
+SteadyStoppingPolicy steadyPolicyFromTransient(const TransientStoppingPolicy& p) {
+    SteadyStoppingPolicy policy;
+    policy.activeEquations = p.activeEquations;
+    policy.effectiveTolerances = p.effectiveTolerances;
+    policy.convergenceHoldIterations = 1;
+    policy.residualGateEnabled = true;
+    return policy;
+}
+
 ConvergenceMonitor::ConvergenceMonitor(const SteadyStoppingPolicy& policy)
     : policy_(policy) {}
 

@@ -10,12 +10,12 @@
 
 #include <iomanip>
 #include <cmath>
+#include <optional>
 #include <utility>
 
 namespace fvm {
 
 using cfd::ResolvedStoppingPolicy;
-using cfd::ResidualEquation;
 
 // True PISO predictor. The momentum equation is assembled and solved once
 // per time step; the pressure-free right-hand side b0 is frozen for the
@@ -219,12 +219,7 @@ void TransientDriver<Dim>::performTransientIteration_(VectorField<Dim>& velocity
         } else {
             solver_.turbulence_->solveIteration(solver_.boundVelocity(), solver_.config_.convectionScheme);
         }
-        double alphaNut = nutUnderRelax;
-        auto& nut = solver_.turbulence_->nut();
-        #pragma omp parallel for schedule(static)
-        for (std::size_t i = 0; i < solver_.mesh_.nCells(); ++i) {
-            nut[i] = alphaNut * nut[i] + (1.0 - alphaNut) * solver_.nutOld_[i];
-        }
+        solver_.relaxNut_(solver_.nutOld_);
     }
 }
 
@@ -517,54 +512,25 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
                 // Use current corrected velocity
                 s.turbulence_->solveIterationTransient(velocity, s.config_.convectionScheme, dt_, dtPrev_, ts,
                                                        kN_, omegaN_, kPrevPrev, oPrevPrev);
-                double alphaNut = nutUnderRelax;
-                auto& nut = s.turbulence_->nut();
-                #pragma omp parallel for schedule(static)
-                for (std::size_t i = 0; i < s.mesh_.nCells(); ++i) {
-                    nut[i] = alphaNut * nut[i] + (1.0 - alphaNut) * dummyNut[i];
-                }
+                s.relaxNut_(dummyNut);
             }
         } else {
+            // One below-tolerance snapshot ends the correctors; the hold streak
+            // belongs to the steady loop, not to this per-step gate.
+            cfd::ConvergenceMonitor monitor(
+                cfd::steadyPolicyFromTransient(s.config_.stoppingPolicy.transientPolicy));
             for (int outer = 0; outer < nOuter; ++outer) {
                 performTransientIteration_(velocity, pressure);
                 s.updateResiduals_();
                 s.lastIterations_ = step * nOuter + outer + 1;
-                {
-                    // Per-equation corrector early exit (SIMPLE transient path).
-                    bool converged = true;
-                    for (std::size_t i = 0;
-                         i < s.config_.stoppingPolicy.transientPolicy.activeEquations.size();
-                         ++i) {
-                        double t = s.config_.stoppingPolicy.transientPolicy
-                                       .effectiveTolerances[i];
-                        switch (s.config_.stoppingPolicy.transientPolicy
-                                    .activeEquations[i]) {
-                            case ResidualEquation::Continuity:
-                                converged = converged && s.lastContResid_ < t;
-                                break;
-                            case ResidualEquation::MomentumX:
-                                converged = converged && s.lastMomResidU_ < t;
-                                break;
-                            case ResidualEquation::MomentumY:
-                                converged = converged && s.lastMomResidV_ < t;
-                                break;
-                            case ResidualEquation::MomentumW:
-                                converged = converged && s.lastMomResidW_ < t;
-                                break;
-                            case ResidualEquation::TurbulenceK:
-                                converged =
-                                    converged && s.turbulence_ &&
-                                    s.lastKResid_ < t;
-                                break;
-                            case ResidualEquation::TurbulenceOmega:
-                                converged =
-                                    converged && s.turbulence_ &&
-                                    s.lastOmegaResid_ < t;
-                                break;
-                        }
-                    }
-                    if (converged) break;
-                }
+                std::optional<double> momW;
+                if constexpr (Dim == 3) momW = s.lastMomResidW_;
+                const std::optional<double> kResid =
+                    s.turbulence_ ? std::optional<double>(s.lastKResid_) : std::nullopt;
+                const std::optional<double> omegaResid =
+                    s.turbulence_ ? std::optional<double>(s.lastOmegaResid_) : std::nullopt;
+                if (monitor.update(s.lastContResid_, s.lastMomResidU_, s.lastMomResidV_,
+                                   momW, kResid, omegaResid)) break;
             }
             if (s.checkConvergence_(static_cast<std::size_t>(step), false, false)) break;
         }

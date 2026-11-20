@@ -210,11 +210,13 @@ private:
     // The compiled boundary view is owned by the BC spec; callers never cache it.
     const BCDiscretization& bcDiscretization() const { return bc_.discretization(); }
 
+    // Under-relax the current turbulence viscosity toward the supplied previous field.
+    void relaxNut_(const Field<Dim>& previous, double alpha = nutUnderRelax);
+
     void initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pressure);
     // Steady loop internals (now shared by the base since the loop mechanics
     // are identical for both sides).
     void performIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure, std::size_t iter);
-    void solveMomentum_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld);
     // One momentum solve for steady and transient callers alike (TransientParams).
     void solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar,
                                  const VectorField<Dim>& velocityOld,

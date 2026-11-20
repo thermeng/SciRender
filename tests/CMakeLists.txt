@@ -165,6 +165,7 @@ scirender_add_test_suite(scirender_cfd_tests
         cfd/pressure_correction_test.cpp
         cfd/velocity_correction_test.cpp
         cfd/boundary_conditions_test.cpp
+        cfd/convergence_policy_test.cpp
         cfd/residual_test.cpp
         cfd/mesh_adapter_test.cpp
         cfd/cgns_adapter_test.cpp

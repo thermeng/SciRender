@@ -27,21 +27,6 @@ CFDSolver<Dim>::CFDSolver(const Mesh<Dim>& mesh, double rho, double nu, const Co
 template<std::size_t Dim>
 CFDSolver<Dim>::~CFDSolver() = default;
 
-// Shared momentum solve (the "one momentum implementation" rule).
-template<std::size_t Dim>
-void CFDSolver<Dim>::solveMomentum_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld) {
-    this->pressureGradientCalc_->compute(this->boundPressure(), this->pressureGrad_);
-
-    if constexpr (Dim == 2) {
-        solveMomentumComponent_(0, uStar, velocityOld, this->pressureGrad_);
-        solveMomentumComponent_(1, uStar, velocityOld, this->pressureGrad_);
-    } else {
-        solveMomentumComponent_(0, uStar, velocityOld, this->pressureGrad_);
-        solveMomentumComponent_(1, uStar, velocityOld, this->pressureGrad_);
-        solveMomentumComponent_(2, uStar, velocityOld, this->pressureGrad_);
-    }
-}
-
 template<std::size_t Dim>
 void CFDSolver<Dim>::applyStoppingPolicy_() {
     auto resolved = cfd::resolveStoppingPolicy(
@@ -505,7 +490,9 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
                   velocityOld_[d].values().begin());
 
     auto tMomentum = std::chrono::steady_clock::now();
-    solveMomentum_(uStar_, velocityOld_);
+    pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
+    for (std::size_t d = 0; d < Dim; ++d)
+        solveMomentumComponent_(d, uStar_, velocityOld_, pressureGrad_);
     steadyMomentumSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tMomentum).count();
 
     auto tPred = std::chrono::steady_clock::now();
@@ -530,12 +517,16 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
         nutOld_ = turbulence_->nut();
         turbulence_->solveIteration(boundVelocity(), config_.convectionScheme);
         steadyTurbulenceSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tTurb).count();
-        double alphaNut = nutUnderRelax;
-        auto& nut = turbulence_->nut();
-        #pragma omp parallel for schedule(static)
-        for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
-            nut[i] = alphaNut * nut[i] + (1.0 - alphaNut) * nutOld_[i];
-        }
+        relaxNut_(nutOld_);
+    }
+}
+
+template<std::size_t Dim>
+void CFDSolver<Dim>::relaxNut_(const Field<Dim>& previous, double alpha) {
+    auto& nut = turbulence_->nut();
+    #pragma omp parallel for schedule(static)
+    for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
+        nut[i] = alpha * nut[i] + (1.0 - alpha) * previous[i];
     }
 }
 

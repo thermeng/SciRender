@@ -54,6 +54,10 @@ struct ResolvedStoppingPolicy {
 std::optional<ResolvedStoppingPolicy> resolveStoppingPolicy(
     const StoppingCriteria& s, bool dim3, bool turbulence, bool transient);
 
+// Reuse the convergence monitor for a transient corrector loop: one
+// below-tolerance snapshot is enough to end the correctors for this step.
+SteadyStoppingPolicy steadyPolicyFromTransient(const TransientStoppingPolicy& p);
+
 // Convergence monitor for steady SIMPLE. Tracks whether every active equation
 // has stayed below its tolerance for `hold` consecutive iterations.
 class ConvergenceMonitor {
