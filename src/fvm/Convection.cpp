@@ -1,5 +1,6 @@
 #include "fvm/Convection.h"
 #include "fvm/Gradient.h"
+#include "fvm/FaceState.h"
 #include <stdexcept>
 
 namespace fvm {
@@ -89,13 +90,23 @@ void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::Vect
             // through the boundary was dropped entirely and the transported
             // quantity did not balance at the outlet.
             double un = 0.0;
-            for (std::size_t dd = 0; dd < Dim; ++dd) {
-                double uFace = 0.0;
-                if (hasMaskAll && !bcs.velocityMask[dd].empty() && bcs.velocityMask[dd][P])
-                    uFace = bcs.velocityValues[dd][P];
-                else
-                    uFace = (*velocities[dd])[P];
-                un += uFace * mesh_.faceNormal(f)[dd];
+            if (bcs.faceBC && f < bcs.faceBC->size()) {
+                // Shared boundary-face policy (FaceState.h): no-penetration on
+                // walls, prescribed values on inlets, the backflow rule on
+                // outlets — the same policy the momentum assembly applies, so
+                // wall faces no longer convect through the turbulence
+                // transports with a nonzero flux.
+                un = boundaryFaceState<Dim>(velocities, P, mesh_.faceNormalPtr(f),
+                                            (*bcs.faceBC)[f]).normalVelocity;
+            } else {
+                for (std::size_t dd = 0; dd < Dim; ++dd) {
+                    double uFace = 0.0;
+                    if (hasMaskAll && !bcs.velocityMask[dd].empty() && bcs.velocityMask[dd][P])
+                        uFace = bcs.velocityValues[dd][P];
+                    else
+                        uFace = (*velocities[dd])[P];
+                    un += uFace * mesh_.faceNormal(f)[dd];
+                }
             }
             const double F = un * mesh_.faceArea(f);
 

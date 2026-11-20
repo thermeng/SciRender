@@ -75,6 +75,16 @@ inline std::size_t dominantNormalComponent(const double* normal) {
     return dominant;
 }
 
+// Exact linear interpolation of a face value between the two cell values at
+// the mesh's face weight: plain 0.5 is only correct on a uniform grid and
+// drops to first order on a skewed mesh. This is the one implementation of
+// the two-centre-to-face interpolation — PressureCorrection (legacy mode),
+// Gradient, SSTModel and Convection all read their face values through it.
+template<typename T>
+inline T faceValueFromCentres(const T& pVal, const T& nVal, double weight) {
+    return (1.0 - weight) * pVal + weight * nVal;
+}
+
 // Velocity at the face between `P` and `N`, or at a boundary face when
 // `N == kNoNeighbor` (the owner is extrapolated, `weight` is unused).
 //
@@ -143,11 +153,30 @@ struct BoundaryFaceState {
     double normalVelocity = 0.0;
 };
 
+// Generic over the velocity container so both a VectorField (momentum
+// assembly) and an std::array<const Field<Dim>*, Dim> (Convection, which
+// holds one field per component) read the same way: at(d) == velocity[d][P].
+// Read velocity[d][P] for both a VectorField and an
+// std::array<const Field<Dim>*, Dim> (the form Convection::discretize holds).
 template<std::size_t Dim>
+inline double boundaryFaceVelAt(const VectorField<Dim>& velocity, std::size_t d, std::size_t P) {
+    return velocity[d][P];
+}
+template<std::size_t Dim>
+inline double boundaryFaceVelAt(const std::array<const Field<Dim>*, Dim>& velocity,
+                                std::size_t d, std::size_t P) {
+    return (*velocity[d])[P];
+}
+
+// Generic over the velocity container so both a VectorField (momentum
+// assembly) and an std::array<const Field<Dim>*, Dim> (Convection, which
+// holds one field per component) read the same way: at(d) == velocity[d][P].
+template<std::size_t Dim, typename VelocityContainer>
 inline BoundaryFaceState<Dim> boundaryFaceState(
-    const VectorField<Dim>& velocity, std::size_t P,
+    const VelocityContainer& velocity, std::size_t P,
     const double* normal, const FaceVelocityBC& fbc) {
     BoundaryFaceState<Dim> state;
+    const auto at = [&](std::size_t d) { return boundaryFaceVelAt(velocity, d, P); };
 
     switch (fbc.type) {
         case VelocityBCType::NoSlip:
@@ -159,7 +188,7 @@ inline BoundaryFaceState<Dim> boundaryFaceState(
         case VelocityBCType::SlipWall: {
             state.kind = FaceVelocityKind::Wall;
             std::array<double, Dim> interior{};
-            for (std::size_t d = 0; d < Dim; ++d) interior[d] = velocity[d][P];
+            for (std::size_t d = 0; d < Dim; ++d) interior[d] = at(d);
             const double un = dotNormal(interior, normal);
             for (std::size_t d = 0; d < Dim; ++d)
                 state.velocity[d] = interior[d] - un * normal[d];
@@ -180,7 +209,7 @@ inline BoundaryFaceState<Dim> boundaryFaceState(
 
         default: // Outlet, PressureOutlet
             state.kind = FaceVelocityKind::Outflow;
-            for (std::size_t d = 0; d < Dim; ++d) state.velocity[d] = velocity[d][P];
+            for (std::size_t d = 0; d < Dim; ++d) state.velocity[d] = at(d);
             state.inflowVelocity[0] = fbc.backflowU;
             state.inflowVelocity[1] = fbc.backflowV;
             if constexpr (Dim == 3) state.inflowVelocity[2] = fbc.backflowW;

@@ -3,6 +3,7 @@
 #include "mesh/Mesh.h"
 #include "field/Field.h"
 #include "fvm/Types.h"
+#include "fvm/SIMPLETypes.h"
 #include "fvm/SlopeLimiter.h"
 #include <array>
 #include <vector>
@@ -22,6 +23,11 @@ struct ConvectionBCs {
     std::vector<double> scalarValues;
     std::vector<std::vector<char>> velocityMask;
     std::vector<std::vector<double>> velocityValues;
+    // Optional per-face momentum boundary conditions: when present, the
+    // boundary path of the assembly resolves the face velocity through
+    // boundaryFaceState() — the shared BC policy (no-penetration, backflow)
+    // that the momentum assembly uses — instead of the raw owner-cell values.
+    const std::vector<FaceVelocityBC>* faceBC = nullptr;
 };
 
 template<std::size_t Dim>

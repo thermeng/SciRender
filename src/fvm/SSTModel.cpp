@@ -1,4 +1,7 @@
 #include "fvm/SSTModel.h"
+
+#include "fvm/FaceState.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <Eigen/IterativeLinearSolvers>
@@ -176,6 +179,7 @@ void SSTModel<Dim>::computeWallDistance(
 template<std::size_t Dim>
 void SSTModel<Dim>::setBoundaryConditions(
     const std::vector<FaceVelocityBC>& faceBCs) {
+    faceBCs_ = faceBCs;
     computeWallDistance(faceBCs);
 
     const std::size_t n = mesh_.nCells();
@@ -418,13 +422,12 @@ void SSTModel<Dim>::computeScalarGradients(
             // boundary contribution of a Dirichlet wall entirely).
             phiFace = cellValue(P);
         } else {
-            // Exact linear interpolation between the cell centres, limited to
-            // the adjacent cell values to avoid overshoots on stretched meshes.
-            const double w = weightPtr[f];
-            double phiLin = (1.0 - w) * cellValue(P) + w * cellValue(N);
-            double lo = std::min(cellValue(P), cellValue(N));
-            double hi = std::max(cellValue(P), cellValue(N));
-            phiFace = std::clamp(phiLin, lo, hi);
+            // Exact linear interpolation between the cell centres (shared
+            // helper), limited to the adjacent cell values to avoid
+            // overshoots on stretched meshes.
+            phiFace = std::clamp(faceValueFromCentres(cellValue(P), cellValue(N), weightPtr[f]),
+                                 std::min(cellValue(P), cellValue(N)),
+                                 std::max(cellValue(P), cellValue(N)));
         }
         const double* fn = mesh_.faceNormalPtr(f);
         double area = areaPtr[f];
@@ -854,7 +857,7 @@ void SSTModel<Dim>::solveTransport_(const VectorField<Dim>& velocity,
     convection_.setLimiter(config_.limiter);
     convection_.setScheme(scheme);
     convection_.discretize(A, b, phi, velPtrs,
-                           ConvectionBCs{mask, vals, {}, {}}, &grad);
+                           ConvectionBCs{mask, vals, {}, {}, &faceBCs_}, &grad);
 
     A.makeCompressed();
     for (std::size_t i = 0; i < n; ++i) {

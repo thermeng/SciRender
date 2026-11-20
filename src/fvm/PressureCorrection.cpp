@@ -93,7 +93,7 @@ void PressureCorrection<Dim>::solve(
             const double w = mesh_.faceWeight(f);
             const double pFace = (N == std::size_t(-1))
                 ? pressure[P]
-                : (1.0 - w) * pressure[P] + w * pressure[N];
+                : faceValueFromCentres(pressure[P], pressure[N], w);
             const auto& fn = mesh_.faceNormal(f);
             const double area = mesh_.faceArea(f);
             for (std::size_t d = 0; d < Dim; ++d) {

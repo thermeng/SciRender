@@ -1,5 +1,7 @@
 #include "fvm/Gradient.h"
 
+#include "fvm/FaceState.h"
+
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -109,9 +111,9 @@ void Gradient<Dim>::computeGreenGaussCellBased_(const Field<Dim>& phi,
             // mesh's faceWeight is the parameter of the face centre on the
             // owner->neighbour segment. A plain 0.5 average is only correct on
             // a uniform grid and drops to first order on a skewed mesh.
-            const double w = mesh_.faceWeight(f);
-            phiFace[f] = (1.0 - w) * cellValue_(P, phi, dirichletMask, dirichletValues)
-                       + w * cellValue_(N, phi, dirichletMask, dirichletValues);
+            phiFace[f] = faceValueFromCentres(cellValue_(P, phi, dirichletMask, dirichletValues),
+                                              cellValue_(N, phi, dirichletMask, dirichletValues),
+                                              mesh_.faceWeight(f));
         }
     }
 

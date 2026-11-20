@@ -225,6 +225,10 @@ private:
     std::vector<double> kBCVals_;
     std::vector<char>   omegaBCMask_;
     std::vector<double> omegaBCVals_;
+    // The faceBCs from setBoundaryConditions(): shared by the masks, the
+    // transports and — now — ConvectionBCs, so the transport convection uses
+    // the momentum boundary-face policy (no-penetration, backflow).
+    std::vector<FaceVelocityBC> faceBCs_;
 
     // Per-cell y+ at wall-adjacent cells (zero elsewhere). Populated by
     // computeWallDiagnostics().
