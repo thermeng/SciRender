@@ -9,6 +9,7 @@
 #include "fvm/Cancellable.h"
 #include "fvm/SIMPLETypes.h"
 #include "fvm/SIMPLEBoundaryConditions.h"
+#include "fvm/TransientDriver.h"
 #include "fvm/Momentum.h"
 #include "fvm/SSTModel.h"
 #include "fvm/Gradient.h"
@@ -36,6 +37,10 @@
 #include <vector>
 
 namespace fvm {
+
+// Resident set size of this process in MiB (defined in SIMPLE.cpp; used by
+// both the steady and the transient iteration tables).
+double residentSetMiB();
 
 template<std::size_t Dim>
 class SIMPLE : public Cancellable {
@@ -197,14 +202,16 @@ struct Config : public cfd::CaseSettings {
     void setRestartState(RestartState state) { restartState_ = std::move(state); }
     bool hasRestartState() const { return restartState_.has_value(); }
 
-    double currentTime() const { return time_; }
-    double currentDt() const { return dt_; }
-    double currentDtPrev() const { return dtPrev_; }
+    double currentTime() const { return transientDriver_->time(); }
+    double currentDt() const { return transientDriver_->dt(); }
+    double currentDtPrev() const { return transientDriver_->dtPrev(); }
     int currentStep() const { return timeStep_; }
-    const VectorField<Dim>& velocityNM1() const { return velocityNM1_; }
-    bool hasTransientState() const { return hasRestoredTransientState_ || timeStep_ > 0 || time_ > 0.0; }
-    const Field<Dim>& kNM1() const { return kNM1_; }
-    const Field<Dim>& omegaNM1() const { return omegaNM1_; }
+    const VectorField<Dim>& velocityNM1() const { return transientDriver_->velocityNM1_; }
+    bool hasTransientState() const {
+        return hasRestoredTransientState_ || timeStep_ > 0 || transientDriver_->time() > 0.0;
+    }
+    const Field<Dim>& kNM1() const { return transientDriver_->kNM1_; }
+    const Field<Dim>& omegaNM1() const { return transientDriver_->omegaNM1_; }
     int lastIterations() const;
     // Apply a resolved stopping policy at run start, and again whenever the
     // user edits stopping criteria while the run is paused at a settled
@@ -248,6 +255,12 @@ struct Config : public cfd::CaseSettings {
     const SSTModel<Dim>* turbulence() const;
 
 private:
+    friend class TransientDriver<Dim>;
+
+    // Exposes the Cancellable flag so TransientDriver can pass it to the
+    // linear-solver calls without friendship reaching into the base class.
+    std::atomic<bool>* cancelFlag() { return &cancelRequested_; }
+
     const Field<Dim>& zeroSource_() const;
 
     void solveMomentum_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld);
@@ -265,20 +278,6 @@ private:
     // forces Rhie-Chow on, so the two sites cannot drift apart.
     void applyPressureSolverConfig_();
     void performIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure, std::size_t iter);
-    void performTransientIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure);
-    // True PISO: one momentum predictor, then pressure correctors that
-    // reconstruct the explicit momentum residual H(u) from the corrected
-    // velocity before each projection. The momentum operator and its
-    // pressure-free right-hand side are frozen for the time step.
-    void performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& pressure);
-    void performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& pressure);
-    // Rebuild the corrector predictor u~ from the current velocity and
-    // pressure: u~ = H(u)/aP - d grad(p), i.e. the momentum equation with
-    // the off-diagonal terms treated explicitly at the current velocity.
-    // Writes u~ into uStar_. This is what makes successive PISO correctors
-    // act on a non-zero momentum residual instead of repeating the same
-    // projection.
-    void updatePisoPredictor_();
     bool isPiso_() const;
     // Pin every pressure outlet to its prescribed reference pressure. The
     // face-based list is exact per face; the cell list is the fallback for
@@ -312,17 +311,13 @@ private:
     bool aborted() const { return aborted_; }
     void saveCheckpoint_(std::size_t iter);
     void saveCheckpoint_(std::size_t iter, const TransientBlock<Dim>* transient);
-    void saveTransientCheckpoint_(int step, double time);
     void printIterationOutput_(std::size_t iter);
-    void printTransientOutput_(int step, double time);
     void printFinalStats_() const;
     void printHeader_(bool isTransient) const;
     mutable int headerCounter_ = 0; // for repeating header every N lines
-    double computeAdaptiveDt_() const;
     // Refresh the reference driving speed. Must be re-run after any BC is set,
     // otherwise the clamp/limiter scales are derived from a stale value.
     void updateMaxInletSpeed_();
-    void updatePVDFile_();
 
     // Scale p' down if it exceeds limit * rho * U_ref^2. This is NOT a no-op:
     // it rescales p' uniformly, so it silently imposes an effective
@@ -370,13 +365,10 @@ private:
     // (with more than one corrector: to machine precision), which is why the
     // old post-correction value sat at ~1e-15 for the whole run.
     double predictedContinuity_ = 0.0;
-    // Continuity residual at the start of the current PISO time step. The
-    // corrector loop compares the current residual against
-    // residualReduction * this value; reset after every momentum predictor.
-    double pisoInitialResidual_ = 0.0;
-    // Continuity imbalance the current corrector is about to remove (u~ before
-    // the pressure solve). This is the PISO residual reduction quantity, not
-    // the post-correction value (which the solve drives to ~0).
+    // Continuity imbalance the current PISO corrector is about to remove (u~
+    // before the pressure solve). This is the PISO residual reduction
+    // quantity, not the post-correction value (which the solve drives to ~0).
+    // Written by TransientDriver; read by updateResiduals_().
     double lastPisoPreCorrectorResidual_ = 0.0;
     double contResidRef_ = 0.0;
     std::size_t contResidRefSamples_ = 0;
@@ -459,26 +451,16 @@ private:
     VectorField<Dim> velocityOld_;
     Field<Dim> nutOld_;
 
-    // Transient state
-    double time_ = 0.0;
-    double dt_ = 0.0;
-    // Previous step size. BDF2 coefficients are derived from dt_/dtPrev_; 0
-    // means "no usable history" and forces explicit Euler for this step.
-    double dtPrev_ = 0.0;
+    // Transient state. time_/dt_, the BDF2 history (velocityN_/velocityNM1_,
+    // kN_/kNM1_, omegaN_/omegaNM1_), pisoInitialResidual_ and the PVD output
+    // live on TransientDriver; timeStep_/dtPrev_ and the BDF2-needs flags are
+    // shared with the steady momentum-transient path.
     int timeStep_ = 0;
     bool hasRestoredTransientState_ = false;
     bool hasVelocityHistory_ = false;
     bool restarting_ = false;
-    VectorField<Dim> velocityN_;
-    VectorField<Dim> velocityNM1_;
-    Field<Dim> pressureN_;
-    std::vector<std::string> pvdEntries_;
-    std::string pvdBaseName_;
-    // Turbulence transient storage
-    Field<Dim> kN_;
-    Field<Dim> omegaN_;
-    Field<Dim> kNM1_;
-    Field<Dim> omegaNM1_;
+    // Owns the transient SIMPLE/PISO/PIMPLE path.
+    std::unique_ptr<TransientDriver<Dim>> transientDriver_;
     // Set when the p' magnitude limiter had to clip, so the run can be flagged.
     std::size_t pPrimeLimiterHits_ = 0;
     // Why the run ended (see Status).

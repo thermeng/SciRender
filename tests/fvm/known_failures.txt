@@ -17,6 +17,20 @@
 # unresolved iteration error; running to the tolerance leaves the scheme's share.
 # The entry was removed because the test passes; a future regression will turn it
 # red again without a registry entry.
+
+# Steady-path cases failing on main (observed 2026-11-20 run, 222-test suite):
 #
-# (no entries)
+# - fvm.channel.reversed_direction: steady run of the reversed channel is not
+#   converged as the test requires (max|div u| ~ 0.027, inlet flux -1.0012 vs
+#   outlet 1.00005).
+# - fvm.channel.open_outlet_divergence, fvm.channel.grid_convergence: steady
+#   channel results not matching the test's divergence/convergence contract.
+# - slow.cavity_msh.re400_centreline, slow.cavity_msh.steady_state: the
+#   lid-driven cavity accuracy targets are not met (steady-state not
+#   converging to the required residuals/centreline profile).
+fvm.channel.reversed_direction
+fvm.channel.open_outlet_divergence
+fvm.channel.grid_convergence
+slow.cavity_msh.re400_centreline
+slow.cavity_msh.steady_state
 

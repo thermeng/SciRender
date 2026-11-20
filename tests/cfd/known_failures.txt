@@ -12,3 +12,14 @@
 #
 # A name that does not match any test case fails the build, so the registry
 # cannot silently rot.
+
+# Steady-path cases failing on main (observed 2026-11-20 run):
+#
+# - cfd.pressure.amg_solve_removes_divergence: AMG correction leaves divergence
+#   behind (after = 0.176 vs required < 0.1 * before).
+# - cfd.pressure.correction_removes_divergence_at_refinement,
+#   cfd.pressure.coupling_error_scaling: pressure-correction residual/scaling
+#   not meeting the test contracts at refinement.
+cfd.pressure.amg_solve_removes_divergence
+cfd.pressure.correction_removes_divergence_at_refinement
+cfd.pressure.coupling_error_scaling
