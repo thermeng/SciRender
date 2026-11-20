@@ -241,6 +241,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/SSTModel.cpp
         src/fvm/SIMPLE.cpp
         src/fvm/TransientDriver.cpp
+        src/fvm/CFDSolver.cpp
         src/fvm/LinearSolverDispatcher.cpp
         src/fvm/SIMPLEBoundaryConditions.cpp
         src/fvm/PressureCorrection.cpp

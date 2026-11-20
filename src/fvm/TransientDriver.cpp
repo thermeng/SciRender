@@ -27,14 +27,14 @@ void TransientDriver<Dim>::solveMomentumTransient_(VectorField<Dim>& uStar, cons
     // gradient used to be used here, which made the predictor solve a
     // different pressure term than the corrector cancelled; the mismatch is
     // largest on skewed/non-uniform meshes.
-    simple_.pressureGradientCalc_->compute(simple_.boundPressure(), simple_.pressureGrad_);
+    solver_.pressureGradientCalc_->compute(solver_.boundPressure(), solver_.pressureGrad_);
     if constexpr (Dim == 2) {
-        simple_.solveMomentumComponent_(0, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(0));
-        simple_.solveMomentumComponent_(1, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(1));
+        solver_.solveMomentumComponent_(0, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(0));
+        solver_.solveMomentumComponent_(1, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(1));
     } else {
-        simple_.solveMomentumComponent_(0, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(0));
-        simple_.solveMomentumComponent_(1, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(1));
-        simple_.solveMomentumComponent_(2, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(2));
+        solver_.solveMomentumComponent_(0, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(0));
+        solver_.solveMomentumComponent_(1, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(1));
+        solver_.solveMomentumComponent_(2, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(2));
     }
 }
 
@@ -44,15 +44,15 @@ TransientParams<Dim> TransientDriver<Dim>::momentumTp_(std::size_t d) const {
     tp.hasTime = true;
     tp.dt = dt_;
     tp.dtPrev = dtPrev_;
-    tp.timeScheme = simple_.config_.transient.timeScheme;
+    tp.timeScheme = solver_.config_.transient.timeScheme;
     tp.oldTime = &velocityN_[d];
     // BDF2 needs two levels of history. dtPrev_ == 0 additionally forces
     // explicit Euler for this step (handled inside the assembler), which is
     // what a restart from a fresh field must do.
-    if (simple_.timeStep_ > 1 && dtPrev_ > 0.0 && simple_.hasVelocityHistory_)
+    if (solver_.timeStep_ > 1 && dtPrev_ > 0.0 && solver_.hasVelocityHistory_)
         tp.oldTimePrev = &velocityNM1_[d];
-    if (simple_.timeStep_ == 1 && tp.timeScheme == TimeScheme::BDF2) tp.timeScheme = TimeScheme::Euler;
-    if (!simple_.hasVelocityHistory_ && tp.timeScheme == TimeScheme::BDF2) tp.timeScheme = TimeScheme::Euler;
+    if (solver_.timeStep_ == 1 && tp.timeScheme == TimeScheme::BDF2) tp.timeScheme = TimeScheme::Euler;
+    if (!solver_.hasVelocityHistory_ && tp.timeScheme == TimeScheme::BDF2) tp.timeScheme = TimeScheme::Euler;
     return tp;
 }
 
@@ -61,30 +61,30 @@ void TransientDriver<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Fie
     (void)velocity;
     (void)pressure;
     for (std::size_t d = 0; d < Dim; ++d)
-        std::copy((simple_.boundVelocity())[d].values().begin(),
-                  (simple_.boundVelocity())[d].values().end(),
-                  simple_.velocityOld_[d].values().begin());
-    if (simple_.bc_.isDirty()) simple_.bcDiscretization_ = simple_.bc_.build();
-    solveMomentumTransient_(simple_.uStar_, simple_.velocityOld_);
-    simple_.capturePredictedContinuity_();
+        std::copy((solver_.boundVelocity())[d].values().begin(),
+                  (solver_.boundVelocity())[d].values().end(),
+                  solver_.velocityOld_[d].values().begin());
+    if (solver_.bc_.isDirty()) solver_.bcDiscretization_ = solver_.bc_.build();
+    solveMomentumTransient_(solver_.uStar_, solver_.velocityOld_);
+    solver_.capturePredictedContinuity_();
 
     // The corrector reconstructs the explicit momentum residual at the
     // CURRENT velocity. For the first corrector that current velocity is the
     // predictor u*, not the old time level: copying it here makes
     // updatePisoPredictor_ see a zero residual and reproduce u*, exactly as
     // PISO's first corrector should.
-    simple_.boundVelocity() = simple_.uStar_;
+    solver_.boundVelocity() = solver_.uStar_;
 
     // b0 = b + V grad(p^n): the momentum right-hand side with the pressure
     // source removed. b is the snapshot the linear solve just used, so this
     // is the exact same operator/source pair.
-    const std::size_t n = simple_.mesh_.nCells();
-    const double* vol = simple_.mesh_.cellVolumePtr();
+    const std::size_t n = solver_.mesh_.nCells();
+    const double* vol = solver_.mesh_.cellVolumePtr();
     for (std::size_t d = 0; d < Dim; ++d) {
-        simple_.momB0_[d].resize(static_cast<Eigen::Index>(n));
+        solver_.momB0_[d].resize(static_cast<Eigen::Index>(n));
         for (std::size_t i = 0; i < n; ++i) {
-            simple_.momB0_[d](static_cast<Eigen::Index>(i)) =
-                simple_.momBsnap_[d](static_cast<Eigen::Index>(i)) + vol[i] * simple_.pressureGrad_[d][i];
+            solver_.momB0_[d](static_cast<Eigen::Index>(i)) =
+                solver_.momBsnap_[d](static_cast<Eigen::Index>(i)) + vol[i] * solver_.pressureGrad_[d][i];
         }
     }
 }
@@ -102,40 +102,40 @@ void TransientDriver<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Fie
 // previous projection.
 template<std::size_t Dim>
 void TransientDriver<Dim>::updatePisoPredictor_() {
-    simple_.pressureGradientCalc_->compute(simple_.boundPressure(), simple_.pressureGrad_);
+    solver_.pressureGradientCalc_->compute(solver_.boundPressure(), solver_.pressureGrad_);
 
-    const auto& u = simple_.boundVelocity();
-    const std::size_t n = simple_.mesh_.nCells();
-    const double* vol = simple_.mesh_.cellVolumePtr();
+    const auto& u = solver_.boundVelocity();
+    const std::size_t n = solver_.mesh_.nCells();
+    const double* vol = solver_.mesh_.cellVolumePtr();
     for (std::size_t d = 0; d < Dim; ++d) {
-        if (simple_.momB0_[d].size() != static_cast<Eigen::Index>(n) ||
-            simple_.momAsnap_[d].rows() != static_cast<Eigen::Index>(n)) {
+        if (solver_.momB0_[d].size() != static_cast<Eigen::Index>(n) ||
+            solver_.momAsnap_[d].rows() != static_cast<Eigen::Index>(n)) {
             // Defensive: no frozen predictor (should not happen in the PISO
             // path). Fall back to the current velocity.
-            simple_.uStar_[d] = u[d];
+            solver_.uStar_[d] = u[d];
             continue;
         }
         Eigen::Map<const Eigen::VectorXd> uvec(
             u[d].values().data(), static_cast<Eigen::Index>(n));
-        const Eigen::VectorXd Au = simple_.momAsnap_[d] * uvec;
+        const Eigen::VectorXd Au = solver_.momAsnap_[d] * uvec;
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < n; ++i) {
             const Eigen::Index ii = static_cast<Eigen::Index>(i);
             double corr = 0.0;
-            const double dc = simple_.dCoeff_[d][i];
+            const double dc = solver_.dCoeff_[d][i];
             if (dc > 0.0) {
                 const double aP = vol[i] / dc;
-                const double residual = simple_.momB0_[d](ii) - Au(ii) - vol[i] * simple_.pressureGrad_[d][i];
+                const double residual = solver_.momB0_[d](ii) - Au(ii) - vol[i] * solver_.pressureGrad_[d][i];
                 corr = residual / aP;
             }
             double val = u[d][i] + corr;
             if (!std::isfinite(val)) val = u[d][i];
-            simple_.uStar_[d][i] = val;
+            solver_.uStar_[d][i] = val;
         }
-        const auto& dirMask = simple_.bcDiscretization_.dirichletMask(d);
-        const auto& dirVals = simple_.bcDiscretization_.dirichletVals(d);
+        const auto& dirMask = solver_.bcDiscretization_.dirichletMask(d);
+        const auto& dirVals = solver_.bcDiscretization_.dirichletVals(d);
         for (std::size_t i = 0; i < n; ++i) {
-            if (dirMask[i]) simple_.uStar_[d][i] = dirVals[i];
+            if (dirMask[i]) solver_.uStar_[d][i] = dirVals[i];
         }
     }
 }
@@ -150,7 +150,7 @@ void TransientDriver<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Fie
     // the previous pass produced and projects it again; this is not a no-op
     // even though the compact face-normal Laplacian is exact for the
     // orthogonal part of the operator.
-    const int nInner = std::max(1, simple_.config_.transient.nonOrthogonalCorrectors);
+    const int nInner = std::max(1, solver_.config_.transient.nonOrthogonalCorrectors);
     for (int inner = 0; inner < nInner; ++inner) {
         updatePisoPredictor_();
 
@@ -160,7 +160,7 @@ void TransientDriver<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Fie
         // drive the PISO reduction test. The mask is only populated once the
         // first solve has run, so fall back to the uncorrected divergence
         // until then (same rule as capturePredictedContinuity_).
-        simple_.applyPressureCorrection_(simple_.uStar_, /*alphaP=*/1.0,
+        solver_.applyPressureCorrection_(solver_.uStar_, /*alphaP=*/1.0,
                                          /*applyLimiter=*/false, /*capturePreCorrector=*/true);
         // Do NOT copy boundVelocity() back into uStar_: the next inner pass
         // must reconstruct u~ from the corrected velocity, not reuse the
@@ -180,52 +180,52 @@ void TransientDriver<Dim>::saveTransientCheckpoint_(int step, double time) {
     tb.step = static_cast<std::size_t>(step);
     tb.velocityN = &velocityN_;
     tb.velocityNM1 = &velocityNM1_;
-    tb.kN = simple_.turbulence_ ? &kN_ : nullptr;
-    tb.kNM1 = simple_.turbulence_ ? &kNM1_ : nullptr;
-    tb.omegaN = simple_.turbulence_ ? &omegaN_ : nullptr;
-    tb.omegaNM1 = simple_.turbulence_ ? &omegaNM1_ : nullptr;
+    tb.kN = solver_.turbulence_ ? &kN_ : nullptr;
+    tb.kNM1 = solver_.turbulence_ ? &kNM1_ : nullptr;
+    tb.omegaN = solver_.turbulence_ ? &omegaN_ : nullptr;
+    tb.omegaNM1 = solver_.turbulence_ ? &omegaNM1_ : nullptr;
     tb.pvdEntries = pvdEntries_;
-    simple_.saveCheckpoint_(static_cast<std::size_t>(step), &tb);
+    solver_.saveCheckpoint_(static_cast<std::size_t>(step), &tb);
 }
 
 template<std::size_t Dim>
 void TransientDriver<Dim>::performTransientIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
     // PISO: no pressure under-relaxation. PIMPLE keeps SIMPLE relaxation.
-    const double alphaP = simple_.isPiso_() ? 1.0 : simple_.config_.alphaP;
+    const double alphaP = solver_.isPiso_() ? 1.0 : solver_.config_.alphaP;
 
     for (std::size_t d = 0; d < Dim; ++d)
-        std::copy((simple_.boundVelocity())[d].values().begin(),
-                  (simple_.boundVelocity())[d].values().end(),
-                  simple_.velocityOld_[d].values().begin());
-    if (simple_.bc_.isDirty()) simple_.bcDiscretization_ = simple_.bc_.build();
-    solveMomentumTransient_(simple_.uStar_, simple_.velocityOld_);
-    simple_.capturePredictedContinuity_();
-    simple_.applyPressureCorrection_(simple_.uStar_, alphaP, /*applyLimiter=*/true, /*capturePreCorrector=*/false);
-    if (simple_.turbulence_) {
-        simple_.nutOld_ = simple_.turbulence_->nut();
+        std::copy((solver_.boundVelocity())[d].values().begin(),
+                  (solver_.boundVelocity())[d].values().end(),
+                  solver_.velocityOld_[d].values().begin());
+    if (solver_.bc_.isDirty()) solver_.bcDiscretization_ = solver_.bc_.build();
+    solveMomentumTransient_(solver_.uStar_, solver_.velocityOld_);
+    solver_.capturePredictedContinuity_();
+    solver_.applyPressureCorrection_(solver_.uStar_, alphaP, /*applyLimiter=*/true, /*capturePreCorrector=*/false);
+    if (solver_.turbulence_) {
+        solver_.nutOld_ = solver_.turbulence_->nut();
         // Transient turbulence
-        if (simple_.config_.transient.enabled && dt_ > 0) {
-            TimeScheme ts = simple_.config_.transient.timeScheme;
-            if (simple_.timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
+        if (solver_.config_.transient.enabled && dt_ > 0) {
+            TimeScheme ts = solver_.config_.transient.timeScheme;
+            if (solver_.timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
             // Two levels of history are needed for BDF2; dtPrev_ == 0 (fresh
             // start or restart) makes the assembler fall back to Euler.
             const Field<Dim>* kPrevPrev =
-                (simple_.timeStep_ > 1 && dtPrev_ > 0.0) ? &kNM1_ : nullptr;
+                (solver_.timeStep_ > 1 && dtPrev_ > 0.0) ? &kNM1_ : nullptr;
             const Field<Dim>* oPrevPrev =
-                (simple_.timeStep_ > 1 && dtPrev_ > 0.0) ? &omegaNM1_ : nullptr;
+                (solver_.timeStep_ > 1 && dtPrev_ > 0.0) ? &omegaNM1_ : nullptr;
             // kN_/omegaN_ hold the previous time level, unchanged across the
             // outer correctors of this step.
-            simple_.turbulence_->solveIterationTransient(simple_.boundVelocity(),
-                                                         simple_.config_.convectionScheme, dt_, dtPrev_, ts,
+            solver_.turbulence_->solveIterationTransient(solver_.boundVelocity(),
+                                                         solver_.config_.convectionScheme, dt_, dtPrev_, ts,
                                                          kN_, omegaN_, kPrevPrev, oPrevPrev);
         } else {
-            simple_.turbulence_->solveIteration(simple_.boundVelocity(), simple_.config_.convectionScheme);
+            solver_.turbulence_->solveIteration(solver_.boundVelocity(), solver_.config_.convectionScheme);
         }
         double alphaNut = nutUnderRelax;
-        auto& nut = simple_.turbulence_->nut();
+        auto& nut = solver_.turbulence_->nut();
         #pragma omp parallel for schedule(static)
-        for (std::size_t i = 0; i < simple_.mesh_.nCells(); ++i) {
-            nut[i] = alphaNut * nut[i] + (1.0 - alphaNut) * simple_.nutOld_[i];
+        for (std::size_t i = 0; i < solver_.mesh_.nCells(); ++i) {
+            nut[i] = alphaNut * nut[i] + (1.0 - alphaNut) * solver_.nutOld_[i];
         }
     }
 }
@@ -239,7 +239,7 @@ double TransientDriver<Dim>::computeAdaptiveDt_() const {
     // hydraulic size 2V/sum(face areas), which is <= the smallest cell
     // dimension, and still blend 70% average / 30% minimum so a single tiny
     // cell (e.g. in a cylinder boundary layer) does not collapse dt.
-    const SIMPLE<Dim>& s = simple_;
+    const CFDSolver<Dim>& s = solver_;
     const std::size_t n = s.mesh_.nCells();
     const std::size_t nF = s.mesh_.nFaces();
 
@@ -302,7 +302,7 @@ double TransientDriver<Dim>::computeAdaptiveDt_() const {
 
 template<std::size_t Dim>
 void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure) {
-    SIMPLE<Dim>& s = simple_;
+    CFDSolver<Dim>& s = solver_;
     s.initializeSolve_(velocity, pressure);
 
     s.applyStoppingPolicy_();
@@ -341,7 +341,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
                              &tb)) {
             haveHistory = true;
             time_ = tb.time;
-            s.timeStep_ = static_cast<int>(tb.step);
+            s.timeStep_ = static_cast<int>(tb.step); step_ = static_cast<int>(tb.step);
             dt_ = (tb.dt > 0.0) ? tb.dt : s.config_.transient.dt;
             dtPrev_ = tb.dtPrev;
             pvdEntries_ = std::move(tb.pvdEntries);
@@ -424,7 +424,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
                   << (s.config_.simplec ? " SIMPLEC" : "") << "\n";
     }
     double tEnd = s.config_.stoppingPolicy.transientPolicy.tEnd;
-    int step = s.timeStep_;
+    int step = s.timeStep_; step_ = step;
     const int firstStep = step;
     const std::size_t stepBudget = s.config_.stoppingPolicy.transientPolicy.maxTimeSteps;
     if (!haveHistory) time_ = 0.0;
@@ -459,7 +459,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
         if (dt_ < s.config_.transient.minDt) dt_ = std::min(s.config_.transient.minDt, tEnd - time_);
         time_ += dt_;
         ++step;
-        s.timeStep_ = step;
+        s.timeStep_ = step; step_ = step;
 
         bool isPISO = s.isPiso_();
         if (isPISO && !s.config_.rhieChow) {
@@ -586,7 +586,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
             kN_ = s.turbulence_->k();
             omegaN_ = s.turbulence_->omega();
         }
-        simple_.printIterationRow_(true, step, time_, dt_);
+        solver_.printIterationRow_(true, step, time_, dt_);
         if (s.config_.iterationCallback) {
             s.config_.iterationCallback(step, s.lastContResid_, s.lastMomResid_);
         }
@@ -604,13 +604,13 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
     }
     s.hasRestoredTransientState_ = false;
     if (s.aborted_) {
-        s.status_ = SIMPLE<Dim>::Status::Aborted;
+        s.status_ = CFDSolver<Dim>::Status::Aborted;
     } else if (s.cancelFlag()->load(std::memory_order_acquire)) {
-        s.status_ = SIMPLE<Dim>::Status::Cancelled;
+        s.status_ = CFDSolver<Dim>::Status::Cancelled;
     } else if (time_ >= tEnd - 1e-12) {
-        s.status_ = SIMPLE<Dim>::Status::Completed;
+        s.status_ = CFDSolver<Dim>::Status::Completed;
     } else {
-        s.status_ = SIMPLE<Dim>::Status::NotConverged;
+        s.status_ = CFDSolver<Dim>::Status::NotConverged;
     }
     std::cout << "Transient solve " << s.statusText()
               << ": steps=" << step << " time=" << time_ << " dt=" << dt_ << "\n";

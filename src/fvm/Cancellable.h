@@ -46,11 +46,12 @@ struct Cancellable {
     bool isPauseSettled() const { return pausedAck_.load(std::memory_order_acquire); }
     bool hasStepBudget() const { return stepBudget_.load(std::memory_order_acquire) > 0; }
 
-protected:
     // Boundary handler: call at the top of the solver loop, before doing any
     // work for the next iteration. Blocks while a pause is pending and no step
     // budget is outstanding. Returns false when a cancel was requested while
     // parked, in which case the caller must stop without performing work.
+    // Public so driver modules that only hold the Cancellable base can park
+    // at a step boundary (the drivers of the steady and transient loops).
     bool waitIfPaused() {
         for (;;) {
             if (cancelRequested_.load(std::memory_order_acquire)) {
