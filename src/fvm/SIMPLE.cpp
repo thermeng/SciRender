@@ -143,6 +143,53 @@ void SIMPLE<Dim>::applyPressureOutletReference_(Field<Dim>& pressure) const {
     }
 }
 
+// Shared pressure-correction core â€” see SIMPLE.h.
+template<std::size_t Dim>
+void SIMPLE<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double alphaP,
+                                           bool applyLimiter, bool capturePreCorrector) {
+    // PISO measures the continuity imbalance on u~ BEFORE the pressure solve
+    // (the residual-reduction test). The post-correction value is ~0 by
+    // construction and cannot drive that test.
+    if (capturePreCorrector) {
+        const bool compactRC = config_.rhieChow &&
+                               pressureCorrection_.usesCompactRhieChow() &&
+                               pressureCorrection_.pressureMask().size() == mesh_.nCells();
+        ResidualResult pre = computeResiduals(
+            mesh_, uStar, velocityOld_, diag_, divBuffer_,
+            bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
+            &bcDiscretization_.faceBCs(), &dCoeff_,
+            compactRC ? &boundPressure() : nullptr,
+            compactRC ? &pressureGrad_ : nullptr,
+            &pressureCorrection_.pressureMask(), compactRC);
+        lastPisoPreCorrectorResidual_ = pre.continuity;
+    }
+
+    pressureCorrection_.solve(uStar, dCoeff_, boundPressure(), pPrime_,
+                              bcDiscretization_, cancelFlag());
+    if (pressureCorrection_.lastSolveProducedNonFinite())
+        fail_(Failure::PressureSolveFailed);
+    // The p' limiter is on for the steady and transient paths and off for
+    // the PISO correctors: scaling p' would silently impose alphaP < 1 and
+    // break the continuity the corrector just enforced.
+    if (applyLimiter) limitPressureCorrection_(pPrime_);
+    pressureBeforeCorrection_ = boundPressure();
+    pressureGradBefore_ = pressureCorrection_.pressureGradient();
+    correctVelocity(mesh_, uStar, pPrime_, dCoeff_,
+                    bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
+                    dpdx_, boundVelocity(),
+                    &bcDiscretization_.faceBCs(),
+                    config_.velocityCorrectionMaxUnlimitedSpeed,
+                    config_.velocityCorrectionMaxGrowthRate,
+                    alphaP,
+                    pressureGradientCalc_.get());
+    #pragma omp parallel for schedule(static)
+    for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
+        (boundPressure())[i] += alphaP * pPrime_[i];
+    }
+    // Face-based pressure outlet (exact per-face pRef, fixes cell dedup loss)
+    applyPressureOutletReference_(boundPressure());
+}
+
 template<std::size_t Dim>
 void SIMPLE<Dim>::applyPressureSolverConfig_() {
     typename PressureCorrection<Dim>::Config pcCfg;
@@ -534,35 +581,8 @@ void SIMPLE<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& pres
     if (nCorr < 1) nCorr = 1;
     for (int corr = 0; corr < nCorr; ++corr) {
         auto tPressure = std::chrono::steady_clock::now();
-        pressureCorrection_.solve(uStar_, dCoeff_, boundPressure(), pPrime_,
-                                 bcDiscretization_, &cancelRequested_);
+        applyPressureCorrection_(uStar_, alphaP, /*applyLimiter=*/true, /*capturePreCorrector=*/false);
         steadyPressureSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tPressure).count();
-        if (pressureCorrection_.lastSolveProducedNonFinite())
-            fail_(Failure::PressureSolveFailed);
-
-        // Scale p' only if extreme (configurable multiple of dynamic pressure).
-        limitPressureCorrection_(pPrime_);
-
-        pressureBeforeCorrection_ = boundPressure();
-        pressureGradBefore_ = pressureCorrection_.pressureGradient();
-
-        auto tCorrection = std::chrono::steady_clock::now();
-        correctVelocity(mesh_, uStar_, pPrime_, dCoeff_,
-                    bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(), dpdx_, boundVelocity(),
-                    &bcDiscretization_.faceBCs(),
-                    config_.velocityCorrectionMaxUnlimitedSpeed,
-                    config_.velocityCorrectionMaxGrowthRate,
-                    alphaP,
-                    pressureGradientCalc_.get());
-        steadyVelocityCorrectionSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tCorrection).count();
-
-        #pragma omp parallel for schedule(static)
-        for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
-            (boundPressure())[i] += alphaP * pPrime_[i];
-        }
-
-        // Face-based pressure outlet (exact per-face pRef, fixes cell dedup loss)
-        applyPressureOutletReference_(boundPressure());
 
         // For second corrector, update uStar to corrected velocity for next div calculation
         if (corr + 1 < nCorr) {
@@ -777,7 +797,7 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
         // Per-equation residuals must each be below their own tolerance for
         // `convergenceHoldIterations` consecutive iterations. A single lucky
         // iteration is not a steady state. Momentum W is only consulted in 3D,
-        // k/omega only when turbulence exists Ã¢â‚¬â€ the policy already filtered
+        // k/omega only when turbulence exists ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the policy already filtered
         // those out, so we pass nullopt for the absent ones.
         std::optional<double> momW, kResid, omegaResid;
         if constexpr (Dim == 3) momW = lastMomResidW_;

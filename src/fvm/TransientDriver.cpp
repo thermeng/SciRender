@@ -154,49 +154,14 @@ void TransientDriver<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Fie
     for (int inner = 0; inner < nInner; ++inner) {
         updatePisoPredictor_();
 
-        // The imbalance this corrector is about to remove. Measured on u~
+        // The imbalance this corrector is about to remove. Captured on u~
         // before the pressure solve, with the same Rhie-Chow flux the matrix
         // uses. The post-correction value is ~0 by construction and cannot
         // drive the PISO reduction test. The mask is only populated once the
         // first solve has run, so fall back to the uncorrected divergence
         // until then (same rule as capturePredictedContinuity_).
-        {
-            const bool compactRC =
-                simple_.config_.rhieChow && simple_.pressureCorrection_.usesCompactRhieChow() &&
-                simple_.pressureCorrection_.pressureMask().size() == simple_.mesh_.nCells();
-            ResidualResult pre = computeResiduals(
-                simple_.mesh_, simple_.uStar_, simple_.velocityOld_, simple_.diag_, simple_.divBuffer_,
-                simple_.bcDiscretization_.dirichletMask(), simple_.bcDiscretization_.dirichletVals(),
-                &simple_.bcDiscretization_.faceBCs(), &simple_.dCoeff_,
-                compactRC ? &simple_.boundPressure() : nullptr,
-                compactRC ? &simple_.pressureGrad_ : nullptr,
-                &simple_.pressureCorrection_.pressureMask(), compactRC);
-            simple_.lastPisoPreCorrectorResidual_ = pre.continuity;
-        }
-
-        simple_.pressureCorrection_.solve(simple_.uStar_, simple_.dCoeff_, simple_.boundPressure(),
-                                           simple_.pPrime_, simple_.bcDiscretization_, simple_.cancelFlag());
-        if (simple_.pressureCorrection_.lastSolveProducedNonFinite())
-            simple_.fail_(SIMPLE<Dim>::Failure::PressureSolveFailed);
-        // No p' limiter here. Scaling p' would silently impose alphaP < 1 and
-        // destroy the continuity the corrector just enforced; PISO's stability
-        // comes from the corrector loop and dt, not from clipping the field.
-        simple_.pressureBeforeCorrection_ = simple_.boundPressure();
-        simple_.pressureGradBefore_ = simple_.pressureCorrection_.pressureGradient();
-
-        correctVelocity(simple_.mesh_, simple_.uStar_, simple_.pPrime_, simple_.dCoeff_,
-                        simple_.bcDiscretization_.dirichletMask(), simple_.bcDiscretization_.dirichletVals(),
-                        simple_.dpdx_, simple_.boundVelocity(),
-                        &simple_.bcDiscretization_.faceBCs(),
-                        simple_.config_.velocityCorrectionMaxUnlimitedSpeed,
-                        simple_.config_.velocityCorrectionMaxGrowthRate,
-                        alphaP,
-                        simple_.pressureGradientCalc_.get());
-        #pragma omp parallel for schedule(static)
-        for (std::size_t i = 0; i < simple_.mesh_.nCells(); ++i) {
-            (simple_.boundPressure())[i] += simple_.pPrime_[i]; // alphaP = 1 for PISO
-        }
-        simple_.applyPressureOutletReference_(simple_.boundPressure());
+        simple_.applyPressureCorrection_(simple_.uStar_, /*alphaP=*/1.0,
+                                         /*applyLimiter=*/false, /*capturePreCorrector=*/true);
         // Do NOT copy boundVelocity() back into uStar_: the next inner pass
         // must reconstruct u~ from the corrected velocity, not reuse the
         // previous projection's input.
@@ -266,26 +231,7 @@ void TransientDriver<Dim>::performTransientIteration_(VectorField<Dim>& velocity
     if (simple_.bc_.isDirty()) simple_.bcDiscretization_ = simple_.bc_.build();
     solveMomentumTransient_(simple_.uStar_, simple_.velocityOld_);
     simple_.capturePredictedContinuity_();
-    simple_.pressureCorrection_.solve(simple_.uStar_, simple_.dCoeff_, simple_.boundPressure(),
-                                       simple_.pPrime_, simple_.bcDiscretization_, simple_.cancelFlag());
-    if (simple_.pressureCorrection_.lastSolveProducedNonFinite())
-        simple_.fail_(SIMPLE<Dim>::Failure::PressureSolveFailed);
-    simple_.limitPressureCorrection_(simple_.pPrime_);
-    simple_.pressureBeforeCorrection_ = simple_.boundPressure();
-    simple_.pressureGradBefore_ = simple_.pressureCorrection_.pressureGradient();
-    correctVelocity(simple_.mesh_, simple_.uStar_, simple_.pPrime_, simple_.dCoeff_,
-                    simple_.bcDiscretization_.dirichletMask(), simple_.bcDiscretization_.dirichletVals(),
-                    simple_.dpdx_, simple_.boundVelocity(),
-                    &simple_.bcDiscretization_.faceBCs(),
-                    simple_.config_.velocityCorrectionMaxUnlimitedSpeed,
-                    simple_.config_.velocityCorrectionMaxGrowthRate,
-                    alphaP,
-                    simple_.pressureGradientCalc_.get());
-    #pragma omp parallel for schedule(static)
-    for (std::size_t i = 0; i < simple_.mesh_.nCells(); ++i) {
-        (simple_.boundPressure())[i] += alphaP * simple_.pPrime_[i];
-    }
-    simple_.applyPressureOutletReference_(simple_.boundPressure());
+    simple_.applyPressureCorrection_(simple_.uStar_, alphaP, /*applyLimiter=*/true, /*capturePreCorrector=*/false);
     if (simple_.turbulence_) {
         simple_.nutOld_ = simple_.turbulence_->nut();
         // Transient turbulence

@@ -326,6 +326,14 @@ private:
     // and counted in pPrimeLimiterHits_ so it can be reported.
     bool limitPressureCorrection_(Field<Dim>& pPrime);
 
+    // Shared pressure-correction core: solve p', optionally apply the p'
+    // limiter, snapshot the diag for residual diagnostics, correct u*, and
+    // add p' to the pressure with under-relaxation alphaP. The steady loop,
+    // the transient iteration, and the PISO corrector all call this — one
+    // place for pressure-correction bug fixes.
+    void applyPressureCorrection_(VectorField<Dim>& uStar, double alphaP,
+                                  bool applyLimiter, bool capturePreCorrector);
+
     const Mesh<Dim>& mesh_;
     double rho_, nu_;
     Config config_;
