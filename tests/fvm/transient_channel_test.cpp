@@ -3,7 +3,6 @@
 // the solver must march to tEnd without producing non-finite values and keep
 // the mass balance bounded.
 #include "doctest/doctest.h"
-#include "fvm/Divergence.h"
 #include "fvm/SIMPLE.h"
 #include "mesh/BoundaryUtils.h"
 #include "support/fvm_fixtures.h"
@@ -73,7 +72,7 @@ TEST_CASE("fvm.transient.open_channel_runs") {
     CHECK_MESSAGE(std::isfinite(maxU), "velocity must stay finite");
 
     fvm::Field<2> div(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, velocity, div, {}, {});
+    test_support::computeDivergenceInto(mesh, velocity, div, {}, {});
     double maxDiv = 0.0;
     for (std::size_t c = 0; c < mesh.nCells(); ++c)
         if (!mesh.isBoundary(c)) maxDiv = std::max(maxDiv, std::abs(div[c]));

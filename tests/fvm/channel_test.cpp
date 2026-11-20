@@ -19,7 +19,6 @@
 // is kept below but commented out.
 #include "doctest/doctest.h"
 #include "fvm/AMG.h"
-#include "fvm/Divergence.h"
 #include "fvm/SIMPLE.h"
 #include "mesh/BoundaryUtils.h"
 #include "support/fvm_fixtures.h"
@@ -132,7 +131,7 @@ ChannelResult runChannel(int iterations = kIterations,
     // The divergence of the final velocity. This is the property the pressure
     // correction is supposed to deliver: a divergence-free velocity.
     fvm::Field<2> div(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, velocity, div, {}, {});
+    test_support::computeDivergenceInto(mesh, velocity, div, {}, {});
     r.divergencePerColumn.assign(static_cast<std::size_t>(kNx), 0.0);
     r.meanPerColumn.assign(static_cast<std::size_t>(kNx), 0.0);
     std::vector<int> columnCells(static_cast<std::size_t>(kNx), 0);
@@ -334,7 +333,7 @@ TEST_CASE("fvm.channel.grid_convergence") {
         solver.solve(velocity, pressure);
 
         fvm::Field<2> div(mesh, 0.0);
-        fvm::computeDivergenceInto(mesh, velocity, div, {}, {});
+        test_support::computeDivergenceInto(mesh, velocity, div, {}, {});
         double maxDiv = 0.0;
         for (std::size_t c = 0; c < mesh.nCells(); ++c)
             if (!mesh.isBoundary(c)) maxDiv = std::max(maxDiv, std::abs(div[c]));
@@ -364,7 +363,7 @@ TEST_CASE("fvm.channel.grid_convergence") {
                       "the ", g.nx, "x", g.ny, " grid must conserve mass (rel flux imbalance = ", fluxImbalance, ")");
 
         // Refinement must not make things dramatically worse: flux imbalance
-        // should stay bounded. Per-cell divergence from computeDivergenceInto
+        // should stay bounded. Per-cell divergence from test_support's helper
         // (called with empty BC masks) is not a reliable refinement metric near
         // walls, so only flux imbalance is trended.
         CHECK_MESSAGE(fluxImbalance <= prevFluxImbalance * 3.0,

@@ -8,9 +8,9 @@
 // neighbour lookup is wrong, the profiles diverge.
 #include "doctest/doctest.h"
 
-#include "fvm/Divergence.h"
 #include "fvm/SIMPLE.h"
 #include "mesh/BoundaryUtils.h"
+#include "support/fvm_fixtures.h"
 
 #include <algorithm>
 #include <array>
@@ -68,7 +68,7 @@ Result2D run2D() {
     solver.solve(r.velocity, r.pressure);
 
     fvm::Field<2> div(r.mesh, 0.0);
-    fvm::computeDivergenceInto(r.mesh, r.velocity, div, {}, {});
+    test_support::computeDivergenceInto(r.mesh, r.velocity, div, {}, {});
     for (std::size_t c = 0; c < r.mesh.nCells(); ++c) {
         if (!r.mesh.isBoundary(c)) r.maxDivergence = std::max(r.maxDivergence, std::abs(div[c]));
     }
@@ -104,7 +104,7 @@ Result3D run3D() {
     solver.solve(r.velocity, r.pressure);
 
     fvm::Field<3> div(r.mesh, 0.0);
-    fvm::computeDivergenceInto(r.mesh, r.velocity, div, {}, {});
+    test_support::computeDivergenceInto(r.mesh, r.velocity, div, {}, {});
     for (std::size_t c = 0; c < r.mesh.nCells(); ++c) {
         if (!r.mesh.isBoundary(c)) r.maxDivergence = std::max(r.maxDivergence, std::abs(div[c]));
         r.maxW = std::max(r.maxW, std::abs(r.velocity[2][c]));

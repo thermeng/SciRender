@@ -3,9 +3,11 @@
 #include "field/Field.h"
 #include "field/VectorField.h"
 #include "mesh/Mesh.h"
+#include "fvm/Residual.h"
 
 #include <array>
 #include <cstddef>
+#include <vector>
 
 namespace test_support {
 
@@ -54,6 +56,25 @@ void fillVector(fvm::VectorField<Dim>& field, F fn) {
         const auto c = mesh.cellCenter(i);
         field.set(i, fn(c[0], c[1], c[2]));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Divergence checks for tests
+//
+// Production computes divergence only as part of the continuity residual.
+// That residual fills the same per-cell buffer with the same face values, so
+// tests read it back from there instead of depending on a standalone operator.
+// ---------------------------------------------------------------------------
+template <std::size_t Dim>
+void computeDivergenceInto(const fvm::Mesh<Dim>& mesh,
+                           const fvm::VectorField<Dim>& velocity,
+                           fvm::Field<Dim>& div,
+                           const std::vector<std::vector<char>>& dirichletMask = {},
+                           const std::vector<std::vector<double>>& dirichletValues = {}) {
+    const fvm::VectorField<Dim> velocityOld(mesh, 0.0);
+    const std::array<fvm::Field<Dim>, Dim> diag{};
+    fvm::computeResiduals(mesh, velocity, velocityOld, diag, div,
+                          dirichletMask, dirichletValues);
 }
 
 } // namespace test_support

@@ -6,7 +6,6 @@
 //   - the correction must remove the divergence it was built for;
 //   - a cell without any interior face must be reported, not silently fixed.
 #include "doctest/doctest.h"
-#include "fvm/Divergence.h"
 #include "fvm/PressureCorrection.h"
 #include "fvm/VelocityCorrection.h"
 #include "support/fvm_fixtures.h"
@@ -66,9 +65,9 @@ CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = fal
     fvm::correctVelocity(mesh, uStar, pPrime, dCoeff, velMask, velVals, dpdx, corrected);
 
     fvm::Field<2> divBefore(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, uStar, divBefore, {}, {});
+    test_support::computeDivergenceInto(mesh, uStar, divBefore, {}, {});
     fvm::Field<2> divAfter(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, corrected, divAfter, {}, {});
+    test_support::computeDivergenceInto(mesh, corrected, divAfter, {}, {});
 
     for (std::size_t i = 0; i < mesh.nCells(); ++i) {
         result.maxP = std::max(result.maxP, std::abs(pPrime[i]));
@@ -285,7 +284,7 @@ TEST_CASE("cfd.pressure.amg_solve_removes_divergence") {
     });
 
     fvm::Field<2> divBeforeField(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, uStar, divBeforeField, {}, {});
+    test_support::computeDivergenceInto(mesh, uStar, divBeforeField, {}, {});
     double before = 0.0;
     for (std::size_t i = 0; i < mesh.nCells(); ++i)
         if (!mesh.isBoundary(i)) before = std::max(before, std::abs(divBeforeField[i]));
@@ -312,7 +311,7 @@ TEST_CASE("cfd.pressure.amg_solve_removes_divergence") {
     fvm::VectorField<2> corrected(mesh, 0.0);
     fvm::correctVelocity(mesh, uStar, pPrime, dCoeff, velMask, velVals, dpdx, corrected);
     fvm::Field<2> divAfterField(mesh, 0.0);
-    fvm::computeDivergenceInto(mesh, corrected, divAfterField, {}, {});
+    test_support::computeDivergenceInto(mesh, corrected, divAfterField, {}, {});
     double after = 0.0;
     for (std::size_t i = 0; i < mesh.nCells(); ++i)
         if (!mesh.isBoundary(i)) after = std::max(after, std::abs(divAfterField[i]));
