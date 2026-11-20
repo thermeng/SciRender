@@ -73,7 +73,11 @@ void CFDSolver<Dim>::applyPressureSolverConfig_() {
     // acceleration valid. The legacy composed least-squares operator is
     // nonsymmetric and forced a BiCGSTAB solve regardless of the acceleration
     // method chosen in the UI.
-    pcCfg.compactRhieChow = config_.rhieChow;
+    // On unstructured meshes the compact two-point face gradient disagrees with
+    // the least-squares gradient the velocity correction applies, leaving
+    // divergence that grows every SIMPLE iteration; use the LS-consistent
+    // operator there. On structured meshes the two gradients coincide.
+    pcCfg.compactRhieChow = config_.rhieChow && !mesh_.isUnstructured();
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
     pcCfg.pressureAmg = config_.pressureAmg;
     pressureCorrection_.setConfig(pcCfg);

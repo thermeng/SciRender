@@ -91,6 +91,7 @@ scirender_add_test_suite(scirender_fvm_tests
         fvm/restart_state_test.cpp
         fvm/cgns_reader_test.cpp
         fvm/pressure_outlet_ref_test.cpp
+        fvm/static_mixer_solve_test.cpp
         ${SCIRENDER_FVM_TEST_SUPPORT_SOURCES}
     LIBRARIES
         FvmCore
