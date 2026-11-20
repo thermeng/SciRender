@@ -180,43 +180,27 @@ private:
                      const std::vector<char>& mask,
                      const std::vector<double>& vals) const;
 
-    void solveKTransport(const VectorField<Dim>& velocity,
-                          ConvectionScheme scheme);
-    void solveOmegaTransport(const VectorField<Dim>& velocity,
-                            ConvectionScheme scheme);
-    void solveKTransportImpl(const VectorField<Dim>& velocity,
-                            ConvectionScheme scheme,
-                            double dt,
-                            double dtPrev,
-                            TimeScheme timeScheme,
-                            const Field<Dim>* kOld,
-                            const Field<Dim>* kOldPrev);
-    void solveOmegaTransportImpl(const VectorField<Dim>& velocity,
-                                ConvectionScheme scheme,
-                                double dt,
-                                double dtPrev,
-                                TimeScheme timeScheme,
-                                const Field<Dim>* omegaOld,
-                                const Field<Dim>* omegaOldPrev);
+    // One generic scalar transport system â€” the k or the omega transport of
+    // this model. Assembles the Poisson + convection + production operator
+    // (diffusion source via computeKDiffusionSource_/computeOmegaDiffusionSource_),
+    // adds the steady/transient time terms and the blended diagonal production
+    // term, solves through the linear-solver dispatcher, and clamps the field.
+    // This single implementation is the seam: bug fixes to a transport now
+    // live here instead of in two near-duplicate Impls.
+    void solveTransport_(const VectorField<Dim>& velocity,
+                         ConvectionScheme scheme,
+                         double dt,
+                         double dtPrev,
+                         TimeScheme timeScheme,
+                         const Field<Dim>* old,
+                         const Field<Dim>* oldPrev,
+                         bool isK);
 
-    void solveKTransportTransient(const VectorField<Dim>& velocity,
-                                  ConvectionScheme scheme,
-                                  double dt,
-                                  double dtPrev,
-                                  TimeScheme timeScheme,
-                                  const Field<Dim>& kOld,
-                                  const Field<Dim>* kOldPrev);
-    void solveOmegaTransportTransient(const VectorField<Dim>& velocity,
-                                      ConvectionScheme scheme,
-                                      double dt,
-                                      double dtPrev,
-                                      TimeScheme timeScheme,
-                                      const Field<Dim>& omegaOld,
-                                      const Field<Dim>* omegaOldPrev);
-
-    Eigen::VectorXd solveKSystem_(const SparseMatrix& A, const Eigen::VectorXd& b);
-    Eigen::VectorXd solveOmegaSystem_(const SparseMatrix& A, const Eigen::VectorXd& b);
-    void sanitizeSolution_(Eigen::VectorXd& x) const;
+    // Dispatcher + warm-start solve for one transport system; returns the
+    // sanitized solution vector.
+    Eigen::VectorXd solveSystem_(const SparseMatrix& A, const Eigen::VectorXd& b,
+                                 const Field<Dim>& phi, LinearSolverDispatcher<Dim>& dispatcher,
+                                 const char* label);
 
     const Mesh<Dim>& mesh_;
     mutable std::vector<double> invVol_;
