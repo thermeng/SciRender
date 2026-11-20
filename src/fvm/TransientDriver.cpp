@@ -168,37 +168,6 @@ void TransientDriver<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Fie
     }
 }
 
-template<std::size_t Dim>
-void TransientDriver<Dim>::printTransientOutput_(int step, double time) {
-    SIMPLE<Dim>& s = simple_;
-    if (s.headerCounter_ % 25 == 0) s.printHeader_(true);
-    ++s.headerCounter_;
-    constexpr int wIter = 6;
-    constexpr int wRes = 13;
-    constexpr int wTime = 13;
-    std::ostringstream line;
-    line << std::setw(wIter) << step
-         << std::scientific << std::setprecision(4)
-         << std::setw(wTime) << time
-         << std::setw(wTime) << dt_
-         << std::setw(wRes) << s.lastContResid_
-         << std::setw(wRes) << s.lastMomResidU_
-         << std::setw(wRes) << s.lastMomResidV_;
-    if constexpr (Dim == 3) line << std::setw(wRes) << s.lastMomResidW_;
-    if (s.turbulence_) line << std::setw(wRes) << s.lastKResid_
-                            << std::setw(wRes) << s.lastOmegaResid_;
-    if (s.config_.printResidentSet)
-        line << std::fixed << std::setprecision(1) << std::setw(wRes) << residentSetMiB();
-    std::cout << line.str() << std::endl;
-    // One reverse-flow line per time step. The pressure solve runs once per
-    // corrector, so reading the count there repeated the same warning for every
-    // corrector of a step; here the step is the unit the result is reported in.
-    const std::size_t reverseFlow = s.pressureCorrection_.lastReverseFlowFaces();
-    if (reverseFlow > 0) {
-        std::cerr << "  WARNING: " << reverseFlow
-                  << " pressure outlet face(s) with reverse flow\n";
-    }
-}
 
 template<std::size_t Dim>
 void TransientDriver<Dim>::saveTransientCheckpoint_(int step, double time) {
@@ -382,7 +351,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
                       << " dtPrev=" << dtPrev_ << "\n";
         } else {
             std::cerr << "  [transient] checkpoint had no transient state"
-                      << " — restarting from t=0\n";
+                      << " â€” restarting from t=0\n";
         }
     }
 
@@ -617,7 +586,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
             kN_ = s.turbulence_->k();
             omegaN_ = s.turbulence_->omega();
         }
-        printTransientOutput_(step, time_);
+        simple_.printIterationRow_(true, step, time_, dt_);
         if (s.config_.iterationCallback) {
             s.config_.iterationCallback(step, s.lastContResid_, s.lastMomResid_);
         }

@@ -310,7 +310,8 @@ private:
     bool aborted() const { return aborted_; }
     void saveCheckpoint_(std::size_t iter);
     void saveCheckpoint_(std::size_t iter, const TransientBlock<Dim>* transient);
-    void printIterationOutput_(std::size_t iter);
+    // Shared iteration-table row (steady or transient — see .cpp).
+    void printIterationRow_(bool isTransient, int iter, double time, double dt);
     void printFinalStats_() const;
     void printHeader_(bool isTransient) const;
     mutable int headerCounter_ = 0; // for repeating header every N lines

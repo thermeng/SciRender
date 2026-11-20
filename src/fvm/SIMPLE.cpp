@@ -143,7 +143,7 @@ void SIMPLE<Dim>::applyPressureOutletReference_(Field<Dim>& pressure) const {
     }
 }
 
-// Shared pressure-correction core â€” see SIMPLE.h.
+// Shared pressure-correction core Ã¢â‚¬â€ see SIMPLE.h.
 template<std::size_t Dim>
 void SIMPLE<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double alphaP,
                                            bool applyLimiter, bool capturePreCorrector) {
@@ -797,7 +797,7 @@ bool SIMPLE<Dim>::checkConvergence_(std::size_t iter, bool checkTolerance,
         // Per-equation residuals must each be below their own tolerance for
         // `convergenceHoldIterations` consecutive iterations. A single lucky
         // iteration is not a steady state. Momentum W is only consulted in 3D,
-        // k/omega only when turbulence exists ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the policy already filtered
+        // k/omega only when turbulence exists ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the policy already filtered
         // those out, so we pass nullopt for the absent ones.
         std::optional<double> momW, kResid, omegaResid;
         if constexpr (Dim == 3) momW = lastMomResidW_;
@@ -879,63 +879,33 @@ void SIMPLE<Dim>::printHeader_(bool isTransient) const {
 }
 
 template<std::size_t Dim>
-void SIMPLE<Dim>::printIterationOutput_(std::size_t iter) {
-    if ((iter + 1) % config_.printFrequency == 0 ||
-        iter + 1 == config_.stoppingPolicy.steady.iterationLimit) {
-        if (headerCounter_ % 25 == 0) printHeader_(false);
-        ++headerCounter_;
+void SIMPLE<Dim>::printIterationRow_(bool isTransient, int iter, double time, double dt) {
+    if (headerCounter_ % 25 == 0) printHeader_(isTransient);
+    ++headerCounter_;
 
-        // Per-equation AMG diagnosis: tolerance, per-cycle residual history,
-        // last solve stats, and the multigrid level sizes reported by BoomerAMG.
-        // Shown only when the user selected Diagnosis verbosity for that
-        // equation's AMG config.
-        const auto verbosity = cfd::AmgSettings::Verbosity::Diagnosis;
-        if (config_.momentumAmg.verbosity == verbosity) {
-            for (std::size_t d = 0; d < Dim; ++d) {
-                const char* name = (d == 0) ? "x-momentum"
-                                   : (d == 1) ? "y-momentum"
-                                   : "z-momentum";
-                if (!linearSolverDispatcher_.amgBuilt(d)) continue;
-                std::cout << name << " equation:\n";
-                std::cout << "  tol.   " << std::scientific << std::setprecision(4)
-                          << config_.momentumAmg.tolerance << "\n";
-                const auto& hist = linearSolverDispatcher_.amgLastResidualHistory(d);
-                for (std::size_t c = 0; c < hist.size(); ++c) {
-                    std::cout << "    " << std::setw(2) << c << " "
-                              << std::scientific << std::setprecision(4)
-                              << hist[c] << "\n";
-                }
-                std::cout << "  iters  " << linearSolverDispatcher_.amgLastIterations(d)
-                          << "  rel.resid " << std::scientific << std::setprecision(4)
-                          << linearSolverDispatcher_.amgLastResidual(d) << "\n";
-                const auto& sizes = linearSolverDispatcher_.amgLevelSizes(d);
-                std::cout << "  multigrid levels:\n";
-                std::cout << "  level min    max    mean   total\n";
-                for (int l = 0; l < static_cast<int>(sizes.size()); ++l) {
-                    const int sz = sizes[static_cast<std::size_t>(l)];
-                    std::cout << "   " << std::setw(2) << l << " "
-                              << std::setw(6) << sz << " "
-                              << std::setw(6) << sz << " "
-                              << std::setw(7) << sz << " "
-                              << std::setw(6) << sz << "\n";
-                }
-            }
-        }
-        if (config_.pressureAmg.verbosity == verbosity &&
-            pressureCorrection_.amgBuilt()) {
-            std::cout << "pressure correction equation:\n";
+    // Steady-only: the per-equation AMG diagnosis. Transient rows carry the
+    // time/dt columns and are printed by the driver loop; the diagnosis
+    // lives here.
+    const auto verbosity = cfd::AmgSettings::Verbosity::Diagnosis;
+    if (!isTransient && config_.momentumAmg.verbosity == verbosity) {
+        for (std::size_t d = 0; d < Dim; ++d) {
+            const char* name = (d == 0) ? "x-momentum"
+                               : (d == 1) ? "y-momentum"
+                               : "z-momentum";
+            if (!linearSolverDispatcher_.amgBuilt(d)) continue;
+            std::cout << name << " equation:\n";
             std::cout << "  tol.   " << std::scientific << std::setprecision(4)
-                      << config_.pressureAmg.tolerance << "\n";
-            const auto& hist = pressureCorrection_.amgLastResidualHistory();
+                      << config_.momentumAmg.tolerance << "\n";
+            const auto& hist = linearSolverDispatcher_.amgLastResidualHistory(d);
             for (std::size_t c = 0; c < hist.size(); ++c) {
                 std::cout << "    " << std::setw(2) << c << " "
                           << std::scientific << std::setprecision(4)
                           << hist[c] << "\n";
             }
-            std::cout << "  iters  " << pressureCorrection_.lastSolveIterations()
+            std::cout << "  iters  " << linearSolverDispatcher_.amgLastIterations(d)
                       << "  rel.resid " << std::scientific << std::setprecision(4)
-                      << pressureCorrection_.lastSolveResidual() << "\n";
-            const auto& sizes = pressureCorrection_.amgLevelSizes();
+                      << linearSolverDispatcher_.amgLastResidual(d) << "\n";
+            const auto& sizes = linearSolverDispatcher_.amgLevelSizes(d);
             std::cout << "  multigrid levels:\n";
             std::cout << "  level min    max    mean   total\n";
             for (int l = 0; l < static_cast<int>(sizes.size()); ++l) {
@@ -947,38 +917,66 @@ void SIMPLE<Dim>::printIterationOutput_(std::size_t iter) {
                           << std::setw(6) << sz << "\n";
             }
         }
-
-        constexpr int wIter = 6;
-        constexpr int wRes = 13;
-        constexpr int wTime = 13;
-        const double iterTime = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - m_iterStart).count();
-        std::ostringstream line;
-        line << std::setw(wIter) << (iter + 1)
-             << std::scientific << std::setprecision(4)
-             << std::setw(wRes) << lastContResid_
-             << std::setw(wRes) << lastMomResidU_
-             << std::setw(wRes) << lastMomResidV_;
-        if constexpr (Dim == 3) line << std::setw(wRes) << lastMomResidW_;
-        if (turbulence_) line << std::setw(wRes) << lastKResid_
-                               << std::setw(wRes) << lastOmegaResid_;
-        // Resident-set size before the timing column so time stays last.
-        if (config_.printResidentSet)
-            line << std::fixed << std::setprecision(1) << std::setw(wRes) << residentSetMiB();
-        // Time stays last so it never splits the residual columns.
-        if (config_.printIterationTime)
-            line << std::fixed << std::setprecision(4) << std::setw(wTime) << iterTime;
-        std::cout << line.str() << std::endl;
-        // Once per printed outer iteration, not once per corrector: the pressure
-        // solve runs inside every corrector, so reading the count there printed
-        // the same line as many times as there were correctors.
-        const std::size_t reverseFlow = pressureCorrection_.lastReverseFlowFaces();
-        if (reverseFlow > 0) {
-            std::cerr << "  WARNING: " << reverseFlow
-                      << " pressure outlet face(s) with reverse flow\n";
+    }
+    if (!isTransient && config_.pressureAmg.verbosity == verbosity &&
+        pressureCorrection_.amgBuilt()) {
+        std::cout << "pressure correction equation:\n";
+        std::cout << "  tol.   " << std::scientific << std::setprecision(4)
+                  << config_.pressureAmg.tolerance << "\n";
+        const auto& hist = pressureCorrection_.amgLastResidualHistory();
+        for (std::size_t c = 0; c < hist.size(); ++c) {
+            std::cout << "    " << std::setw(2) << c << " "
+                      << std::scientific << std::setprecision(4)
+                      << hist[c] << "\n";
+        }
+        std::cout << "  iters  " << pressureCorrection_.lastSolveIterations()
+                  << "  rel.resid " << std::scientific << std::setprecision(4)
+                  << pressureCorrection_.lastSolveResidual() << "\n";
+        const auto& sizes = pressureCorrection_.amgLevelSizes();
+        std::cout << "  multigrid levels:\n";
+        std::cout << "  level min    max    mean   total\n";
+        for (int l = 0; l < static_cast<int>(sizes.size()); ++l) {
+            const int sz = sizes[static_cast<std::size_t>(l)];
+            std::cout << "   " << std::setw(2) << l << " "
+                      << std::setw(6) << sz << " "
+                      << std::setw(6) << sz << " "
+                      << std::setw(7) << sz << " "
+                      << std::setw(6) << sz << "\n";
         }
     }
+
+    constexpr int wIter = 6;
+    constexpr int wRes = 13;
+    constexpr int wTime = 13;
+    const double iterTime = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - m_iterStart).count();
+    std::ostringstream line;
+    line << std::setw(wIter) << iter;
+    // Transient rows: step, then time and dt right after the step number.
+    if (isTransient)
+        line << std::setw(wTime) << time << std::setw(wTime) << dt;
+    line << std::scientific << std::setprecision(4)
+         << std::setw(wRes) << lastContResid_
+         << std::setw(wRes) << lastMomResidU_
+         << std::setw(wRes) << lastMomResidV_;
+    if constexpr (Dim == 3) line << std::setw(wRes) << lastMomResidW_;
+    if (turbulence_) line << std::setw(wRes) << lastKResid_
+                           << std::setw(wRes) << lastOmegaResid_;
+    // Resident-set size, steady only (time/iter below).
+    if (config_.printResidentSet && !isTransient)
+        line << std::fixed << std::setprecision(1) << std::setw(wRes) << residentSetMiB();
+    // Time stays last so it never splits the residual columns. Steady-only.
+    if (config_.printIterationTime && !isTransient)
+        line << std::fixed << std::setprecision(4) << std::setw(wTime) << iterTime;
+    std::cout << line.str() << std::endl;
+    // One reverse-flow line per printed solver row, steady or transient.
+    const std::size_t reverseFlow = pressureCorrection_.lastReverseFlowFaces();
+    if (reverseFlow > 0) {
+        std::cerr << "  WARNING: " << reverseFlow
+                  << " pressure outlet face(s) with reverse flow\n";
+    }
 }
+
 
 template<std::size_t Dim>
 void SIMPLE<Dim>::printFinalStats_() const {
@@ -1087,7 +1085,10 @@ void SIMPLE<Dim>::solve(VectorField<Dim>& velocity, Field<Dim>& pressure) {
 
         lastIterations_ = static_cast<int>(iter + 1);
 
-        printIterationOutput_(iter);
+        if ((iter + 1) % config_.printFrequency == 0 ||
+            iter + 1 == config_.stoppingPolicy.steady.iterationLimit) {
+            printIterationRow_(false, static_cast<int>(iter + 1), 0.0, 0.0);
+        }
 
         if (config_.iterationCallback) {
             config_.iterationCallback(static_cast<int>(iter + 1), lastContResid_, lastMomResid_);

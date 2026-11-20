@@ -47,7 +47,6 @@ private:
     void updatePisoPredictor_();
     double computeAdaptiveDt_() const;
     void saveTransientCheckpoint_(int step, double time);
-    void printTransientOutput_(int step, double time);
 
     SIMPLE<Dim>& simple_;
     double time_ = 0.0;
