@@ -238,7 +238,6 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/Divergence.cpp
         src/fvm/Convection.cpp
         src/fvm/Momentum.cpp
-        src/fvm/BoundaryConditions.cpp
         src/fvm/SSTModel.cpp
         src/fvm/SIMPLE.cpp
         src/fvm/TransientDriver.cpp
