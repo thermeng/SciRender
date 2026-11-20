@@ -8,7 +8,7 @@
 #include "field/VectorField.h"
 #include "fvm/Cancellable.h"
 #include "fvm/SIMPLETypes.h"
-#include "fvm/SIMPLEBoundaryConditions.h"
+#include "fvm/BoundaryConditions.h"
 #include "fvm/TransientDriver.h"
 #include "fvm/Momentum.h"
 #include "fvm/SSTModel.h"
@@ -282,7 +282,7 @@ private:
     std::optional<std::reference_wrapper<VectorField<Dim>>> velocity_;
     std::optional<std::reference_wrapper<Field<Dim>>> pressure_;
 
-    SIMPLEBoundaryConditions<Dim> bc_;
+    BoundaryConditions<Dim> bc_;
     BCDiscretization bcDiscretization_;
 
     mutable std::array<SparseMatrix, Dim> momAsnap_;

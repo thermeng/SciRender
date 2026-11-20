@@ -5,7 +5,7 @@
 #include "field/VectorField.h"
 #include "fvm/Types.h"
 #include "fvm/SIMPLETypes.h"
-#include "fvm/SIMPLEBoundaryConditions.h"
+#include "fvm/BoundaryConditions.h"
 #include "fvm/Gradient.h"
 #include "fvm/LinearSolverDispatcher.h"
 #include <Eigen/Sparse>

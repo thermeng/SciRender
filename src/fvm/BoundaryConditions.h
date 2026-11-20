@@ -59,9 +59,9 @@ struct BCDiscretization {
 };
 
 template<std::size_t Dim>
-class SIMPLEBoundaryConditions {
+class BoundaryConditions {
 public:
-    explicit SIMPLEBoundaryConditions(const Mesh<Dim>& mesh);
+    explicit BoundaryConditions(const Mesh<Dim>& mesh);
 
     void setVelocityBC(std::size_t d, int sign, VelocityBCType type,
                        double u = 0.0, double v = 0.0, double w = 0.0);
@@ -119,7 +119,7 @@ private:
     mutable bool firstBuild_ = true;
 };
 
-extern template class SIMPLEBoundaryConditions<2>;
-extern template class SIMPLEBoundaryConditions<3>;
+extern template class BoundaryConditions<2>;
+extern template class BoundaryConditions<3>;
 
 } // namespace fvm

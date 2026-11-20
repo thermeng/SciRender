@@ -1,4 +1,4 @@
-#include "fvm/SIMPLEBoundaryConditions.h"
+#include "fvm/BoundaryConditions.h"
 #include "fvm/FaceState.h"
 #include "mesh/BoundaryUtils.h"
 
@@ -324,7 +324,7 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
 }
 
 template<std::size_t Dim>
-SIMPLEBoundaryConditions<Dim>::SIMPLEBoundaryConditions(const Mesh<Dim>& mesh)
+BoundaryConditions<Dim>::BoundaryConditions(const Mesh<Dim>& mesh)
     : mesh_(mesh),
       velBcs_(2 * Dim),
       velPatches_(),
@@ -333,7 +333,7 @@ SIMPLEBoundaryConditions<Dim>::SIMPLEBoundaryConditions(const Mesh<Dim>& mesh)
 }
 
 template<std::size_t Dim>
-void SIMPLEBoundaryConditions<Dim>::setVelocityBC(std::size_t d, int sign, VelocityBCType type,
+void BoundaryConditions<Dim>::setVelocityBC(std::size_t d, int sign, VelocityBCType type,
                                                    double val1, double val2, double val3) {
     std::size_t idx = d * 2 + (sign < 0 ? 0 : 1);
     velBcs_[idx] = type == VelocityBCType::Inlet || type == VelocityBCType::MovingWall
@@ -343,7 +343,7 @@ void SIMPLEBoundaryConditions<Dim>::setVelocityBC(std::size_t d, int sign, Veloc
 }
 
 template<std::size_t Dim>
-void SIMPLEBoundaryConditions<Dim>::setPressureOutlet(std::size_t d, int sign, double pressure) {
+void BoundaryConditions<Dim>::setPressureOutlet(std::size_t d, int sign, double pressure) {
     std::size_t idx = d * 2 + (sign < 0 ? 0 : 1);
     velBcs_[idx].type = VelocityBCType::PressureOutlet;
     velBcs_[idx].u = 0.0;
@@ -354,14 +354,14 @@ void SIMPLEBoundaryConditions<Dim>::setPressureOutlet(std::size_t d, int sign, d
 }
 
 template<std::size_t Dim>
-void SIMPLEBoundaryConditions<Dim>::addVelocityPatch(const std::string& name, std::size_t d, int sign,
+void BoundaryConditions<Dim>::addVelocityPatch(const std::string& name, std::size_t d, int sign,
                                                       VelocityBCType type, double u, double v, double w) {
     velPatches_.push_back({name, d, sign, type, u, v, w});
     setVelocityBC(d, sign, type, u, v, w);
 }
 
 template<std::size_t Dim>
-const VelocityPatch* SIMPLEBoundaryConditions<Dim>::findVelocityPatch(const std::string& name) const {
+const VelocityPatch* BoundaryConditions<Dim>::findVelocityPatch(const std::string& name) const {
     for (const auto& p : velPatches_) {
         if (p.name == name) return &p;
     }
@@ -369,7 +369,7 @@ const VelocityPatch* SIMPLEBoundaryConditions<Dim>::findVelocityPatch(const std:
 }
 
 template<std::size_t Dim>
-void SIMPLEBoundaryConditions<Dim>::setVelocityBCOnFaces(const std::vector<std::size_t>& faceIndices,
+void BoundaryConditions<Dim>::setVelocityBCOnFaces(const std::vector<std::size_t>& faceIndices,
                                                           VelocityBCType type,
                                                           double u, double v, double w) {
     FaceVelocityBC fbc;
@@ -385,7 +385,7 @@ void SIMPLEBoundaryConditions<Dim>::setVelocityBCOnFaces(const std::vector<std::
 }
 
 template<std::size_t Dim>
-void SIMPLEBoundaryConditions<Dim>::setVelocityBCOnFacesWithSlip(const std::vector<std::size_t>& faceIndices,
+void BoundaryConditions<Dim>::setVelocityBCOnFacesWithSlip(const std::vector<std::size_t>& faceIndices,
                                                                   const std::string& typeStr,
                                                                   double u, double v, double w,
                                                                   bool slip,
@@ -412,7 +412,7 @@ void SIMPLEBoundaryConditions<Dim>::setVelocityBCOnFacesWithSlip(const std::vect
 }
 
 template<std::size_t Dim>
-void SIMPLEBoundaryConditions<Dim>::setPressureOutletOnFaces(const std::vector<std::size_t>& faceIndices,
+void BoundaryConditions<Dim>::setPressureOutletOnFaces(const std::vector<std::size_t>& faceIndices,
                                                               double pressure) {
     FaceVelocityBC fbc;
     fbc.type = VelocityBCType::PressureOutlet;
@@ -428,7 +428,7 @@ void SIMPLEBoundaryConditions<Dim>::setPressureOutletOnFaces(const std::vector<s
 }
 
 template<std::size_t Dim>
-void SIMPLEBoundaryConditions<Dim>::setPressureOutletOnFacesWithBackflow(const std::vector<std::size_t>& faceIndices,
+void BoundaryConditions<Dim>::setPressureOutletOnFacesWithBackflow(const std::vector<std::size_t>& faceIndices,
                                                                           double pressure,
                                                                           bool suppressBackflow,
                                                                           double backflowU, double backflowV, double backflowW,
@@ -453,7 +453,7 @@ void SIMPLEBoundaryConditions<Dim>::setPressureOutletOnFacesWithBackflow(const s
 }
 
 template<std::size_t Dim>
-double SIMPLEBoundaryConditions<Dim>::maxInletSpeed(double fallback) const {
+double BoundaryConditions<Dim>::maxInletSpeed(double fallback) const {
     double maxS = 0.0;
     for (std::size_t i = 0; i < 2 * Dim; ++i) {
         if (velBcs_[i].type == VelocityBCType::Inlet) {
@@ -474,7 +474,7 @@ double SIMPLEBoundaryConditions<Dim>::maxInletSpeed(double fallback) const {
 }
 
 template<std::size_t Dim>
-BCDiscretization SIMPLEBoundaryConditions<Dim>::build() {
+BCDiscretization BoundaryConditions<Dim>::build() {
     BCDiscretization disc = buildBCMasks(mesh_, {velBcs_, velPatches_, faceVelBCs_});
     if (firstBuild_) {
         firstBuild_ = false;
@@ -485,7 +485,7 @@ BCDiscretization SIMPLEBoundaryConditions<Dim>::build() {
 }
 
 template <std::size_t Dim>
-double SIMPLEBoundaryConditions<Dim>::maxPrescribedSpeed(double fallback) const {
+double BoundaryConditions<Dim>::maxPrescribedSpeed(double fallback) const {
     double maxS = 0.0;
     auto consider = [&](double u, double v, double w) {
         double s = u * u + v * v;
@@ -505,7 +505,7 @@ double SIMPLEBoundaryConditions<Dim>::maxPrescribedSpeed(double fallback) const 
 }
 
 template<std::size_t Dim>
-void SIMPLEBoundaryConditions<Dim>::debugPrint(const BCDiscretization& disc) const {
+void BoundaryConditions<Dim>::debugPrint(const BCDiscretization& disc) const {
     std::size_t faceVelBCCount = faceVelBCs_.size();
     std::size_t dirichletCount[Dim]{};
     std::size_t neumannCount = 0;
@@ -530,7 +530,7 @@ void SIMPLEBoundaryConditions<Dim>::debugPrint(const BCDiscretization& disc) con
               << " faces=" << pressureOutletFaceCount << "\n";
 }
 
-template class SIMPLEBoundaryConditions<2>;
-template class SIMPLEBoundaryConditions<3>;
+template class BoundaryConditions<2>;
+template class BoundaryConditions<3>;
 
 } // namespace fvm

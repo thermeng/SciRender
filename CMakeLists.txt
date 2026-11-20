@@ -242,7 +242,7 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/TransientDriver.cpp
         src/fvm/CFDSolver.cpp
         src/fvm/LinearSolverDispatcher.cpp
-        src/fvm/SIMPLEBoundaryConditions.cpp
+        src/fvm/BoundaryConditions.cpp
         src/fvm/PressureCorrection.cpp
         src/fvm/AMG.cpp
         src/fvm/HypreSolver.h
