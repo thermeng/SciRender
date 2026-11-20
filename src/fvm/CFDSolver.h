@@ -236,9 +236,9 @@ private:
     // place for pressure-correction bug fixes.
     void applyPressureCorrection_(VectorField<Dim>& uStar, double alphaP,
                                   bool applyLimiter, bool capturePreCorrector);
-    // Pin every pressure outlet to its prescribed reference pressure. The
-    // face-based list is exact per face; the cell list is the fallback for
-    // meshes whose outlets are described by cells only.
+    // Pin every pressure outlet to its prescribed reference pressure. Use the
+    // exact per-face value when available (lowest face index wins on a shared
+    // cell); the cell list is only a fallback for cell-described outlets.
     void applyPressureOutletReference_(Field<Dim>& pressure) const;
     void updateResiduals_();
     // Capture the mass imbalance of the momentum predictor u* (the field the

@@ -48,8 +48,19 @@ bool CFDSolver<Dim>::isPiso_() const {
 
 template<std::size_t Dim>
 void CFDSolver<Dim>::applyPressureOutletReference_(Field<Dim>& pressure) const {
-    for (const auto& [cell, pRef] : bcDiscretization().pressureOutletCells()) {
-        if (cell < mesh_.nCells()) pressure[cell] = pRef;
+    bool appliedFaceReference = false;
+    // Descend so the lowest face index wins when one cell owns several outlets.
+    for (std::size_t f = mesh_.nFaces(); f-- > 0;) {
+        const auto& fbc = bcDiscretization().faceBCs()[f];
+        if (fbc.type != VelocityBCType::PressureOutlet) continue;
+        appliedFaceReference = true;
+        const std::size_t cell = mesh_.owner(f);
+        if (cell < mesh_.nCells()) pressure[cell] = fbc.pressureValue;
+    }
+    if (!appliedFaceReference) {
+        for (const auto& [cell, pRef] : bcDiscretization().pressureOutletCells()) {
+            if (cell < mesh_.nCells()) pressure[cell] = pRef;
+        }
     }
 }
 
@@ -774,7 +785,7 @@ void CFDSolver<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double al
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         (boundPressure())[i] += alphaP * pPrime_[i];
     }
-    // Face-based pressure outlet (exact per-face pRef, fixes cell dedup loss)
+    // Apply exact per-face pRef, falling back to cell-level data if needed.
     applyPressureOutletReference_(boundPressure());
 }
 
