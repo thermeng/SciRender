@@ -63,7 +63,7 @@ bool CFDSolver<Dim>::isPiso_() const {
 
 template<std::size_t Dim>
 void CFDSolver<Dim>::applyPressureOutletReference_(Field<Dim>& pressure) const {
-    for (const auto& [cell, pRef] : bcDiscretization_.pressureOutletCells()) {
+    for (const auto& [cell, pRef] : bcDiscretization().pressureOutletCells()) {
         if (cell < mesh_.nCells()) pressure[cell] = pRef;
     }
 }
@@ -159,11 +159,8 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
     gradientCalc_->setScheme(config_.gradientScheme);
     for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
 
-    // Build the boundary discretization before the turbulence model: the
-    // k/omega masks must come from the real per-face velocity BCs, not from
-    // the per-side velBCs_ list, which stays at its NoSlip default whenever the
-    // application configures boundaries face by face.
-    bcDiscretization_ = bc_.build();
+    // The compiled boundary view is built on first use below, before the
+    // turbulence model; its k/omega masks come from the real per-face BCs.
 
     if (config_.turbulence) {
         typename SSTModel<Dim>::Config sstCfg;
@@ -189,7 +186,7 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
             turbulence_->setConfig(sstCfg);
         }
         turbulence_->initialize(nu_ * rho_, rho_, maxInletSpeed_);
-        turbulence_->setBoundaryConditions(bcDiscretization_.faceBCs());
+        turbulence_->setBoundaryConditions(bcDiscretization().faceBCs());
         for (const auto& it : config_.inletTurbulence) {
             auto git = mesh_.boundaryGroups().find(it.patch);
             if (git == mesh_.boundaryGroups().end()) {
@@ -343,8 +340,8 @@ void CFDSolver<Dim>::capturePredictedContinuity_() {
     if (compactRC) pressureCorrection_.refreshPressureGradient(boundPressure());
     ResidualResult r = computeResiduals(
         mesh_, uStar_, velocityOld_, diag_, divBuffer_,
-        bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
-        &bcDiscretization_.faceBCs(),
+        bcDiscretization().dirichletMask(), bcDiscretization().dirichletVals(),
+        &bcDiscretization().faceBCs(),
         &dCoeff_,
         compactRC ? &boundPressure() : nullptr,
         compactRC ? &pressureCorrection_.pressureGradient() : nullptr,
@@ -356,8 +353,8 @@ void CFDSolver<Dim>::capturePredictedContinuity_() {
 template<std::size_t Dim>
 void CFDSolver<Dim>::updateResiduals_() {
     ResidualResult resid = computeResiduals(mesh_, boundVelocity(), velocityOld_, diag_,
-                                            divBuffer_, bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
-                                            &bcDiscretization_.faceBCs(),
+                                            divBuffer_, bcDiscretization().dirichletMask(), bcDiscretization().dirichletVals(),
+                                            &bcDiscretization().faceBCs(),
                                             &dCoeff_, &pressureBeforeCorrection_, &pressureGradBefore_, &pressureCorrection_.pressureMask(),
                                             config_.rhieChow && pressureCorrection_.usesCompactRhieChow());
     lastContResidPost_ = resid.continuity;
@@ -506,11 +503,6 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((boundVelocity())[d].values().begin(), (boundVelocity())[d].values().end(),
                   velocityOld_[d].values().begin());
-
-    // The boundary discretization is rebuilt only when the boundary
-    // conditions actually changed. Rebuilding it every outer iteration copied
-    // six per-cell vectors (and their allocations) for nothing.
-    if (bc_.isDirty()) bcDiscretization_ = bc_.build();
 
     auto tMomentum = std::chrono::steady_clock::now();
     solveMomentum_(uStar_, velocityOld_);
@@ -763,8 +755,8 @@ void CFDSolver<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double al
                                pressureCorrection_.pressureMask().size() == mesh_.nCells();
         ResidualResult pre = computeResiduals(
             mesh_, uStar, velocityOld_, diag_, divBuffer_,
-            bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
-            &bcDiscretization_.faceBCs(), &dCoeff_,
+            bcDiscretization().dirichletMask(), bcDiscretization().dirichletVals(),
+            &bcDiscretization().faceBCs(), &dCoeff_,
             compactRC ? &boundPressure() : nullptr,
             compactRC ? &pressureGrad_ : nullptr,
             &pressureCorrection_.pressureMask(), compactRC);
@@ -772,7 +764,7 @@ void CFDSolver<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double al
     }
 
     pressureCorrection_.solve(uStar, dCoeff_, boundPressure(), pPrime_,
-                              bcDiscretization_, cancelFlag());
+                              bcDiscretization(), cancelFlag());
     if (pressureCorrection_.lastSolveProducedNonFinite())
         fail_(Failure::PressureSolveFailed);
     // The p' limiter is on for the steady and transient paths and off for
@@ -782,9 +774,9 @@ void CFDSolver<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double al
     pressureBeforeCorrection_ = boundPressure();
     pressureGradBefore_ = pressureCorrection_.pressureGradient();
     correctVelocity(mesh_, uStar, pPrime_, dCoeff_,
-                    bcDiscretization_.dirichletMask(), bcDiscretization_.dirichletVals(),
+                    bcDiscretization().dirichletMask(), bcDiscretization().dirichletVals(),
                     dpdx_, boundVelocity(),
-                    &bcDiscretization_.faceBCs(),
+                    &bcDiscretization().faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
                     alphaP,
@@ -877,14 +869,14 @@ void CFDSolver<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uS
     const std::array<Field<Dim>, Dim>* velGradPtr = &velGrad_;
 
     fvm::MomentumBCs momBCs;
-    momBCs.slipWallMask = &bcDiscretization_.slipWallMask(d);
-    momBCs.dirichletMaskAll = &bcDiscretization_.dirichletMask();
-    momBCs.dirichletValsAll = &bcDiscretization_.dirichletVals();
-    momBCs.faceBC = &bcDiscretization_.faceBCs();
+    momBCs.slipWallMask = &bcDiscretization().slipWallMask(d);
+    momBCs.dirichletMaskAll = &bcDiscretization().dirichletMask();
+    momBCs.dirichletValsAll = &bcDiscretization().dirichletVals();
+    momBCs.faceBC = &bcDiscretization().faceBCs();
 
     momentum_.assembleWithConvection(d, boundVelocity(), pressureGrad,
                                      zeroSource_(),
-                                     bcDiscretization_.dirichletMask(d), bcDiscretization_.dirichletVals(d),
+                                     bcDiscretization().dirichletMask(d), bcDiscretization().dirichletVals(d),
                                      momA, momB, momDiag_,
                                      config_.convectionScheme,
                                      nutPtr, velGradPtr,
@@ -894,7 +886,7 @@ void CFDSolver<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uS
 
     // PISO: no momentum under-relaxation (alphaU=1). PIMPLE/SIMPLE use config.alphaU.
     const double alphaU = tp.hasTime ? (isPiso_() ? 1.0 : config_.alphaU) : config_.alphaU;
-    momentum_.computeDCoeffAndRelax(momA, momB, bcDiscretization_.dirichletMask(d),
+    momentum_.computeDCoeffAndRelax(momA, momB, bcDiscretization().dirichletMask(d),
                                     velocityOld[d], alphaU,
                                     dCoeff_[d], config_.simplec);
 
@@ -913,7 +905,7 @@ void CFDSolver<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uS
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         double val = result.x(static_cast<Eigen::Index>(i));
         if (std::isnan(val) || std::isinf(val)) val = (boundVelocity())[d][i];
-        if (bcDiscretization_.dirichletMask(d)[i]) val = bcDiscretization_.dirichletVals(d)[i];
+        if (bcDiscretization().dirichletMask(d)[i]) val = bcDiscretization().dirichletVals(d)[i];
         uStar[d][i] = val;
     }
 }

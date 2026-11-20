@@ -64,7 +64,6 @@ void TransientDriver<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Fie
         std::copy((solver_.boundVelocity())[d].values().begin(),
                   (solver_.boundVelocity())[d].values().end(),
                   solver_.velocityOld_[d].values().begin());
-    if (solver_.bc_.isDirty()) solver_.bcDiscretization_ = solver_.bc_.build();
     solveMomentumTransient_(solver_.uStar_, solver_.velocityOld_);
     solver_.capturePredictedContinuity_();
 
@@ -132,8 +131,8 @@ void TransientDriver<Dim>::updatePisoPredictor_() {
             if (!std::isfinite(val)) val = u[d][i];
             solver_.uStar_[d][i] = val;
         }
-        const auto& dirMask = solver_.bcDiscretization_.dirichletMask(d);
-        const auto& dirVals = solver_.bcDiscretization_.dirichletVals(d);
+        const auto& dirMask = solver_.bcDiscretization().dirichletMask(d);
+        const auto& dirVals = solver_.bcDiscretization().dirichletVals(d);
         for (std::size_t i = 0; i < n; ++i) {
             if (dirMask[i]) solver_.uStar_[d][i] = dirVals[i];
         }
@@ -197,7 +196,6 @@ void TransientDriver<Dim>::performTransientIteration_(VectorField<Dim>& velocity
         std::copy((solver_.boundVelocity())[d].values().begin(),
                   (solver_.boundVelocity())[d].values().end(),
                   solver_.velocityOld_[d].values().begin());
-    if (solver_.bc_.isDirty()) solver_.bcDiscretization_ = solver_.bc_.build();
     solveMomentumTransient_(solver_.uStar_, solver_.velocityOld_);
     solver_.capturePredictedContinuity_();
     solver_.applyPressureCorrection_(solver_.uStar_, alphaP, /*applyLimiter=*/true, /*capturePreCorrector=*/false);

@@ -92,8 +92,7 @@ public:
 
     bool isDirty() const { return dirty_; }
     void markDirty() { dirty_ = true; }
-    BCDiscretization build();
-    void ensureBuilt() { if (dirty_) build(); }
+    const BCDiscretization& discretization() const;
 
     BCSpec spec() const { return {velBcs_, velPatches_, faceVelBCs_}; }
 
@@ -117,6 +116,7 @@ private:
 
     mutable bool dirty_ = true;
     mutable bool firstBuild_ = true;
+    mutable BCDiscretization discretization_;
 };
 
 extern template class BoundaryConditions<2>;

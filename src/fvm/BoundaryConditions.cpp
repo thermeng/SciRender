@@ -474,14 +474,16 @@ double BoundaryConditions<Dim>::maxInletSpeed(double fallback) const {
 }
 
 template<std::size_t Dim>
-BCDiscretization BoundaryConditions<Dim>::build() {
-    BCDiscretization disc = buildBCMasks(mesh_, {velBcs_, velPatches_, faceVelBCs_});
-    if (firstBuild_) {
-        firstBuild_ = false;
-        debugPrint(disc);
+const BCDiscretization& BoundaryConditions<Dim>::discretization() const {
+    if (dirty_) {
+        discretization_ = buildBCMasks(mesh_, {velBcs_, velPatches_, faceVelBCs_});
+        if (firstBuild_) {
+            firstBuild_ = false;
+            debugPrint(discretization_);
+        }
+        dirty_ = false;
     }
-    dirty_ = false;
-    return disc;
+    return discretization_;
 }
 
 template <std::size_t Dim>

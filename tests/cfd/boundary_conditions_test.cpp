@@ -6,6 +6,7 @@
 //   - a moving wall prescribed on FACES must actually drive the flow;
 //   - on an unstructured mesh the wall must stay impermeable.
 #include "doctest/doctest.h"
+#include "fvm/BoundaryConditions.h"
 #include "fvm/SIMPLE.h"
 #include "mesh/BoundaryUtils.h"
 #include "support/fvm_fixtures.h"
@@ -56,6 +57,26 @@ fvm::SIMPLE<2>::Config solverConfig() {
 } // namespace
 
 TEST_SUITE("cfd") {
+
+TEST_CASE("cfd.bc.compiled_view_rebuilds_only_when_spec_changes") {
+    const fvm::Mesh<2> mesh = uniform2D(6);
+    fvm::BoundaryConditions<2> bc(mesh);
+    bc.setVelocityBC(0, -1, fvm::VelocityBCType::Inlet, 1.0, 0.0, 0.0);
+
+    const auto& first = bc.discretization();
+    const auto* stable = &first;
+    const std::size_t cell = mesh.cellIndex(0, 2);
+    CHECK(first.dirichletMask(0)[cell] != 0);
+    CHECK(first.dirichletVals(0)[cell] == doctest::Approx(1.0));
+    CHECK(&bc.discretization() == stable);
+
+    bc.setVelocityBC(0, -1, fvm::VelocityBCType::Inlet, 2.0, 0.0, 0.0);
+    CHECK(bc.isDirty());
+    const auto& second = bc.discretization();
+    CHECK(second.dirichletVals(0)[cell] == doctest::Approx(2.0));
+    CHECK(&second == stable);
+    CHECK_FALSE(bc.isDirty());
+}
 
 // The lid holds its moving-wall velocity and the side walls stay at rest in
 // the computed solution: the wall condition is honored by the flow.

@@ -207,6 +207,9 @@ private:
 
     const Field<Dim>& zeroSource_() const;
 
+    // The compiled boundary view is owned by the BC spec; callers never cache it.
+    const BCDiscretization& bcDiscretization() const { return bc_.discretization(); }
+
     void initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pressure);
     // Steady loop internals (now shared by the base since the loop mechanics
     // are identical for both sides).
@@ -283,7 +286,6 @@ private:
     std::optional<std::reference_wrapper<Field<Dim>>> pressure_;
 
     BoundaryConditions<Dim> bc_;
-    BCDiscretization bcDiscretization_;
 
     mutable std::array<SparseMatrix, Dim> momAsnap_;
     mutable std::array<Eigen::VectorXd, Dim> momBsnap_;
