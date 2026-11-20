@@ -9,6 +9,7 @@
 
 #include "io/CGNSReader.h"
 #include "support/cgns_fixtures.h"
+#include "support/test_support.h"
 
 #include <cmath>
 #include <filesystem>
@@ -103,6 +104,20 @@ TEST_CASE("fvm.cgns.pointrange_bcs_element_and_vertex") {
     CHECK(r.boundaryGroups.at("vrange").size() == 1);
     // the vertex range 1..4 selects the same face as element range [3,3]
     CHECK(r.boundaryGroups.at("bottom")[0] == r.boundaryGroups.at("vrange")[0]);
+}
+
+TEST_CASE("fvm.cgns.static_mixer_reads_with_four_patches") {
+    test_support::requireSample("cgns/StaticMixer.cgns");
+    const auto path = test_support::samplePath("cgns/StaticMixer.cgns").string();
+
+    auto r = fvm::CGNSReader<3>::read(path);
+
+    CHECK(r.mesh.nCells() > 0);
+    REQUIRE(r.boundaryGroups.size() == 4);
+    CHECK(r.boundaryGroups.at("StaticMixer Default").size() == 1582);
+    CHECK(r.boundaryGroups.at("in1").size() == 14);
+    CHECK(r.boundaryGroups.at("in2").size() == 14);
+    CHECK(r.boundaryGroups.at("out").size() == 20);
 }
 
 TEST_CASE("fvm.cgns.surface_mesh_in_3d_is_rejected") {

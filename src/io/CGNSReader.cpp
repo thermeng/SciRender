@@ -268,6 +268,17 @@ typename CGNSReader<Dim>::Result CGNSReader<Dim>::read(const std::string& filena
     std::vector<std::vector<std::vector<std::size_t>>> cellFaces;
     // Boundary elements by global (1-based) element number, for ElementList BCs.
     std::unordered_map<cgsize_t, std::vector<std::size_t>> boundaryElems;
+    // Boundary sections by their full vertex set, for Vertex PointList BCs.
+    std::unordered_map<std::vector<std::size_t>, std::vector<cgsize_t>, VecHash>
+        boundarySectionElems;
+    auto recordBoundarySection = [&](std::vector<cgsize_t>& elems,
+                                     std::vector<std::size_t>& verts) {
+        if (elems.empty()) return;
+        std::sort(verts.begin(), verts.end());
+        verts.erase(std::unique(verts.begin(), verts.end()), verts.end());
+        auto& dst = boundarySectionElems[std::move(verts)];
+        dst.insert(dst.end(), elems.begin(), elems.end());
+    };
     auto addCell = [&](const cgsize_t* p, const ElemInfo& info) {
         std::vector<std::size_t> corners(static_cast<std::size_t>(info.npe));
         for (int k = 0; k < info.npe; ++k) {
@@ -299,6 +310,8 @@ typename CGNSReader<Dim>::Result CGNSReader<Dim>::read(const std::string& filena
             // numbers continue the section's start..end range in order.
             std::size_t pos = 0;
             cgsize_t elemNo = sec.start;
+            std::vector<cgsize_t> sectionElems;
+            std::vector<std::size_t> sectionVerts;
             while (pos < sec.conn.size()) {
                 const auto et = static_cast<ElementType_t>(sec.conn[pos++]);
                 int npe = 0;
@@ -310,12 +323,16 @@ typename CGNSReader<Dim>::Result CGNSReader<Dim>::read(const std::string& filena
                 pos += static_cast<std::size_t>(npe);
                 const ElemInfo info = classify(et, static_cast<int>(Dim));
                 if (info.role == ElemRole::BoundaryFace) {
-                    boundaryElems.emplace(elemNo, sortedKey(p, info.npe));
+                    auto key = sortedKey(p, info.npe);
+                    boundaryElems.emplace(elemNo, key);
+                    sectionElems.push_back(elemNo);
+                    sectionVerts.insert(sectionVerts.end(), key.begin(), key.end());
                 } else if (info.role == ElemRole::Volume) {
                     addCell(p, info);
                 }
                 ++elemNo;
             }
+            recordBoundarySection(sectionElems, sectionVerts);
             continue;
         }
         const ElemInfo info = classify(sec.type, static_cast<int>(Dim));
@@ -325,14 +342,20 @@ typename CGNSReader<Dim>::Result CGNSReader<Dim>::read(const std::string& filena
         if (sec.conn.size() != static_cast<std::size_t>(count) * info.npe) {
             throw std::runtime_error("CGNSReader: element section size mismatch");
         }
+        std::vector<cgsize_t> sectionElems;
+        std::vector<std::size_t> sectionVerts;
         for (cgsize_t e = 0; e < count; ++e) {
             const cgsize_t* p = sec.conn.data() + static_cast<std::size_t>(e) * info.npe;
             if (info.role == ElemRole::BoundaryFace) {
-                boundaryElems.emplace(sec.start + e, sortedKey(p, info.npe));
+                auto key = sortedKey(p, info.npe);
+                boundaryElems.emplace(sec.start + e, key);
+                sectionElems.push_back(sec.start + e);
+                sectionVerts.insert(sectionVerts.end(), key.begin(), key.end());
                 continue;
             }
             addCell(p, info);
         }
+        recordBoundarySection(sectionElems, sectionVerts);
     }
     if (cells.empty()) {
         throw std::runtime_error("CGNSReader: no volume elements found in '" + filename + "'");
@@ -429,28 +452,59 @@ typename CGNSReader<Dim>::Result CGNSReader<Dim>::read(const std::string& filena
                 matchKey(it->second);
             }
         } else if (pst == CGNS_ENUMV(PointList)) {
-            // One or more faces concatenated: try tri then quad chunks in 3D,
-            // edges in 2D. CGNS does not record the face size in the BC node.
-            std::array<int, 2> sizes = Dim == 3 ? std::array<int, 2>{3, 4}
-                                                : std::array<int, 2>{2, 0};
-            cgsize_t pos = 0;
-            while (pos < npnts) {
-                bool matched = false;
-                for (int k : sizes) {
-                    if (k == 0 || pos + k > npnts) continue;
-                    auto key = sortedKey(pnts.data() + pos, static_cast<std::size_t>(k));
-                    if (faceByKey.count(key)) {
-                        matchKey(key);
-                        pos += k;
-                        matched = true;
-                        break;
+            bool handled = false;
+            if (loc == CGNS_ENUMV(Vertex)) {
+                std::vector<std::size_t> bcVerts;
+                bcVerts.reserve(static_cast<std::size_t>(npnts));
+                for (cgsize_t id : pnts) {
+                    if (id < 1 || id > nvert) {
+                        throw std::runtime_error("CGNSReader: BC '" + group +
+                                                 "' references vertex out of range");
                     }
+                    bcVerts.push_back(static_cast<std::size_t>(id - 1));
                 }
-                if (!matched) {
-                    throw std::runtime_error("CGNSReader: BC '" + group +
-                                             "' point list does not match any "
-                                             "boundary face at offset " +
-                                             std::to_string(pos));
+                std::sort(bcVerts.begin(), bcVerts.end());
+                bcVerts.erase(std::unique(bcVerts.begin(), bcVerts.end()), bcVerts.end());
+                auto sit = boundarySectionElems.find(bcVerts);
+                if (sit != boundarySectionElems.end()) {
+                    // shortcut: a vertex list matching a whole boundary section selects
+                    // that section; partial sections need element-based BCs.
+                    for (cgsize_t idx : sit->second) {
+                        auto it = boundaryElems.find(idx);
+                        if (it == boundaryElems.end()) {
+                            throw std::runtime_error("CGNSReader: BC '" + group +
+                                                     "' references unknown boundary element " +
+                                                     std::to_string(idx));
+                        }
+                        matchKey(it->second);
+                    }
+                    handled = true;
+                }
+            }
+            if (!handled) {
+                // One or more faces concatenated: try tri then quad chunks in 3D,
+                // edges in 2D. CGNS does not record the face size in the BC node.
+                std::array<int, 2> sizes = Dim == 3 ? std::array<int, 2>{3, 4}
+                                                    : std::array<int, 2>{2, 0};
+                cgsize_t pos = 0;
+                while (pos < npnts) {
+                    bool matched = false;
+                    for (int k : sizes) {
+                        if (k == 0 || pos + k > npnts) continue;
+                        auto key = sortedKey(pnts.data() + pos, static_cast<std::size_t>(k));
+                        if (faceByKey.count(key)) {
+                            matchKey(key);
+                            pos += k;
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if (!matched) {
+                        throw std::runtime_error("CGNSReader: BC '" + group +
+                                                 "' point list does not match any "
+                                                 "boundary face at offset " +
+                                                 std::to_string(pos));
+                    }
                 }
             }
         } else {
