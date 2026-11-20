@@ -70,8 +70,8 @@ public:
                this->transientDriver_->time() > 0.0;
     }
     const VectorField<Dim>& velocityNM1() const { return this->transientDriver_->velocityNM1(); }
-    const Field<Dim>& kNM1() const { return this->transientDriver_->kN(); }
-    const Field<Dim>& omegaNM1() const { return this->transientDriver_->omegaN(); }
+    const Field<Dim>& kNM1() const { return this->transientDriver_->kNM1(); }
+    const Field<Dim>& omegaNM1() const { return this->transientDriver_->omegaNM1(); }
 };
 
 extern template class SIMPLE<2>;

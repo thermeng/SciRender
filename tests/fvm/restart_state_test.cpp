@@ -148,4 +148,51 @@ TEST_CASE("fvm.transient.restart_state_continues_at_the_saved_step") {
                   "continuation must start from the saved velocity field");
 }
 
+// The save path captures k^{n-1}/omega^{n-1} through SIMPLE::kNM1()/omegaNM1();
+// returning the current fields instead silently corrupts BDF2 history on
+// restart. Seed distinct n and n-1 values and stop before any step can shift
+// the history, so the accessors are checked at the exact saved point.
+TEST_CASE("fvm.transient.turbulence_history_accessors_return_n_minus_one") {
+    Channel ch;
+    auto cfg = transientConfig();
+    cfg.transient.timeScheme = fvm::TimeScheme::BDF2;
+    cfg.transient.dt = 0.01;
+    cfg.stopping.transient.tEnd = 0.04;
+
+    fvm::SIMPLE<2> solver(ch.mesh, 1.0, 0.01, cfg);
+    ch.apply(solver);
+    solver.enableTurbulence();
+
+    fvm::SIMPLE<2>::RestartState rs;
+    rs.hasTurbulence = true;
+    rs.hasTransient = true;
+    rs.time = 0.05; // already past tEnd: no step runs, history stays as saved
+    rs.dt = 0.01;
+    rs.dtPrev = 0.01;
+    rs.step = 2;
+    rs.hasTurbulenceHistory = true;
+    const std::size_t n = ch.mesh.nCells();
+    for (std::size_t i = 0; i < n; ++i) {
+        rs.k.push_back(0.01 + 0.001 * i);
+        rs.omega.push_back(2.0 + 0.1 * i);
+        rs.kNM1.push_back(0.5 + 0.002 * i);
+        rs.omegaNM1.push_back(5.0 + 0.2 * i);
+    }
+    solver.setRestartState(std::move(rs));
+
+    fvm::VectorField<2> v(ch.mesh, 0.0);
+    fvm::Field<2> p(ch.mesh, 0.0);
+    solver.solveTransient(v, p);
+    REQUIRE(solver.currentStep() == 2);
+
+    const auto& kNM1 = solver.kNM1();
+    const auto& omegaNM1 = solver.omegaNM1();
+    REQUIRE(kNM1.size() == n);
+    REQUIRE(omegaNM1.size() == n);
+    for (std::size_t i = 0; i < n; ++i) {
+        CHECK(kNM1[i] == doctest::Approx(0.5 + 0.002 * i));
+        CHECK(omegaNM1[i] == doctest::Approx(5.0 + 0.2 * i));
+    }
+}
+
 } // TEST_SUITE
