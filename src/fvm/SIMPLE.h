@@ -264,9 +264,13 @@ private:
     const Field<Dim>& zeroSource_() const;
 
     void solveMomentum_(VectorField<Dim>& uStar, const VectorField<Dim>& velocityOld);
+    // One momentum solve for steady and transient callers alike. The
+    // transient path passes tp (BDF2/Euler terms) — the same function, the
+    // same bug fixes.
     void solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar,
                                  const VectorField<Dim>& velocityOld,
-                                 const std::array<Field<Dim>, Dim>& pressureGrad);
+                                 const std::array<Field<Dim>, Dim>& pressureGrad,
+                                 const TransientParams<Dim>& tp = TransientParams<Dim>{});
     void initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pressure);
     // Rebuild the pressure-correction linear-solver configuration from
     // Config. Called at construction and again whenever the transient path

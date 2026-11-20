@@ -20,11 +20,27 @@ struct MomentumBCs {
     const std::vector<FaceVelocityBC>* faceBC = nullptr;
 };
 
+// Time terms for the implicit momentum assembly (transient path): the
+// old-time and old-time-prev fields plus the time scheme. The steady path
+// passes the default and no time terms are added.
+template<std::size_t Dim>
+struct TransientParams {
+    bool hasTime = false;
+    double dt = 0.0;
+    double dtPrev = 0.0;
+    TimeScheme timeScheme = TimeScheme::Euler;
+    const Field<Dim>* oldTime = nullptr;
+    const Field<Dim>* oldTimePrev = nullptr;
+};
+
 template<std::size_t Dim>
 class Momentum {
 public:
     Momentum(const Mesh<Dim>& mesh, double rho, double nu);
 
+    // Assemble the momentum operator (convection + diffusion) into A and b.
+    // With `tp.hasTime` the BDF2/Euler time terms are added on top (the
+    // transient path); the steady path passes the default, which adds none.
     void assembleWithConvection(
         std::size_t d,
         const VectorField<Dim>& velocity,
@@ -38,27 +54,8 @@ public:
         ConvectionScheme scheme = ConvectionScheme::Upwind,
         const Field<Dim>* nutField = nullptr,
         const std::array<Field<Dim>, Dim>* phiGrad = nullptr,
-        const MomentumBCs& bcs = {});
-
-    void assembleWithConvectionTransient(
-        std::size_t d,
-        const VectorField<Dim>& velocity,
-        const std::array<Field<Dim>, Dim>& pressureGrad,
-        const Field<Dim>& source,
-        const std::vector<char>& dirichletMask,
-        const std::vector<double>& dirichletValues,
-        SparseMatrix& A,
-        Eigen::VectorXd& b,
-        Field<Dim>& diag,
-        double dt,
-        double dtPrev,
-        const Field<Dim>* oldTime,
-        const Field<Dim>* oldTimePrev,
-        TimeScheme timeScheme,
-        ConvectionScheme convScheme = ConvectionScheme::Upwind,
-        const Field<Dim>* nutField = nullptr,
-        const std::array<Field<Dim>, Dim>* phiGrad = nullptr,
-        const MomentumBCs& bcs = {});
+        const MomentumBCs& bcs = {},
+        const TransientParams<Dim>& tp = TransientParams<Dim>{});
 
     // The slope limiter applied to the second-order-upwind reconstruction of the
     // momentum components. It limits the face value, never the base upwind

@@ -177,7 +177,8 @@ void Momentum<Dim>::assembleWithConvection(
     ConvectionScheme scheme,
     const Field<Dim>* nutField,
     const std::array<Field<Dim>, Dim>* phiGrad,
-    const MomentumBCs& bcs) {
+    const MomentumBCs& bcs,
+    const TransientParams<Dim>& tp) {
 
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
@@ -533,46 +534,21 @@ void Momentum<Dim>::assembleWithConvection(
             }
         }
     }
-}
 
-template<std::size_t Dim>
-void Momentum<Dim>::assembleWithConvectionTransient(
-    std::size_t d,
-    const VectorField<Dim>& velocity,
-    const std::array<Field<Dim>, Dim>& pressureGrad,
-    const Field<Dim>& source,
-    const std::vector<char>& dirichletMask,
-    const std::vector<double>& dirichletValues,
-    SparseMatrix& A,
-    Eigen::VectorXd& b,
-    Field<Dim>& diag,
-    double dt,
-    double dtPrev,
-    const Field<Dim>* oldTime,
-    const Field<Dim>* oldTimePrev,
-    TimeScheme timeScheme,
-    ConvectionScheme convScheme,
-    const Field<Dim>* nutField,
-    const std::array<Field<Dim>, Dim>* phiGrad,
-    const MomentumBCs& bcs) {
-
-    assembleWithConvection(d, velocity, pressureGrad, source, dirichletMask, dirichletValues,
-                           A, b, diag, convScheme, nutField, phiGrad, bcs);
-
-    if (dt <= 0.0 || dt > 1e14 || !oldTime) return;
-
-    const std::size_t n = mesh_.nCells();
+    // Transient time terms (TransientParams): the BDF2/Euler implicit term
+    // on top of the steady operator for the next step.
+    if (!tp.hasTime || tp.dt <= 0.0 || tp.dt > 1e14 || !tp.oldTime) return;
 
     // BDF2 coefficients follow dt and dt/dtPrev. Passing dtPrev == 0 (first
     // step, or no usable history) degrades cleanly to explicit Euler rather
     // than applying constant-step coefficients to a varying step.
     ImplicitTimeCoeffs tc;
-    if (timeScheme == TimeScheme::BDF2 && oldTimePrev != nullptr) {
-        tc = implicitTimeCoeffs(dt, dtPrev);
+    if (tp.timeScheme == TimeScheme::BDF2 && tp.oldTimePrev != nullptr) {
+        tc = implicitTimeCoeffs(tp.dt, tp.dtPrev);
     }
     const bool useBDF2 = tc.secondOrder;
-    if (!useBDF2 && dt > 0.0) {
-        tc.c0 = 1.0 / dt;
+    if (!useBDF2 && tp.dt > 0.0) {
+        tc.c0 = 1.0 / tp.dt;
     }
 
     A.makeCompressed();
@@ -588,8 +564,8 @@ void Momentum<Dim>::assembleWithConvectionTransient(
             double vol = mesh_.cellVolume(i);
             const double coeff = tc.c0 * rho_ * vol;
             const double rhs = useBDF2
-                ? rho_ * vol * (tc.cOld * (*oldTime)[i] + tc.cOldPrev * (*oldTimePrev)[i])
-                : coeff * (*oldTime)[i];
+                ? rho_ * vol * (tc.cOld * (*tp.oldTime)[i] + tc.cOldPrev * (*tp.oldTimePrev)[i])
+                : coeff * (*tp.oldTime)[i];
             int p = dpos[i];
             if (p >= 0) vals[p] += coeff;
             b(static_cast<Eigen::Index>(i)) += rhs;
@@ -601,8 +577,8 @@ void Momentum<Dim>::assembleWithConvectionTransient(
             double vol = mesh_.cellVolume(i);
             const double coeff = tc.c0 * rho_ * vol;
             const double rhs = useBDF2
-                ? rho_ * vol * (tc.cOld * (*oldTime)[i] + tc.cOldPrev * (*oldTimePrev)[i])
-                : coeff * (*oldTime)[i];
+                ? rho_ * vol * (tc.cOld * (*tp.oldTime)[i] + tc.cOldPrev * (*tp.oldTimePrev)[i])
+                : coeff * (*tp.oldTime)[i];
             // Fallback binary search via outer/inner
             int col = static_cast<int>(i);
             for (int k = outer[col]; k < outer[col+1]; ++k) {

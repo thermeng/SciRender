@@ -29,82 +29,31 @@ void TransientDriver<Dim>::solveMomentumTransient_(VectorField<Dim>& uStar, cons
     // largest on skewed/non-uniform meshes.
     simple_.pressureGradientCalc_->compute(simple_.boundPressure(), simple_.pressureGrad_);
     if constexpr (Dim == 2) {
-        solveMomentumComponentTransient_(0, uStar, velocityOld, simple_.pressureGrad_);
-        solveMomentumComponentTransient_(1, uStar, velocityOld, simple_.pressureGrad_);
+        simple_.solveMomentumComponent_(0, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(0));
+        simple_.solveMomentumComponent_(1, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(1));
     } else {
-        solveMomentumComponentTransient_(0, uStar, velocityOld, simple_.pressureGrad_);
-        solveMomentumComponentTransient_(1, uStar, velocityOld, simple_.pressureGrad_);
-        solveMomentumComponentTransient_(2, uStar, velocityOld, simple_.pressureGrad_);
+        simple_.solveMomentumComponent_(0, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(0));
+        simple_.solveMomentumComponent_(1, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(1));
+        simple_.solveMomentumComponent_(2, uStar, velocityOld, simple_.pressureGrad_, momentumTp_(2));
     }
 }
 
 template<std::size_t Dim>
-void TransientDriver<Dim>::solveMomentumComponentTransient_(std::size_t d, VectorField<Dim>& uStar,
-                                                            const VectorField<Dim>& velocityOld,
-                                                            const std::array<Field<Dim>, Dim>& pressureGrad) {
-    // Assemble in place into the per-component snapshot (see the steady path).
-    SparseMatrix& momA = simple_.momAsnap_[d];
-    Eigen::VectorXd& momB = simple_.momBsnap_[d];
-    const Field<Dim>* nutPtr = simple_.turbulence_ ? &simple_.turbulence_->nut() : nullptr;
-    simple_.gradientCalc_->compute((simple_.boundVelocity())[d], simple_.velGrad_);
-    const std::array<Field<Dim>, Dim>* velGradPtr = &simple_.velGrad_;
-
-    const Field<Dim>* oldTime = &velocityN_[d];
-    const Field<Dim>* oldTimePrev = nullptr;
+TransientParams<Dim> TransientDriver<Dim>::momentumTp_(std::size_t d) const {
+    TransientParams<Dim> tp;
+    tp.hasTime = true;
+    tp.dt = dt_;
+    tp.dtPrev = dtPrev_;
+    tp.timeScheme = simple_.config_.transient.timeScheme;
+    tp.oldTime = &velocityN_[d];
     // BDF2 needs two levels of history. dtPrev_ == 0 additionally forces
     // explicit Euler for this step (handled inside the assembler), which is
     // what a restart from a fresh field must do.
-    if (simple_.config_.transient.timeScheme == TimeScheme::BDF2 && simple_.timeStep_ > 1 && dtPrev_ > 0.0 && simple_.hasVelocityHistory_) {
-        oldTimePrev = &velocityNM1_[d];
-    }
-    TimeScheme ts = simple_.config_.transient.timeScheme;
-    if (simple_.timeStep_ == 1 && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
-
-    if (!simple_.hasVelocityHistory_ && ts == TimeScheme::BDF2) ts = TimeScheme::Euler;
-
-    fvm::MomentumBCs momBCs;
-    momBCs.slipWallMask = &simple_.bcDiscretization_.slipWallMask(d);
-    momBCs.dirichletMaskAll = &simple_.bcDiscretization_.dirichletMask();
-    momBCs.dirichletValsAll = &simple_.bcDiscretization_.dirichletVals();
-    momBCs.faceBC = &simple_.bcDiscretization_.faceBCs();
-
-    simple_.momentum_.assembleWithConvectionTransient(d, simple_.boundVelocity(), pressureGrad,
-                                                      simple_.zeroSource_(),
-                                                      simple_.bcDiscretization_.dirichletMask(d),
-                                                      simple_.bcDiscretization_.dirichletVals(d),
-                                                      momA, momB, simple_.momDiag_,
-                                                      dt_, dtPrev_, oldTime, oldTimePrev, ts,
-                                                      simple_.config_.convectionScheme,
-                                                      nutPtr, velGradPtr,
-                                                      momBCs);
-    simple_.diag_[d] = simple_.momDiag_;
-    // PISO: no momentum under-relaxation (alphaU=1). PIMPLE/SIMPLE use config.alphaU.
-    // solverType is explicit; legacy piso bool kept for compat.
-    double alphaU = simple_.isPiso_() ? 1.0 : simple_.config_.alphaU;
-    simple_.momentum_.computeDCoeffAndRelax(momA, momB, simple_.bcDiscretization_.dirichletMask(d),
-                                            velocityOld[d], alphaU,
-                                            simple_.dCoeff_[d], simple_.config_.simplec);
-    // Transient greatly increases diagonal dominance, keep pattern re-analysis cheap: still cache
-    // For transient, matrix pattern identical, but values change with dt:
-    // the linear-solver dispatch below re-factorizes / rebuilds as needed.
-    simple_.momentumWarmStart_.resize(static_cast<Eigen::Index>(simple_.mesh_.nCells()));
-    const double* velPtr = (simple_.boundVelocity())[d].ptr();
-    for (std::size_t i = 0; i < simple_.mesh_.nCells(); ++i)
-        simple_.momentumWarmStart_(static_cast<Eigen::Index>(i)) = velPtr[i];
-
-    auto result = simple_.linearSolverDispatcher_.solve(d, momA, momB,
-                                                         simple_.momentumWarmStart_,
-                                                         simple_.cancelFlag());
-    if (result.failed || !result.x.allFinite())
-        simple_.fail_(SIMPLE<Dim>::Failure::MomentumSolveFailed);
-
-    for (std::size_t i = 0; i < simple_.mesh_.nCells(); ++i) {
-        double val = result.x(static_cast<Eigen::Index>(i));
-        if (std::isnan(val) || std::isinf(val)) val = (simple_.boundVelocity())[d][i];
-        if (simple_.bcDiscretization_.dirichletMask(d)[i])
-            val = simple_.bcDiscretization_.dirichletVals(d)[i];
-        uStar[d][i] = val;
-    }
+    if (simple_.timeStep_ > 1 && dtPrev_ > 0.0 && simple_.hasVelocityHistory_)
+        tp.oldTimePrev = &velocityNM1_[d];
+    if (simple_.timeStep_ == 1 && tp.timeScheme == TimeScheme::BDF2) tp.timeScheme = TimeScheme::Euler;
+    if (!simple_.hasVelocityHistory_ && tp.timeScheme == TimeScheme::BDF2) tp.timeScheme = TimeScheme::Euler;
+    return tp;
 }
 
 template<std::size_t Dim>

@@ -1190,7 +1190,8 @@ void SIMPLE<Dim>::solveMomentum_(VectorField<Dim>& uStar, const VectorField<Dim>
 template<std::size_t Dim>
 void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar,
                                            const VectorField<Dim>& velocityOld,
-                                           const std::array<Field<Dim>, Dim>& pressureGrad) {
+                                           const std::array<Field<Dim>, Dim>& pressureGrad,
+                                           const TransientParams<Dim>& tp) {
     // Assemble in place into the per-component snapshot: the operator pattern
     // is reused across iterations, and the residual/PISO code reads the same
     // object instead of a copy.
@@ -1215,12 +1216,14 @@ void SIMPLE<Dim>::solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar
                                      momA, momB, momDiag_,
                                      config_.convectionScheme,
                                      nutPtr, velGradPtr,
-                                     momBCs);
+                                     momBCs, tp);
 
     diag_[d] = momDiag_;
 
+    // PISO: no momentum under-relaxation (alphaU=1). PIMPLE/SIMPLE use config.alphaU.
+    const double alphaU = tp.hasTime ? (isPiso_() ? 1.0 : config_.alphaU) : config_.alphaU;
     momentum_.computeDCoeffAndRelax(momA, momB, bcDiscretization_.dirichletMask(d),
-                                    velocityOld[d], config_.alphaU,
+                                    velocityOld[d], alphaU,
                                     dCoeff_[d], config_.simplec);
 
     momentumWarmStart_.resize(static_cast<Eigen::Index>(mesh_.nCells()));
