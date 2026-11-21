@@ -522,6 +522,8 @@ private:
                 solver.setPressureOutletOnFacesWithBackflow(
                     faces, pbc.pressure, pbc.suppressBackflow, pbc.backflowU,
                     pbc.backflowV, pbc.backflowW, pbc.backflowK, pbc.backflowOmega);
+            } else if (usesNormalVelocity(pbc)) {
+                solver.setVelocityInletNormalOnFaces(faces, pbc.normalVelocity);
             } else {
                 const bool slip = (pbc.type == BCType::SlipWall ||
                                    pbc.type == BCType::Symmetry);
