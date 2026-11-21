@@ -38,24 +38,24 @@ struct BCDiscretization {
     std::vector<FaceVelocityBC> faceBCs_;
     std::vector<char> faceHasBC_;
 
-    const std::vector<std::vector<char>>& dirichletMask() const { return dirichletMask_; }
-    const std::vector<std::vector<double>>& dirichletVals() const { return dirichletVals_; }
-    const std::vector<std::vector<char>>& slipWallMask() const { return slipWallMask_; }
-    const std::vector<char>& isPressureNeumann() const { return isPressureNeumann_; }
-    const std::vector<std::pair<std::size_t, double>>& pressureOutletCells() const { return pressureOutletCells_; }
+    const std::vector<std::vector<char>>& dirichletMask() const noexcept { return dirichletMask_; }
+    const std::vector<std::vector<double>>& dirichletVals() const noexcept { return dirichletVals_; }
+    const std::vector<std::vector<char>>& slipWallMask() const noexcept { return slipWallMask_; }
+    const std::vector<char>& isPressureNeumann() const noexcept { return isPressureNeumann_; }
+    const std::vector<std::pair<std::size_t, double>>& pressureOutletCells() const noexcept { return pressureOutletCells_; }
 
     // Per-dimension cell-level accessors.
-    const std::vector<char>& dirichletMask(std::size_t d) const { return dirichletMask_[d]; }
-    const std::vector<double>& dirichletVals(std::size_t d) const { return dirichletVals_[d]; }
-    const std::vector<char>& slipWallMask(std::size_t d) const { return slipWallMask_[d]; }
+    const std::vector<char>& dirichletMask(std::size_t d) const noexcept { return dirichletMask_[d]; }
+    const std::vector<double>& dirichletVals(std::size_t d) const noexcept { return dirichletVals_[d]; }
+    const std::vector<char>& slipWallMask(std::size_t d) const noexcept { return slipWallMask_[d]; }
 
     // Face-level typed-view accessors.
-    const std::vector<FaceVelocityBC>& faceBCs() const { return faceBCs_; }
-    const std::vector<char>& faceHasBCs() const { return faceHasBC_; }
-    VelocityBCType faceBC(std::size_t f) const { return f < faceBCs_.size() ? faceBCs_[f].type : VelocityBCType::NoSlip; }
-    bool hasFaceBC(std::size_t f) const { return f < faceHasBC_.size() && faceHasBC_[f] != 0; }
-    bool isPressureDirichletFace(std::size_t f) const { return f < faceBCs_.size() && faceBCs_[f].type == VelocityBCType::PressureOutlet; }
-    bool isPressureNeumannFace(std::size_t f) const { return f < faceBCs_.size() && faceBCs_[f].type != VelocityBCType::PressureOutlet; }
+    const std::vector<FaceVelocityBC>& faceBCs() const noexcept { return faceBCs_; }
+    const std::vector<char>& faceHasBCs() const noexcept { return faceHasBC_; }
+    VelocityBCType faceBC(std::size_t f) const noexcept { return f < faceBCs_.size() ? faceBCs_[f].type : VelocityBCType::NoSlip; }
+    bool hasFaceBC(std::size_t f) const noexcept { return f < faceHasBC_.size() && faceHasBC_[f] != 0; }
+    bool isPressureDirichletFace(std::size_t f) const noexcept { return f < faceBCs_.size() && faceBCs_[f].type == VelocityBCType::PressureOutlet; }
+    bool isPressureNeumannFace(std::size_t f) const noexcept { return f < faceBCs_.size() && faceBCs_[f].type != VelocityBCType::PressureOutlet; }
 };
 
 template<std::size_t Dim>
@@ -70,10 +70,10 @@ public:
     void addVelocityPatch(const std::string& name, std::size_t d, int sign,
                           VelocityBCType type, double u = 0.0, double v = 0.0, double w = 0.0);
     const VelocityPatch* findVelocityPatch(const std::string& name) const;
-    const std::vector<VelocityBC>& velBCs() const { return velBcs_; }
-    const std::unordered_map<std::size_t, FaceVelocityBC>& faceVelBCs() const { return faceVelBCs_; }
+    const std::vector<VelocityBC>& velBCs() const noexcept { return velBcs_; }
+    const std::unordered_map<std::size_t, FaceVelocityBC>& faceVelBCs() const noexcept { return faceVelBCs_; }
 
-    const std::vector<VelocityPatch>& velocityPatches() const { return velPatches_; }
+    const std::vector<VelocityPatch>& velocityPatches() const noexcept { return velPatches_; }
 
     void setVelocityBCOnFaces(const std::vector<std::size_t>& faceIndices,
                               VelocityBCType type,
@@ -92,11 +92,11 @@ public:
                                               double backflowU, double backflowV, double backflowW,
                                               double backflowK, double backflowOmega);
 
-    bool isDirty() const { return dirty_; }
-    void markDirty() { dirty_ = true; }
+    bool isDirty() const noexcept { return dirty_; }
+    void markDirty() noexcept { dirty_ = true; }
     const BCDiscretization& discretization() const;
 
-    BCSpec spec() const { return {velBcs_, velPatches_, faceVelBCs_}; }
+    BCSpec spec() const noexcept { return {velBcs_, velPatches_, faceVelBCs_}; }
 
     double maxInletSpeed(double fallback = 1.0) const;
 
@@ -117,7 +117,6 @@ private:
     std::unordered_map<std::size_t, FaceVelocityBC> faceVelBCs_;
 
     mutable bool dirty_ = true;
-    mutable bool firstBuild_ = true;
     mutable BCDiscretization discretization_;
 };
 
