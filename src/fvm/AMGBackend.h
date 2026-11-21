@@ -6,6 +6,7 @@
 #include <Eigen/Sparse>
 #include <atomic>
 #include <cstddef>
+#include <iosfwd>
 #include <memory>
 #include <vector>
 
@@ -58,6 +59,11 @@ public:
     // --- Backend-specific ------------------------------------------------
     virtual bool hasCachedAggregation() const = 0;
     virtual void updateFineValues(const SparseMatrix& A) = 0;
+
+    // Verbose per-component diagnostic (STAR-CCM+ style: residual history,
+    // per-level table, memory). Default is a no-op; backends that track the
+    // hierarchy override it.
+    virtual void printVerbose(const char* /*name*/, std::ostream& /*os*/) const {}
 };
 
 } // namespace fvm

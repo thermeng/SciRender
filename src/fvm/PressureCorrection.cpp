@@ -1,5 +1,6 @@
 #include "fvm/PressureCorrection.h"
 #include "fvm/FaceState.h"
+#include "fvm/RhieChow.h"
 #include "mesh/BoundaryUtils.h"
 
 #include <array>
@@ -8,6 +9,7 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <tuple>
 
 namespace fvm {
 
@@ -23,7 +25,13 @@ PressureCorrection<Dim>::solverConfig_(const Config& cfg) {
                     cfd::AmgSettings::Acceleration::None;
     c.amgCycles = cfg.pressureAmgPreconditionerCycles;
     c.amgMaxResidual = cfg.pressureAmg.tolerance;
-    // The compact Rhie-Chow operator is SPD, which is what makes CG valid.
+    // The compact face-normal Laplacian is symmetric (SPD) by construction, so
+    // CG is valid for it. The legacy composed least-squares operator
+    // div(d * grad_LS) is NON-symmetric (the face-flux divergence is not the
+    // exact adjoint of the least-squares gradient), so it must be solved with a
+    // solver that tolerates non-symmetry: BiCGSTAB. The sign fix in solve()
+    // makes its diagonal positive (better conditioned) but cannot make it
+    // symmetric, so preferCG is restricted to the compact operator.
     c.preferCG = cfg.compactRhieChow;
     c.labels[0] = "pressure";
     return c;
@@ -124,24 +132,18 @@ void PressureCorrection<Dim>::solve(
         pVals_[i] = 0.0;
         isPressureOutlet_[i] = false;
     }
-    // Every pressure-outlet cell carries p' = 0 (a Dirichlet row). Outlets are
-    // stored twice (cells and faces), so both paths funnel through the same
-    // bounds-checked helper instead of repeating the three assignments.
-    auto pinOutletCell = [&](std::size_t cell) {
-        if (cell >= n) return;
-        isPressureOutlet_[cell] = true;
-        pMask_[cell] = true;
-        pVals_[cell] = 0.0;
-    };
-    for (const auto& outlet : bc.pressureOutletCells()) pinOutletCell(outlet.first);
-    // Face-based Dirichlet (exact per-face, fixes cell dedup loss).
-    // Iterate all boundary faces: if a face carries pressureDirichlet, pin its
-    // owner cell to p' = 0. This combines the old pressureOutletFaces_ and
-    // isPressureDirichletFace_ loops into one pass over the typed faceBCs_ view.
+    // Pressure-outlet pressure is enforced at the boundary FACES (a
+    // prescribed static pressure), not by pinning outlet owner cells: the
+    // outlet owner cells keep their pressure equations, and p' responds to
+    // the outlet ring — the corrected outlet flux in the divergence RHS
+    // (boundary branch of the loop below) and the boundary sensitivity added
+    // to the compact/legacy operators. The absolute level of the field still
+    // comes from the reference cell pinned above.
     for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
         if (mesh_.neighbor(f) != std::size_t(-1)) continue;
         if (f < bc.faceBCs().size() && bc.faceBCs()[f].type == VelocityBCType::PressureOutlet) {
-            pinOutletCell(mesh_.owner(f));
+            const std::size_t cell = mesh_.owner(f);
+            if (cell < n) isPressureOutlet_[cell] = true;
         }
     }
 
@@ -149,7 +151,17 @@ void PressureCorrection<Dim>::solve(
     for (std::size_t i = 0; i < n; ++i) {
         if (pMask_[i]) { hasDirichletPressure = true; break; }
     }
-    if (!hasDirichletPressure) {
+    // A pressure outlet carries a symmetric positive-diagonal p' sensitivity
+    // (the outlet ring), which already anchors the absolute pressure level.
+    // Pinning a reference cell on top of that adds an identity row whose
+    // off-diagonals are zero while the neighbours keep their -coeff entries,
+    // i.e. A_ij != A_ji -- the only source of asymmetry in the compact
+    // operator. Skip the reference pin when a pressure outlet is present.
+    bool hasPressureOutlet = false;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (isPressureOutlet_[i]) { hasPressureOutlet = true; break; }
+    }
+    if (!hasDirichletPressure && !hasPressureOutlet) {
         std::size_t refCell = config_.pressureRefCell;
         if (refCell >= n) {
             // Auto: pick a boundary-adjacent cell near the domain corner.
@@ -243,44 +255,45 @@ void PressureCorrection<Dim>::solve(
         const bool hasBC = bc.hasFaceBC(f);
         if (N == kNoNeighbor && hasBC) {
             un = boundaryFaceState<Dim>(uStar, P, fn, bc.faceBCs()[f]).normalVelocity;
+            if (bc.isPressureDirichletFace(f)) {
+                // Corrected outlet flux in the divergence RHS: the outlet ring
+                // carries p' sensitivity (operator terms below), so this term
+                // is the outlet face carrying the prescribed pressure relative
+                // to the owner value — the boundary analog of the interior
+                // (pN - pP)/dist gradient term.
+                const double* xP = mesh_.cellCenterPtr(P);
+                const double* xF = mesh_.faceCenterPtr(f);
+                double dn = 0.0;
+                for (std::size_t d = 0; d < Dim; ++d)
+                    dn += fn[d] * (xF[d] - xP[d]);
+                if (dn > 1e-30) {
+                    double dFace = 0.0;
+                    for (std::size_t d = 0; d < Dim; ++d)
+                        dFace += dCoeff[d][P] * fn[d] * fn[d];
+                    const double dist = mesh_.faceDist(f);
+                    const double normalFactor = (dist > 1e-30) ? dn / (dist * dist) : 0.0;
+                    // Same two-point normalFactor and sign as the compact outlet
+                    // diagonal (rowAcc_[P] += dFace*area*normalFactor). This is
+                    // the boundary analog of the interior (pN - pP)*normalFactor
+                    // term, so the operator A and this RHS agree exactly.
+                    un -= dFace * normalFactor * (pressure[P] - bc.faceBCs()[f].pressureValue);
+                }
+            }
         } else {
             const double w = (N == kNoNeighbor) ? 0.0 : mesh_.faceWeight(f);
             un = dotNormal(interpolateFaceVelocity(uStar, P, N, w,
                                                    &bc.dirichletMask(), &bc.dirichletVals()), fn);
         }
 
-        // Rhie-Chow momentum interpolation for the compact pressure equation.
-        // The interpolated cell velocity carries the wide cell gradient of the
-        // pressure; the compact face flux must instead use the two-point
-        // normal gradient. Adding the difference back is the collocated-grid
-        // correction that damps the checkerboard mode. The same face
-        // diffusivity is used by the compact matrix below, so the equation is
-        // self-consistent.
+        // Rhie-Chow dissipation for the compact pressure equation: the
+        // collocated two-point flux differs from the wide least-squares face
+        // flux of the CURRENT pressure by exactly rhieChowCorrection(). Adding
+        // it back is what damps the checkerboard mode and makes the compact
+        // operator's RHS consistent with the compact matrix. The SAME function
+        // (single source of truth) is used by the continuity residual, so the
+        // operator and the residual can never drift apart.
         if (config_.compactRhieChow && N != std::size_t(-1)) {
-            const double wRC = mesh_.faceWeight(f);
-            double dFace = 0.0;
-            for (std::size_t d = 0; d < Dim; ++d) {
-                const double dP = dCoeff[d][P];
-                const double dN = dCoeff[d][N];
-                dFace += ((1.0 - wRC) * dP + wRC * dN) * fn[d] * fn[d];
-            }
-            if (dFace != 0.0) {
-                const auto& xP = mesh_.cellCenter(P);
-                const auto& xN = mesh_.cellCenter(N);
-                double dotSfd = 0.0;
-                for (std::size_t d = 0; d < Dim; ++d)
-                    dotSfd += fn[d] * (xN[d] - xP[d]);
-                const double dist = mesh_.faceDist(f);
-                const double normalFactor =
-                    (dist > 1e-30) ? dotSfd / (dist * dist) : 0.0;
-                double gradInterpN = 0.0;
-                for (std::size_t d = 0; d < Dim; ++d) {
-                    gradInterpN += ((1.0 - wRC) * pressureGrad_[d][P] +
-                                    wRC * pressureGrad_[d][N]) * fn[d];
-                }
-                const double gradFaceN = (pressure[N] - pressure[P]) * normalFactor;
-                un += dFace * (gradInterpN - gradFaceN);
-            }
+            un += rhieChowCorrection<Dim>(mesh_, f, dCoeff, pressure, pressureGrad_, pMask_);
         }
 
         double flux = un * area;
@@ -317,8 +330,12 @@ void PressureCorrection<Dim>::solve(
     //   of the diffusion exact.
     //
     // In both modes a prescribed-velocity face (wall, inlet, moving lid) has a
-    // fixed flux and contributes nothing. A pressure-outlet cell carries
-    // p' = 0 and is an identity row.
+    // fixed flux and contributes nothing. A pressure-outlet boundary face
+    // carries p' sensitivity at the owner row: the face pressure enters the
+    // RHS through the corrected outlet flux (divergence loop above) and the
+    // operator side adds the face-normal p' gradient response — compact mode
+    // via the outlet-ring loop after the interior loop, legacy mode via the
+    // extrapolated-owner branch.
     // ------------------------------------------------------------------
     // A cell whose velocity is prescribed in EVERY component of EVERY
     // incident face has no p' sensitivity at all: its equation would be
@@ -406,6 +423,38 @@ void PressureCorrection<Dim>::solve(
             rowAcc_[N].emplace_back(N, +coeff);
             rowAcc_[N].emplace_back(P, -coeff);
         }
+
+        // Pressure-outlet boundary (compact mode): a fixed-pressure outlet is a
+        // Dirichlet boundary for p' (p' = 0 at the face). The face normal
+        // gradient of p' is (p'_P - 0)/dn, which responds ONLY to the owner
+        // cell -- a symmetric POSITIVE diagonal contribution, exactly like the
+        // interior two-point terms. Using the least-squares gradient here (the
+        // old ring) added the wide, signed LS stencil, which is both asymmetric
+        // (it broke asymMax = 0) and gave a negative self-weight (negative
+        // diagonals at the outlet cells), destroying the SPD property. The
+        // prescribed pressure itself enters the RHS through the corrected outlet
+        // flux in the divergence loop.
+        for (std::size_t f = 0; f < nF; ++f) {
+            if (mesh_.neighbor(f) != std::size_t(-1)) continue;
+            if (!bc.isPressureDirichletFace(f)) continue;
+            const std::size_t P = ownerPtr[f];
+            const double* fn = mesh_.faceNormalPtr(f);
+            const double area = areaPtr[f];
+            double dFace = 0.0;
+            for (std::size_t d = 0; d < Dim; ++d)
+                dFace += dCoeff[d][P] * fn[d] * fn[d];
+            if (dFace == 0.0) continue;
+            const auto& xP = mesh_.cellCenter(P);
+            const auto& xF = mesh_.faceCenterPtr(f);
+            double dn = 0.0;
+            for (std::size_t d = 0; d < Dim; ++d)
+                dn += fn[d] * (xF[d] - xP[d]);
+            const double dist = mesh_.faceDist(f);
+            if (dist <= 1e-30) continue;
+            const double normalFactor = dn / (dist * dist);
+            // Positive diagonal: the Dirichlet face stiffness.
+            rowAcc_[P].emplace_back(P, dFace * area * normalFactor);
+        }
     } else {
         if (!gradientRowsBuilt_) {
             gradientCalc_->buildMatrices(gradientRows_);
@@ -431,9 +480,10 @@ void PressureCorrection<Dim>::solve(
                 // disagree exactly at the wall cells, and whatever the walls
                 // leak would have nowhere to go but the reference cell.
                 //
-                // (The owner of a BC'd outlet face carries prescribed p' - its
-                // row is replaced by the identity below - so its terms would be
-                // discarded anyway.)
+                // A pressure-outlet face now has its owner cell unpinned, so
+                // this branch adds the boundary sensitivity to the outlet-ring
+                // (the value enters through the corrected outlet flux in the
+                // divergence RHS, like the compact mode).
                 if (pMask_[P])
                     continue;
                 const bool hasBCEntry = bc.hasFaceBC(f);
@@ -497,8 +547,8 @@ void PressureCorrection<Dim>::solve(
 
     for (std::size_t r = 0; r < n; ++r) {
         if (pMask_[r]) {
-            // Identity row: p' is prescribed here (reference cell, outlet,
-            // isolated or degenerate cell).
+            // Identity row: p' is prescribed here (reference cell, isolated
+            // or degenerate cell).
             triplets_.emplace_back(r, r, 1.0);
             bVec_(r) = pVals_[r];
             rowAcc_[r].clear();
@@ -509,12 +559,13 @@ void PressureCorrection<Dim>::solve(
                   [](const std::pair<std::size_t, double>& lhs, const std::pair<std::size_t, double>& rhs) {
                       return lhs.first < rhs.first;
                   });
-        // b = div(u*) in raw flux-sum units (divU_ is divided per volume
-        // only after the solve, where it is read back as a diagnostic). The
-        // compact matrix carries the opposite sign, so its right-hand side is
-        // negated with it.
-        double rowB = divU_[r];
-        if (config_.compactRhieChow) rowB = -rowB;
+        // b = -div(u*) in raw flux-sum units (divU_ is divided per volume
+        // only after the solve, where it is read back as a diagnostic).
+        // BOTH operators are assembled as -div(Gamma grad p') so the matrix is
+        // SPD / an M-matrix: the compact branch builds +diag/-offdiag directly,
+        // while the legacy composed operator builds its negative (+div), so the
+        // legacy matrix is negated at emit below and the RHS is negated for both.
+        const double rowB = -divU_[r];
         std::size_t emitted = 0;
         std::size_t last = 0;
         for (std::size_t idx = 1; idx <= entries.size(); ++idx) {
@@ -528,7 +579,13 @@ void PressureCorrection<Dim>::solve(
                 // rhs instead would make the STORED matrix a truncated
                 // operator whose action no longer matches the divergence of
                 // the gradient it was built from.)
-                triplets_.emplace_back(r, entries[last].first, val);
+                // Legacy composes +div(d G) (negative definite, positive
+                // off-diagonals); negate it to the SPD form -div(d G) so CG/AMG
+                // operate on a positive-definite operator, matching compact
+                // mode. The pinned/identity rows above are emitted separately
+                // and keep their +1 diagonal.
+                const double emitVal = config_.compactRhieChow ? val : -val;
+                triplets_.emplace_back(r, entries[last].first, emitVal);
                 ++emitted;
                 last = idx;
             }
@@ -637,6 +694,63 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
+
+    { // SPD / M-matrix probe of the assembled pressure operator.
+        // Reports once on first assembly (cheap sanity check) and on every
+        // solve when pressureSolverStats is enabled. A_ is column-major, so
+        // outerIndexPtr() ranges over columns; per-row quantities are gathered
+        // by scattering each stored (row,col,value) into its row.
+        static bool firstReport = true;
+        if (config_.pressureSolverStats || firstReport) {
+            firstReport = false;
+            const Eigen::Index nn = static_cast<Eigen::Index>(n);
+            const int*    outer = A_.outerIndexPtr();
+            const int*    inner = A_.innerIndexPtr();
+            const double* vptr  = A_.valuePtr();
+
+            std::vector<double> rowSum(n, 0.0), rowOffSum(n, 0.0), rowDiag(n, 0.0);
+            std::vector<char>   hasDiag(n, 0);
+            double diagMin = std::numeric_limits<double>::max();
+            double diagMax = 0.0;
+            std::size_t negDiag = 0, posOffDiag = 0;
+            for (Eigen::Index c = 0; c < nn; ++c) {                     // column c
+                for (int k = outer[c]; k < outer[c + 1]; ++k) {
+                    const std::size_t r = static_cast<std::size_t>(inner[k]); // row r
+                    const double a = vptr[k];
+                    rowSum[r] += a;
+                    if (r == static_cast<std::size_t>(c)) {
+                        rowDiag[r] = a; hasDiag[r] = 1;
+                        diagMin = std::min(diagMin, a);
+                        diagMax = std::max(diagMax, std::abs(a));
+                        if (a < 0.0) ++negDiag;
+                    } else {
+                        rowOffSum[r] += std::abs(a);
+                        if (a > 1e-12) ++posOffDiag;
+                    }
+                }
+            }
+            double minDominance = std::numeric_limits<double>::max();   // min_i (A_ii - sum_{j!=i}|A_ij|)
+            double maxInteriorRowSum = 0.0;                             // max_i |sum_j A_ij| (Neumann rows ~ 0)
+            for (std::size_t i = 0; i < n; ++i) {
+                if (hasDiag[i]) minDominance = std::min(minDominance, rowDiag[i] - rowOffSum[i]);
+                if (!pMask_[i]) maxInteriorRowSum = std::max(maxInteriorRowSum, std::abs(rowSum[i]));
+            }
+            double asymMax = 0.0;                                       // max_{i!=j} |A_ij - A_ji|
+            for (Eigen::Index c = 0; c < nn; ++c) {                     // column c
+                for (int k = outer[c]; k < outer[c + 1]; ++k) {
+                    const Eigen::Index r = inner[k];
+                    if (r == c) continue;
+                    // stored entry is A(r,c); its transpose is A(c,r)
+                    asymMax = std::max(asymMax, std::abs(vptr[k] - A_.coeff(c, r)));
+                }
+            }
+            std::cerr << "  [pressure op] n=" << n << " diagMin=" << diagMin
+                      << " diagMax=" << diagMax << " negDiag=" << negDiag
+                      << " posOffDiag=" << posOffDiag << " minDominance=" << minDominance
+                      << " maxInteriorRowSum=" << maxInteriorRowSum
+                      << " asymMax=" << asymMax << "\n";
+        }
+    }
     // --- Unified linear-solver dispatch (replaces inline AMG + Krylov) ---
     Eigen::VectorXd warmStart(n);
     for (std::size_t i = 0; i < n; ++i)

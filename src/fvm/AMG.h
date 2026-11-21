@@ -4,6 +4,7 @@
 #include "fvm/AMGBackend.h"
 #include "fvm/Types.h"
 #include <Eigen/Sparse>
+#include <iosfwd>
 #include <memory>
 #include <vector>
 #include <cstddef>
@@ -75,6 +76,11 @@ public:
     int lastIterations() const { return backend_->lastIterations(); }
     double lastResidual() const { return backend_->lastResidual(); }
     const std::vector<double>& lastResidualHistory() const { return backend_->lastResidualHistory(); }
+
+    // Verbose per-component diagnostic (residual history + level table + memory).
+    void printVerbose(const char* name, std::ostream& os) const {
+        backend_->printVerbose(name, os);
+    }
 
 private:
     std::unique_ptr<AMGBackend> backend_;

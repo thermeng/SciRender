@@ -86,8 +86,14 @@ struct AmgSettings {
     double stagnationFactor = 1.05;
     int stagnationMinIter = 10;
     double stagnationLooseFactor = 5.0;
-    double flexAlpha = 0.9;
-    double flexBeta = 0.5;
+    // Flexible-cycle tolerances (Fluent 26.5.1 / Theory 18.6.3):
+    //   flexAlpha = β (restriction): if R_i > β*R_{i-1} (reduction too slow),
+    //     visit the next coarser level. Default 0.7.
+    //   flexBeta  = α (termination): a level is converged when R_i < α*R_0
+    //     (residual below 10% of the level's initial residual). Default 0.1.
+    // (The names are historical; flexAlpha is β, flexBeta is α.)
+    double flexAlpha = 0.7;
+    double flexBeta = 0.1;
     int flexMaxSweeps = 1;
     int flexMaxFineRelaxations = 1;
     int flexMaxCoarseRelaxations = 1;
@@ -133,8 +139,11 @@ struct AmgSettings {
         s.preSweeps = 1;
         s.postSweeps = 1;
         s.maxLevels = 50;
-        // Flexible is the default for momentum & turbulence.
+        // GUI default: flexible cycle, 2 sweeps, 30/50 fine/coarse relaxations.
         s.cycleType = CycleType::Flexible;
+        s.flexMaxSweeps = 2;
+        s.flexMaxFineRelaxations = 30;
+        s.flexMaxCoarseRelaxations = 50;
         s.smoother = Smoother::GaussSeidel;
         s.acceleration = Acceleration::None;
         // Proportional scaling is only valid for SPD matrices (pressure).
@@ -211,7 +220,7 @@ struct CaseSettings {
     //   limiterSpan      : 0 FaceCentre, 1 CentroidLine
     //   limiterK         : Venkatakrishnan smoothing, eps = k*(hi-lo)
     //   cubicTransition  : Cubic transition point where limiter -> 1 (1..2)
-    int limiterKind = 0;              // MinMod (default)
+    int limiterKind = 1;              // Venkatakrishnan (default; smoother than MinMod)
     int limiterAggregation = 0;       // CellWide (default)
     int limiterSpan = 0;              // FaceCentre (default)
     double limiterK = 0.1;            // Venkatakrishnan smoothing constant

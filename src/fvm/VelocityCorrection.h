@@ -53,7 +53,7 @@ inline void correctVelocity(
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh.nCells(); ++i) {
             if (dirichletMask[d][i]) velocity[d][i] = dirichletVals[d][i];
-            else velocity[d][i] = uStar[d][i] - dCoeff[d][i] * dpdx[d][i];
+            else velocity[d][i] = uStar[d][i] - alphaP * dCoeff[d][i] * dpdx[d][i];
         }
     }
 

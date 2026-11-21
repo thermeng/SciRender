@@ -147,6 +147,7 @@ TEST_CASE("cfd.slope.span_equivalent_on_orthogonal_mesh") {
 TEST_CASE("cfd.slope.scale_values") {
     const fvm::Mesh<2> mesh = uniform2D(3);
     SlopeLimiter<2> limiter(mesh);
+    limiter.configure(SlopeLimiterConfig{LimiterKind::MinMod});
 
     // Inside the bounds: no limiting.
     CHECK(limiter.alpha(0.0, 1.0, 0.5, 0.25) == doctest::Approx(1.0));
@@ -181,6 +182,7 @@ TEST_CASE("cfd.slope.minmod_is_per_cell") {
     phi[minusX] = phi[P] - 0.6;
 
     SlopeLimiter<2> limiter(mesh);
+    limiter.configure(SlopeLimiterConfig{LimiterKind::MinMod});
     limiter.prepare(phi, grad, nullptr, nullptr);
 
     // The face sits half a cell from the centre, so corr = gradX * h/2 and the
@@ -270,6 +272,7 @@ TEST_CASE("cfd.slope.componentwise_clips_only_the_violating_face") {
     REQUIRE(plusFace != static_cast<std::size_t>(-1));
 
     SlopeLimiter<2> cellWide(mesh);
+    cellWide.configure(SlopeLimiterConfig{LimiterKind::MinMod});
     cellWide.prepare(phi, grad, nullptr, nullptr);
 
     SlopeLimiter<2> faceWise(mesh);

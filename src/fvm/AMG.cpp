@@ -2,10 +2,14 @@
 #include "fvm/AMG.h"
 #include "fvm/HypreSolver.h"
 #include <Eigen/LU>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
 #include <limits>
+#include <ostream>
 #include <stdexcept>
 
 namespace fvm {
@@ -148,6 +152,10 @@ private:
     mutable std::vector<Eigen::VectorXd> flexRCoarseScratch_;
     mutable std::vector<Eigen::VectorXd> flexXCoarseScratch_;
     std::vector<double> scale_;
+    // Verbose-diagnostic timing (mutable: accumulated during const solves).
+    mutable double buildSeconds_ = 0.0;
+    mutable double solveSeconds_ = 0.0;
+    mutable std::vector<double> levelSeconds_;
 
     void refreshAggregationOperators_(const SparseMatrix& A);
     void buildAggScatterCaches_();
@@ -162,6 +170,7 @@ private:
                         const std::atomic<bool>* cancel) const;
     bool solveAggregation_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                            const std::atomic<bool>* cancel) const;
+    void printVerbose(const char* name, std::ostream& os) const override;
     bool applyFlexibleFineCycle_(const Eigen::VectorXd& b,
                                  Eigen::VectorXd& x) const;
     bool solveFlexibleFine_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
@@ -218,8 +227,10 @@ AggRowMatrix coarsenByAggregation(const AggRowMatrix& A,
     out.makeCompressed();
 
     // Sparsify: keep the diagonal plus up to maxPerRow largest-magnitude
-    // off-diagonal entries per row.
-    constexpr int maxPerRow = 8;
+    // off-diagonal entries per row. Fluent keeps the FULL Galerkin operator, so
+    // this cap is generous -- it only guards against pathological density, it
+    // does not truncate the inter-aggregate couplings the next coarsening needs.
+    constexpr int maxPerRow = 1000000;
     std::vector<Eigen::Triplet<double>> kept;
     kept.reserve(static_cast<std::size_t>(out.nonZeros()));
     for (int row = 0; row < out.outerSize(); ++row) {
@@ -632,9 +643,9 @@ Eigen::VectorXd BoomerAMGBackend::flexCycle(int level, const Eigen::VectorXd& b,
     const double r0 = (b - A * x).norm();
     if (!std::isfinite(r0) || r0 == 0.0) return Eigen::VectorXd::Zero(n);
 
-    //   Restriction Tolerance (flexAlpha, default 0.9) = β: if R_i > β*R_{i-1},
+    //   Restriction Tolerance (flexAlpha, default 0.7) = β: if R_i > β*R_{i-1},
     //     residual not dropping fast enough → go coarser.
-    //   Prolongation Tolerance (flexBeta, default 0.5) = α: if R_i < α*R_0,
+    //   Prolongation Tolerance (flexBeta, default 0.1) = α: if R_i < α*R_0,
     //     level is sufficiently resolved → accept and return to finer grid.
     const double restrictionTol = config_.flexAlpha;   // β
     const double prolongationTol = config_.flexBeta;   // α
@@ -655,15 +666,17 @@ Eigen::VectorXd BoomerAMGBackend::flexCycle(int level, const Eigen::VectorXd& b,
         // Prolongation gate (α): residual reduced to α * R_0 → level resolved
         if (res < prolongationTol * r0) return x - xStart;
 
-        // Restriction gate (β): residual not dropping → go coarser
+        // Restriction gate (β): residual not dropping → go coarser, apply the
+        // coarse correction, then KEEP sweeping on this level (Fluent flexible
+        // cycle continues until the α termination or the sweep budget).
         if (res > restrictionTol * rPrev) {
             if (level < nlevels_ - 1) {
                 const auto& nextLev = levels_[static_cast<std::size_t>(level + 1)];
                 if (nextLev.ARM.rows() == 0 || lev.R.rows() == 0 || lev.P.cols() == 0)
                     return x - xStart;
 
-                const Eigen::VectorXd r = b - A * x;
-                const Eigen::VectorXd rCoarse = lev.R * r;
+                const Eigen::VectorXd rDyn = b - A * x;
+                const Eigen::VectorXd rCoarse = lev.R * rDyn;
 
                 Eigen::VectorXd xCoarse =
                     Eigen::VectorXd::Zero(levelSizes_[static_cast<std::size_t>(level + 1)]);
@@ -672,7 +685,10 @@ Eigen::VectorXd BoomerAMGBackend::flexCycle(int level, const Eigen::VectorXd& b,
 
                 x += lev.P * correctionCoarse;
 
-                return x - xStart;
+                const double resNew = (b - A * x).norm();
+                if (!std::isfinite(resNew)) { x.setZero(); return Eigen::VectorXd::Zero(n); }
+                rPrev = resNew;
+                continue;
             }
             return x - xStart;
         }
@@ -762,7 +778,10 @@ void BoomerAMGBackend::buildLevelOperators_() const {
         std::vector<int> coarseLocal(n_, -1);
         int coarseSeen = 0;
         for (int i = 0; i < n_; ++i) {
-            if (cgrid_[static_cast<std::size_t>(i)] >= L) {
+            // fineNodes = the cells AT level L (cgrid == L), so its size matches
+            // nFine = levelSizes_[L]. Using >= L pulled in coarser cells too and
+            // misaligned the local index space.
+            if (cgrid_[static_cast<std::size_t>(i)] == L) {
                 fineNodes.push_back(i);
             }
             if (cgrid_[static_cast<std::size_t>(i)] >= L + 1) {
@@ -962,6 +981,7 @@ void AggregationBackend::build(const SparseMatrix& A) {
 }
 
 void AggregationBackend::build(const SparseMatrix& A, std::size_t hash) {
+    const auto tBuild0 = std::chrono::steady_clock::now();
     n_ = static_cast<int>(A.rows());
     const bool mapsValid = !aggMaps_.empty() && hash == aggPatternHash_;
 
@@ -977,7 +997,13 @@ void AggregationBackend::build(const SparseMatrix& A, std::size_t hash) {
 
         AggRowMatrix level = A;
         level.makeCompressed();
-        const int groupSize = std::max(2, config_.effectiveBlockSize(blockDim_));
+        // Fluent 26.5.1: "Coarsen by = 2" for the Gauss-Seidel (scalar) smoother
+        // that the segregated solver uses (4 in 2D / 8 in 3D is only for the
+        // coupled ILU smoother). Grouping 4 cells on a scalar Gauss-Seidel
+        // hierarchy over-coarsens and collapses to singletons at the coarse
+        // levels (ratio -> 1); grouping 2 keeps the ratio near 2 and the
+        // aggregation from stalling.
+        const int groupSize = 2;
         const int coarseTarget = 128;
         for (int depth = 0; depth < config_.maxLevels; ++depth) {
             const int n = static_cast<int>(level.rows());
@@ -1003,6 +1029,9 @@ void AggregationBackend::build(const SparseMatrix& A, std::size_t hash) {
                       << " unknowns, " << levels_[l].ARM.nonZeros() << " nnz\n";
     }
     built_ = !levels_.empty();
+    buildSeconds_ += std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - tBuild0).count();
+    levelSeconds_.assign(levels_.size(), 0.0);
 }
 
 void AggregationBackend::buildFineScatter_(const SparseMatrix& A) {
@@ -1160,13 +1189,27 @@ bool AggregationBackend::aggregationVcycle_(int level, const Eigen::VectorXd& b,
                                              Eigen::VectorXd& x) const {
     if (level < 0 || static_cast<std::size_t>(level) >= levels_.size())
         return false;
+    // Per-level timing for the verbose diagnostic (accumulated on every return
+    // path via this scope guard; levelSeconds_ is mutable).
+    const auto tLvl0 = std::chrono::steady_clock::now();
+    struct LevelTimer {
+        const AggregationBackend* self;
+        int level;
+        std::chrono::steady_clock::time_point t0;
+        ~LevelTimer() {
+            if (level >= 0 && level < static_cast<int>(self->levelSeconds_.size()))
+                self->levelSeconds_[level] += std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - t0).count();
+        }
+    } levelTimer{this, level, tLvl0};
     const auto& lev = levels_[static_cast<std::size_t>(level)];
     const auto& A = lev.ARM;
     const int n = static_cast<int>(A.rows());
     if (n == 0 || b.size() != n || x.size() != n) return false;
 
-    const int pre = std::max(2, config_.preSweeps);
-    const int post = std::max(2, config_.postSweeps);
+    // Respect the configured sweeps (Fluent scalar default: pre=0, post=1).
+    const int pre = std::max(0, config_.preSweeps);
+    const int post = std::max(0, config_.postSweeps);
 
     for (int s = 0; s < pre; ++s) gaussSeidel(lev, b, x, 1, true);
 
@@ -1208,7 +1251,7 @@ bool AggregationBackend::aggregationVcycle_(int level, const Eigen::VectorXd& b,
         return true;
     }
 
-    for (int s = 0; s < post; ++s) gaussSeidel(lev, b, x, 1, true);
+    for (int s = 0; s < post; ++s) gaussSeidel(lev, b, x, 1, false);   // backward (symmetric GS)
     return x.allFinite();
 }
 
@@ -1216,9 +1259,17 @@ bool AggregationBackend::solveAggregation_(const Eigen::VectorXd& b, Eigen::Vect
                                             const std::atomic<bool>* cancel) const {
     if (!built_ || levels_.empty()) return false;
     if (static_cast<int>(x.size()) != n_) { x.resize(n_); x.setZero(); }
-    if (!b.allFinite()) return false;
+    if (!b.allFinite()) {
+        std::cerr << "  [solveAgg] b NON-FINITE (n=" << n_ << ") bnorm=" << b.norm()
+                  << " max|b|=" << b.cwiseAbs().maxCoeff()
+                  << " max|x|=" << (x.size() ? x.cwiseAbs().maxCoeff() : 0.0) << "\n";
+        return false;
+    }
     const double bnorm = b.norm();
-    if (!std::isfinite(bnorm)) return false;
+    if (!std::isfinite(bnorm)) {
+        std::cerr << "  [solveAgg] bnorm NON-FINITE\n";
+        return false;
+    }
     if (bnorm < 1e-30) { x.setZero(); return true; }
 
     const int maxIt = std::max(1, config_.maxIterations);
@@ -1256,6 +1307,65 @@ bool AggregationBackend::solveAggregation_(const Eigen::VectorXd& b, Eigen::Vect
         }
     }
     return lastResidual_ < tol * config_.stagnationLooseFactor;
+}
+
+void AggregationBackend::printVerbose(const char* name, std::ostream& os) const {
+    const int cycles = std::max(1, config_.flexMaxSweeps);
+    const int pre = std::max(0, config_.preSweeps);
+    const int post = std::max(0, config_.postSweeps);
+
+    os << "\nSolving " << name << "...\n";
+    os << "\nIteration Relative Residuals\n";
+    os << "--------- --------------------\n";
+    const std::size_t nh = lastResidualHistory_.size();
+    for (std::size_t i = 0; i < nh; ++i) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%9zu % .6e\n", i, lastResidualHistory_[i]);
+        os << buf;
+    }
+    os << "\nTotal number AMG iterations : " << lastIterations_ << "\n";
+
+    os << "\nLevel       Size nCycles nPreSmooths nPostSmooths "
+          "Elapsed Time (s) Elapsed Time pec (ms)\n";
+    os << "----- ---------- ------- ----------- ------------ "
+          "---------------- ---------------------\n";
+    double totalSolve = 0.0;
+    std::size_t maxMem = 0;
+    for (int l = 0; l < nlevels_; ++l) {
+        const int sz = (l < static_cast<int>(levelSizes_.size())) ? levelSizes_[l] : 0;
+        const double el = (l < static_cast<int>(levelSeconds_.size())) ? levelSeconds_[l] : 0.0;
+        totalSolve += el;
+        const double pec = (sz > 0 && cycles > 0) ? (el * 1000.0 / (cycles * sz)) : 0.0;
+        char buf[192];
+        std::snprintf(buf, sizeof(buf), "%5d %10d %7d %11d %12d %17.6f %21.6f\n",
+                      l, sz, cycles, pre, post, el, pec);
+        os << buf;
+        if (l < static_cast<int>(levels_.size())) {
+            const auto& lv = levels_[l];
+            std::size_t m = static_cast<std::size_t>(lv.ARM.nonZeros()) * (sizeof(double) + sizeof(int));
+            m += static_cast<std::size_t>(lv.P.nonZeros()) * (sizeof(double) + sizeof(int));
+            m += static_cast<std::size_t>(lv.R.nonZeros()) * (sizeof(double) + sizeof(int));
+            m += static_cast<std::size_t>(lv.AT.nonZeros()) * (sizeof(double) + sizeof(int));
+            m += lv.invDiag.size() * sizeof(double) + lv.diagPos.size() * sizeof(int);
+            maxMem += m;
+        }
+    }
+    os << " - pec = \"Per Equation Cycle\"\n";
+
+    os << "\nTotal component times (incl comm):\n";
+    char tbuf[256];
+    std::snprintf(tbuf, sizeof(tbuf),
+                  "  Building levels          : %14.6f(s)\n"
+                  "  Solving levels           : %14.6f(s)\n"
+                  "  Krylov solve time        : %14.6f(s)\n"
+                  "  Total solver time        : %14.6f(s)\n",
+                  buildSeconds_, solveSeconds_, solveSeconds_,
+                  buildSeconds_ + solveSeconds_);
+    os << tbuf;
+
+    std::snprintf(tbuf, sizeof(tbuf),
+                  "\nMaximum AMG Memory (all processes): %zu bytes\n", maxMem);
+    os << tbuf;
 }
 
 bool AggregationBackend::applyFlexibleFineCycle_(const Eigen::VectorXd& b,
@@ -1314,7 +1424,11 @@ bool AggregationBackend::solveFlexibleFine_(const Eigen::VectorXd& b, Eigen::Vec
 bool AggregationBackend::solve(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                                const std::atomic<bool>* cancel) {
     if (!built_) return false;
-    return solveAggregation_(b, x, cancel);
+    const auto tSolve0 = std::chrono::steady_clock::now();
+    const bool ok = solveAggregation_(b, x, cancel);
+    solveSeconds_ += std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - tSolve0).count();
+    return ok;
 }
 
 bool AggregationBackend::applyCycle(const Eigen::VectorXd& b, Eigen::VectorXd& x) const {
@@ -1367,9 +1481,9 @@ void AggregationBackend::flexCycleImpl_(int level, const Eigen::VectorXd& b,
         return;
     }
 
-    //   Restriction Tolerance (flexAlpha, default 0.9) = β: if R_i > β*R_{i-1},
+    //   Restriction Tolerance (flexAlpha, default 0.7) = β: if R_i > β*R_{i-1},
     //     residual not dropping fast enough → go coarser.
-    //   Prolongation Tolerance (flexBeta, default 0.5) = α: if R_i < α*R_0,
+    //   Prolongation Tolerance (flexBeta, default 0.1) = α: if R_i < α*R_0,
     //     level is sufficiently resolved → accept and return to finer grid.
     const double restrictionTol = config_.flexAlpha;   // β
     const double prolongationTol = config_.flexBeta;   // α
@@ -1399,19 +1513,29 @@ void AggregationBackend::flexCycleImpl_(int level, const Eigen::VectorXd& b,
         ++i;
         res = r.norm();
         if (!std::isfinite(res)) {
+            // DBG: overflow diagnostic -- which level blew up and how large.
+            std::cerr << "  [AMG overflow] level=" << level << " n=" << n
+                      << " sweep=" << i << " max|x|="
+                      << (x.size() ? x.cwiseAbs().maxCoeff() : 0.0)
+                      << " max|r|=" << (r.size() ? r.cwiseAbs().maxCoeff() : 0.0)
+                      << " max|b|=" << (b.size() ? b.cwiseAbs().maxCoeff() : 0.0) << "\n";
             x.setZero();
             if (outResNorm) *outResNorm = res;
             return;
         }
 
-        // Prolongation / termination: level resolved, or sweep budget spent.
-        if (res < prolongationTol * r0 || i > maxSweeps) {
+        // Prolongation / termination: level resolved (R_i < alpha*R_0), or the
+        // sweep budget is spent. Fluent: R_i < alpha*R_0 with alpha = 0.1.
+        if (res < prolongationTol * r0 || i >= maxSweeps) {
             if (outResNorm) *outResNorm = res;
             return;
         }
 
-        // Restriction: residual reduction too slow → coarse correction, then
-        // continue sweeping on this level.
+        // Restriction (Fluent): R_i > beta*R_{i-1} -> visit the coarser level.
+        // rPrev must be R_{i-1} = the residual after the PREVIOUS relaxation,
+        // i.e. the pre-correction residual of this sweep (NOT the post-coarse-
+        // correction residual, which would double-count the coarse effect).
+        const double resThisSweep = res;   // R_i
         if (res > restrictionTol * rPrev && canCoarsen) {
             coarsenAndProlong_(level, r, x);
             // x changed: the incrementally maintained residual is now stale.
@@ -1424,7 +1548,7 @@ void AggregationBackend::flexCycleImpl_(int level, const Eigen::VectorXd& b,
             }
         }
 
-        rPrev = res;
+        rPrev = resThisSweep;   // R_i for the next restriction gate
     }
 }
 
@@ -1470,12 +1594,19 @@ void AggregationBackend::coarsenAndProlong_(int level, const Eigen::VectorXd& r,
 }
 
 bool AggregationBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
-                                       const std::atomic<bool>* cancel) const {
+                                        const std::atomic<bool>* cancel) const {
     const int n = n_;
     if ((int)x.size() != n) { x.resize(n); x.setZero(); }
-    if (!b.allFinite()) return false;
+    if (!b.allFinite()) {
+        std::cerr << "  [flex solve] b NON-FINITE (bnorm=" << b.norm()
+                  << " max|b|=" << b.cwiseAbs().maxCoeff() << ")\n";
+        return false;
+    }
     const double bnorm = b.norm();
-    if (!std::isfinite(bnorm)) return false;
+    if (!std::isfinite(bnorm)) {
+        std::cerr << "  [flex solve] bnorm NON-FINITE\n";
+        return false;
+    }
     if (bnorm < 1e-30) { x.setZero(); return true; }
     const int maxIt = std::max(1, config_.maxIterations);
     const double tol = std::max(1e-16, config_.tolerance);
@@ -1487,7 +1618,11 @@ bool AggregationBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorX
     for (int iter = 0; iter < maxIt; ++iter) {
         if (cancel && cancel->load()) return false;
         // The cycle reports the residual it achieved, so no extra matvec here.
-        if (!applyFlexibleCycle_(b, x, &res)) return false;
+        if (!applyFlexibleCycle_(b, x, &res)) {
+            std::cerr << "  [flex solve] applyFlexibleCycle_ FAILED at iter=" << iter
+                      << " res=" << res << " max|x|=" << x.cwiseAbs().maxCoeff() << "\n";
+            return false;
+        }
         const double rel = res / bnorm;
         lastResidualHistory_.push_back(rel);
         lastIterations_ = iter + 1; lastResidual_ = rel;
@@ -1496,6 +1631,8 @@ bool AggregationBackend::solveFlexible_(const Eigen::VectorXd& b, Eigen::VectorX
         }
         if (res > prev * config_.stagnationFactor && iter >= config_.stagnationMinIter) {
             bool ok = rel < tol * config_.stagnationLooseFactor;
+            std::cerr << "  [flex solve] stagnation at iter=" << iter << " rel=" << rel
+                      << " tol*loose=" << tol * config_.stagnationLooseFactor << " ok=" << ok << "\n";
             return ok;
         }
         prev = res;
@@ -1638,7 +1775,7 @@ void AggregationBackend::smoothPre_(const AMGLevel& level,
 
 void AggregationBackend::smoothPost_(const AMGLevel& level,
                                      const Eigen::VectorXd& b, Eigen::VectorXd& x, int numSweeps) const {
-    gaussSeidel(level, b, x, numSweeps, true);
+    gaussSeidel(level, b, x, numSweeps, false);   // backward (symmetric GS)
 }
 
 void AggregationBackend::strengthOfConnection(const AggRowMatrix& A,

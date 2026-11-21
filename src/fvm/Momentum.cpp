@@ -338,6 +338,17 @@ void Momentum<Dim>::assembleWithConvection(
                             prescribedValue(bcs.dirichletMaskAll, bcs.dirichletValsAll, d, P, phiUpwind);
                         }
                         b(P) -= F * phiUpwind;
+                        // A prescribed-velocity boundary INFLOW -- a normal-
+                        // velocity inlet, OR reverse flow / backflow at a
+                        // pressure outlet -- is a Dirichlet boundary: the inflow
+                        // carries a known momentum flux (b) but the cell also
+                        // needs a MATCHING diagonal stiffness so a_P stays
+                        // O(|F|) and the velocity correction does not blow up
+                        // when u=0. Without this, a_P collapses to the tiny
+                        // diffusion term and u* = b/a_P explodes (the b/a_P
+                        // jump). Slip/symmetry faces carry no normal flow, so
+                        // they never reach this branch.
+                        if (hasFaceBC) diagInc_[P] += -F;
                     }
                 }
             }

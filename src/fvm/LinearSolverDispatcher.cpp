@@ -123,13 +123,22 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         stats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         stats_.amgCycleIters += static_cast<std::size_t>(amg_[component].lastIterations());
 
+        // Verbose per-component diagnostic (STAR-CCM+ style: residual history,
+        // level table, memory) for the standalone AMG path.
+        if (config_.solverStats && amg_[component].isBuilt()) {
+            amg_[component].printVerbose(label_(component).c_str(), std::cerr);
+        }
+
         if (cancelRequested && cancelRequested->load(std::memory_order_acquire)) {
             return {Eigen::VectorXd::Zero(b.size()), true, 0};
         }
 
         if (!ok || !x.allFinite() || !std::isfinite(amg_[component].lastResidual())) {
             std::cerr << "  " << label_(component)
-                      << ": AMG solve failed (resid=" << amg_[component].lastResidual() << ")\n";
+                      << ": AMG solve failed (ok=" << ok << " xFinite=" << x.allFinite()
+                      << " resid=" << amg_[component].lastResidual()
+                      << " xMax=" << (x.size() ? x.cwiseAbs().maxCoeff() : 0.0)
+                      << " bMax=" << (b.size() ? b.cwiseAbs().maxCoeff() : 0.0) << ")\n";
             return {Eigen::VectorXd::Zero(b.size()), true, 0};
         }
         ++stats_.amgSolves;
@@ -222,6 +231,13 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         }
     }
     stats_.amgSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
+    // Verbose per-component diagnostic (residual history + level table + memory),
+    // STAR-CCM+ style. Most meaningful for the standalone AMG path; the CG path
+    // prints the last preconditioner cycle's history.
+    if (config_.solverStats && amg_[component].isBuilt()) {
+        amg_[component].printVerbose(label_(component).c_str(), std::cerr);
+    }
 
     const double bnorm = b.norm();
     double rnorm = (A * x - b).norm();

@@ -210,9 +210,16 @@ inline BoundaryFaceState<Dim> boundaryFaceState(
         default: // Outlet, PressureOutlet
             state.kind = FaceVelocityKind::Outflow;
             for (std::size_t d = 0; d < Dim; ++d) state.velocity[d] = at(d);
-            state.inflowVelocity[0] = fbc.backflowU;
-            state.inflowVelocity[1] = fbc.backflowV;
-            if constexpr (Dim == 3) state.inflowVelocity[2] = fbc.backflowW;
+            // "Normal to Boundary" backflow (Fluent default): the backflow
+            // enters normal to the boundary, with the magnitude from the
+            // interior (owner cell) normal velocity. This is the stable
+            // pressure-outlet backflow condition -- no external value is
+            // imposed; the interior solution sets the strength.
+            {
+                const double unOwner = dotNormal(state.velocity, normal);
+                for (std::size_t d = 0; d < Dim; ++d)
+                    state.inflowVelocity[d] = unOwner * normal[d];
+            }
             {
                 std::array<double, Dim> normalArr{};
                 for (std::size_t d = 0; d < Dim; ++d) normalArr[d] = normal[d];

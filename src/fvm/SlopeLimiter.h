@@ -57,7 +57,7 @@ enum class LimiterSpan {
 };
 
 struct SlopeLimiterConfig {
-    LimiterKind kind = LimiterKind::MinMod;
+    LimiterKind kind = LimiterKind::Venkatakrishnan;
     LimiterAggregation aggregation = LimiterAggregation::CellWide;
     LimiterSpan span = LimiterSpan::FaceCentre;
     // Venkatakrishnan smoothing: eps = k * (hi - lo), relative to the local

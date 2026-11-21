@@ -47,37 +47,16 @@ bool CFDSolver<Dim>::isPiso_() const {
 }
 
 template<std::size_t Dim>
-void CFDSolver<Dim>::applyPressureOutletReference_(Field<Dim>& pressure) const {
-    bool appliedFaceReference = false;
-    // Descend so the lowest face index wins when one cell owns several outlets.
-    for (std::size_t f = mesh_.nFaces(); f-- > 0;) {
-        const auto& fbc = bcDiscretization().faceBCs()[f];
-        if (fbc.type != VelocityBCType::PressureOutlet) continue;
-        appliedFaceReference = true;
-        const std::size_t cell = mesh_.owner(f);
-        if (cell < mesh_.nCells()) pressure[cell] = fbc.pressureValue;
-    }
-    if (!appliedFaceReference) {
-        for (const auto& [cell, pRef] : bcDiscretization().pressureOutletCells()) {
-            if (cell < mesh_.nCells()) pressure[cell] = pRef;
-        }
-    }
-}
-
-template<std::size_t Dim>
 void CFDSolver<Dim>::applyPressureSolverConfig_() {
     typename PressureCorrection<Dim>::Config pcCfg;
     // The compact face-normal Laplacian + Rhie-Chow flux is the collocated
-    // operator  uses. Its pressure matrix is symmetric positive
+    // operator used on every mesh. Its pressure matrix is symmetric positive
     // definite, which is what makes the default Conjugate-gradient
-    // acceleration valid. The legacy composed least-squares operator is
-    // nonsymmetric and forced a BiCGSTAB solve regardless of the acceleration
-    // method chosen in the UI.
-    // On unstructured meshes the compact two-point face gradient disagrees with
-    // the least-squares gradient the velocity correction applies, leaving
-    // divergence that grows every SIMPLE iteration; use the LS-consistent
-    // operator there. On structured meshes the two gradients coincide.
-    pcCfg.compactRhieChow = config_.rhieChow && !mesh_.isUnstructured();
+    // acceleration valid. The exact Rhie-Chow conversion (RhieChow.h) makes
+    // the velocity correction u = u* - d grad p' discretely consistent with
+    // this compact operator on arbitrary unstructured meshes too, so the legacy
+    // non-symmetric composed operator is no longer needed.
+    pcCfg.compactRhieChow = config_.rhieChow;
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
     pcCfg.pressureAmg = config_.pressureAmg;
     pressureCorrection_.setConfig(pcCfg);
@@ -351,10 +330,15 @@ void CFDSolver<Dim>::capturePredictedContinuity_() {
 
 template<std::size_t Dim>
 void CFDSolver<Dim>::updateResiduals_() {
+    // Post-correction continuity: the velocity is u = u* - d grad p', so the
+    // Rhie-Chow conversion must use p' and grad p' (not the pre-correction
+    // pressure) for the residual to equal div(u*) + A p' = 0 exactly. This is
+    // the whole point of the compact SPD operator: the continuity the solver
+    // minimizes is the continuity this residual reports.
     ResidualResult resid = computeResiduals(mesh_, boundVelocity(), velocityOld_, diag_,
                                             divBuffer_, bcDiscretization().dirichletMask(), bcDiscretization().dirichletVals(),
                                             &bcDiscretization().faceBCs(),
-                                            &dCoeff_, &pressureBeforeCorrection_, &pressureGradBefore_, &pressureCorrection_.pressureMask(),
+                                            &dCoeff_, &pPrime_, &dpdx_, &pressureCorrection_.pressureMask(),
                                             config_.rhieChow && pressureCorrection_.usesCompactRhieChow());
     lastContResidPost_ = resid.continuity;
     // Steady reports the predictor imbalance (the value the pressure correction
@@ -789,8 +773,19 @@ void CFDSolver<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double al
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         (boundPressure())[i] += alphaP * pPrime_[i];
     }
-    // Apply exact per-face pRef, falling back to cell-level data if needed.
-    applyPressureOutletReference_(boundPressure());
+
+    // Pressure-outlet cells carry the prescribed static pressure: the compact
+    // operator keeps p' = 0 at the outlet face, so this pins the absolute level
+    // (otherwise it drifts with the interior and the per-face reference is lost).
+    // Descend so the lowest face index wins when one cell owns several outlets.
+    {
+        const auto& fbcs = bcDiscretization().faceBCs();
+        for (std::size_t f = mesh_.nFaces(); f-- > 0;) {
+            if (f < fbcs.size() && fbcs[f].type == VelocityBCType::PressureOutlet) {
+                (boundPressure())[mesh_.owner(f)] = fbcs[f].pressureValue;
+            }
+        }
+    }
 }
 
 template<std::size_t Dim>
