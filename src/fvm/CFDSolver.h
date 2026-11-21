@@ -51,7 +51,8 @@ public:
     using TransientConfig = cfd::TransientSettings;
 
     struct InletTurbulence {
-        std::string patch;
+        std::string patch;          // patch name (legacy path)
+        std::vector<std::size_t> faces; // face indices (face-index-based path)
         double k = 1e-3;
         double omega = 1.0;
     };

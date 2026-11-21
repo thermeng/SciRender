@@ -169,6 +169,12 @@ public:
                 if (pbc.type != BCType::VelocityInlet) continue;
                 typename Solver::InletTurbulence it;
                 it.patch = pbc.patchName;
+                // Resolve face indices from the mesh boundary group so the
+                // solver can apply k/omega directly without a name lookup.
+                auto git = m_mesh->boundaryGroups().find(pbc.patchName);
+                if (git != m_mesh->boundaryGroups().end()) {
+                    it.faces = git->second;
+                }
                 it.k = pbc.kInlet;
                 it.omega = pbc.omegaInlet;
                 // Derive the inlet turbulence from intensity + viscosity ratio

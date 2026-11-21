@@ -76,7 +76,11 @@ inline double applyBackflowCorrection(double un,
     // Use backflow Dirichlet values
     double unb = 0.0;
     for (std::size_t d = 0; d < Dim; ++d) {
-        double bf = (d == 0) ? fbc.backflowU : (d == 1) ? fbc.backflowV : fbc.backflowW;
+        double bf = 0.0;
+        if (d == 0) bf = fbc.backflowU;
+        else if (d == 1) bf = fbc.backflowV;
+        else if (d == 2) bf = fbc.backflowW;
+        // Dimensions beyond 3 default to 0 (only Dim=2 and Dim=3 are supported)
         unb += bf * fn[d];
     }
     return unb;

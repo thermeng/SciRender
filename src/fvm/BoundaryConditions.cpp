@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <iostream>
+#include <stdexcept>
 
 namespace fvm {
 
@@ -25,27 +26,17 @@ void applyWallBCToMasks(const Mesh<Dim>& mesh,
             });
         }
     } else if (bc.type == VelocityBCType::Inlet) {
-        if (mesh.isUnstructured()) {
-            // Unstructured/non-cartesian: full-vector Dirichlet (exact face value via faceBC later)
-            for (std::size_t d = 0; d < Dim; ++d) {
-                double val = (d == 0) ? bc.u : (d == 1) ? bc.v : bc.w;
-                forEachBoundaryFace(mesh, wall_d, wall_sign, [&](std::size_t f, std::size_t idx) {
-                    (void)f;
-                    dirichletMask[d][idx] = true;
-                    dirichletVals[d][idx] = val;
-                });
-            }
-        } else {
-            double normalVal = (wall_d == 0) ? bc.u : (wall_d == 1) ? bc.v : bc.w;
+        // Inlet: prescribe the WHOLE velocity vector on every boundary face,
+        // for both structured and unstructured meshes. On structured meshes the
+        // old code only prescribed the normal component and marked tangential
+        // components as slip, which let the pressure correction alter the inlet
+        // tangential velocity — violating the prescribed-velocity contract.
+        for (std::size_t d = 0; d < Dim; ++d) {
+            double val = (d == 0) ? bc.u : (d == 1) ? bc.v : bc.w;
             forEachBoundaryFace(mesh, wall_d, wall_sign, [&](std::size_t f, std::size_t idx) {
                 (void)f;
-                dirichletMask[wall_d][idx] = true;
-                dirichletVals[wall_d][idx] = normalVal;
-                for (std::size_t d = 0; d < Dim; ++d) {
-                    if (d != wall_d) {
-                        slipWallMask[d][idx] = true;
-                    }
-                }
+                dirichletMask[d][idx] = true;
+                dirichletVals[d][idx] = val;
             });
         }
     } else if (bc.type == VelocityBCType::Symmetry || bc.type == VelocityBCType::SlipWall) {
@@ -111,20 +102,27 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                                disc.dirichletMask_, disc.dirichletVals_, disc.slipWallMask_);
         }
 
-        // A cell that owns a boundary face with an explicit FACE condition is
-        // NOT frozen by the cell mask. The condition lives on the face, and
-        // the momentum assembly skips the boundary faces of a frozen cell - so
-        // freezing it would silently ignore the face condition altogether (a
-        // moving wall prescribed on its faces would leave the domain at rest).
-        // The cell stays a free unknown instead, exactly as on an unstructured
-        // mesh, and the face condition drives it.
+        // A cell that owns a boundary face with an explicit FACE condition:
+        //   - Inlet/MovingWall: pin the cell velocity to the prescribed value
+        //     (dirichlet mask) so VelocityCorrection keeps it exact.
+        //   - Other types (Outlet, PressureOutlet, NoSlip, Symmetry, SlipWall):
+        //     keep the cell a free unknown; the face condition drives it via
+        //     boundaryFaceState() in the momentum assembly. Freezing these
+        //     cells would skip the boundary-face flux contributions entirely.
         for (const auto& [faceIdx, fbc] : spec.faceVelBCs) {
-            (void)fbc;
             if (faceIdx >= mesh.nFaces() || mesh.neighbor(faceIdx) != std::size_t(-1)) continue;
             const std::size_t cell = mesh.owner(faceIdx);
+            const bool prescribeCell =
+                fbc.type == VelocityBCType::Inlet || fbc.type == VelocityBCType::MovingWall;
             for (std::size_t d = 0; d < Dim; ++d) {
-                disc.dirichletMask_[d][cell] = 0;
-                disc.dirichletVals_[d][cell] = 0.0;
+                if (prescribeCell) {
+                    double val = (d == 0) ? fbc.u : (d == 1) ? fbc.v : fbc.w;
+                    disc.dirichletMask_[d][cell] = 1;
+                    disc.dirichletVals_[d][cell] = val;
+                } else {
+                    disc.dirichletMask_[d][cell] = 0;
+                    disc.dirichletVals_[d][cell] = 0.0;
+                }
             }
         }
     }
@@ -226,13 +224,27 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
         if (fbc.type == VelocityBCType::PressureOutlet) {
             disc.pressureOutletCells_.emplace_back(cell, fbc.pressureValue);
         }
+        // Pin inlet / moving wall cell-center velocity to the prescribed value.
+        // Face-based BCs drive the momentum flux via faceBCs_, but the cell-center
+        // velocity is a free unknown unless pinned here — otherwise pressure
+        // correction and neighbour influence drift it away from the prescribed
+        // inlet speed (probe/post-processing read cell-centred data).
+        if (fbc.type == VelocityBCType::Inlet || fbc.type == VelocityBCType::MovingWall) {
+            for (std::size_t d = 0; d < Dim; ++d) {
+                double val = (d == 0) ? fbc.u : (d == 1) ? fbc.v : fbc.w;
+                disc.dirichletMask_[d][cell] = 1;
+                disc.dirichletVals_[d][cell] = val;
+            }
+        }
     }
 
     std::sort(disc.pressureOutletCells_.begin(), disc.pressureOutletCells_.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
     disc.pressureOutletCells_.erase(
         std::unique(disc.pressureOutletCells_.begin(), disc.pressureOutletCells_.end(),
-                    [](const auto& a, const auto& b) { return a.first == b.first; }),
+                    [](const auto& a, const auto& b) {
+                        return a.first == b.first && a.second == b.second;
+                    }),
         disc.pressureOutletCells_.end());
 
     for (std::size_t f = 0; f < mesh.nFaces(); ++f) {
@@ -276,17 +288,37 @@ BCDiscretization buildBCMasks(const Mesh<Dim>& mesh, const BCSpec& spec) {
                 if (a > maxA) { maxA = a; wall_d = d; }
             }
             const int sign = (fn[wall_d] < 0.0) ? -1 : 1;
-            if (maxA >= 0.9) {
-                // The face is aligned with a coordinate direction: use the
-                // direction based boundary condition.
-                const auto& bc = spec.velBcs[wall_d * 2 + (sign < 0 ? 0 : 1)];
+            // The dominant component determines which direction-based BC slot to
+            // use. Apply it to every boundary face whose normal points along
+            // (or near) that axis — even oblique faces must receive the BC so
+            // the flow enters/leaves correctly on all mesh types.
+            const bool aligned = maxA >= 0.9;
+            const auto& bc = spec.velBcs[wall_d * 2 + (sign < 0 ? 0 : 1)];
+            if (aligned || bc.type == VelocityBCType::Inlet ||
+                bc.type == VelocityBCType::MovingWall ||
+                bc.type == VelocityBCType::PressureOutlet) {
                 FaceVelocityBC& fb = disc.faceBCs_[f];
                 fb.type = bc.type;
                 fb.u = bc.u; fb.v = bc.v; fb.w = bc.w;
                 fb.pressureValue = bc.pressureValue;
                 disc.faceHasBC_[f] = 1;
+                // Pin inlet / moving wall cell-center velocity to the prescribed
+                // value. applyWallBCToMasks() is skipped for unstructured meshes,
+                // so this is the only path that can pin cell velocity here.
+                if (bc.type == VelocityBCType::Inlet || bc.type == VelocityBCType::MovingWall) {
+                    const std::size_t cell = mesh.owner(f);
+                    for (std::size_t d = 0; d < Dim; ++d) {
+                        double val = (d == 0) ? bc.u : (d == 1) ? bc.v : bc.w;
+                        if (disc.dirichletMask_[d][cell] && disc.dirichletVals_[d][cell] != val) {
+                            std::cerr << "WARNING: inlet cell " << cell << " component " << d
+                                      << " has conflicting prescribed values\n";
+                        }
+                        disc.dirichletMask_[d][cell] = 1;
+                        disc.dirichletVals_[d][cell] = val;
+                    }
+                }
             } else {
-                // Oblique face: no direction based condition applies.
+                // Oblique face for a non-prescribed BC: default to no-slip wall.
                 FaceVelocityBC& fb = disc.faceBCs_[f];
                 fb.type = VelocityBCType::NoSlip;
                 disc.faceHasBC_[f] = 1;
@@ -328,6 +360,13 @@ BoundaryConditions<Dim>::BoundaryConditions(const Mesh<Dim>& mesh)
 template<std::size_t Dim>
 void BoundaryConditions<Dim>::setVelocityBC(std::size_t d, int sign, VelocityBCType type,
                                                    double val1, double val2, double val3) {
+    // Velocity inlet values must be finite: a NaN/Inf inlet would corrupt the
+    // momentum assembly, the pressure correction, and every downstream consumer.
+    if ((type == VelocityBCType::Inlet || type == VelocityBCType::MovingWall) &&
+        (!std::isfinite(val1) || !std::isfinite(val2) || !std::isfinite(val3))) {
+        throw std::invalid_argument(
+            "BoundaryConditions::setVelocityBC: non-finite velocity component for Inlet/MovingWall");
+    }
     std::size_t idx = d * 2 + (sign < 0 ? 0 : 1);
     velBcs_[idx] = type == VelocityBCType::Inlet || type == VelocityBCType::MovingWall
                        ? VelocityBC{type, val1, val2, val3}
@@ -337,6 +376,10 @@ void BoundaryConditions<Dim>::setVelocityBC(std::size_t d, int sign, VelocityBCT
 
 template<std::size_t Dim>
 void BoundaryConditions<Dim>::setPressureOutlet(std::size_t d, int sign, double pressure) {
+    if (!std::isfinite(pressure)) {
+        throw std::invalid_argument(
+            "BoundaryConditions::setPressureOutlet: non-finite pressure value");
+    }
     std::size_t idx = d * 2 + (sign < 0 ? 0 : 1);
     velBcs_[idx].type = VelocityBCType::PressureOutlet;
     velBcs_[idx].u = 0.0;
@@ -363,8 +406,13 @@ const VelocityPatch* BoundaryConditions<Dim>::findVelocityPatch(const std::strin
 
 template<std::size_t Dim>
 void BoundaryConditions<Dim>::setVelocityBCOnFaces(const std::vector<std::size_t>& faceIndices,
-                                                          VelocityBCType type,
-                                                          double u, double v, double w) {
+                                                           VelocityBCType type,
+                                                           double u, double v, double w) {
+    if ((type == VelocityBCType::Inlet || type == VelocityBCType::MovingWall) &&
+        (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(w))) {
+        throw std::invalid_argument(
+            "BoundaryConditions::setVelocityBCOnFaces: non-finite velocity component for Inlet/MovingWall");
+    }
     FaceVelocityBC fbc;
     fbc.type = type;
     fbc.u = (type == VelocityBCType::Inlet || type == VelocityBCType::MovingWall) ? u : 0.0;
@@ -380,6 +428,10 @@ void BoundaryConditions<Dim>::setVelocityBCOnFaces(const std::vector<std::size_t
 template<std::size_t Dim>
 void BoundaryConditions<Dim>::setVelocityInletNormalOnFaces(
         const std::vector<std::size_t>& faceIndices, double magnitude) {
+    if (!std::isfinite(magnitude) || std::abs(magnitude) > 1.0e6) {
+        throw std::invalid_argument(
+            "BoundaryConditions::setVelocityInletNormalOnFaces: non-finite or extreme magnitude");
+    }
     FaceVelocityBC fbc;
     fbc.type = VelocityBCType::Inlet;
     for (std::size_t f : faceIndices) {
@@ -422,7 +474,11 @@ void BoundaryConditions<Dim>::setVelocityBCOnFacesWithSlip(const std::vector<std
 
 template<std::size_t Dim>
 void BoundaryConditions<Dim>::setPressureOutletOnFaces(const std::vector<std::size_t>& faceIndices,
-                                                              double pressure) {
+                                                               double pressure) {
+    if (!std::isfinite(pressure)) {
+        throw std::invalid_argument(
+            "BoundaryConditions::setPressureOutletOnFaces: non-finite pressure value");
+    }
     FaceVelocityBC fbc;
     fbc.type = VelocityBCType::PressureOutlet;
     fbc.u = 0.0;
@@ -438,10 +494,14 @@ void BoundaryConditions<Dim>::setPressureOutletOnFaces(const std::vector<std::si
 
 template<std::size_t Dim>
 void BoundaryConditions<Dim>::setPressureOutletOnFacesWithBackflow(const std::vector<std::size_t>& faceIndices,
-                                                                          double pressure,
-                                                                          bool suppressBackflow,
-                                                                          double backflowU, double backflowV, double backflowW,
-                                                                          double backflowK, double backflowOmega) {
+                                                                           double pressure,
+                                                                           bool suppressBackflow,
+                                                                           double backflowU, double backflowV, double backflowW,
+                                                                           double backflowK, double backflowOmega) {
+    if (!std::isfinite(pressure)) {
+        throw std::invalid_argument(
+            "BoundaryConditions::setPressureOutletOnFacesWithBackflow: non-finite pressure value");
+    }
     FaceVelocityBC fbc;
     fbc.type = VelocityBCType::PressureOutlet;
     fbc.u = 0.0;

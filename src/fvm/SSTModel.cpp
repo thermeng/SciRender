@@ -857,7 +857,7 @@ void SSTModel<Dim>::solveTransport_(const VectorField<Dim>& velocity,
     convection_.setLimiter(config_.limiter);
     convection_.setScheme(scheme);
     convection_.discretize(A, b, phi, velPtrs,
-                           ConvectionBCs{mask, vals, {}, {}, &faceBCs_}, &grad);
+                           ConvectionBCs{mask, vals, {}, {}, {}, &faceBCs_}, &grad);
 
     A.makeCompressed();
     for (std::size_t i = 0; i < n; ++i) {

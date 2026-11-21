@@ -23,6 +23,11 @@ struct ConvectionBCs {
     std::vector<double> scalarValues;
     std::vector<std::vector<char>> velocityMask;
     std::vector<std::vector<double>> velocityValues;
+    // Optional per-face prescribed scalar values at inlet boundaries. When
+    // non-empty and a boundary face has F < 0 (inflow through a velocity
+    // inlet/MovingWall), the convective flux is added with this prescribed
+    // face value instead of being suppressed. Indexed by face index.
+    std::vector<double> faceScalarInletValues;
     // Optional per-face momentum boundary conditions: when present, the
     // boundary path of the assembly resolves the face velocity through
     // boundaryFaceState() — the shared BC policy (no-penetration, backflow)

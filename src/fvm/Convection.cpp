@@ -125,10 +125,26 @@ void Convection<Dim>::discretizeImpl(std::vector<Triplet>& triplets, Eigen::Vect
                     b(P) -= F * limited;
                 }
             } else {
-                // Inflow at the boundary (a reversed outflow): the upwind
-                // value is outside the domain and unknown, so the convective
-                // flux is suppressed rather than adding a destabilising
-                // negative diagonal.
+                // Inflow at the boundary (F < 0). For velocity inlets and
+                // moving walls this is the normal condition: mass enters the
+                // domain carrying the prescribed scalar value. When the caller
+                // supplied per-face scalar inlet values, convect them in;
+                // otherwise suppress the flux (previous behavior).
+                if (bcs.faceBC && f < bcs.faceBC->size()) {
+                    const auto& fbc = (*bcs.faceBC)[f];
+                    if ((fbc.type == VelocityBCType::Inlet ||
+                         fbc.type == VelocityBCType::MovingWall) &&
+                        !bcs.faceScalarInletValues.empty() &&
+                        f < bcs.faceScalarInletValues.size()) {
+                        // Prescribed scalar inflow: add flux with the inlet value.
+                        // diagInc[P] += F (F < 0 gives negative diagonal),
+                        // b(P) -= F * value moves the known inflow to the RHS.
+                        diagInc[P] += F;
+                        b(P) -= F * bcs.faceScalarInletValues[f];
+                    }
+                    // If no faceScalarInletValues provided, flux is suppressed
+                    // (existing behavior for backward compatibility).
+                }
             }
             continue;
         }

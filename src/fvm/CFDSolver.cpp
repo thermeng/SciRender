@@ -167,6 +167,12 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
         turbulence_->initialize(nu_ * rho_, rho_, maxInletSpeed_);
         turbulence_->setBoundaryConditions(bcDiscretization().faceBCs());
         for (const auto& it : config_.inletTurbulence) {
+            // Prefer direct face indices (face-index-based inlet BCs). Fall
+            // back to patch-name lookup for legacy patch-based configuration.
+            if (!it.faces.empty()) {
+                turbulence_->setInletTurbulence(it.faces, it.k, it.omega);
+                continue;
+            }
             auto git = mesh_.boundaryGroups().find(it.patch);
             if (git == mesh_.boundaryGroups().end()) {
                 std::cerr << "  [turbulence] WARNING: inlet patch '" << it.patch
