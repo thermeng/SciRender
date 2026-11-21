@@ -140,14 +140,22 @@ CfdBoundaryConditionsDialog::CfdBoundaryConditionsDialog(std::vector<cfd::PatchB
                 updateConditionVisibility();
             });
 
+    connect(m_velocitySpecCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) {
+                if (m_syncing) return;
+                commitCurrent();
+                updateConditionVisibility();
+            });
+
     connect(m_suppressBackflow, &QCheckBox::toggled, this, [this](bool) {
         if (m_syncing) return;
         commitCurrent();
         updateConditionVisibility();
     });
 
-    for (QDoubleSpinBox* spin : {m_u, m_v, m_w, m_pressure, m_backflowU, m_backflowV, m_backflowW,
-                                 m_backflowK, m_backflowOmega, m_intensity, m_viscosityRatio}) {
+    for (QDoubleSpinBox* spin : {m_u, m_v, m_w, m_normalVelocity, m_pressure, m_backflowU,
+                                 m_backflowV, m_backflowW, m_backflowK, m_backflowOmega,
+                                 m_intensity, m_viscosityRatio}) {
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
                 [this](double) { if (!m_syncing) commitCurrent(); });
     }
@@ -227,9 +235,23 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
     velocityLay->setSpacing(4);
     velocityLay->addWidget(uikit::header("Velocity", m_velocitySection));
 
+    m_velocitySpecCombo = new QComboBox(m_velocitySection);
+    m_velocitySpecCombo->addItem("Components");
+    m_velocitySpecCombo->addItem("Normal to boundary");
+    {
+        auto* specForm = new QFormLayout;
+        specForm->setContentsMargins(0, 0, 0, 0);
+        specForm->addRow(uikit::note("Specification", m_velocitySection), m_velocitySpecCombo);
+        velocityLay->addLayout(specForm);
+    }
+
     m_u = coefficientSpin(0.0, m_velocitySection);
     m_v = coefficientSpin(0.0, m_velocitySection);
     m_w = coefficientSpin(0.0, m_velocitySection);
+    m_componentsBox = new QWidget(m_velocitySection);
+    auto* componentsLay = new QVBoxLayout(m_componentsBox);
+    componentsLay->setContentsMargins(0, 0, 0, 0);
+    componentsLay->setSpacing(4);
     {
         auto* grid = new QGridLayout;
         grid->setContentsMargins(0, 0, 0, 0);
@@ -242,8 +264,22 @@ void CfdBoundaryConditionsDialog::buildDetail(QWidget* detail) {
             grid->addWidget(spins[c], 0, c * 2 + 1);
             grid->setColumnStretch(c * 2 + 1, 1);
         }
-         velocityLay->addLayout(grid);
-     }
+        componentsLay->addLayout(grid);
+    }
+    velocityLay->addWidget(m_componentsBox);
+
+    m_normalBox = new QWidget(m_velocitySection);
+    auto* normalLay = new QVBoxLayout(m_normalBox);
+    normalLay->setContentsMargins(0, 0, 0, 0);
+    m_normalVelocity = coefficientSpin(1.0, m_normalBox);
+    {
+        auto* normalForm = new QFormLayout;
+        normalForm->setContentsMargins(0, 0, 0, 0);
+        normalForm->addRow(uikit::note("Magnitude (normal)", m_normalBox), m_normalVelocity);
+        normalLay->addLayout(normalForm);
+    }
+    m_normalBox->setVisible(false);
+    velocityLay->addWidget(m_normalBox);
      // Turbulence inlet values (velocity inlet only)
      m_turbulenceBox = new QWidget(m_velocitySection);
      auto* turbLay = new QVBoxLayout(m_turbulenceBox);
@@ -356,6 +392,9 @@ void CfdBoundaryConditionsDialog::loadCurrent() {
     m_u->setValue(bc.u);
     m_v->setValue(bc.v);
     m_w->setValue(bc.w);
+    m_velocitySpecCombo->setCurrentIndex(
+        bc.velocitySpec == cfd::VelocitySpec::Normal ? 1 : 0);
+    m_normalVelocity->setValue(bc.normalVelocity);
     m_pressure->setValue(bc.pressure);
     m_suppressBackflow->setChecked(bc.suppressBackflow);
     m_backflowU->setValue(bc.backflowU);
@@ -378,6 +417,9 @@ void CfdBoundaryConditionsDialog::commitCurrent() {
     bc.u = m_u->value();
     bc.v = m_v->value();
     bc.w = m_w->value();
+    bc.velocitySpec = (m_velocitySpecCombo->currentIndex() == 1)
+        ? cfd::VelocitySpec::Normal : cfd::VelocitySpec::Components;
+    bc.normalVelocity = m_normalVelocity->value();
     bc.pressure = m_pressure->value();
     bc.suppressBackflow = m_suppressBackflow->isChecked();
     bc.backflowU = m_backflowU->value();
@@ -400,6 +442,12 @@ void CfdBoundaryConditionsDialog::updateConditionVisibility() {
     const bool hasVelocity =
         (type == cfd::BCType::VelocityInlet || type == cfd::BCType::MovingWall);
     const bool hasPressure = (type == cfd::BCType::PressureOutlet);
+
+    const bool isVelocityInlet = (type == cfd::BCType::VelocityInlet);
+    const bool normalMode = isVelocityInlet && m_velocitySpecCombo->currentIndex() == 1;
+    m_velocitySpecCombo->setVisible(isVelocityInlet);
+    m_componentsBox->setVisible(!normalMode);
+    m_normalBox->setVisible(normalMode);
 
     m_velocitySection->setVisible(hasVelocity);
     m_pressureSection->setVisible(hasPressure);

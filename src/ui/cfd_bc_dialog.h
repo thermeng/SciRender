@@ -62,6 +62,10 @@ private:
     QComboBox* m_typeCombo = nullptr;
 
     QWidget* m_velocitySection = nullptr;
+    QComboBox* m_velocitySpecCombo = nullptr;
+    QWidget* m_componentsBox = nullptr;
+    QWidget* m_normalBox = nullptr;
+    QDoubleSpinBox* m_normalVelocity = nullptr;
     QDoubleSpinBox* m_u = nullptr;
     QDoubleSpinBox* m_v = nullptr;
     QDoubleSpinBox* m_w = nullptr;
