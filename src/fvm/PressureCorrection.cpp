@@ -276,7 +276,13 @@ void PressureCorrection<Dim>::solve(
                     // diagonal (rowAcc_[P] += dFace*area*normalFactor). This is
                     // the boundary analog of the interior (pN - pP)*normalFactor
                     // term, so the operator A and this RHS agree exactly.
-                    un -= dFace * normalFactor * (pressure[P] - bc.faceBCs()[f].pressureValue);
+                    // Sign convention: when pressure[P] > pressureValue we must
+                    // increase outflow to drive pressure down, so the correction
+                    // ADDS to the face flux (not subtracts). The old subtract
+                    // sign drove pressure away from the outlet value and was
+                    // previously masked by the cell-pressure overwrite in
+                    // CFDSolver::applyPressureCorrection_ (now removed).
+                    un += dFace * normalFactor * (pressure[P] - bc.faceBCs()[f].pressureValue);
                 }
             }
         } else {

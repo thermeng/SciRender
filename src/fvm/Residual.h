@@ -76,6 +76,29 @@ inline ResidualResult computeResiduals(
             // The face BC owns the boundary value; the shared resolver applies
             // the no-penetration, prescribed and backflow rules in one place.
             un = boundaryFaceState<Dim>(velocity, P, fn, (*faceBC)[f]).normalVelocity;
+            // Pressure-gradient correction at pressure outlets: matches the
+            // term PressureCorrection adds to its divergence RHS so the
+            // residual measures the same quantity the pressure equation sees.
+            if (faceBC && f < faceBC->size() &&
+                (*faceBC)[f].type == VelocityBCType::PressureOutlet &&
+                dCoeff && pressure) {
+                const double* xP = mesh.cellCenterPtr(P);
+                const double* xF = mesh.faceCenterPtr(f);
+                double dn = 0.0;
+                for (std::size_t d = 0; d < Dim; ++d)
+                    dn += fn[d] * (xF[d] - xP[d]);
+                if (dn > 1e-30) {
+                    double dFace = 0.0;
+                    for (std::size_t d = 0; d < Dim; ++d)
+                        dFace += (*dCoeff)[d][P] * fn[d] * fn[d];
+                    const double dist = mesh.faceDist(f);
+                    const double normalFactor = (dist > 1e-30) ? dn / (dist * dist) : 0.0;
+                    // Same sign convention as PressureCorrection: when
+                    // pressure[P] > pressureValue, increase outflow to drive
+                    // pressure down. ADD to the face flux (not subtract).
+                    un += dFace * normalFactor * ((*pressure)[P] - (*faceBC)[f].pressureValue);
+                }
+            }
         } else {
             // Interior, or a boundary without a face BC. A prescribed velocity
             // is the value of its CELL and the neighbour takes priority; this

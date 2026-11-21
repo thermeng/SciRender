@@ -61,16 +61,4 @@ struct FaceVelocityBC {
     double backflowOmega = 0.0;
 };
 
-struct PressureOutletConfig {
-    double p0 = 0.0; // gauge static pressure at outlet
-    double operatingPressure = 0.0; 
-    bool radialEquilibrium = false;
-    bool suppressBackflow = false;
-    double backflowU = 0.0;
-    double backflowV = 0.0;
-    double backflowW = 0.0;
-    double backflowK = 0.0;
-    double backflowOmega = 0.0;
-};
-
 } // namespace fvm

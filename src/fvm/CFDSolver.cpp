@@ -774,18 +774,12 @@ void CFDSolver<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double al
         (boundPressure())[i] += alphaP * pPrime_[i];
     }
 
-    // Pressure-outlet cells carry the prescribed static pressure: the compact
-    // operator keeps p' = 0 at the outlet face, so this pins the absolute level
-    // (otherwise it drifts with the interior and the per-face reference is lost).
-    // Descend so the lowest face index wins when one cell owns several outlets.
-    {
-        const auto& fbcs = bcDiscretization().faceBCs();
-        for (std::size_t f = mesh_.nFaces(); f-- > 0;) {
-            if (f < fbcs.size() && fbcs[f].type == VelocityBCType::PressureOutlet) {
-                (boundPressure())[mesh_.owner(f)] = fbcs[f].pressureValue;
-            }
-        }
-    }
+    // Pressure-outlet owner cells are regular unknowns: the pressure correction
+    // equation already enforces p' = 0 at the outlet face via the outlet-ring
+    // diagonal (PressureCorrection.cpp), and the owner cell pressure evolves
+    // naturally through P += alphaP * p'. Overwriting the outlet cell pressure
+    // with the boundary value would discard the correction and corrupt mass
+    // conservation at the outlet.
 }
 
 template<std::size_t Dim>

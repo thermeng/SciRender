@@ -210,21 +210,21 @@ inline BoundaryFaceState<Dim> boundaryFaceState(
         default: // Outlet, PressureOutlet
             state.kind = FaceVelocityKind::Outflow;
             for (std::size_t d = 0; d < Dim; ++d) state.velocity[d] = at(d);
-            // "Normal to Boundary" backflow (Fluent default): the backflow
-            // enters normal to the boundary, with the magnitude from the
-            // interior (owner cell) normal velocity. This is the stable
-            // pressure-outlet backflow condition -- no external value is
-            // imposed; the interior solution sets the strength.
+            // Backflow (inward normal velocity): the corrected normal velocity
+            // drives both the flux (normalVelocity) and the Dirichlet inflow
+            // velocity (inflowVelocity) used by the momentum assembly as the
+            // upwind state for reverse flow. applyBackflowCorrection reads
+            // suppressBackflow and backflowU/V/W, so honouring it here makes
+            // momentum and the pressure correction see the same face value.
             {
                 const double unOwner = dotNormal(state.velocity, normal);
-                for (std::size_t d = 0; d < Dim; ++d)
-                    state.inflowVelocity[d] = unOwner * normal[d];
-            }
-            {
                 std::array<double, Dim> normalArr{};
                 for (std::size_t d = 0; d < Dim; ++d) normalArr[d] = normal[d];
-                state.normalVelocity = applyBackflowCorrection<Dim>(
-                    dotNormal(state.velocity, normal), normalArr, fbc);
+                const double unCorrected = applyBackflowCorrection<Dim>(
+                    unOwner, normalArr, fbc);
+                state.normalVelocity = unCorrected;
+                for (std::size_t d = 0; d < Dim; ++d)
+                    state.inflowVelocity[d] = unCorrected * normal[d];
             }
             return state;
     }
