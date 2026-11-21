@@ -10,11 +10,14 @@
 namespace cfd {
 
 enum class BCType { VelocityInlet, PressureOutlet, Outlet, WallNoSlip, SlipWall, Symmetry, MovingWall };
+enum class VelocitySpec { Components, Normal };
 
 struct PatchBC {
     std::string patchName;
     BCType type = BCType::WallNoSlip;
     double u = 0.0, v = 0.0, w = 0.0;
+    VelocitySpec velocitySpec = VelocitySpec::Components;
+    double normalVelocity = 0.0;   // signed; + = inflow along -outward normal
     double pressure = 0.0;
     bool suppressBackflow = false;
     double backflowU = 0.0, backflowV = 0.0, backflowW = 0.0;
@@ -27,6 +30,12 @@ struct PatchBC {
     double turbulenceIntensity = 0.05;      // 0..1
     double turbulentViscosityRatio = 1.0;   // nut / nu
 };
+
+// Normal mode is only meaningful for a velocity inlet.
+inline bool usesNormalVelocity(const PatchBC& bc) {
+    return bc.type == BCType::VelocityInlet &&
+           bc.velocitySpec == VelocitySpec::Normal;
+}
 
 // Single source of truth for AMG linear solver configuration.
 // Used by the UI, case file I/O, and the solver (fvm::AMGHierarchy) directly.

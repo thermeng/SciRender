@@ -82,4 +82,51 @@ TEST_CASE("ui.material_codec_roundtrip_and_backward_compat") {
     CHECK(legacy.rho == doctest::Approx(998.2));
 }
 
+TEST_CASE("ui.velocity_inlet_spec_codec_roundtrip_and_legacy_default") {
+    cfd::CaseSettings s;
+    std::vector<cfd::PatchBC> bcs(1);
+    bcs[0].patchName = "inlet";
+    bcs[0].type = cfd::BCType::VelocityInlet;
+    bcs[0].velocitySpec = cfd::VelocitySpec::Normal;
+    bcs[0].normalVelocity = 2.5;
+
+    const QByteArray json = cfd::serializeCaseSettings(s, bcs);
+    cfd::CaseSettings back;
+    std::vector<cfd::PatchBC> backBcs;
+    REQUIRE(cfd::deserializeCaseSettings(json, back, backBcs));
+    REQUIRE(backBcs.size() == 1);
+    CHECK(backBcs[0].velocitySpec == cfd::VelocitySpec::Normal);
+    CHECK(backBcs[0].normalVelocity == doctest::Approx(2.5));
+
+    // A pre-feature file has no mode keys: it must load as Components / 0.
+    QJsonObject obj = QJsonDocument::fromJson(json).object();
+    QJsonArray patches = obj.value("patchBCs").toArray();
+    REQUIRE(patches.size() == 1);
+    QJsonObject patch = patches[0].toObject();
+    patch.remove("velocitySpec");
+    patch.remove("normalVelocity");
+    patches[0] = patch;
+    obj["patchBCs"] = patches;
+    cfd::CaseSettings legacy;
+    std::vector<cfd::PatchBC> legacyBcs;
+    REQUIRE(cfd::deserializeCaseSettings(QJsonDocument(obj).toJson(), legacy, legacyBcs));
+    REQUIRE(legacyBcs.size() == 1);
+    CHECK(legacyBcs[0].velocitySpec == cfd::VelocitySpec::Components);
+    CHECK(legacyBcs[0].normalVelocity == doctest::Approx(0.0));
+}
+
+TEST_CASE("ui.normal_velocity_predicate_is_velocity_inlet_only") {
+    cfd::PatchBC bc;
+    bc.type = cfd::BCType::VelocityInlet;
+    bc.velocitySpec = cfd::VelocitySpec::Normal;
+    CHECK(cfd::usesNormalVelocity(bc));
+
+    bc.type = cfd::BCType::MovingWall;
+    CHECK_FALSE(cfd::usesNormalVelocity(bc));
+
+    bc.type = cfd::BCType::VelocityInlet;
+    bc.velocitySpec = cfd::VelocitySpec::Components;
+    CHECK_FALSE(cfd::usesNormalVelocity(bc));
+}
+
 } // TEST_SUITE("ui")

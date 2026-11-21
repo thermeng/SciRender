@@ -295,6 +295,8 @@ inline const std::vector<Field<PatchBC>>& patchBCFields() {
         dbl("u", &PatchBC::u),
         dbl("v", &PatchBC::v),
         dbl("w", &PatchBC::w),
+        enm("velocitySpec", &PatchBC::velocitySpec),
+        dbl("normalVelocity", &PatchBC::normalVelocity),
         dbl("pressure", &PatchBC::pressure),
         flg("suppressBackflow", &PatchBC::suppressBackflow),
         dbl("backflowU", &PatchBC::backflowU),
