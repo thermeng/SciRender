@@ -78,6 +78,8 @@ public:
     void setVelocityBCOnFaces(const std::vector<std::size_t>& faceIndices,
                               VelocityBCType type,
                               double u = 0.0, double v = 0.0, double w = 0.0);
+    void setVelocityInletNormalOnFaces(const std::vector<std::size_t>& faceIndices,
+                                       double magnitude);
     void setVelocityBCOnFacesWithSlip(const std::vector<std::size_t>& faceIndices,
                                       const std::string& typeStr,
                                       double u, double v, double w,

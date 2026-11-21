@@ -211,4 +211,38 @@ TEST_CASE("cfd.bc.unstructured_3d_oblique_face_ignores_axis_direction") {
     CHECK(bc.discretization().faceBCs()[slanted].type == fvm::VelocityBCType::NoSlip);
 }
 
+TEST_CASE("cfd.bc.velocity_inlet_normal_follows_face_normal") {
+    const fvm::Mesh<3> mesh = uniform3D(3);
+    fvm::BoundaryConditions<3> bc(mesh);
+
+    std::vector<std::size_t> faces;
+    forEachBoundaryFace(mesh, 0, -1, [&](std::size_t f, std::size_t) { faces.push_back(f); });
+    forEachBoundaryFace(mesh, 1, -1, [&](std::size_t f, std::size_t) { faces.push_back(f); });
+    REQUIRE(!faces.empty());
+
+    constexpr double kMagnitude = 2.0;
+    bc.setVelocityInletNormalOnFaces(faces, kMagnitude);
+
+    for (std::size_t f : faces) {
+        const auto& n = mesh.faceNormal(f);
+        const auto& fbc = bc.faceVelBCs().at(f);
+        CHECK(fbc.type == fvm::VelocityBCType::Inlet);
+        CHECK(fbc.u == doctest::Approx(-kMagnitude * n[0]));
+        CHECK(fbc.v == doctest::Approx(-kMagnitude * n[1]));
+        CHECK(fbc.w == doctest::Approx(-kMagnitude * n[2]));
+    }
+
+    // Two orientations in one patch must get different directions.
+    std::size_t xFace = faces.front();
+    std::size_t yFace = faces.back();
+    CHECK(bc.faceVelBCs().at(xFace).u == doctest::Approx(kMagnitude));
+    CHECK(bc.faceVelBCs().at(xFace).v == doctest::Approx(0.0));
+    CHECK(bc.faceVelBCs().at(yFace).u == doctest::Approx(0.0));
+    CHECK(bc.faceVelBCs().at(yFace).v == doctest::Approx(kMagnitude));
+
+    // Negative magnitude reverses the flow.
+    bc.setVelocityInletNormalOnFaces({xFace}, -kMagnitude);
+    CHECK(bc.faceVelBCs().at(xFace).u == doctest::Approx(-kMagnitude));
+}
+
 } // TEST_SUITE("cfd")

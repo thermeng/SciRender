@@ -378,6 +378,22 @@ void BoundaryConditions<Dim>::setVelocityBCOnFaces(const std::vector<std::size_t
 }
 
 template<std::size_t Dim>
+void BoundaryConditions<Dim>::setVelocityInletNormalOnFaces(
+        const std::vector<std::size_t>& faceIndices, double magnitude) {
+    FaceVelocityBC fbc;
+    fbc.type = VelocityBCType::Inlet;
+    for (std::size_t f : faceIndices) {
+        if (f >= mesh_.nFaces()) continue;
+        const auto& n = mesh_.faceNormal(f);
+        fbc.u = -magnitude * n[0];
+        fbc.v = -magnitude * n[1];
+        if constexpr (Dim >= 3) fbc.w = -magnitude * n[2];
+        faceVelBCs_[f] = fbc;
+    }
+    dirty_ = true;
+}
+
+template<std::size_t Dim>
 void BoundaryConditions<Dim>::setVelocityBCOnFacesWithSlip(const std::vector<std::size_t>& faceIndices,
                                                                   const std::string& typeStr,
                                                                   double u, double v, double w,

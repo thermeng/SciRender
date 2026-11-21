@@ -46,6 +46,8 @@ public:
     void setVelocityBCOnFaces(const std::vector<std::size_t>& faceIndices,
                               VelocityBCType type,
                               double u = 0.0, double v = 0.0, double w = 0.0);
+    void setVelocityInletNormalOnFaces(const std::vector<std::size_t>& faceIndices,
+                                       double magnitude);
 
     void setPressureOutlet(std::size_t d, int sign, double pressure);
     void setPressureOutletOnFaces(const std::vector<std::size_t>& faceIndices, double pressure);

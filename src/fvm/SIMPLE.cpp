@@ -149,6 +149,12 @@ void SIMPLE<Dim>::setVelocityBCOnFaces(const std::vector<std::size_t>& faceIndic
 }
 
 template<std::size_t Dim>
+void SIMPLE<Dim>::setVelocityInletNormalOnFaces(
+        const std::vector<std::size_t>& faceIndices, double magnitude) {
+    this->bc_.setVelocityInletNormalOnFaces(faceIndices, magnitude);
+}
+
+template<std::size_t Dim>
 void SIMPLE<Dim>::setVelocityBCOnFacesWithSlip(const std::vector<std::size_t>& faceIndices,
                                                const std::string& typeStr,
                                                double u, double v, double w,
