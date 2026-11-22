@@ -33,13 +33,13 @@ using namespace test_support;
 
 namespace {
 
-constexpr int kNx = 40;
-constexpr int kNy = 8;
+constexpr int kNx = 80;
+constexpr int kNy = 16;
 constexpr double kLength = 4.0;
 constexpr double kHeight = 1.0;
 constexpr double kInletSpeed = 1.0;
 constexpr double kReynolds = 100.0; // based on the height and the mean velocity
-constexpr int kIterations = 2000;   // iteration cap; convergence is decided by residual, not fixed steps
+constexpr int kIterations = 200;   // iteration cap; convergence is decided by residual, not fixed steps
 constexpr double kResidualTol = 1e-4;
 
 struct ChannelResult {

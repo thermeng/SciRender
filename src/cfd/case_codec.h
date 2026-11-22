@@ -339,7 +339,6 @@ inline const std::vector<Field<CaseSettings>>& caseSettingsFields() {
         i32("limiterSpan", &CaseSettings::limiterSpan),
         dbl("limiterK", &CaseSettings::limiterK),
         dbl("cubicTransition", &CaseSettings::cubicTransition),
-        flg("rhieChow", &CaseSettings::rhieChow),
         flg("turbulence", &CaseSettings::turbulence),
         flg("wallFunction", &CaseSettings::wallFunction),
         dbl("alphaK", &CaseSettings::alphaK),

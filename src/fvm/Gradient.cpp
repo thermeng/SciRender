@@ -1,6 +1,7 @@
 #include "fvm/Gradient.h"
 
 #include "fvm/FaceState.h"
+#include "fvm/SlopeLimiter.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -50,6 +51,31 @@ void Gradient<Dim>::compute(const Field<Dim>& phi,
     default:
         computeLeastSquares_(phi, grad, dirichletMask, dirichletValues);
         break;
+    }
+
+    if (limitGradients_) limitGradient_(phi, grad, dirichletMask, dirichletValues);
+}
+
+template<std::size_t Dim>
+void Gradient<Dim>::limitGradient_(const Field<Dim>& phi,
+                                   std::array<Field<Dim>, Dim>& grad,
+                                   const std::vector<char>& dirichletMask,
+                                   const std::vector<double>& dirichletValues) const {
+    // Venkatakrishnan slope limiter (cell-wide aggregation): the per-cell alpha
+    // is the minimum over the cell's faces, so scaling the whole gradient by it
+    // keeps every face reconstruction inside the local bound set.
+    SlopeLimiter<Dim> limiter(mesh_);
+    limiter.configure(SlopeLimiterConfig{});  // Venkatakrishnan, CellWide, FaceCentre
+    const std::vector<char>* mask =
+        dirichletMask.empty() ? nullptr : &dirichletMask;
+    const std::vector<double>* values =
+        dirichletValues.empty() ? nullptr : &dirichletValues;
+    limiter.prepare(phi, grad, mask, values);
+    const std::size_t n = mesh_.nCells();
+    for (std::size_t P = 0; P < n; ++P) {
+        const double alpha = limiter.alphaCell(P);
+        if (alpha >= 1.0) continue;
+        for (std::size_t d = 0; d < Dim; ++d) grad[d][P] *= alpha;
     }
 }
 

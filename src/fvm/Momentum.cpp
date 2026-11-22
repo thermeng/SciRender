@@ -177,6 +177,7 @@ void Momentum<Dim>::assembleWithConvection(
     ConvectionScheme scheme,
     const Field<Dim>* nutField,
     const std::array<Field<Dim>, Dim>* phiGrad,
+    const std::vector<double>* faceVolFlux,
     const MomentumBCs& bcs,
     const TransientParams<Dim>& tp) {
 
@@ -425,7 +426,8 @@ void Momentum<Dim>::assembleWithConvection(
             const auto face = interpolateFaceVelocity(
                 velocity, P, N, w, bcs.dirichletMaskAll, bcs.dirichletValsAll);
             double un = dotNormal(face, fn);
-            double F = rho_ * un * area;
+            double F = (faceVolFlux != nullptr) ? rho_ * (*faceVolFlux)[f]
+                                                : rho_ * un * area;
             // The base assembly always carries the UPWIND face value. The
             // second-order reconstruction (SOU) enters afterwards as a
             // deferred correction, so the base must stay plain upwind for
@@ -434,10 +436,23 @@ void Momentum<Dim>::assembleWithConvection(
                                        scheme == ConvectionScheme::SecondOrderUpwind);
             auto addConvFluxUnified = [&](double flux, std::size_t from, std::size_t to) {
                 if (isUpwindBase) {
-                    if (flux >= 0.0) diagInc_[from] += flux;
-                    else {
-                        if (hasMask && dirichletMask[to]) b(from) -= flux * dirichletValues[to];
-                        else if (!(hasMask && dirichletMask[from])) triplets_.emplace_back(from, to, flux);
+                    if (flux >= 0.0) {
+                        diagInc_[from] += flux;
+                    } else {
+                        // Standard weighted-average upwind: the inflow
+                        // magnitude belongs on the diagonal as well, with the
+                        // donor value deferred to the RHS. Without it a cell
+                        // whose faces are all inflow has only the (tiny)
+                        // diffusion diagonal and its velocity is
+                        // diffusion-limited (this is what made the 3D y
+                        // momentum blow up).
+                        const double inflow = -flux;
+                        diagInc_[from] += inflow;
+                        b(from) += inflow * velocity[d][from];
+                        if (hasMask && dirichletMask[to])
+                            b(from) -= flux * dirichletValues[to];
+                        else if (!(hasMask && dirichletMask[from]))
+                            triplets_.emplace_back(from, to, flux);
                     }
                 } else {
                     // Central

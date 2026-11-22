@@ -53,7 +53,7 @@ Assembled assembleMomentum(fvm::Momentum<2>& mom, const fvm::Mesh<2>& mesh,
 
     mom.assembleWithConvection(0, vel, pressureGrad, source, dirichletMask,
                                dirichletValues, out.A, out.b, diag, scheme,
-                               nullptr, &velGrad, fvm::MomentumBCs{});
+                               nullptr, &velGrad, nullptr, fvm::MomentumBCs{});
     return out;
 }
 

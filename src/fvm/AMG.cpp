@@ -10,7 +10,10 @@
 #include <iostream>
 #include <limits>
 #include <ostream>
+#include <queue>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace fvm {
 
@@ -253,13 +256,12 @@ AggRowMatrix coarsenByAggregation(const AggRowMatrix& A,
     return out;
 }
 
-// Greedy aggregation: every ungrouped unknown opens a group and absorbs its
-// strongest currently-ungrouped neighbour, up to groupSize members. This is
-// the rule ("grouped with one or more of its
-// strongest neighbors, with a preference given to currently ungrouped
-// neighbors"). No magnitude cutoff: a cell that still has an ungrouped
-// neighbour always pairs, which is what keeps the coarsening ratio near the
-// group size instead of collapsing to singletons. O(nnz * groupSize).
+// Conservative aggregation (Fluent AMG): each ungrouped cell opens a group
+// and absorbs its strongest currently-ungrouped neighbour, then the
+// neighbour's strongest ungrouped neighbour, and so on up to groupSize.
+// "Strongest" is the largest |A_ij|; ungrouped neighbours are preferred so
+// the coarsening does not collapse to singletons. The coarse operator is the
+// Galerkin product R A P (coarsenByAggregation), which is conservative.
 int aggregateGreedy(const AggRowMatrix& A, int groupSize, double /*strengthThreshold*/,
                     std::vector<int>& agg) {
     const int n = static_cast<int>(A.rows());
@@ -997,13 +999,12 @@ void AggregationBackend::build(const SparseMatrix& A, std::size_t hash) {
 
         AggRowMatrix level = A;
         level.makeCompressed();
-        // Fluent 26.5.1: "Coarsen by = 2" for the Gauss-Seidel (scalar) smoother
-        // that the segregated solver uses (4 in 2D / 8 in 3D is only for the
-        // coupled ILU smoother). Grouping 4 cells on a scalar Gauss-Seidel
-        // hierarchy over-coarsens and collapses to singletons at the coarse
-        // levels (ratio -> 1); grouping 2 keeps the ratio near 2 and the
-        // aggregation from stalling.
-        const int groupSize = 2;
+        // Fluent 26.5.1 / Theory 18.6.3: conservative aggregation groups each
+        // cell with its strongest ungrouped neighbour, up to "Coarsen by".
+        // The scalar default is 2 for Gauss-Seidel; 4 is the coupled/2D default
+        // and coarsens fast enough to avoid the deep, stalling hierarchy that
+        // groupSize=2 produces on an irregular 3D tet mesh.
+        const int groupSize = 4;
         const int coarseTarget = 128;
         for (int depth = 0; depth < config_.maxLevels; ++depth) {
             const int n = static_cast<int>(level.rows());

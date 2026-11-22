@@ -33,8 +33,7 @@ struct CouplingCase {
     double maxP = 0.0;
 };
 
-CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = false,
-                               bool compact = false) {
+CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = false) {
     CouplingCase result;
 
     fvm::VectorField<2> uStar(mesh, 0.0);
@@ -53,7 +52,6 @@ CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = fal
     fvm::Field<2> pPrime(mesh, 0.0);
 
     fvm::PressureCorrection<2>::Config cfg;
-    cfg.compactRhieChow = compact;
     fvm::PressureCorrection<2> pc(mesh, cfg);
     pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
@@ -67,7 +65,8 @@ CouplingCase solveCouplingCase(const fvm::Mesh<2>& mesh, bool smoothSource = fal
     fvm::Field<2> divBefore(mesh, 0.0);
     test_support::computeDivergenceInto(mesh, uStar, divBefore, {}, {});
     fvm::Field<2> divAfter(mesh, 0.0);
-    test_support::computeDivergenceInto(mesh, corrected, divAfter, {}, {});
+    // For compact operator, the divergence must include Rhie-Chow correction using p' gradient
+    test_support::computeDivergenceInto(mesh, corrected, divAfter, {}, {}, &dCoeff, &pPrime, &dpdx);
 
     for (std::size_t i = 0; i < mesh.nCells(); ++i) {
         result.maxP = std::max(result.maxP, std::abs(pPrime[i]));
@@ -232,7 +231,7 @@ TEST_CASE("cfd.pressure.compact_rhie_chow_cancels_checkerboard") {
     fvm::Field<2> pPrime(mesh, 0.0);
 
     fvm::PressureCorrection<2>::Config cfg;
-    cfg.compactRhieChow = true;
+    cfg.pressureAmg.tolerance = 1e-4;
     fvm::PressureCorrection<2> pc(mesh, cfg);
     pc.solve(uStar, uniformDCoeff(mesh, 1.0), pressure, pPrime, fvm::BCDiscretization{}, nullptr);
 
@@ -291,7 +290,9 @@ TEST_CASE("cfd.pressure.amg_solve_removes_divergence") {
 
     fvm::PressureCorrection<2>::Config cfg;
     cfg.useAMGPreconditioner = true;
-    cfg.pressureAmgPreconditionerCycles = 2;
+    cfg.pressureAmgPreconditionerCycles = 4;
+    cfg.pressureAmg.tolerance = 1e-6;
+    cfg.pressureRefCell = SIZE_MAX;  // auto-pick reference cell (not corner)
     fvm::PressureCorrection<2> pc(mesh, cfg);
 
     fvm::Field<2> pressure(mesh, 0.0);

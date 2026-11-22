@@ -22,9 +22,8 @@ template<std::size_t Dim>
 class PressureCorrection {
 public:
     struct Config : public cfd::CaseSettings {
-    bool compactRhieChow = false;
-    bool useAMGPreconditioner = true;
-};
+        bool useAMGPreconditioner = true;
+    };
 
     struct PressureSolverStats {
         std::size_t solves = 0;
@@ -56,12 +55,6 @@ public:
     // correctVelocity use). When set, refreshPressureGradient() uses it
     // instead of the internally-owned gradientCalc_.
     void setPressureGradient(Gradient<Dim>* g) { pressureGradient_ = g; }
-
-    // True when the assembled pressure operator contains the Rhie-Chow face
-    // flux. Residual diagnostics must add the same term only in that mode:
-    // the legacy composed operator never sees it, so reporting it would measure
-    // a mass imbalance the pressure solve neither created nor can remove.
-    bool usesCompactRhieChow() const { return config_.compactRhieChow; }
 
     // The number of cells that have no pressure equation at all (no interior
     // face: a detached cell). Such a cell is excluded from the pressure
@@ -101,6 +94,7 @@ public:
         const Field<Dim>& pressure,
         Field<Dim>& pPrime,
         const BCDiscretization& bc,
+        const std::vector<double>* faceVolFlux = nullptr,
         const std::atomic<bool>* cancel = nullptr);
 
 private:
@@ -109,22 +103,15 @@ private:
 
     const Mesh<Dim>& mesh_;
     Config config_;
-    // The least-squares gradient of the pressure field. In compact Rhie-Chow
-    // mode it supplies the face-interpolated gradient that the Rhie-Chow
-    // correction subtracts; in legacy mode it is also the operator whose
-    // divergence the pressure matrix is assembled from. It is the same
-    // operator the velocity correction applies.
+    // The least-squares gradient of the pressure field. Supplies the
+    // face-interpolated gradient that the Rhie-Chow correction subtracts.
+    // It is the same operator the velocity correction applies.
     std::unique_ptr<Gradient<Dim>> gradientCalc_;
     // Non-owning pointer to a caller-injected Gradient (e.g. SIMPLE's
     // pressureGradientCalc_). When set, refreshPressureGradient() uses it
     // instead of gradientCalc_, ensuring all consumers share the same operator.
     Gradient<Dim>* pressureGradient_ = nullptr;
     std::array<Field<Dim>, Dim> pressureGrad_;
-    // The per-cell least-squares gradient as row coefficients
-    // (gradientRows_[d][cell] = (column, coefficient) pairs), built once per
-    // PressureCorrection object: the pressure matrix is assembled from them.
-    std::array<std::vector<std::vector<std::pair<std::size_t, double>>>, Dim> gradientRows_;
-    bool gradientRowsBuilt_ = false;
 
     // Reusable buffers to avoid per-iteration allocation
     mutable std::vector<Triplet> triplets_;

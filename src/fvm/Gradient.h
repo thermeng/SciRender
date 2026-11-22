@@ -37,6 +37,12 @@ public:
                  const std::vector<char>& dirichletMask = {},
                  const std::vector<double>& dirichletValues = {}) const;
 
+    // Clamp the reconstructed gradient to the local field variation
+    // (|phi_N - phi_P| / |x_N - x_P|). Prevents a rank-deficient least-squares
+    // fit or a skewed face from producing an O(1/eps) gradient.
+    void setLimitGradients(bool limit) { limitGradients_ = limit; }
+    bool limitGradients() const { return limitGradients_; }
+
     // The least-squares gradient as row-wise coefficients, so the pressure
     // equation can be assembled as the exact composition of the divergence
     // with THIS operator.
@@ -74,6 +80,11 @@ private:
                               const std::vector<char>& dirichletMask,
                               const std::vector<double>& dirichletValues) const;
 
+    void limitGradient_(const Field<Dim>& phi,
+                        std::array<Field<Dim>, Dim>& grad,
+                        const std::vector<char>& dirichletMask,
+                        const std::vector<double>& dirichletValues) const;
+
     // Geometry-only normal matrix of the least-squares fit, together with its
     // rank-truncated pseudo-inverse. Built once.
     void buildNormalMatrix_() const;
@@ -89,6 +100,7 @@ private:
     mutable std::vector<Eigen::Matrix<double, Dim, Dim>> Mpinv_all_;
     mutable std::vector<Eigen::Matrix<double, Dim, 1>> rhs_all_;
     mutable bool normalMatrixBuilt_ = false;
+    bool limitGradients_ = false;
 };
 
 extern template class Gradient<2>;

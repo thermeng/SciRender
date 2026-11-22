@@ -567,7 +567,6 @@ void CfdCasePage::collectSettings() {
     s.simplec = m_simplec->isChecked();
     s.scheme = m_scheme->currentIndex();
     s.gradientScheme = m_gradientScheme->currentIndex();
-    s.rhieChow = true; // Rhie-Chow is always on for collocated grids.
     s.turbulence = m_turb->isChecked();
     // Only read turbulence sub-values when turbulence is enabled; otherwise
     // preserve the controller's defaults so stale widget values are not

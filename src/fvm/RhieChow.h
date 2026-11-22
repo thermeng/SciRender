@@ -63,7 +63,9 @@ inline double rhieChowCorrection(
     double gradP_face_n = (pressure[N] - pressure[P]) * dotSfd / (dist * dist);
 
     // Convert the LS face flux (what correctVelocity produces) into the compact
-    // two-point face flux the SPD operator is assembled from.
+    // two-point face flux the SPD operator is assembled from. The result is
+    // (LS - compact): the Rhie-Chow term that is ADDED to the provisional face
+    // flux so that the compact matrix and the LS velocity correction agree.
     return dGradInterp_n - dFaceN * gradP_face_n;
 }
 

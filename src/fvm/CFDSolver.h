@@ -222,6 +222,7 @@ private:
     void solveMomentumComponent_(std::size_t d, VectorField<Dim>& uStar,
                                  const VectorField<Dim>& velocityOld,
                                  const std::array<Field<Dim>, Dim>& pressureGrad,
+                                 const std::vector<double>* faceVolFlux = nullptr,
                                  const TransientParams<Dim>& tp = TransientParams<Dim>{});
     void applyStoppingPolicy_();
     bool isPiso_() const;
@@ -236,11 +237,20 @@ private:
     // the transient iteration, and the PISO corrector all call this — one
     // place for pressure-correction bug fixes.
     void applyPressureCorrection_(VectorField<Dim>& uStar, double alphaP,
-                                  bool applyLimiter, bool capturePreCorrector);
+                                  bool applyLimiter, bool capturePreCorrector,
+                                  const std::vector<double>* faceVolFlux = nullptr);
     void updateResiduals_();
     // Capture the mass imbalance of the momentum predictor u* (the field the
     // pressure correction is about to project).
     void capturePredictedContinuity_();
+    // Provisional Rhie-Chow face volume flux (u_f* . S_f) for the current
+    // outer iteration. The momentum assembly, the pressure-correction RHS and
+    // the continuity residual all consume this same array. Empty/unused on the
+    // transient path until Phase 1.5.
+    void computeProvisionalFaceFlux_();
+    // Face-based pressure gradient (1/V) Σ p_f S_f for the momentum pressure
+    // source (the reference's −Σ p_f S_f).
+    void computeFaceBasedPressureGradient_();
     // Normalised linear residual |A u - b| / sum|b| of the momentum system
     // for component d, evaluated at the current velocity.
     double momentumResidual_(std::size_t d) const;
@@ -280,6 +290,11 @@ private:
     std::array<Field<Dim>, Dim> dpdx_{};
     std::array<Field<Dim>, Dim> diag_{};
     std::array<std::vector<double>, Dim> dCoeff_;
+    // Provisional Rhie-Chow face volume flux, size mesh_.nFaces().
+    std::vector<double> faceVolFlux_;
+    // True on the steady path once computeProvisionalFaceFlux_ has run. The
+    // transient path leaves it false and keeps the old divergence.
+    bool useProvisionalFlux_ = false;
 
     std::optional<std::reference_wrapper<VectorField<Dim>>> velocity_;
     std::optional<std::reference_wrapper<Field<Dim>>> pressure_;
@@ -293,6 +308,10 @@ private:
     mutable Field<Dim> momDiag_;
     mutable std::array<Field<Dim>, Dim> velGrad_;
     mutable std::array<Field<Dim>, Dim> pressureGrad_;
+    // Face-based pressure gradient (1/V) Σ p_f S_f used by the momentum
+    // pressure source. The least-squares pressureGrad_ above is still used for
+    // the Rhie-Chow correction and the velocity correction.
+    mutable std::array<Field<Dim>, Dim> facePressureGrad_;
 
     LinearSolverDispatcher<Dim> linearSolverDispatcher_;
 
@@ -324,6 +343,9 @@ private:
     double lastOmegaResid_ = 0.0;
     std::size_t turbResidRefSamples_ = 0;
     double lastMomChange_ = 0.0;
+    double lastMomChangeU_ = 0.0;
+    double lastMomChangeV_ = 0.0;
+    double lastMomChangeW_ = 0.0;
     int lastIterations_ = 0;
     std::size_t divergenceCount_ = 0;
     double initialMassImbalance_ = 0.0;

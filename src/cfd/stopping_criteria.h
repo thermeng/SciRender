@@ -75,7 +75,7 @@ struct TransientStopping {
     // point. 0 = unlimited (tEnd only).
     std::size_t maxTimeSteps = 0;
     // Maximum pressure-corrector sweeps per time step.
-    int maxOuterCorrectors = 3;
+    int maxOuterCorrectors = 20;
     // PISO residual reduction: run at least this many correctors, then stop
     // once the continuity residual has fallen to `residualReduction` times its
     // value at the start of the time step.

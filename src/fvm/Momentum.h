@@ -54,6 +54,7 @@ public:
         ConvectionScheme scheme = ConvectionScheme::Upwind,
         const Field<Dim>* nutField = nullptr,
         const std::array<Field<Dim>, Dim>* phiGrad = nullptr,
+        const std::vector<double>* faceVolFlux = nullptr,
         const MomentumBCs& bcs = {},
         const TransientParams<Dim>& tp = TransientParams<Dim>{});
 

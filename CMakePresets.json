@@ -1,121 +1,107 @@
 {
-  "version": 6,
-  "cmakeMinimumRequired": {
-    "major": 3,
-    "minor": 25
-  },
-  "configurePresets": [
-    {
-      "name": "base",
-      "hidden": true,
-      "generator": "Ninja",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/gcc.exe",
-        "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/g++.exe"
-      }
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 25
     },
-    {
-      "name": "debug",
-      "displayName": "Debug",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build-ninja",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_PREFIX_PATH": "C:/Qt/6.11.1/mingw_64"
-      }
-    },
-    {
-      "name": "release",
-      "displayName": "Release",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build-release",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_PREFIX_PATH": "C:/Qt/6.11.1/mingw_64"
-      }
-    },
-    {
-      "name": "tests",
-      "displayName": "Tests (no Qt, no OpenGL)",
-      "description": "Test-only build against the prebuilt vendored libs (build-vendored-lib/install): no Qt, no OpenGL, no HYPRE/CGNS rebuilds. Run tools/build_vendored_deps.py once first.",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build-vendored-lib/tests",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "SCIRENDER_BUILD_APP": "OFF",
-        "SCIRENDER_BUILD_TESTS": "ON",
-        "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
-        "HYPRE_DIR": "${sourceDir}/build-vendored-lib/install/lib/cmake/HYPRE",
-        "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install"
-      }
-    },
-    {
-      "name": "debug-vendored",
-      "displayName": "Debug (vendored libs)",
-      "description": "Debug build using prebuilt HYPRE from build-vendored-lib/install (skips HYPRE rebuild)",
-      "inherits": "debug",
-      "binaryDir": "${sourceDir}/build-vendored-lib/app-debug",
-      "cacheVariables": {
-        "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
-        "HYPRE_DIR": "${sourceDir}/build-vendored-lib/install/lib/cmake/HYPRE",
-        "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install;C:/Qt/6.11.1/mingw_64"
-      }
-    },
-    {
-      "name": "release-vendored",
-      "displayName": "Release (vendored libs)",
-      "description": "Release build using prebuilt HYPRE from build-vendored-lib/install (skips HYPRE rebuild)",
-      "inherits": "release",
-      "binaryDir": "${sourceDir}/build-vendored-lib/app-release",
-      "cacheVariables": {
-        "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
-        "HYPRE_DIR": "${sourceDir}/build-vendored-lib/install/lib/cmake/HYPRE",
-        "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install;C:/Qt/6.11.1/mingw_64"
-      }
-    }
-  ],
-  "buildPresets": [
-    {
-      "name": "debug",
-      "configurePreset": "debug"
-    },
-    {
-      "name": "release",
-      "configurePreset": "release"
-    },
-    {
-      "name": "tests",
-      "configurePreset": "tests"
-    },
-    {
-      "name": "debug-vendored",
-      "configurePreset": "debug-vendored"
-    },
-    {
-      "name": "release-vendored",
-      "configurePreset": "release-vendored"
-    }
-  ],
-  "testPresets": [
-    {
-      "name": "tests",
-      "configurePreset": "tests",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "tests-fast",
-      "displayName": "Tests (without the slow CFD benchmark)",
-      "configurePreset": "tests",
-      "output": {
-        "outputOnFailure": true
-      },
-      "filter": {
-        "exclude": {
-          "label": "slow"
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/gcc.exe",
+                "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/g++.exe"
+            }
+        },
+        {
+            "name": "debug",
+            "displayName": "Debug",
+            "description": "Debug build with Qt and OpenGL support",
+            "inherits": "base",
+            "binaryDir": "${sourceDir}/build/app-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "SCIRENDER_BUILD_APP": "ON",
+                "SCIRENDER_BUILD_TESTS": "ON",
+                "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install;C:/Qt/6.11.1/mingw_64"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release",
+            "description": "Release build with Qt and OpenGL support",
+            "inherits": "base",
+            "binaryDir": "${sourceDir}/build/app-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "SCIRENDER_BUILD_APP": "ON",
+                "SCIRENDER_BUILD_TESTS": "ON",
+                "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install;C:/Qt/6.11.1/mingw_64"
+            }
+        },
+        {
+            "name": "tests",
+            "displayName": "Tests (no Qt, no OpenGL)",
+            "description": "Test-only build against the prebuilt vendored libs (build-vendored-lib/install): no Qt, no OpenGL, no HYPRE/CGNS rebuilds. Run tools/build_vendored_deps.py once first.",
+            "inherits": "base",
+            "binaryDir": "${sourceDir}/build-vendored-lib/tests",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "SCIRENDER_BUILD_APP": "OFF",
+                "SCIRENDER_BUILD_TESTS": "ON",
+                "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
+                "HYPRE_DIR": "${sourceDir}/build-vendored-lib/install/lib/cmake/HYPRE",
+                "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install"
+            }
+        },
+        {
+            "name": "Configure preset using toolchain file",
+            "displayName": "Configure preset using toolchain file",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_TOOLCHAIN_FILE": "",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}"
+            }
+        },
+        {
+            "name": "Custom configure preset",
+            "displayName": "Custom configure preset",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}"
+            }
         }
-      }
-    }
-  ]
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "tests",
+            "configurePreset": "tests"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "tests",
+            "configurePreset": "tests",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
 }

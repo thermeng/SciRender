@@ -38,7 +38,8 @@ inline ResidualResult computeResiduals(
     const Field<Dim>* pressure = nullptr,
     const std::array<Field<Dim>, Dim>* pressureGrad = nullptr,
     const std::vector<char>* pMask = nullptr,
-    bool rhieChow = false) {
+    const std::vector<double>* faceVolFlux = nullptr,
+    const Field<Dim>* pPrime = nullptr) {
 
     // Compute divergence with faceBC-aware, distance-weighted face values
     // This mirrors PressureCorrection's divergence for consistency
@@ -47,6 +48,11 @@ inline ResidualResult computeResiduals(
     const double* volPtr = mesh.cellVolumePtr();
     std::vector<char> emptyMask;
     const std::vector<char>& maskRef = pMask ? *pMask : emptyMask;
+    // The pressure mask is only populated once PressureCorrection::solve() has
+    // run. The first PISO predictor (and its pre-corrector residual) runs before
+    // that, so fall back to the uncorrected divergence instead of indexing an
+    // empty mask.
+    const bool rhieChowActive = maskRef.size() == n;
     // A cell whose velocity is prescribed in EVERY component has no momentum
     // equation, so it is excluded from the residual. Every other cell is
     // included - in particular the shell of cells that merely OWNS a boundary
@@ -71,15 +77,32 @@ inline ResidualResult computeResiduals(
         const double* fn = mesh.faceNormalPtr(f);
         double area = mesh.faceArea(f);
         const bool hasBC = faceBC && f < faceBC->size() && (*faceBC)[f].type != VelocityBCType::NoSlip;
-        double un;
-        if (N == kNoNeighbor && hasBC) {
-            // The face BC owns the boundary value; the shared resolver applies
-            // the no-penetration, prescribed and backflow rules in one place.
-            un = boundaryFaceState<Dim>(velocity, P, fn, (*faceBC)[f]).normalVelocity;
-            // Pressure-gradient correction at pressure outlets: matches the
-            // term PressureCorrection adds to its divergence RHS so the
-            // residual measures the same quantity the pressure equation sees.
-            if (faceBC && f < faceBC->size() &&
+        double flux;
+        if (faceVolFlux != nullptr) {
+            // Provisional Rhie-Chow face volume flux: already contains the
+            // Rhie-Chow term and the boundary face state. Add the compact
+            // pressure-correction flux (the same one the matrix enforces) when
+            // pPrime is supplied, and the outlet pressure term at pressure
+            // outlets.
+            flux = (*faceVolFlux)[f];
+            if (pPrime != nullptr && N != std::size_t(-1) && dCoeff) {
+                const double* xP = mesh.cellCenterPtr(P);
+                const double* xN = mesh.cellCenterPtr(N);
+                double dotSfd = 0.0;
+                for (std::size_t d = 0; d < Dim; ++d)
+                    dotSfd += fn[d] * (xN[d] - xP[d]);
+                const double w = mesh.faceWeight(f);
+                double dFace = 0.0;
+                for (std::size_t d = 0; d < Dim; ++d) {
+                    const double dP = (*dCoeff)[d][P];
+                    const double dN = (*dCoeff)[d][N];
+                    dFace += ((1.0 - w) * dP + w * dN) * fn[d] * fn[d];
+                }
+                const double dist = mesh.faceDist(f);
+                const double normalFactor = (dist > 1e-30) ? dotSfd / (dist * dist) : 0.0;
+                flux -= dFace * area * normalFactor * ((*pPrime)[N] - (*pPrime)[P]);
+            }
+            if (N == kNoNeighbor && hasBC &&
                 (*faceBC)[f].type == VelocityBCType::PressureOutlet &&
                 dCoeff && pressure) {
                 const double* xP = mesh.cellCenterPtr(P);
@@ -93,27 +116,54 @@ inline ResidualResult computeResiduals(
                         dFace += (*dCoeff)[d][P] * fn[d] * fn[d];
                     const double dist = mesh.faceDist(f);
                     const double normalFactor = (dist > 1e-30) ? dn / (dist * dist) : 0.0;
-                    // Same sign convention as PressureCorrection: when
-                    // pressure[P] > pressureValue, increase outflow to drive
-                    // pressure down. ADD to the face flux (not subtract).
-                    un += dFace * normalFactor * ((*pressure)[P] - (*faceBC)[f].pressureValue);
+                    flux += area * dFace * normalFactor *
+                            ((*pressure)[P] - (*faceBC)[f].pressureValue);
                 }
             }
         } else {
-            // Interior, or a boundary without a face BC. A prescribed velocity
-            // is the value of its CELL and the neighbour takes priority; this
-            // is the same face value the momentum assembly and the pressure
-            // correction use, so the continuity residual measures exactly the
-            // imbalance the pressure correction drives to zero.
-            const double w = (N == kNoNeighbor) ? 0.0 : mesh.faceWeight(f);
-            un = dotNormal(interpolateFaceVelocity(velocity, P, N, w,
-                                                   &dirichletMask, &dirichletVals), fn);
+            double un;
+            if (N == kNoNeighbor && hasBC) {
+                // The face BC owns the boundary value; the shared resolver applies
+                // the no-penetration, prescribed and backflow rules in one place.
+                un = boundaryFaceState<Dim>(velocity, P, fn, (*faceBC)[f]).normalVelocity;
+                // Pressure-gradient correction at pressure outlets: matches the
+                // term PressureCorrection adds to its divergence RHS so the
+                // residual measures the same quantity the pressure equation sees.
+                if (faceBC && f < faceBC->size() &&
+                    (*faceBC)[f].type == VelocityBCType::PressureOutlet &&
+                    dCoeff && pressure) {
+                    const double* xP = mesh.cellCenterPtr(P);
+                    const double* xF = mesh.faceCenterPtr(f);
+                    double dn = 0.0;
+                    for (std::size_t d = 0; d < Dim; ++d)
+                        dn += fn[d] * (xF[d] - xP[d]);
+                    if (dn > 1e-30) {
+                        double dFace = 0.0;
+                        for (std::size_t d = 0; d < Dim; ++d)
+                            dFace += (*dCoeff)[d][P] * fn[d] * fn[d];
+                        const double dist = mesh.faceDist(f);
+                        const double normalFactor = (dist > 1e-30) ? dn / (dist * dist) : 0.0;
+                        // Same sign convention as PressureCorrection: when
+                        // pressure[P] > pressureValue, increase outflow to drive
+                        // pressure down. ADD to the face flux (not subtract).
+                        un += dFace * normalFactor * ((*pressure)[P] - (*faceBC)[f].pressureValue);
+                    }
+                }
+            } else {
+                // Interior, or a boundary without a face BC. A prescribed velocity
+                // is the value of its CELL and the neighbour takes priority; this
+                // is the same face value the momentum assembly and the pressure
+                // correction use, so the continuity residual measures exactly the
+                // imbalance the pressure correction drives to zero.
+                const double w = (N == kNoNeighbor) ? 0.0 : mesh.faceWeight(f);
+                un = dotNormal(interpolateFaceVelocity(velocity, P, N, w,
+                                                       &dirichletMask, &dirichletVals), fn);
+            }
+            if (rhieChowActive && N != std::size_t(-1) && dCoeff && pressure && pressureGrad) {
+                un += rhieChowCorrection(mesh, f, *dCoeff, *pressure, *pressureGrad, maskRef);
+            }
+            flux = un * area;
         }
-        if (rhieChow && N != std::size_t(-1) && dCoeff && pressure && pressureGrad) {
-            un += rhieChowCorrection(mesh, f, *dCoeff, *pressure, *pressureGrad, maskRef);
-        }
-
-        double flux = un * area;
         sumFlux += std::abs(flux);
         // Accumulate the raw flux and divide each cell once after the loop:
         // one division per cell instead of one per incident face.

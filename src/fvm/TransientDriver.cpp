@@ -29,12 +29,12 @@ void TransientDriver<Dim>::solveMomentumTransient_(VectorField<Dim>& uStar, cons
     // largest on skewed/non-uniform meshes.
     solver_.pressureGradientCalc_->compute(solver_.boundPressure(), solver_.pressureGrad_);
     if constexpr (Dim == 2) {
-        solver_.solveMomentumComponent_(0, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(0));
-        solver_.solveMomentumComponent_(1, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(1));
+        solver_.solveMomentumComponent_(0, uStar, velocityOld, solver_.pressureGrad_, nullptr, momentumTp_(0));
+        solver_.solveMomentumComponent_(1, uStar, velocityOld, solver_.pressureGrad_, nullptr, momentumTp_(1));
     } else {
-        solver_.solveMomentumComponent_(0, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(0));
-        solver_.solveMomentumComponent_(1, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(1));
-        solver_.solveMomentumComponent_(2, uStar, velocityOld, solver_.pressureGrad_, momentumTp_(2));
+        solver_.solveMomentumComponent_(0, uStar, velocityOld, solver_.pressureGrad_, nullptr, momentumTp_(0));
+        solver_.solveMomentumComponent_(1, uStar, velocityOld, solver_.pressureGrad_, nullptr, momentumTp_(1));
+        solver_.solveMomentumComponent_(2, uStar, velocityOld, solver_.pressureGrad_, nullptr, momentumTp_(2));
     }
 }
 
@@ -420,13 +420,6 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
     const int firstStep = step;
     const std::size_t stepBudget = s.config_.stoppingPolicy.transientPolicy.maxTimeSteps;
     if (!haveHistory) time_ = 0.0;
-    // PISO on a collocated grid requires Rhie-Chow. Force it (and therefore
-    // the compact face-normal pressure operator) once, before the first solve,
-    // so the pressure matrix pattern does not switch mid-run.
-    if (s.isPiso_()) {
-        s.config_.rhieChow = true;
-        s.applyPressureSolverConfig_();
-    }
     // For adaptive we loop while time < tEnd
     while (time_ < s.config_.stoppingPolicy.transientPolicy.tEnd - 1e-12) {
         // A diverged run (NaN/inf or repeated residual growth) must stop, not
@@ -454,10 +447,6 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
         s.timeStep_ = step; step_ = step;
 
         bool isPISO = s.isPiso_();
-        if (isPISO && !s.config_.rhieChow) {
-            s.config_.rhieChow = true;
-            s.applyPressureSolverConfig_();
-        }
         int nOuter = std::max(1, s.config_.stoppingPolicy.transientPolicy.maxOuterCorrectors);
         if (isPISO) {
             // True PISO: 1 momentum predictor + up to nOuter pressure correctors

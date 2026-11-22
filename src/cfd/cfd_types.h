@@ -207,7 +207,6 @@ struct CaseSettings {
     bool simplec = false;
     int scheme = 2;             // 0 upwind, 1 central, 2 second-order upwind
     int gradientScheme = 0;     // 0 least squares, 1 green-gauss cell based, 2 green-gauss node based
-    bool rhieChow = true;       // compact operator with Rhie-Chow: two-point stencil, stable at high Re
     bool turbulence = false;
     bool wallFunction = false;
     double alphaK = 0.8, alphaOmega = 0.8;

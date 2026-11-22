@@ -70,11 +70,15 @@ void computeDivergenceInto(const fvm::Mesh<Dim>& mesh,
                            const fvm::VectorField<Dim>& velocity,
                            fvm::Field<Dim>& div,
                            const std::vector<std::vector<char>>& dirichletMask = {},
-                           const std::vector<std::vector<double>>& dirichletValues = {}) {
+                           const std::vector<std::vector<double>>& dirichletValues = {},
+                           const std::array<std::vector<double>, Dim>* dCoeff = nullptr,
+                           const fvm::Field<Dim>* pressure = nullptr,
+                           const std::array<fvm::Field<Dim>, Dim>* pressureGrad = nullptr) {
     const fvm::VectorField<Dim> velocityOld(mesh, 0.0);
     const std::array<fvm::Field<Dim>, Dim> diag{};
     fvm::computeResiduals(mesh, velocity, velocityOld, diag, div,
-                          dirichletMask, dirichletValues);
+                          dirichletMask, dirichletValues,
+                          nullptr, dCoeff, pressure, pressureGrad, nullptr);
 }
 
 } // namespace test_support
