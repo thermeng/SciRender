@@ -248,9 +248,6 @@ private:
     // the continuity residual all consume this same array. Empty/unused on the
     // transient path until Phase 1.5.
     void computeProvisionalFaceFlux_();
-    // Face-based pressure gradient (1/V) Σ p_f S_f for the momentum pressure
-    // source (the reference's −Σ p_f S_f).
-    void computeFaceBasedPressureGradient_();
     // Normalised linear residual |A u - b| / sum|b| of the momentum system
     // for component d, evaluated at the current velocity.
     double momentumResidual_(std::size_t d) const;
@@ -308,10 +305,6 @@ private:
     mutable Field<Dim> momDiag_;
     mutable std::array<Field<Dim>, Dim> velGrad_;
     mutable std::array<Field<Dim>, Dim> pressureGrad_;
-    // Face-based pressure gradient (1/V) Σ p_f S_f used by the momentum
-    // pressure source. The least-squares pressureGrad_ above is still used for
-    // the Rhie-Chow correction and the velocity correction.
-    mutable std::array<Field<Dim>, Dim> facePressureGrad_;
 
     LinearSolverDispatcher<Dim> linearSolverDispatcher_;
 

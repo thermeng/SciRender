@@ -91,9 +91,6 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
     bindPressure(pressure);
     faceVolFlux_.assign(mesh_.nFaces(), 0.0);
     useProvisionalFlux_ = false;
-    for (auto& g : facePressureGrad_) {
-        if (g.size() != mesh_.nCells()) g = Field<Dim>(mesh_, 0.0);
-    }
 
     lastIterations_ = 0;
     lastContResid_ = 0.0;
@@ -374,34 +371,6 @@ void CFDSolver<Dim>::computeProvisionalFaceFlux_() {
 }
 
 template<std::size_t Dim>
-void CFDSolver<Dim>::computeFaceBasedPressureGradient_() {
-    const auto& bc = bcDiscretization();
-    for (auto& g : facePressureGrad_) g.assign(0.0);
-    for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
-        const std::size_t P = mesh_.owner(f);
-        const std::size_t N = mesh_.neighbor(f);
-        const double* fn = mesh_.faceNormalPtr(f);
-        const double area = mesh_.faceArea(f);
-        double pFace;
-        if (N == kNoNeighbor) {
-            // Only pressure outlets carry a prescribed pressure; velocity
-            // inlets and walls are Neumann for pressure.
-            if (bc.isPressureDirichletFace(f)) pFace = bc.faceBCs()[f].pressureValue;
-            else pFace = boundPressure()[P];
-        } else {
-            const double w = mesh_.faceWeight(f);
-            pFace = (1.0 - w) * boundPressure()[P] + w * boundPressure()[N];
-        }
-        for (std::size_t d = 0; d < Dim; ++d) {
-            const double contrib = pFace * fn[d] * area;
-            facePressureGrad_[d][P] += contrib / mesh_.cellVolume(P);
-            if (N != kNoNeighbor)
-                facePressureGrad_[d][N] -= contrib / mesh_.cellVolume(N);
-        }
-    }
-}
-
-template<std::size_t Dim>
 void CFDSolver<Dim>::capturePredictedContinuity_() {
     pressureCorrection_.refreshPressureGradient(boundPressure());
     ResidualResult r = computeResiduals(
@@ -582,7 +551,6 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
 
     auto tMomentum = std::chrono::steady_clock::now();
     pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
-    computeFaceBasedPressureGradient_();
     // The provisional flux must be built BEFORE the momentum predictor, so the
     // convection uses the pure velocity flux. computeProvisionalFaceFlux_() adds
     // the Rhie-Chow pressure term to faceVolFlux_, so passing it into the
@@ -606,7 +574,6 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
             // Non-orthogonal corrector: rebuild the provisional Rhie-Chow flux
             // from the corrected velocity and pressure before the next solve.
             pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
-            computeFaceBasedPressureGradient_();
             computeProvisionalFaceFlux_();
         }
         auto tPressure = std::chrono::steady_clock::now();
