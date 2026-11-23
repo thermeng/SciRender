@@ -421,4 +421,13 @@ TEST_CASE("fvm.channel.reversed_direction") {
                   "reversed direction: no pressure checkerboard (=" << r.pressureCheckerboard << ")");
 }
 
+// Standard steady SIMPLE is one momentum predictor and one pressure
+// correction per outer iteration. Multiple correctors are PIMPLE-style and
+// must be an explicit override, not the default.
+TEST_CASE("fvm.config.steady_simple_default_pressure_correctors_is_one") {
+    const fvm::SIMPLE<2>::Config cfg;
+    CHECK_MESSAGE(cfg.pressureCorrectors == 1,
+                  "steady SIMPLE must default to one pressure corrector");
+}
+
 } // TEST_SUITE("fvm")
