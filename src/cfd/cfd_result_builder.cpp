@@ -110,14 +110,11 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
     for (const auto& pbc : patchBCs) {
         auto git = mesh.boundaryGroups().find(pbc.patchName);
         if (git == mesh.boundaryGroups().end()) continue;
-        glm::vec3 bvel(0.0f);
+        const bool normalMode = usesNormalVelocity(pbc);
         bool apply = false;
         switch (pbc.type) {
             case BCType::VelocityInlet:
             case BCType::MovingWall:
-                bvel = glm::vec3(static_cast<float>(pbc.u),
-                                 static_cast<float>(pbc.v),
-                                 static_cast<float>(pbc.w));
                 apply = true;
                 break;
             case BCType::WallNoSlip:
@@ -128,6 +125,22 @@ std::shared_ptr<const RenderMesh> buildResultMesh(
         }
         if (!apply) continue;
         for (std::size_t f : git->second) {
+            glm::vec3 bvel(0.0f);
+            if (normalMode) {
+                // Velocity spec by normal: magnitude along -outward normal.
+                const auto& n = mesh.faceNormal(f);
+                float bz = 0.0f;
+                if constexpr (Dim >= 3) bz = static_cast<float>(-pbc.normalVelocity * n[2]);
+                bvel = glm::vec3(static_cast<float>(-pbc.normalVelocity * n[0]),
+                                 static_cast<float>(-pbc.normalVelocity * n[1]),
+                                 bz);
+            } else if (pbc.type == BCType::VelocityInlet ||
+                       pbc.type == BCType::MovingWall) {
+                bvel = glm::vec3(static_cast<float>(pbc.u),
+                                 static_cast<float>(pbc.v),
+                                 static_cast<float>(pbc.w));
+            }
+            // WallNoSlip: bvel stays (0,0,0).
             for (std::size_t vid : mesh.faceVertices(f)) {
                 if (vid < pointVel.size()) pointVel[vid] = bvel;
             }
