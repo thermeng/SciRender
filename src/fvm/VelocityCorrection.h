@@ -35,9 +35,14 @@ inline void correctVelocity(
     const std::vector<FaceVelocityBC>* faceBC = nullptr,
     double maxUnlimitedSpeed = 20.0,   // growth limiting only applies above this speed
     double maxGrowthRate = 0.15,       // max per-iteration growth rate (e.g. 0.15 = 15%)
-    double alphaP = 1.0,               // pressure under-relaxation applied to velocity correction
     Gradient<Dim>* reusableGradient = nullptr   // caller-owned LS workspace
 ) {
+
+    // Standard SIMPLE always applies the FULL velocity correction
+    // u = u* - d grad p'. The pressure equation solves
+    // div(d grad p') = div(u*), so the corrected field carries zero residual
+    // (divergence-free) on every cell. Pressure under-relaxation p += alphaP p'
+    // is applied separately by the caller and is independent of this step.
 
     // The gradient of p' is computed directly into dpdx, the buffer the update
     // below consumes. `reusableGradient` lets the solver reuse its least-squares
@@ -53,7 +58,7 @@ inline void correctVelocity(
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh.nCells(); ++i) {
             if (dirichletMask[d][i]) velocity[d][i] = dirichletVals[d][i];
-            else velocity[d][i] = uStar[d][i] - alphaP * dCoeff[d][i] * dpdx[d][i];
+            else velocity[d][i] = uStar[d][i] - dCoeff[d][i] * dpdx[d][i];
         }
     }
 

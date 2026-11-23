@@ -583,8 +583,13 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
     auto tMomentum = std::chrono::steady_clock::now();
     pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
     computeFaceBasedPressureGradient_();
-    useProvisionalFlux_ = true;
+    // The provisional flux must be built BEFORE the momentum predictor, so the
+    // convection uses the pure velocity flux. computeProvisionalFaceFlux_() adds
+    // the Rhie-Chow pressure term to faceVolFlux_, so passing it into the
+    // assembly would couple pressure into the momentum operator beyond the
+    // explicit -Omega*(dp/dx) source -- a mass/momentum inconsistency.
     computeProvisionalFaceFlux_();
+    useProvisionalFlux_ = true;
     const std::vector<double>* provisionalFlux = &faceVolFlux_;
     for (std::size_t d = 0; d < Dim; ++d)
         solveMomentumComponent_(d, uStar_, velocityOld_, pressureGrad_, provisionalFlux);
@@ -863,13 +868,14 @@ void CFDSolver<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double al
     if (applyLimiter) limitPressureCorrection_(pPrime_);
     pressureBeforeCorrection_ = boundPressure();
     pressureGradBefore_ = pressureCorrection_.pressureGradient();
+    // Standard SIMPLE: full velocity correction u = u* - d grad p' (divergence-free);
+    // pressure under-relaxation p += alphaP p' only.
     correctVelocity(mesh_, uStar, pPrime_, dCoeff_,
                     bcDiscretization().dirichletMask(), bcDiscretization().dirichletVals(),
                     dpdx_, boundVelocity(),
                     &bcDiscretization().faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
-                    alphaP,
                     pressureGradientCalc_.get());
     #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {

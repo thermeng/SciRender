@@ -37,7 +37,7 @@ struct TransientStoppingPolicy {
     double tEnd = 1.0;
     // Steps this run may complete from its restart point; 0 = unlimited.
     std::size_t maxTimeSteps = 0;
-    int maxOuterCorrectors = 3;
+    int maxOuterCorrectors = 20;
     int minOuterCorrectors = 2;
     double residualReduction = 0.25;
 };

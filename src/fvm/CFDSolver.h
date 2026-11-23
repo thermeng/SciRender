@@ -74,8 +74,8 @@ public:
         int pressureCorrectors = 1;           // standard steady SIMPLE; >1 is PIMPLE-style
         bool limitPressureCorrection = true;   // CaseSettings: false
         double pressureCorrectionLimit = 1e6;  // CaseSettings: 5.0
-        std::size_t pressureRefCell = SIZE_MAX; // CaseSettings: 0
-        double turbulenceAmgMaxResidual = 1e-8; // CaseSettings: 0.1
+std::size_t pressureRefCell = SIZE_MAX; // CaseSettings: 0
+    double turbulenceAmgMaxResidual = 1e-8; // CaseSettings: 0.1
         std::vector<InletTurbulence> inletTurbulence;
 
         std::function<void(int, double, double)> iterationCallback;

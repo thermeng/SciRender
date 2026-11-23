@@ -118,59 +118,54 @@ void PressureCorrection<Dim>::solve(
         }
     }
 
-    bool hasDirichletPressure = false;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (pMask_[i]) { hasDirichletPressure = true; break; }
-    }
     bool hasPressureOutlet = false;
     for (std::size_t i = 0; i < n; ++i) {
         if (isPressureOutlet_[i]) { hasPressureOutlet = true; break; }
     }
-    if (!hasDirichletPressure && !hasPressureOutlet) {
+    // Explicit pressure datum: an explicitly configured reference cell or a
+    // pressure-outlet boundary. (The old pMask_-based detector could not see
+    // these: the mask is rebuilt later in this function.)
+    const bool hasPressureDatum = (config_.pressureRefCell < n) || hasPressureOutlet;
+    if (!hasPressureDatum) {
         std::size_t refCell = config_.pressureRefCell;
         if (refCell >= n) {
-            double bestX = std::numeric_limits<double>::max();
+            // Deterministic reference cell: the cell closest to the domain
+            // centroid. Interior-biased and corner-free, so the pin breaks the
+            // pure-Neumann null space without favouring a domain corner.
+            double cx = 0.0, cy = 0.0, cz = 0.0;
             for (std::size_t i = 0; i < n; ++i) {
-                if (!mesh_.isBoundary(i)) continue;
-                const double x = mesh_.cellCenter(i)[0];
-                if (x < bestX) bestX = x;
-            }
-
-            double bestY = std::numeric_limits<double>::max();
-            for (std::size_t i = 0; i < n; ++i) {
-                if (!mesh_.isBoundary(i)) continue;
                 const auto& c = mesh_.cellCenter(i);
-                if (c[0] > bestX) continue;
-                if (c[1] < bestY) bestY = c[1];
+                cx += c[0];
+                cy += c[1];
+                cz += c[2];
             }
+            const double invN = 1.0 / static_cast<double>(n);
+            cx *= invN;
+            cy *= invN;
+            cz *= invN;
 
             std::size_t bestCell = n;
-            if constexpr (Dim >= 3) {
-                double bestZ = std::numeric_limits<double>::max();
-                for (std::size_t i = 0; i < n; ++i) {
-                    if (!mesh_.isBoundary(i)) continue;
-                    const auto& c = mesh_.cellCenter(i);
-                    if (c[0] > bestX) continue;
-                    if (c[1] > bestY) continue;
-                    if (c[2] < bestZ) {
-                        bestZ = c[2];
-                        bestCell = i;
-                    }
-                }
-            } else {
-                for (std::size_t i = 0; i < n; ++i) {
-                    if (!mesh_.isBoundary(i)) continue;
-                    const auto& c = mesh_.cellCenter(i);
-                    if (c[0] > bestX) continue;
-                    if (c[1] > bestY) continue;
+            double bestDist2 = std::numeric_limits<double>::max();
+            for (std::size_t i = 0; i < n; ++i) {
+                const auto& c = mesh_.cellCenter(i);
+                const double dx = c[0] - cx;
+                const double dy = c[1] - cy;
+                const double dz = c[2] - cz;
+                const double dist2 = dx * dx + dy * dy + dz * dz;
+                if (dist2 < bestDist2) {
+                    bestDist2 = dist2;
                     bestCell = i;
-                    break;
                 }
             }
 
             refCell = bestCell;
         }
         if (refCell < n && !pMask_[refCell]) { pMask_[refCell] = true; pVals_[refCell] = 0.0; }
+    } else if (config_.pressureRefCell < n) {
+        if (!pMask_[config_.pressureRefCell]) {
+            pMask_[config_.pressureRefCell] = true;
+            pVals_[config_.pressureRefCell] = 0.0;
+        }
     }
 
     isolatedCellCount_ = 0;
@@ -274,30 +269,6 @@ void PressureCorrection<Dim>::solve(
         std::chrono::steady_clock::now() - tGrad0).count() - gradSec;
     for (std::size_t i = 0; i < n; ++i) divU_[i] = divU[i];
 
-    {
-        std::vector<char> rowVoid(n, 1);
-        for (std::size_t f = 0; f < nF; ++f) {
-            const std::size_t P = ownerPtr[f];
-            const std::size_t N = neighborPtr[f];
-            for (std::size_t d = 0; d < Dim; ++d) {
-                bool dirN = false, dirP = false;
-                if (d < bc.dirichletMask().size() && !bc.dirichletMask()[d].empty()) {
-                    dirP = bc.dirichletMask()[d][P];
-                    if (N != std::size_t(-1)) dirN = bc.dirichletMask()[d][N];
-                }
-                if (!dirN && !dirP) {
-                    rowVoid[P] = 0;
-                    if (N != std::size_t(-1)) rowVoid[N] = 0;
-                }
-            }
-        }
-        for (std::size_t i = 0; i < n; ++i) {
-            if (rowVoid[i] && !pMask_[i]) {
-                pMask_[i] = true;
-                pVals_[i] = 0.0;
-            }
-        }
-    }
     if (rowAcc_.size() != n) {
         rowAcc_.assign(n, {});
     } else {
@@ -337,7 +308,11 @@ void PressureCorrection<Dim>::solve(
         if (dist <= 1e-30) continue;
         const double normalFactor = dotSfd / (dist * dist);
         const double coeff = dFace * area * normalFactor;
-        if (coeff == 0.0) continue;
+        // Drop faces whose normal projection does not point from owner to
+        // neighbour (skewed / non-orthogonal cells): a negative transmissibility
+        // would break the SPD M-matrix property. Zero-transmissibility faces
+        // were already skipped above.
+        if (!(coeff > 0.0)) continue;
 
         // d_f = sum_d d_d n_d^2. The assembled matrix is -div(d_f grad),
         // i.e. positive diagonal / negative off-diagonal (an M-matrix);
@@ -498,9 +473,13 @@ void PressureCorrection<Dim>::solve(
             }
         }
         double* vals = A_.valuePtr();
+        // setFromTriplets SUMS duplicate (row,col) entries; the cached-pattern
+        // scatter must do the same, not overwrite.
+        const Eigen::Index nnz = A_.nonZeros();
+        for (Eigen::Index k = 0; k < nnz; ++k) vals[static_cast<std::size_t>(k)] = 0.0;
         for (std::size_t t = 0; t < triplets_.size(); ++t) {
             int pos = aTripletToValuePos_[t];
-            if (pos >= 0) vals[pos] = triplets_[t].value();
+            if (pos >= 0) vals[pos] += triplets_[t].value();
         }
     }
 
