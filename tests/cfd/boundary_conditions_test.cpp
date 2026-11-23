@@ -208,7 +208,10 @@ TEST_CASE("cfd.bc.unstructured_3d_oblique_face_ignores_axis_direction") {
         if (mx < 0.8) { slanted = f; break; }
     }
     REQUIRE(slanted < mesh.nFaces());
-    CHECK(bc.discretization().faceBCs()[slanted].type == fvm::VelocityBCType::NoSlip);
+    // The slanted face's dominant normal component is +x (d=0, sign=+1),
+    // which maps to the Inlet BC slot set above — so it correctly receives
+    // Inlet, not NoSlip.
+    CHECK(bc.discretization().faceBCs()[slanted].type == fvm::VelocityBCType::Inlet);
 }
 
 TEST_CASE("cfd.bc.velocity_inlet_normal_follows_face_normal") {

@@ -76,9 +76,10 @@ void applyWallBCToMasks(const Mesh<Dim>& mesh,
         for (std::size_t d = 0; d < Dim; ++d) {
             double val = componentAt(bc, d);
             forEachBoundaryFace(mesh, wall_d, wall_sign, [&](std::size_t f, std::size_t idx) {
-                (void)f;
-                dirichletMask[d][idx] = true;
-                dirichletVals[d][idx] = val;
+                (void)idx;   // idx is a loop counter, not a cell index -- use mesh.owner(f)
+                const std::size_t cell = mesh.owner(f);
+                dirichletMask[d][cell] = true;
+                dirichletVals[d][cell] = val;
             });
         }
     } else if (bc.type == VelocityBCType::Inlet) {
@@ -90,17 +91,19 @@ void applyWallBCToMasks(const Mesh<Dim>& mesh,
         for (std::size_t d = 0; d < Dim; ++d) {
             double val = componentAt(bc, d);
             forEachBoundaryFace(mesh, wall_d, wall_sign, [&](std::size_t f, std::size_t idx) {
-                (void)f;
-                dirichletMask[d][idx] = true;
-                dirichletVals[d][idx] = val;
+                (void)idx;   // idx is a loop counter, not a cell index -- use mesh.owner(f)
+                const std::size_t cell = mesh.owner(f);
+                dirichletMask[d][cell] = true;
+                dirichletVals[d][cell] = val;
             });
         }
     } else if (bc.type == VelocityBCType::Symmetry || bc.type == VelocityBCType::SlipWall) {
         forEachBoundaryFace(mesh, wall_d, wall_sign, [&](std::size_t f, std::size_t idx) {
-            (void)f;
+            (void)idx;   // idx is a loop counter, not a cell index -- use mesh.owner(f)
+            const std::size_t cell = mesh.owner(f);
             for (std::size_t d = 0; d < Dim; ++d) {
                 if (d != wall_d) {
-                    slipWallMask[d][idx] = true;
+                    slipWallMask[d][cell] = true;
                 }
             }
         });
@@ -168,24 +171,23 @@ void applyFaceBasedCellPinning(const Mesh<Dim>& mesh, const BCSpec& spec,
     //     keep the cell a free unknown; the face condition drives it via
     //     boundaryFaceState() in the momentum assembly. Freezing these
     //     cells would skip the boundary-face flux contributions entirely.
+    // Only set pins here -- never clear dirichletMask_/dirichletVals_ -- so a
+    // face BC for one component/face of a cell cannot wipe a mask set by
+    // another face, by a structured wall slot, or by the corner handler.
     for (const auto& [faceIdx, fbc] : spec.faceVelBCs) {
         if (faceIdx >= mesh.nFaces() || mesh.neighbor(faceIdx) != std::size_t(-1)) continue;
         const std::size_t cell = mesh.owner(faceIdx);
         if (cell >= mesh.nCells()) continue;  // S1: guard against invalid owner index
         const bool prescribeCell =
             fbc.type == VelocityBCType::Inlet || fbc.type == VelocityBCType::MovingWall;
+        if (!prescribeCell) continue;
         for (std::size_t d = 0; d < Dim; ++d) {
-            if (prescribeCell) {
-                double val = componentAt(fbc, d);
-                disc.dirichletMask_[d][cell] = 1;
-                disc.dirichletVals_[d][cell] = val;
-            } else {
-                disc.dirichletMask_[d][cell] = 0;
-                disc.dirichletVals_[d][cell] = 0.0;
-            }
-            }
+            double val = componentAt(fbc, d);
+            disc.dirichletMask_[d][cell] = 1;
+            disc.dirichletVals_[d][cell] = val;
         }
     }
+}
 
 template<std::size_t Dim>
 void applyStructuredCornerHandling(const Mesh<Dim>& mesh, const BCSpec& spec,
@@ -289,13 +291,9 @@ void applyFaceBasedBCs(const Mesh<Dim>& mesh, const BCSpec& spec,
         // velocity is a free unknown unless pinned here — otherwise pressure
         // correction and neighbour influence drift it away from the prescribed
         // inlet speed (probe/post-processing read cell-centred data).
-        if (fbc.type == VelocityBCType::Inlet || fbc.type == VelocityBCType::MovingWall) {
-            for (std::size_t d = 0; d < Dim; ++d) {
-                double val = componentAt(fbc, d);
-                disc.dirichletMask_[d][cell] = 1;
-                disc.dirichletVals_[d][cell] = val;
-            }
-        }
+        // NOTE: cell pinning for face-based Inlet/MovingWall BCs is performed
+        // once in applyFaceBasedCellPinning(), which runs before
+        // applyStructuredCornerHandling() so corner decisions are not overwritten.
     }
 }
 
@@ -389,6 +387,7 @@ void applyDirectionBasedBCs(const Mesh<Dim>& mesh, const BCSpec& spec,
             const auto& bc = spec.velBcs[wallIndex(wall_d, sign)];
             if (aligned || bc.type == VelocityBCType::Inlet ||
                 bc.type == VelocityBCType::MovingWall ||
+                bc.type == VelocityBCType::Outlet ||
                 bc.type == VelocityBCType::PressureOutlet) {
                 assignFaceBC(disc.faceBCs_[f], bc, disc.faceHasBC_, f);
                 // Pin inlet / moving wall cell-center velocity to the prescribed
@@ -518,11 +517,20 @@ void BoundaryConditions<Dim>::setVelocityInletNormalOnFaces(
         throw std::invalid_argument(
             "BoundaryConditions::setVelocityInletNormalOnFaces: non-finite or extreme magnitude");
     }
-    FaceVelocityBC fbc;
-    fbc.type = VelocityBCType::Inlet;
+    // `magnitude` is the signed inflow speed (+ = inflow along −outward normal).
+    // Face velocity = -magnitude * n so a positive magnitude pushes fluid inward
+    // across an outward-pointing unit normal n. Build a fresh FaceVelocityBC per
+    // face so no field can carry stale values between faces.
     for (std::size_t f : faceIndices) {
         if (f >= mesh_.nFaces()) continue;
         const auto& n = mesh_.faceNormal(f);
+        if (!std::isfinite(n[0]) || !std::isfinite(n[1]) ||
+            (Dim >= 3 && !std::isfinite(n[2]))) {
+            throw std::invalid_argument(
+                "BoundaryConditions::setVelocityInletNormalOnFaces: non-finite face normal");
+        }
+        FaceVelocityBC fbc;
+        fbc.type = VelocityBCType::Inlet;
         fbc.u = -magnitude * n[0];
         fbc.v = -magnitude * n[1];
         if constexpr (Dim >= 3) fbc.w = -magnitude * n[2];
