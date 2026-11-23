@@ -92,4 +92,43 @@ TEST_CASE("cfd.residual.momentum_residual_ranks_velocity_changes") {
     CHECK_MESSAGE(rSmall < 1.0, "a 1% change must give a small residual");
 }
 
+// The p' face flux in the continuity residual must be the compact
+// two-point flux the pressure matrix enforces:
+//
+//   m_dot_f' = -dFace * area * normalFactor * (p'_N - p'_P)
+//
+// On a uniform 2D mesh with dCoeff = 1, p' = x^2 has Laplacian 2,
+// so the p' flux divergence is -2 at every interior cell.
+TEST_CASE("cfd.residual.pprime_flux_matches_compact_operator") {
+    const fvm::Mesh<2> mesh = uniform2D(6);
+
+    fvm::VectorField<2> velocity(mesh, 0.0);
+    fvm::VectorField<2> velocityOld(mesh, 0.0);
+    std::array<fvm::Field<2>, 2> diag{fvm::Field<2>(mesh, 1.0),
+                                      fvm::Field<2>(mesh, 1.0)};
+    fvm::Field<2> divBuffer(mesh, 0.0);
+
+    std::array<std::vector<double>, 2> dCoeff{
+        std::vector<double>(mesh.nCells(), 1.0),
+        std::vector<double>(mesh.nCells(), 1.0)};
+
+    fvm::Field<2> pPrime(mesh, 0.0);
+    fillScalar(pPrime, [](double x, double, double) { return x * x; });
+
+    const std::vector<double> faceVolFlux(mesh.nFaces(), 0.0);
+    std::vector<std::vector<char>> mask;
+    std::vector<std::vector<double>> values;
+
+    fvm::computeResiduals<2>(mesh, velocity, velocityOld, diag, divBuffer,
+                             mask, values, nullptr, &dCoeff, nullptr, nullptr, nullptr,
+                             &faceVolFlux, &pPrime);
+
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        if (mesh.isBoundary(i)) continue;
+        CAPTURE(i);
+        CHECK_MESSAGE(divBuffer[i] == doctest::Approx(-2.0).epsilon(1e-12),
+                      "p' flux must be -d_f * area * normalFactor * (p'_N - p'_P)");
+    }
+}
+
 } // TEST_SUITE("cfd")
