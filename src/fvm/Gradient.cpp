@@ -65,7 +65,7 @@ void Gradient<Dim>::limitGradient_(const Field<Dim>& phi,
     // is the minimum over the cell's faces, so scaling the whole gradient by it
     // keeps every face reconstruction inside the local bound set.
     SlopeLimiter<Dim> limiter(mesh_);
-    limiter.configure(SlopeLimiterConfig{});  // Venkatakrishnan, CellWide, FaceCentre
+    limiter.configure(limiterConfig_);  // the solver-armed variant
     const std::vector<char>* mask =
         dirichletMask.empty() ? nullptr : &dirichletMask;
     const std::vector<double>* values =

@@ -90,7 +90,16 @@ SIMPLE<Dim>::SIMPLE(const Mesh<Dim>& mesh, double rho, double nu, const typename
     for (auto& g : this->pressureGrad_) g = Field<Dim>(mesh, 0.0);
     this->pressureGradientCalc_ = std::make_unique<Gradient<Dim>>(
         mesh, GradientScheme::LeastSquares);
-    if constexpr (Dim == 3) this->pressureGradientCalc_->setLimitGradients(mesh.isUnstructured());
+    // Arm the user-configured slope limiter on the pressure-gradient operator
+    // (the same config the momentum convection uses); the boundness applies to
+    // every Dim, not only 3D.
+    this->pressureGradientCalc_->setLimitGradients(true);
+    this->pressureGradientCalc_->setLimiter(fvm::SlopeLimiterConfig{
+        static_cast<fvm::LimiterKind>(this->config_.limiterKind),
+        static_cast<fvm::LimiterAggregation>(this->config_.limiterAggregation),
+        static_cast<fvm::LimiterSpan>(this->config_.limiterSpan),
+        this->config_.limiterK,
+        this->config_.cubicTransition});
 }
 
 

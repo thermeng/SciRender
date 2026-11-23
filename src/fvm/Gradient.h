@@ -2,6 +2,7 @@
 
 #include "mesh/Mesh.h"
 #include "field/Field.h"
+#include "fvm/SlopeLimiter.h"
 #include <array>
 #include <cstddef>
 #include <utility>
@@ -42,6 +43,13 @@ public:
     // fit or a skewed face from producing an O(1/eps) gradient.
     void setLimitGradients(bool limit) { limitGradients_ = limit; }
     bool limitGradients() const { return limitGradients_; }
+
+    // The slope-limiter variant applied to the reconstructed gradients. The
+    // solver arms it from the case configuration so the selectable FVM limiter
+    // (MinMod / Venkatakrishnan / Cubic, per-face or cell-wide) reaches the
+    // gradient operators instead of the hardcoded default.
+    void setLimiter(const SlopeLimiterConfig& config) { limiterConfig_ = config; }
+    const SlopeLimiterConfig& limiterConfig() const { return limiterConfig_; }
 
     // The least-squares gradient as row-wise coefficients, so the pressure
     // equation can be assembled as the exact composition of the divergence
@@ -101,6 +109,7 @@ private:
     mutable std::vector<Eigen::Matrix<double, Dim, 1>> rhs_all_;
     mutable bool normalMatrixBuilt_ = false;
     bool limitGradients_ = false;
+    SlopeLimiterConfig limiterConfig_;
 };
 
 extern template class Gradient<2>;

@@ -133,7 +133,19 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
 
     gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_);
     gradientCalc_->setScheme(config_.gradientScheme);
-    if constexpr (Dim == 3) gradientCalc_->setLimitGradients(mesh_.isUnstructured());
+    // Arm the user-configured slope limiter on the gradient operators; the
+    // boundness is a property of the scheme, not of the dimension or of the
+    // structured/unstructured topology, so it applies to every Dim.
+    gradientCalc_->setLimitGradients(true);
+    // Arm the user-configured slope limiter, so the FVM limiter selected in
+    // the UI (MinMod / Venkatakrishnan / Cubic) is the one applied - not the
+    // hardcoded default.
+    gradientCalc_->setLimiter(fvm::SlopeLimiterConfig{
+        static_cast<fvm::LimiterKind>(config_.limiterKind),
+        static_cast<fvm::LimiterAggregation>(config_.limiterAggregation),
+        static_cast<fvm::LimiterSpan>(config_.limiterSpan),
+        config_.limiterK,
+        config_.cubicTransition});
     for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
 
     // The compiled boundary view is built on first use below, before the

@@ -45,7 +45,13 @@ void PressureCorrection<Dim>::refreshPressureGradient(const Field<Dim>& pressure
     } else {
         if (!gradientCalc_) {
             gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_, GradientScheme::LeastSquares);
-            if constexpr (Dim == 3) gradientCalc_->setLimitGradients(mesh_.isUnstructured());
+            gradientCalc_->setLimitGradients(true);
+            gradientCalc_->setLimiter(fvm::SlopeLimiterConfig{
+                static_cast<fvm::LimiterKind>(config_.limiterKind),
+                static_cast<fvm::LimiterAggregation>(config_.limiterAggregation),
+                static_cast<fvm::LimiterSpan>(config_.limiterSpan),
+                config_.limiterK,
+                config_.cubicTransition});
             for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
         }
         gradientCalc_->compute(pressure, pressureGrad_);
@@ -71,7 +77,13 @@ void PressureCorrection<Dim>::solve(
 
     if (!gradientCalc_) {
         gradientCalc_ = std::make_unique<Gradient<Dim>>(mesh_, GradientScheme::LeastSquares);
-        if constexpr (Dim == 3) gradientCalc_->setLimitGradients(mesh_.isUnstructured());
+        gradientCalc_->setLimitGradients(true);
+        gradientCalc_->setLimiter(fvm::SlopeLimiterConfig{
+            static_cast<fvm::LimiterKind>(config_.limiterKind),
+            static_cast<fvm::LimiterAggregation>(config_.limiterAggregation),
+            static_cast<fvm::LimiterSpan>(config_.limiterSpan),
+            config_.limiterK,
+            config_.cubicTransition});
         for (auto& g : pressureGrad_) g = Field<Dim>(mesh_, 0.0);
     }
 

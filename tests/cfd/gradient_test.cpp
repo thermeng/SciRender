@@ -13,6 +13,7 @@
 //     ghost: the wall cell's gradient is the one-sided gradient.
 #include "doctest/doctest.h"
 #include "fvm/Gradient.h"
+#include "fvm/SlopeLimiter.h"
 #include "support/fvm_fixtures.h"
 
 #include <array>
@@ -22,6 +23,9 @@ using namespace test_support;
 using fvm::Field;
 using fvm::Gradient;
 using fvm::GradientScheme;
+using fvm::SlopeLimiter;
+using fvm::SlopeLimiterConfig;
+using fvm::LimiterKind;
 
 namespace {
 
@@ -196,6 +200,38 @@ TEST_CASE("cfd.gradient.dirichlet_value_is_not_a_face_value") {
         CHECK_MESSAGE(std::abs(std::abs(g[0][idx]) - std::abs(oneSided)) < 0.1 * std::abs(oneSided),
                       "the wall ghost must not dilute the prescribed-cell gradient (got "
                           << g[0][idx] << ", expected about " << oneSided << ")");
+    }
+}
+
+// The gradient operators must apply the SAME configured slope limiter as the
+// momentum reconstruction: the solver arms the Gradient with the case's
+// limiter (MinMod / Venkatakrishnan / Cubic), not a hardcoded default.
+TEST_CASE("cfd.gradient.limiter_honours_the_configured_kind") {
+    const fvm::Mesh<2> mesh = uniform2D(6);
+    Field<2> phi(mesh, 0.0);
+    for (std::size_t i = 0; i < mesh.nCells(); ++i) {
+        const auto c = mesh.cellCoords(i);
+        phi[i] = (c[0] == 2.0 && c[1] == 2.0) ? 10.0 : 0.0;
+    }
+
+    Gradient<2> grad(mesh, GradientScheme::LeastSquares);
+    auto gUnlim = makeGrad(mesh);
+    grad.compute(phi, gUnlim);
+
+    Gradient<2> gradMin(mesh, GradientScheme::LeastSquares);
+    gradMin.setLimitGradients(true);
+    gradMin.setLimiter(SlopeLimiterConfig{LimiterKind::MinMod});
+    auto gMin = makeGrad(mesh);
+    gradMin.compute(phi, gMin);
+
+    SlopeLimiter<2> slMin(mesh);
+    slMin.configure(SlopeLimiterConfig{LimiterKind::MinMod});
+    slMin.prepare(phi, gUnlim, nullptr, nullptr);
+
+    for (std::size_t P = 0; P < mesh.nCells(); ++P) {
+        CAPTURE(P);
+        CHECK_MESSAGE(gMin[0][P] == doctest::Approx(slMin.alphaCell(P) * gUnlim[0][P]),
+                      "the configured MinMod limiter must scale the gradient");
     }
 }
 
