@@ -30,7 +30,6 @@ struct AMGLevel {
 };
 
 class AMGBackend;
-class BoomerAMGBackend;
 class AggregationBackend;
 
 class AMGHierarchy {
@@ -65,9 +64,6 @@ public:
     }
 
     bool isBuilt() const { return backend_->isBuilt(); }
-    // True when the active backend caches its aggregation maps (operators can
-    // be refreshed in O(nnz) instead of re-coarsened).
-    bool hasCachedAggregation() const { return backend_->hasCachedAggregation(); }
     void updateFineValues(const SparseMatrix& A) { backend_->updateFineValues(A); }
 
     int numLevels() const { return backend_->numLevels(); }

@@ -40,91 +40,13 @@ endif()
 # ---------------------------------------------------------------------------
 find_package(OpenMP REQUIRED)
 
-# ---------------------------------------------------------------------------
-# 1b. Optional Hypre (MIT/Apache dual, commercial OK) — BoomerAMG
-#
-#     Vendored at vendor/hypre (master). Built with HYPRE_ENABLE_MPI=OFF by
-#     default (single-rank; enable with -DSCIRENDER_HYPRE_MPI=ON). When the
-#     vendored configure succeeds, FvmCore additionally defines
-#     FVM_HAVE_HYPRE and AMGHierarchy can select the Hypre backend via
-#     Config::useHypre. When not found, everything falls back to amgcl and
-#     the build is unaffected. vendor/ sources are never modified in-tree;
-#     fixes for the upstream clone live in patches/ and are applied by the
-#     release workflow (see patches/README.md).
-# ---------------------------------------------------------------------------
-option(SCIRENDER_HYPRE_MPI "Build vendored Hypre with MPI support (default OFF)" OFF)
-option(SCIRENDER_BUILD_VENDORED_HYPRE "Build the vendored Hypre library (disable to use a system/installed HYPRE)" ON)
-set(SCIRENDER_HAVE_HYPRE OFF)
-set(SCIRENDER_HYPRE_INCLUDE_DIRS "")
-set(SCIRENDER_HYPRE_LIBRARIES "")
-if(SCIRENDER_BUILD_VENDORED_HYPRE AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vendor/hypre/src/CMakeLists.txt)
-    set(HYPRE_ENABLE_MPI ${SCIRENDER_HYPRE_MPI} CACHE BOOL "" FORCE)
-    set(HYPRE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(HYPRE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-    set(_hypre_saved_install_prefix "${CMAKE_INSTALL_PREFIX}")
-    add_subdirectory(vendor/hypre/src EXCLUDE_FROM_ALL)
-    set(CMAKE_INSTALL_PREFIX "${_hypre_saved_install_prefix}" CACHE PATH "" FORCE)
-    unset(_hypre_saved_install_prefix)
-    set(SCIRENDER_HAVE_HYPRE ON)
-    if(TARGET hypre)
-        list(APPEND SCIRENDER_HYPRE_LIBRARIES hypre)
-    endif()
-    # Vendored master exposes the target as HYPRE (add_library(${PROJECT_NAME})).
-    if(TARGET HYPRE)
-        list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE)
-    endif()
-endif()
-if(NOT SCIRENDER_HAVE_HYPRE)
-    find_package(HYPRE QUIET)
-    if(HYPRE_FOUND OR TARGET HYPRE::HYPRE OR TARGET HYPRE::hypre OR TARGET hypre)
-        set(SCIRENDER_HAVE_HYPRE ON)
-    elseif(HYPRE_INCLUDE_DIRS OR HYPRE_LIBRARIES)
-        set(SCIRENDER_HAVE_HYPRE ON)
-        set(SCIRENDER_HYPRE_INCLUDE_DIRS ${HYPRE_INCLUDE_DIRS})
-        set(SCIRENDER_HYPRE_LIBRARIES ${HYPRE_LIBRARIES})
-    endif()
-endif()
-if(NOT SCIRENDER_HAVE_HYPRE)
-    find_package(hypre QUIET)
-    if(hypre_FOUND OR TARGET hypre::hypre OR TARGET HYPRE::HYPRE)
-        set(SCIRENDER_HAVE_HYPRE ON)
-    elseif(hypre_INCLUDE_DIRS OR hypre_LIBRARIES)
-        set(SCIRENDER_HAVE_HYPRE ON)
-        set(SCIRENDER_HYPRE_INCLUDE_DIRS ${hypre_INCLUDE_DIRS})
-        set(SCIRENDER_HYPRE_LIBRARIES ${hypre_LIBRARIES})
-    endif()
-endif()
-if(SCIRENDER_HAVE_HYPRE)
-    if(TARGET HYPRE::HYPRE)
-        list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE::HYPRE)
-    elseif(TARGET HYPRE::hypre)
-        list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE::hypre)
-    elseif(TARGET hypre::hypre)
-        list(APPEND SCIRENDER_HYPRE_LIBRARIES hypre::hypre)
-    endif()
-    # Vendored master target (no namespace): link it to FvmCore.
-    if(TARGET hypre AND NOT HYPRE IN_LIST SCIRENDER_HYPRE_LIBRARIES)
-        list(APPEND SCIRENDER_HYPRE_LIBRARIES hypre)
-    endif()
-    if(TARGET HYPRE AND NOT HYPRE IN_LIST SCIRENDER_HYPRE_LIBRARIES)
-        list(APPEND SCIRENDER_HYPRE_LIBRARIES HYPRE)
-    endif()
-endif()
-if(NOT SCIRENDER_HAVE_HYPRE)
-    message(FATAL_ERROR
-        "Hypre is required for the AMG solver but was not found. "
-        "Ensure vendor/hypre/src/CMakeLists.txt is present (vendored build) "
-        "or provide a system HYPRE via find_package(HYPRE) / HYPRE_DIR.")
-endif()
-message(STATUS "SciRender: Hypre BoomerAMG backend ENABLED (Config::useHypre selects it)")
 
 # ---------------------------------------------------------------------------
 # 1c. Optional CGNS — .cgns mesh import for CFD
 #
 #     Vendored at vendor/cgns (4.5.2) + vendor/hdf5 (1.14.6). Build the static
 #     stack once with `python tools/build_vendored_deps.py`; it installs into
-#     build-vendored-lib/install, the same prefix as vendored HYPRE, so the
+#     build-vendored-lib/install, so the
 #     debug-vendored / release-vendored presets pick it up automatically.
 #     Other presets configure without CGNS and the reader compiles out
 #     (SCIRENDER_HAVE_CGNS undefined); cfd::loadMesh then reports a clear
@@ -245,7 +167,6 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         src/fvm/BoundaryConditions.cpp
         src/fvm/PressureCorrection.cpp
         src/fvm/AMG.cpp
-        src/fvm/HypreSolver.h
         src/io/VTKXMLWriter.cpp
         src/io/ANSYSMeshReader.cpp
         src/io/GmshReader.cpp
@@ -267,15 +188,6 @@ if(SCIRENDER_BUILD_APP OR SCIRENDER_BUILD_TESTS)
         FVM_CACHE_LINE_SIZE=64
         AMGCL_NO_BOOST
     )
-    if(SCIRENDER_HAVE_HYPRE)
-        target_compile_definitions(FvmCore PUBLIC FVM_HAVE_HYPRE=1)
-        if(SCIRENDER_HYPRE_MPI)
-            target_compile_definitions(FvmCore PUBLIC SCIRENDER_HYPRE_MPI=1)
-        endif()
-        target_include_directories(FvmCore SYSTEM PUBLIC ${SCIRENDER_HYPRE_INCLUDE_DIRS})
-        target_link_libraries(FvmCore PUBLIC
-            ${SCIRENDER_HYPRE_LIBRARIES})
-    endif()
     if(SCIRENDER_HAVE_CGNS)
         target_sources(FvmCore PRIVATE src/io/CGNSReader.cpp)
         target_compile_definitions(FvmCore PUBLIC SCIRENDER_HAVE_CGNS=1)
@@ -417,8 +329,6 @@ if(SCIRENDER_BUILD_APP)
         src/ui/widgets/colormap_combo.h
         src/ui/widgets/scientific_spin_box.h
         src/ui/widgets/wheel_guard.h
-        src/ui/widgets/amg_config_widget.cpp
-        src/ui/widgets/amg_config_widget.h
         src/ui/widgets/stopping_criteria_dialog.cpp
         src/ui/widgets/stopping_criteria_dialog.h
         src/ui/widgets/stopping_criteria_model.cpp

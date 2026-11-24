@@ -93,19 +93,10 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
         // O(nnz) restriction - no re-coarsening, no strength matrix, no
         // interpolation weights. That keeps the standalone residual test valid
         // without paying for a full AMG setup every iteration.
-        if (amg_[component].hasCachedAggregation()) {
-            const auto tRefresh = std::chrono::steady_clock::now();
-            amg_[component].build(A, hash);
-            stats_.buildSeconds += std::chrono::duration<double>(
-                std::chrono::steady_clock::now() - tRefresh).count();
-        } else {
-            const std::size_t interval =
-                standaloneAmg ? 1 : std::max<std::size_t>(1, config_.amgRebuildInterval);
-            if (++amgValueUpdates_[component] >= interval) {
-                amgValueUpdates_[component] = 0;
-                amg_[component].updateFineValues(A);
-            }
-        }
+        const auto tRefresh = std::chrono::steady_clock::now();
+        amg_[component].build(A, hash);
+        stats_.buildSeconds += std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - tRefresh).count();
     }
 
     if (!amgBuilt_[component]) {

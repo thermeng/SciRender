@@ -43,20 +43,10 @@ int runHeadlessCase(const Options& options) {
         }
     }
     if (options.verbosity) applyAmgVerbosity(settings, *options.verbosity);
-    if (options.cachedAggregation) {
-        settings.pressureAmg.backend = cfd::AmgSettings::Backend::CachedAggregation;
-        settings.momentumAmg.backend = cfd::AmgSettings::Backend::CachedAggregation;
-        settings.turbulenceAmg.backend = cfd::AmgSettings::Backend::CachedAggregation;
-    }
     if (options.smoothedAggregation) {
         settings.pressureAmg.smoothedProlongation = true;
         settings.momentumAmg.smoothedProlongation = true;
         settings.turbulenceAmg.smoothedProlongation = true;
-    }
-    if (options.boomerAmg) {
-        settings.pressureAmg.backend = cfd::AmgSettings::Backend::BoomerAMG;
-        settings.momentumAmg.backend = cfd::AmgSettings::Backend::BoomerAMG;
-        settings.turbulenceAmg.backend = cfd::AmgSettings::Backend::BoomerAMG;
     }
 
     // Logs only: no result files, no live frame builds. The solver's own

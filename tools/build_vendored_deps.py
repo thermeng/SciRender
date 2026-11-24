@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""Bootstrap all vendored dependencies in one step.
+"""Bootstrap the vendored CGNS import stack in one step.
 
-  1. HYPRE v3.2.1 — fetch the pinned clone into vendor/hypre, apply the fixes
-     carried in patches/, and prebuild it (Release, static, MPI/OpenMP off)
-     into build-vendored-lib/install for the debug-vendored / release-vendored
-     presets. The plain presets instead build HYPRE in-tree via
-     add_subdirectory, using the same fetched clone.
-  2. CGNS import stack — zlib -> HDF5 1.14.6 -> CGNS 4.5.2, all static,
-     installed into the same prefix. The app discovers it through
-     CMAKE_PREFIX_PATH; presets without the prefix configure fine and CGNS
-     import compiles out.
+  zlib -> HDF5 1.14.6 -> CGNS 4.5.2, all static, installed into
+  build-vendored-lib/install. The app discovers it through CMAKE_PREFIX_PATH;
+  presets without the prefix configure fine and CGNS import compiles out.
 
 Requirements on PATH: git, cmake (C:/Qt/Tools/CMake_64/bin), ninja
 (C:/Qt/Tools/Ninja), gcc/g++ (C:/Qt/Tools/mingw1310_64/bin).
 
-Usage:  python tools/build_vendored_deps.py [--force] [--skip-hypre] [--skip-cgns]
+Usage:  python tools/build_vendored_deps.py [--force] [--skip-cgns]
 """
 import argparse
-import glob
 import os
 import subprocess
 import sys
@@ -26,9 +19,6 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENDOR = os.path.join(REPO, "vendor")
 PREFIX = os.path.join(REPO, "build-vendored-lib", "install")
 BUILD = os.path.join(REPO, "build-vendored-lib")
-
-HYPRE_URL = "https://github.com/hypre-space/hypre.git"
-HYPRE_TAG = "v3.2.1"
 
 ZLIB_SOURCES = [
     "adler32.c", "compress.c", "crc32.c", "deflate.c", "gzclose.c", "gzlib.c",
@@ -42,54 +32,6 @@ def run(cmd, cwd=None):
     r = subprocess.run(cmd, cwd=cwd)
     if r.returncode != 0:
         sys.exit(f"FAILED (exit {r.returncode}): {' '.join(cmd)}")
-
-
-def git_ok(args, cwd):
-    return subprocess.run(["git"] + args, cwd=cwd,
-                          capture_output=True).returncode == 0
-
-
-def fetch_hypre():
-    print("== HYPRE: fetch + patch ==", flush=True)
-    dst = os.path.join(VENDOR, "hypre")
-    if os.path.exists(os.path.join(dst, "src", "CMakeLists.txt")):
-        print(f"vendor/hypre already present, skipping clone")
-    else:
-        run(["git", "clone", "--depth", "1", "--branch", HYPRE_TAG,
-             HYPRE_URL, dst])
-    # Apply every carried patch idempotently: skip if already applied,
-    # fail loudly if a patch no longer matches the pinned version.
-    for patch in sorted(glob.glob(os.path.join(REPO, "patches", "*.patch"))):
-        name = os.path.basename(patch)
-        if git_ok(["apply", "--reverse", "--check", patch], dst):
-            print(f"{name}: already applied")
-        elif git_ok(["apply", "--check", patch], dst):
-            run(["git", "apply", patch], cwd=dst)
-            print(f"{name}: applied")
-        else:
-            sys.exit(f"{name} does not match vendor/hypre ({HYPRE_TAG}) - "
-                     "update the patch or the pinned tag")
-    print("HYPRE clone ready")
-
-
-def build_hypre(force):
-    marker = os.path.join(PREFIX, "lib", "libHYPRE.a")
-    if os.path.exists(marker) and not force:
-        print(f"HYPRE already installed at {PREFIX} (use --force to rebuild)")
-        return
-    print("== HYPRE: prebuild (Release, static, MPI/OpenMP off) ==", flush=True)
-    # Settings match the vendored presets' expectations (see CMakePresets.json:
-    # HYPRE_DIR=<prefix>/lib/cmake/HYPRE). Plain presets build in-tree instead.
-    cmake_configure(os.path.join(VENDOR, "hypre", "src"),
-                    os.path.join(BUILD, "hypre"), {
-        "BUILD_SHARED_LIBS": "OFF",
-        "HYPRE_ENABLE_MPI": "OFF",
-        "HYPRE_ENABLE_OPENMP": "OFF",
-        "HYPRE_ENABLE_BIGINT": "OFF",
-        "HYPRE_BUILD_EXAMPLES": "OFF",
-        "HYPRE_BUILD_TESTS": "OFF",
-    })
-    print(f"HYPRE installed at {PREFIX}")
 
 
 def cmake_configure(src, bld, defines):
@@ -125,8 +67,8 @@ install(FILES ${{ZLIB_DIR}}/zlib.h ${{ZLIB_DIR}}/zconf.h DESTINATION include)
 
 
 def ensure_cgns_clones():
-    """Fetch the pinned source clones if missing (same convention as
-    vendor/hypre: large vendored trees are gitignored, fetched on demand)."""
+    """Fetch the pinned source clones if missing (large vendored trees are
+    gitignored, fetched on demand)."""
     clones = [
         ("cgns", "https://github.com/CGNS/CGNS.git", "v4.5.2"),
         ("hdf5", "https://github.com/HDFGroup/hdf5.git", "hdf5-1.14.6"),
@@ -211,24 +153,18 @@ def build_cgns(force):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Bootstrap all vendored dependencies (HYPRE + CGNS stack)")
+        description="Bootstrap the vendored CGNS import stack")
     ap.add_argument("--force", action="store_true",
                     help="rebuild the CGNS stack even if already installed")
-    ap.add_argument("--skip-hypre", action="store_true",
-                    help="skip the HYPRE fetch/patch step")
     ap.add_argument("--skip-cgns", action="store_true",
                     help="skip the CGNS stack build")
     args = ap.parse_args()
 
-    if not args.skip_hypre:
-        fetch_hypre()
-        build_hypre(args.force)
     if not args.skip_cgns:
         build_cgns(args.force)
 
     print("\nDONE. Configure with a vendored preset (debug-vendored /")
-    print("release-vendored) to use the prebuilt HYPRE + CGNS, or a plain preset")
-    print("to build HYPRE in-tree (CGNS import then compiles out unless you pass")
+    print("release-vendored) to use the prebuilt CGNS, or pass")
     print("-DCMAKE_PREFIX_PATH=<repo>/build-vendored-lib/install).")
 
 

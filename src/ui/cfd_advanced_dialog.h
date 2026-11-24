@@ -32,7 +32,7 @@ public:
     // Push a full settings object into the widgets (case load, defaults).
     void setSettings(const cfd::CaseSettings& s);
     // Write the widgets back into `s` (before a run or save).
-    void collectInto(cfd::CaseSettings& s) const;
+    void collectInto(cfd::CaseSettings& s);
     // Kept for callers: the simplified Multigrid tab has no dimension-dependent
     // control, so the mesh dimension no longer changes anything here.
     void setDimension(int dim);
@@ -43,8 +43,17 @@ private:
     void syncDependencies();
     void readSharedAmg(const cfd::AmgSettings& s);
     void writeSharedAmgInto(cfd::AmgSettings& s) const;
+    void commitSharedToSelected();
+    void loadSharedFromSelected();
+    void syncAmgRows();
 
+    enum { kAmgRows = 3 };
     cfd::CaseSettings m_snapshot;
+    // Each table row owns one backend AMG config, including the shared-panel
+    // fields: momentum/turbulence default to 2/30/50 flexible relaxations while
+    // pressure defaults to 1/1/1, so a single set of panels cannot represent all.
+    cfd::AmgSettings m_amgRows[kAmgRows];
+    int m_amgSelectedRow = 0;
 
     // Pressure correction
     QSpinBox* m_pressureCorrectors = nullptr;
@@ -55,18 +64,13 @@ private:
     QCheckBox* m_momentumSolverStats = nullptr;
 
     // Multigrid: one row per real AMG config (pressure / momentum / turbulence).
-    enum { kAmgRows = 3 };
     QTableWidget* m_amgTable = nullptr;
 
-    // Shared AMG controls (applied to all three rows).
+    // Shared AMG controls (edited for the selected row).
     QSpinBox* m_amgPreSweeps = nullptr;
     QSpinBox* m_amgPostSweeps = nullptr;
     QSpinBox* m_amgMaxCycles = nullptr;
     QSpinBox* m_amgMaxLevels = nullptr;
-    QSpinBox* m_amgCoarsenBy = nullptr;
-    QCheckBox* m_amgConservative = nullptr;
-    QCheckBox* m_amgAggressive = nullptr;
-    QCheckBox* m_amgLaplace = nullptr;
     QRadioButton* m_amgGaussSeidel = nullptr;
     QRadioButton* m_amgILU = nullptr;
     QSpinBox* m_amgSweeps = nullptr;

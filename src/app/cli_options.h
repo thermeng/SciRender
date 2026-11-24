@@ -18,15 +18,10 @@ struct Options {
     std::optional<std::size_t> iterations;
     // Overrides pressure/momentum/turbulence AMG verbosity when set.
     std::optional<cfd::AmgSettings::Verbosity> verbosity;
-    // Diagnostic switch: force the cached-aggregation AMG backend
-    // instead of BoomerAMG (used to measure the cheaper setup path).
-    bool cachedAggregation = false;
-    // Force Smoothed Aggregation prolongation (cached-aggregation backend):
-    // tentative piecewise-constant prolongation is Jacobi-smoothed so the
-    // coarse grid can represent smooth error modes.
+    // Force Smoothed Aggregation prolongation: the tentative piecewise-constant
+    // prolongation is Jacobi-smoothed so the coarse grid can represent smooth
+    // error modes.
     bool smoothedAggregation = false;
-    // Force BoomerAMG (Hypre) backend instead of cached aggregation.
-    bool boomerAmg = false;
     bool help = false;
 };
 

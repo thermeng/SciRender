@@ -45,44 +45,24 @@ inline bool usesNormalVelocity(const PatchBC& bc) {
 // this dialog mirrors.
 struct AmgSettings {
     // --- Solver ----------------------------------------------------------
-    enum class Coarsening { RugeStuben, SmoothedAggregation };
     enum class Verbosity { None, Low, High, Diagnosis };
     enum class CycleType { VCycle, WCycle, FCycle, Flexible };
     enum class Acceleration { None, ConjugateGradient, BiCGStab, GMRES };
     enum class Smoother { Jacobi, GaussSeidel, ILU };
-    enum class ProportionalScaling { Automatic, Disabled };
-    enum class GroupSizeControl { Automatic, Manual };
-    enum class FlexMove { Terminate = -2, Coarser = -1, Stay = 0, Finer = 1 };
 
-    Coarsening coarsening = Coarsening::SmoothedAggregation;
     int maxIterations = 30;     // Maximum cycle
     double tolerance = 0.1;     // Convergence tolerance
-    double epsilon = 0.0;       // Epsilon
     Verbosity verbosity = Verbosity::None;
     CycleType cycleType = CycleType::VCycle;
     Acceleration acceleration = Acceleration::ConjugateGradient;
     Smoother smoother = Smoother::GaussSeidel;
-    ProportionalScaling scaling = ProportionalScaling::Automatic;
-    GroupSizeControl groupSizeControl = GroupSizeControl::Automatic;
-    int blockSize = 1;           // Group size (Manual)
-    // Which AMG backend builds the hierarchy. Cached aggregation is the
-    // default: it reuses its aggregation maps and only refreshes the level
-    // operators (O(nnz)) on each outer iteration. BoomerAMG (Hypre) is a full
-    // value-dependent coarsening on every setup — more robust per iteration,
-    // but it re-coarsens the whole hierarchy each time.
-    enum class Backend { BoomerAMG, CachedAggregation };
-    // Cached aggregation is the default backend (UI and CLI agree).
-    Backend backend = Backend::CachedAggregation;
 
     // --- Smoothing / hierarchy -------------------------------------------
     int preSweeps = 1;           // Pre-smooths
     int postSweeps = 1;          // Post-smooths
     int maxLevels = 50;          // Maximum number of levels
-    int minCoarseSize = 10;      // Stop coarsening once a level has this few unknowns
 
     // --- Expert -----------------------------------------------------------
-    double strengthThreshold = 0.25;
-    double truncThreshold = 0.2;
     double stagnationFactor = 1.05;
     int stagnationMinIter = 10;
     double stagnationLooseFactor = 5.0;
@@ -94,9 +74,9 @@ struct AmgSettings {
     // (The names are historical; flexAlpha is β, flexBeta is α.)
     double flexAlpha = 0.7;
     double flexBeta = 0.1;
-    int flexMaxSweeps = 1;
-    int flexMaxFineRelaxations = 1;
-    int flexMaxCoarseRelaxations = 1;
+    int flexMaxSweeps = 2;
+    int flexMaxFineRelaxations = 30;
+    int flexMaxCoarseRelaxations = 50;
 
     // --- Smoothed Aggregation prolongation -------------------------------
     // When true, the tentative piecewise-constant prolongation T is smoothed
@@ -104,8 +84,7 @@ struct AmgSettings {
     // This spreads each coarse basis function to neighbors of its aggregate,
     // letting the coarse grid represent smooth error modes that piecewise-
     // constant injection cannot. The near-nullspace constraint P*B = T*B is
-    // preserved (constant mode interpolated exactly). Invalid for Hypre
-    // backend (ignored there); only the cached-aggregation backend uses it.
+    // preserved (constant mode interpolated exactly).
     bool smoothedProlongation = false;
     double saOmega = 2.0 / 3.0;
     int saDegree = 1;
@@ -114,28 +93,24 @@ struct AmgSettings {
         AmgSettings s;
         s.maxIterations = 30;
         s.tolerance = 0.1;
-        s.epsilon = 0.0;
         s.cycleType = CycleType::VCycle;
+        // Same flexible-cycle defaults as momentum/turbulence, so the shared
+        // Multigrid panel shows one truthful set of values for every row.
+        // Dormant while pressure uses a V-Cycle.
+        s.flexMaxSweeps = 2;
+        s.flexMaxFineRelaxations = 30;
+        s.flexMaxCoarseRelaxations = 50;
         s.preSweeps = 1;
         s.postSweeps = 1;
         s.maxLevels = 50;
         s.smoother = Smoother::GaussSeidel;
         s.acceleration = Acceleration::ConjugateGradient;
-        s.scaling = ProportionalScaling::Automatic;
-        s.strengthThreshold = 0.25;
-        s.truncThreshold = 0.2;
-        // Cached aggregation matches the struct default and the UI/CLI default:
-        // aggregation maps are reused, so only the level operators are refreshed
-        // per outer iteration. Select BoomerAMG explicitly when the extra
-        // robustness of full value-dependent coarsening is worth the setup cost.
-        s.backend = Backend::CachedAggregation;
         return s;
     }
     static AmgSettings momentumDefaults() {
         AmgSettings s;
         s.maxIterations = 30;
         s.tolerance = 0.1;
-        s.epsilon = 0.0;
         s.preSweeps = 1;
         s.postSweeps = 1;
         s.maxLevels = 50;
@@ -146,22 +121,7 @@ struct AmgSettings {
         s.flexMaxCoarseRelaxations = 50;
         s.smoother = Smoother::GaussSeidel;
         s.acceleration = Acceleration::None;
-        // Proportional scaling is only valid for SPD matrices (pressure).
-        // Momentum and turbulence are nonsymmetric — disable by default.
-        s.scaling = ProportionalScaling::Disabled;
-        s.strengthThreshold = 0.25;
-        s.truncThreshold = 0.5;
         return s;
-    }
-
-    // Effective group size for Hypre's systems AMG.   uses "Group
-    // Size = Auto" -> 2 (2D) / 4 (3D); Manual uses the configured
-    // blockSize. Returns 1 (scalar AMG) when grouping is not possible.
-    int effectiveBlockSize(int dim) const {
-        if (groupSizeControl == GroupSizeControl::Manual)
-            return std::max(1, blockSize);
-        //   automatic group size: 2 in 2D, 4 in 3D.
-        return (dim >= 3) ? 4 : 2;
     }
 };
 

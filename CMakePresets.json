@@ -24,7 +24,7 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "SCIRENDER_BUILD_APP": "ON",
                 "SCIRENDER_BUILD_TESTS": "ON",
-                "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
+
                 "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install;C:/Qt/6.11.1/mingw_64"
             }
         },
@@ -38,22 +38,22 @@
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "SCIRENDER_BUILD_APP": "ON",
                 "SCIRENDER_BUILD_TESTS": "ON",
-                "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
+
                 "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install;C:/Qt/6.11.1/mingw_64"
             }
         },
         {
             "name": "tests",
             "displayName": "Tests (no Qt, no OpenGL)",
-            "description": "Test-only build against the prebuilt vendored libs (build-vendored-lib/install): no Qt, no OpenGL, no HYPRE/CGNS rebuilds. Run tools/build_vendored_deps.py once first.",
+            "description": "Test-only build against the prebuilt vendored libs (build-vendored-lib/install): no Qt, no OpenGL, no CGNS rebuilds. Run tools/build_vendored_deps.py once first.",
             "inherits": "base",
             "binaryDir": "${sourceDir}/build-vendored-lib/tests",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "SCIRENDER_BUILD_APP": "OFF",
                 "SCIRENDER_BUILD_TESTS": "ON",
-                "SCIRENDER_BUILD_VENDORED_HYPRE": "OFF",
-                "HYPRE_DIR": "${sourceDir}/build-vendored-lib/install/lib/cmake/HYPRE",
+
+
                 "CMAKE_PREFIX_PATH": "${sourceDir}/build-vendored-lib/install"
             }
         },

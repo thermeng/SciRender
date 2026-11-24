@@ -35,19 +35,17 @@ A test-only configure needs neither Qt nor OpenGL (`SCIRENDER_BUILD_APP=OFF`).
 
 ## CMake presets
 
-`debug`, `release`, `tests` (visible presets). `vendor/hypre/`, `vendor/cgns/`, `vendor/hdf5/` are gitignored — fetched on demand via `python tools/build_vendored_deps.py`, never committed.
+`debug`, `release`, `tests` (visible presets). `vendor/cgns/` and `vendor/hdf5/` are gitignored — fetched on demand via `python tools/build_vendored_deps.py`, never committed.
 
 All builds cap parallelism at `-j4` to limit resources:
 
 - `debug`: `cmake --preset debug && cmake --build --preset debug -- -j4`
 - `release`: `cmake --preset release && cmake --build --preset release -- -j4`
-- `tests` (no Qt/OpenGL, no HYPRE/CGNS rebuilds; runs against prebuilt vendored libs): `cmake --preset tests && cmake --build --preset tests -- -j4 && ctest --preset tests --output-on-failure`
+- `tests` (no Qt/OpenGL, no CGNS rebuilds; runs against prebuilt vendored libs): `cmake --preset tests && cmake --build --preset tests -- -j4 && ctest --preset tests --output-on-failure`
 
 The vendored deps script must run once before `tests`/`debug-vendored`/`release-vendored` presets that consume `build-vendored-lib/install`.
 
-## Hypre is mandatory
-
-The AMG solver needs Hypre. `vendor/hypre/src/CMakeLists.txt` must exist (vendored) or a system `HYPRE` must be findable; otherwise configure fails with `FATAL_ERROR`. The vendored clone is patched per `patches/README.md` (hypre-space/hypre#1671 workspace leak). CI re-clones v3.2.1 and reapplies the patch on every release build.
+The AMG solver is self-contained (cached aggregation); no Hypre/BoomerAMG dependency.
 
 ## No fast math
 
@@ -117,7 +115,7 @@ When fixing a solver operator, read `tests/cfd/README.md` (the contracts) first 
 - `tests/` — regression suite (doctest + CTest), support fixtures in `tests/support/`
 - `tools/` — developer CLI diagnostics (not part of the test suite)
 - `samples/` — VTK/STL fixtures and `.scfd`/`.msh` CFD samples (read-only; some tests write scratch under `samples/pvd_*`)
-- `vendor/` — GLAD, GLM, zlib, eigen, pugixml, LZ4/LZMA, doctest (tracked); hypre/cgns/hdf5 fetched on demand (gitignored)
+- `vendor/` — GLAD, GLM, zlib, eigen, pugixml, LZ4/LZMA, doctest (tracked); cgns/hdf5 fetched on demand (gitignored)
 
 ## Gotchas
 

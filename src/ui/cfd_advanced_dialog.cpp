@@ -33,6 +33,8 @@ void readAmgRow(const cfd::AmgSettings& s, QTableWidget* table, int row) {
     auto* term = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, kTermination));
     auto* restriction = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, kRestriction));
     auto* method = qobject_cast<QComboBox*>(table->cellWidget(row, kMethod));
+    // Only V-Cycle and Flexible exist in the cached backend; a case saved with
+    // the old W/F options runs as a V-Cycle.
     cycle->setCurrentIndex(s.cycleType == cfd::AmgSettings::CycleType::Flexible ? 1 : 0);
     term->setValue(s.tolerance);
     restriction->setValue(s.flexAlpha);
@@ -175,7 +177,7 @@ void CfdAdvancedDialog::buildUi() {
     m_amgTable = new QTableWidget(kAmgRows, 4, nullptr);
     m_amgTable->setVerticalHeaderLabels({"Pressure", "Momentum", "Turbulence"});
     m_amgTable->setHorizontalHeaderLabels(
-        {"Cycle Type", "Termination", "Restriction", "AMG Method"});
+        {"Cycle Type", "Termination", "Restriction", "Krylov Method"});
     m_amgTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_amgTable->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_amgTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -185,6 +187,8 @@ void CfdAdvancedDialog::buildUi() {
         auto* cycle = new QComboBox(m_amgTable);
         cycle->addItems({"V-Cycle", "Flexible"});
         m_amgTable->setCellWidget(row, kCycleType, cycle);
+        connect(cycle, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this](int) { syncAmgRows(); });
 
         auto* term = uikit::numeric(new QDoubleSpinBox(m_amgTable));
         term->setRange(0.0, 1.0);
@@ -201,6 +205,13 @@ void CfdAdvancedDialog::buildUi() {
         m_amgTable->setCellWidget(row, kMethod, method);
     }
     amgLay->addWidget(m_amgTable);
+    connect(m_amgTable, &QTableWidget::currentCellChanged, this,
+            [this](int row, int, int prevRow, int) {
+                if (row == prevRow || row < 0 || row >= kAmgRows) return;
+                commitSharedToSelected();
+                m_amgSelectedRow = row;
+                loadSharedFromSelected();
+            });
 
     QFormLayout* amgForm = nullptr;
     amgLay->addWidget(uikit::group("Algebraic Multigrid Controls", &amgForm));
@@ -220,18 +231,9 @@ void CfdAdvancedDialog::buildUi() {
 
     QFormLayout* coarseForm = nullptr;
     m_amgMaxLevels = uikit::numeric(new QSpinBox);
-    m_amgCoarsenBy = uikit::numeric(new QSpinBox);
-    m_amgConservative = new QCheckBox("Conservative Coarsening");
-    m_amgAggressive = new QCheckBox("Aggressive Coarsening");
-    m_amgLaplace = new QCheckBox("Laplace Coarsening");
     auto* coarseBox = uikit::group("Coarsening Parameters", &coarseForm);
     m_amgMaxLevels->setRange(1, 1000);
-    m_amgCoarsenBy->setRange(1, 16);
     coarseForm->addRow("Max Coarse Levels", m_amgMaxLevels);
-    coarseForm->addRow("Coarsen by", m_amgCoarsenBy);
-    coarseForm->addRow(m_amgConservative);
-    coarseForm->addRow(m_amgAggressive);
-    coarseForm->addRow(m_amgLaplace);
     amgForm->addRow(coarseBox);
 
     auto* smootherLayout = new QVBoxLayout;
@@ -349,10 +351,14 @@ void CfdAdvancedDialog::setSettings(const cfd::CaseSettings& s) {
 
     m_pressureSolverStats->setChecked(s.pressureSolverStats);
     m_momentumSolverStats->setChecked(s.momentumSolverStats);
-    readAmgRow(s.pressureAmg, m_amgTable, 0);
-    readAmgRow(s.momentumAmg, m_amgTable, 1);
-    readAmgRow(s.turbulenceAmg, m_amgTable, 2);
-    readSharedAmg(s.pressureAmg);
+    m_amgRows[0] = s.pressureAmg;
+    m_amgRows[1] = s.momentumAmg;
+    m_amgRows[2] = s.turbulenceAmg;
+    for (int row = 0; row < kAmgRows; ++row)
+        readAmgRow(m_amgRows[row], m_amgTable, row);
+    syncAmgRows();
+    if (m_amgSelectedRow < 0 || m_amgSelectedRow >= kAmgRows) m_amgSelectedRow = 0;
+    loadSharedFromSelected();
 
     m_printFrequency->setValue(static_cast<int>(s.printFrequency));
     m_residualHistoryWindow->setValue(static_cast<int>(s.residualHistoryWindow));
@@ -383,10 +389,6 @@ void CfdAdvancedDialog::readSharedAmg(const cfd::AmgSettings& s) {
     m_amgPostSweeps->setValue(s.postSweeps);
     m_amgMaxCycles->setValue(s.maxIterations);
     m_amgMaxLevels->setValue(s.maxLevels);
-    m_amgCoarsenBy->setValue(s.blockSize);
-    m_amgConservative->setChecked(s.coarsening == cfd::AmgSettings::Coarsening::SmoothedAggregation);
-    m_amgAggressive->setChecked(false);
-    m_amgLaplace->setChecked(false);
     m_amgGaussSeidel->setChecked(s.smoother != cfd::AmgSettings::Smoother::ILU);
     m_amgILU->setChecked(s.smoother == cfd::AmgSettings::Smoother::ILU);
     m_amgSweeps->setValue(s.flexMaxSweeps);
@@ -395,15 +397,31 @@ void CfdAdvancedDialog::readSharedAmg(const cfd::AmgSettings& s) {
     m_amgVerbosity->setValue(static_cast<int>(s.verbosity));
 }
 
+void CfdAdvancedDialog::syncAmgRows() {
+    // Restriction (beta) is a flexible-cycle parameter; a V/W/F cycle has no
+    // restriction gate, so the cell must not be editable there.
+    for (int row = 0; row < kAmgRows; ++row) {
+        auto* cycle = qobject_cast<QComboBox*>(m_amgTable->cellWidget(row, kCycleType));
+        auto* restriction = qobject_cast<QDoubleSpinBox*>(m_amgTable->cellWidget(row, kRestriction));
+        if (cycle && restriction) restriction->setEnabled(cycle->currentIndex() == 1);
+    }
+}
+
+void CfdAdvancedDialog::commitSharedToSelected() {
+    if (m_amgSelectedRow >= 0 && m_amgSelectedRow < kAmgRows)
+        writeSharedAmgInto(m_amgRows[m_amgSelectedRow]);
+}
+
+void CfdAdvancedDialog::loadSharedFromSelected() {
+    if (m_amgSelectedRow >= 0 && m_amgSelectedRow < kAmgRows)
+        readSharedAmg(m_amgRows[m_amgSelectedRow]);
+}
+
 void CfdAdvancedDialog::writeSharedAmgInto(cfd::AmgSettings& s) const {
     s.preSweeps = m_amgPreSweeps->value();
     s.postSweeps = m_amgPostSweeps->value();
     s.maxIterations = m_amgMaxCycles->value();
     s.maxLevels = m_amgMaxLevels->value();
-    s.blockSize = m_amgCoarsenBy->value();
-    // All three coarsening checkboxes are display-only: the backend has no
-    // equivalent modes, and coarsening is serialized, so writing it here would
-    // silently overwrite a case's saved value (deferred).
     s.smoother = m_amgILU->isChecked() ? cfd::AmgSettings::Smoother::ILU
                                        : cfd::AmgSettings::Smoother::GaussSeidel;
     s.flexMaxSweeps = m_amgSweeps->value();
@@ -412,7 +430,7 @@ void CfdAdvancedDialog::writeSharedAmgInto(cfd::AmgSettings& s) const {
     s.verbosity = static_cast<cfd::AmgSettings::Verbosity>(m_amgVerbosity->value());
 }
 
-void CfdAdvancedDialog::collectInto(cfd::CaseSettings& s) const {
+void CfdAdvancedDialog::collectInto(cfd::CaseSettings& s) {
     s.pressureCorrectors = m_pressureCorrectors->value();
     s.limitPressureCorrection = m_limitPressureCorrection->isChecked();
     s.pressureCorrectionLimit = m_pressureCorrectionLimit->value();
@@ -420,14 +438,15 @@ void CfdAdvancedDialog::collectInto(cfd::CaseSettings& s) const {
 
     s.pressureSolverStats = m_pressureSolverStats->isChecked();
     s.momentumSolverStats = m_momentumSolverStats->isChecked();
-    // Start from the existing configs so knobs with no UI control keep their
-    // values (case file, CLI, or previously collected settings).
-    writeAmgRow(m_amgTable, 0, s.pressureAmg);
-    writeAmgRow(m_amgTable, 1, s.momentumAmg);
-    writeAmgRow(m_amgTable, 2, s.turbulenceAmg);
-    writeSharedAmgInto(s.pressureAmg);
-    writeSharedAmgInto(s.momentumAmg);
-    writeSharedAmgInto(s.turbulenceAmg);
+    // Shared-panel edits belong to the selected row; each row keeps its own
+    // backend config, so pressure's 1/1/1 flexible defaults never overwrite
+    // momentum/turbulence's 2/30/50 defaults.
+    commitSharedToSelected();
+    for (int row = 0; row < kAmgRows; ++row)
+        writeAmgRow(m_amgTable, row, m_amgRows[row]);
+    s.pressureAmg = m_amgRows[0];
+    s.momentumAmg = m_amgRows[1];
+    s.turbulenceAmg = m_amgRows[2];
 
     s.printFrequency = static_cast<std::size_t>(m_printFrequency->value());
     s.residualHistoryWindow = static_cast<std::size_t>(m_residualHistoryWindow->value());

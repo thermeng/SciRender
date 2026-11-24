@@ -12,15 +12,9 @@
 
 namespace fvm {
 
-// AMGBackend is the abstract interface for AMG backends. Two concrete
-// implementations exist:
-//   BoomerAMGBackend  - Hypre BoomerAMG (value-dependent coarsening every build)
-//   AggregationBackend - Cached aggregation (maps built once per pattern, O(nnz) refresh)
-//
-// AMGHierarchy holds a unique_ptr<AMGBackend> and delegates all operations to it.
-// Callers never branch on backend type - that decision is made once at
-// construction time and is invisible thereafter. This is the real seam: two
-// adapters, one interface.
+// AMGBackend is the abstract interface for the cached-aggregation AMG backend:
+// maps are built once per sparsity pattern and level operators are refreshed in
+// O(nnz). AMGHierarchy holds a unique_ptr<AMGBackend> and delegates to it.
 class AMGBackend {
 public:
     using Config = cfd::AmgSettings;
@@ -57,7 +51,6 @@ public:
     virtual const std::vector<double>& lastResidualHistory() const = 0;
 
     // --- Backend-specific ------------------------------------------------
-    virtual bool hasCachedAggregation() const = 0;
     virtual void updateFineValues(const SparseMatrix& A) = 0;
 
     // Verbose per-component diagnostic (STAR-CCM+ style: residual history,
