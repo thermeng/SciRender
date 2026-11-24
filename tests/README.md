@@ -16,7 +16,7 @@ Two properties drive the design:
                Laplacian/Poisson, convection schemes, pressure and velocity
                correction, boundary conditions, residual
   slow     5   the cavity benchmarks: the structured cavity (Ghia, Re = 100)
-               and the ANSYS-mesh cavity (Ghia, Re = 400) - a label, not a
+               and the quad-mesh cavity (Ghia, Re = 400) - a label, not a
                suite
 ```
 
@@ -199,8 +199,8 @@ The lid-driven cavity is the flagship validation case, in two variants:
 
 * `slow.ghia.*` - a generated structured grid (32x32), the classical Ghia
   Re = 100 reference, and the check that the state is converged.
-* `slow.cavity_msh.*` - the ANSYS mesh `samples/cfd/CavityQuad_40x40.msh`
-  (the graded 40x40 quad grid Fluent was run on), the Ghia Re = 400 reference,
+* `slow.cavity_msh.*` - the mesh `samples/cfd/CavityQuad_40x40.msh`
+  (a graded 40x40 quad grid), the Ghia Re = 400 reference,
   and the accuracy target.
 
 The `.msh` variant is set up **the way an end user sets it up in the

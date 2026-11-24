@@ -118,7 +118,7 @@ double centroidTetsVolume(std::uint8_t type, const std::vector<Point>& points,
 std::vector<Loop> shuffledLoops(std::vector<Loop> loops, std::mt19937& rng) {
     std::shuffle(loops.begin(), loops.end(), rng);
     for (auto& loop : loops) {
-        // ANSYS can start a face loop at any node and can traverse it in
+        // A mesh reader can start a face loop at any node and can traverse it in
         // either direction, but the nodes remain in cyclic order.
         std::rotate(loop.begin(),
                     loop.begin() + static_cast<std::ptrdiff_t>(rng() % loop.size()),

@@ -96,7 +96,7 @@ Test layout: `tests/core/`, `tests/fvm/`, `tests/render/`, `tests/cfd/` — one 
 
 ## Known-failure registry
 
-`tests/cfd/known_failures.txt` and `tests/fvm/known_failures.txt` list cases known to deviate from the contract. Each runs through `cmake/expect_failure.cmake` which inverts the outcome: open defect → row passes (by failing); solver fixed → row turns red → remove the entry. A listed name matching no test case **fails the build**, so the registry cannot rot.
+`tests/cfd/known_failures.txt` lists cases known to deviate from the contract. Each runs through `cmake/expect_failure.cmake` which inverts the outcome: open defect → row passes (by failing); solver fixed → row turns red → remove the entry. A listed name matching no test case **fails the build**, so the registry cannot rot.
 
 When fixing a solver operator, read `tests/cfd/README.md` (the contracts) first — it states what each operator is supposed to do and which parts are still open.
 

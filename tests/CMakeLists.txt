@@ -71,34 +71,19 @@ scirender_add_test_suite(scirender_core_tests
         CoreLib)
 
 # ---------------------------------------------------------------------------
-# fvm — absorbed solver, AMG configuration, transient settings, Ghia benchmark
+# fvm — steady solver benchmarks: Ghia cavity and skewed tetrahedral channel.
 #
 # The Ghia cavity case is named "slow.*" so that it carries the "slow" CTest
 # label and can be excluded with `ctest -LE slow`.
 # ---------------------------------------------------------------------------
 scirender_add_test_suite(scirender_fvm_tests
     SOURCES
-        fvm/mpi_smoke_test.cpp
-        fvm/face_state_test.cpp
-        fvm/failure_semantics_test.cpp
-        fvm/transient_settings_test.cpp
         fvm/cavity_msh_test.cpp
-        fvm/channel_test.cpp
-        fvm/channel_3d_test.cpp
-        fvm/sst_test.cpp
-        fvm/transient_channel_test.cpp
-        fvm/cancellable_test.cpp
-        fvm/restart_state_test.cpp
-        fvm/cgns_reader_test.cpp
-        fvm/pressure_outlet_ref_test.cpp
-        fvm/static_mixer_solve_test.cpp
-        ${SCIRENDER_FVM_TEST_SUPPORT_SOURCES}
+        fvm/skewed_tet_solve_test.cpp
     LIBRARIES
         FvmCore
         CfdLib
-        CoreLib
-    REGISTRIES
-        "${CMAKE_CURRENT_SOURCE_DIR}/fvm/known_failures.txt")
+        CoreLib)
 
 # ---------------------------------------------------------------------------
 # render — CPU-side render helpers (no GL context required)

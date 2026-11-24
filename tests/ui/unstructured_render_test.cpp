@@ -2,7 +2,7 @@
 //
 // Volume rendering, axis-aligned slices and isosurfaces are derived from the
 // cells of a CFD mesh instead of an IJK grid. This suite proves the real
-// ANSYS sample satisfies the geometry preconditions, that a field scattered
+// sample mesh satisfies the geometry preconditions, that a field scattered
 // over the derived voxel grid actually occupies voxels, and that a contour can
 // be extracted from the same mesh. It stays at CoreLib/CfdLib level: RenderLib
 // needs QtWidgets + an OpenGL context and is not linked into the tests.
