@@ -124,7 +124,7 @@ void Momentum<Dim>::computeDCoeffAndRelax(SparseMatrix& A, Eigen::VectorXd& b,
             // factor (Patankar's SIMPLEC with under-relaxation).
             dCoeff[i] = (denom > minFaceDist) ? vol * alpha / denom : 0.0;
         } else {
-            dCoeff[i] = (aP > minFaceDist) ? vol * alpha / aP : 0.0;
+            dCoeff[i] = (aP > minFaceDist) ? vol / aP : 0.0;
         }
         if (!dirichletMask.empty() && dirichletMask[i]) dCoeff[i] = 0.0;
     }

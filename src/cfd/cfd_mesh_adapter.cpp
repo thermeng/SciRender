@@ -43,7 +43,7 @@ std::string sniffFormat(const std::string& path) {
 // npos for a face that has no second cell (see cfd::mesh_build::kNoNeighbor).
 
 // Canonical VTK corner order for a 3D cell. The reader already canonicalizes
-// ANSYS cells; Gmsh files are canonical by construction. Re-canonicalizing
+// imported cells; Gmsh files are canonical by construction. Re-canonicalizing
 // here keeps the RenderMesh independent of the source and, more importantly,
 // lets a cell that cannot be laid out as a tet/hex/wedge/pyramid be marked
 // unsupported (kPolyhedron) so the volume and isosurface paths skip it.

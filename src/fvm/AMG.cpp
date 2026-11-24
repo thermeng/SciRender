@@ -230,7 +230,7 @@ AggRowMatrix coarsenByAggregation(const AggRowMatrix& A,
     out.makeCompressed();
 
     // Sparsify: keep the diagonal plus up to maxPerRow largest-magnitude
-    // off-diagonal entries per row. Fluent keeps the FULL Galerkin operator, so
+    // off-diagonal entries per row. The full Galerkin operator is kept, so
     // this cap is generous -- it only guards against pathological density, it
     // does not truncate the inter-aggregate couplings the next coarsening needs.
     constexpr int maxPerRow = 1000000;
@@ -256,7 +256,7 @@ AggRowMatrix coarsenByAggregation(const AggRowMatrix& A,
     return out;
 }
 
-// Conservative aggregation (Fluent AMG): each ungrouped cell opens a group
+// Conservative aggregation: each ungrouped cell opens a group
 // and absorbs its strongest currently-ungrouped neighbour, then the
 // neighbour's strongest ungrouped neighbour, and so on up to groupSize.
 // "Strongest" is the largest |A_ij|; ungrouped neighbours are preferred so
@@ -669,7 +669,7 @@ Eigen::VectorXd BoomerAMGBackend::flexCycle(int level, const Eigen::VectorXd& b,
         if (res < prolongationTol * r0) return x - xStart;
 
         // Restriction gate (β): residual not dropping → go coarser, apply the
-        // coarse correction, then KEEP sweeping on this level (Fluent flexible
+        // coarse correction, then KEEP sweeping on this level (flexible
         // cycle continues until the α termination or the sweep budget).
         if (res > restrictionTol * rPrev) {
             if (level < nlevels_ - 1) {
@@ -999,7 +999,7 @@ void AggregationBackend::build(const SparseMatrix& A, std::size_t hash) {
 
         AggRowMatrix level = A;
         level.makeCompressed();
-        // Fluent 26.5.1 / Theory 18.6.3: conservative aggregation groups each
+        // Conservative aggregation groups each
         // cell with its strongest ungrouped neighbour, up to "Coarsen by".
         // The scalar default is 2 for Gauss-Seidel; 4 is the coupled/2D default
         // and coarsens fast enough to avoid the deep, stalling hierarchy that
@@ -1208,7 +1208,7 @@ bool AggregationBackend::aggregationVcycle_(int level, const Eigen::VectorXd& b,
     const int n = static_cast<int>(A.rows());
     if (n == 0 || b.size() != n || x.size() != n) return false;
 
-    // Respect the configured sweeps (Fluent scalar default: pre=0, post=1).
+    // Respect the configured sweeps (scalar default: pre=0, post=1).
     const int pre = std::max(0, config_.preSweeps);
     const int post = std::max(0, config_.postSweeps);
 
@@ -1526,13 +1526,13 @@ void AggregationBackend::flexCycleImpl_(int level, const Eigen::VectorXd& b,
         }
 
         // Prolongation / termination: level resolved (R_i < alpha*R_0), or the
-        // sweep budget is spent. Fluent: R_i < alpha*R_0 with alpha = 0.1.
+        // sweep budget is spent. R_i < alpha*R_0 with alpha = 0.1.
         if (res < prolongationTol * r0 || i >= maxSweeps) {
             if (outResNorm) *outResNorm = res;
             return;
         }
 
-        // Restriction (Fluent): R_i > beta*R_{i-1} -> visit the coarser level.
+        // Restriction: R_i > beta*R_{i-1} -> visit the coarser level.
         // rPrev must be R_{i-1} = the residual after the PREVIOUS relaxation,
         // i.e. the pre-correction residual of this sweep (NOT the post-coarse-
         // correction residual, which would double-count the coarse effect).

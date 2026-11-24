@@ -247,7 +247,16 @@ private:
     // outer iteration. The momentum assembly, the pressure-correction RHS and
     // the continuity residual all consume this same array. Empty/unused on the
     // transient path until Phase 1.5.
-    void computeProvisionalFaceFlux_();
+    // `velocity` defaults to the bound field; pass `&uStar_` after the momentum
+    // predictor so the correction RHS sees the divergence of the fresh u*.
+    void computeProvisionalFaceFlux_(const VectorField<Dim>* velocity = nullptr);
+    // The pressure force is sum_f p_f A_f n with face pressures
+    // interpolated with 1/a_P (= dCoeff) weights. This single operator feeds
+    // momentum, Rhie-Chow and the cell-velocity correction.
+    void computeFaceBasedPressureGradient_(const Field<Dim>& p,
+                                           std::array<Field<Dim>, Dim>& grad) const;
+    // Apply the pressure-correction flux to the stored face flux.
+    void correctFaceFluxWithPressure_(const Field<Dim>& pPrime);
     // Normalised linear residual |A u - b| / sum|b| of the momentum system
     // for component d, evaluated at the current velocity.
     double momentumResidual_(std::size_t d) const;

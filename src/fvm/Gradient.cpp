@@ -276,14 +276,29 @@ void Gradient<Dim>::buildNormalMatrix_() const {
     for (std::size_t f = 0; f < nF; ++f) {
         const std::size_t P = ownerPtr[f];
         const std::size_t N = neighborPtr[f];
-        // Wall faces are excluded: the fit uses interior neighbours only
-        // (see the face loop for why a reflected ghost cell was removed).
-        if (N == std::size_t(-1)) continue;
         const double* xP = mesh_.cellCenterPtr(P);
+        auto& Mp = M_all_[P];
+        if (N == std::size_t(-1)) {
+            // A boundary face contributes its DIRECTION to the fit with a zero
+            // value difference: the zero-gradient (Neumann) constraint
+            // grad . d = 0, i.e. the mirror ghost cell x_g = 2 x_f - x_P with
+            // phi_g = phi_P. Without it a tet cell on a wall edge has only
+            // Dim-1 interior neighbours and a corner cell only one, so the fit
+            // is rank deficient and its minimum-norm solution silently drops
+            // the gradient component in the missing direction - the pressure
+            // force in exactly the wall/corner cells is then an arbitrary
+            // projection while the pressure equation still corrects them.
+            const double* xF = mesh_.faceCenterPtr(f);
+            double dPN[Dim];
+            for (std::size_t dd = 0; dd < Dim; ++dd) dPN[dd] = 2.0 * (xF[dd] - xP[dd]);
+            for (std::size_t i = 0; i < Dim; ++i)
+                for (std::size_t j = 0; j < Dim; ++j)
+                    Mp(i, j) += dPN[i] * dPN[j];
+            continue;
+        }
         const double* xN = mesh_.cellCenterPtr(N);
         double dPN[Dim];
         for (std::size_t dd = 0; dd < Dim; ++dd) dPN[dd] = xN[dd] - xP[dd];
-        auto& Mp = M_all_[P];
         auto& Mn = M_all_[N];
         for (std::size_t i = 0; i < Dim; ++i) {
             for (std::size_t j = 0; j < Dim; ++j) {

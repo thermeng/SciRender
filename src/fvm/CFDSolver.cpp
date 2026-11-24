@@ -51,6 +51,9 @@ void CFDSolver<Dim>::applyPressureSolverConfig_() {
     typename PressureCorrection<Dim>::Config pcCfg;
     pcCfg.useAMGPreconditioner = config_.pressureUseAMGPreconditioner;
     pcCfg.pressureAmg = config_.pressureAmg;
+    // CaseSettings uses 0 for "auto"; PressureCorrection reads 0 as "pin cell
+    // 0", so translate it the same way solver_config_bridge does.
+    pcCfg.pressureRefCell = config_.pressureRefCell == 0 ? SIZE_MAX : config_.pressureRefCell;
     pressureCorrection_.setConfig(pcCfg);
     pressureCorrection_.setPressureGradient(pressureGradientCalc_.get());
 }
@@ -324,7 +327,8 @@ double CFDSolver<Dim>::momentumResidual_(std::size_t d) const {
 }
 
 template<std::size_t Dim>
-void CFDSolver<Dim>::computeProvisionalFaceFlux_() {
+void CFDSolver<Dim>::computeProvisionalFaceFlux_(const VectorField<Dim>* velocity) {
+    const VectorField<Dim>& u = velocity ? *velocity : boundVelocity();
     const auto& bc = bcDiscretization();
     const std::size_t nF = mesh_.nFaces();
     if (faceVolFlux_.size() != nF) faceVolFlux_.assign(nF, 0.0);
@@ -340,7 +344,7 @@ void CFDSolver<Dim>::computeProvisionalFaceFlux_() {
         if (N != kNoNeighbor) {
             const double w = mesh_.faceWeight(f);
             double un = dotNormal(
-                interpolateFaceVelocity(boundVelocity(), P, N, w,
+                interpolateFaceVelocity(u, P, N, w,
                                         &bc.dirichletMask(), &bc.dirichletVals()), fn);
             if (rhieChowActive) {
                 un += rhieChowCorrection<Dim>(mesh_, f, dCoeff_, boundPressure(),
@@ -356,17 +360,87 @@ void CFDSolver<Dim>::computeProvisionalFaceFlux_() {
             const bool hasFaceEntry = f < bc.faceBCs().size();
             double un = 0.0;
             if (hasFaceEntry) {
-                un = boundaryFaceState<Dim>(boundVelocity(), P, fn,
+                un = boundaryFaceState<Dim>(u, P, fn,
                                             bc.faceBCs()[f]).normalVelocity;
             } else {
                 for (std::size_t d = 0; d < Dim; ++d) {
-                    double uFace = boundVelocity()[d][P];
+                    double uFace = u[d][P];
                     prescribedValue(bc.dirichletMask(), bc.dirichletVals(), d, P, uFace);
                     un += uFace * fn[d];
                 }
             }
             faceVolFlux_[f] = un * area;
         }
+    }
+}
+
+template<std::size_t Dim>
+void CFDSolver<Dim>::computeFaceBasedPressureGradient_(
+    const Field<Dim>& p, std::array<Field<Dim>, Dim>& grad) const {
+    const auto& bc = bcDiscretization();
+    const double* vol = mesh_.cellVolumePtr();
+    const std::size_t* ownerPtr = mesh_.ownerPtr();
+    const std::size_t* neighborPtr = mesh_.neighborPtr();
+    const double* pPtr = p.ptr();
+    for (auto& g : grad) g.assign(0.0);
+    for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
+        const std::size_t P = ownerPtr[f];
+        const std::size_t N = neighborPtr[f];
+        const double* fn = mesh_.faceNormalPtr(f);
+        const double area = mesh_.faceArea(f);
+        double pFace;
+        if (N == kNoNeighbor) {
+            // Only a pressure outlet has a face value; other boundaries are
+            // zero-normal-gradient.
+            pFace = (bc.isPressureDirichletFace(f) && f < bc.faceBCs().size())
+                        ? bc.faceBCs()[f].pressureValue : pPtr[P];
+            for (std::size_t d = 0; d < Dim; ++d)
+                grad[d][P] += area * fn[d] * pFace / vol[P];
+            continue;
+        }
+        // a_P ~ 1/dCoeff: the a_P-weighted face pressure is
+        // p_f = (d_N p_P + d_P p_N) / (d_P + d_N).
+        double dP = 0.0, dN = 0.0;
+        for (std::size_t d = 0; d < Dim; ++d) {
+            dP += dCoeff_[d][P] * fn[d] * fn[d];
+            dN += dCoeff_[d][N] * fn[d] * fn[d];
+        }
+        const double w = (dP + dN > 0.0) ? dN / (dP + dN) : mesh_.faceWeight(f);
+        pFace = (1.0 - w) * pPtr[P] + w * pPtr[N];
+        for (std::size_t d = 0; d < Dim; ++d) {
+            const double c = area * fn[d] * pFace;
+            grad[d][P] += c / vol[P];
+            grad[d][N] -= c / vol[N];
+        }
+    }
+}
+
+template<std::size_t Dim>
+void CFDSolver<Dim>::correctFaceFluxWithPressure_(const Field<Dim>& pPrime) {
+    // Correct the stored face flux with the same compact coefficient the
+    // pressure equation used. The skew part of the correction lives in the
+    // a_P-weighted face gradient used by momentum and by the cell velocity
+    // update, so cell and face fluxes agree on skew meshes.
+    const std::size_t* ownerPtr = mesh_.ownerPtr();
+    const std::size_t* neighborPtr = mesh_.neighborPtr();
+    for (std::size_t f = 0; f < mesh_.nFaces(); ++f) {
+        const std::size_t P = ownerPtr[f];
+        const std::size_t N = neighborPtr[f];
+        if (N == kNoNeighbor) continue;
+        const double* fn = mesh_.faceNormalPtr(f);
+        const double area = mesh_.faceArea(f);
+        const double w = mesh_.faceWeight(f);
+        double dFace = 0.0, dotSfd = 0.0;
+        for (std::size_t d = 0; d < Dim; ++d) {
+            dFace += ((1.0 - w) * dCoeff_[d][P] + w * dCoeff_[d][N]) * fn[d] * fn[d];
+            const double* xP = mesh_.cellCenterPtr(P);
+            const double* xN = mesh_.cellCenterPtr(N);
+            dotSfd += fn[d] * (xN[d] - xP[d]);
+        }
+        const double dist = mesh_.faceDist(f);
+        if (!(dist > 1e-30)) continue;
+        const double nf = dotSfd / (dist * dist);
+        faceVolFlux_[f] += dFace * area * nf * (pPrime[P] - pPrime[N]);
     }
 }
 
@@ -398,7 +472,7 @@ void CFDSolver<Dim>::updateResiduals_() {
                                             &bcDiscretization().faceBCs(),
                                             &dCoeff_, &pPrime_, &dpdx_, &pressureCorrection_.pressureMask(),
                                             useProvisionalFlux_ ? &faceVolFlux_ : nullptr,
-                                            useProvisionalFlux_ ? &pPrime_ : nullptr);
+                                            static_cast<const Field<Dim>*>(nullptr));
     lastContResidPost_ = resid.continuity;
     // Steady reports the predictor imbalance (the value the pressure correction
     // is about to reduce). PISO reports the imbalance of the corrector that
@@ -550,7 +624,7 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
                   velocityOld_[d].values().begin());
 
     auto tMomentum = std::chrono::steady_clock::now();
-    pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
+    computeFaceBasedPressureGradient_(boundPressure(), pressureGrad_);
     // The provisional flux must be built BEFORE the momentum predictor, so the
     // convection uses the pure velocity flux. computeProvisionalFaceFlux_() adds
     // the Rhie-Chow pressure term to faceVolFlux_, so passing it into the
@@ -563,6 +637,10 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
         solveMomentumComponent_(d, uStar_, velocityOld_, pressureGrad_, provisionalFlux);
     steadyMomentumSeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tMomentum).count();
 
+    // Rebuild the flux from the fresh predictor: the correction RHS must see
+    // div(u*), not div(u_{k-1}). Identical on orthogonal meshes, O(1) on skew.
+    computeProvisionalFaceFlux_(&uStar_);
+
     auto tPred = std::chrono::steady_clock::now();
     capturePredictedContinuity_();
     steadyPredictedContinuitySeconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - tPred).count();
@@ -571,9 +649,9 @@ void CFDSolver<Dim>::performIteration_(VectorField<Dim>& velocity, Field<Dim>& p
     if (nCorr < 1) nCorr = 1;
     for (int corr = 0; corr < nCorr; ++corr) {
         if (corr > 0 && useProvisionalFlux_) {
-            // Non-orthogonal corrector: rebuild the provisional Rhie-Chow flux
-            // from the corrected velocity and pressure before the next solve.
-            pressureGradientCalc_->compute(boundPressure(), pressureGrad_);
+            // Skewness/neighbour corrector: refresh the face flux from
+            // the corrected velocity and the a_P-weighted pressure gradient.
+            computeFaceBasedPressureGradient_(boundPressure(), pressureGrad_);
             computeProvisionalFaceFlux_();
         }
         auto tPressure = std::chrono::steady_clock::now();
@@ -835,15 +913,18 @@ void CFDSolver<Dim>::applyPressureCorrection_(VectorField<Dim>& uStar, double al
     if (applyLimiter) limitPressureCorrection_(pPrime_);
     pressureBeforeCorrection_ = boundPressure();
     pressureGradBefore_ = pressureCorrection_.pressureGradient();
-    // Standard SIMPLE: full velocity correction u = u* - d grad p' (divergence-free);
-    // pressure under-relaxation p += alphaP p' only.
+    // The face flux is corrected with the same a_P-weighted
+    // face pressure gradient used in momentum and in the cell-velocity update.
+    correctFaceFluxWithPressure_(pPrime_);
+    computeFaceBasedPressureGradient_(pPrime_, dpdx_);
     correctVelocity(mesh_, uStar, pPrime_, dCoeff_,
                     bcDiscretization().dirichletMask(), bcDiscretization().dirichletVals(),
                     dpdx_, boundVelocity(),
                     &bcDiscretization().faceBCs(),
                     config_.velocityCorrectionMaxUnlimitedSpeed,
                     config_.velocityCorrectionMaxGrowthRate,
-                    pressureGradientCalc_.get());
+                    static_cast<Gradient<Dim>*>(nullptr), /*skipGradientCompute=*/true,
+                    /*reconstructFromFaceFlux=*/true);
     #pragma omp parallel for schedule(static)
     for (std::size_t i = 0; i < mesh_.nCells(); ++i) {
         (boundPressure())[i] += alphaP * pPrime_[i];

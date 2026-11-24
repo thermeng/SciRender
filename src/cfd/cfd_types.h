@@ -86,7 +86,7 @@ struct AmgSettings {
     double stagnationFactor = 1.05;
     int stagnationMinIter = 10;
     double stagnationLooseFactor = 5.0;
-    // Flexible-cycle tolerances (Fluent 26.5.1 / Theory 18.6.3):
+    // Flexible-cycle tolerances:
     //   flexAlpha = β (restriction): if R_i > β*R_{i-1} (reduction too slow),
     //     visit the next coarser level. Default 0.7.
     //   flexBeta  = α (termination): a level is converged when R_i < α*R_0

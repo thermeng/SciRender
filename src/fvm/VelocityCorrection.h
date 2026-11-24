@@ -35,7 +35,9 @@ inline void correctVelocity(
     const std::vector<FaceVelocityBC>* faceBC = nullptr,
     double maxUnlimitedSpeed = 20.0,   // growth limiting only applies above this speed
     double maxGrowthRate = 0.15,       // max per-iteration growth rate (e.g. 0.15 = 15%)
-    Gradient<Dim>* reusableGradient = nullptr   // caller-owned LS workspace
+    Gradient<Dim>* reusableGradient = nullptr,  // caller-owned LS workspace
+    bool skipGradientCompute = false,  // caller already filled dpdx (face-based gradient)
+    bool reconstructFromFaceFlux = false  // derive u from corrected face fluxes
 ) {
 
     // Standard SIMPLE always applies the FULL velocity correction
@@ -48,18 +50,59 @@ inline void correctVelocity(
     // below consumes. `reusableGradient` lets the solver reuse its least-squares
     // workspace (geometry matrix, scratch) across correctors; without one a
     // fresh Gradient is used, which allocates nothing until compute() is called.
-    Gradient<Dim> localGradient(mesh, GradientScheme::LeastSquares);
-    Gradient<Dim>& gradient = reusableGradient ? *reusableGradient : localGradient;
-    for (auto& g : dpdx)
-        if (g.size() != mesh.nCells()) g = Field<Dim>(mesh, 0.0);
-    gradient.compute(pPrime, dpdx);
+    if (!skipGradientCompute) {
+        Gradient<Dim> localGradient(mesh, GradientScheme::LeastSquares);
+        Gradient<Dim>& gradient = reusableGradient ? *reusableGradient : localGradient;
+        for (auto& g : dpdx)
+            if (g.size() != mesh.nCells()) g = Field<Dim>(mesh, 0.0);
+        gradient.compute(pPrime, dpdx);
+    }
 
+    if (reconstructFromFaceFlux) {
+        // The corrected face flux is the conserved quantity.
+        // Reconstruct the cell velocity from the same compact face corrections
+        // the pressure operator enforces, so cell and face fluxes agree.
+        #pragma omp parallel for schedule(static)
+        for (std::size_t P = 0; P < mesh.nCells(); ++P) {
+            bool prescribed = false;
+            for (std::size_t d = 0; d < Dim; ++d)
+                if (dirichletMask[d][P]) prescribed = true;
+            if (prescribed) {
+                for (std::size_t d = 0; d < Dim; ++d) velocity[d][P] = dirichletVals[d][P];
+                continue;
+            }
+            std::array<double, Dim> corr{};
+            const double* xP = mesh.cellCenterPtr(P);
+            for (std::size_t f : mesh.cellFaces(P)) {
+                const std::size_t N = mesh.neighbor(f);
+                if (N == std::size_t(-1)) continue;
+                const double* fn = mesh.faceNormalPtr(f);
+                const double* xN = mesh.cellCenterPtr(N);
+                const double* xF = mesh.faceCenterPtr(f);
+                const double w = mesh.faceWeight(f);
+                double dFace = 0.0, dotSfd = 0.0;
+                for (std::size_t d = 0; d < Dim; ++d) {
+                    dFace += ((1.0 - w) * dCoeff[d][P] + w * dCoeff[d][N]) * fn[d] * fn[d];
+                    dotSfd += fn[d] * (xN[d] - xP[d]);
+                }
+                const double dist = mesh.faceDist(f);
+                if (!(dist > 1e-30) || !(dFace * dotSfd > 0.0)) continue;
+                const double c = dFace * mesh.faceArea(f) * dotSfd / (dist * dist) *
+                                 (pPrime[P] - pPrime[N]);
+                for (std::size_t d = 0; d < Dim; ++d) corr[d] += c * (xF[d] - xP[d]);
+            }
+            const double invV = 1.0 / mesh.cellVolume(P);
+            for (std::size_t d = 0; d < Dim; ++d)
+                velocity[d][P] = uStar[d][P] + corr[d] * invV;
+        }
+    } else {
     for (std::size_t d = 0; d < Dim; ++d) {
         #pragma omp parallel for schedule(static)
         for (std::size_t i = 0; i < mesh.nCells(); ++i) {
             if (dirichletMask[d][i]) velocity[d][i] = dirichletVals[d][i];
             else velocity[d][i] = uStar[d][i] - dCoeff[d][i] * dpdx[d][i];
         }
+    }
     }
 
     // Velocity amplitude damping: cap per-iteration growth rate, but only when

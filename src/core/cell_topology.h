@@ -6,10 +6,10 @@
 #include <span>
 #include <vector>
 
-// Cell topology shared by the ANSYS reader, the CFD adapter, the derived
+// Cell topology shared by the mesh reader, the CFD adapter, the derived
 // volume grid and isosurface extraction.
 //
-// The renderer keeps a flat, canonical VTK corner order per cell. ANSYS writes
+// The renderer keeps a flat, canonical VTK corner order per cell. The mesh format writes
 // the vertices of a 3D cell in arbitrary order (a union of its face loops), so
 // the reader canonicalizes them here; everything downstream (VTU export,
 // tetrahedralization, voxelization) can then rely on the VTK layout.

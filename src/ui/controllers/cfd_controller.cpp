@@ -72,7 +72,7 @@ QString meshExtension(const QString& displayName, const QByteArray& bytes) {
     if (head.startsWith("# vtk DataFile")) return "vtk";
     if (head.startsWith("$MeshFormat")) return "msh";
     if (head.startsWith("solid ") || head.startsWith("facet")) return "stl";
-    return "msh"; // ANSYS / Gmsh binary / anything else the loader can sniff
+    return "msh"; // .msh / Gmsh binary / anything else the loader can sniff
 }
 
 std::vector<PvdEntry> readExistingPvd(const QString& path) {

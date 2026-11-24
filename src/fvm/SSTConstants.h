@@ -20,7 +20,7 @@ struct SSTConstants {
     double kappa     = 0.41;
 };
 
-constexpr double nonOrthCorrectionFactor = 0.5;  // under-relax explicit non-orthogonal correction
+constexpr double nonOrthCorrectionFactor = 1.0;  // under-relax explicit non-orthogonal correction
 constexpr double minFaceDist = 1e-15;
 constexpr double minDivisor = 1e-30;
 constexpr double wallDistFactor = 500.0;

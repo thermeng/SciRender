@@ -91,7 +91,7 @@ private:
         const std::vector<std::array<double, Dim>>& points);
 
     // Builds, for every cell, the ordered vertex loop of each of its faces.
-    // The ANSYS face records carry the face nodes in order around the face, so
+    // The face records carry the face nodes in order around the face, so
     // the loops can be handed to the mesh as an explicit topology. Without it
     // the mesh has to infer the topology from the cell vertex count, which is
     // wrong for every element whose nodes are not in VTK/Gmsh order.

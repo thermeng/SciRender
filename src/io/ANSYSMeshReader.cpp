@@ -641,7 +641,7 @@ int ANSYSMeshReader<Dim>::detectDimension(const std::string& filename) {
         throw std::runtime_error("ANSYSMeshReader: cannot open file '" + filename + "'");
     }
 
-    // The Fluent format starts with small top-level sections (comment, header,
+    // The mesh format starts with small top-level sections (comment, header,
     // dimension) before the bulk data, so stopping at section 2 costs nothing.
     Tokenizer tokenizer(in);
     while (true) {
@@ -707,7 +707,7 @@ ANSYSMeshReader<Dim>::read(const std::string& filename) {
 
     // The explicit face topology keeps the element node order irrelevant: the
     // mesh builds its faces from the face records instead of assuming a VTK
-    // element layout that ANSYS does not use.
+    // element layout that this format does not use.
     std::vector<std::vector<std::size_t>> meshCells;
     std::vector<std::vector<std::vector<std::size_t>>> meshCellFaces;
     meshCells.reserve(cellVerts.size());
