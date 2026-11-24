@@ -99,6 +99,15 @@ LinearSolverDispatcher<Dim>::solve(std::size_t component, const SparseMatrix& A,
             std::chrono::steady_clock::now() - tRefresh).count();
     }
 
+    // A hierarchy may have been built before the requested verbosity was
+    // applied (e.g. during initialization), so print on the first solve that
+    // actually asks for it, not only on a rebuild.
+    if (!amgHierarchyLogged_[component] && amg_[component].isBuilt() &&
+        config_.amgConfig.verbosity >= cfd::AmgSettings::Verbosity::High) {
+        amg_[component].printHierarchy(label_(component).c_str(), std::cerr);
+        amgHierarchyLogged_[component] = true;
+    }
+
     if (!amgBuilt_[component]) {
         std::cerr << "  " << label_(component) << ": AMG hierarchy failed to build\n";
         return {Eigen::VectorXd::Zero(b.size()), true, 0};

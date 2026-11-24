@@ -314,6 +314,8 @@ private:
     mutable Field<Dim> momDiag_;
     mutable std::array<Field<Dim>, Dim> velGrad_;
     mutable std::array<Field<Dim>, Dim> pressureGrad_;
+    // Diagnosis is emitted once per run, not on every iteration row.
+    bool amgDiagnosisPrinted_ = false;
 
     LinearSolverDispatcher<Dim> linearSolverDispatcher_;
 

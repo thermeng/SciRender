@@ -74,6 +74,9 @@ public:
     const std::vector<double>& lastResidualHistory() const { return backend_->lastResidualHistory(); }
 
     // Verbose per-component diagnostic (residual history + level table + memory).
+    void printHierarchy(const char* name, std::ostream& os) const {
+        backend_->printHierarchy(name, os);
+    }
     void printVerbose(const char* name, std::ostream& os) const {
         backend_->printVerbose(name, os);
     }

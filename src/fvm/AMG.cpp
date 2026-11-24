@@ -95,6 +95,7 @@ private:
                         const std::atomic<bool>* cancel) const;
     bool solveAggregation_(const Eigen::VectorXd& b, Eigen::VectorXd& x,
                            const std::atomic<bool>* cancel) const;
+    void printHierarchy(const char* name, std::ostream& os) const override;
     void printVerbose(const char* name, std::ostream& os) const override;
     bool applyFlexibleFineCycle_(const Eigen::VectorXd& b,
                                  Eigen::VectorXd& x) const;
@@ -338,12 +339,8 @@ void AggregationBackend::build(const SparseMatrix& A, std::size_t hash) {
         buildAggScatterCaches_();
 
     nlevels_ = static_cast<int>(levels_.size());
-    if (config_.verbosity >= cfd::AmgSettings::Verbosity::High ||
-        std::getenv("SCIRENDER_AGG_TIMING")) {
-        for (int l = 0; l < nlevels_; ++l)
-            std::cerr << "  level " << l << ": " << levelSizes_[l]
-                      << " unknowns, " << levels_[l].ARM.nonZeros() << " nnz\n";
-    }
+    // The hierarchy is printed once by LinearSolverDispatcher, not on every
+    // O(nnz) operator refresh (which happens on every solve).
     built_ = !levels_.empty();
     buildSeconds_ += std::chrono::duration<double>(
         std::chrono::steady_clock::now() - tBuild0).count();
@@ -625,62 +622,68 @@ bool AggregationBackend::solveAggregation_(const Eigen::VectorXd& b, Eigen::Vect
     return lastResidual_ < tol * config_.stagnationLooseFactor;
 }
 
+void AggregationBackend::printHierarchy(const char* name, std::ostream& os) const {
+    if (nlevels_ <= 0) return;
+    os << "  " << name << ": AMG hierarchy " << nlevels_ << " levels: ";
+    for (int l = 0; l < nlevels_; ++l) {
+        if (l) os << " -> ";
+        os << levelSizes_[static_cast<std::size_t>(l)];
+    }
+    const int first = levelSizes_.empty() ? 0 : levelSizes_.front();
+    const int last = levelSizes_.empty() ? 0 : levelSizes_.back();
+    if (first > 0 && last > 0) {
+        char ratio[64];
+        std::snprintf(ratio, sizeof(ratio), " (%.1fx coarsening)",
+                      static_cast<double>(first) / last);
+        os << ratio;
+    }
+    os << "\n";
+    if (config_.verbosity == cfd::AmgSettings::Verbosity::Diagnosis) {
+        os << "    level    cells      nnz   time (s)\n";
+        for (int l = 0; l < nlevels_; ++l) {
+            const auto idx = static_cast<std::size_t>(l);
+            const int sz = idx < levelSizes_.size() ? levelSizes_[idx] : 0;
+            const int nnz = idx < levels_.size() ? static_cast<int>(levels_[idx].ARM.nonZeros()) : 0;
+            const double el = idx < levelSeconds_.size() ? levelSeconds_[idx] : 0.0;
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%8d %8d %10d %10.4f\n", l, sz, nnz, el);
+            os << buf;
+        }
+    }
+}
+
 void AggregationBackend::printVerbose(const char* name, std::ostream& os) const {
     const int cycles = std::max(1, config_.flexMaxSweeps);
     const int pre = std::max(0, config_.preSweeps);
     const int post = std::max(0, config_.postSweeps);
 
-    os << "\nSolving " << name << "...\n";
-    os << "\nIteration Relative Residuals\n";
-    os << "--------- --------------------\n";
+    (void)cycles; (void)pre; (void)post;
     const std::size_t nh = lastResidualHistory_.size();
-    for (std::size_t i = 0; i < nh; ++i) {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "%9zu % .6e\n", i, lastResidualHistory_[i]);
-        os << buf;
-    }
-    os << "\nTotal number AMG iterations : " << lastIterations_ << "\n";
-
-    os << "\nLevel       Size nCycles nPreSmooths nPostSmooths "
-          "Elapsed Time (s) Elapsed Time pec (ms)\n";
-    os << "----- ---------- ------- ----------- ------------ "
-          "---------------- ---------------------\n";
-    double totalSolve = 0.0;
-    std::size_t maxMem = 0;
-    for (int l = 0; l < nlevels_; ++l) {
-        const int sz = (l < static_cast<int>(levelSizes_.size())) ? levelSizes_[l] : 0;
-        const double el = (l < static_cast<int>(levelSeconds_.size())) ? levelSeconds_[l] : 0.0;
-        totalSolve += el;
-        const double pec = (sz > 0 && cycles > 0) ? (el * 1000.0 / (cycles * sz)) : 0.0;
-        char buf[192];
-        std::snprintf(buf, sizeof(buf), "%5d %10d %7d %11d %12d %17.6f %21.6f\n",
-                      l, sz, cycles, pre, post, el, pec);
-        os << buf;
-        if (l < static_cast<int>(levels_.size())) {
-            const auto& lv = levels_[l];
-            std::size_t m = static_cast<std::size_t>(lv.ARM.nonZeros()) * (sizeof(double) + sizeof(int));
-            m += static_cast<std::size_t>(lv.P.nonZeros()) * (sizeof(double) + sizeof(int));
-            m += static_cast<std::size_t>(lv.R.nonZeros()) * (sizeof(double) + sizeof(int));
-            m += static_cast<std::size_t>(lv.AT.nonZeros()) * (sizeof(double) + sizeof(int));
-            m += lv.invDiag.size() * sizeof(double) + lv.diagPos.size() * sizeof(int);
-            maxMem += m;
+    os << "  " << name << ": AMG " << lastIterations_ << " cycle(s), final residual "
+       << (nh ? lastResidualHistory_.back() : lastResidual_) << "\n";
+    if (nh) {
+        const std::size_t shown = std::min<std::size_t>(12, nh);
+        os << "    last " << shown << " relative residuals:";
+        for (std::size_t i = nh - shown; i < nh; ++i) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), " % .3e", lastResidualHistory_[i]);
+            os << buf;
         }
+        os << "\n";
     }
-    os << " - pec = \"Per Equation Cycle\"\n";
 
-    os << "\nTotal component times (incl comm):\n";
-    char tbuf[256];
+    std::size_t maxMem = 0;
+    for (const auto& lv : levels_) {
+        maxMem += static_cast<std::size_t>(lv.ARM.nonZeros()) * (sizeof(double) + sizeof(int));
+        maxMem += static_cast<std::size_t>(lv.P.nonZeros()) * (sizeof(double) + sizeof(int));
+        maxMem += static_cast<std::size_t>(lv.R.nonZeros()) * (sizeof(double) + sizeof(int));
+        maxMem += static_cast<std::size_t>(lv.AT.nonZeros()) * (sizeof(double) + sizeof(int));
+        maxMem += lv.invDiag.size() * sizeof(double) + lv.diagPos.size() * sizeof(int);
+    }
+    char tbuf[192];
     std::snprintf(tbuf, sizeof(tbuf),
-                  "  Building levels          : %14.6f(s)\n"
-                  "  Solving levels           : %14.6f(s)\n"
-                  "  Krylov solve time        : %14.6f(s)\n"
-                  "  Total solver time        : %14.6f(s)\n",
-                  buildSeconds_, solveSeconds_, solveSeconds_,
-                  buildSeconds_ + solveSeconds_);
-    os << tbuf;
-
-    std::snprintf(tbuf, sizeof(tbuf),
-                  "\nMaximum AMG Memory (all processes): %zu bytes\n", maxMem);
+                  "    build %.3f s, solve %.3f s, hierarchy memory %zu bytes\n",
+                  buildSeconds_, solveSeconds_, maxMem);
     os << tbuf;
 }
 

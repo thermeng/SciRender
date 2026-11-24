@@ -56,6 +56,8 @@ public:
     // Verbose per-component diagnostic (STAR-CCM+ style: residual history,
     // per-level table, memory). Default is a no-op; backends that track the
     // hierarchy override it.
+    // Compact one-line hierarchy description, printed once per component.
+    virtual void printHierarchy(const char* /*name*/, std::ostream& /*os*/) const {}
     virtual void printVerbose(const char* /*name*/, std::ostream& /*os*/) const {}
 };
 

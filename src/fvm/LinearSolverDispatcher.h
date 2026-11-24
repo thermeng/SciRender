@@ -115,6 +115,7 @@ private:
     mutable std::array<std::size_t, Dim> amgValueUpdates_{};
     mutable std::array<bool, Dim> amgPatternAnalyzed_{};
     mutable std::array<bool, Dim> amgPathLogged_{};
+    mutable std::array<bool, Dim> amgHierarchyLogged_{};
 
     // Stats
     struct Stats {

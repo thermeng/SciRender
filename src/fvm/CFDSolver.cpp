@@ -1078,65 +1078,40 @@ void CFDSolver<Dim>::printIterationRow_(bool isTransient, int iter, double time,
     // Steady-only: the per-equation AMG diagnosis. Transient rows carry the
     // time/dt columns and are printed by the driver loop; the diagnosis
     // lives here.
+    // Diagnosis is a one-time summary; the per-iteration row already reports
+    // the residuals every step.
     const auto verbosity = cfd::AmgSettings::Verbosity::Diagnosis;
-    if (!isTransient && config_.momentumAmg.verbosity == verbosity) {
-        for (std::size_t d = 0; d < Dim; ++d) {
-            const char* name = (d == 0) ? "x-momentum"
-                               : (d == 1) ? "y-momentum"
-                               : "z-momentum";
-            if (!linearSolverDispatcher_.amgBuilt(d)) continue;
-            std::cout << name << " equation:\n";
-            std::cout << "  tol.   " << std::scientific << std::setprecision(4)
-                      << config_.momentumAmg.tolerance << "\n";
-            const auto& hist = linearSolverDispatcher_.amgLastResidualHistory(d);
-            for (std::size_t c = 0; c < hist.size(); ++c) {
-                std::cout << "    " << std::setw(2) << c << " "
-                          << std::scientific << std::setprecision(4)
-                          << hist[c] << "\n";
+    if (!isTransient && !amgDiagnosisPrinted_ &&
+        (config_.momentumAmg.verbosity == verbosity || config_.pressureAmg.verbosity == verbosity)) {
+        auto compact = [](const char* name, double tol, int iters, double resid,
+                          const std::vector<int>& sizes) {
+            std::cout << "  " << name << ": tol=" << std::scientific << std::setprecision(1)
+                      << tol << ", " << iters << " cycle(s), resid=" << resid;
+            if (!sizes.empty()) {
+                std::cout << ", hierarchy " << sizes.front();
+                for (std::size_t l = 1; l < sizes.size(); ++l)
+                    std::cout << " -> " << sizes[l];
             }
-            std::cout << "  iters  " << linearSolverDispatcher_.amgLastIterations(d)
-                      << "  rel.resid " << std::scientific << std::setprecision(4)
-                      << linearSolverDispatcher_.amgLastResidual(d) << "\n";
-            const auto& sizes = linearSolverDispatcher_.amgLevelSizes(d);
-            std::cout << "  multigrid levels:\n";
-            std::cout << "  level min    max    mean   total\n";
-            for (int l = 0; l < static_cast<int>(sizes.size()); ++l) {
-                const int sz = sizes[static_cast<std::size_t>(l)];
-                std::cout << "   " << std::setw(2) << l << " "
-                          << std::setw(6) << sz << " "
-                          << std::setw(6) << sz << " "
-                          << std::setw(7) << sz << " "
-                          << std::setw(6) << sz << "\n";
+            std::cout << "\n";
+        };
+        if (config_.momentumAmg.verbosity == verbosity) {
+            for (std::size_t d = 0; d < Dim; ++d) {
+                const char* name = (d == 0) ? "x-momentum"
+                                   : (d == 1) ? "y-momentum" : "z-momentum";
+                if (!linearSolverDispatcher_.amgBuilt(d)) continue;
+                compact(name, config_.momentumAmg.tolerance,
+                        linearSolverDispatcher_.amgLastIterations(d),
+                        linearSolverDispatcher_.amgLastResidual(d),
+                        linearSolverDispatcher_.amgLevelSizes(d));
             }
         }
-    }
-    if (!isTransient && config_.pressureAmg.verbosity == verbosity &&
-        pressureCorrection_.amgBuilt()) {
-        std::cout << "pressure correction equation:\n";
-        std::cout << "  tol.   " << std::scientific << std::setprecision(4)
-                  << config_.pressureAmg.tolerance << "\n";
-        const auto& hist = pressureCorrection_.amgLastResidualHistory();
-        for (std::size_t c = 0; c < hist.size(); ++c) {
-            std::cout << "    " << std::setw(2) << c << " "
-                      << std::scientific << std::setprecision(4)
-                      << hist[c] << "\n";
+        if (config_.pressureAmg.verbosity == verbosity && pressureCorrection_.amgBuilt()) {
+            compact("pressure", config_.pressureAmg.tolerance,
+                    static_cast<int>(pressureCorrection_.lastSolveIterations()),
+                    pressureCorrection_.lastSolveResidual(), pressureCorrection_.amgLevelSizes());
         }
-        std::cout << "  iters  " << pressureCorrection_.lastSolveIterations()
-                  << "  rel.resid " << std::scientific << std::setprecision(4)
-                  << pressureCorrection_.lastSolveResidual() << "\n";
-        const auto& sizes = pressureCorrection_.amgLevelSizes();
-        std::cout << "  multigrid levels:\n";
-        std::cout << "  level min    max    mean   total\n";
-        for (int l = 0; l < static_cast<int>(sizes.size()); ++l) {
-            const int sz = sizes[static_cast<std::size_t>(l)];
-            std::cout << "   " << std::setw(2) << l << " "
-                      << std::setw(6) << sz << " "
-                      << std::setw(6) << sz << " "
-                      << std::setw(7) << sz << " "
-                      << std::setw(6) << sz << "\n";
-        }
+        amgDiagnosisPrinted_ = true;
     }
-
     constexpr int wIter = 6;
     constexpr int wRes = 13;
     constexpr int wTime = 13;
