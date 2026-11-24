@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QFont>
+#include <QSizePolicy>
 #include <QString>
 #include <QWidget>
 
@@ -46,6 +47,23 @@ QFrame* vline(QWidget* parent = nullptr);
 template <typename W>
 W* numeric(W* w, int width = kSpinWidth) {
     w->setFixedWidth(width);
+    w->setFont(mono());
+    return w;
+}
+
+// Sidebar rows are ~200px wide after the fixed 72px label. Dialog-width
+// controls overflow there, so sidebar fields stretch to the remaining space.
+template <typename W>
+W* sidebarControl(W* w, int minWidth = 60) {
+    w->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    w->setMinimumWidth(minWidth);
+    w->setMaximumWidth(QWIDGETSIZE_MAX);
+    return w;
+}
+
+template <typename W>
+W* sidebarNumeric(W* w, int minWidth = 60) {
+    sidebarControl(w, minWidth);
     w->setFont(mono());
     return w;
 }

@@ -389,9 +389,8 @@ static const NavSection navSections[] = {
       QT_TRANSLATE_NOOP("MainWindow", "Arrow glyphs and Surface LIC need a vector field. "
                                       "Load a mesh with point or cell vectors.") },
     { "Streamlines",     NavCapability::StreamlineData,
-      QT_TRANSLATE_NOOP("MainWindow", "Streamlines integrate through point vectors. "
-                                      "Load a mesh with node-based vectors, "
-                                      "for example a .vtu with a velocity field.") },
+      QT_TRANSLATE_NOOP("MainWindow", "Streamlines need a 3D mesh with node-based vectors. "
+                                      "Load a .vtu with a 3D velocity field.") },
     { "Volume",          NavCapability::VolumeData,
       QT_TRANSLATE_NOOP("MainWindow", "Volume rendering needs a 3D grid with a scalar field. "
                                       "Load a .vtu, .vts or .vti volume dataset.") },
@@ -749,10 +748,9 @@ QString MainWindow::sectionUnavailableReason(int section) const {
             available = m_settings->hasMeshVectors() || m_settings->hasMeshCellVectors();
             break;
         case NavCapability::StreamlineData:
-            // Streamlines integrate through node vectors; cell-only vectors
-            // cannot seed an integration, matching the auto-disable in
-            // RenderSettings::loadMesh.
-            available = m_settings->hasMeshVectors();
+            // Streamlines integrate through node vectors on a 3D domain;
+            // cell-only vectors and flat/surface meshes cannot be traced.
+            available = m_settings->hasMeshVectors() && m_settings->hasVolumetricMesh();
             break;
         case NavCapability::VolumeData:
             available = m_settings->hasVolumeData();

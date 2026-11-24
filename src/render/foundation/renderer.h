@@ -331,9 +331,6 @@ struct RenderRenderState {
 
     bool showStreamlines = false;
     int streamlineSeedCount = 25;
-    float streamlineStepSize = 0.005f;
-    int streamlineMaxSteps = 100;
-    float streamlineMaxPathLength = 5.0f; // 0 = use maxSteps
     bool streamlineUseColormap = false;
     int streamlineColormapChoice = 3;
     bool streamlineColormapReversed = false;
@@ -351,7 +348,7 @@ struct RenderRenderState {
     float streamlineDiffuse = 0.55f;
     float streamlineSpecular = 0.25f;
     int streamlineSpecularPower = 32;
-    float seedPointSize = 6.0f;
+    float seedPointSize = 4.0f;
     float seedPointColor[3] = { 1.0f, 0.2f, 0.2f };
 
     std::string seedMode = "Volume";
@@ -367,9 +364,9 @@ struct RenderRenderState {
 
 
     bool showParticles = false;
-    int particleCount = 500;
+    int particleCount = 120;
     float particleSpeed = 1.0f;
-    float particleSize = 3.0f;
+    float particleSize = 4.0f;
     int particleShape = 0; // 0 point, 1 2D cone, 2 3D cone
     int streamlineShadingMode = 1; // 0 lit, 1 unlit (default unlit)
     bool particleAdditive = false;

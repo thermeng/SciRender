@@ -4,7 +4,7 @@
 // whose lifetime and coherence were never checked in one place.
 #include <glm/glm.hpp>
 #include <cstddef>
-#include <optional>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -34,6 +34,12 @@ public:
     float                         avgSpacing() const { return m_avgSpacing; }
     size_t                        size()      const { return m_positions.size(); }
 
+    // Optional exact containment test (supplied by the mesh when available).
+    // Node proximity alone lets a path crawl along the outside of a wall.
+    using InsideTest = std::function<bool(const glm::vec3&)>;
+    void setInsideTest(InsideTest f) { m_insideTest = std::move(f); }
+    const InsideTest& insideTest() const { return m_insideTest; }
+
     // Sorted unique axis coordinates for structured grids (derived and
     // coherence-checked in build()). Empty for unstructured domains.
     const std::vector<float>& axisX() const { return m_axisX; }
@@ -46,6 +52,7 @@ private:
     std::optional<StructuredDims> m_dims;
     std::vector<float> m_axisX, m_axisY, m_axisZ;
     float m_avgSpacing = 1.0f;
+    InsideTest m_insideTest;
 };
 
 inline const char* toString(DomainError e) {

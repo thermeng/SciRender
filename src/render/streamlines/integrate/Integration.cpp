@@ -32,8 +32,23 @@ validateParameters(IntegrationParameters p, const FieldDomain& domain) {
     return p;
 }
 
+IntegrationParameters fullDomainParameters(const FieldDomain& domain) {
+    IntegrationParameters p;
+    const float extent = domain.bounds().extent;
+    const float spacing = std::max(domain.avgSpacing(), 1e-9f);
+    // Four samples per cell keeps curvature without a user-tuned step.
+    p.stepSize = std::clamp(0.25f * spacing, extent * 1e-6f, extent);
+    // Enough steps to cross the domain several times; a pure safety guard,
+    // reached only by a pathological dataset, not a normal stop condition.
+    p.maxSteps = std::min(p.budget.maxStepsPerPath,
+                          std::max(64, static_cast<int>(std::ceil(extent / p.stepSize)) * 4 + 16));
+    p.maxPathLength = 0.0f; // never truncate by length
+    return p;
+}
+
 std::vector<glm::vec3> generateSeeds(const FieldDomain& domain,
                                      const IntegrationParameters& params) {
+    if (params.useSeedOverride) return params.seedOverride;
     std::vector<glm::vec3> seeds;
     const auto& b = domain.bounds();
     const float sx = b.max.x - b.min.x, sy = b.max.y - b.min.y, sz = b.max.z - b.min.z;

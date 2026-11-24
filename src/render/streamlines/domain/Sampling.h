@@ -54,6 +54,7 @@ private:
     const FieldDomain& m_d;
     UniformGrid m_grid;
     float m_cutoffSq = 0.0f;
+    float m_insideCutoffSq = 0.0f;
 };
 
 std::unique_ptr<IFieldSampler> makeSampler(const FieldDomain& domain);

@@ -4,19 +4,47 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLayout>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSlider>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <cmath>
+#include <functional>
+
 #include "ui_streamlines_page.h"
+#include "core/mesh_loader.h"
 #include "render/settings/render_settings.h"
 #include "ui/panel_helpers.h"
 
 namespace sidebar {
+namespace {
+
+const RenderMesh* loadedMesh(RenderSettings* s) {
+    auto* r = s ? s->backend() : nullptr;
+    return r ? r->lastUploadedMeshForPlot() : nullptr;
+}
+
+// Replace the one-size-fits-all particle defaults with values derived from
+// the current seed set and domain scale. Sliders remain available as overrides.
+void autoTuneParticles(RenderSettings* s) {
+    const auto* mesh = loadedMesh(s);
+    const double extent = (mesh && mesh->bounds.extent > 0.0) ? mesh->bounds.extent : 1.0;
+    const int seeds = s->getSeedMode().startsWith("Plane")
+                    ? s->getSeedPlaneCountU() * s->getSeedPlaneCountV()
+                    : s->getStreamlineSeedCount();
+    s->setParticleCount(std::clamp(seeds * 4, 40, 300));
+    s->setParticleSpeed(std::clamp(static_cast<float>(extent / 4.0), 0.1f, 10.0f));
+    s->setParticleSize(4.0f);
+}
+
+} // namespace
 
 StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     : SidebarPage(settings, parent) {
@@ -28,13 +56,14 @@ StreamlinesPage::StreamlinesPage(RenderSettings* settings, QWidget* parent)
     // Animation gate: structural controls lock while particles play.
     connect(s, &RenderSettings::viewChanged, this, [this](QFlags<ChangeFlag>) { updateAnimationGate(); });
     // Streamlines integrate node vectors; cell-only vectors cannot seed an
-    // integration (matches the auto-disable in RenderSettings::loadMesh).
+    // integration, and a 2D mesh has no volume to trace through.
     connect(s, &RenderSettings::meshLoadStateChanged, this, [this, s]() {
         const bool hasVectors = s->hasMeshVectors();
         if (m_showCb) {
             m_showCb->setEnabled(hasVectors);
             if (!hasVectors) m_showCb->setChecked(false);
         }
+        autoTuneParticles(s);
     });
     connect(s, &RenderSettings::meshDataUpdated, this, [this, s]() {
         if (m_streamlineCombo) {
@@ -70,160 +99,134 @@ void StreamlinesPage::buildContent() {
 
     auto* tabs = slUi.slTabs;
 
-    // Tab: Flow
+    // ---------------------------------------------------------------- Flow
     auto* flowTab = new QWidget;
     auto* flowLay = new QVBoxLayout(flowTab);
     flowLay->setContentsMargins(4, 4, 4, 4);
     flowLay->setSpacing(4);
 
+    auto* flowHeader = new QLabel(tr("Flow Field"));
+    flowHeader->setObjectName("flowHeader");
+    flowLay->addWidget(flowHeader);
+
     m_streamlineCombo = new QComboBox;
     m_streamlineCombo->addItems(s->getAvailableVectors());
     m_streamlineCombo->setCurrentText(s->getStreamlineVectorField());
-    m_streamlineCombo->setMinimumWidth(sb::kSidebarWidth - sb::kNavWidthApprox - 20);
+    uikit::sidebarControl(m_streamlineCombo);
     connect(m_streamlineCombo, &QComboBox::activated, s, [this, s](int) {
         s->setStreamlineVectorField(m_streamlineCombo->currentText());
     });
-    flowLay->addWidget(m_streamlineCombo);
-
-    sb::addSliderRow(s, flowLay, "stepSizeLabel", "Step Size",
-                      s->getStreamlineStepSize(), 0.005, 0.1, 3,
-                      &RenderSettings::setStreamlineStepSize);
-
-    sb::addSliderRow(s, flowLay, "maxPathLengthLabel", "Max Path Length",
-                      s->getStreamlineMaxPathLength(), 0.1, 100.0, 2,
-                      &RenderSettings::setStreamlineMaxPathLength);
-
-    auto* maxStepsSpin = new QSpinBox;
-    maxStepsSpin->setRange(10, 5000);
-    maxStepsSpin->setValue(s->getStreamlineMaxSteps());
-    maxStepsSpin->setKeyboardTracking(false);
-    maxStepsSpin->setCorrectionMode(QAbstractSpinBox::CorrectToNearestValue);
-    connect(maxStepsSpin, &QSpinBox::valueChanged, s, &RenderSettings::setStreamlineMaxSteps);
-    sb::addCtlRow(flowLay, "maxStepsLabel", "Max Steps (advanced)", maxStepsSpin, 1);
-
-    auto* summaryLabel = new QLabel;
-    summaryLabel->setObjectName("streamlineSummaryLabel");
-    auto updateSummary = [summaryLabel, s]() {
-        summaryLabel->setText(QString("Seeds: %1  Streamlines: %2  Truncated: %3")
-            .arg(s->getStreamlineLastSeedCount())
-            .arg(s->getStreamlineLastPathCount())
-            .arg(s->getStreamlineLastTruncatedCount()));
-    };
-    updateSummary();
-    connect(s, &RenderSettings::viewChanged, summaryLabel, [updateSummary](QFlags<ChangeFlag>) { updateSummary(); });
-    flowLay->addWidget(summaryLabel);
+    sb::addCtlRow(flowLay, "vectorFieldLabel", tr("Field"), m_streamlineCombo, 1);
 
     auto* directionCombo = new QComboBox;
     directionCombo->addItems({"Forward", "Backward", "Both"});
     directionCombo->setCurrentText(s->getStreamlineDirection());
-    directionCombo->setFixedWidth(100);
+    uikit::sidebarControl(directionCombo);
     m_streamlineDirectionCombo = directionCombo;
     connect(directionCombo, &QComboBox::activated, s, [this, directionCombo, s](int) {
         s->setStreamlineDirection(directionCombo->currentText());
     });
-    sb::addCtlRow(flowLay, "directionLabel", "Direction", directionCombo);
+    sb::addCtlRow(flowLay, "directionLabel", tr("Direction"), directionCombo, 1);
 
-    auto* arrowsCb = new QCheckBox("Show Direction");
+    auto* arrowsCb = new QCheckBox(tr("Show Direction Arrows"));
     arrowsCb->setChecked(s->getShowStreamlineArrows());
     connect(arrowsCb, &QCheckBox::toggled, s, &RenderSettings::setShowStreamlineArrows);
     flowLay->addWidget(arrowsCb);
 
-    auto* resetBtn = new QPushButton("Reset to Defaults");
-    connect(resetBtn, &QPushButton::clicked, s, [this, s]() {
-        // Quiesce the animation first: particles index into the live paths,
-        // and the reset below replaces them. Toggling showParticles off
-        // also stops MainWindow's particle timer (viewChanged handler).
-        const bool wasAnimating = s->getShowParticles() && s->getShowStreamlines();
-        if (wasAnimating) s->setShowParticles(false);
-        s->resetStreamlineDefaults(); // also quiesces + restores a valid field
-        // Delete the old tree: QScrollArea::setWidget() does not delete it,
-        // and its viewChanged/mesh connections would otherwise accumulate.
-        QWidget* old = nullptr;
-        if (auto* scroll = findChild<QScrollArea*>()) old = scroll->widget();
-        buildContent();
-        if (old && old != findChild<QScrollArea*>()->widget()) old->deleteLater();
-        if (wasAnimating) s->setShowParticles(true); // resume on the new paths
-    });
-    flowLay->addWidget(resetBtn);
+    auto* arrowHeader = new QLabel(tr("Direction Arrows"));
+    arrowHeader->setObjectName("arrowHeader");
+    flowLay->addWidget(arrowHeader);
 
-    auto* arrowSpacingSpin = new QDoubleSpinBox;
-    arrowSpacingSpin->setToolTip("Distance between direction arrows as a fraction of the dataset extent");
+    auto* arrowSpacingSpin = uikit::sidebarNumeric(new QDoubleSpinBox);
+    arrowSpacingSpin->setToolTip("Distance between arrows as a fraction of the dataset extent");
     arrowSpacingSpin->setRange(0.02, 0.50);
     arrowSpacingSpin->setDecimals(2);
     arrowSpacingSpin->setSingleStep(0.01);
     arrowSpacingSpin->setValue(s->getStreamlineArrowSpacingFrac());
     connect(arrowSpacingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             s, &RenderSettings::setStreamlineArrowSpacingFrac);
-    sb::addCtlRow(flowLay, "arrowSpacingLabel", "Arrow spacing", arrowSpacingSpin, 1);
+    sb::addCtlRow(flowLay, "arrowSpacingLabel", tr("Spacing"), arrowSpacingSpin, 1);
 
-    sb::addSliderRow(s, flowLay, "arrowSizeLabel", "Arrow Size",
+    sb::addSliderRow(s, flowLay, "arrowSizeLabel", tr("Size"),
                      s->getStreamlineArrowSize(), 0.01, 0.2, 2,
                      &RenderSettings::setStreamlineArrowSize);
 
-    auto* integrateBtn = new QPushButton("Integrate");
-    connect(integrateBtn, &QPushButton::clicked, this, [this, s]() {
-        s->backend()->markStreamlineDirty();
-        emit viewportUpdateRequested();
-    });
-    flowLay->addWidget(integrateBtn);
     flowLay->addStretch();
     m_structuralControls.push_back(flowTab);
     tabs->addTab(flowTab, tr("Flow"));
 
-    // Tab: Seeds
+    // --------------------------------------------------------------- Seeds
     auto* seedsTab = new QWidget;
     auto* seedsLay = new QVBoxLayout(seedsTab);
     seedsLay->setContentsMargins(4, 4, 4, 4);
     seedsLay->setSpacing(4);
 
+    auto* seedHeader = new QLabel(tr("Seed Placement"));
+    seedHeader->setObjectName("seedPlacementHeader");
+    seedsLay->addWidget(seedHeader);
+
     auto* seedModeCombo = new QComboBox;
     seedModeCombo->addItems({"Volume", "Surface", "Plane XY", "Plane XZ", "Plane YZ"});
     const QStringList modeKeys = {"Volume", "Surface", "PlaneXY", "PlaneXZ", "PlaneYZ"};
     seedModeCombo->setCurrentIndex(modeKeys.indexOf(s->getSeedMode()));
-    seedModeCombo->setMinimumWidth(sb::kSidebarWidth - sb::kNavWidthApprox - 20);
+    uikit::sidebarControl(seedModeCombo);
     connect(seedModeCombo, &QComboBox::activated, s, [s, modeKeys](int idx) {
         s->setSeedMode(modeKeys[idx]);
     });
-    seedsLay->addWidget(seedModeCombo);
+    sb::addCtlRow(seedsLay, "seedModeLabel", tr("Mode"), seedModeCombo, 1);
 
-    sb::addSliderRow(s, seedsLay, "planePosLabel", "Plane Position",
+    auto* seedsSpin = uikit::sidebarNumeric(new QSpinBox);
+    seedsSpin->setRange(1, 5000);
+    seedsSpin->setValue(s->getStreamlineSeedCount());
+    seedsSpin->setKeyboardTracking(false);
+    seedsSpin->setToolTip("Number of seeds for Volume and Surface modes");
+    connect(seedsSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            s, &RenderSettings::setStreamlineSeedCount);
+    sb::addCtlRow(seedsLay, "seedCountLabel", tr("Seed Count"), seedsSpin, 1);
+
+    sb::addSliderRow(s, seedsLay, "planePosLabel", tr("Plane Position"),
                      s->getSeedPlanePos(), 0.0, 1.0, 2,
                      &RenderSettings::setSeedPlanePos);
 
-    auto* seedsUSpin = new QSpinBox;
+    auto* seedsUSpin = uikit::sidebarNumeric(new QSpinBox);
     seedsUSpin->setRange(1, 200);
     seedsUSpin->setValue(s->getSeedPlaneCountU());
     connect(seedsUSpin, &QSpinBox::valueChanged, s, &RenderSettings::setSeedPlaneCountU);
-    sb::addCtlRow(seedsLay, "seedsULabel", "Seeds U", seedsUSpin, 1);
+    sb::addCtlRow(seedsLay, "seedsULabel", tr("Grid U"), seedsUSpin, 1);
 
-    auto* seedsVSpin = new QSpinBox;
+    auto* seedsVSpin = uikit::sidebarNumeric(new QSpinBox);
     seedsVSpin->setRange(1, 200);
     seedsVSpin->setValue(s->getSeedPlaneCountV());
     connect(seedsVSpin, &QSpinBox::valueChanged, s, &RenderSettings::setSeedPlaneCountV);
-    sb::addCtlRow(seedsLay, "seedsVLabel", "Seeds V", seedsVSpin, 1);
+    sb::addCtlRow(seedsLay, "seedsVLabel", tr("Grid V"), seedsVSpin, 1);
 
-    auto updateSeedGridRows = [seedModeCombo, seedsUSpin, seedsVSpin]() {
+    auto updateSeedGridRows = [seedModeCombo, seedsUSpin, seedsVSpin, seedsSpin]() {
         const bool planeSeeds = seedModeCombo->currentText().startsWith("Plane");
         seedsUSpin->setEnabled(planeSeeds);
         seedsVSpin->setEnabled(planeSeeds);
+        seedsSpin->setEnabled(!planeSeeds);
     };
-    connect(seedModeCombo, &QComboBox::activated, seedsUSpin, updateSeedGridRows);
+    connect(seedModeCombo, &QComboBox::activated, seedsSpin, updateSeedGridRows);
     updateSeedGridRows();
 
-    sb::addSliderRow(s, seedsLay, "jitterLabel", "Jitter",
+    sb::addSliderRow(s, seedsLay, "jitterLabel", tr("Jitter"),
                      s->getSeedJitter(), 0.0, 1.0, 2,
                      &RenderSettings::setSeedJitter);
 
-    auto* showSeedsCb = new QCheckBox("Show seeds");
+    auto* markerHeader = new QLabel(tr("Seed Markers"));
+    markerHeader->setObjectName("seedMarkersHeader");
+    seedsLay->addWidget(markerHeader);
+
+    auto* showSeedsCb = new QCheckBox(tr("Show seeds"));
     showSeedsCb->setChecked(s->getShowSeeds());
     connect(showSeedsCb, &QCheckBox::toggled, s, &RenderSettings::setShowSeeds);
     seedsLay->addWidget(showSeedsCb);
 
-    sb::addSliderRow(s, seedsLay, "seedSizeLabel", "Seed Size",
+    sb::addSliderRow(s, seedsLay, "seedSizeLabel", tr("Size"),
                      s->getSeedPointSize(), 1.0, 20.0, 1,
                      &RenderSettings::setSeedPointSize);
 
-    auto* seedBtn = sb::createSwatchButton("Seed Color", s->getSeedPointColorQml(), nullptr);
+    auto* seedBtn = sb::createSwatchButton(tr("Seed Color"), s->getSeedPointColorQml(), nullptr);
     connect(seedBtn, &QPushButton::clicked, this, [seedBtn, s]() {
         // Dialog parented to the button: it dies with the content tree on
         // Reset, so no dangling capture and no stale member pointer.
@@ -239,13 +242,17 @@ void StreamlinesPage::buildContent() {
     m_structuralControls.push_back(seedsTab);
     tabs->addTab(seedsTab, tr("Seeds"));
 
-    // Tab: Look
+    // ---------------------------------------------------------------- Look
     auto* lookTab = new QWidget;
     auto* lookLay = new QVBoxLayout(lookTab);
-    lookLay->setSpacing(2);
+    lookLay->setSpacing(4);
     lookLay->setContentsMargins(4, 4, 4, 4);
 
-    auto* streamlineBtn = sb::createSwatchButton("Line color", s->getStreamlineColorQml(), nullptr);
+    auto* lookHeader = new QLabel(tr("Appearance"));
+    lookHeader->setObjectName("appearanceHeader");
+    lookLay->addWidget(lookHeader);
+
+    auto* streamlineBtn = sb::createSwatchButton(tr("Line color"), s->getStreamlineColorQml(), nullptr);
     connect(streamlineBtn, &QPushButton::clicked, this, [streamlineBtn, s]() {
         auto* dlg = new QColorDialog(s->getStreamlineColorQml(), streamlineBtn);
         connect(dlg, &QColorDialog::colorSelected, s, &RenderSettings::setStreamlineColorQml);
@@ -256,24 +263,23 @@ void StreamlinesPage::buildContent() {
     });
     lookLay->addWidget(streamlineBtn);
 
-    // ---- Streamline Color By (combo) ----
     auto* slColorModeCombo = new QComboBox;
     slColorModeCombo->setObjectName("streamlineColorModeCombo");
     slColorModeCombo->addItems({"Solid Color", "Magnitude", "X Component", "Y Component", "Z Component"});
     slColorModeCombo->setCurrentIndex(s->getStreamlineColorMode());
-    slColorModeCombo->setMinimumWidth(sb::kSidebarWidth - sb::kNavWidthApprox - 20);
+    uikit::sidebarControl(slColorModeCombo);
     connect(slColorModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             s, &RenderSettings::setStreamlineColorMode);
-    sb::addCtlRow(lookLay, "slColorByLabel", "Color By", slColorModeCombo);
-    // Palette now in Colorbar Style dialog — hide sidebar alias
-    // Streamline Fixed Range now in Colorbar Style dialog — removed from sidebar
-    sb::addSliderRow(s, lookLay, "opacityLabel", "Opacity",
+    sb::addCtlRow(lookLay, "slColorByLabel", tr("Color By"), slColorModeCombo, 1);
+
+    sb::addSliderRow(s, lookLay, "opacityLabel", tr("Opacity"),
                      s->getStreamlineOpacity(), 0.0, 1.0, 2,
                      &RenderSettings::setStreamlineOpacity);
+
     auto* styleCombo = new QComboBox;
     styleCombo->addItems({"Line", "Tube", "Ribbon"});
     styleCombo->setCurrentIndex(s->getStreamlineStyle());
-    styleCombo->setFixedWidth(100);
+    uikit::sidebarControl(styleCombo);
     connect(styleCombo, &QComboBox::activated, s, [s](int idx) {
         s->setStreamlineStyle(idx);
         if (idx == 0) { // Line
@@ -290,17 +296,20 @@ void StreamlinesPage::buildContent() {
             s->setStreamlineArrowSize(0.03);
         }
     });
-    sb::addCtlRow(lookLay, "streamlineStyleLabel", "Style", styleCombo);
+    sb::addCtlRow(lookLay, "streamlineStyleLabel", tr("Style"), styleCombo, 1);
     m_structuralControls.push_back(styleCombo);
 
-    sb::addSliderRow(s, lookLay, "ribbonWidthLabel", "Ribbon Width",
-                      s->getStreamlineRibbonWidth(), 0.0001, 0.01, 4,
-                      &RenderSettings::setStreamlineRibbonWidth);
-    sb::addSliderRow(s, lookLay, "taperFactorLabel", "Taper Factor",
+    sb::addSliderRow(s, lookLay, "ribbonWidthLabel", tr("Ribbon Width"),
+                     s->getStreamlineRibbonWidth(), 0.0001, 0.01, 4,
+                     &RenderSettings::setStreamlineRibbonWidth);
+    sb::addSliderRow(s, lookLay, "taperFactorLabel", tr("Taper Factor"),
                      s->getStreamlineTaperFactor(), 0.0, 0.8, 2,
                      &RenderSettings::setStreamlineTaperFactor);
 
-    auto* autoFitBtn = new QPushButton("Auto-fit Ranges");
+    auto* rangeHeader = new QLabel(tr("Color Range"));
+    rangeHeader->setObjectName("colorRangeHeader");
+    lookLay->addWidget(rangeHeader);
+    auto* autoFitBtn = new QPushButton(tr("Auto-fit Ranges"));
     connect(autoFitBtn, &QPushButton::clicked, s, [s]() {
         s->resetStreamlineMagRangeOverride();
     });
@@ -308,42 +317,98 @@ void StreamlinesPage::buildContent() {
     lookLay->addStretch();
     tabs->addTab(lookTab, tr("Look"));
 
-    // Animate section (below the tabs so the tab bar stays arrow-free)
+    // ------------------------------------------------------------- Animate
+    // Below the tabs so the tab bar stays arrow-free. The controls stay hidden
+    // until particles are enabled - they are tuning, not defaults.
     auto* optionsLay = qobject_cast<QVBoxLayout*>(slUi.optionsGroup->layout());
 
-    auto* particlesCb = new QCheckBox("Show Particles");
+    auto* particlesCb = new QCheckBox(tr("Show Particles"));
     particlesCb->setChecked(s->getShowParticles());
     connect(particlesCb, &QCheckBox::toggled, s, &RenderSettings::setShowParticles);
     optionsLay->addWidget(particlesCb);
 
-    {
-        auto row = sb::createLightSlider("Particle Count", s->getParticleCount(),
-                                         10.0, 1000.0, 1.0, 0,
-                                         [s](double v) { s->setParticleCount(static_cast<int>(v)); },
-                                         "particleCountLabel");
-        optionsLay->addWidget(row.slider->parentWidget());
-    }
-    sb::addSliderRow(s, optionsLay, "particleSpeedLabel", "Particle Speed",
-                     s->getParticleSpeed(), 0.1, 10.0, 2,
-                     &RenderSettings::setParticleSpeed);
-    sb::addSliderRow(s, optionsLay, "particleSizeLabel", "Particle Size",
-                     s->getParticleSize(), 1.0, 20.0, 1,
-                     &RenderSettings::setParticleSize);
+    // Auto-tuning writes settings on mesh load; keep the sliders in sync.
+    auto syncParticleSlider = [this, s](QSlider* slider, QLabel* label, int decimals,
+                                        std::function<double()> value) {
+        connect(s, &RenderSettings::viewChanged, slider, [s, slider, label, decimals, value](QFlags<ChangeFlag>) {
+            const double v = value();
+            slider->blockSignals(true);
+            slider->setValue(static_cast<int>(std::lround(v * 1000.0)));
+            slider->blockSignals(false);
+            label->setText(QString::number(v, 'f', decimals));
+        });
+    };
 
-    auto* particleAdditiveCb = new QCheckBox("Additive Glow");
+    auto* particlesBox = new QWidget;
+    auto* particlesLay = new QVBoxLayout(particlesBox);
+    particlesLay->setContentsMargins(0, 0, 0, 0);
+    particlesLay->setSpacing(4);
+
+    auto countRow = sb::createLightSlider(tr("Particle Count"), s->getParticleCount(),
+        10.0, 1000.0, 1.0, 0,
+        [s](double v) { s->setParticleCount(static_cast<int>(v)); }, "particleCountLabel");
+    particlesLay->addWidget(countRow.slider->parentWidget());
+    syncParticleSlider(countRow.slider, countRow.valueLabel, 0,
+                       [s] { return static_cast<double>(s->getParticleCount()); });
+
+    auto speedRow = sb::createLightSlider(tr("Particle Speed"), s->getParticleSpeed(),
+        0.1, 10.0, 0.001, 2, [s](double v) { s->setParticleSpeed(v); }, "particleSpeedLabel");
+    particlesLay->addWidget(speedRow.slider->parentWidget());
+    syncParticleSlider(speedRow.slider, speedRow.valueLabel, 2,
+                       [s] { return static_cast<double>(s->getParticleSpeed()); });
+
+    auto sizeRow = sb::createLightSlider(tr("Particle Size"), s->getParticleSize(),
+        1.0, 20.0, 0.1, 1, [s](double v) { s->setParticleSize(v); }, "particleSizeLabel");
+    particlesLay->addWidget(sizeRow.slider->parentWidget());
+    syncParticleSlider(sizeRow.slider, sizeRow.valueLabel, 1,
+                       [s] { return static_cast<double>(s->getParticleSize()); });
+
+    auto* particleAdditiveCb = new QCheckBox(tr("Additive Glow"));
     particleAdditiveCb->setChecked(s->getParticleAdditive());
     connect(particleAdditiveCb, &QCheckBox::toggled, s, &RenderSettings::setParticleAdditive);
-    optionsLay->addWidget(particleAdditiveCb);
+    particlesLay->addWidget(particleAdditiveCb);
+
+    optionsLay->addWidget(particlesBox);
+    connect(particlesCb, &QCheckBox::toggled, particlesBox, &QWidget::setVisible);
+    particlesBox->setVisible(s->getShowParticles());
 
     tabs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
 
     // Animation banner: explains why structural controls are locked.
-    m_animBanner = new QLabel(tr("Particles playing � pause particles to change integration settings."));
+    m_animBanner = new QLabel(tr("Particles playing - pause particles to change integration settings."));
     m_animBanner->setWordWrap(true);
     m_animBanner->setStyleSheet("color: palette(mid); font-style: italic;");
     optionsLay->addWidget(m_animBanner);
-
     optionsLay->addStretch();
+
+    // Actions live below everything else: they are page-level, not part of
+    // any tab, and their position must not move when tabs/toggles change.
+    auto* integrateBtn = new QPushButton(tr("Integrate"));
+    connect(integrateBtn, &QPushButton::clicked, this, [this, s]() {
+        s->backend()->markStreamlineDirty();
+        emit viewportUpdateRequested();
+    });
+    auto* resetBtn = new QPushButton(tr("Reset to Defaults"));
+    connect(resetBtn, &QPushButton::clicked, s, [this, s]() {
+        // Quiesce the animation first: particles index into the live paths,
+        // and the reset below replaces them. Toggling showParticles off
+        // also stops MainWindow's particle timer (viewChanged handler).
+        const bool wasAnimating = s->getShowParticles() && s->getShowStreamlines();
+        if (wasAnimating) s->setShowParticles(false);
+        s->resetStreamlineDefaults(); // also quiesces + restores a valid field
+        // QScrollArea::setWidget() deletes the previous widget immediately.
+        // Take it first: this button is inside that tree and is still emitting
+        // clicked, so it must only be deleted once the event loop returns.
+        QWidget* old = nullptr;
+        if (auto* scroll = findChild<QScrollArea*>()) old = scroll->takeWidget();
+        buildContent();
+        if (old) old->deleteLater();
+        if (wasAnimating) s->setShowParticles(true); // resume on the new paths
+    });
+    auto* actions = new QHBoxLayout;
+    actions->addWidget(integrateBtn);
+    actions->addWidget(resetBtn);
+    slUi.verticalLayout->addLayout(actions);
 
     setContent(content);
     updateAnimationGate();

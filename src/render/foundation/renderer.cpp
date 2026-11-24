@@ -564,7 +564,8 @@ void Renderer::reinitMeshData() {
         vectorGlyph.rebuild(*dataMesh, m_state.vectorStride,
                             m_state.vectorField, m_state.vectorMagTransform,
                             m_state.vectorPlacement, m_state.computed.get());
-        streamlineSet.rebuild(*dataMesh, m_state.streamlineSeedCount, m_state.streamlineStepSize, m_state.streamlineMaxSteps, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineStyle, m_state.streamlineMaxPathLength, m_state.computed.get());
+        // 0 step = auto full-domain tracing, no user caps.
+        streamlineSet.rebuild(*dataMesh, m_state.streamlineSeedCount, 0.0f, 0, m_state.streamlineVectorField, m_state.seedMode, m_state.streamlineDirection, m_state.seedPlanePos, m_state.seedJitter, m_state.seedPlaneCountU, m_state.seedPlaneCountV, m_state.showStreamlineArrows, m_state.streamlineArrowSpacingFrac, m_state.streamlineArrowSize, m_state.streamlineRibbonWidth, m_state.streamlineTaperFactor, m_state.streamlineStyle, 0.0f, m_state.computed.get());
         for (int i = 0; i < 3; ++i) {
             m_state.streamlineCompMin[i] = streamlineSet.compMin[i];
             m_state.streamlineCompMax[i] = streamlineSet.compMax[i];

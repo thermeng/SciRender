@@ -67,6 +67,28 @@ TEST_CASE("render.streamline_v2.effective_steps_honours_both_caps") {
     CHECK(p.effectiveMaxSteps(1.0f) == 5);           // maxPathLength binds
 }
 
+TEST_CASE("render.streamline_v2.full_domain_tracing") {
+    // No user caps: step comes from mesh spacing, length is unbounded, and a
+    // uniform field carries a seed across the whole domain.
+    auto pos = gridPositions(8, 8, 8);
+    auto val = uniformField(pos.size(), {1, 0, 0});
+    auto d = FieldDomain::build(pos, val, StructuredDims{8, 8, 8});
+    REQUIRE(d.has_value());
+    auto p = fullDomainParameters(*d);
+    CHECK(p.stepSize > 0.0f);
+    CHECK(p.stepSize <= d->bounds().extent);
+    CHECK(p.maxPathLength == 0.0f);
+    CHECK(p.maxSteps > 8);
+    REQUIRE(validateParameters(p, *d).has_value());
+
+    p.seedCount = 1;
+    p.direction = Direction::Both;
+    std::atomic<bool> cancel{false};
+    auto data = integrateAll(*d, p, cancel);
+    REQUIRE(!data.paths.empty());
+    CHECK(data.paths.front().totalLength > 0.8f * d->bounds().extent);
+}
+
 TEST_CASE("render.streamline_v2.validate_rejects_bad_params") {
     auto pos = gridPositions(2,2,2);
     auto val = uniformField(pos.size(), {1,0,0});
@@ -208,6 +230,63 @@ TEST_CASE("render.streamline_v2.trilinear_sampler_values") {
     glm::vec3 v2 = sampler.sample({1.5f, 2.5f, 2.0f});
     CHECK(std::abs(v2.y - 0.8f) < 1e-3f);
     CHECK(sampler.sample({-100.0f, 0, 0}) == glm::vec3(0.0f)); // outside -> zero
+}
+
+TEST_CASE("render.streamline_v2.volume_seeds_stay_inside_surface") {
+    // The bbox is larger than the actual surface: Volume seeds in the empty
+    // part must be dropped, not just those outside the bbox.
+    RenderMesh mesh;
+    const glm::vec3 corners[8] = {
+        {0,0,0}, {0.5f,0,0}, {0.5f,0.5f,0}, {0,0.5f,0},
+        {0,0,0.5f}, {0.5f,0,0.5f}, {0.5f,0.5f,0.5f}, {0,0.5f,0.5f}
+    };
+    for (auto& c : corners) {
+        mesh.vertices.push_back(c.x); mesh.vertices.push_back(c.y); mesh.vertices.push_back(c.z);
+    }
+    mesh.vertices.push_back(1.0f); mesh.vertices.push_back(1.0f); mesh.vertices.push_back(1.0f);
+    mesh.indices = {0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,1,5, 0,5,4,
+                    3,7,6, 3,6,2, 0,4,7, 0,7,3, 1,2,6, 1,6,5};
+    mesh.bounds.minX = 0; mesh.bounds.minY = 0; mesh.bounds.minZ = 0;
+    mesh.bounds.maxX = 1; mesh.bounds.maxY = 1; mesh.bounds.maxZ = 1;
+    mesh.bounds.extent = 1;
+    mesh.pointVectorsData.assign(9, {1.0f, 0.0f, 0.0f});
+    mesh.pointVectorOffset["Flow"] = 0;
+    mesh.pointVectorCount = 9;
+    mesh.availableVectorNames.push_back("Flow");
+
+    StreamlineSet set;
+    auto res = set.computeStatic(mesh, 125, 0.0f, 0, "Flow", "Volume", "Both",
+                                 0.5, 0.0, 10, 10, false, 0.15f, 0.02f, 0.01f, 0.0f, 0, 0.0f);
+    REQUIRE(res.seedCount > 0);
+    for (size_t i = 0; i + 2 < res.seedVerts.size(); i += 3) {
+        CHECK(res.seedVerts[i]     <= 0.5f + 1e-4f);
+        CHECK(res.seedVerts[i + 1] <= 0.5f + 1e-4f);
+        CHECK(res.seedVerts[i + 2] <= 0.5f + 1e-4f);
+    }
+    for (const auto& path : res.paths)
+        for (const auto& pt : path.points) {
+            CHECK(pt.x <= 0.5f + 1e-3f);
+            CHECK(pt.y <= 0.5f + 1e-3f);
+            CHECK(pt.z <= 0.5f + 1e-3f);
+        }
+}
+
+TEST_CASE("render.streamline_v2.seeds_reject_points_outside_point_cloud") {
+    // Unstructured domains get a nearest-node containment test: a seed in
+    // the bounding box but in empty space must not produce a streamline.
+    std::vector<glm::vec3> pos, val;
+    for (int xLayer = 0; xLayer < 2; ++xLayer)
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j)
+                for (int k = 0; k < 4; ++k) {
+                    pos.emplace_back(xLayer * 10.0f + i * 0.01f, j * 0.01f, k * 0.01f);
+                    val.emplace_back(1.0f, 0.0f, 0.0f);
+                }
+    auto d = FieldDomain::build(pos, val, std::nullopt);
+    REQUIRE(d.has_value());
+    NearestSampler sampler(*d);
+    CHECK(sampler.inside({0.005f, 0.015f, 0.015f})); // on a node slab
+    CHECK_FALSE(sampler.inside({5.0f, 0.015f, 0.015f})); // in the box, but in air
 }
 
 TEST_CASE("render.streamline_v2.nearest_sampler_values") {

@@ -132,12 +132,19 @@ NearestSampler::NearestSampler(const FieldDomain& domain)
     , m_grid(domain.positions(), /*cellSize*/ std::max(3.0f * domain.avgSpacing(), 1e-9f),
              domain.bounds().min, domain.bounds().max)
     , m_cutoffSq(9.0f * domain.avgSpacing() * domain.avgSpacing())
+    // Bounding-box containment is not enough for an unstructured mesh: the
+    // box covers air around the geometry. A point must actually sit next to
+    // field nodes to be seedable/integrable.
+    , m_insideCutoffSq(2.25f * domain.avgSpacing() * domain.avgSpacing())
 {}
 
 bool NearestSampler::inside(const glm::vec3& p) const {
     const auto& b = m_d.bounds();
-    return p.x >= b.min.x && p.x <= b.max.x && p.y >= b.min.y && p.y <= b.max.y &&
-           p.z >= b.min.z && p.z <= b.max.z;
+    if (p.x < b.min.x || p.x > b.max.x || p.y < b.min.y || p.y > b.max.y ||
+        p.z < b.min.z || p.z > b.max.z) return false;
+    if (m_grid.nearest(p, m_insideCutoffSq) < 0) return false;
+    if (m_d.insideTest()) return m_d.insideTest()(p);
+    return true;
 }
 
 glm::vec3 NearestSampler::sample(const glm::vec3& p) const {

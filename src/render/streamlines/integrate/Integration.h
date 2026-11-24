@@ -31,6 +31,10 @@ struct IntegrationParameters {
     int       planeCountU   = 10, planeCountV = 10;
     uint64_t  rngSeed       = 0x5eedULL;
     Budget    budget{};
+    // App-side seeds already checked against the actual mesh surface.
+    // The flag distinguishes an intentionally empty list from "not supplied".
+    bool useSeedOverride = false;
+    std::vector<glm::vec3> seedOverride;
     // Returns effective step budget honouring BOTH caps (retires finding #1).
     int effectiveMaxSteps(float extent) const;
 };
@@ -38,6 +42,10 @@ struct IntegrationParameters {
 enum class ParamError { InvalidStep, InvalidSteps, InvalidSeedCount, InvalidPlane, InvalidJitter };
 std::optional<IntegrationParameters>
 validateParameters(IntegrationParameters p, const FieldDomain& domain);
+
+// Full-domain tracing: step from the local mesh spacing, no length cap,
+// and only a hidden step guard (not a user-facing truncation limit).
+IntegrationParameters fullDomainParameters(const FieldDomain& domain);
 
 // Deterministic seeding (retires steady_clock RNG + volume-slab truncation).
 std::vector<glm::vec3> generateSeeds(const FieldDomain& domain,

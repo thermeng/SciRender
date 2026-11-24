@@ -1905,9 +1905,7 @@ void RenderSettings::resetStreamlineDefaults() {
     m_state.streamlineVectorField = available.isEmpty()
         ? m_state.vectorField
         : available.first().toStdString();
-    m_state.streamlineStepSize = 0.005f;
-    m_state.streamlineMaxSteps = 100;
-    m_state.streamlineMaxPathLength = 5.0f;
+    m_state.streamlineSeedCount = 25;
     m_state.seedMode = "Volume";
     m_state.streamlineDirection = "Both";
     m_state.seedPlanePos = 0.5;

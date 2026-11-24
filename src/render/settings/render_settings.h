@@ -267,9 +267,6 @@ class RenderSettings : public QObject {
     Q_PROPERTY(bool showStreamlines READ getShowStreamlines WRITE setShowStreamlines NOTIFY viewChanged)
     Q_PROPERTY(QString streamlineVectorField READ getStreamlineVectorField WRITE setStreamlineVectorField NOTIFY meshDataUpdated)
     Q_PROPERTY(int streamlineSeedCount READ getStreamlineSeedCount WRITE setStreamlineSeedCount NOTIFY viewChanged)
-    Q_PROPERTY(double streamlineStepSize READ getStreamlineStepSize WRITE setStreamlineStepSize NOTIFY viewChanged)
-    Q_PROPERTY(int streamlineMaxSteps READ getStreamlineMaxSteps WRITE setStreamlineMaxSteps NOTIFY viewChanged)
-    Q_PROPERTY(double streamlineMaxPathLength READ getStreamlineMaxPathLength WRITE setStreamlineMaxPathLength NOTIFY viewChanged)
     Q_PROPERTY(bool streamlineUseColormap READ getStreamlineUseColormap WRITE setStreamlineUseColormap NOTIFY viewChanged)
     Q_PROPERTY(int streamlineColorMode READ getStreamlineColorMode WRITE setStreamlineColorMode NOTIFY viewChanged)
     Q_PROPERTY(int streamlineColormapChoice READ getStreamlineColormapChoice WRITE setStreamlineColormapChoice NOTIFY viewChanged)
@@ -676,12 +673,6 @@ public:
     void setShowStreamlines(bool v) { if (m_state.showStreamlines != v) { m_state.showStreamlines = v; if (v) { m_renderer.markStreamlineDirty(); m_renderer.markParticleCountDirty(); } else { m_renderer.releaseParticleResources(); } markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     int getStreamlineSeedCount() const { return m_state.streamlineSeedCount; }
     void setStreamlineSeedCount(int v) { v = std::clamp(v, 0, 50000); if (m_state.streamlineSeedCount != v) { m_state.streamlineSeedCount = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-    double getStreamlineStepSize() const { return m_state.streamlineStepSize; }
-    void setStreamlineStepSize(double v) { if (!std::isfinite(v) || v <= 0.0) return; if (m_state.streamlineStepSize != v) { m_state.streamlineStepSize = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-    int getStreamlineMaxSteps() const { return m_state.streamlineMaxSteps; }
-    void setStreamlineMaxSteps(int v) { v = std::clamp(v, 1, 5000); if (m_state.streamlineMaxSteps != v) { m_state.streamlineMaxSteps = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
-    double getStreamlineMaxPathLength() const { return m_state.streamlineMaxPathLength; }
-    void setStreamlineMaxPathLength(double v) { if (!std::isfinite(v) || v < 0.0) return; if (m_state.streamlineMaxPathLength != static_cast<float>(v)) { m_state.streamlineMaxPathLength = static_cast<float>(v); m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getStreamlineUseColormap, setStreamlineUseColormap, bool, m_state.streamlineUseColormap, Display)
     STATE_PROP(getStreamlineColormapChoice, setStreamlineColormapChoice, int, m_state.streamlineColormapChoice, Colormap)
     STATE_PROP(getStreamlineColormapReversed, setStreamlineColormapReversed, bool, m_state.streamlineColormapReversed, Colormap)
@@ -949,6 +940,13 @@ enum class PlotMode { Histogram = 0, Line = 1, Monitor = 2 };
     // Volume/slice/isosurface support them even without an IJK grid.
     bool hasUnstructuredVolumeCells() const {
         return m_meshData.loadedMesh && m_meshData.loadedMesh->hasUnstructuredVolumeCells();
+    }
+    // Streamlines need a 3D domain: a structured grid with depth, or an
+    // unstructured mesh with volume cells. Flat/surface data cannot be traced.
+    bool hasVolumetricMesh() const {
+        return m_meshData.loadedMesh &&
+               (m_meshData.loadedMesh->hasVolumeGrid() ||
+                m_meshData.loadedMesh->hasUnstructuredVolumeCells());
     }
     bool hasVolumeData() const {
         if (!m_meshData.loadedMesh) return false;

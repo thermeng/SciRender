@@ -46,8 +46,6 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
 
         auto meshCopy = mesh;
         int   seedCount     = state.streamlineSeedCount;
-        float stepSize      = state.streamlineStepSize;
-        int   maxSteps      = state.streamlineMaxSteps;
         std::string field   = state.streamlineVectorField;
         std::string mode    = state.seedMode;
         std::string direction = state.streamlineDirection;
@@ -61,21 +59,21 @@ void StreamlineController::dispatchCompute(const RenderRenderState& state,
         float ribbonWidth   = state.streamlineRibbonWidth;
         float taperFactor   = state.streamlineTaperFactor;
         int   streamlineStyle = state.streamlineStyle;
-        float maxPathLength = state.streamlineMaxPathLength;
 
         m_computeRunning = true;
         // Snapshot shared_ptr captured by value: keeps computed post-proc
         // payloads alive for the worker even if the GUI thread re-extracts.
         auto snapCopy = state.computed;
         m_worker = std::thread(
-            [this, meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
+            [this, meshCopy, seedCount, field, mode, direction,
              planePos, jitter, planeCountU, planeCountV, showArrows, arrowSpacingFrac,
-             arrowSize, ribbonWidth, taperFactor, streamlineStyle, maxPathLength, snapCopy]() {
+             arrowSize, ribbonWidth, taperFactor, streamlineStyle, snapCopy]() {
               try {
+                // 0 step means auto: full-domain tracing with no length cap.
                 auto result = StreamlineSet::computeStatic(
-                    *meshCopy, seedCount, stepSize, maxSteps, field, mode, direction,
+                    *meshCopy, seedCount, 0.0f, 0, field, mode, direction,
                     planePos, jitter, planeCountU, planeCountV,
-                    showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor, streamlineStyle, maxPathLength,
+                    showArrows, arrowSpacingFrac, arrowSize, ribbonWidth, taperFactor, streamlineStyle, 0.0f,
                     snapCopy.get());
 
                 if (m_cancelFlag.load()) {

@@ -923,6 +923,45 @@ void StreamlineSet::shutdown() {
     teardownParticles();
 }
 
+namespace {
+
+// Parity ray test against the mesh's boundary triangles. The bounding box
+// alone lets Plane/Volume seeds land in the air around the geometry.
+bool pointInMesh(const RenderMesh& mesh, const glm::vec3& p) {
+    if (mesh.indices.size() < 3) return true; // no surface: keep the old behaviour
+    const auto& b = mesh.bounds;
+    if (p.x < b.minX || p.x > b.maxX || p.y < b.minY || p.y > b.maxY ||
+        p.z < b.minZ || p.z > b.maxZ) return false;
+    auto vertex = [&](uint32_t i) -> glm::vec3 {
+        const float* v = &mesh.vertices[(size_t)i * 3];
+        return {v[0], v[1], v[2]};
+    };
+    // Möller-Trumbore against a +X ray from p; an odd number of hits ahead
+    // of p means p is inside the closed surface.
+    const glm::vec3 dir(1.0f, 0.0f, 0.0f);
+    bool inside = false;
+    for (size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
+        const glm::vec3 a = vertex(mesh.indices[i]);
+        const glm::vec3 e1 = vertex(mesh.indices[i + 1]) - a;
+        const glm::vec3 e2 = vertex(mesh.indices[i + 2]) - a;
+        const glm::vec3 pvec = glm::cross(dir, e2);
+        const float det = glm::dot(e1, pvec);
+        if (std::abs(det) < 1e-12f) continue;
+        const float invDet = 1.0f / det;
+        const glm::vec3 tvec = p - a;
+        const float u = glm::dot(tvec, pvec) * invDet;
+        if (u < 0.0f || u > 1.0f) continue;
+        const glm::vec3 qvec = glm::cross(tvec, e1);
+        const float v = glm::dot(dir, qvec) * invDet;
+        if (v < 0.0f || u + v > 1.0f) continue;
+        const float t = glm::dot(e2, qvec) * invDet;
+        if (t > 0.0f) inside = !inside;
+    }
+    return inside;
+}
+
+} // namespace
+
 StreamlineSet::StreamlineResult StreamlineSet::computeStatic(
         const RenderMesh& mesh, int seedCountParam, float stepSize, int maxSteps,
         const std::string& fieldName, const std::string& mode, const std::string& direction,
@@ -961,12 +1000,21 @@ StreamlineSet::StreamlineResult StreamlineSet::computeStatic(
         }
         auto domainExp = streamline::FieldDomain::build(std::move(positions), std::move(values), dims);
         if (!domainExp) return result; // invalid domain: empty result, no UB
-        const auto& domain = *domainExp;
+        auto& domain = *domainExp;
+        // Integration must stop at the mesh boundary, not just when the
+        // nearest field node is far away (which lets paths crawl outside).
+        domain.setInsideTest([&mesh](const glm::vec3& p) { return pointInMesh(mesh, p); });
 
         streamline::IntegrationParameters params;
-        params.stepSize = stepSize;
-        params.maxSteps = maxSteps;
-        params.maxPathLength = maxPathLength;
+        if (stepSize <= 0.0f) {
+            // App path: no user caps at all — trace until the flow ends.
+            params = streamline::fullDomainParameters(domain);
+        } else {
+            // Explicit parameters remain for the CPU tests and benchmark.
+            params.stepSize = stepSize;
+            params.maxSteps = maxSteps;
+            params.maxPathLength = maxPathLength;
+        }
         params.direction = (direction == "Forward") ? streamline::Direction::Forward
                          : (direction == "Backward") ? streamline::Direction::Backward
                          : streamline::Direction::Both;
@@ -981,6 +1029,17 @@ StreamlineSet::StreamlineResult StreamlineSet::computeStatic(
         auto validated = streamline::validateParameters(params, domain);
         if (!validated) return result;
         params = *validated;
+
+        if (stepSize <= 0.0f) {
+            // Keep only seeds actually inside the volume mesh, for every
+            // seeding mode (Volume included) — the bbox is not the geometry.
+            auto seeds = streamline::generateSeeds(domain, params);
+            seeds.erase(std::remove_if(seeds.begin(), seeds.end(),
+                                       [&](const glm::vec3& p) { return !pointInMesh(mesh, p); }),
+                        seeds.end());
+            params.useSeedOverride = true;
+            params.seedOverride = std::move(seeds);
+        }
 
         std::atomic<bool> cancel{false};
         auto data = streamline::integrateAll(domain, params, cancel);
