@@ -33,7 +33,7 @@ constexpr double kLz = 1.0;
 constexpr double kInletSpeed = 1.0;
 constexpr double kDensity = 1.0;
 constexpr double kViscosity = 1.0e-2; // Re = U * Ly / nu = 100, laminar
-constexpr int kIterations = 250;
+constexpr int kIterations = 400;
 constexpr double kJitterFraction = 0.2;
 
 // Six tets per hex, all sharing the 0-7 body diagonal (Freudenthal split).

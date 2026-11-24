@@ -51,18 +51,6 @@ public:
     void setLimiter(const SlopeLimiterConfig& config) { limiterConfig_ = config; }
     const SlopeLimiterConfig& limiterConfig() const { return limiterConfig_; }
 
-    // The least-squares gradient as row-wise coefficients, so the pressure
-    // equation can be assembled as the exact composition of the divergence
-    // with THIS operator.
-    //
-    // out[d][cell] lists (column, coefficient) pairs with
-    //   (G phi)[d][cell] = sum over (c, k) in out[d][cell] of k * phi[c],
-    // using exactly the weights compute() applies for the LeastSquares scheme
-    // (the fit over the interior neighbours, with rank-truncated inversion of
-    // the normal matrix). The scheme must therefore be LeastSquares when this
-    // is asked for; another scheme throws.
-    void buildMatrices(std::array<std::vector<std::vector<std::pair<std::size_t, double>>>, Dim>& out) const;
-
     const Mesh<Dim>& mesh() const;
 
 private:
@@ -107,6 +95,13 @@ private:
     // destroys the run.
     mutable std::vector<Eigen::Matrix<double, Dim, Dim>> Mpinv_all_;
     mutable std::vector<Eigen::Matrix<double, Dim, 1>> rhs_all_;
+    // Least-squares stencil: interior neighbours first, extended with
+    // neighbours-of-neighbours only where that set cannot span Dim directions.
+    struct StencilEntry {
+        std::size_t cell;
+        std::array<double, Dim> d; // x_other - x_cell
+    };
+    mutable std::vector<std::vector<StencilEntry>> stencil_;
     mutable bool normalMatrixBuilt_ = false;
     bool limitGradients_ = false;
     SlopeLimiterConfig limiterConfig_;

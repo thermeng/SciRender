@@ -270,61 +270,66 @@ void Gradient<Dim>::buildNormalMatrix_() const {
     const std::size_t n = mesh_.nCells();
     const std::size_t nF = mesh_.nFaces();
     M_all_.assign(n, Eigen::Matrix<double, Dim, Dim>::Zero());
+    stencil_.assign(n, {});
 
+    // Interior neighbours only. Boundary faces are not part of the fit: a
+    // prescribed value is a CELL value, and a wall face has no known face
+    // value, so adding it as a mirror ghost with zero difference would halve
+    // the one-sided gradient of every wall cell.
+    std::vector<std::vector<std::size_t>> immediate(n);
     const std::size_t* ownerPtr = mesh_.ownerPtr();
     const std::size_t* neighborPtr = mesh_.neighborPtr();
     for (std::size_t f = 0; f < nF; ++f) {
         const std::size_t P = ownerPtr[f];
         const std::size_t N = neighborPtr[f];
+        if (N == std::size_t(-1)) continue;
+        immediate[P].push_back(N);
+        immediate[N].push_back(P);
+    }
+
+    auto addEntry = [&](std::size_t P, std::size_t Q) {
         const double* xP = mesh_.cellCenterPtr(P);
-        auto& Mp = M_all_[P];
-        if (N == std::size_t(-1)) {
-            // A boundary face contributes its DIRECTION to the fit with a zero
-            // value difference: the zero-gradient (Neumann) constraint
-            // grad . d = 0, i.e. the mirror ghost cell x_g = 2 x_f - x_P with
-            // phi_g = phi_P. Without it a tet cell on a wall edge has only
-            // Dim-1 interior neighbours and a corner cell only one, so the fit
-            // is rank deficient and its minimum-norm solution silently drops
-            // the gradient component in the missing direction - the pressure
-            // force in exactly the wall/corner cells is then an arbitrary
-            // projection while the pressure equation still corrects them.
+        const double* xQ = mesh_.cellCenterPtr(Q);
+        StencilEntry e;
+        e.cell = Q;
+        for (std::size_t dd = 0; dd < Dim; ++dd) e.d[dd] = xQ[dd] - xP[dd];
+        stencil_[P].push_back(e);
+        for (std::size_t i = 0; i < Dim; ++i)
+            for (std::size_t j = 0; j < Dim; ++j)
+                M_all_[P](i, j) += e.d[i] * e.d[j];
+    };
+    auto fullRank = [&](std::size_t P) {
+        Eigen::CompleteOrthogonalDecomposition<Eigen::Matrix<double, Dim, Dim>> cod(M_all_[P]);
+        cod.setThreshold(1e-12);
+        return cod.rank() == Dim;
+    };
+
+    for (std::size_t P = 0; P < n; ++P) {
+        for (std::size_t N : immediate[P]) addEntry(P, N);
+        if (fullRank(P)) continue;
+        // Only a cell whose interior neighbours cannot span Dim directions
+        // needs boundary information: a corner/edge tet with one or two
+        // interior neighbours. Add the wall faces as mirrored ghost cells with
+        // a zero value difference (zero-normal-gradient constraint). A
+        // structured wall cell already has full rank and keeps its one-sided
+        // interior fit, so its prescribed-cell gradient is not diluted.
+        for (std::size_t f = 0; f < nF; ++f) {
+            if (ownerPtr[f] != P || neighborPtr[f] != std::size_t(-1)) continue;
+            const double* xP = mesh_.cellCenterPtr(P);
             const double* xF = mesh_.faceCenterPtr(f);
-            double dPN[Dim];
-            for (std::size_t dd = 0; dd < Dim; ++dd) dPN[dd] = 2.0 * (xF[dd] - xP[dd]);
+            StencilEntry e;
+            e.cell = P; // phi_P - phi_P = 0: no right-hand side contribution
+            for (std::size_t dd = 0; dd < Dim; ++dd) e.d[dd] = 2.0 * (xF[dd] - xP[dd]);
+            stencil_[P].push_back(e);
             for (std::size_t i = 0; i < Dim; ++i)
                 for (std::size_t j = 0; j < Dim; ++j)
-                    Mp(i, j) += dPN[i] * dPN[j];
-            continue;
-        }
-        const double* xN = mesh_.cellCenterPtr(N);
-        double dPN[Dim];
-        for (std::size_t dd = 0; dd < Dim; ++dd) dPN[dd] = xN[dd] - xP[dd];
-        auto& Mn = M_all_[N];
-        for (std::size_t i = 0; i < Dim; ++i) {
-            for (std::size_t j = 0; j < Dim; ++j) {
-                const double contrib = dPN[i] * dPN[j];
-                Mp(i, j) += contrib;
-                Mn(i, j) += contrib;
-            }
+                    M_all_[P](i, j) += e.d[i] * e.d[j];
+            if (fullRank(P)) break;
         }
     }
 
-    // Rank-truncated pseudo-inverse of each normal matrix.
-    //
-    // A cell on a wall edge has only Dim-1 interior neighbours (walls are
-    // excluded from the fit), so M is rank deficient. Its determinant is not
-    // exactly zero - it is roundoff times the matrix scale - so a determinant
-    // threshold compared against an absolute 1e-30 accepts it and inverts it,
-    // producing gradients of order 1/eps. That is not an accuracy loss: it is a
-    // divergent source term (|grad p| ~ 1e13 in a 3D tet run, which the
-    // momentum equation then turns into |u| ~ 1e29).
-    //
-    // The complete orthogonal decomposition is rank revealing with a threshold
-    // relative to the largest pivot, and its pseudo-inverse is the minimum-norm
-    // least-squares solution: exact in the well-conditioned directions, zero in
-    // the underdetermined one. The pressure matrix is assembled from this same
-    // pseudo-inverse (see buildMatrices), so the correction still cancels the
-    // divergence it was built for.
+    // Rank-truncated pseudo-inverse of each normal matrix. With the guarded
+    // ghost constraints above this only affects truly isolated cells.
     Mpinv_all_.assign(n, Eigen::Matrix<double, Dim, Dim>::Zero());
     for (std::size_t P = 0; P < n; ++P) {
         Eigen::CompleteOrthogonalDecomposition<Eigen::Matrix<double, Dim, Dim>> cod(
@@ -342,7 +347,6 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
                                           const std::vector<char>& dirichletMask,
                                           const std::vector<double>& dirichletValues) const {
     const std::size_t n = mesh_.nCells();
-    const std::size_t nF = mesh_.nFaces();
 
     // The normal-equation matrix depends only on the cell-centre geometry, so it
     // is built once per Gradient; only the phi-dependent right-hand side is
@@ -352,9 +356,6 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
     else for (auto& r : rhs_all_) r.setZero();
     auto& rhs_all = rhs_all_;
 
-    // Use raw pointers to avoid copying std::array per face (hot loop)
-    const std::size_t* ownerPtr = mesh_.ownerPtr();
-    const std::size_t* neighborPtr = mesh_.neighborPtr();
     const double* phiPtr = phi.ptr();
     const bool hasMask = !dirichletMask.empty();
     auto value = [&](std::size_t c) -> double {
@@ -362,38 +363,13 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
         return phiPtr[c];
     };
 
-    for (std::size_t f = 0; f < nF; ++f) {
-        const std::size_t P = ownerPtr[f];
-        const std::size_t N = neighborPtr[f];
-        // Wall-adjacent cell: the gradient is fitted over the INTERIOR
-        // neighbours only.
-        //
-        // A reflected ghost cell used to be added here, carrying a
-        // zero-gradient (Neumann) condition: it contributed its direction
-        // to the normal matrix and nothing to the right-hand side, so it
-        // dragged the gradient of the wall cell towards zero in the
-        // wall-normal direction.
-        //
-        // That is inconsistent with the pressure equation, whose wall face
-        // contributes NOTHING at all (the flux through a wall is
-        // prescribed, so it does not change with the pressure correction).
-        // The two operators have to be the same one: where they are not,
-        // the pressure correction cannot cancel the divergence it was
-        // built for, and the error is largest exactly in the wall layer.
-        //
-        // The cell-centre gradient of a wall cell is an extrapolation
-        // from the interior, which is the standard treatment.
-        if (N == std::size_t(-1)) continue;
-        const double* xP = mesh_.cellCenterPtr(P);
-        const double* xN = mesh_.cellCenterPtr(N);
-        double dPN[Dim];
-        for (std::size_t dd = 0; dd < Dim; ++dd) dPN[dd] = xN[dd] - xP[dd];
-        const double delta = value(N) - value(P);
+    // The right-hand side mirrors the stencil built above: one equation per
+    // neighbour, (grad phi) . d = phi_neighbour - phi_P.
+    for (std::size_t P = 0; P < n; ++P) {
         auto& rp = rhs_all[P];
-        auto& rn = rhs_all[N];
-        for (std::size_t i = 0; i < Dim; ++i) {
-            rp(i) += dPN[i] * delta;
-            rn(i) += dPN[i] * delta;
+        for (const auto& e : stencil_[P]) {
+            const double delta = value(e.cell) - value(P);
+            for (std::size_t i = 0; i < Dim; ++i) rp(i) += e.d[i] * delta;
         }
     }
 
@@ -404,62 +380,6 @@ void Gradient<Dim>::computeLeastSquares_(const Field<Dim>& phi,
     }
 }
 
-template<std::size_t Dim>
-void Gradient<Dim>::buildMatrices(
-    std::array<std::vector<std::vector<std::pair<std::size_t, double>>>, Dim>& out) const {
-    if (scheme_ != GradientScheme::LeastSquares) {
-        throw std::invalid_argument("buildMatrices is only defined for the least-squares gradient");
-    }
-
-    const std::size_t n = mesh_.nCells();
-    for (auto& perDim : out) {
-        perDim.clear();
-        perDim.resize(n);
-    }
-
-    // Exactly the (rank-truncated) pseudo-inverse computeLeastSquares_ applies,
-    // so the pressure equation assembled from these coefficients is the precise
-    // composition of the divergence with the gradient the velocity correction
-    // uses.
-    if (!normalMatrixBuilt_ || M_all_.size() != n) buildNormalMatrix_();
-
-    for (std::size_t C = 0; C < n; ++C) {
-        const auto& Minv = Mpinv_all_[C];
-
-        // The fit is linear in the field: the coefficient of phi_other is
-        // (row d of M^-1) . d_other, and the coefficient of phi_C is its
-        // negation.
-        auto addCoefficients = [&](std::size_t other, const double* dOther) {
-            for (std::size_t d = 0; d < Dim; ++d) {
-                double k = 0.0;
-                for (std::size_t i = 0; i < Dim; ++i)
-                    k += Minv(static_cast<Eigen::Index>(d),
-                              static_cast<Eigen::Index>(i)) * dOther[i];
-                if (k == 0.0) continue;
-                out[d][C].emplace_back(other, k);
-                out[d][C].emplace_back(C, -k);
-            }
-        };
-
-        for (std::size_t f : mesh_.cellFaces(C)) {
-            const std::size_t Nf = mesh_.neighbor(f);
-            if (Nf == std::size_t(-1))
-                continue; // wall faces contribute nothing to the fit
-            // C can be the face's OWNER (other cell = neighbour) or the face's
-            // NEIGHBOUR (other cell = owner): the direction to the other cell
-            // decides, and the same value difference times that direction
-            // enters the fit either way - the accumulation below is
-            // orientation independent (see computeLeastSquares_).
-            const std::size_t O = (Nf == C) ? mesh_.owner(f) : Nf;
-            const double* xC = mesh_.cellCenterPtr(C);
-            const double* xO = mesh_.cellCenterPtr(O);
-            double dOther[Dim];
-            for (std::size_t i = 0; i < Dim; ++i)
-                dOther[i] = xO[i] - xC[i];
-            addCoefficients(O, dOther);
-        }
-    }
-}
 
 template<std::size_t Dim>
 const Mesh<Dim>& Gradient<Dim>::mesh() const { return mesh_; }
