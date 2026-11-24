@@ -48,14 +48,12 @@ CfdInitializeDialog::CfdInitializeDialog(int dim, bool turbulence, QWidget* pare
         m_k->setRange(0.0, 1e3);
         m_k->setDecimals(4);
         m_k->setSpecialValueText("Auto");
-        m_k->setToolTip("0 = derive from the initial velocity (5% turbulence intensity).");
         addField("Turbulent Kinetic Energy (k)", m_k);
 
         m_omega = uikit::numeric(new QDoubleSpinBox(this));
         m_omega->setRange(0.0, 1e6);
         m_omega->setDecimals(4);
         m_omega->setSpecialValueText("Auto");
-        m_omega->setToolTip("0 = derive from k and a 7% characteristic length.");
         addField("Specific Dissipation Rate (Omega)", m_omega);
     }
 

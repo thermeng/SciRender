@@ -57,26 +57,19 @@ void CfdAdvancedDialog::buildUi() {
 
     m_pressureCorrectors = uikit::numeric(new QSpinBox);
     m_pressureCorrectors->setRange(1, 100);
-    m_pressureCorrectors->setToolTip("Pressure-corrector sweeps per iteration.");
     pressureForm->addRow("Correctors", m_pressureCorrectors);
 
     m_limitPressureCorrection = new QCheckBox("Limit P' Correction");
-    m_limitPressureCorrection->setToolTip(
-        "Clamp the pressure correction as a fraction of rho*U^2. Prevents the first\n"
-        "iterations from overshooting, at the cost of a weaker pressure-velocity coupling.");
     pressureForm->addRow(m_limitPressureCorrection);
 
     m_pressureCorrectionLimit = uikit::numeric(new QDoubleSpinBox);
     m_pressureCorrectionLimit->setRange(0, 1000);
     m_pressureCorrectionLimit->setDecimals(2);
-    m_pressureCorrectionLimit->setToolTip("Upper bound on |p'| as a multiple of rho*U_ref^2.");
     pressureForm->addRow("Correction Limit", m_pressureCorrectionLimit);
 
     m_pressureRefCell = uikit::numeric(new QSpinBox);
     m_pressureRefCell->setRange(0, 1000000);
     m_pressureRefCell->setSpecialValueText("Auto");
-    m_pressureRefCell->setToolTip(
-        "Cell that pins the pressure datum when no pressure outlet exists. Auto = last cell.");
     pressureForm->addRow("Reference Cell", m_pressureRefCell);
 
     // Diagnostics live on the Expert tab: they are scalar settings, not a
@@ -86,13 +79,10 @@ void CfdAdvancedDialog::buildUi() {
 
     m_printFrequency = uikit::numeric(new QSpinBox);
     m_printFrequency->setRange(1, 100000);
-    m_printFrequency->setToolTip("Print a residual row every N outer iterations.");
     residualForm->addRow("Print Frequency", m_printFrequency);
 
     m_residualHistoryWindow = uikit::numeric(new QSpinBox);
     m_residualHistoryWindow->setRange(1, 10000);
-    m_residualHistoryWindow->setToolTip(
-        "Iterations inspected when watching for a continuity residual that keeps growing.");
     residualForm->addRow("Residual Window", m_residualHistoryWindow);
 
     m_velocityCorrectionMaxSpeed = uikit::numeric(new QDoubleSpinBox);
@@ -100,9 +90,6 @@ void CfdAdvancedDialog::buildUi() {
     m_velocityCorrectionMaxSpeed->setDecimals(2);
     m_velocityCorrectionMaxSpeed->setValue(20.0);
     m_velocityCorrectionMaxSpeed->setSuffix(" m/s");
-    m_velocityCorrectionMaxSpeed->setToolTip(
-        "Velocity growth limiting is only applied when cell speed exceeds "
-        "this threshold. Below it, no damping is applied.");
     residualForm->addRow("Max Unlimited Speed", m_velocityCorrectionMaxSpeed);
 
     m_velocityCorrectionMaxGrowth = uikit::numeric(new QDoubleSpinBox);
@@ -110,8 +97,6 @@ void CfdAdvancedDialog::buildUi() {
     m_velocityCorrectionMaxGrowth->setDecimals(3);
     m_velocityCorrectionMaxGrowth->setSingleStep(0.01);
     m_velocityCorrectionMaxGrowth->setValue(0.15);
-    m_velocityCorrectionMaxGrowth->setToolTip(
-        "Maximum per-iteration velocity amplitude growth rate from pressure correction.");
     residualForm->addRow("Acceptable Speed Growth Rate", m_velocityCorrectionMaxGrowth);
 
     QFormLayout* perfForm = nullptr;
@@ -119,9 +104,6 @@ void CfdAdvancedDialog::buildUi() {
     m_numThreads = uikit::numeric(new QSpinBox);
     m_numThreads->setRange(0, 1024);
     m_numThreads->setSpecialValueText("Auto");
-    m_numThreads->setToolTip(
-        "OpenMP threads used by the solver (matrix assembly, AMG, residuals).\n"
-        "0 = runtime default (honours OMP_NUM_THREADS).");
     perfForm->addRow("Threads", m_numThreads);
 
     // Output-only diagnostics: extra columns for the run table.
@@ -129,23 +111,12 @@ void CfdAdvancedDialog::buildUi() {
     pressureLay->addWidget(uikit::group("Diagnostics", &diagnosticsForm));
 
     m_printResidentSet = new QCheckBox("Process Memory (MiB)");
-    m_printResidentSet->setToolTip(
-        "Append the process private working set to every printed solver row\n"
-        "(steady iteration or transient step): the same number as Task Manager's\n"
-        "Memory column. Useful when watching a long run for memory growth; off by\n"
-        "default, because sampling the OS is not part of normal solver output.");
     diagnosticsForm->addRow(m_printResidentSet);
 
     m_printIterationTime = new QCheckBox("Iteration Time");
-    m_printIterationTime->setToolTip(
-        "Append the per-iteration wall time as the last column of the residual\n"
-        "table. Off by default: it is a diagnostic, not normal solver output.");
     diagnosticsForm->addRow(m_printIterationTime);
 
     m_printTotalTime = new QCheckBox("Total Time");
-    m_printTotalTime->setToolTip(
-        "Print the per-phase timing breakdown (momentum / pressure / turbulence\n"
-        "/ AMG setup) at the end of the run. Off by default.");
     diagnosticsForm->addRow(m_printTotalTime);
 
     pressureLay->addStretch(1);
@@ -153,7 +124,6 @@ void CfdAdvancedDialog::buildUi() {
     // ── Pressure AMG ─────────────────────────────────────────────────────────
     auto* pressureAmgLay = addPage("Pressure");
     m_pressureSolverStats = new QCheckBox("Pressure Solver Statistics");
-    m_pressureSolverStats->setToolTip("Print per-run pressure linear-solver statistics.");
     pressureAmgLay->addWidget(m_pressureSolverStats);
     m_pressureAmg = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults());
     pressureAmgLay->addWidget(m_pressureAmg);
@@ -163,7 +133,6 @@ void CfdAdvancedDialog::buildUi() {
     auto* momentumLay = addPage("Momentum");
 
     m_momentumSolverStats = new QCheckBox("Momentum Solver Statistics");
-    m_momentumSolverStats->setToolTip("Print per-run momentum linear-solver statistics.");
     momentumLay->addWidget(m_momentumSolverStats);
 
     m_momentumAmg = new AmgConfigWidget(cfd::AmgSettings::momentumDefaults());
@@ -186,11 +155,6 @@ void CfdAdvancedDialog::buildUi() {
     m_limiterKind->addItem("MinMod", 0);
     m_limiterKind->addItem("Venkatakrishnan", 1);
     m_limiterKind->addItem("Cubic", 2);
-    m_limiterKind->setToolTip(
-        "MinMod = Barth-Jespersen minmod, one factor per cell.\n"
-        "Venkatakrishnan = smooth Venkatakrishnan function.\n"
-        "Cubic = Michalak-Ollivier-Gooch cubic fit, never exceeds 1 "
-        "(OpenFOAM-recommended).");
     gradientsForm->addRow("Limiter Method", m_limiterKind);
 
     // Each limiter-only field keeps its caption in the same row, so the row is
@@ -211,9 +175,6 @@ void CfdAdvancedDialog::buildUi() {
     m_limiterK->setDecimals(4);
     m_limiterK->setSingleStep(0.01);
     m_limiterK->setValue(0.1);
-    m_limiterK->setToolTip(
-        "Venkatakrishnan smoothing: eps = k * (hi - lo), relative to the local "
-        "field variation. Only used by the Venkatakrishnan limiter.");
     m_limiterKRow = addLimiterRow("Smoothing Constant (K)", m_limiterK);
 
     m_limiterCubicTransition = uikit::numeric(new QDoubleSpinBox);
@@ -221,9 +182,6 @@ void CfdAdvancedDialog::buildUi() {
     m_limiterCubicTransition->setDecimals(2);
     m_limiterCubicTransition->setSingleStep(0.05);
     m_limiterCubicTransition->setValue(1.5);
-    m_limiterCubicTransition->setToolTip(
-        "Cubic transition point where the limiter reaches 1 (OpenFOAM uses 1.5). "
-        "Only used by the Cubic limiter.");
     m_limiterCubicRow = addLimiterRow("Cubic Transition", m_limiterCubicTransition);
 
     auto* directionLay = new QVBoxLayout;
@@ -232,11 +190,8 @@ void CfdAdvancedDialog::buildUi() {
     m_limiterSpan = new QButtonGroup(this);
     m_limiterFaceCentre = new QRadioButton("Face Centre");
     m_limiterFaceCentre->setChecked(true);
-    m_limiterFaceCentre->setToolTip("d = x_face - x_upwind (default).");
     m_limiterSpan->addButton(m_limiterFaceCentre, 0);
     m_limiterCentroidLine = new QRadioButton("Centroid Line");
-    m_limiterCentroidLine->setToolTip("d along the cell-centroid line, scaled to "
-                                      "the face plane.");
     m_limiterSpan->addButton(m_limiterCentroidLine, 1);
     directionLay->addWidget(m_limiterFaceCentre);
     directionLay->addWidget(m_limiterCentroidLine);
@@ -248,12 +203,8 @@ void CfdAdvancedDialog::buildUi() {
     m_limiterAggregation = new QButtonGroup(this);
     m_limiterCellWide = new QRadioButton("Cell-Wide");
     m_limiterCellWide->setChecked(true);
-    m_limiterCellWide->setToolTip("One scale factor per cell: the most restrictive "
-                                  "face limits every face of the cell.");
     m_limiterAggregation->addButton(m_limiterCellWide, 0);
     m_limiterComponentWise = new QRadioButton("Per Face");
-    m_limiterComponentWise->setToolTip("One scale factor per face: only faces that "
-                                       "leave the bound set are clipped.");
     m_limiterAggregation->addButton(m_limiterComponentWise, 1);
     aggLay->addWidget(m_limiterCellWide);
     aggLay->addWidget(m_limiterComponentWise);

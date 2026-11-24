@@ -71,8 +71,6 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
     defaultTolSpin_->setRange(cfd::StoppingCriteriaLimits::kTolMin,
                               cfd::StoppingCriteriaLimits::kTolMax);
     defaultTolSpin_->setValue(cfd::defaultStoppingCriteria().defaultTolerance);
-    defaultTolSpin_->setToolTip(
-        "Default residual tolerance applied to every equation that inherits.");
     sLay->addRow("Default Tolerance", defaultTolSpin_);
 
     maxIterSpin_ = uikit::numeric(new QSpinBox);
@@ -80,15 +78,9 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
         (int)cfd::StoppingCriteriaLimits::kIterMin,
         (int)cfd::StoppingCriteriaLimits::kIterMax);
     maxIterSpin_->setValue(cfd::defaultStoppingCriteria().steady.maxIterations);
-    maxIterSpin_->setToolTip(
-        "Maximum iterations for residual mode. If the residual gate never "
-        "fires the run stops here and reports \"max iterations reached\".");
     sLay->addRow("Max Iterations", maxIterSpin_);
 
     fixedIterCb_ = new QCheckBox("Fixed Iteration Limit");
-    fixedIterCb_->setToolTip(
-        "When on, the solver runs exactly this many iterations and the "
-        "residual tolerance gate is bypassed. Max iterations is ignored.");
     sLay->addRow(fixedIterCb_);
 
     fixedIterSpin_ = uikit::numeric(new QSpinBox);
@@ -97,16 +89,12 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
         (int)cfd::StoppingCriteriaLimits::kIterMax);
     fixedIterSpin_->setValue(cfd::defaultStoppingCriteria().steady.maxIterations);
     fixedIterSpin_->setEnabled(false);
-    fixedIterSpin_->setToolTip("Exact iteration budget (fixed mode only).");
     sLay->addRow("Fixed Iterations", fixedIterSpin_);
 
     holdSpin_ = uikit::numeric(new QSpinBox);
     holdSpin_->setRange(cfd::StoppingCriteriaLimits::kHoldMin,
                         cfd::StoppingCriteriaLimits::kHoldMax);
     holdSpin_->setValue(cfd::defaultStoppingCriteria().steady.convergenceHoldIterations);
-    holdSpin_->setToolTip(
-        "Consecutive iterations every gated equation must stay below its "
-        "tolerance before the run is declared converged.");
     sLay->addRow("Convergence Hold", holdSpin_);
 
     main->addWidget(steadyGroup_);
@@ -122,8 +110,6 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
     tEndSpin_->setRange(cfd::StoppingCriteriaLimits::kTEndMin,
                         cfd::StoppingCriteriaLimits::kTEndMax);
     tEndSpin_->setValue(cfd::defaultStoppingCriteria().transient.tEnd);
-    tEndSpin_->setToolTip("Global end time; the run stops here regardless of "
-                          "residuals.");
     tEndSpin_->setSuffix(" s");
     tLay->addRow("End Time", tEndSpin_);
 
@@ -132,8 +118,6 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
                             cfd::StoppingCriteriaLimits::kOuterMax);
     maxOuterSpin_->setValue(cfd::defaultStoppingCriteria().transient
                                 .maxOuterCorrectors);
-    maxOuterSpin_->setToolTip(
-        "Maximum pressure-corrector sweeps per time step.");
     tLay->addRow("Max Outer Correctors", maxOuterSpin_);
 
     minOuterSpin_ = uikit::numeric(new QSpinBox);
@@ -141,9 +125,6 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
                             cfd::StoppingCriteriaLimits::kOuterMax);
     minOuterSpin_->setValue(cfd::defaultStoppingCriteria().transient
                                 .minOuterCorrectors);
-    minOuterSpin_->setToolTip(
-        "Minimum pressure-corrector sweeps per time step, even when the "
-        "residual target is already met.");
     tLay->addRow("Minimum Correctors", minOuterSpin_);
 
     reductionSpin_ = uikit::numeric(new QDoubleSpinBox);
@@ -153,9 +134,6 @@ StoppingCriteriaDialog::StoppingCriteriaDialog(QWidget* parent)
     reductionSpin_->setSingleStep(0.05);
     reductionSpin_->setValue(cfd::defaultStoppingCriteria().transient
                                  .residualReduction);
-    reductionSpin_->setToolTip(
-        "Stop the corrector loop once the continuity residual is this fraction "
-        "of its value at the start of the time step. 0 disables the test.");
     tLay->addRow("Residual Reduction", reductionSpin_);
 
     transientGroup_->setVisible(false);
@@ -266,16 +244,12 @@ void StoppingCriteriaDialog::rebuildEquations() {
         if (!er.applicable) continue;
 
         auto* nameLbl = new QLabel(er.name);
-        nameLbl->setToolTip(er.tip);
 
         auto* enableCb = new QCheckBox;
         enableCb->setChecked(er.enabled);
-        enableCb->setToolTip(er.tip);
 
         auto* overrideCb = new QCheckBox;
         overrideCb->setChecked(er.hasOverride);
-        overrideCb->setToolTip("When off, the equation inherits the default "
-                               "tolerance above.");
 
         auto* tolEdit = new QLineEdit;
         tolEdit->setValidator(positiveNumberValidator());
@@ -283,7 +257,6 @@ void StoppingCriteriaDialog::rebuildEquations() {
         tolEdit->setFixedWidth(110);
         tolEdit->setText(cfd::formatTolerance(er.tolerance).c_str());
         tolEdit->setEnabled(er.hasOverride && er.enabled);
-        tolEdit->setToolTip(er.tip);
 
         RowWidgets rw{enableCb, overrideCb, tolEdit};
         rowWidgets_[er.id] = rw;

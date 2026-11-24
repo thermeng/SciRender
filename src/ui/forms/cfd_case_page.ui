@@ -139,7 +139,6 @@
        <item>
         <widget class="QCheckBox" name="adaptiveCflCb">
          <property name="text"><string>Adaptive CFL</string></property>
-         <property name="toolTip"><string>Recompute dt each step from the CFL number. min/max Dt still clamp the step even when this is off.</string></property>
         </widget>
        </item>
 
@@ -322,9 +321,6 @@
       <property name="text">
        <string>Boundary Conditions</string>
       </property>
-     <property name="toolTip">
-      <string>Assign inlet, outlet and wall conditions to each mesh patch.</string>
-     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
        <horstretch>0</horstretch>
@@ -355,7 +351,6 @@
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Material</string></property>
-        <property name="toolTip"><string>Built-in reference materials (20 °C, 1 atm), your saved materials, or Custom for hand-typed properties.</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
       </item>
@@ -387,7 +382,6 @@
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Density</string></property>
-        <property name="toolTip"><string>rho — density</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
       </item>
@@ -422,7 +416,6 @@
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Viscosity</string></property>
-        <property name="toolTip"><string>mu — dynamic viscosity</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
       </item>
@@ -457,7 +450,6 @@
         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
         <property name="text"><string>Kinematic ν</string></property>
-        <property name="toolTip"><string>nu = mu / rho — derived, what the solver uses</string></property>
         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
       </item>
@@ -491,13 +483,11 @@
       <item>
        <widget class="QPushButton" name="saveMaterialBtn">
         <property name="text"><string>Save as Material…</string></property>
-        <property name="toolTip"><string>Store the current density and viscosity as a named material, available in all future cases.</string></property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="deleteMaterialBtn">
         <property name="text"><string>Delete</string></property>
-        <property name="toolTip"><string>Remove the selected user-defined material from the library.</string></property>
        </widget>
       </item>
      </layout>
@@ -507,9 +497,6 @@
     <widget class="QCheckBox" name="turbCb">
      <property name="text">
       <string>SST Turbulence</string>
-     </property>
-     <property name="toolTip">
-      <string>Enable the k-omega SST turbulence model.</string>
      </property>
     </widget>
     </item>
@@ -559,11 +546,6 @@
          <property name="text">
           <string>All Y+ treatment</string>
          </property>
-         <property name="toolTip">
-          <string>All-y+ wall treatment: per-cell switch between low-Re (resolving the
-viscous sublayer, y+ ~ 1) and wall functions (log layer, y+ > 30) based on local y+.
-When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</string>
-         </property>
         </widget>
        </item>
       </layout>
@@ -591,7 +573,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>alpha U</string></property>
-            <property name="toolTip"><string>Velocity Under-Relaxation factor</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
         </widget>
         </item>
@@ -621,7 +602,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
             <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
             <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
             <property name="text"><string>alpha P</string></property>
-            <property name="toolTip"><string>Pressure Under-Relaxation factor</string></property>
             <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
         </widget>
         </item>
@@ -654,7 +634,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
          <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
          <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
          <property name="text"><string>alpha K</string></property>
-         <property name="toolTip"><string>Turbulent Kinetic Energy Under-Relaxation factor</string></property>
          <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
         </widget>
        </item>
@@ -686,7 +665,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
          <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
          <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
          <property name="text"><string>alpha W</string></property>
-         <property name="toolTip"><string>Specific Dissipation Rate Under-Relaxation factor</string></property>
          <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
         </widget>
        </item>
@@ -765,18 +743,12 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
      <property name="text">
       <string>SIMPLEC</string>
      </property>
-     <property name="toolTip">
-      <string>Consistent pressure-velocity coupling; usually allows larger relaxation.</string>
-     </property>
     </widget>
    </item>
    <item>
     <widget class="QPushButton" name="advancedBtn">
      <property name="text">
       <string>Advanced...</string>
-     </property>
-     <property name="toolTip">
-      <string>Pressure, momentum AMG and diagnostics controls.</string>
      </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -790,9 +762,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
     <widget class="QPushButton" name="stoppingBtn">
      <property name="text">
       <string>Stopping Criteria</string>
-     </property>
-     <property name="toolTip">
-      <string>Configure per-equation residual tolerances and fixed iteration limit for the convergence test.</string>
      </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -864,9 +833,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
      <property name="text">
       <string>Initialize</string>
      </property>
-     <property name="toolTip">
-      <string>Reset velocity and pressure to zero and preview the case.</string>
-     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
        <horstretch>0</horstretch>
@@ -881,7 +847,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
      <item>
       <widget class="QPushButton" name="runBtn">
        <property name="text"><string>Run</string></property>
-       <property name="toolTip"><string>Run from the current solution (loaded or from the previous run). Use Initialize to reset.</string></property>
        <property name="sizePolicy">
         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
          <horstretch>1</horstretch>
@@ -894,7 +859,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
        <widget class="QPushButton" name="cancelBtn">
         <property name="text"><string>Cancel</string></property>
         <property name="enabled"><bool>false</bool></property>
-        <property name="toolTip"><string>Stop the run at the next step boundary. The current step is completed so the saved state is a valid restart point.</string></property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
           <horstretch>1</horstretch>
@@ -916,7 +880,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
        <widget class="QPushButton" name="pauseBtn">
         <property name="text"><string>Pause</string></property>
         <property name="enabled"><bool>false</bool></property>
-        <property name="toolTip"><string>Pause at the next iteration/time-step boundary, then resume from here.</string></property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
           <horstretch>1</horstretch>
@@ -929,7 +892,6 @@ When off, low-Re treatment is used everywhere (requires y+ ~ 1 at all walls).</s
        <widget class="QPushButton" name="stepBtn">
         <property name="text"><string>Step</string></property>
         <property name="enabled"><bool>false</bool></property>
-        <property name="toolTip"><string>While paused, advance exactly one iteration/time step.</string></property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
           <horstretch>1</horstretch>

@@ -190,7 +190,6 @@ void CfdBoundaryConditionsDialog::buildTable() {
         auto* nameItem = new QTableWidgetItem(QString::fromStdString(m_bcs[row].patchName));
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
         const std::size_t faces = row < int(m_faceCounts.size()) ? m_faceCounts[row] : 0;
-        nameItem->setToolTip(QString("%1 faces").arg(faces));
         m_table->setItem(row, 0, nameItem);
 
         auto* condItem = new QTableWidgetItem;

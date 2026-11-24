@@ -75,56 +75,33 @@ void AmgConfigWidget::buildUi() {
 
     m_maxCycles = uikit::numeric(new QSpinBox(this));
     m_maxCycles->setRange(1, 100000);
-    m_maxCycles->setToolTip(
-        "Maximum number of multimesh loops run while the linear-system residual is\n"
-        "above Epsilon and the convergence tolerance has not been met.");
     solver->addRow("Maximum Cycle", m_maxCycles);
 
     m_verbosity = styleCombo(new QComboBox(this));
     m_verbosity->addItems({"None", "Low", "High", "Diagnosis"});
-    m_verbosity->setToolTip(
-        "None: silent.\n"
-        "Low: residual after every multimesh loop.\n"
-        "High: also the multigrid series and the equation count per level.\n"
-        "Diagnosis: top-level AMG performance information (slower).");
     solver->addRow("Verbosity", m_verbosity);
 
     m_tolerance = toleranceSpin();
-    m_tolerance->setToolTip(
-        "Factor by which the linear-system residual must drop before the multimesh\n"
-        "loop stops. 0.01 = two orders of magnitude.");
     solver->addRow("Convergence Tolerance", m_tolerance);
 
     m_cycleType = styleCombo(new QComboBox(this));
     m_cycleType->addItems({"V Cycle", "W Cycle", "F Cycle", "Flexible"});
-    m_cycleType->setToolTip(
-        "Multimesh loop strategy. F = W followed by V (fixed). Flexible = residual-driven\n"
-        "α=0.1 termination, β=0.7 reduction tolerance.");
     solver->addRow("Cycle Type", m_cycleType);
 
     m_backend = styleCombo(new QComboBox(this));
     m_backend->addItems({"BoomerAMG", "Cached Aggregation"});
-    m_backend->setToolTip(
-        "BoomerAMG: full value-dependent coarsening on every setup (robust,"
-        "but re-coarsens every outer iteration).\n"
-        "Cached Aggregation: aggregation maps are built once per sparsity pattern;"
-        "later iterations only refresh the level operators (O(nnz)) - much "
-        "cheaper per iteration, matching   / OpenFOAM GAMG.");
     solver->addRow("Backend", m_backend);
 
     m_preSweeps = uikit::numeric(new QSpinBox(this));
     m_preSweeps->setRange(0, 50);
-    m_preSweeps->setToolTip("Smoothing sweeps before restricting to the coarser level.");
     solver->addRow("Pre-Smooths", m_preSweeps);
 
     m_postSweeps = uikit::numeric(new QSpinBox(this));
     m_postSweeps->setRange(0, 50);
-    m_postSweeps->setToolTip("Smoothing sweeps after prolongating from the coarser level.");
     solver->addRow("Post-Smooths", m_postSweeps);
 
     m_maxLevels = uikit::numeric(new QSpinBox(this));
     m_maxLevels->setRange(1, 100);
-    m_maxLevels->setToolTip("Maximum number of multigrid levels in the sequence.");
     solver->addRow("Maximum Number Of Levels", m_maxLevels);
 
     // ── Flexible Cycle ──────────────────────────────────────
@@ -137,14 +114,12 @@ void AmgConfigWidget::buildUi() {
     m_restrictionTolerance->setRange(0.01, 0.99);
     m_restrictionTolerance->setDecimals(2);
     m_restrictionTolerance->setSingleStep(0.05);
-    m_restrictionTolerance->setToolTip("Restriction tolerance (STAR: Restriction Tolerance = 0.9).\nGo coarser when R_i > β * R_{i-1} (residual not dropping fast enough).");
     flex->addRow("Restriction", m_restrictionTolerance);
 
     m_prolongationTolerance = uikit::numeric(new QDoubleSpinBox(this));
     m_prolongationTolerance->setRange(0.01, 0.99);
     m_prolongationTolerance->setDecimals(2);
     m_prolongationTolerance->setSingleStep(0.05);
-    m_prolongationTolerance->setToolTip("Prolongation tolerance (STAR: Prolongation Tolerance = 0.5).\nStop refining when R_i < α * R_0 (level sufficiently resolved).");
     flex->addRow("Termination", m_prolongationTolerance);
 
     m_flexSweeps = uikit::numeric(new QSpinBox(this));
@@ -166,28 +141,22 @@ void AmgConfigWidget::buildUi() {
     m_stagnationFactor->setRange(1.0, 10.0);
     m_stagnationFactor->setDecimals(2);
     m_stagnationFactor->setSingleStep(0.05);
-    m_stagnationFactor->setToolTip("Residual growth ratio that counts as stagnation.");
     robust->addRow("Stagnation Factor", m_stagnationFactor);
 
     m_stagnationMinIter = uikit::numeric(new QSpinBox(this));
     m_stagnationMinIter->setRange(0, 10000);
-    m_stagnationMinIter->setToolTip("Cycles to run before stagnation may trigger.");
     robust->addRow("Stagnation Min Cycles", m_stagnationMinIter);
 
     m_stagnationLoose = uikit::numeric(new QDoubleSpinBox(this));
     m_stagnationLoose->setRange(1.0, 100.0);
     m_stagnationLoose->setDecimals(2);
     m_stagnationLoose->setSingleStep(0.5);
-    m_stagnationLoose->setToolTip("Loosened residual factor accepted once stagnation is detected.");
     robust->addRow("Stagnation Loose Factor", m_stagnationLoose);
 
     // ── Coarse solve ─────────────────────────────────────────────────────────
     QFormLayout* coarse = makeGroup("Coarse Solve", 1).second;
 
     m_epsilon = toleranceSpin();
-    m_epsilon->setToolTip(
-        "Absolute linear-system residual floor. Below this value the multimesh loop\n"
-        "stops regardless of the convergence tolerance.");
     coarse->addRow("Epsilon", m_epsilon);
 
     // ── Smoother and acceleration ────────────────────────────────────────────
@@ -195,28 +164,14 @@ void AmgConfigWidget::buildUi() {
 
     m_smoother = styleCombo(new QComboBox(this));
     m_smoother->addItems({"Jacobi", "Gauss-Seidel", "ILU"});
-    m_smoother->setToolTip(
-        "Jacobi: slow and simple.\n"
-        "Gauss-Seidel: improved convergence (default).\n"
-        "ILU: more efficient but more costly.");
     smoother->addRow("Smoother", m_smoother);
 
     m_acceleration = styleCombo(new QComboBox(this));
     m_acceleration->addItems({"None", "Conjugate Gradient", "BiCGStab", "GMRES"});
-    m_acceleration->setToolTip(
-        "None: the AMG cycle is the solver.\n"
-        "Conjugate gradient: SPD systems only (pressure).\n"
-        "BiCGStab: nonsymmetric systems.\n"
-        "GMRES: general, not necessarily symmetric systems.");
     smoother->addRow("Acceleration Method", m_acceleration);
 
     m_scaling = styleCombo(new QComboBox(this));
     m_scaling->addItems({"Automatic", "Disabled"});
-    m_scaling->setToolTip(
-        "Diagonal equilibration of the system matrix before AMG setup.\n"
-        "Automatic: scale by 1/sqrt(|diag|) — improves convergence for SPD\n"
-        "matrices (pressure). Disabled: use raw operator — correct for\n"
-        "nonsymmetric matrices (momentum, turbulence).");
     smoother->addRow("Proportional Scaling", m_scaling);
 
     // ── Aggregation ──────────────────────────────────────────────────────────
@@ -224,26 +179,15 @@ void AmgConfigWidget::buildUi() {
 
     m_groupSizeControl = styleCombo(new QComboBox(this));
     m_groupSizeControl->addItems({"Automatic", "Manual"});
-    m_groupSizeControl->setToolTip(
-        "Automatic: STAR Auto = 2 (2D) / 4 (3D) with padding. Manual: set below.");
     aggregation->addRow("Group Size Control", m_groupSizeControl);
 
     m_groupSize = uikit::numeric(new QSpinBox(this));
     m_groupSize->setRange(1, 16);
-    m_groupSize->setToolTip(
-        "Number of equations aggregated into one equation on the coarser level.\n"
-        "Read-only under Automatic: STAR Auto = 2 (2D) / 4 (3D); the solver"
-        "resolves the value from the case dimension.");
     aggregation->addRow("Group Size", m_groupSize);
 
     // Smoothed Aggregation prolongation: smooth the tentative piecewise-constant
     // prolongation so the coarse grid can represent smooth error modes.
     m_smoothedProlongation = new QCheckBox("Smoothed Prolongation", this);
-    m_smoothedProlongation->setToolTip(
-        "Smoothed Aggregation: Jacobi-smooth the tentative piecewise-constant\n"
-        "prolongation so coarse basis functions spread to neighbors of their\n"
-        "aggregate. Improves coarse-grid correction at the cost of setup time.\n"
-        "Only used by the cached-aggregation backend.");
     aggregation->addRow(m_smoothedProlongation);
 
     m_saOmega = uikit::numeric(new QDoubleSpinBox(this));
@@ -251,16 +195,11 @@ void AmgConfigWidget::buildUi() {
     m_saOmega->setDecimals(3);
     m_saOmega->setSingleStep(0.1);
     m_saOmega->setValue(2.0 / 3.0);
-    m_saOmega->setToolTip(
-        "Jacobi damping parameter for prolongation smoothing.\n"
-        "Classical value 2/3; pyamg default 4/3.");
     aggregation->addRow("SA Omega", m_saOmega);
 
     m_saDegree = uikit::numeric(new QSpinBox(this));
     m_saDegree->setRange(1, 10);
     m_saDegree->setValue(1);
-    m_saDegree->setToolTip(
-        "Number of Jacobi smoothing passes applied to the tentative prolongator.");
     aggregation->addRow("SA Degree", m_saDegree);
 
     // ── Coarsening (expert) ──────────────────────────────────────────────────
@@ -268,30 +207,22 @@ void AmgConfigWidget::buildUi() {
 
     m_coarsening = styleCombo(new QComboBox(this));
     m_coarsening->addItems({"Ruge-Stuben", "Smoothed Aggregation"});
-    m_coarsening->setToolTip(
-        "Smoothed aggregation is 's choice and is robust for nonsymmetric\n"
-        "operators. Ruge-Stuben is kept for comparison.");
     build->addRow("Coarsening", m_coarsening);
 
     m_strength = uikit::numeric(new QDoubleSpinBox(this));
     m_strength->setRange(0.0, 1.0);
     m_strength->setDecimals(3);
     m_strength->setSingleStep(0.05);
-    m_strength->setToolTip("Relative drop below which a matrix entry is not a strong connection.");
     build->addRow("Strength Threshold", m_strength);
 
     m_truncation = uikit::numeric(new QDoubleSpinBox(this));
     m_truncation->setRange(0.0, 1.0);
     m_truncation->setDecimals(3);
     m_truncation->setSingleStep(0.05);
-    m_truncation->setToolTip(
-        "Interpolation weights smaller than this fraction of the row max are dropped\n"
-        "(Ruge-Stuben only).");
     build->addRow("Truncation Threshold", m_truncation);
 
     m_minCoarse = uikit::numeric(new QSpinBox(this));
     m_minCoarse->setRange(1, 1000000);
-    m_minCoarse->setToolTip("Stop coarsening once a level has this few unknowns.");
     build->addRow("Min Coarse Size", m_minCoarse);
 
     // ── Change notifications ─────────────────────────────────────────────────

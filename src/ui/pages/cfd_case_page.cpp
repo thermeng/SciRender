@@ -122,10 +122,6 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     // Wall functions are not implemented for the low-Re SST formulation, so the
     // toggle stays hidden: it is a non-functional affordance until a high-Re
     // path exists.
-    m_alphaK->setToolTip("Turbulent kinetic energy dissipation under-relaxation.\n"
-                         "Typical SST value: 0.7 (range 0.01 - 1.0).");
-    m_alphaW->setToolTip("Specific dissipation rate under-relaxation.\n"
-                         "Typical SST value: 0.7 (range 0.01 - 1.0).");
 
     if (m_alphaK && m_alphaK->parentWidget()) m_alphaK->parentWidget()->setVisible(m_turb->isChecked());
     if (m_alphaW && m_alphaW->parentWidget()) m_alphaW->parentWidget()->setVisible(m_turb->isChecked());
@@ -310,13 +306,6 @@ void CfdCasePage::syncTimeDependencies() {
     const bool steady = !transient;
     m_alphaU->setEnabled(steady);
     m_alphaP->setEnabled(steady);
-    if (transient) {
-        m_alphaU->setToolTip("Forced to 1.0 by PISO in transient mode.");
-        m_alphaP->setToolTip("Forced to 1.0 by PISO in transient mode.");
-    } else {
-        m_alphaU->setToolTip("");
-        m_alphaP->setToolTip("");
-    }
 }
 
 void CfdCasePage::refreshRunControls() {
