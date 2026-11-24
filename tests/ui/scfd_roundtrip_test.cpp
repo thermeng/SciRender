@@ -120,6 +120,11 @@ TEST_CASE("ui.scfd_roundtrip_preserves_case_and_mesh_name") {
     s.transient.dt = 0.005;
     s.stopping.transient.tEnd = 2.0;
     s.turbulence = false;
+    // The Multigrid table edits three independent AMG configs; each must
+    // survive a case save/load without bleeding into the others.
+    s.pressureAmg.cycleType = cfd::AmgSettings::CycleType::Flexible;
+    s.momentumAmg.tolerance = 0.23;
+    s.turbulenceAmg.flexAlpha = 0.66;
     ctrl.setSettings(s);
 
     REQUIRE(ctrl.initialize(0.0, 0.0, 0.0) != nullptr);
@@ -135,6 +140,9 @@ TEST_CASE("ui.scfd_roundtrip_preserves_case_and_mesh_name") {
     CHECK(loaded.meshName() == meshName);
     CHECK(loaded.settings().transient.enabled);
     CHECK(loaded.settings().transient.dt == doctest::Approx(0.005));
+    CHECK(loaded.settings().pressureAmg.cycleType == cfd::AmgSettings::CycleType::Flexible);
+    CHECK(loaded.settings().momentumAmg.tolerance == doctest::Approx(0.23));
+    CHECK(loaded.settings().turbulenceAmg.flexAlpha == doctest::Approx(0.66));
     CHECK(loaded.currentStep() == 0);
     CHECK(loaded.currentTime() == doctest::Approx(0.0));
     CHECK(loaded.resultMesh() != nullptr);
