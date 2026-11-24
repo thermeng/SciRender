@@ -27,6 +27,13 @@ std::string volumeKey(const std::string& name, int placement, bool derived) {
 void VolumeTextureCache::upload3D(GLuint tex, int dimX, int dimY, int dimZ,
                                   GLenum format, GLenum type, const void* data,
                                   std::size_t bytes) {
+    // Derived grids are tightly packed; byte-per-voxel occupancy rows can have
+    // any width (e.g. 78) while GL default UNPACK_ALIGNMENT is 4. Set byte
+    // alignment so GL reads the packed buffer and never runs past its end.
+    GLint previousAlignment = 4;
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousAlignment);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
     if (!m_pboInitialized) {
         for (int i = 0; i < 2; ++i)
             if (!m_pbo[i].has()) glCreateBuffers(1, m_pbo[i].ptr());
@@ -43,10 +50,12 @@ void VolumeTextureCache::upload3D(GLuint tex, int dimX, int dimY, int dimZ,
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo.get());
             glTextureSubImage3D(tex, 0, 0, 0, 0, dimX, dimY, dimZ, format, type, nullptr);
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, previousAlignment);
             return;
         }
     }
     glTextureSubImage3D(tex, 0, 0, 0, 0, dimX, dimY, dimZ, format, type, data);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, previousAlignment);
 }
 
 bool VolumePlaneRanges::range(int axis, float frac, float& outMin, float& outMax) const {
