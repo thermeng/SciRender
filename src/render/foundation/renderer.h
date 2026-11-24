@@ -658,6 +658,9 @@ public:
 
 
     void clearGpuMeshes();
+    // Drop GPU resources bound to a dying context but keep the CPU-side mesh
+    // and derived voxel grid, so the next context re-uploads them.
+    void preserveMeshesAcrossContextLoss();
 
 
 

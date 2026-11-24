@@ -86,6 +86,7 @@ private:
 
     ::RenderSettings* m_settings = nullptr;
     ViewportWidget* m_viewport = nullptr;
+    QWidget* m_viewportContainer = nullptr; // lives inside m_centralHost, survives MSAA switches
 
     Ui::MainWindow* ui = nullptr;
 

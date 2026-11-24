@@ -128,7 +128,7 @@ void ViewportWidget::initializeGL() {
             m_screenshotCapture.destroyAll();
             if (m_settings) {
                 if (::Renderer* scene = m_settings->backend()) {
-                    scene->clearGpuMeshes();
+                    scene->preserveMeshesAcrossContextLoss();
                 }
             }
             doneCurrent();

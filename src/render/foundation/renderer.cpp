@@ -468,6 +468,31 @@ void Renderer::clearGpuMeshes() {
     m_qualityOverlay.shutdown();
 }
 
+void Renderer::preserveMeshesAcrossContextLoss() {
+    const std::shared_ptr<const RenderMesh> mesh =
+        m_dataMesh ? m_dataMesh : m_lastUploadedMesh;
+    const std::shared_ptr<const volume::DerivedGrid> grid =
+        m_derivedVolume ? m_derivedVolume : m_pendingDerivedVolume;
+    const bool hadMesh = m_state.hasMeshLoaded;
+
+    clearGpuMeshes();
+
+    // CPU payloads survive; the pending handoffs make the new context upload
+    // the mesh and rebuild the volume/slice textures on its first frame.
+    m_dataMesh = mesh;
+    if (mesh) {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        m_pendingMesh = mesh;
+    }
+    if (grid) {
+        std::lock_guard<std::mutex> lock(meshQueueMutex);
+        m_pendingDerivedVolume = grid;
+        derivedVolumeDirty = true;
+    }
+    m_state.hasMeshLoaded = hadMesh;
+    m_qualityOverlay.markDirty();
+}
+
 void Renderer::reinitForNewContext() {
 
 

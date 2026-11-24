@@ -103,6 +103,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Viewport + toolbar + histogram split (histogram is now docked, not floating)
     auto* viewportContainer = new QWidget;
+    m_viewportContainer = viewportContainer;
     auto* vbox = new QVBoxLayout(viewportContainer);
     vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
@@ -1377,15 +1378,30 @@ void MainWindow::applyThemeAwareStylesheets() {
 }
 
 void MainWindow::recreateViewport() {
+    // Only swap the viewport widget inside its container. Replacing the whole
+    // central widget would delete m_centralHost and everything it owns (plot
+    // dock, solver-output dock, toolbar), leaving the raw member pointers in
+    // MainWindow dangling and crashing on the next output or palette update.
     auto* old = m_viewport;
-    m_viewport = new ViewportWidget(m_settings->getMsaaSamples(), this);
+    auto* layout = qobject_cast<QVBoxLayout*>(m_viewportContainer->layout());
+    const int oldIndex = layout ? layout->indexOf(old) : -1;
+
+    m_viewport = new ViewportWidget(m_settings->getMsaaSamples(), m_viewportContainer);
     m_viewport->setSettings(m_settings);
-    setCentralWidget(m_viewport);
+    if (layout) {
+        if (oldIndex >= 0) {
+            layout->removeWidget(old);
+            layout->insertWidget(oldIndex, m_viewport, 1);
+        } else {
+            layout->addWidget(m_viewport, 1);
+        }
+    }
 
     // Reconnect timers
     connect(&m_fpsTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
     connect(&m_particleTimer, &QTimer::timeout, m_viewport, QOverload<>::of(&QWidget::update));
 
+    old->setParent(nullptr);
     old->deleteLater();
     m_viewport->update();
 }
