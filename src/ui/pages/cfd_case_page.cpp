@@ -798,6 +798,8 @@ void CfdCasePage::loadMeshFromPath(const QString& path) {
     if (!m_ctrl || path.isEmpty()) return;
     if (m_ctrl->loadMesh(path)) {
         if (S()) S()->addRecentFile(path);
+    } else {
+        log("Load failed: " + m_ctrl->lastError());
     }
 }
 

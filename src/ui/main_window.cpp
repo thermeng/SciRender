@@ -1195,7 +1195,7 @@ void MainWindow::openRecent(const QString& path) {
     if (suffix == "scfd") {
         ensureCfdPage()->loadCaseFromPath(path);
         updateUpdatePolicyLabel();
-    } else if (suffix == "msh") {
+    } else if (suffix == "msh" || suffix == "cgns" || suffix == "h5") {
         ensureCfdPage()->loadMeshFromPath(path);
     } else {
         m_settings->openRecent(path);
@@ -1310,8 +1310,17 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
 void MainWindow::dropEvent(QDropEvent* event) {
     auto urls = event->mimeData()->urls();
     for (const auto& url : urls) {
-        QString path = url.toLocalFile();
-        if (!path.isEmpty()) m_settings->loadMesh(path);
+        const QString path = url.toLocalFile();
+        if (path.isEmpty()) continue;
+        const QString suffix = QFileInfo(path).suffix().toLower();
+        if (suffix == "scfd") {
+            ensureCfdPage()->loadCaseFromPath(path);
+        } else if (suffix == "msh" || suffix == "cgns" || suffix == "h5") {
+            // CFD meshes are owned by the CFD page, not the general viewer.
+            ensureCfdPage()->loadMeshFromPath(path);
+        } else {
+            m_settings->loadMesh(path);
+        }
     }
     event->acceptProposedAction();
 }

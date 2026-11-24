@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <iterator>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <iostream>
 #include <QFileInfo>
@@ -632,7 +633,19 @@ void RenderSettings::onMeshParsed() {
     // increments m_loadToken; if this task's generation no longer matches, drop it
     // so it cannot clobber state or report a false "could not load" error.
     if (!m_taskToken || m_taskToken->load() != m_loadToken) return;
-    MeshLoadResult res = m_meshWatcher.result();
+    // loadMeshFile() throws for unsupported formats. The exception is stored
+    // in the QFuture and rethrown here on the GUI thread — catching it here
+    // is the difference between a status message and a terminated process.
+    MeshLoadResult res;
+    try {
+        res = m_meshWatcher.result();
+    } catch (const std::exception& e) {
+        setStatus(QString("Could not load: %1").arg(QString::fromStdString(e.what())));
+        return;
+    } catch (...) {
+        setStatus("Could not load mesh");
+        return;
+    }
     std::shared_ptr<const RenderMesh> loaded = res.mesh;
     if (!loaded) return;
 
