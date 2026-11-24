@@ -1,8 +1,8 @@
 #include "ui/cfd_advanced_dialog.h"
 
 #include "ui/uikit.h"
-#include "ui/widgets/amg_config_widget.h"
 
+#include <QAbstractItemView>
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
@@ -11,15 +11,46 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
 namespace sidebar {
+
+namespace {
+
+// The table's columns: cycle type, termination, restriction, AMG method.
+void readAmgRow(const cfd::AmgSettings& s, QTableWidget* table, int row) {
+    auto* cycle = qobject_cast<QComboBox*>(table->cellWidget(row, 0));
+    auto* term = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, 1));
+    auto* restriction = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, 2));
+    auto* method = qobject_cast<QComboBox*>(table->cellWidget(row, 3));
+    cycle->setCurrentIndex(s.cycleType == cfd::AmgSettings::CycleType::Flexible ? 1 : 0);
+    term->setValue(s.tolerance);
+    restriction->setValue(s.flexAlpha);
+    method->setCurrentIndex(static_cast<int>(s.acceleration));
+}
+
+void writeAmgRow(QTableWidget* table, int row, cfd::AmgSettings& s) {
+    auto* cycle = qobject_cast<QComboBox*>(table->cellWidget(row, 0));
+    auto* term = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, 1));
+    auto* restriction = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, 2));
+    auto* method = qobject_cast<QComboBox*>(table->cellWidget(row, 3));
+    s.cycleType = cycle->currentIndex() == 1 ? cfd::AmgSettings::CycleType::Flexible
+                                             : cfd::AmgSettings::CycleType::VCycle;
+    s.tolerance = term->value();
+    s.flexBeta = term->value();
+    s.flexAlpha = restriction->value();
+    s.acceleration = static_cast<cfd::AmgSettings::Acceleration>(method->currentIndex());
+}
+
+} // namespace
 
 CfdAdvancedDialog::CfdAdvancedDialog(QWidget* parent) : QDialog(parent) {
     setWindowTitle("Advanced Solver Settings");
@@ -119,32 +150,106 @@ void CfdAdvancedDialog::buildUi() {
     m_printTotalTime = new QCheckBox("Total Time");
     diagnosticsForm->addRow(m_printTotalTime);
 
+    m_pressureSolverStats = new QCheckBox("Pressure Solver Statistics");
+    diagnosticsForm->addRow(m_pressureSolverStats);
+    m_momentumSolverStats = new QCheckBox("Momentum Solver Statistics");
+    diagnosticsForm->addRow(m_momentumSolverStats);
+
     pressureLay->addStretch(1);
 
-    // ── Pressure AMG ─────────────────────────────────────────────────────────
-    auto* pressureAmgLay = addPage("Pressure");
-    m_pressureSolverStats = new QCheckBox("Pressure Solver Statistics");
-    pressureAmgLay->addWidget(m_pressureSolverStats);
-    m_pressureAmg = new AmgConfigWidget(cfd::AmgSettings::pressureDefaults());
-    pressureAmgLay->addWidget(m_pressureAmg);
-    pressureAmgLay->addStretch(1);
+    // ── Multigrid ────────────────────────────────────────────────────────────
+    // Solver statistics are diagnostics, so they live with the other switches
+    // on Expert; the Multigrid tab holds only per-equation and shared AMG knobs.
+    auto* amgLay = addPage("Multigrid");
 
-    // ── Momentum ─────────────────────────────────────────────────────────────
-    auto* momentumLay = addPage("Momentum");
+    m_amgTable = new QTableWidget(kAmgRows, 4, nullptr);
+    m_amgTable->setVerticalHeaderLabels({"Pressure", "Momentum", "Turbulence"});
+    m_amgTable->setHorizontalHeaderLabels(
+        {"Cycle Type", "Termination", "Restriction", "AMG Method"});
+    m_amgTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_amgTable->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_amgTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_amgTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_amgTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    for (int row = 0; row < kAmgRows; ++row) {
+        auto* cycle = new QComboBox(m_amgTable);
+        cycle->addItems({"V-Cycle", "Flexible"});
+        m_amgTable->setCellWidget(row, kCycleType, cycle);
 
-    m_momentumSolverStats = new QCheckBox("Momentum Solver Statistics");
-    momentumLay->addWidget(m_momentumSolverStats);
+        auto* term = uikit::numeric(new QDoubleSpinBox(m_amgTable));
+        term->setRange(0.0, 1.0);
+        term->setDecimals(3);
+        m_amgTable->setCellWidget(row, kTermination, term);
 
-    m_momentumAmg = new AmgConfigWidget(cfd::AmgSettings::momentumDefaults());
-    momentumLay->addWidget(m_momentumAmg);
-    momentumLay->addStretch(1);
+        auto* restriction = uikit::numeric(new QDoubleSpinBox(m_amgTable));
+        restriction->setRange(0.0, 1.0);
+        restriction->setDecimals(3);
+        m_amgTable->setCellWidget(row, kRestriction, restriction);
 
-    // ── Turbulence ───────────────────────────────────────────────────────────
-    auto* turbulenceLay = addPage("Turbulence");
+        auto* method = new QComboBox(m_amgTable);
+        method->addItems({"None", "CG", "BiCGStab", "GMRES"});
+        m_amgTable->setCellWidget(row, kMethod, method);
+    }
+    amgLay->addWidget(m_amgTable);
 
-    m_turbulenceAmg = new AmgConfigWidget(cfd::AmgSettings::momentumDefaults());
-    turbulenceLay->addWidget(m_turbulenceAmg);
-    turbulenceLay->addStretch(1);
+    QFormLayout* amgForm = nullptr;
+    amgLay->addWidget(uikit::group("Algebraic Multigrid Controls", &amgForm));
+
+    QFormLayout* fixedForm = nullptr;
+    m_amgPreSweeps = uikit::numeric(new QSpinBox);
+    m_amgPostSweeps = uikit::numeric(new QSpinBox);
+    m_amgMaxCycles = uikit::numeric(new QSpinBox);
+    fixedForm = nullptr;
+    auto* fixedBox = uikit::group("Fixed Cycle Parameters", &fixedForm);
+    m_amgPreSweeps->setRange(0, 100);
+    m_amgPostSweeps->setRange(0, 100);
+    m_amgMaxCycles->setRange(1, 100000);
+    fixedForm->addRow("Pre-Sweeps", m_amgPreSweeps);
+    fixedForm->addRow("Post-Sweeps", m_amgPostSweeps);
+    fixedForm->addRow("Max Cycles", m_amgMaxCycles);
+    amgForm->addRow(fixedBox);
+
+    QFormLayout* coarseForm = nullptr;
+    m_amgMaxLevels = uikit::numeric(new QSpinBox);
+    m_amgCoarsenBy = uikit::numeric(new QSpinBox);
+    m_amgConservative = new QCheckBox("Conservative Coarsening");
+    m_amgAggressive = new QCheckBox("Aggressive Coarsening");
+    m_amgLaplace = new QCheckBox("Laplace Coarsening");
+    auto* coarseBox = uikit::group("Coarsening Parameters", &coarseForm);
+    m_amgMaxLevels->setRange(1, 1000);
+    m_amgCoarsenBy->setRange(1, 16);
+    coarseForm->addRow("Max Coarse Levels", m_amgMaxLevels);
+    coarseForm->addRow("Coarsen by", m_amgCoarsenBy);
+    coarseForm->addRow(m_amgConservative);
+    coarseForm->addRow(m_amgAggressive);
+    coarseForm->addRow(m_amgLaplace);
+    amgForm->addRow(coarseBox);
+
+    auto* smootherLayout = new QVBoxLayout;
+    smootherLayout->setContentsMargins(0, 0, 0, 0);
+    m_amgGaussSeidel = new QRadioButton("Gauss-Seidel");
+    m_amgILU = new QRadioButton("ILU");
+    m_amgGaussSeidel->setChecked(true);
+    smootherLayout->addWidget(m_amgGaussSeidel);
+    smootherLayout->addWidget(m_amgILU);
+    amgForm->addRow("Smoother Type", smootherLayout);
+
+    QFormLayout* flexForm = nullptr;
+    amgLay->addWidget(uikit::group("Flexible Cycle Parameters", &flexForm));
+    m_amgSweeps = uikit::numeric(new QSpinBox);
+    m_amgMaxFineRelaxations = uikit::numeric(new QSpinBox);
+    m_amgMaxCoarseRelaxations = uikit::numeric(new QSpinBox);
+    m_amgVerbosity = uikit::numeric(new QSpinBox);
+    m_amgSweeps->setRange(0, 100);
+    m_amgMaxFineRelaxations->setRange(0, 1000);
+    m_amgMaxCoarseRelaxations->setRange(0, 1000);
+    m_amgVerbosity->setRange(0, 3);
+    flexForm->addRow("Sweeps", m_amgSweeps);
+    flexForm->addRow("Max Fine Relaxations", m_amgMaxFineRelaxations);
+    flexForm->addRow("Max Coarse Relaxations", m_amgMaxCoarseRelaxations);
+    flexForm->addRow("Verbosity", m_amgVerbosity);
+
+    amgLay->addStretch(1);
 
     // ── Gradients ────────────────────────────────────────────────────────────
     auto* gradientsLay = addPage("Gradients");
@@ -232,12 +337,13 @@ void CfdAdvancedDialog::setSettings(const cfd::CaseSettings& s) {
     m_limitPressureCorrection->setChecked(s.limitPressureCorrection);
     m_pressureCorrectionLimit->setValue(s.pressureCorrectionLimit);
     m_pressureRefCell->setValue(static_cast<int>(s.pressureRefCell));
-    m_pressureAmg->setConfig(s.pressureAmg);
 
     m_pressureSolverStats->setChecked(s.pressureSolverStats);
     m_momentumSolverStats->setChecked(s.momentumSolverStats);
-    m_momentumAmg->setConfig(s.momentumAmg);
-    m_turbulenceAmg->setConfig(s.turbulenceAmg);
+    readAmgRow(s.pressureAmg, m_amgTable, 0);
+    readAmgRow(s.momentumAmg, m_amgTable, 1);
+    readAmgRow(s.turbulenceAmg, m_amgTable, 2);
+    readSharedAmg(s.pressureAmg);
 
     m_printFrequency->setValue(static_cast<int>(s.printFrequency));
     m_residualHistoryWindow->setValue(static_cast<int>(s.residualHistoryWindow));
@@ -259,10 +365,44 @@ void CfdAdvancedDialog::setSettings(const cfd::CaseSettings& s) {
     syncDependencies();
 }
 
-void CfdAdvancedDialog::setDimension(int dim) {
-    m_pressureAmg->setDimension(dim);
-    m_momentumAmg->setDimension(dim);
-    m_turbulenceAmg->setDimension(dim);
+void CfdAdvancedDialog::setDimension(int) {
+    // No dimension-dependent AMG control in the simplified UI.
+}
+
+void CfdAdvancedDialog::readSharedAmg(const cfd::AmgSettings& s) {
+    m_amgPreSweeps->setValue(s.preSweeps);
+    m_amgPostSweeps->setValue(s.postSweeps);
+    m_amgMaxCycles->setValue(s.maxIterations);
+    m_amgMaxLevels->setValue(s.maxLevels);
+    m_amgCoarsenBy->setValue(s.blockSize);
+    m_amgConservative->setChecked(s.coarsening == cfd::AmgSettings::Coarsening::SmoothedAggregation);
+    m_amgAggressive->setChecked(false);
+    m_amgLaplace->setChecked(false);
+    m_amgGaussSeidel->setChecked(s.smoother != cfd::AmgSettings::Smoother::ILU);
+    m_amgILU->setChecked(s.smoother == cfd::AmgSettings::Smoother::ILU);
+    m_amgSweeps->setValue(s.flexMaxSweeps);
+    m_amgMaxFineRelaxations->setValue(s.flexMaxFineRelaxations);
+    m_amgMaxCoarseRelaxations->setValue(s.flexMaxCoarseRelaxations);
+    m_amgVerbosity->setValue(static_cast<int>(s.verbosity));
+}
+
+void CfdAdvancedDialog::writeSharedAmgInto(cfd::AmgSettings& s) const {
+    s.preSweeps = m_amgPreSweeps->value();
+    s.postSweeps = m_amgPostSweeps->value();
+    s.maxIterations = m_amgMaxCycles->value();
+    s.maxLevels = m_amgMaxLevels->value();
+    s.blockSize = m_amgCoarsenBy->value();
+    s.coarsening = m_amgConservative->isChecked()
+                       ? cfd::AmgSettings::Coarsening::SmoothedAggregation
+                       : cfd::AmgSettings::Coarsening::RugeStuben;
+    // Aggressive / Laplace coarsening are shown for layout parity with the
+    // reference UI; the backend has no equivalent modes yet (deferred).
+    s.smoother = m_amgILU->isChecked() ? cfd::AmgSettings::Smoother::ILU
+                                       : cfd::AmgSettings::Smoother::GaussSeidel;
+    s.flexMaxSweeps = m_amgSweeps->value();
+    s.flexMaxFineRelaxations = m_amgMaxFineRelaxations->value();
+    s.flexMaxCoarseRelaxations = m_amgMaxCoarseRelaxations->value();
+    s.verbosity = static_cast<cfd::AmgSettings::Verbosity>(m_amgVerbosity->value());
 }
 
 void CfdAdvancedDialog::collectInto(cfd::CaseSettings& s) const {
@@ -270,12 +410,17 @@ void CfdAdvancedDialog::collectInto(cfd::CaseSettings& s) const {
     s.limitPressureCorrection = m_limitPressureCorrection->isChecked();
     s.pressureCorrectionLimit = m_pressureCorrectionLimit->value();
     s.pressureRefCell = static_cast<std::size_t>(m_pressureRefCell->value());
-    s.pressureAmg = m_pressureAmg->config();
 
     s.pressureSolverStats = m_pressureSolverStats->isChecked();
     s.momentumSolverStats = m_momentumSolverStats->isChecked();
-    s.momentumAmg = m_momentumAmg->config();
-    s.turbulenceAmg = m_turbulenceAmg->config();
+    // Start from the existing configs so knobs with no UI control keep their
+    // values (case file, CLI, or previously collected settings).
+    writeAmgRow(m_amgTable, 0, s.pressureAmg);
+    writeAmgRow(m_amgTable, 1, s.momentumAmg);
+    writeAmgRow(m_amgTable, 2, s.turbulenceAmg);
+    writeSharedAmgInto(s.pressureAmg);
+    writeSharedAmgInto(s.momentumAmg);
+    writeSharedAmgInto(s.turbulenceAmg);
 
     s.printFrequency = static_cast<std::size_t>(m_printFrequency->value());
     s.residualHistoryWindow = static_cast<std::size_t>(m_residualHistoryWindow->value());

@@ -4,14 +4,14 @@
 
 #include "cfd/cfd_types.h"
 
+class QButtonGroup;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QPushButton;
-class QSpinBox;
 class QRadioButton;
-class QButtonGroup;
-class AmgConfigWidget;
+class QSpinBox;
+class QTableWidget;
 
 namespace sidebar {
 
@@ -31,14 +31,16 @@ public:
     void setSettings(const cfd::CaseSettings& s);
     // Write the widgets back into `s` (before a run or save).
     void collectInto(cfd::CaseSettings& s) const;
-    // Propagate the mesh dimension to all AMG widgets so the group size
-    // display resolves 2 (2D) / 4 (3D) under Automatic.
+    // Kept for callers: the simplified Multigrid tab has no dimension-dependent
+    // control, so the mesh dimension no longer changes anything here.
     void setDimension(int dim);
 
 private:
     void buildUi();
     void resetToDefaults();
     void syncDependencies();
+    void readSharedAmg(const cfd::AmgSettings& s);
+    void writeSharedAmgInto(cfd::AmgSettings& s) const;
 
     // Pressure correction
     QSpinBox* m_pressureCorrectors = nullptr;
@@ -46,12 +48,28 @@ private:
     QDoubleSpinBox* m_pressureCorrectionLimit = nullptr;
     QSpinBox* m_pressureRefCell = nullptr;
     QCheckBox* m_pressureSolverStats = nullptr;
-    AmgConfigWidget* m_pressureAmg = nullptr;
-
-    // Momentum / turbulence linear solvers
     QCheckBox* m_momentumSolverStats = nullptr;
-    AmgConfigWidget* m_momentumAmg = nullptr;
-    AmgConfigWidget* m_turbulenceAmg = nullptr;
+
+    // Multigrid: one row per real AMG config (pressure / momentum / turbulence).
+    enum { kAmgRows = 3 };
+    enum AmgColumn { kCycleType = 0, kTermination = 1, kRestriction = 2, kMethod = 3 };
+    QTableWidget* m_amgTable = nullptr;
+
+    // Shared AMG controls (applied to all three rows).
+    QSpinBox* m_amgPreSweeps = nullptr;
+    QSpinBox* m_amgPostSweeps = nullptr;
+    QSpinBox* m_amgMaxCycles = nullptr;
+    QSpinBox* m_amgMaxLevels = nullptr;
+    QSpinBox* m_amgCoarsenBy = nullptr;
+    QCheckBox* m_amgConservative = nullptr;
+    QCheckBox* m_amgAggressive = nullptr;
+    QCheckBox* m_amgLaplace = nullptr;
+    QRadioButton* m_amgGaussSeidel = nullptr;
+    QRadioButton* m_amgILU = nullptr;
+    QSpinBox* m_amgSweeps = nullptr;
+    QSpinBox* m_amgMaxFineRelaxations = nullptr;
+    QSpinBox* m_amgMaxCoarseRelaxations = nullptr;
+    QSpinBox* m_amgVerbosity = nullptr;
 
     // Slope limiter
     QComboBox* m_limiterKind = nullptr;
