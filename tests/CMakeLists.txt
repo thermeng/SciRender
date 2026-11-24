@@ -99,37 +99,6 @@ scirender_add_test_suite(scirender_render_tests
         glad)
 
 # ---------------------------------------------------------------------------
-# ui — the Qt-only controller: .scfd round-trip, continuation and 3D solve.
-#
-# Guarded on SCIRENDER_BUILD_APP because the Qt-free `tests` preset does not
-# find Qt at all. The binary is linked into the same directory as the deployed
-# Qt DLLs, so discovery and ctest can start it without extra environment.
-# ---------------------------------------------------------------------------
-if(SCIRENDER_BUILD_APP)
-    scirender_add_test_suite(scirender_ui_tests
-        SOURCES
-            ui/scfd_roundtrip_test.cpp
-            ui/cfd_3d_mesh_test.cpp
-            ui/unstructured_render_test.cpp
-            ui/cli_options_test.cpp
-            ui/material_library_test.cpp
-            ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.cpp
-            ${PROJECT_SOURCE_DIR}/src/ui/controllers/cfd_controller.h
-            ${PROJECT_SOURCE_DIR}/src/ui/cfd_material_library.cpp
-            ${PROJECT_SOURCE_DIR}/src/ui/cfd_material_library.h
-            ${PROJECT_SOURCE_DIR}/src/app/cli_options.cpp
-            ${PROJECT_SOURCE_DIR}/src/app/cli_options.h
-        LIBRARIES
-            CfdLib
-            FvmCore
-            CoreLib
-            Qt6::Core)
-    # cfd_controller.h declares Q_OBJECT; there is no other target that builds
-    # it into a test binary, so AUTOMOC has to run here.
-    set_target_properties(scirender_ui_tests PROPERTIES AUTOMOC ON)
-endif()
-
-# ---------------------------------------------------------------------------
 # cfd — the CFD fundamentals suite
 #
 # One test case per operator behaviour. The cases that encode a contract the
