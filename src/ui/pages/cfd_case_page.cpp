@@ -254,8 +254,10 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     // over the panel's top-left corner.
     m_advancedDlg = new CfdAdvancedDialog(this);
     m_advancedDlg->hide();
-    connect(m_advancedBtn, &QPushButton::clicked, this,
-            [this] { m_advancedDlg->exec(); });
+    connect(m_advancedBtn, &QPushButton::clicked, this, [this] {
+        m_advancedDlg->snapshot(m_ctrl->settings());
+        m_advancedDlg->exec();
+    });
     connect(m_stoppingBtn, &QPushButton::clicked, this, &CfdCasePage::onStoppingCriteria);
 
     syncTime();

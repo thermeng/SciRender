@@ -27,6 +27,8 @@ class CfdAdvancedDialog : public QDialog {
 public:
     explicit CfdAdvancedDialog(QWidget* parent = nullptr);
 
+    // Load the current settings and remember them as the Cancel snapshot.
+    void snapshot(const cfd::CaseSettings& s);
     // Push a full settings object into the widgets (case load, defaults).
     void setSettings(const cfd::CaseSettings& s);
     // Write the widgets back into `s` (before a run or save).
@@ -42,6 +44,8 @@ private:
     void readSharedAmg(const cfd::AmgSettings& s);
     void writeSharedAmgInto(cfd::AmgSettings& s) const;
 
+    cfd::CaseSettings m_snapshot;
+
     // Pressure correction
     QSpinBox* m_pressureCorrectors = nullptr;
     QCheckBox* m_limitPressureCorrection = nullptr;
@@ -52,7 +56,6 @@ private:
 
     // Multigrid: one row per real AMG config (pressure / momentum / turbulence).
     enum { kAmgRows = 3 };
-    enum AmgColumn { kCycleType = 0, kTermination = 1, kRestriction = 2, kMethod = 3 };
     QTableWidget* m_amgTable = nullptr;
 
     // Shared AMG controls (applied to all three rows).

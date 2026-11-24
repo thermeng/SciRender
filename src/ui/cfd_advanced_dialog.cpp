@@ -26,11 +26,13 @@ namespace sidebar {
 namespace {
 
 // The table's columns: cycle type, termination, restriction, AMG method.
+enum AmgColumn { kCycleType = 0, kTermination = 1, kRestriction = 2, kMethod = 3 };
+
 void readAmgRow(const cfd::AmgSettings& s, QTableWidget* table, int row) {
-    auto* cycle = qobject_cast<QComboBox*>(table->cellWidget(row, 0));
-    auto* term = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, 1));
-    auto* restriction = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, 2));
-    auto* method = qobject_cast<QComboBox*>(table->cellWidget(row, 3));
+    auto* cycle = qobject_cast<QComboBox*>(table->cellWidget(row, kCycleType));
+    auto* term = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, kTermination));
+    auto* restriction = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, kRestriction));
+    auto* method = qobject_cast<QComboBox*>(table->cellWidget(row, kMethod));
     cycle->setCurrentIndex(s.cycleType == cfd::AmgSettings::CycleType::Flexible ? 1 : 0);
     term->setValue(s.tolerance);
     restriction->setValue(s.flexAlpha);
@@ -38,10 +40,10 @@ void readAmgRow(const cfd::AmgSettings& s, QTableWidget* table, int row) {
 }
 
 void writeAmgRow(QTableWidget* table, int row, cfd::AmgSettings& s) {
-    auto* cycle = qobject_cast<QComboBox*>(table->cellWidget(row, 0));
-    auto* term = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, 1));
-    auto* restriction = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, 2));
-    auto* method = qobject_cast<QComboBox*>(table->cellWidget(row, 3));
+    auto* cycle = qobject_cast<QComboBox*>(table->cellWidget(row, kCycleType));
+    auto* term = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, kTermination));
+    auto* restriction = qobject_cast<QDoubleSpinBox*>(table->cellWidget(row, kRestriction));
+    auto* method = qobject_cast<QComboBox*>(table->cellWidget(row, kMethod));
     s.cycleType = cycle->currentIndex() == 1 ? cfd::AmgSettings::CycleType::Flexible
                                              : cfd::AmgSettings::CycleType::VCycle;
     s.tolerance = term->value();
@@ -57,6 +59,14 @@ CfdAdvancedDialog::CfdAdvancedDialog(QWidget* parent) : QDialog(parent) {
     buildUi();
     resetToDefaults();
     uikit::prepareDialog(this, 0);
+    // The dialog stays alive while hidden; Cancel must undo widget edits so a
+    // later run/save (which calls collectInto) cannot apply them.
+    connect(this, &QDialog::rejected, this, [this] { setSettings(m_snapshot); });
+}
+
+void CfdAdvancedDialog::snapshot(const cfd::CaseSettings& s) {
+    m_snapshot = s;
+    setSettings(s);
 }
 
 void CfdAdvancedDialog::buildUi() {
@@ -199,7 +209,6 @@ void CfdAdvancedDialog::buildUi() {
     m_amgPreSweeps = uikit::numeric(new QSpinBox);
     m_amgPostSweeps = uikit::numeric(new QSpinBox);
     m_amgMaxCycles = uikit::numeric(new QSpinBox);
-    fixedForm = nullptr;
     auto* fixedBox = uikit::group("Fixed Cycle Parameters", &fixedForm);
     m_amgPreSweeps->setRange(0, 100);
     m_amgPostSweeps->setRange(0, 100);
@@ -392,11 +401,9 @@ void CfdAdvancedDialog::writeSharedAmgInto(cfd::AmgSettings& s) const {
     s.maxIterations = m_amgMaxCycles->value();
     s.maxLevels = m_amgMaxLevels->value();
     s.blockSize = m_amgCoarsenBy->value();
-    s.coarsening = m_amgConservative->isChecked()
-                       ? cfd::AmgSettings::Coarsening::SmoothedAggregation
-                       : cfd::AmgSettings::Coarsening::RugeStuben;
-    // Aggressive / Laplace coarsening are shown for layout parity with the
-    // reference UI; the backend has no equivalent modes yet (deferred).
+    // All three coarsening checkboxes are display-only: the backend has no
+    // equivalent modes, and coarsening is serialized, so writing it here would
+    // silently overwrite a case's saved value (deferred).
     s.smoother = m_amgILU->isChecked() ? cfd::AmgSettings::Smoother::ILU
                                        : cfd::AmgSettings::Smoother::GaussSeidel;
     s.flexMaxSweeps = m_amgSweeps->value();
