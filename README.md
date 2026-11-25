@@ -164,7 +164,7 @@ Useful filters:
 | `ctest --test-dir build-tests -R "core.parse"` | name-matching tests only |
 | `ctest --test-dir build-tests --output-on-failure` | print every failing assertion |
 
-Build switches: `SCIRENDER_BUILD_APP` (default `ON`), `SCIRENDER_BUILD_TESTS` (default `ON`), `SCIRENDER_BUILD_TOOLS` (default `OFF`).
+Build switches: `SCIRENDER_BUILD_APP` (default `ON`), `SCIRENDER_BUILD_TESTS` (default `ON`).
 
 ## License
 

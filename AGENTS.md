@@ -29,7 +29,6 @@ C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --compiler-runtime package/S
 |---|---|---|
 | `SCIRENDER_BUILD_APP` | ON | Qt/OpenGL application |
 | `SCIRENDER_BUILD_TESTS` | ON | doctest + CTest regression suite (CPU-only) |
-| `SCIRENDER_BUILD_TOOLS` | OFF | developer CLI diagnostics, not in the suite |
 
 A test-only configure needs neither Qt nor OpenGL (`SCIRENDER_BUILD_APP=OFF`).
 

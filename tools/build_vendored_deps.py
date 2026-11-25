@@ -163,9 +163,8 @@ def main():
     if not args.skip_cgns:
         build_cgns(args.force)
 
-    print("\nDONE. Configure with a vendored preset (debug-vendored /")
-    print("release-vendored) to use the prebuilt CGNS, or pass")
-    print("-DCMAKE_PREFIX_PATH=<repo>/build-vendored-lib/install).")
+    print("\nDONE. Configure with any preset (debug / release / tests) to use")
+    print("the prebuilt CGNS, or pass -DCMAKE_PREFIX_PATH=<repo>/build-vendored-lib/install.")
 
 
 if __name__ == "__main__":

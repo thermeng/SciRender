@@ -9,7 +9,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 #
 #    SCIRENDER_BUILD_APP   - the Qt/OpenGL application (and the release package)
 #    SCIRENDER_BUILD_TESTS - the doctest regression suite (CPU-only, no Qt/GL)
-#    SCIRENDER_BUILD_TOOLS - developer CLI diagnostics (not part of the suite)
 #
 #    A test-only configure (SCIRENDER_BUILD_APP=OFF) needs neither Qt nor
 #    OpenGL: the whole suite is built from the Qt-free CoreLib/FvmCore/
@@ -17,7 +16,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ---------------------------------------------------------------------------
 option(SCIRENDER_BUILD_APP   "Build the SciRender application"   ON)
 option(SCIRENDER_BUILD_TESTS "Build the test suite"               ON)
-option(SCIRENDER_BUILD_TOOLS "Build developer CLI diagnostics"    OFF)
 
 # MinGW workaround for Qt exception handling
 if(MINGW)
@@ -46,11 +44,10 @@ find_package(OpenMP REQUIRED)
 #
 #     Vendored at vendor/cgns (4.5.2) + vendor/hdf5 (1.14.6). Build the static
 #     stack once with `python tools/build_vendored_deps.py`; it installs into
-#     build-vendored-lib/install, so the
-#     debug-vendored / release-vendored presets pick it up automatically.
-#     Other presets configure without CGNS and the reader compiles out
-#     (SCIRENDER_HAVE_CGNS undefined); cfd::loadMesh then reports a clear
-#     diagnostic for .cgns files.
+#     build-vendored-lib/install. All presets add that prefix, so CGNS is
+#     enabled whenever the stack has been built; without it the reader
+#     compiles out (SCIRENDER_HAVE_CGNS undefined) and cfd::loadMesh reports a
+#     clear diagnostic for .cgns files.
 # ---------------------------------------------------------------------------
 option(SCIRENDER_ENABLE_CGNS "Enable CGNS mesh import (needs tools/build_vendored_deps.py)" ON)
 set(SCIRENDER_HAVE_CGNS OFF)
@@ -505,9 +502,3 @@ if(SCIRENDER_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# ---------------------------------------------------------------------------
-# 10. Developer CLI diagnostics (not part of the test suite)
-# ---------------------------------------------------------------------------
-if(SCIRENDER_BUILD_TOOLS)
-    add_subdirectory(tools)
-endif()
