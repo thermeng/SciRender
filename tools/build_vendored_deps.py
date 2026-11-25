@@ -109,6 +109,7 @@ def build_cgns(force):
         "HDF5_BUILD_CPP_LIB": "OFF",
         "HDF5_BUILD_HL_LIB": "OFF",
         "HDF5_ENABLE_PARALLEL": "OFF",
+        "HDF5_ENABLE_NONSTANDARD_FEATURE_FLOAT16": "OFF",
         "HDF5_ENABLE_SZIP_SUPPORT": "OFF",
         "HDF5_ENABLE_Z_LIB_SUPPORT": "ON",
         "ZLIB_USE_EXTERNAL": "OFF",
