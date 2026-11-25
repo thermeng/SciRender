@@ -157,7 +157,8 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
         sstCfg.omegaInf   = config_.omegaInf;
         sstCfg.alphaK     = config_.alphaK;
         sstCfg.alphaOmega = config_.alphaOmega;
-        sstCfg.wallFunction = config_.wallFunction;
+        sstCfg.wallFunction = false; // explicit treatment below wins
+        sstCfg.wallTreatment = SSTModel<Dim>::Config::wallTreatmentFromInt(config_.resolvedWallTreatment());
         sstCfg.turbulenceAmgConfig = config_.turbulenceAmg;
         sstCfg.turbulenceAmgCycles = config_.turbulenceAmgCycles;
         sstCfg.turbulenceAmgMaxResidual = config_.turbulenceAmgMaxResidual;
@@ -235,6 +236,11 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
     if (restartState_) {
         const RestartState& rs = *restartState_;
         const std::size_t n = mesh_.nCells();
+        if (rs.hasSteady) {
+            startIteration_ = static_cast<std::size_t>(std::max(0, rs.steadyIteration));
+            lastContResid_ = rs.steadyCont;
+            lastMomResid_ = rs.steadyMom;
+        }
         if (rs.hasVelocity) {
             for (std::size_t d = 0; d < Dim; ++d) {
                 const std::size_t m = std::min(n, rs.velocity[d].size());

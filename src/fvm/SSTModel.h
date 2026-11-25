@@ -39,6 +39,11 @@ public:
         //   HighRe   - use wall functions everywhere (y+ > 30 required)
         //   AllYPlus - per-cell: low-Re where y+ < threshold, wall function where y+ >= threshold
         enum class WallTreatment { LowRe, HighRe, AllYPlus };
+        static WallTreatment wallTreatmentFromInt(int v) {
+            if (v == 1) return WallTreatment::HighRe;
+            if (v == 2) return WallTreatment::AllYPlus;
+            return WallTreatment::LowRe;
+        }
         WallTreatment wallTreatment = WallTreatment::LowRe;
         // y+ threshold for AllYPlus switching (standard: 11.225, edge of viscous sublayer).
         double yPlusThreshold = 11.225;

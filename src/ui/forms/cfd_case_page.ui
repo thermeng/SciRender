@@ -29,6 +29,59 @@
 
     <!-- ── Time (steady / transient) ──────────────────────────────── -->
     <item>
+     <widget class="QLabel" name="turbulenceHeader">
+      <property name="text"><string>Turbulence</string></property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QWidget" name="turbModeRow" native="true">
+      <layout class="QHBoxLayout" name="turbModeRowLayout">
+       <property name="spacing"><number>6</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QRadioButton" name="laminarRadio">
+         <property name="text"><string>Laminar</string></property>
+         <property name="checked"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QRadioButton" name="turbulenceRadio">
+         <property name="text"><string>Turbulence</string></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+
+    <item>
+     <widget class="QWidget" name="wallTreatmentRow" native="true">
+      <layout class="QHBoxLayout" name="wallTreatmentRowLayout">
+       <property name="spacing"><number>6</number></property>
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
+        <widget class="QLabel" name="wallTreatmentLabel">
+         <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
+         <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
+         <property name="text"><string>Wall Treatment</string></property>
+         <property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="wallTreatmentCombo">
+         <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+
+    <item>
      <widget class="QLabel" name="timeHeader">
       <property name="text">
        <string>Time</string>
@@ -157,7 +210,7 @@
            </widget>
           </item>
           <item>
-           <widget class="QDoubleSpinBox" name="cflSpin">
+           <widget class="QLineEdit" name="cflEdit">
             <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
            </widget>
           </item>
@@ -180,7 +233,7 @@
            </widget>
           </item>
           <item>
-           <widget class="ScientificDoubleSpinBox" name="minDtSpin">
+           <widget class="QLineEdit" name="minDtEdit">
             <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
            </widget>
           </item>
@@ -203,7 +256,7 @@
            </widget>
           </item>
           <item>
-           <widget class="ScientificDoubleSpinBox" name="maxDtSpin">
+           <widget class="QLineEdit" name="maxDtEdit">
             <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
            </widget>
           </item>
@@ -493,64 +546,7 @@
      </layout>
     </widget>
    </item>
-   <item>
-    <widget class="QCheckBox" name="turbCb">
-     <property name="text">
-      <string>SST Turbulence</string>
-     </property>
-    </widget>
-    </item>
 
-    <item>
-     <widget class="QWidget" name="wallFuncRow" native="true">
-      <layout class="QHBoxLayout" name="wallFuncRowLayout">
-       <property name="spacing">
-        <number>6</number>
-       </property>
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
-       <item>
-        <widget class="QLabel" name="wallFuncLabel">
-         <property name="minimumSize">
-          <size>
-           <width>72</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>72</width>
-           <height>16777215</height>
-          </size>
-         </property>
-         <property name="text">
-          <string>Wall Treatment</string>
-         </property>
-         <property name="alignment">
-          <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="wallFuncCb">
-         <property name="text">
-          <string>All Y+ treatment</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
 
     <!-- ── Solver ─────────────────────────────────────────────────────────────── -->
     <item>

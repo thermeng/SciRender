@@ -53,6 +53,7 @@ public slots:
 
 private slots:
     void onRun();
+    void startRunFlow(bool continueFromState, bool stepOnce);
     void onCancel();
     void onPause();
     void onStep();
@@ -102,12 +103,13 @@ private:
     QDoubleSpinBox* m_alphaP = nullptr;
     QDoubleSpinBox* m_alphaK = nullptr;
     QDoubleSpinBox* m_alphaW = nullptr;
-    QCheckBox* m_wallFuncCb = nullptr;
+    QComboBox* m_wallTreatmentCombo = nullptr;
     QCheckBox* m_simplec = nullptr;
     QComboBox* m_scheme = nullptr;
     QComboBox* m_gradientScheme = nullptr;
     // Rhie-Chow is always on (no toggle).
-    QCheckBox* m_turb = nullptr;
+    QRadioButton* m_laminarRadio = nullptr;
+    QRadioButton* m_turbulenceRadio = nullptr;
 
     QLabel* m_iterValue = nullptr;
     QLabel* m_contValue = nullptr;
@@ -137,9 +139,9 @@ private:
     ScientificDoubleSpinBox* m_dtSpin = nullptr;
     ScientificDoubleSpinBox* m_tEndSpin = nullptr;
     QCheckBox* m_adaptiveCflCb = nullptr;
-    QDoubleSpinBox* m_cflSpin = nullptr;
-    ScientificDoubleSpinBox* m_minDtSpin = nullptr;
-    ScientificDoubleSpinBox* m_maxDtSpin = nullptr;
+    QLineEdit* m_cflEdit = nullptr;
+    QLineEdit* m_minDtEdit = nullptr;
+    QLineEdit* m_maxDtEdit = nullptr;
     QSpinBox* m_writeIntervalSpin = nullptr;
     QSpinBox* m_outerCorrectorsSpin = nullptr;
     QSpinBox* m_nonOrthCorrectorsSpin = nullptr;
@@ -147,6 +149,8 @@ private:
     QPushButton* m_pvdBrowseBtn = nullptr;
 
     bool m_running = false;
+    bool m_canContinue = false;
+    bool m_canStep = false;
     bool m_savedAnimGlobal = true;
     QTimer* m_frameTimer = nullptr;
     QTimer* m_stateTimer = nullptr;

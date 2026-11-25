@@ -168,7 +168,13 @@ struct CaseSettings {
     int scheme = 2;             // 0 upwind, 1 central, 2 second-order upwind
     int gradientScheme = 0;     // 0 least squares, 1 green-gauss cell based, 2 green-gauss node based
     bool turbulence = false;
-    bool wallFunction = false;
+    bool wallFunction = false; // legacy: false -> LowRe, true -> AllYPlus
+    // 0 LowRe, 1 HighRe, 2 AllYPlus; -1 means derive from legacy wallFunction.
+    int wallTreatment = -1;
+    // Resolved value shared by the session and the solver.
+    int resolvedWallTreatment() const {
+        return wallTreatment >= 0 ? wallTreatment : (wallFunction ? 2 : 0);
+    }
     double alphaK = 0.8, alphaOmega = 0.8;
 
     // Gradient (slope) limiter for the second-order upwind reconstruction.

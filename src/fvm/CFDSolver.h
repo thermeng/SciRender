@@ -170,6 +170,11 @@ std::size_t pressureRefCell = SIZE_MAX; // CaseSettings: 0
 
     // Everything needed to resume a run from a saved case.
     struct RestartState {
+        // Steady continuation: resume the iteration counter and residual state.
+        bool hasSteady = false;
+        int steadyIteration = 0;
+        double steadyCont = 0.0;
+        double steadyMom = 0.0;
         bool hasVelocity = false;
         std::array<std::vector<double>, Dim> velocity{};
         std::vector<double> pressure;

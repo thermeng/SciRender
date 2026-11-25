@@ -116,7 +116,9 @@ public:
             m_freestreamOmega = omegaInf;
             cfg.alphaK = settings.alphaK;
             cfg.alphaOmega = settings.alphaOmega;
-            cfg.wallFunction = settings.wallFunction;
+            cfg.wallFunction = false; // explicit treatment below wins
+            cfg.wallTreatment = fvm::SSTModel<Dim>::Config::wallTreatmentFromInt(
+                settings.resolvedWallTreatment());
             fvm::SSTModel<Dim> model(*m_mesh, cfg);
             model.initialize(settings.nu * settings.rho, settings.rho);
             cfd::field_utils::fillTurbulence<Dim>(model, state.turbulence, state.cells);
@@ -129,7 +131,10 @@ public:
                   const std::vector<PatchBC>& bcs,
                   const SolutionSnapshot& restart,
                   const RunHooks& hooks,
-                  std::string& error) override {
+                  std::string& error,
+                  int steadyIteration = 0,
+                  double steadyCont = 0.0,
+                  double steadyMom = 0.0) override {
         if (restart.dim != 0 && restart.dim != static_cast<int>(Dim)) {
             error = "The saved solution does not match the mesh dimension.";
             return false;
@@ -228,6 +233,12 @@ public:
         }
 
         auto solver = std::make_shared<Solver>(*m_mesh, settings.rho, settings.nu, sc);
+        // Carry the in-memory state into the new solver: transient clock/BDF2
+        // history and steady iteration counter/residuals.
+        if (steadyIteration > 0 || restart.hasFields() || restart.transientValid) {
+            queueRestartState(*solver, restart, settings, m_mesh->nCells(),
+                              steadyIteration, steadyCont, steadyMom);
+        }
         if (settings.turbulence) {
             solver->enableTurbulence(m_freestreamK, m_freestreamOmega,
                                  settings.alphaK, settings.alphaOmega,
@@ -540,10 +551,19 @@ private:
     }
 
     void queueRestartState(Solver& solver, const SolutionSnapshot& restart,
-                           const CaseSettings& settings, std::size_t expectedCells) {
+                           const CaseSettings& settings, std::size_t expectedCells,
+                           int steadyIteration = 0, double steadyCont = 0.0,
+                           double steadyMom = 0.0) {
         if (!(restart.hasFields() || restart.hasTurbulence() ||
-              (settings.transient.enabled && restart.transientValid))) return;
+              (settings.transient.enabled && restart.transientValid) ||
+              steadyIteration > 0)) return;
         typename Solver::RestartState rs;
+        if (steadyIteration > 0) {
+            rs.hasSteady = true;
+            rs.steadyIteration = steadyIteration;
+            rs.steadyCont = steadyCont;
+            rs.steadyMom = steadyMom;
+        }
         if (restart.hasFields() && restart.cells == expectedCells) {
             bool velocitySizesOk = true;
             for (std::size_t d = 0; d < Dim; ++d) {

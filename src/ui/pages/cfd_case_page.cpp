@@ -15,6 +15,10 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDoubleSpinBox>
+#include <QDoubleValidator>
+#include <QLocale>
+#include <cmath>
+#include <initializer_list>
 #include <iostream>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -44,6 +48,15 @@ QString readoutStyle() {
 // change width.
 QFont telemetryFont() {
     return uikit::mono();
+}
+
+// Plain numeric fields need an explicit parse; invalid text falls back to the
+// previous setting instead of poisoning a run.
+double readNumeric(QLineEdit* edit, double fallback) {
+    if (!edit) return fallback;
+    bool ok = false;
+    const double v = QLocale::c().toDouble(edit->text(), &ok);
+    return (ok && std::isfinite(v)) ? v : fallback;
 }
 
 } // namespace
@@ -113,24 +126,28 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_scheme = cfdUi.schemeCombo;
     m_gradientScheme = cfdUi.gradientSchemeCombo;
     // Rhie-Chow is always on for collocated grids (no UI toggle).
-    m_turb = cfdUi.turbCb;
+    m_laminarRadio = cfdUi.laminarRadio;
+    m_turbulenceRadio = cfdUi.turbulenceRadio;
 
     m_alphaK = cfdUi.alphaKSpin;
     m_alphaW = cfdUi.alphaWSpin;
-    m_wallFuncCb = cfdUi.wallFuncCb;
+    m_wallTreatmentCombo = cfdUi.wallTreatmentCombo;
+    m_wallTreatmentCombo->addItems({"Low-Re", "High-Re", "All y+"});
+    connect(m_wallTreatmentCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) { emit settingsChanged(); });
 
-    // Wall functions are not implemented for the low-Re SST formulation, so the
-    // toggle stays hidden: it is a non-functional affordance until a high-Re
-    // path exists.
-
-    if (m_alphaK && m_alphaK->parentWidget()) m_alphaK->parentWidget()->setVisible(m_turb->isChecked());
-    if (m_alphaW && m_alphaW->parentWidget()) m_alphaW->parentWidget()->setVisible(m_turb->isChecked());
-    if (m_wallFuncCb && m_wallFuncCb->parentWidget()) m_wallFuncCb->parentWidget()->setVisible(m_turb->isChecked());
-
-    connect(m_turb, &QCheckBox::toggled, this, [this](bool on) {
+    // SST-only controls follow the turbulence radio.
+    QWidget* wallTreatmentRow = cfdUi.wallTreatmentRow;
+    auto syncTurbulence = [this, wallTreatmentRow]() {
+        const bool on = m_turbulenceRadio && m_turbulenceRadio->isChecked();
         if (m_alphaK && m_alphaK->parentWidget()) m_alphaK->parentWidget()->setVisible(on);
         if (m_alphaW && m_alphaW->parentWidget()) m_alphaW->parentWidget()->setVisible(on);
-        if (m_wallFuncCb && m_wallFuncCb->parentWidget()) m_wallFuncCb->parentWidget()->setVisible(on);
+        if (wallTreatmentRow) wallTreatmentRow->setVisible(on);
+    };
+    syncTurbulence();
+    connect(m_turbulenceRadio, &QRadioButton::toggled, this, [this, syncTurbulence](bool) {
+        syncTurbulence();
+        emit settingsChanged();
     });
     // Turbulence freestream values are now edited in the Initialize dialog.
 
@@ -142,9 +159,9 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_dtSpin = cfdUi.dtSpin;
     m_tEndSpin = cfdUi.tEndSpin;
     m_adaptiveCflCb = cfdUi.adaptiveCflCb;
-    m_cflSpin = cfdUi.cflSpin;
-    m_minDtSpin = cfdUi.minDtSpin;
-    m_maxDtSpin = cfdUi.maxDtSpin;
+    m_cflEdit = cfdUi.cflEdit;
+    m_minDtEdit = cfdUi.minDtEdit;
+    m_maxDtEdit = cfdUi.maxDtEdit;
     m_writeIntervalSpin = cfdUi.writeIntervalSpin;
     m_outerCorrectorsSpin = cfdUi.outerCorrectorsSpin;
     m_nonOrthCorrectorsSpin = cfdUi.nonOrthCorrectorsSpin;
@@ -179,9 +196,15 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
     m_dtSpin->setRange(1e-12, 1e3);   m_dtSpin->setDecimals(9);  m_dtSpin->setValue(1e-3);
     m_dtSpin->setSingleStep(1e-4);
     m_tEndSpin->setRange(1e-12, 1e6); m_tEndSpin->setDecimals(6); m_tEndSpin->setValue(1.0);
-    m_cflSpin->setRange(1e-3, 1e3);   m_cflSpin->setDecimals(3);  m_cflSpin->setValue(0.5);
-    m_minDtSpin->setRange(1e-12, 1e3); m_minDtSpin->setDecimals(9); m_minDtSpin->setValue(1e-6);
-    m_maxDtSpin->setRange(1e-12, 1e3); m_maxDtSpin->setDecimals(6); m_maxDtSpin->setValue(0.01);
+    auto setNumericField = [](QLineEdit* edit, double lo, double hi, const QString& text) {
+        auto* validator = new QDoubleValidator(lo, hi, 12, edit);
+        validator->setNotation(QDoubleValidator::ScientificNotation);
+        edit->setValidator(validator);
+        edit->setText(text);
+    };
+    setNumericField(m_cflEdit,    1e-3,  1e3, "0.5");
+    setNumericField(m_minDtEdit,  1e-12, 1e3, "1e-6");
+    setNumericField(m_maxDtEdit,  1e-12, 1e3, "0.01");
     m_writeIntervalSpin->setRange(0, 1000000); m_writeIntervalSpin->setValue(1);
     m_outerCorrectorsSpin->setRange(1, 50); m_outerCorrectorsSpin->setValue(3);
     m_nonOrthCorrectorsSpin->setRange(0, 10); m_nonOrthCorrectorsSpin->setValue(1);
@@ -195,6 +218,13 @@ CfdCasePage::CfdCasePage(RenderSettings* settings, QWidget* parent)
         syncTime();
         emit settingsChanged();
     });
+    connect(m_adaptiveCflCb, &QCheckBox::toggled, this, [this, syncTime](bool) {
+        syncTime();
+        emit settingsChanged();
+    });
+    for (QLineEdit* edit : {m_cflEdit, m_minDtEdit, m_maxDtEdit}) {
+        connect(edit, &QLineEdit::textEdited, this, [this](const QString&) { emit settingsChanged(); });
+    }
     connect(m_pvdBrowseBtn, &QPushButton::clicked, this, [this]() {
         QString f = QFileDialog::getSaveFileName(this, "PVD file", m_pvdFileEdit->text(), "PVD files (*.pvd)");
         if (!f.isEmpty()) m_pvdFileEdit->setText(f);
@@ -298,11 +328,12 @@ void CfdCasePage::syncTimeDependencies() {
     const bool transient = m_transientRadio && m_transientRadio->isChecked();
     m_transientOptions->setVisible(transient);
 
-    // Adaptive CFL only gates the CFL number; min/max dt still clamp a fixed dt.
-    const bool adaptive = m_adaptiveCflCb->isChecked();
-    m_cflSpin->setEnabled(transient && adaptive);
-    m_minDtSpin->setEnabled(transient);
-    m_maxDtSpin->setEnabled(transient);
+    // All three bounds belong to the adaptive time step: with a fixed dt they
+    // have no effect, so gate them together instead of showing inert knobs.
+    const bool adaptive = transient && m_adaptiveCflCb->isChecked();
+    m_cflEdit->setEnabled(adaptive);
+    m_minDtEdit->setEnabled(adaptive);
+    m_maxDtEdit->setEnabled(adaptive);
 
     // PISO makes these inert. Reflect that honestly instead of silently ignoring.
     const bool steady = !transient;
@@ -318,7 +349,9 @@ void CfdCasePage::refreshRunControls() {
         m_pauseBtn->setEnabled(m_running && !cancelled);
         m_pauseBtn->setText(paused ? (settled ? "Resume" : "Pausing...") : "Pause");
     }
-    if (m_stepBtn) m_stepBtn->setEnabled(m_running && settled);
+    // Step works on a live paused solver, or from an initialized idle state
+    // (where it starts a one-iteration run and parks at the boundary).
+    if (m_stepBtn) m_stepBtn->setEnabled((m_running && settled) || (!m_running && m_canStep));
     // Stopping criteria may be edited when idle, or when paused at a settled
     // boundary (live edit). Disabled while actively running or pausing.
     if (m_stoppingBtn) m_stoppingBtn->setEnabled(!m_running || (paused && settled));
@@ -473,12 +506,13 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_alphaU->setValue(s.alphaU);
     if (m_alphaK) m_alphaK->setValue(s.alphaK);
     if (m_alphaW) m_alphaW->setValue(s.alphaOmega);
-    if (m_wallFuncCb) m_wallFuncCb->setChecked(s.wallFunction);
+    if (m_wallTreatmentCombo) m_wallTreatmentCombo->setCurrentIndex(s.resolvedWallTreatment());
     m_simplec->setChecked(s.simplec);
     m_scheme->setCurrentIndex(s.scheme);
     m_gradientScheme->setCurrentIndex(s.gradientScheme);
     // Rhie-Chow is always on (no toggle).
-    m_turb->setChecked(s.turbulence);
+    m_turbulenceRadio->setChecked(s.turbulence);
+    m_laminarRadio->setChecked(!s.turbulence);
 
     m_advancedDlg->setSettings(s);
 
@@ -486,9 +520,9 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
     m_dtSpin->setValue(s.transient.dt);
     m_timeSchemeCombo->setCurrentIndex(s.transient.timeScheme == fvm::TimeScheme::BDF2 ? 1 : 0);
     m_adaptiveCflCb->setChecked(s.transient.adaptiveCfl);
-    m_cflSpin->setValue(s.transient.cfl);
-    m_minDtSpin->setValue(s.transient.minDt);
-    m_maxDtSpin->setValue(s.transient.maxDt);
+    m_cflEdit->setText(QString::number(s.transient.cfl, 'g', 10));
+    m_minDtEdit->setText(QString::number(s.transient.minDt, 'g', 10));
+    m_maxDtEdit->setText(QString::number(s.transient.maxDt, 'g', 10));
     m_writeIntervalSpin->setValue(s.transient.writeInterval);
     m_nonOrthCorrectorsSpin->setValue(s.transient.nonOrthogonalCorrectors);
     m_pvdFileEdit->setText(QString::fromStdString(s.transient.pvdFile));
@@ -499,6 +533,9 @@ void CfdCasePage::applySettings(const cfd::CaseSettings& s) {
 
 void CfdCasePage::onMeshLoaded() {
     if (!S() || !m_ctrl) return;
+    m_canStep = false;
+    m_canContinue = false;
+    if (m_runBtn) m_runBtn->setText("Run");
     if (!m_ctrl->meshName().isEmpty()) m_meshName = m_ctrl->meshName();
     const auto& res = m_ctrl->meshResult();
 
@@ -558,18 +595,21 @@ void CfdCasePage::collectSettings() {
     s.simplec = m_simplec->isChecked();
     s.scheme = m_scheme->currentIndex();
     s.gradientScheme = m_gradientScheme->currentIndex();
-    s.turbulence = m_turb->isChecked();
+    s.turbulence = m_turbulenceRadio && m_turbulenceRadio->isChecked();
     // Only read turbulence sub-values when turbulence is enabled; otherwise
     // preserve the controller's defaults so stale widget values are not
     // leaked into the settings object.
-    if (m_turb->isChecked()) {
+    if (s.turbulence) {
         s.alphaK = m_alphaK ? m_alphaK->value() : m_ctrl->settings().alphaK;
         s.alphaOmega = m_alphaW ? m_alphaW->value() : m_ctrl->settings().alphaOmega;
-        s.wallFunction = m_wallFuncCb ? m_wallFuncCb->isChecked() : m_ctrl->settings().wallFunction;
+        s.wallTreatment = m_wallTreatmentCombo ? m_wallTreatmentCombo->currentIndex()
+                                               : m_ctrl->settings().resolvedWallTreatment();
+        s.wallFunction = (s.wallTreatment == 2); // legacy case files
     } else {
         s.alphaK = m_ctrl->settings().alphaK;
         s.alphaOmega = m_ctrl->settings().alphaOmega;
-        s.wallFunction = m_ctrl->settings().wallFunction;
+        s.wallTreatment = m_ctrl->settings().resolvedWallTreatment();
+        s.wallFunction = (s.wallTreatment == 2);
     }
 
     // Advanced dialog owns these fields.
@@ -582,9 +622,9 @@ void CfdCasePage::collectSettings() {
         ? fvm::TimeScheme::BDF2
         : fvm::TimeScheme::Euler;
     s.transient.adaptiveCfl = m_adaptiveCflCb->isChecked();
-    s.transient.cfl = m_cflSpin->value();
-    s.transient.minDt = m_minDtSpin->value();
-    s.transient.maxDt = m_maxDtSpin->value();
+    s.transient.cfl = readNumeric(m_cflEdit, m_ctrl->settings().transient.cfl);
+    s.transient.minDt = readNumeric(m_minDtEdit, m_ctrl->settings().transient.minDt);
+    s.transient.maxDt = readNumeric(m_maxDtEdit, m_ctrl->settings().transient.maxDt);
     s.transient.writeInterval = m_writeIntervalSpin->value();
     s.transient.nonOrthogonalCorrectors = m_nonOrthCorrectorsSpin->value();
     s.transient.pvdFile = m_pvdFileEdit->text().toStdString();
@@ -605,17 +645,17 @@ void CfdCasePage::onEditBCs() {
     faceCounts.reserve(res.patches.size());
     for (const auto& patch : res.patches) faceCounts.push_back(patch.faceCount);
 
-    CfdBoundaryConditionsDialog dlg(m_patchBCs, faceCounts, m_turb->isChecked(), this);
+    CfdBoundaryConditionsDialog dlg(m_patchBCs, faceCounts, m_turbulenceRadio->isChecked(), this);
     if (dlg.exec() != QDialog::Accepted) return;
 
     m_patchBCs = dlg.patchBCs();
     log(QString("Boundary conditions updated (%1 patches).").arg(m_patchBCs.size()));
 }
 
-void CfdCasePage::onRun() {
+void CfdCasePage::startRunFlow(bool continueFromState, bool stepOnce) {
     if (m_running) return;
     collectSettings();
-    emit residualsCleared();
+    if (!continueFromState) emit residualsCleared();
     // Capture the extraction config BY VALUE on the GUI thread. The render-prep
     // worker then runs a pure function and never reads RenderSettings members
     // while the GUI is publishing frames (that race was the streaming crash).
@@ -634,19 +674,27 @@ void CfdCasePage::onRun() {
     m_lastFrame.reset();
     m_pauseSettledLogged = false;
 
-    if (!m_ctrl->run()) {
+    if (!m_ctrl->run(continueFromState, stepOnce)) {
         // run() already emitted failed() (which restored the animation scale).
         return;
     }
     setRunning(true);
     m_iterValue->setText(QString::number(m_ctrl->currentStep()));
-    m_contValue->setText("--");
-    m_momValue->setText("--");
+    if (!continueFromState) {
+        m_contValue->setText("--");
+        m_momValue->setText("--");
+    }
     // Frames are published for both transient (per time step) and steady
     // (per iteration) runs; poll the frame bus so the UI picks up each
     // published visualization frame regardless of solver mode.
     if (m_frameTimer) m_frameTimer->start();
-    log(m_ctrl->settings().transient.enabled ? "Running (transient)..." : "Running...");
+    log(stepOnce ? "Stepping one iteration..."
+                 : (continueFromState ? "Continuing..."
+                    : (m_ctrl->settings().transient.enabled ? "Running (transient)..." : "Running...")));
+}
+
+void CfdCasePage::onRun() {
+    startRunFlow(m_canContinue, false);
 }
 
 void CfdCasePage::onCancel() {
@@ -676,7 +724,14 @@ void CfdCasePage::onPause() {
 }
 
 void CfdCasePage::onStep() {
-    if (!m_running) return;
+    if (!m_running) {
+        if (!m_canStep) {
+            log("Initialize the solution before stepping.");
+            return;
+        }
+        startRunFlow(m_canContinue, true);
+        return;
+    }
     if (!m_ctrl->isPausedSettled()) {
         log("Pause the run before stepping.");
         return;
@@ -742,6 +797,9 @@ void CfdCasePage::onInitialize() {
         ? QString("U=(%1,%2,%3)").arg(ic.ux).arg(ic.uy).arg(ic.uz)
         : QString("U=(%1,%2)").arg(ic.ux).arg(ic.uy);
     log(QString("Initialized: %1, p=%2.").arg(velocity).arg(ic.pressure));
+    m_canStep = true;
+    m_canContinue = false;
+    if (m_runBtn) m_runBtn->setText("Run");
     m_iterValue->setText("0");
     m_contValue->setText("--");
     m_momValue->setText("--");
@@ -812,6 +870,9 @@ void CfdCasePage::loadCaseFromPath(const QString& path) {
 }
 void CfdCasePage::onCaseLoaded() {
     if (!S() || !m_ctrl) return;
+    m_canStep = true;
+    m_canContinue = false;
+    if (m_runBtn) m_runBtn->setText("Run");
     m_meshName = m_ctrl->meshName();
     m_patchBCs = m_ctrl->patchBCs();
     applySettings(m_ctrl->settings());
@@ -902,6 +963,9 @@ void CfdCasePage::onPauseSettled() {
 
 void CfdCasePage::onFinished(const QString& summary) {
     if (!S() || !m_ctrl) return;
+    m_canContinue = (summary != "Interrupted");
+    m_canStep = m_canContinue;
+    if (m_runBtn) m_runBtn->setText(m_canContinue ? "Continue" : "Run");
     if (m_frameTimer) m_frameTimer->stop();
     m_lastFrame.reset();
     setRunning(false);
@@ -933,6 +997,8 @@ void CfdCasePage::onFinished(const QString& summary) {
 
 void CfdCasePage::onFailed(const QString& error) {
     if (!S() || !m_ctrl) return;
+    m_canContinue = false;
+    if (m_runBtn) m_runBtn->setText("Run");
     if (m_frameTimer) m_frameTimer->stop();
     m_lastFrame.reset();
     setRunning(false);

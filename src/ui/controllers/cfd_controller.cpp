@@ -257,8 +257,8 @@ bool CfdController::loadMesh(const QString& path) {
     return true;
 }
 
-bool CfdController::run() {
-    m_monitorHistory.clear();
+bool CfdController::run(bool continueFromState, bool stepOnce) {
+    if (!continueFromState) clearMonitorHistory();
     m_lastError.clear();
     if (m_running.load()) {
         setError("A solve is already running.");
@@ -284,6 +284,18 @@ bool CfdController::run() {
     auto base = m_mesh.renderMesh;
     auto patchBCs = m_patchBCs;
     auto* session = m_session.get();
+
+    int prevIteration = 0;
+    double prevCont = 0.0, prevMom = 0.0;
+    if (continueFromState && session) {
+        prevIteration = session->lastIterations();
+        prevCont = session->finalNormalizedContinuityResidual();
+        const auto moms = session->finalMomentumResiduals();
+        prevMom = std::max(moms[0], std::max(moms[1], moms[2]));
+        // A Continue asks for the configured budget *again*, not a new total.
+        if (!settings.transient.enabled)
+            settings.stopping.steady.maxIterations += prevIteration;
+    }
 
     // Honor the user's thread-count choice (0 = OpenMP/Eigen default).
     const int requestedThreads = settings.numThreads;
@@ -351,11 +363,16 @@ bool CfdController::run() {
     };
 
     std::string startError;
-    if (!session->startRun(settings, patchBCs, m_state, hooks, startError)) {
+    if (!session->startRun(settings, patchBCs, m_state, hooks, startError,
+                           prevIteration, prevCont, prevMom)) {
         setError(QString::fromStdString(startError.empty()
                      ? "The run could not be started." : startError));
         return false;
     }
+
+    // Park after one iteration/step: the worker has not been launched yet, so
+    // the solver will observe this before its first boundary.
+    if (stepOnce) session->requestStep();
 
     m_lastTime.store(settings.transient.enabled && m_state.transientValid
                          ? m_state.time : 0.0);

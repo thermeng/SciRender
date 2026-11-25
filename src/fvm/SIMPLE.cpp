@@ -219,14 +219,9 @@ void SIMPLE<Dim>::enableTurbulence(double kInf, double omegaInf,
         sstCfg.omegaInf   = this->config_.omegaInf;
         sstCfg.alphaK     = this->config_.alphaK;
         sstCfg.alphaOmega = this->config_.alphaOmega;
-        sstCfg.wallFunction = this->config_.wallFunction;
-        // Map deprecated wallFunction bool to wallTreatment enum.
-        using WallTreatment = typename SSTModel<Dim>::Config::WallTreatment;
-        if (wallFunction) {
-            sstCfg.wallTreatment = WallTreatment::AllYPlus;
-        } else {
-            sstCfg.wallTreatment = WallTreatment::LowRe;
-        }
+        sstCfg.wallFunction = false; // explicit treatment below wins
+        sstCfg.wallTreatment = SSTModel<Dim>::Config::wallTreatmentFromInt(
+            this->config_.resolvedWallTreatment());
         sstCfg.limiter = fvm::SlopeLimiterConfig{
             static_cast<fvm::LimiterKind>(this->config_.limiterKind),
             static_cast<fvm::LimiterAggregation>(this->config_.limiterAggregation),

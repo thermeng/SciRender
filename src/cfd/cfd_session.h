@@ -76,7 +76,10 @@ public:
                           const std::vector<PatchBC>& bcs,
                           const SolutionSnapshot& restart,
                           const RunHooks& hooks,
-                          std::string& error) = 0;
+                          std::string& error,
+                          int steadyIteration = 0,
+                          double steadyCont = 0.0,
+                          double steadyMom = 0.0) = 0;
 
     // Blocking solve; called on the controller's worker future.
     virtual void solve() = 0;

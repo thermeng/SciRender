@@ -89,7 +89,9 @@ public:
     // Starts a solve. Returns false (and emits failed()) when the request was
     // refused, e.g. while another run is active or a restored time already
     // reached the configured end time.
-    bool run();
+    // continueFromState keeps the residual history and resumes the iteration
+    // counter; stepOnce parks the solver after one iteration/time step.
+    bool run(bool continueFromState = false, bool stepOnce = false);
     void cancel();
     void pause();
     void resume();
