@@ -50,8 +50,8 @@ private:
     // TransientParams for one momentum component, from driver state.
     TransientParams<Dim> momentumTp_(std::size_t d) const;
     void performTransientIteration_(VectorField<Dim>& velocity, Field<Dim>& pressure);
-    void performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& pressure);
-    void performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& pressure);
+    void performPISOPredictor_();
+    void performPISOCorrector_();
     void updatePisoPredictor_();
     double computeAdaptiveDt_() const;
     void saveTransientCheckpoint_(int step, double time);

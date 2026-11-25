@@ -57,9 +57,7 @@ TransientParams<Dim> TransientDriver<Dim>::momentumTp_(std::size_t d) const {
 }
 
 template<std::size_t Dim>
-void TransientDriver<Dim>::performPISOPredictor_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
-    (void)velocity;
-    (void)pressure;
+void TransientDriver<Dim>::performPISOPredictor_() {
     for (std::size_t d = 0; d < Dim; ++d)
         std::copy((solver_.boundVelocity())[d].values().begin(),
                   (solver_.boundVelocity())[d].values().end(),
@@ -140,10 +138,7 @@ void TransientDriver<Dim>::updatePisoPredictor_() {
 }
 
 template<std::size_t Dim>
-void TransientDriver<Dim>::performPISOCorrector_(VectorField<Dim>& velocity, Field<Dim>& pressure) {
-    (void)velocity;
-    (void)pressure;
-    const double alphaP = 1.0; // PISO: no under-relaxation
+void TransientDriver<Dim>::performPISOCorrector_() {
     // nonOrthogonalCorrectors is the number of inner PISO passes per outer
     // corrector. Each pass reconstructs the momentum residual at the velocity
     // the previous pass produced and projects it again; this is not a no-op
@@ -452,7 +447,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
             // True PISO: 1 momentum predictor + up to nOuter pressure correctors
             // (frozen dCoeff). No under-relaxation, no adaptive alphaP reduction
             // inside correctors.
-            performPISOPredictor_(velocity, pressure);
+            performPISOPredictor_();
             // PISO residual reduction: the predictor continuity is the reference
             // for this time step. Reset it every step, never carry it over.
             pisoInitialResidual_ = s.predictedContinuity_;
@@ -461,7 +456,7 @@ void TransientDriver<Dim>::run(VectorField<Dim>& velocity, Field<Dim>& pressure)
                 std::min(nOuter, std::max(1, tp.minOuterCorrectors));
             const double reduction = tp.residualReduction;
             for (int corr = 0; corr < nOuter; ++corr) {
-                performPISOCorrector_(velocity, pressure);
+                performPISOCorrector_();
                 s.updateResiduals_();
                 s.lastIterations_ = step * nOuter + corr + 1;
 

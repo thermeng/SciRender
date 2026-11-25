@@ -357,8 +357,6 @@ private:
     double lastMomChangeW_ = 0.0;
     int lastIterations_ = 0;
     std::size_t divergenceCount_ = 0;
-    double initialMassImbalance_ = 0.0;
-    bool initialMassImbalanceSet_ = false;
     std::vector<double> residualHistory_;
 
     // Why the run ended (see Status).

@@ -297,8 +297,6 @@ void CFDSolver<Dim>::initializeSolve_(VectorField<Dim>& velocity, Field<Dim>& pr
 
     velocityOld_ = VectorField<Dim>(mesh_, 0.0);
     nutOld_ = Field<Dim>(mesh_, 0.0);
-    initialMassImbalance_ = 0.0;
-    initialMassImbalanceSet_ = false;
     residualHistory_.clear();
     steadyTotalSeconds_ = 0.0;
     steadyMomentumSeconds_ = 0.0;
@@ -486,10 +484,6 @@ void CFDSolver<Dim>::updateResiduals_() {
     // value that correction was built on.
     lastContResidRaw_ = isPiso_() ? lastPisoPreCorrectorResidual_
                                   : predictedContinuity_;
-    if (!initialMassImbalanceSet_) {
-        initialMassImbalance_ = predictedContinuity_;
-        initialMassImbalanceSet_ = true;
-    }
 
     for (std::size_t d = 0; d < Dim; ++d) {
         momResidRaw_[d] = momentumResidual_(d);
