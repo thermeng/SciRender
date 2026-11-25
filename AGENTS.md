@@ -43,7 +43,7 @@ All builds cap parallelism at `-j4` to limit resources:
 - `release`: `cmake --preset release && cmake --build --preset release -- -j4`
 - `tests` (no Qt/OpenGL, no CGNS rebuilds; runs against prebuilt vendored libs): `cmake --preset tests && cmake --build --preset tests -- -j4 && ctest --preset tests --output-on-failure`
 
-The vendored deps script must run once before `tests`/`debug-vendored`/`release-vendored` presets that consume `build-vendored-lib/install`.
+The vendored deps script must run once before any preset — `debug`, `release` and `tests` all consume `build-vendored-lib/install`. The app presets build into `build/app-debug` and `build/app-release`; keep `.vscode/tasks.json` and `.vscode/launch.json` pointed at those paths.
 
 The AMG solver is self-contained (cached aggregation); no Hypre/BoomerAMG dependency.
 
