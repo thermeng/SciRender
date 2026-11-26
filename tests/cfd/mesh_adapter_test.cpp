@@ -149,6 +149,12 @@ TEST_CASE("cfd.mesh_adapter.cavity_2d_still_loads") {
     CHECK(res.renderMesh->sourcePointCount == static_cast<int>(res.mesh2->vertices().size()));
     CHECK(res.renderMesh->vertices.size() / 3 >= res.mesh2->vertices().size());
     CHECK_FALSE(res.renderMesh->indices.empty());
+    // No 3D boundary patches → no synthetic categorical field on 2D meshes.
+    CHECK(res.renderMesh->patchNames.empty());
+    CHECK_FALSE(isCategoricalPatchScalar(*res.renderMesh, "Patch"));
+    const bool hasPatchScalar = res.renderMesh->attributes.has_value()
+        && res.renderMesh->attributes->pointScalars.count("Patch") != 0;
+    CHECK_FALSE(hasPatchScalar);
     // 2D meshes are drawn in the z = 0 plane.
     for (std::size_t i = 2; i < res.renderMesh->vertices.size(); i += 3) {
         CHECK(res.renderMesh->vertices[i] == doctest::Approx(0.0f));

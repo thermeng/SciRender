@@ -23,6 +23,15 @@
 ColorbarStyleDialog::ColorbarStyleDialog(RenderSettings* settings, const QString& barSubtitle,
                                            int initialBandCount, QWidget* parent)
     : QDialog(parent), m_settings(settings), m_barSubtitle(barSubtitle) {
+    // The synthetic Patch field has a fixed categorical palette: continuous
+    // picker, reverse, bands, ticks and numeric range controls do not apply.
+    const auto categoricalScalar = [this]() {
+        return m_barSubtitle == "Scalar" && m_settings->snapshot().scalarCategorical;
+    };
+    const bool paletteSupported = !m_barSubtitle.isEmpty()
+        && (m_barSubtitle == "Scalar" || m_barSubtitle == "Vector" ||
+            m_barSubtitle == "Streamline" || m_barSubtitle == "Volume" ||
+            m_barSubtitle == "Slice");
     // Slice bars arrive per-axis ("Slice X"/"Slice Y"/"Slice Z") but share one
     // slice style backend — normalize for all logic below. Title keeps the
     // original so the user still sees which plane they right-clicked.
@@ -171,12 +180,10 @@ auto* palHeader = uikit::header(QString("Palette — %1").arg(m_barSubtitle), th
         };
         m_paletteCombo = createColormapCombo(m_initialPaletteChoice, paletteSetter, this);
         form->addRow("Palette", m_paletteCombo);
-        if (m_barSubtitle.isEmpty() || (m_barSubtitle != "Scalar" && m_barSubtitle != "Vector" &&
-            m_barSubtitle != "Streamline" && m_barSubtitle != "Volume" && m_barSubtitle != "Slice")) {
-            m_paletteCombo->setEnabled(false);
-        }
+        m_paletteCombo->setEnabled(paletteSupported && !categoricalScalar());
         m_paletteReverse = new QCheckBox("Reverse Palette", this);
         m_paletteReverse->setChecked(m_initialPaletteReversed);
+        m_paletteReverse->setEnabled(!categoricalScalar());
         form->addRow(QString(), m_paletteReverse);
         auto reverseSetter = [this](bool v) {
             if (m_barSubtitle == "Scalar") m_settings->setColormapReversed(v);
@@ -268,6 +275,7 @@ auto* palHeader = uikit::header(QString("Palette — %1").arg(m_barSubtitle), th
             m_bandCount->hide();
         }
     }
+    m_bandCount->setEnabled(!categoricalScalar());
     form->addRow("Color bands", m_bandCount);
 
     // Ticks are global (single RenderRenderState::colorbarTicks for all bars).
@@ -278,6 +286,7 @@ auto* palHeader = uikit::header(QString("Palette — %1").arg(m_barSubtitle), th
     m_ticksSpin->setToolTip("Number of tick labels on the colorbar");
     connect(m_ticksSpin, &QSpinBox::valueChanged,
             m_settings, &RenderSettings::setColorbarTicks);
+    m_ticksSpin->setEnabled(!categoricalScalar());
     form->addRow("Ticks", m_ticksSpin);
 
     auto* buttons = uikit::buttons(this, true);
@@ -338,6 +347,19 @@ auto* palHeader = uikit::header(QString("Palette — %1").arg(m_barSubtitle), th
         // RangeEditor Reset button will snap window to bounds, but also force sync
         // to clear override-driven window. Disabling already handled via toggled signal.
     });
+    // Field may change while the dialog is open (scalar dropdown in the sidebar).
+    const auto refreshCategoricalGuards = [this, categoricalScalar, paletteSupported]() {
+        const bool cat = categoricalScalar();
+        if (m_paletteCombo) m_paletteCombo->setEnabled(paletteSupported && !cat);
+        if (m_paletteReverse) m_paletteReverse->setEnabled(!cat);
+        if (m_bandCount) m_bandCount->setEnabled(!cat);
+        if (m_ticksSpin) m_ticksSpin->setEnabled(!cat);
+    };
+    connect(m_settings, &RenderSettings::viewChanged, this,
+            [refreshCategoricalGuards](ChangeFlags) { refreshCategoricalGuards(); });
+    connect(m_settings, &RenderSettings::meshDataUpdated, this,
+            [refreshCategoricalGuards]() { refreshCategoricalGuards(); });
+
     uikit::prepareDialog(this, 480);
 }
 
@@ -418,9 +440,12 @@ void ColorbarStyleDialog::syncRangeFromSettings() {
         double lo = m_settings->getColorRangeLo();
         double hi = m_settings->getColorRangeHi();
         bool hasScalars = m_settings->hasMeshScalars();
-        m_rangeModeLabel->setText("Scalar field range");
+        const bool categorical = m_settings->snapshot().scalarCategorical;
+        m_rangeModeLabel->setText(categorical ? "Categorical field — fixed palette, no numeric range"
+                                               : "Scalar field range");
         m_rangeModeLabel->setVisible(true);
-        m_rangeEnable->blockSignals(true); m_rangeEnable->setChecked(en); m_rangeEnable->setEnabled(hasScalars); m_rangeEnable->blockSignals(false);
+        m_rangeEnable->blockSignals(true); m_rangeEnable->setChecked(categorical ? false : en);
+        m_rangeEnable->setEnabled(hasScalars && !categorical); m_rangeEnable->blockSignals(false);
         m_rangeEditor->blockSignals(true);
         m_rangeEditor->setBounds(bLo, bHi);
         if (hi > lo) m_rangeEditor->setWindow(lo, hi); else m_rangeEditor->setWindow(bLo, bHi);
