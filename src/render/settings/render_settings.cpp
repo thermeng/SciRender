@@ -1304,6 +1304,22 @@ void RenderSettings::recomputeScalarRange() {
     }
     m_state.dataScalarMin = mn; m_state.dataScalarMax = mx;
     m_state.scalarMin = mn; m_state.scalarMax = mx;
+    updateCategoricalScalarState();
+}
+
+void RenderSettings::updateCategoricalScalarState() {
+    const auto* mesh = m_meshData.loadedMesh.get();
+    const bool categorical = mesh && isCategoricalPatchScalar(*mesh, m_state.activeScalarName);
+    m_state.scalarCategorical = categorical;
+    m_state.scalarCategoryCount = categorical ? static_cast<int>(mesh->patchNames.size()) : 0;
+    m_state.scalarCategoryLabels = categorical ? mesh->patchNames : std::vector<std::string>{};
+    if (!categorical) return;
+    m_state.scalarMin = 0.0f;
+    m_state.scalarMax = static_cast<float>(m_state.scalarCategoryCount - 1);
+    m_state.dataScalarMin = m_state.scalarMin;
+    m_state.dataScalarMax = m_state.scalarMax;
+    m_state.colorRangeOverrideEnabled = false;
+    resetFilters(m_state.scalarMin, m_state.scalarMax);
 }
 
 void RenderSettings::resetFilters(float mn, float mx) {

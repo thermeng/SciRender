@@ -1101,6 +1101,7 @@ enum class PlotMode { Histogram = 0, Line = 1, Monitor = 2 };
   private:
     void setStatus(const QString& msg);
     void recomputeScalarRange();
+    void updateCategoricalScalarState();
     // Reset both filters to OFF at the full effective data range: a window
     // narrowed on the previous field/placement is meaningless on the new one,
     // and "checked at full range" reads as filtering when nothing is filtered.

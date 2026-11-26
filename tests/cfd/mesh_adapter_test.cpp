@@ -12,6 +12,7 @@
 #include "cfd/cfd_mesh_adapter.h"
 
 #include "core/cell_topology.h"
+#include "core/Colormaps.h"
 #include "core/mesh_loader.h"
 #include "mesh/Mesh.h"
 #include "support/test_support.h"
@@ -23,12 +24,36 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <tuple>
 #include <utility>
 
 namespace {
 
 std::pair<std::uint32_t, std::uint32_t> sortedEdge(std::uint32_t a, std::uint32_t b) {
     return a < b ? std::make_pair(a, b) : std::make_pair(b, a);
+}
+
+TEST_CASE("cfd.patch.categorical_state") {
+    RenderMesh mesh;
+    CHECK_FALSE(mesh.hasPatchField());
+    CHECK_FALSE(isCategoricalPatchScalar(mesh, "Patch"));
+
+    mesh.patchNames = {"inlet", "outlet", "wall"};
+    CHECK(mesh.hasPatchField());
+    CHECK(isCategoricalPatchScalar(mesh, "Patch"));
+    CHECK_FALSE(isCategoricalPatchScalar(mesh, "Pressure"));
+
+    std::set<std::tuple<float, float, float>> colors;
+    for (int i = 0; i < Colormaps::categoricalPaletteSize; ++i) {
+        const auto c = Colormaps::categoricalColor(i);
+        colors.emplace(c.r, c.g, c.b);
+    }
+    CHECK(colors.size() == static_cast<std::size_t>(Colormaps::categoricalPaletteSize));
+    const auto wrapped = Colormaps::categoricalColor(Colormaps::categoricalPaletteSize);
+    const auto first = Colormaps::categoricalColor(0);
+    CHECK(wrapped.r == doctest::Approx(first.r));
+    CHECK(wrapped.g == doctest::Approx(first.g));
+    CHECK(wrapped.b == doctest::Approx(first.b));
 }
 
 TEST_CASE("cfd.mesh_adapter.pipe_3d_exposes_patch_scalar") {

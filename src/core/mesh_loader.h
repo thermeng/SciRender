@@ -269,6 +269,12 @@ struct RenderMesh {
     RenderMesh() = default;
 };
 
+// The synthetic "Patch" field is categorical only when the mesh actually
+// carries boundary patches; otherwise the name is just an ordinary scalar.
+inline bool isCategoricalPatchScalar(const RenderMesh& mesh, const std::string& fieldName) {
+    return fieldName == "Patch" && mesh.hasPatchField();
+}
+
 // ── Utility Functions (Shared by all parsers) ────────────────────────────────
 
 namespace mesh_utils {

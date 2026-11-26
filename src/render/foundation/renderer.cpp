@@ -338,6 +338,9 @@ void Renderer::setState(const RenderRenderState& state) {
         || m_state.meshHasVectors != state.meshHasVectors
         || m_state.meshHasCellVectors != state.meshHasCellVectors
         || m_state.meshUseScalarColor != state.meshUseScalarColor
+        || m_state.scalarCategorical != state.scalarCategorical
+        || m_state.scalarCategoryCount != state.scalarCategoryCount
+        || m_state.scalarCategoryLabels != state.scalarCategoryLabels
         || m_state.showScalarColorbar != state.showScalarColorbar
         || m_state.showIsosurface != state.showIsosurface
         || m_state.showVectors != state.showVectors
@@ -1258,7 +1261,10 @@ void Renderer::renderFrame() {
     std::vector<int> drawVerts;
     std::vector<std::pair<GLuint, int>> edgeDrawList;
     if (meshManager.hasMeshes()) {
-        meshManager.snapshotDrawList(drawList, m_state.useLod, lodScheduler.isCameraMoving(), drawVerts, &edgeDrawList);
+        // Decimated LOD averages neighbouring scalars; categorical patch ids
+        // must stay exact, so keep the full-resolution mesh while Patch is active.
+        const bool useLod = m_state.useLod && !m_state.scalarCategorical;
+        meshManager.snapshotDrawList(drawList, useLod, lodScheduler.isCameraMoving(), drawVerts, &edgeDrawList);
     }
 
 

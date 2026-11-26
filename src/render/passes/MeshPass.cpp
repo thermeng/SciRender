@@ -92,7 +92,12 @@ void MeshPass::activateProgram(const RenderRenderState& state, const ColormapMan
 
     GLint activeLutLoc = useCrinkleClip ? clipLutTextureLoc : lutTextureLoc;
     GLint activeNumBandsLoc = useCrinkleClip ? clipNumBandsLoc : numBandsLoc;
-    if (activeNumBandsLoc != -1) glUniform1f(activeNumBandsLoc, static_cast<float>(state.scalarColorBands));
+    if (activeNumBandsLoc != -1) {
+        // Continuous banding is meaningless for categorical fields; the LUT is
+        // already made of solid per-category blocks.
+        glUniform1f(activeNumBandsLoc, state.scalarCategorical ? 0.0f
+                                                              : static_cast<float>(state.scalarColorBands));
+    }
     if (state.meshHasScalars && state.meshUseScalarColor && colormap.scalarTexture() != 0) {
         glBindTextureUnit(0, colormap.scalarTexture());
         glUniform1i(activeLutLoc, 0);
@@ -140,7 +145,9 @@ ubo.surfaceColor_sop = glm::vec4(state.surfaceColor[0], state.surfaceColor[1], s
     ubo.fillColor = glm::vec4(tint * glm::vec3(0.90f, 0.92f, 1.00f), 0.0f);
     ubo.backColor = glm::vec4(tint * glm::vec3(0.95f, 0.95f, 0.98f), 0.0f);
     ubo.headColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
-    ubo.scalars = glm::vec4(state.colorMapMin(), state.colorMapMax(), (state.meshHasScalars && state.meshUseScalarColor) ? 1.0f : 0.0f, 0.0f);
+    const float scalarLo = state.scalarCategorical ? state.scalarMin : state.colorMapMin();
+    const float scalarHi = state.scalarCategorical ? state.scalarMax : state.colorMapMax();
+    ubo.scalars = glm::vec4(scalarLo, scalarHi, (state.meshHasScalars && state.meshUseScalarColor) ? 1.0f : 0.0f, 0.0f);
     ubo.clipY = glm::vec4(state.clipHeightX, state.clipHeightY, state.clipHeightZ, 0.0f);
     ubo.clipEn = glm::vec4(state.clipEnabledX ? 1.0f : 0.0f, state.clipEnabledY ? 1.0f : 0.0f, state.clipEnabledZ ? 1.0f : 0.0f, 0.0f);
     ubo.invert = glm::vec4(state.invertX ? 1.0f : 0.0f, state.invertY ? 1.0f : 0.0f, state.invertZ ? 1.0f : 0.0f, 0.0f);

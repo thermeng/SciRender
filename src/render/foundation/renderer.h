@@ -274,6 +274,11 @@ struct RenderRenderState {
     bool colorbarShowAnnotation = true;
     std::string activeScalarName;
     int scalarPlacement = 0; // 0=Vertex (point data), 1=Cell Center (cell data)
+    // Categorical scalar (currently the 3D CFD "Patch" field): solid palette
+    // colors, named legend, no continuous range/bands and no LOD decimation.
+    bool scalarCategorical = false;
+    int scalarCategoryCount = 0;
+    std::vector<std::string> scalarCategoryLabels;
 
 
     bool clipEnabled = false;
