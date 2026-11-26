@@ -185,7 +185,9 @@ ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const Colorbar
     const bool categorical = bar.categorical;
     const int n = bar.tickLabels.size();
     const int gap = static_cast<int>(4 * dpr);
-    const int tickLen = static_cast<int>((categorical ? 12 : 5) * dpr);
+    const int tickLen = categorical
+        ? static_cast<int>(12 * dpr * st.tickFontScale)
+        : static_cast<int>(5 * dpr);
     const int pad = static_cast<int>(8 * dpr);
     const int titleH = titleFm.height();
     const int tickH = tickFm.height();
@@ -350,7 +352,7 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
 
     if (bar.categorical) {
         // Swatches instead of a gradient: one solid color per named category.
-        const int swatchH = qMax(4, static_cast<int>(6 * dpr));
+        const int swatchH = qMax(4, static_cast<int>(6 * dpr * st.tickFontScale));
         for (const TickItem& item : lay.ticks) {
             if (item.index >= bar.categoryColors.size()) continue;
             const QColor col = bar.categoryColors[item.index].value<QColor>();

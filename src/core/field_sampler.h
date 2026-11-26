@@ -5,12 +5,68 @@
 
 #include "core/mesh_loader.h"
 #include "core/FieldStore.h"
+#include "core/cell_topology.h"
 #include <glm/glm.hpp>
 #include <optional>
 #include <limits>
 #include <algorithm>
+#include <vector>
 
 namespace FieldSampler {
+
+// True when pos lies inside the mesh volume — not just its axis-aligned bbox.
+// Surface meshes without volume cells fall back to the bbox test.
+inline bool isInsideMesh(const RenderMesh& rm, const glm::vec3& pos) {
+    const float eps = 1e-6f;
+    if (pos.x < rm.bounds.minX - eps || pos.x > rm.bounds.maxX + eps
+        || pos.y < rm.bounds.minY - eps || pos.y > rm.bounds.maxY + eps) return false;
+    const bool hasZ = (rm.bounds.maxZ - rm.bounds.minZ) > eps;
+    if (hasZ && (pos.z < rm.bounds.minZ - eps || pos.z > rm.bounds.maxZ + eps)) return false;
+
+    if (!rm.hasUnstructuredVolumeCells() || rm.cellOffsets.size() != rm.cellTypes.size()) return true;
+    const std::size_t nVert = rm.vertices.size() / 3;
+    std::vector<std::array<std::uint32_t, 4>> tets;
+    for (std::size_t c = 0; c < rm.cellOffsets.size(); ++c) {
+        const std::uint8_t type = rm.cellTypes[c];
+        if (!cell_topology::isVolumeCell(type)) continue;
+        const std::size_t begin = c ? rm.cellOffsets[c - 1] : 0;
+        const std::size_t end = rm.cellOffsets[c];
+        const int corners = cell_topology::cornerCount(type);
+        if (end <= begin || end - begin < static_cast<std::size_t>(corners)) continue;
+
+        // Corner positions plus the cell centroid (the tets() center slot).
+        std::vector<glm::vec3> pts(static_cast<std::size_t>(corners) + 1);
+        bool ok = true;
+        for (int k = 0; k < corners; ++k) {
+            const std::uint32_t id = rm.cellConnectivity[begin + static_cast<std::size_t>(k)];
+            if (id >= nVert) { ok = false; break; }
+            pts[static_cast<std::size_t>(k)] = glm::vec3(rm.vertices[id * 3], rm.vertices[id * 3 + 1], rm.vertices[id * 3 + 2]);
+        }
+        if (!ok) continue;
+        pts[static_cast<std::size_t>(corners)] = glm::vec3(0.0f);
+        for (int k = 0; k < corners; ++k) pts[static_cast<std::size_t>(corners)] += pts[static_cast<std::size_t>(k)];
+        pts[static_cast<std::size_t>(corners)] /= static_cast<float>(corners);
+
+        tets.clear();
+        cell_topology::tets(type, std::span<const std::uint32_t>(
+            rm.cellConnectivity.data() + begin, static_cast<std::size_t>(corners)), tets);
+        for (const auto& tet : tets) {
+            const glm::vec3& a = pts[tet[0]];
+            const glm::vec3& b = pts[tet[1]];
+            const glm::vec3& c3 = pts[tet[2]];
+            const glm::vec3& d = pts[tet[3]];
+            const glm::vec3 v0 = b - a, v1 = c3 - a, v2 = d - a, vp = pos - a;
+            const float det = glm::dot(v0, glm::cross(v1, v2));
+            if (std::abs(det) < 1e-12f) continue;
+            const float inv = 1.0f / det;
+            const float u = glm::dot(glm::cross(v1, v2), vp) * inv;
+            const float v = glm::dot(glm::cross(v2, v0), vp) * inv;
+            const float w = glm::dot(glm::cross(v0, v1), vp) * inv;
+            if (u >= -1e-4f && v >= -1e-4f && w >= -1e-4f && u + v + w <= 1.0f + 1e-4f) return true;
+        }
+    }
+    return false;
+}
 
 // Sample scalar at world position using FieldStore::Context (snapshot-aware).
 // Returns nullopt when field not found; NaN when outside and no fallback.

@@ -13,6 +13,7 @@
 
 #include "core/unstructured_volume.h"
 
+#include "core/field_sampler.h"
 #include "core/mesh_loader.h"
 
 #include <doctest/doctest.h>
@@ -279,6 +280,22 @@ TEST_CASE("volume.tet_only_mesh_covers_one_sixth_of_the_box") {
     for (std::size_t i = 0; i < grid.voxelCount(); ++i) {
         CHECK(scattered.occupancy[i] == (grid.cellId[i] != volume::DerivedGrid::kEmpty ? 1 : 0));
     }
+}
+
+TEST_CASE("field_sampler.is_inside_mesh_rejects_aabb_corner_near_surface") {
+    // Same sheared hex: a point inside the axis-aligned bbox but outside the
+    // cell must be reported outside, so the probe shows "Outside" instead of a
+    // nearest-vertex extrapolated value.
+    const std::vector<Point> points = {
+        {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 1.0, 0.0},
+        {0.5, 0.0, 1.0}, {1.5, 0.0, 1.0}, {1.5, 1.0, 1.0}, {0.5, 1.0, 1.0},
+    };
+    const RenderMesh mesh = makeMesh(points, {{0, 1, 2, 3, 4, 5, 6, 7}}, {12});
+
+    CHECK(FieldSampler::isInsideMesh(mesh, {0.75f, 0.5f, 0.9f}));
+    CHECK_FALSE(FieldSampler::isInsideMesh(mesh, {0.1f, 0.5f, 0.9f}));
+    CHECK_FALSE(FieldSampler::isInsideMesh(mesh, {0.4f, 0.5f, 0.9f})); // near surface, still outside
+    CHECK_FALSE(FieldSampler::isInsideMesh(mesh, {2.0f, 0.5f, 0.5f})); // outside bbox
 }
 
 TEST_CASE("volume.resolution_is_capped_without_overflow") {

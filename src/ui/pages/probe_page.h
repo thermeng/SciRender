@@ -5,7 +5,9 @@
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QShowEvent;
 class QTableWidget;
+class QTimer;
 
 namespace sidebar {
 
@@ -17,8 +19,12 @@ class ProbePage : public SidebarPage {
 public:
     explicit ProbePage(RenderSettings* settings, QWidget* parent = nullptr);
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private:
     void refreshProbeTable();
+    void scheduleProbeRefresh();
     void applyProbeSteps();
 
     QCheckBox* m_showCb = nullptr;
@@ -28,6 +34,8 @@ private:
     QComboBox* m_formatCombo = nullptr;
     QComboBox* m_placementCombo = nullptr;
     QTableWidget* m_table = nullptr;
+    QTimer* m_refreshTimer = nullptr;
+    bool m_probeDirty = false;
 };
 
 } // namespace sidebar

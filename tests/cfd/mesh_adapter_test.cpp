@@ -13,6 +13,7 @@
 
 #include "core/cell_topology.h"
 #include "core/Colormaps.h"
+#include "core/field_sampler.h"
 #include "core/mesh_loader.h"
 #include "mesh/Mesh.h"
 #include "support/test_support.h"
@@ -45,6 +46,16 @@ TEST_CASE("cfd.patch.static_mixer_has_distinct_patch_ids") {
     std::map<int, int> hist;
     for (float v : it->second) ++hist[static_cast<int>(v)];
     CHECK(hist.size() > 1);
+}
+
+TEST_CASE("cfd.probe.inside_mesh_matches_surface") {
+    test_support::requireSample("cgns/StaticMixer.cgns");
+    const auto res = cfd::loadMesh(test_support::samplePath("cgns/StaticMixer.cgns").string());
+    REQUIRE_MESSAGE(res.error.empty(), res.error);
+    REQUIRE(res.renderMesh);
+    const auto& rm = *res.renderMesh;
+    CHECK_FALSE(FieldSampler::isInsideMesh(rm, {-2.0f, -1.2f, -1.2f}));
+    CHECK_FALSE(FieldSampler::isInsideMesh(rm, {99.0f, 99.0f, 99.0f}));
 }
 
 TEST_CASE("cfd.patch.categorical_state") {

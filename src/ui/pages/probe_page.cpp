@@ -6,6 +6,7 @@
 #include <QHeaderView>
 #include <QLayout>
 #include <QList>
+#include <QShowEvent>
 #include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -75,6 +76,11 @@ ProbePage::ProbePage(RenderSettings* settings, QWidget* parent)
     m_table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_table->horizontalHeader()->setMinimumSectionSize(60);
 
+    m_refreshTimer = new QTimer(this);
+    m_refreshTimer->setSingleShot(true);
+    m_refreshTimer->setInterval(150);
+    connect(m_refreshTimer, &QTimer::timeout, this, &ProbePage::refreshProbeTable);
+
     // Sync from settings -> UI when placement changes
     // Wheel/arrow step = 1/10th of the axis bbox length so nudging the
     // probe with the mouse wheel feels proportional to the dataset size.
@@ -96,7 +102,7 @@ ProbePage::ProbePage(RenderSettings* settings, QWidget* parent)
             m_formatCombo->setCurrentIndex(s->getProbeFormat());
             m_formatCombo->blockSignals(false);
         }
-        refreshProbeTable();
+        scheduleProbeRefresh();
     });
     connect(s, &RenderSettings::meshDataUpdated, this, [this, s]() {
         // Probe spin range just needs to cover generous world bounds
@@ -109,8 +115,8 @@ ProbePage::ProbePage(RenderSettings* settings, QWidget* parent)
             }
             applyProbeSteps();
         }
-        refreshProbeTable();
         if (m_placementCombo) m_placementCombo->setEnabled(s->hasScalarCellData());
+        scheduleProbeRefresh();
     });
 
     refreshProbeTable();
@@ -137,9 +143,36 @@ void ProbePage::applyProbeSteps() {
     m_zSpin->setSingleStep(lenZ > 1e-12 ? lenZ / 10.0 : 0.1);
 }
 
+void ProbePage::showEvent(QShowEvent* event) {
+    SidebarPage::showEvent(event);
+    if (m_probeDirty) refreshProbeTable();
+}
+
+void ProbePage::scheduleProbeRefresh() {
+    if (!m_refreshTimer || !S()) return;
+    if (!S()->getShowProbe()) {
+        if (m_table && m_table->rowCount() > 0) {
+            m_table->clearContents();
+            m_table->setRowCount(0);
+        }
+        m_probeDirty = false;
+        return;
+    }
+    if (!isVisible()) { m_probeDirty = true; return; }
+    if (!m_refreshTimer->isActive()) m_refreshTimer->start();
+}
+
 void ProbePage::refreshProbeTable() {
     auto* s = S();
     if (!m_table || !s) return;
+    if (m_refreshTimer && m_refreshTimer->isActive()) m_refreshTimer->stop();
+    m_probeDirty = false;
+    if (!s->getShowProbe()) {
+        m_table->clearContents();
+        m_table->setRowCount(0);
+        return;
+    }
+    if (!isVisible()) { m_probeDirty = true; return; }
     auto* rm = s->backend() ? s->backend()->lastUploadedMeshForPlot() : nullptr;
     if (!rm) rm = s->getHasMeshLoaded() ? s->backend()->lastUploadedMeshForPlot() : nullptr;
     if (!rm || !rm->attributes) {
@@ -148,48 +181,36 @@ void ProbePage::refreshProbeTable() {
         return;
     }
     glm::vec3 pos(static_cast<float>(s->getProbeX()), static_cast<float>(s->getProbeY()), static_cast<float>(s->getProbeZ()));
-    int placement = s->getProbePlacement();
-    int fmt = s->getProbeFormat();
-    QStringList scalars = s->getAvailableScalars();
+    const int fmt = s->getProbeFormat();
+    const QStringList scalars = s->getAvailableScalars();
     if (scalars.isEmpty()) {
         m_table->clearContents();
         m_table->setRowCount(0);
         return;
     }
+    const bool insideDomain = FieldSampler::isInsideMesh(*rm, pos);
+
     m_table->setRowCount(scalars.size());
     // Unified sampler: probe uses same FieldStore::Context + FieldSampler as line plot.
     const postfields::ComputedSnapshot* snap0 = s->snapshot().computed.get();
     FieldStore::Context ctx(*rm, snap0);
-    auto place = FieldStore::toPlacement(placement);
-    auto sampleOne = [&](const std::string& field, float& outVal, bool& outInside) -> bool {
-        auto opt = FieldSampler::sample(ctx, field, place, pos);
-        if (!opt) return false;
-        outVal = *opt;
-        // Heuristic inside test: sample uses structured contains check; if nearest fallback used, still finite.
-        // Mark inside when pos within bounds expanded by eps; reuse same bbox test via Context sampling path.
-        // For simplicity treat sampled value as inside when structured cell found, else mark outside via bounds.
-        outInside = (rm->gridDimX > 1 && rm->gridDimY > 1)
-            ? (pos.x >= rm->bounds.minX - 1e-6 && pos.x <= rm->bounds.maxX + 1e-6
-            && pos.y >= rm->bounds.minY - 1e-6 && pos.y <= rm->bounds.maxY + 1e-6
-            && (rm->gridDimZ <= 1 || (pos.z >= rm->bounds.minZ - 1e-6 && pos.z <= rm->bounds.maxZ + 1e-6)))
-            : true;
-        // For unstructured outside, FieldSampler falls back to nearest; we keep inside=false when outside bbox
-        return std::isfinite(outVal);
-    };
+    const auto place = FieldStore::toPlacement(s->getProbePlacement());
     for (int r = 0; r < scalars.size(); ++r) {
-        std::string field = scalars[r].toStdString();
-        float v = 0; bool inside = false;
-        bool ok = sampleOne(field, v, inside);
+        const std::string field = scalars[r].toStdString();
         QTableWidgetItem* nameItem = new QTableWidgetItem(scalars[r]);
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
         QTableWidgetItem* valItem;
-        if (!ok) {
-            valItem = new QTableWidgetItem(tr("n/a"));
+        if (!insideDomain) {
+            valItem = new QTableWidgetItem(tr("Outside"));
+            valItem->setToolTip(tr("Probe is outside the mesh domain"));
         } else {
-            QString txt = formatProbeValue(v, fmt);
-            if (!inside) txt += " *";
-            valItem = new QTableWidgetItem(txt);
-            valItem->setToolTip(inside ? tr("Interpolated") : tr("Nearest (outside)"));
+            auto opt = FieldSampler::sample(ctx, field, place, pos);
+            if (!opt || !std::isfinite(*opt)) {
+                valItem = new QTableWidgetItem(tr("n/a"));
+            } else {
+                valItem = new QTableWidgetItem(formatProbeValue(*opt, fmt));
+                valItem->setToolTip(tr("Interpolated"));
+            }
         }
         valItem->setFlags(valItem->flags() & ~Qt::ItemIsEditable);
         valItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);

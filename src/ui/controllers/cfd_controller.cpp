@@ -58,7 +58,7 @@ QString resolvePvdPath(const QString& raw, const QString& baseDir) {
 // of feeding the loader a random extension.
 QString meshExtension(const QString& displayName, const QByteArray& bytes) {
     static const QStringList kKnown{"msh", "vtk", "vtu", "vts", "vtr", "vti",
-                                    "vtm", "stl", "obj"};
+                                    "vtm", "stl", "obj", "cgns", "h5"};
     const QString suffix = QFileInfo(displayName).suffix().toLower();
     if (!suffix.isEmpty() && kKnown.contains(suffix)) return suffix;
 
@@ -71,6 +71,7 @@ QString meshExtension(const QString& displayName, const QByteArray& bytes) {
     }
     if (head.startsWith("# vtk DataFile")) return "vtk";
     if (head.startsWith("$MeshFormat")) return "msh";
+    if (head.startsWith("@(#)ADF")) return "cgns"; // ADF-format CGNS (legacy header)
     if (head.startsWith("solid ") || head.startsWith("facet")) return "stl";
     return "msh"; // .msh / Gmsh binary / anything else the loader can sniff
 }
