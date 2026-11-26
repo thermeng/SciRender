@@ -61,6 +61,11 @@ TEST_CASE("cfd.patch.categorical_state") {
     for (int i = 0; i < Colormaps::categoricalPaletteSize; ++i) {
         const auto c = Colormaps::categoricalColor(i);
         colors.emplace(c.r, c.g, c.b);
+        const float hi = std::max({c.r, c.g, c.b});
+        const float lo = std::min({c.r, c.g, c.b});
+        const float sat = hi > 0.0f ? (hi - lo) / hi : 0.0f;
+        CHECK_MESSAGE(hi >= 0.45f, "categorical palette entry too dark: ", i);
+        CHECK_MESSAGE(sat >= 0.40f, "categorical palette entry too washed out: ", i);
     }
     CHECK(colors.size() == static_cast<std::size_t>(Colormaps::categoricalPaletteSize));
     const auto wrapped = Colormaps::categoricalColor(Colormaps::categoricalPaletteSize);

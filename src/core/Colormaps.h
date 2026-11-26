@@ -224,16 +224,16 @@ namespace Colormaps {
     // Deterministic by index and cycled when a mesh has more patches than colors.
     inline constexpr int categoricalPaletteSize = 20;
     inline const std::array<glm::vec3, categoricalPaletteSize> categoricalPalette = {{
-        glm::vec3(0.1216f, 0.4667f, 0.7059f), glm::vec3(0.6824f, 0.7804f, 0.9216f),
-        glm::vec3(1.0000f, 0.4980f, 0.0000f), glm::vec3(1.0000f, 0.7333f, 0.0000f),
-        glm::vec3(0.1725f, 0.6275f, 0.1725f), glm::vec3(0.5961f, 0.8745f, 0.5412f),
-        glm::vec3(0.8392f, 0.1529f, 0.1529f), glm::vec3(1.0000f, 0.5961f, 0.5882f),
-        glm::vec3(0.5804f, 0.4039f, 0.7412f), glm::vec3(0.7725f, 0.6902f, 0.8353f),
-        glm::vec3(0.5490f, 0.3373f, 0.2941f), glm::vec3(0.7686f, 0.6118f, 0.5804f),
-        glm::vec3(0.8902f, 0.4667f, 0.1176f), glm::vec3(0.9686f, 0.7137f, 0.8235f),
-        glm::vec3(0.5059f, 0.4471f, 0.7020f), glm::vec3(0.7804f, 0.7529f, 0.8784f),
-        glm::vec3(0.4980f, 0.4980f, 0.4980f), glm::vec3(0.7490f, 0.7490f, 0.7490f),
-        glm::vec3(0.7373f, 0.7412f, 0.1333f), glm::vec3(0.8588f, 0.8588f, 0.5529f)
+        glm::vec3(0.9500f, 0.0950f, 0.0950f), glm::vec3(0.9500f, 0.3515f, 0.0950f),
+        glm::vec3(0.9500f, 0.6080f, 0.0950f), glm::vec3(0.9500f, 0.8645f, 0.0950f),
+        glm::vec3(0.7790f, 0.9500f, 0.0950f), glm::vec3(0.5225f, 0.9500f, 0.0950f),
+        glm::vec3(0.2660f, 0.9500f, 0.0950f), glm::vec3(0.0950f, 0.9500f, 0.1805f),
+        glm::vec3(0.0950f, 0.9500f, 0.4370f), glm::vec3(0.0950f, 0.9500f, 0.6935f),
+        glm::vec3(0.0950f, 0.9500f, 0.9500f), glm::vec3(0.0950f, 0.6935f, 0.9500f),
+        glm::vec3(0.0950f, 0.4370f, 0.9500f), glm::vec3(0.0950f, 0.1805f, 0.9500f),
+        glm::vec3(0.2660f, 0.0950f, 0.9500f), glm::vec3(0.5225f, 0.0950f, 0.9500f),
+        glm::vec3(0.7790f, 0.0950f, 0.9500f), glm::vec3(0.9500f, 0.0950f, 0.8645f),
+        glm::vec3(0.9500f, 0.0950f, 0.6080f), glm::vec3(0.9500f, 0.0950f, 0.3515f)
     }};
 
     inline glm::vec3 categoricalColor(int index) {

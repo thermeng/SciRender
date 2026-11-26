@@ -190,8 +190,11 @@ ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const Colorbar
     const int titleH = titleFm.height();
     const int tickH = tickFm.height();
     // One readable row per category instead of the gradient's fixed length.
+    const int catRowPitch = tickH + static_cast<int>(3 * dpr);
     const int barMain = categorical
-        ? static_cast<int>(qMax(200, qMax(1, n) * 16) * st.lengthScale * dpr)
+        ? (st.orientation == ColorbarStyle::Vertical
+               ? static_cast<int>(qMax(1, n) * catRowPitch * st.lengthScale)
+               : static_cast<int>(qMax(200, qMax(1, n) * 16) * st.lengthScale * dpr))
         : static_cast<int>(200 * st.lengthScale * dpr);
     const int barCross = static_cast<int>(12 * st.thicknessScale * dpr);
     const int labelGap = static_cast<int>(3 * dpr);
