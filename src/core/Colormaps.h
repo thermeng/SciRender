@@ -222,20 +222,34 @@ namespace Colormaps {
 
     // Fixed, distinct categories for discrete fields (CFD boundary patches).
     // Deterministic by index and cycled when a mesh has more patches than colors.
-    inline constexpr int categoricalPaletteSize = 20;
+ inline constexpr int categoricalPaletteSize = 20;
     inline const std::array<glm::vec3, categoricalPaletteSize> categoricalPalette = {{
-        glm::vec3(0.9500f, 0.0950f, 0.0950f), glm::vec3(0.9500f, 0.3515f, 0.0950f),
-        glm::vec3(0.9500f, 0.6080f, 0.0950f), glm::vec3(0.9500f, 0.8645f, 0.0950f),
-        glm::vec3(0.7790f, 0.9500f, 0.0950f), glm::vec3(0.5225f, 0.9500f, 0.0950f),
-        glm::vec3(0.2660f, 0.9500f, 0.0950f), glm::vec3(0.0950f, 0.9500f, 0.1805f),
-        glm::vec3(0.0950f, 0.9500f, 0.4370f), glm::vec3(0.0950f, 0.9500f, 0.6935f),
-        glm::vec3(0.0950f, 0.9500f, 0.9500f), glm::vec3(0.0950f, 0.6935f, 0.9500f),
-        glm::vec3(0.0950f, 0.4370f, 0.9500f), glm::vec3(0.0950f, 0.1805f, 0.9500f),
-        glm::vec3(0.2660f, 0.0950f, 0.9500f), glm::vec3(0.5225f, 0.0950f, 0.9500f),
-        glm::vec3(0.7790f, 0.0950f, 0.9500f), glm::vec3(0.9500f, 0.0950f, 0.8645f),
-        glm::vec3(0.9500f, 0.0950f, 0.6080f), glm::vec3(0.9500f, 0.0950f, 0.3515f)
-    }};
+        // Primary & High-Contrast Anchor Colors (0-5)
+        glm::vec3(0.96f, 0.16f, 0.16f), // 0: Vivid Red
+        glm::vec3(0.08f, 0.52f, 0.98f), // 1: Crisp Cobalt Blue
+        glm::vec3(0.12f, 0.82f, 0.34f), // 2: Bright Emerald Green
+        glm::vec3(0.98f, 0.54f, 0.06f), // 3: Safety Orange
+        glm::vec3(0.68f, 0.24f, 0.96f), // 4: Electric Violet
+        glm::vec3(0.05f, 0.84f, 0.88f), // 5: Bright Cyan
 
+        // Secondary Distinct Hues (6-12)
+        glm::vec3(0.96f, 0.20f, 0.64f), // 6: Hot Magenta
+        glm::vec3(0.94f, 0.80f, 0.08f), // 7: Tamed Bright Gold (avoids highlight blowout)
+        glm::vec3(0.24f, 0.28f, 0.94f), // 8: Deep Ultramarine
+        glm::vec3(0.48f, 0.88f, 0.14f), // 9: Chartreuse Lime
+        glm::vec3(0.96f, 0.36f, 0.12f), // 10: Vermilion Coral
+        glm::vec3(0.06f, 0.72f, 0.58f), // 11: Vivid Teal
+        glm::vec3(0.86f, 0.24f, 0.92f), // 12: Bright Orchid
+
+        // Extended Slots with Distinct Lightness/Chroma Steps (13-19)
+        glm::vec3(0.98f, 0.68f, 0.12f), // 13: Amber Gold
+        glm::vec3(0.14f, 0.66f, 0.96f), // 14: Sky Azure
+        glm::vec3(0.32f, 0.90f, 0.48f), // 15: Mint Green
+        glm::vec3(0.84f, 0.12f, 0.36f), // 16: Crimson Rose
+        glm::vec3(0.46f, 0.18f, 0.95f), // 17: Indigo Blue
+        glm::vec3(0.72f, 0.92f, 0.16f), // 18: Yellow-Lime
+        glm::vec3(0.98f, 0.46f, 0.68f)  // 19: Bright Flamingo Pink
+    }};
     inline glm::vec3 categoricalColor(int index) {
         if (index < 0) return categoricalPalette[0];
         return categoricalPalette[static_cast<std::size_t>(index) % categoricalPalette.size()];
