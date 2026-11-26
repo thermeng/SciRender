@@ -52,6 +52,8 @@ void SurfaceLicPass::ensureTargets(int w, int h) {
     if (m_flowFbo.has()) m_flowFbo.reset();
     if (m_licTex.has()) m_licTex.reset();
     if (m_licFbo.has()) m_licFbo.reset();
+    if (m_licTex2.has()) m_licTex2.reset();
+    if (m_licFbo2.has()) m_licFbo2.reset();
 
     glCreateTextures(GL_TEXTURE_2D, 1, m_flowTex.ptr());
     glTextureStorage2D(m_flowTex, 1, GL_RGBA16F, w, h);
@@ -67,15 +69,18 @@ void SurfaceLicPass::ensureTargets(int w, int h) {
     glNamedFramebufferTexture(m_flowFbo, GL_COLOR_ATTACHMENT0, m_flowTex, 0);
     glNamedFramebufferRenderbuffer(m_flowFbo, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_flowDepth);
 
-    glCreateTextures(GL_TEXTURE_2D, 1, m_licTex.ptr());
-    glTextureStorage2D(m_licTex, 1, GL_R16F, w, h);
-    glTextureParameteri(m_licTex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTextureParameteri(m_licTex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTextureParameteri(m_licTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(m_licTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    glCreateFramebuffers(1, m_licFbo.ptr());
-    glNamedFramebufferTexture(m_licFbo, GL_COLOR_ATTACHMENT0, m_licTex, 0);
+    auto makeLicTarget = [&](GlTexture& tex, GlFramebuffer& fbo) {
+        glCreateTextures(GL_TEXTURE_2D, 1, tex.ptr());
+        glTextureStorage2D(tex, 1, GL_R16F, w, h);
+        glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glCreateFramebuffers(1, fbo.ptr());
+        glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0, tex, 0);
+    };
+    makeLicTarget(m_licTex, m_licFbo);
+    makeLicTarget(m_licTex2, m_licFbo2);
 }
 
 void SurfaceLicPass::ensureNoise(int grain) {
@@ -175,32 +180,44 @@ GLuint SurfaceLicPass::render(const RenderRenderState& state,
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
 
-    // --- Convolve pass ---
-    glBindFramebuffer(GL_FRAMEBUFFER, m_licFbo);
-    glViewport(0, 0, w, h);
+    // --- Convolve pass(es) ---
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
-    const float clearLic[4] = {-1.f, -1.f, -1.f, -1.f};
-    glClearBufferfv(GL_COLOR, 0, clearLic);
     glUseProgram(m_convolveProgram);
     glBindTextureUnit(0, m_flowTex);
-    glBindTextureUnit(1, m_noiseTex);
     if (m_convTexelSizeLoc != -1) glUniform2f(m_convTexelSizeLoc, 1.0f / static_cast<float>(w), 1.0f / static_cast<float>(h));
-    int taps = std::clamp(state.licSteps, LicLimits::StepsMin, LicLimits::StepsMax);
-    const int frequencyPasses = state.licEnhanced ? 2 : 1;
-    const int budget = std::max(1, LicLimits::MaxTapsPerDirection / frequencyPasses);
-    taps = std::max(LicLimits::StepsMin, std::min(taps, budget));
-    if (m_convStepsLoc != -1) glUniform1i(m_convStepsLoc, taps);
-    if (m_convStepSizeLoc != -1) glUniform1f(m_convStepSizeLoc, std::clamp(state.licStepSize, LicLimits::StepSizeMin, LicLimits::StepSizeMax));
-    if (m_convNoiseFreqLoc != -1) glUniform1f(m_convNoiseFreqLoc, std::clamp(state.licNoiseFreq, LicLimits::NoiseFreqMin, LicLimits::NoiseFreqMax));
-    if (m_convEnhancedLoc != -1) glUniform1i(m_convEnhancedLoc, state.licEnhanced ? 1 : 0);
-    drawFullscreen();
+    const float stepPx = std::clamp(state.licStepSize, LicLimits::StepSizeMin, LicLimits::StepSizeMax);
+    if (m_convStepSizeLoc != -1) glUniform1f(m_convStepSizeLoc, stepPx);
+
+    const float clearLic[4] = {-1.f, -1.f, -1.f, -1.f};
+    auto convolve = [&](GLuint fbo, GLuint noiseTex, float noiseFreq, bool enhanced) {
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glViewport(0, 0, w, h);
+        glClearBufferfv(GL_COLOR, 0, clearLic);
+        glBindTextureUnit(1, noiseTex);
+        int taps = std::clamp(state.licSteps, LicLimits::StepsMin, LicLimits::StepsMax);
+        const int frequencyPasses = enhanced ? 2 : 1;
+        const int budget = std::max(1, LicLimits::MaxTapsPerDirection / frequencyPasses);
+        taps = std::max(LicLimits::StepsMin, std::min(taps, budget));
+        if (m_convStepsLoc != -1) glUniform1i(m_convStepsLoc, taps);
+        if (m_convNoiseFreqLoc != -1) glUniform1f(m_convNoiseFreqLoc, std::clamp(noiseFreq, LicLimits::NoiseFreqMin, LicLimits::NoiseFreqMax));
+        if (m_convEnhancedLoc != -1) glUniform1i(m_convEnhancedLoc, enhanced ? 1 : 0);
+        drawFullscreen();
+    };
+
+    const float noiseFreq = std::clamp(state.licNoiseFreq, LicLimits::NoiseFreqMin, LicLimits::NoiseFreqMax);
+    convolve(m_licFbo, m_noiseTex, noiseFreq, state.licEnhanced);
+    GLuint outTex = m_licTex.get();
+    if (state.licEnhanced && m_licFbo2.has() && m_licTex2.has()) {
+        convolve(m_licFbo2, m_licTex, 1.0f, false); // shortcut: 2nd pass sharpens coherence using LIC as noise
+        outTex = m_licTex2.get();
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, srcFbo);
     glViewport(vp[0], vp[1], vp[2], vp[3]);
     glEnable(GL_DEPTH_TEST);
     glUseProgram(0);
-    return m_licTex.get();
+    return outTex;
 }
 
 void SurfaceLicPass::shutdown() {
@@ -208,6 +225,7 @@ void SurfaceLicPass::shutdown() {
     m_convolveProgram.reset();
     m_flowFbo.reset(); m_flowTex.reset(); m_flowDepth.reset();
     m_licFbo.reset(); m_licTex.reset();
+    m_licFbo2.reset(); m_licTex2.reset();
     m_noiseTex.reset(); m_dummyVao.reset();
     m_w = m_h = 0; m_noiseGrain = 0;
 }

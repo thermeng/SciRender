@@ -43,15 +43,12 @@ uniform vec2 uViewport; // pixels
 
 out vec4 FragColor;
 
-vec3 worldToUVW(vec3 pos, vec3 boxMin, vec3 invRange, vec3 range) {
-    float diag = max(max(abs(range.x), abs(range.y)), abs(range.z));
-    float eps = max(diag * 1e-7, 1e-30);
+vec3 worldToUVW(vec3 pos, vec3 boxMin, vec3 invRange, vec3 range, float eps) {
     vec3 uvw = (pos - boxMin) * invRange;
     if (abs(range.x) <= eps) uvw.x = 0.5;
     if (abs(range.y) <= eps) uvw.y = 0.5;
     if (abs(range.z) <= eps) uvw.z = 0.5;
-    uvw = uvw * uUvwScale + uUvwOffset;
-    return uvw;
+    return uvw * uUvwScale + uUvwOffset;
 }
 
 void main() {
@@ -83,7 +80,7 @@ void main() {
     invRange.x = (abs(range.x) > epsInv) ? 1.0 / range.x : 0.0;
     invRange.y = (abs(range.y) > epsInv) ? 1.0 / range.y : 0.0;
     invRange.z = (abs(range.z) > epsInv) ? 1.0 / range.z : 0.0;
-    vec3 uvw = worldToUVW(mv.vWorldPos, uBoxMin, invRange, range);
+    vec3 uvw = worldToUVW(mv.vWorldPos, uBoxMin, invRange, range, epsInv);
 
     vec3 v = texture(uVectorTex, uvw).rgb;
     vec3 norm = normalize((length(mv.vNormal) > 1e-20) ? mv.vNormal : vec3(0.0, 1.0, 0.0));

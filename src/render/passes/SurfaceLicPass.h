@@ -49,6 +49,8 @@ private:
     GlTexture m_flowDepth;    // depth24
     GlFramebuffer m_licFbo;
     GlTexture m_licTex;       // R16F
+    GlFramebuffer m_licFbo2;
+    GlTexture m_licTex2;      // R16F, ping-pong for enhanced 2-pass
     GlTexture m_noiseTex;     // R8 2D
     GlVao m_dummyVao;
 
