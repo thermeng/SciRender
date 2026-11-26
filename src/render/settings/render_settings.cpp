@@ -1314,8 +1314,9 @@ void RenderSettings::updateCategoricalScalarState() {
     m_state.scalarCategoryCount = categorical ? static_cast<int>(mesh->patchNames.size()) : 0;
     m_state.scalarCategoryLabels = categorical ? mesh->patchNames : std::vector<std::string>{};
     if (!categorical) return;
-    m_state.scalarMin = 0.0f;
-    m_state.scalarMax = static_cast<float>(m_state.scalarCategoryCount - 1);
+    const auto [catMin, catMax] = Colormaps::categoricalRange(m_state.scalarCategoryCount);
+    m_state.scalarMin = catMin;
+    m_state.scalarMax = catMax;
     m_state.dataScalarMin = m_state.scalarMin;
     m_state.dataScalarMax = m_state.scalarMax;
     m_state.colorRangeOverrideEnabled = false;

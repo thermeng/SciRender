@@ -815,7 +815,9 @@ void Renderer::buildColorbarModel() {
             QVariantList colors;
             for (std::size_t i = 0; i < names.size(); ++i) {
                 labels << QString::fromStdString(names[i]);
-                if (i < static_cast<std::size_t>(m_state.scalarCategoryCount)) {
+                const bool summaryRow = names.size() > static_cast<std::size_t>(m_state.scalarCategoryCount)
+                                     && i + 1 == names.size();
+                if (!summaryRow && i < static_cast<std::size_t>(m_state.scalarCategoryCount)) {
                     const glm::vec3 c = Colormaps::categoricalColor(static_cast<int>(i));
                     colors.append(QColor::fromRgbF(c.r, c.g, c.b));
                 } else {

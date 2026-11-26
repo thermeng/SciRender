@@ -72,6 +72,17 @@ std::vector<int> buildFacePatchMap(const fvm::Mesh<3>& m, std::vector<std::strin
             if (f < facePatch.size()) facePatch[f] = id;
         }
     }
+    // Boundary faces outside every named zone still need a stable category,
+    // otherwise they are silently painted as the first patch.
+    int neutralId = -1;
+    for (std::size_t f = 0; f < m.nFaces(); ++f) {
+        if (m.neighbor(f) != mesh_build::kNoNeighbor || facePatch[f] >= 0) continue;
+        if (neutralId < 0) {
+            neutralId = static_cast<int>(names.size());
+            names.push_back("Boundary");
+        }
+        facePatch[f] = neutralId;
+    }
     return facePatch;
 }
 
@@ -84,17 +95,17 @@ std::vector<uint32_t> applyPatchField(RenderMesh& rm, const std::vector<int>& tr
         trianglePatch.size() != rm.indices.size() / 3) return {};
 
     const std::size_t srcCount = rm.vertices.size() / 3;
-    const uint32_t kNoEmit = std::numeric_limits<uint32_t>::max();
     std::map<std::pair<uint32_t, int>, uint32_t> emitted;
-    std::vector<float> vertices;
-    std::vector<float> patchValues;
+    std::vector<float> patchValues(srcCount, 0.0f); // interior nodes are not rendered
     std::vector<uint32_t> indices;
-    std::vector<uint32_t> sourceIndex;
-    std::vector<uint32_t> firstEmit(srcCount, kNoEmit);
-    vertices.reserve(rm.vertices.size() * 2);
+    std::vector<uint32_t> sourceIndex(srcCount);
+    for (std::size_t i = 0; i < srcCount; ++i) sourceIndex[i] = static_cast<uint32_t>(i);
     indices.reserve(rm.indices.size());
-    sourceIndex.reserve(srcCount + 8);
+    rm.vertices.reserve(rm.vertices.size() * 2);
 
+    // Keep every source vertex: cellConnectivity indexes the full node set for
+    // volume/isosurface extraction. Append one duplicate per (node, patch) pair
+    // so the rendered surface has a constant id per triangle.
     for (std::size_t t = 0; t < trianglePatch.size(); ++t) {
         const int pid = std::clamp(trianglePatch[t], 0, static_cast<int>(names.size()) - 1);
         for (int c = 0; c < 3; ++c) {
@@ -106,23 +117,17 @@ std::vector<uint32_t> applyPatchField(RenderMesh& rm, const std::vector<int>& tr
             if (it == emitted.end()) {
                 dst = static_cast<uint32_t>(sourceIndex.size());
                 emitted.emplace(key, dst);
-                vertices.push_back(rm.vertices[src * 3]);
-                vertices.push_back(rm.vertices[src * 3 + 1]);
-                vertices.push_back(rm.vertices[src * 3 + 2]);
+                rm.vertices.push_back(rm.vertices[src * 3]);
+                rm.vertices.push_back(rm.vertices[src * 3 + 1]);
+                rm.vertices.push_back(rm.vertices[src * 3 + 2]);
                 patchValues.push_back(static_cast<float>(pid));
                 sourceIndex.push_back(src);
-                if (firstEmit[src] == kNoEmit) firstEmit[src] = dst;
             } else {
                 dst = it->second;
             }
             indices.push_back(dst);
         }
     }
-
-    for (uint32_t& e : rm.cellEdgeIndices) {
-        if (e < srcCount && firstEmit[e] != kNoEmit) e = firstEmit[e];
-    }
-    rm.vertices = std::move(vertices);
     rm.indices = std::move(indices);
 
     auto& attrs = mesh_utils::ensureAttributes(rm);

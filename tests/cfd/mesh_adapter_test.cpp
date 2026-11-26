@@ -74,6 +74,13 @@ TEST_CASE("cfd.patch.categorical_state") {
     CHECK(shortLegend.front() == "patch0");
     CHECK(shortLegend.back() == "+6 more");
     CHECK(Colormaps::categoricalLegendLabels({"inlet", "outlet"}, 24).size() == 2);
+
+    const auto onePatch = Colormaps::categoricalRange(1);
+    CHECK(onePatch.first == doctest::Approx(0.0f));
+    // A zero-width range makes the shader skip the LUT entirely — keep it
+    // non-degenerate so the single patch still gets its palette color.
+    CHECK(onePatch.second == doctest::Approx(1.0f));
+    CHECK(Colormaps::categoricalRange(4).second == doctest::Approx(3.0f));
 }
 
 TEST_CASE("cfd.mesh_adapter.pipe_3d_exposes_patch_scalar") {
@@ -184,10 +191,12 @@ TEST_CASE("cfd.mesh_adapter.pipe_3d_loads_with_surface_and_topology") {
     REQUIRE(res.renderMesh);
     const auto& rm = *res.renderMesh;
     CHECK(rm.sourcePointCount == static_cast<int>(mesh.vertices().size()));
-    // The patch split keeps only vertices referenced by the boundary surface
-    // (one per (source vertex, patch) pair), so the rendered count can be lower
-    // than the solver mesh's node count. Source indices are validated below.
-    CHECK(rm.vertices.size() / 3 > 0);
+    // Patch splitting appends duplicates but must keep every solver node: cell
+    // connectivity indexes the full node set for volume/isosurface extraction.
+    CHECK(rm.vertices.size() / 3 >= mesh.vertices().size());
+    for (std::size_t k = 0; k < rm.cellConnectivity.size(); ++k) {
+        CHECK(rm.cellConnectivity[k] < rm.vertices.size() / 3);
+    }
     CHECK_FALSE(rm.indices.empty());
     CHECK_FALSE(rm.cellEdgeIndices.empty());
     CHECK(rm.cellOffsets.size() == mesh.nCells());

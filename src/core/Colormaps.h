@@ -4,6 +4,7 @@
 #include <cmath>
 #include <array>
 #include <string>
+#include <utility>
 #include <vector>
 
 enum class ColormapType {
@@ -238,6 +239,12 @@ namespace Colormaps {
     inline glm::vec3 categoricalColor(int index) {
         if (index < 0) return categoricalPalette[0];
         return categoricalPalette[static_cast<std::size_t>(index) % categoricalPalette.size()];
+    }
+
+    // One category still needs a non-degenerate range: the shader skips the LUT
+    // when scalarMin == scalarMax, which would hide the only patch color.
+    inline std::pair<float, float> categoricalRange(int categoryCount) {
+        return {0.0f, static_cast<float>(std::max(2, categoryCount) - 1)};
     }
 
     // 256x1 RGB LUT with one solid block per category, for the existing
