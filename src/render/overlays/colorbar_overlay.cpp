@@ -561,7 +561,9 @@ void ColorbarOverlay::drawBars(float dpr, int deviceW, int deviceH,
     if (!isInitialized() || deviceW <= 0 || deviceH <= 0) return;
 
     for (const auto& bar : bars) {
-        if (!bar.visible || bar.stops.isEmpty() || bar.title.isEmpty()) continue;
+        if (!bar.visible || bar.title.isEmpty()) continue;
+        // Categorical legends carry no gradient stops; they render swatches.
+        if (!bar.categorical && bar.stops.isEmpty()) continue;
         drawSingleBar(dpr, deviceW, deviceH, bar);
     }
 }
@@ -570,7 +572,8 @@ int ColorbarOverlay::barIndexAt(float dpr, int deviceW, int deviceH,
                                  const std::vector<ColorbarData>& bars, int px, int py) const {
     for (int i = 0; i < static_cast<int>(bars.size()); ++i) {
         const auto& bar = bars[i];
-        if (!bar.visible || bar.stops.isEmpty() || bar.title.isEmpty()) continue;
+        if (!bar.visible || bar.title.isEmpty()) continue;
+        if (!bar.categorical && bar.stops.isEmpty()) continue;
         QRectF rect = barRectAt(dpr, deviceW, deviceH, bar);
         if (rect.contains(static_cast<qreal>(px), static_cast<qreal>(py))) return i;
     }
