@@ -16,8 +16,13 @@ public:
 
     int   scalarChoice() const { return scalarChoice_; }
     bool  scalarReversed() const { return scalarReversed_; }
-    void  setScalarChoice(int c) { scalarChoice_ = c; }
-    void  setScalarReversed(bool r) { scalarReversed_ = r; }
+    void  setScalarChoice(int c) { if (c != scalarChoice_) scalarLutDirty_ = true; scalarChoice_ = c; }
+    void  setScalarReversed(bool r) { if (r != scalarReversed_) scalarLutDirty_ = true; scalarReversed_ = r; }
+    void  setScalarCategorical(bool on, int categoryCount) {
+        if (on != categorical_ || categoryCount != categoryCount_) scalarLutDirty_ = true;
+        categorical_ = on;
+        categoryCount_ = categoryCount;
+    }
 
     int   vectorChoice() const { return vectorChoice_; }
     bool  vectorReversed() const { return vectorReversed_; }
@@ -46,9 +51,14 @@ public:
 
 private:
     void uploadLUT(GLuint& tex, int choice, bool reversed) const;
+    void uploadCategoricalLUT(GLuint& tex, int categoryCount) const;
+    void uploadRawLUT(GLuint& tex, const unsigned char* data) const;
 
     int   scalarChoice_ = 3;
     bool  scalarReversed_ = false;
+    bool  categorical_ = false;
+    int   categoryCount_ = 0;
+    bool  scalarLutDirty_ = true;
     GlTexture scalarTex_;
     int   lastScalarChoice_ = -1;
     bool  lastScalarReversed_ = false;

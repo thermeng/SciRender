@@ -1,5 +1,6 @@
 #pragma once
 #include <glm/glm.hpp>
+#include <algorithm>
 #include <cmath>
 #include <array>
 
@@ -235,6 +236,20 @@ namespace Colormaps {
     inline glm::vec3 categoricalColor(int index) {
         if (index < 0) return categoricalPalette[0];
         return categoricalPalette[static_cast<std::size_t>(index) % categoricalPalette.size()];
+    }
+
+    // 256x1 RGB LUT with one solid block per category, for the existing
+    // scalar-texture path. Texel i maps to category floor(i * n / 256).
+    inline std::array<unsigned char, 256 * 3> categoricalLut(int categoryCount) {
+        std::array<unsigned char, 256 * 3> out{};
+        const int n = std::max(1, categoryCount);
+        for (int i = 0; i < 256; ++i) {
+            const glm::vec3 c = categoricalColor(std::min(n - 1, i * n / 256));
+            out[i * 3 + 0] = static_cast<unsigned char>(c.r * 255.0f);
+            out[i * 3 + 1] = static_cast<unsigned char>(c.g * 255.0f);
+            out[i * 3 + 2] = static_cast<unsigned char>(c.b * 255.0f);
+        }
+        return out;
     }
 
     inline glm::vec3 evaluate(float t, ColormapType type) {

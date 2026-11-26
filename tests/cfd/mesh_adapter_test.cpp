@@ -54,6 +54,18 @@ TEST_CASE("cfd.patch.categorical_state") {
     CHECK(wrapped.r == doctest::Approx(first.r));
     CHECK(wrapped.g == doctest::Approx(first.g));
     CHECK(wrapped.b == doctest::Approx(first.b));
+
+    const auto lut = Colormaps::categoricalLut(4);
+    CHECK(lut.size() == 256u * 3u);
+    auto texel = [&](int i) {
+        return std::make_tuple(lut[i * 3], lut[i * 3 + 1], lut[i * 3 + 2]);
+    };
+    CHECK(texel(0) == texel(63));   // one solid block per category
+    CHECK(texel(32) != texel(96));  // adjacent categories differ
+    const auto last = Colormaps::categoricalColor(3);
+    CHECK(std::get<0>(texel(255)) == static_cast<unsigned char>(last.r * 255.0f));
+    CHECK(std::get<1>(texel(255)) == static_cast<unsigned char>(last.g * 255.0f));
+    CHECK(std::get<2>(texel(255)) == static_cast<unsigned char>(last.b * 255.0f));
 }
 
 TEST_CASE("cfd.mesh_adapter.pipe_3d_exposes_patch_scalar") {

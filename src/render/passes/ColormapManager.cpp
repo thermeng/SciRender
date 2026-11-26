@@ -6,6 +6,7 @@
 void ColormapManager::sync(const RenderRenderState& state) {
     setScalarChoice(state.colormapChoice);
     setScalarReversed(state.colormapReversed);
+    setScalarCategorical(state.scalarCategorical, state.scalarCategoryCount);
     setVectorChoice(state.vectorColormapChoice);
     setVectorReversed(state.vectorColormapReversed);
     setStreamlineChoice(state.streamlineColormapChoice);
@@ -15,6 +16,18 @@ void ColormapManager::sync(const RenderRenderState& state) {
     setVolumeSliceChoice(state.volumeSliceColormapChoice);
     setVolumeSliceReversed(state.volumeSliceColormapReversed);
     update();
+}
+
+void ColormapManager::uploadRawLUT(GLuint& texOut, const unsigned char* data) const {
+    GlTexture tex;
+    if (texOut) tex.reset(texOut);
+    if (!tex.has()) glCreateTextures(GL_TEXTURE_1D, 1, tex.ptr());
+    glTextureStorage1D(tex, 1, GL_RGB8, 256);
+    glTextureSubImage1D(tex, 0, 0, 256, GL_RGB, GL_UNSIGNED_BYTE, data);
+    glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    texOut = tex.release();
 }
 
 void ColormapManager::uploadLUT(GLuint& texOut, int choice, bool reversed) const {
@@ -27,24 +40,24 @@ void ColormapManager::uploadLUT(GLuint& texOut, int choice, bool reversed) const
         pd.push_back(static_cast<unsigned char>(rgb.g * 255.0f));
         pd.push_back(static_cast<unsigned char>(rgb.b * 255.0f));
     }
-    GlTexture tex;
-    if (texOut) tex.reset(texOut);
-    if (!tex.has()) glCreateTextures(GL_TEXTURE_1D, 1, tex.ptr());
-    glTextureStorage1D(tex, 1, GL_RGB8, 256);
-    glTextureSubImage1D(tex, 0, 0, 256, GL_RGB, GL_UNSIGNED_BYTE, pd.data());
-    glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    texOut = tex.release();
+    uploadRawLUT(texOut, pd.data());
+}
+
+void ColormapManager::uploadCategoricalLUT(GLuint& texOut, int categoryCount) const {
+    const auto data = Colormaps::categoricalLut(categoryCount);
+    uploadRawLUT(texOut, data.data());
 }
 
 void ColormapManager::update() {
-    if (!scalarTex_.has() || scalarChoice_ != lastScalarChoice_ || scalarReversed_ != lastScalarReversed_) {
+    if (!scalarTex_.has() || scalarLutDirty_
+        || scalarChoice_ != lastScalarChoice_ || scalarReversed_ != lastScalarReversed_) {
         GLuint raw = scalarTex_.get();
-        uploadLUT(raw, scalarChoice_, scalarReversed_);
+        if (categorical_) uploadCategoricalLUT(raw, categoryCount_);
+        else uploadLUT(raw, scalarChoice_, scalarReversed_);
         if (raw != scalarTex_.get()) scalarTex_.reset(raw);
         lastScalarChoice_ = scalarChoice_;
         lastScalarReversed_ = scalarReversed_;
+        scalarLutDirty_ = false;
     }
 
     if (!vectorTex_.has() || vectorLutDirty_ ||
