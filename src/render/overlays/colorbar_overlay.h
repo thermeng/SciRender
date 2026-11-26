@@ -37,6 +37,10 @@ struct ColorbarData {
     float fracX = 1.0f; // 0 = left, 1 = right
     float fracY = 1.0f; // 0 = top, 1 = bottom
     int bandCount = 0; // 0 = continuous gradient, >1 = discrete bands
+    // Categorical legend: tickLabels hold category names and categoryColors
+    // holds one swatch color per label. No gradient, ticks or numeric range.
+    bool categorical = false;
+    QVariantList categoryColors;
     QColor textColor;
     ColorbarStyle style;
 };

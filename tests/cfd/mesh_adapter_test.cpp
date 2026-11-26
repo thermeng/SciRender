@@ -66,6 +66,14 @@ TEST_CASE("cfd.patch.categorical_state") {
     CHECK(std::get<0>(texel(255)) == static_cast<unsigned char>(last.r * 255.0f));
     CHECK(std::get<1>(texel(255)) == static_cast<unsigned char>(last.g * 255.0f));
     CHECK(std::get<2>(texel(255)) == static_cast<unsigned char>(last.b * 255.0f));
+
+    std::vector<std::string> names;
+    for (int i = 0; i < 30; ++i) names.push_back("patch" + std::to_string(i));
+    const auto shortLegend = Colormaps::categoricalLegendLabels(names, 24);
+    CHECK(shortLegend.size() == 25);
+    CHECK(shortLegend.front() == "patch0");
+    CHECK(shortLegend.back() == "+6 more");
+    CHECK(Colormaps::categoricalLegendLabels({"inlet", "outlet"}, 24).size() == 2);
 }
 
 TEST_CASE("cfd.mesh_adapter.pipe_3d_exposes_patch_scalar") {

@@ -182,16 +182,20 @@ ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const Colorbar
     const QFontMetrics titleFm(makeFont(st, FontKind::Title, dpr));
     const QFontMetrics tickFm(makeFont(st, FontKind::Tick, dpr));
 
+    const bool categorical = bar.categorical;
+    const int n = bar.tickLabels.size();
     const int gap = static_cast<int>(4 * dpr);
-    const int tickLen = static_cast<int>(5 * dpr);
+    const int tickLen = static_cast<int>((categorical ? 12 : 5) * dpr);
     const int pad = static_cast<int>(8 * dpr);
     const int titleH = titleFm.height();
     const int tickH = tickFm.height();
-    const int barMain = static_cast<int>(200 * st.lengthScale * dpr);
+    // One readable row per category instead of the gradient's fixed length.
+    const int barMain = categorical
+        ? static_cast<int>(qMax(200, qMax(1, n) * 16) * st.lengthScale * dpr)
+        : static_cast<int>(200 * st.lengthScale * dpr);
     const int barCross = static_cast<int>(12 * st.thicknessScale * dpr);
     const int labelGap = static_cast<int>(3 * dpr);
     const int minGap = static_cast<int>(2 * dpr);
-    const int n = bar.tickLabels.size();
 
     // Annotation line ("[Scalar]") sits above the field name line.
     const bool hasAnnotation = st.showAnnotation && !bar.subtitle.isEmpty();
@@ -235,7 +239,10 @@ ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const Colorbar
         const int tickX = barX + barCross;
         lay.ticks.reserve(n);
         for (int i = 0; i < n; ++i) {
-            const float frac = n > 1 ? static_cast<float>(i) / static_cast<float>(n - 1) : 0.0f;
+            // Names read top→bottom; the gradient's numeric ticks read bottom→top.
+            const float frac = categorical
+                ? (n > 1 ? 1.0f - static_cast<float>(i) / static_cast<float>(n - 1) : 1.0f)
+                : (n > 1 ? static_cast<float>(i) / static_cast<float>(n - 1) : 0.0f);
             const int ty = barBottom - static_cast<int>(frac * barMain);
             TickItem item;
             item.index = i;
@@ -244,12 +251,14 @@ ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const Colorbar
             const QString& lbl = bar.tickLabels[i];
             const int lw = tickFm.horizontalAdvance(lbl);
             QRect lblRect(tickX + tickLen + labelGap, ty - tickH / 2, lw, tickH);
-            if (i == 0) lblRect.moveBottom(barBottom);
-            else if (i == n - 1) lblRect.moveTop(barTop);
+            if (!categorical) {
+                if (i == 0) lblRect.moveBottom(barBottom);
+                else if (i == n - 1) lblRect.moveTop(barTop);
+            }
             item.label = lblRect;
             lay.ticks.push_back(item);
         }
-        selectTickLabels(lay.ticks, bar.tickLabels, minGap, true);
+        if (!categorical) selectTickLabels(lay.ticks, bar.tickLabels, minGap, true);
         return lay;
     }
 
@@ -275,12 +284,14 @@ ColorbarOverlay::Layout ColorbarOverlay::computeLayout(float dpr, const Colorbar
         const QString& lbl = bar.tickLabels[i];
         const int lw = tickFm.horizontalAdvance(lbl);
         QRect lblRect(tx - lw / 2, tickY + tickLen, lw, tickH);
-        if (i == 0) lblRect.moveLeft(barX);
-        else if (i == n - 1) lblRect.moveRight(barX + barMain);
+        if (!categorical) {
+            if (i == 0) lblRect.moveLeft(barX);
+            else if (i == n - 1) lblRect.moveRight(barX + barMain);
+        }
         item.label = lblRect;
         lay.ticks.push_back(item);
     }
-    selectTickLabels(lay.ticks, bar.tickLabels, minGap, false);
+    if (!categorical) selectTickLabels(lay.ticks, bar.tickLabels, minGap, false);
     return lay;
 }
 
@@ -334,6 +345,19 @@ QImage ColorbarOverlay::buildSingleBarImage(float dpr, const ColorbarData& bar) 
         p.drawText(lay.title, Qt::AlignHCenter | Qt::AlignVCenter | Qt::TextSingleLine, elided);
     }
 
+    if (bar.categorical) {
+        // Swatches instead of a gradient: one solid color per named category.
+        const int swatchH = qMax(4, static_cast<int>(6 * dpr));
+        for (const TickItem& item : lay.ticks) {
+            if (item.index >= bar.categoryColors.size()) continue;
+            const QColor col = bar.categoryColors[item.index].value<QColor>();
+            if (!col.isValid()) continue; // the "+N more" summary row
+            QRectF r = QRectF(item.markFrom, item.markTo).normalized();
+            if (r.width() < 1) r.adjust(-swatchH, 0, swatchH, 0);
+            if (r.height() < 1) r.adjust(0, -swatchH, 0, swatchH);
+            p.fillRect(r, col);
+        }
+    } else {
     // Gradient bar (vertical bars read bottom→min, top→max)
     {
         const bool vertical = st.orientation == ColorbarStyle::Vertical;
@@ -402,12 +426,13 @@ if (vertical) tc = 1.0f - tc;
             // No border — sharp publication style.
         }
     }
+    }
 
     // Tick marks + thinned labels
     p.setFont(makeFont(st, FontKind::Tick, dpr));
     p.setPen(bar.textColor);
     for (const TickItem& item : lay.ticks) {
-        p.drawLine(item.markFrom, item.markTo);
+        if (!bar.categorical) p.drawLine(item.markFrom, item.markTo);
         if (item.label.isEmpty()) continue;
         p.drawText(item.label, Qt::AlignLeft | Qt::AlignTop | Qt::TextSingleLine,
                    bar.tickLabels[item.index]);
@@ -447,6 +472,10 @@ QString ColorbarOverlay::barKey(float dpr, const ColorbarData& bar) {
     }
     k += "|";
     for (auto &lbl: bar.tickLabels) k += lbl + ";";
+    if (bar.categorical) {
+        k += "|cat";
+        for (const auto& c : bar.categoryColors) k += c.value<QColor>().name() + ";";
+    }
     return k;
 }
 

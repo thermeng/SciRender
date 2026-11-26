@@ -778,13 +778,15 @@ void Renderer::buildColorbarModel() {
     };
 
     auto makeBar = [&](const char* subtitle, const QString& title,
-                       const QVariantList& stops, auto&& valueAt, int bandCount = 0) {
+                       const QVariantList& stops, auto&& valueAt, int bandCount = 0,
+                       const QStringList* labelOverride = nullptr) {
         ColorbarData d;
         d.title = title;
         d.subtitle = subtitle;
         d.stops = stops;
         d.bandCount = bandCount;
-        d.tickLabels = makeTickLabels(std::forward<decltype(valueAt)>(valueAt), tickCount);
+        d.tickLabels = labelOverride ? *labelOverride
+                                     : makeTickLabels(std::forward<decltype(valueAt)>(valueAt), tickCount);
         const int idx = colorbarIdx++;
         loadBarPosition(d, idx);
         loadBarOrientation(d);
@@ -807,6 +809,25 @@ void Renderer::buildColorbarModel() {
         m_state.meshUseScalarColor &&
         m_state.showScalarColorbar &&
         !m_state.showIsosurface) {
+        if (m_state.scalarCategorical && m_state.scalarCategoryCount > 0) {
+            const auto names = Colormaps::categoricalLegendLabels(m_state.scalarCategoryLabels);
+            QStringList labels;
+            QVariantList colors;
+            for (std::size_t i = 0; i < names.size(); ++i) {
+                labels << QString::fromStdString(names[i]);
+                if (i < static_cast<std::size_t>(m_state.scalarCategoryCount)) {
+                    const glm::vec3 c = Colormaps::categoricalColor(static_cast<int>(i));
+                    colors.append(QColor::fromRgbF(c.r, c.g, c.b));
+                } else {
+                    colors.append(QColor()); // "+N more" summary gets no swatch
+                }
+            }
+            makeBar("Scalar", QString::fromStdString(m_state.activeScalarName), {},
+                    [](int) { return 0.0f; }, 0, &labels);
+            ColorbarData& d = m_colorbarBars.back();
+            d.categorical = true;
+            d.categoryColors = std::move(colors);
+        } else {
         const float mapMin = m_state.colorMapMin();
         const float mapMax = m_state.colorMapMax();
         const float range = mapMax - mapMin;
@@ -816,6 +837,7 @@ void Renderer::buildColorbarModel() {
                     const float frac = tickCount > 1 ? static_cast<float>(i) / static_cast<float>(tickCount - 1) : 0.0f;
                     return mapMin + range * frac;
                 }, m_state.scalarColorBands);
+        }
     }
 
     if (m_state.showVectors && m_state.vectorColorMode > 0 && m_state.hasMeshLoaded &&

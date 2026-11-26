@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <array>
+#include <string>
+#include <vector>
 
 enum class ColormapType {
     Turbo = 0,
@@ -249,6 +251,16 @@ namespace Colormaps {
             out[i * 3 + 1] = static_cast<unsigned char>(c.g * 255.0f);
             out[i * 3 + 2] = static_cast<unsigned char>(c.b * 255.0f);
         }
+        return out;
+    }
+
+    // Legend stays bounded for meshes with many patches: the last row reports
+    // how many names were omitted instead of stacking tiny overlapping labels.
+    inline std::vector<std::string> categoricalLegendLabels(
+        const std::vector<std::string>& names, int maxRows = 24) {
+        if (static_cast<int>(names.size()) <= maxRows) return names;
+        std::vector<std::string> out(names.begin(), names.begin() + maxRows);
+        out.push_back("+" + std::to_string(names.size() - static_cast<std::size_t>(maxRows)) + " more");
         return out;
     }
 
