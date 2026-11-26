@@ -275,6 +275,7 @@ if(SCIRENDER_BUILD_APP)
         src/render/passes/ColormapManager.cpp
         src/render/passes/MeshGLManager.cpp
         src/render/passes/MeshPass.cpp
+        src/render/passes/SurfaceLicPass.cpp
         src/render/passes/GlyphPass.cpp
         src/render/passes/ParticlePass.cpp
         src/render/passes/VolumePass.cpp
@@ -452,6 +453,8 @@ if(SCIRENDER_BUILD_APP)
         src/shaders/composite.vert
         src/shaders/peel_blit.frag
         src/shaders/surface_lic.frag
+        src/shaders/lic_flow.frag
+        src/shaders/lic_convolve.frag
     )
     qt_add_resources(SciRender "shaders"
         PREFIX "/"

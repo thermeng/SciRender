@@ -53,24 +53,6 @@ public:
     // compile failure degrades quality rather than making the mesh vanish.
     void setOitAvailable(bool available) { m_oitAvailable = available; }
 
-    struct LicResources {
-        GLuint vectorTex = 0;
-        GLuint noiseTex = 0;
-        glm::vec3 boxMin{0.0f};
-        glm::vec3 boxMax{0.0f};
-        int texDimX = 0;
-        int texDimY = 0;
-        int texDimZ = 0;
-        // Strongest vector of the sampled field. The LIC uses it to make the
-        // "no direction here" cut-off relative to the field instead of
-        // absolute, so a flow in mm/s is treated like a flow in m/s.
-        float maxMagnitude = 0.0f;
-        // Robust per-field floor: 5th percentile of non-zero sampled magnitudes.
-        // Captures the boundary-layer velocity scale so slow near-wall flow is
-        // not rejected by a maxMagnitude-relative cut-off dominated by a fast lid.
-        float robustFloor = 0.0f;
-        bool valid() const { return vectorTex != 0 && noiseTex != 0; }
-    };
     MeshPassResult drawLic(const RenderRenderState& state,
                   const glm::mat4& view,
                   const glm::mat4& proj,
@@ -80,7 +62,7 @@ public:
                   const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                   const MeshGLManager& meshManager,
                   const ColormapManager& colormap,
-                  const LicResources& licRes);
+                  GLuint licTex);
 
 private:
     void drawOpaque(const RenderRenderState& state,
@@ -92,11 +74,7 @@ private:
                        const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                        const MeshGLManager& meshManager);
     void activateProgram(const RenderRenderState& state, const ColormapManager& colormap);
-    void activateLicProgram(const RenderRenderState& state, const ColormapManager& colormap,
-                            GLuint vectorTex, GLuint noiseTex,
-                            const glm::vec3& boxMin, const glm::vec3& boxMax,
-                            int texDimX, int texDimY, int texDimZ,
-                            float vectorMaxMagnitude = 0.0f, float robustFloor = 0.0f);
+    void activateLicProgram(const RenderRenderState& state, const ColormapManager& colormap, GLuint licTex);
     MeshUBOData makeUbo(const RenderRenderState& state,
                          const glm::mat4& view,
                          const glm::mat4& proj,
@@ -137,30 +115,8 @@ private:
     GLint licClipLutTextureLoc = -1;
     GLint licNumBandsLoc = -1;
     GLint licClipNumBandsLoc = -1;
-    GLint licVectorTexLoc = -1;
-    GLint licClipVectorTexLoc = -1;
-    GLint licNoiseTexLoc = -1;
-    GLint licClipNoiseTexLoc = -1;
-    GLint licBoxMinLoc = -1;
-    GLint licClipBoxMinLoc = -1;
-    GLint licBoxMaxLoc = -1;
-    GLint licClipBoxMaxLoc = -1;
-    GLint licStepsLoc = -1;
-    GLint licClipStepsLoc = -1;
-    GLint licStepSizeLoc = -1;
-    GLint licClipStepSizeLoc = -1;
-    GLint licNoiseFreqLoc = -1;
-    GLint licClipNoiseFreqLoc = -1;
-    GLint licUvwScaleLoc = -1;
-    GLint licClipUvwScaleLoc = -1;
-    GLint licUvwOffsetLoc = -1;
-    GLint licClipUvwOffsetLoc = -1;
-    GLint licEnhancedLoc = -1;
-    GLint licClipEnhancedLoc = -1;
+    GLint licTexLoc = -1;
+    GLint licClipTexLoc = -1;
     GLint licOnlyLoc = -1;
     GLint licClipOnlyLoc = -1;
-    GLint licIntegratorLoc = -1;
-    GLint licClipIntegratorLoc = -1;
-    GLint licMagThreshLoc = -1;
-    GLint licClipMagThreshLoc = -1;
 };

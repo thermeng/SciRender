@@ -54,6 +54,7 @@
 #include "render/passes/VolumePass.h"
 #include "render/passes/VolumeTextureCache.h"
 #include "render/passes/VectorTextureCache.h"
+#include "render/passes/SurfaceLicPass.h"
 #include "render/overlays/VolumeSliceOverlay.h"
 #include "render/passes/LodScheduler.h"
 #include "render/passes/DepthPeelPass.h"
@@ -97,6 +98,8 @@ struct ShaderSources {
     std::string volumeSliceVert;
     std::string volumeSliceFrag;
     std::string surfaceLicFrag;
+    std::string licFlowFrag;
+    std::string licConvolveFrag;
 
     std::string pbrFragCommon;
     std::string plotHistogramComp;
@@ -110,19 +113,11 @@ struct ShaderSources {
 namespace LicLimits {
     constexpr int   StepsMin = 4;
     constexpr int   StepsMax = 128;
-    constexpr int   StepsGpuMin = 0;   // shader tolerates 0 (single-sample fallback) even though UI min is 4
-    constexpr float StepSizeMin = 0.001f;   // fraction of scene diagonal
-    constexpr float StepSizeMax = 2.0f;
+    constexpr float StepSizeMin = 0.001f;   // screen pixels per integration step
+    constexpr float StepSizeMax = 20.0f;
     constexpr float NoiseFreqMin = 0.5f;
     constexpr float NoiseFreqMax = 64.0f;
-    // Lower bound of the world-space step as a FRACTION of the scene diagonal.
-    // An absolute floor (the old 1e-6) made a sub-micron scene step thousands
-    // of scene widths per tap.
-    constexpr float WorldStepMinFraction = 1e-4f;
-    constexpr float WorldStepMaxFactor = 2.0f; // cap worldStep at diag * factor
-    // Upper bound on integrator taps per direction. The LIC cost is
-    // steps * (integrator taps) * (2 when enhanced); UI max settings would
-    // otherwise reach ~1024 vector fetches per fragment per direction.
+    // Upper bound on convolution taps per direction in the screen-space LIC pass.
     constexpr int   MaxTapsPerDirection = 256;
 }
 
@@ -309,19 +304,14 @@ struct RenderRenderState {
     bool showLic = false;
     int vectorVisMode = 0;
     int licSteps = 24;          // kernel half-length (total taps = 1+2*steps); UI [4..128], GPU tolerates [0..128]
-    // Fraction of the scene diagonal per LIC step. The kernel is
-    // 2*steps*licStepSize long, while the noise it convolves has a
-    // correlation length of 1/licNoiseFreq - a kernel of a few correlation
-    // lengths is what makes an LIC read as streamlines. At the old default
-    // (0.02) the kernel was ~10 correlation lengths long and smeared the
-    // whole field into a blur; 0.005 puts it at ~2.7 for the default
-    // steps/frequency.
-    float licStepSize = 0.005f;  // fraction of scene diagonal; MeshPass converts to worldStep = licStepSize*diag, clamped to [1e-6, diag*2]
+    // Screen-space pixels per LIC integration step. Kept constant in
+    // viewport space (scaled by per-fragment pixel world size) so the LIC
+    // looks the same irrespective of view distance.
+    float licStepSize = 2.0f;  // pixels per step; shader converts via worldStep = licStepSize * pixelWorldSize
     float licNoiseFreq = 8.0f;  // UI [0.5..64], upload clamped to same
     int licNoiseGrain = 64;     // 3D noise resolution; supported set {64,128}
     bool licEnhanced = false;   // Enhanced LIC: 2-pass (second convolution sharpens coherence)
     bool licOnly = false;       // Skip PBR lighting, output unshaded LIC color
-    int licIntegrator = 2;      // 0=Euler, 1=Midpoint, 2=RK4
 
 
     std::string streamlineVectorField;
@@ -719,9 +709,6 @@ private:
     static std::string vectorGlyphTitle(const RenderRenderState& state, const RenderMesh* mesh);
     void computeLightDirections(glm::vec3& key, glm::vec3& fill, glm::vec3& back1, glm::vec3& back2, glm::vec3& head);
     void updateSliceScalarRange(const VolumeTexture* sliceTextures);
-
-    void ensureLicNoiseTexture(int grain);
-    void shutdownLic();
   private:
 
 
@@ -821,9 +808,8 @@ private:
     VolumePass m_volume;
     VolumeTextureCache m_volumeCache;
     VectorTextureCache m_vectorCache;
+    SurfaceLicPass m_surfaceLicPass;
     VolumeSliceOverlay m_volumeSliceOverlay;
-    GlTexture m_licNoiseTex;
-    int m_licNoiseGrain = 0;
     std::string m_lastLicError;      // per-frame LIC failure reason (logged, not exposed)
     std::string m_loggedLicError;    // last message sent to qWarning(), to stop per-frame log spam
 

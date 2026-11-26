@@ -121,14 +121,14 @@ VectorsPage::VectorsPage(RenderSettings* settings, QWidget* parent)
     }
     {
         auto* spin = vectorsUi.licStepSizeSpin;
-        spin->setRange(0.001, 2.0);
+        spin->setRange(0.001, 20.0);
+        spin->setSingleStep(0.1);
+        spin->setDecimals(3);
         spin->setValue(s->getLicStepSize());
         spin->setToolTip(
-            "LIC step as a fraction of the scene diagonal.\n"
-            "The kernel is 2*Steps*StepSize long, while the noise it convolves has a\n"
-            "correlation length of 1/Frequency. For the LIC to read as streamlines the\n"
-            "kernel should be a few correlation lengths: raise Step Size (or lower\n"
-            "Frequency) if the result looks like noise rather than flow lines.");
+            "LIC step length in screen pixels.\n"
+            "Adapts with view distance so streak density stays constant when you zoom.\n"
+            "Raise for longer, smoother streaks; lower for finer detail.");
         connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), s, &RenderSettings::setLicStepSize);
     }
     {
@@ -158,12 +158,6 @@ VectorsPage::VectorsPage(RenderSettings* settings, QWidget* parent)
     auto* licOnlyCb = vectorsUi.licOnlyCb;
     licOnlyCb->setChecked(s->getLicOnly());
     connect(licOnlyCb, &QCheckBox::toggled, s, &RenderSettings::setLicOnly);
-
-    auto* licIntegratorCombo = vectorsUi.licIntegratorCombo;
-    licIntegratorCombo->addItems(s->getLicIntegratorOptions());
-    licIntegratorCombo->setCurrentIndex(s->getLicIntegrator());
-    connect(licIntegratorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            s, &RenderSettings::setLicIntegrator);
 
     auto* magCombo = vectorsUi.magCombo;
     magCombo->addItems({"Linear", "Square root", "Logarithmic"});

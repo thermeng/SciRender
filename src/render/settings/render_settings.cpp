@@ -465,12 +465,16 @@ const std::vector<RenderSettings::StateEntry>& RenderSettings::persistenceTable(
         add("probePlacement",      [](const RenderSettings& r) { return QVariant(r.m_state.probePlacement); },                [](RenderSettings& r, const QVariant& v) { r.m_state.probePlacement = std::clamp(v.toInt(), 0, 1); });
         add("vectorVisMode",       [](const RenderSettings& r) { return QVariant(r.m_state.vectorVisMode); },                 [](RenderSettings& r, const QVariant& v) { r.m_state.vectorVisMode = std::clamp(v.toInt(), 0, 2); });
         add("licSteps",            [](const RenderSettings& r) { return QVariant(r.m_state.licSteps); },                      [](RenderSettings& r, const QVariant& v) { r.setLicSteps(v.toInt()); });
-        add("licStepSize",         [](const RenderSettings& r) { return QVariant(static_cast<double>(r.m_state.licStepSize)); }, [](RenderSettings& r, const QVariant& v) { r.setLicStepSize(v.toDouble()); });
+        add("licStepSize",         [](const RenderSettings& r) { return QVariant(static_cast<double>(r.m_state.licStepSize)); }, [](RenderSettings& r, const QVariant& v) {
+            double val = v.toDouble();
+            // Migrate old fraction-of-diagonal values (< 0.5) to screen pixels.
+            if (val > 0.0 && val < 0.5) val *= 400.0;
+            r.setLicStepSize(val);
+        });
         add("licNoiseFreq",        [](const RenderSettings& r) { return QVariant(static_cast<double>(r.m_state.licNoiseFreq)); }, [](RenderSettings& r, const QVariant& v) { r.setLicNoiseFreq(v.toDouble()); });
         add("licNoiseGrain",       [](const RenderSettings& r) { return QVariant(r.m_state.licNoiseGrain); },                 [](RenderSettings& r, const QVariant& v) { r.setLicNoiseGrain(v.toInt()); });
         add("licEnhanced",         [](const RenderSettings& r) { return QVariant(r.m_state.licEnhanced); },                  [](RenderSettings& r, const QVariant& v) { r.setLicEnhanced(v.toBool()); });
         add("licOnly",             [](const RenderSettings& r) { return QVariant(r.m_state.licOnly); },                          [](RenderSettings& r, const QVariant& v) { r.setLicOnly(v.toBool()); });
-        add("licIntegrator",       [](const RenderSettings& r) { return QVariant(r.m_state.licIntegrator); },                      [](RenderSettings& r, const QVariant& v) { r.setLicIntegrator(v.toInt()); });
         add("maxPeelLayers",       [](const RenderSettings& r) { return QVariant(r.m_state.maxPeelLayers); },                 [](RenderSettings& r, const QVariant& v) { r.setMaxPeelLayers(v.toInt()); });
         add("postVelocitySource",  [](const RenderSettings& r) { return QVariant(QString::fromStdString(r.m_postVelocitySource)); }, [](RenderSettings& r, const QVariant& v) { r.m_postVelocitySource = v.toString().toStdString(); });
         add("postPressureSource",  [](const RenderSettings& r) { return QVariant(QString::fromStdString(r.m_postPressureSource)); }, [](RenderSettings& r, const QVariant& v) { r.m_postPressureSource = v.toString().toStdString(); });

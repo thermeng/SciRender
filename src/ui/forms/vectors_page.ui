@@ -265,7 +265,7 @@
            <property name="bottomMargin"><number>0</number></property>
            <item>
             <widget class="QLabel" name="licStepSizeLabel">
-             <property name="text"><string>Step Size</string></property>
+             <property name="text"><string>Step (px)</string></property>
              <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
              <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
              <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
@@ -273,11 +273,11 @@
            </item>
            <item>
             <widget class="QDoubleSpinBox" name="licStepSizeSpin">
-             <property name="minimum"><double>0.001000000000000</double></property>
-             <property name="maximum"><double>2.000000000000000</double></property>
-             <property name="singleStep"><double>0.001000000000000</double></property>
-             <property name="value"><double>0.020000000000000</double></property>
-             <property name="decimals"><number>3</number></property>
+             <property name="minimum"><double>0.500000000000000</double></property>
+             <property name="maximum"><double>20.000000000000000</double></property>
+             <property name="singleStep"><double>0.500000000000000</double></property>
+             <property name="value"><double>2.000000000000000</double></property>
+             <property name="decimals"><number>1</number></property>
             </widget>
            </item>
           </layout>
@@ -333,28 +333,6 @@
            </layout>
             </widget>
            </item>
-          <item>
-           <widget class="QWidget" name="licIntegratorRow">
-           <layout class="QHBoxLayout" name="licIntegratorLayout">
-            <property name="spacing"><number>6</number></property>
-            <property name="leftMargin"><number>0</number></property>
-            <property name="topMargin"><number>0</number></property>
-            <property name="rightMargin"><number>0</number></property>
-            <property name="bottomMargin"><number>0</number></property>
-            <item>
-             <widget class="QLabel" name="licIntegratorLabel">
-              <property name="text"><string>Integrator</string></property>
-              <property name="minimumSize"><size><width>72</width><height>0</height></size></property>
-              <property name="maximumSize"><size><width>72</width><height>16777215</height></size></property>
-              <property name="alignment"><set>Qt::AlignLeft|Qt::AlignVCenter</set></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QComboBox" name="licIntegratorCombo"/>
-            </item>
-           </layout>
-          </widget>
-         </item>
            <item>
             <widget class="QCheckBox" name="licEnhancedCb">
              <property name="text"><string>Enhanced (2-pass)</string></property>

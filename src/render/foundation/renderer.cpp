@@ -121,6 +121,7 @@ void Renderer::initShaders(const ShaderSources& sources) {
     particlePass.init(sources);
     m_volume.init(sources);
     m_volumeSliceOverlay.init(sources);
+    m_surfaceLicPass.init(sources);
 
     meshManager.setComputeShaderSources(sources.lodComp, sources.lodOutputComp, sources.lodTrisComp);
     if (!sources.plotHistogramComp.empty()) {
@@ -450,8 +451,6 @@ void Renderer::clearGpuMeshes() {
     derivedVolumeDirty.store(false);
     m_pendingScalarSrc.reset();
     scalarDirty.store(false);
-    m_licNoiseTex.reset();
-    m_licNoiseGrain = 0;
     m_lastLicError.clear();
     m_loggedLicError.clear();
 
@@ -519,7 +518,7 @@ void Renderer::reinitForNewContext() {
         streamlineSet.shutdown();
         m_volumeSliceOverlay.shutdown();
         m_vectorCache.shutdown();
-        shutdownLic();
+        m_surfaceLicPass.shutdown();
 
 
 
@@ -1100,47 +1099,7 @@ void Renderer::updateSliceScalarRange(const VolumeTexture* sliceTextures) {
     }
 }
 
-void Renderer::ensureLicNoiseTexture(int grain) {
-    // 3D isotropic noise — eliminates planar stretch on non-planar geometry (replaces 2D tri-planar).
-    // Mesh-UV path reserved: if native UVs become available, shader can branch to uNoiseTex2D_Fallback.
-    //
-    // Clamp BEFORE the cache test. Comparing the raw requested grain against
-    // the clamped stored grain made the default (256) rebuild the texture on
-    // every frame after storing 64/128.
-    if (grain <= 0) grain = 64; // 3D default smaller than 2D to bound VRAM (64^3=256KB, 128^3=2MB)
-    // Cap 3D grain at 128 (2MB) instead of letting 256/512 through (16MB/134MB).
-    if (grain > 128) grain = 128;
-    if (m_licNoiseTex.has() && m_licNoiseGrain == grain) return;
-    if (m_licNoiseTex.has()) m_licNoiseTex.reset();
-    size_t total = static_cast<size_t>(grain) * grain * grain;
-    std::vector<unsigned char> noise;
-    try {
-        noise.resize(total);
-    } catch (const std::bad_alloc&) {
-        return;   // cannot build the noise; LIC falls back to the normal surface draw
-    }
-    std::mt19937 rng(12345);
-    std::uniform_int_distribution<int> dist(0, 255);
-    for (size_t i = 0; i < noise.size(); ++i) {
-        noise[i] = static_cast<unsigned char>(dist(rng));
-    }
-    glCreateTextures(GL_TEXTURE_3D, 1, m_licNoiseTex.ptr());
-    glTextureStorage3D(m_licNoiseTex, 1, GL_R8, grain, grain, grain);
-    glTextureSubImage3D(m_licNoiseTex, 0, 0, 0, 0, grain, grain, grain, GL_RED, GL_UNSIGNED_BYTE, noise.data());
-    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_WRAP_R, GL_REPEAT);
-    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTextureParameteri(m_licNoiseTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    m_licNoiseGrain = grain;
-}
-
-void Renderer::shutdownLic() {
-    m_licNoiseTex.reset();
-    m_licNoiseGrain = 0;
-    m_lastLicError.clear();
-    m_loggedLicError.clear();
-}
+// LIC noise/convolution is owned by SurfaceLicPass.
 
 void Renderer::renderFrame() {
 
@@ -1319,53 +1278,42 @@ void Renderer::renderFrame() {
     colormap.sync(m_state);
 
     if (!drawList.empty() && meshPass.hasProgram()) {
-        MeshPass::LicResources licRes;
+        GLuint licTex = 0;
         m_lastLicError.clear();
-        if (m_state.showLic && meshPass.hasLicProgram() && m_dataMesh) {
+        if (m_state.showLic && meshPass.hasLicProgram() && m_dataMesh && m_surfaceLicPass.hasProgram()) {
             if (m_state.vectorField.empty()) {
                 m_lastLicError = "LIC disabled: no vector field selected";
             } else if (!m_dataMesh->meshHasVectors() && !m_dataMesh->meshHasCellVectors()) {
                 m_lastLicError = "LIC disabled: mesh has no vector data";
             } else {
-                glm::vec3 boxMinF(static_cast<float>(m_dataMesh->bounds.minX),
-                                  static_cast<float>(m_dataMesh->bounds.minY),
-                                  static_cast<float>(m_dataMesh->bounds.minZ));
-                glm::vec3 boxMaxF(static_cast<float>(m_dataMesh->bounds.maxX),
-                                  static_cast<float>(m_dataMesh->bounds.maxY),
-                                  static_cast<float>(m_dataMesh->bounds.maxZ));
-                ensureLicNoiseTexture(m_state.licNoiseGrain);
+                const glm::vec3 boxMinF(static_cast<float>(m_dataMesh->bounds.minX),
+                                        static_cast<float>(m_dataMesh->bounds.minY),
+                                        static_cast<float>(m_dataMesh->bounds.minZ));
+                const glm::vec3 boxMaxF(static_cast<float>(m_dataMesh->bounds.maxX),
+                                        static_cast<float>(m_dataMesh->bounds.maxY),
+                                        static_cast<float>(m_dataMesh->bounds.maxZ));
                 GLuint vecTex = m_vectorCache.textureForField(
                     m_state.vectorField, m_dataMesh.get(), boxMinF, boxMaxF, m_state.vectorPlacement, m_state.computed.get());
                 if (vecTex == 0) {
                     m_lastLicError = "LIC disabled: vector field '" + m_state.vectorField + "' unavailable for placement " +
                         std::to_string(m_state.vectorPlacement) + " (check cellCenters)";
-                } else if (!m_licNoiseTex.has()) {
-                    m_lastLicError = "LIC disabled: noise texture not ready";
                 } else {
-                    int tdx = 0, tdy = 0, tdz = 0;
-                    if (m_vectorCache.getTextureDims(m_state.vectorField, m_state.vectorPlacement,
-                                                     m_dataMesh.get(),
-                                                     tdx, tdy, tdz, m_state.computed.get()) &&
-                        tdx > 0 && tdy > 0 && tdz > 0) {
-                        licRes.vectorTex = vecTex;
-                        licRes.noiseTex = m_licNoiseTex.get();
-                        licRes.boxMin = boxMinF;
-                        licRes.boxMax = boxMaxF;
-                        licRes.texDimX = tdx;
-                        licRes.texDimY = tdy;
-                        licRes.texDimZ = tdz;
-                        licRes.maxMagnitude = m_vectorCache.getMaxMagnitude(
-                            m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(), m_state.computed.get());
-                        licRes.robustFloor = m_vectorCache.getRobustFloor(
-                            m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(), m_state.computed.get());
-                    } else {
-                        m_lastLicError = "LIC disabled: vector texture dims unavailable";
-                    }
+                    SurfaceLicPass::Resources res;
+                    res.vectorTex = vecTex;
+                    res.boxMin = boxMinF;
+                    res.boxMax = boxMaxF;
+                    m_vectorCache.getTextureDims(m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(),
+                                                 res.texDimX, res.texDimY, res.texDimZ, m_state.computed.get());
+                    res.maxMagnitude = m_vectorCache.getMaxMagnitude(m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(), m_state.computed.get());
+                    res.robustFloor = m_vectorCache.getRobustFloor(m_state.vectorField, m_state.vectorPlacement, m_dataMesh.get(), m_state.computed.get());
+                    GLint defaultFbo = 0;
+                    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &defaultFbo);
+                    licTex = m_surfaceLicPass.render(m_state, drawList, meshManager,
+                                                     meshPass.uboHandle(), static_cast<GLuint>(defaultFbo), res);
+                    if (licTex == 0) m_lastLicError = "LIC disabled: screen-space LIC pass failed";
                 }
             }
             if (!m_lastLicError.empty() && m_lastLicError.find("LIC disabled") == 0) {
-                // Warn on transition only: this runs every frame while LIC is
-                // enabled, and a persistent error used to flood the log.
                 if (m_lastLicError != m_loggedLicError) {
                     qWarning() << QString::fromStdString(m_lastLicError);
                     m_loggedLicError = m_lastLicError;
@@ -1374,10 +1322,10 @@ void Renderer::renderFrame() {
                 m_loggedLicError.clear();
             }
         }
-        if (licRes.valid()) {
-            meshPass.drawLic(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap, licRes);
+        if (licTex != 0) {
+            meshPass.drawLic(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap, licTex);
         } else {
-            auto result =         meshPass.draw(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap);
+            auto result = meshPass.draw(m_state, view, proj, model, drawList, drawVerts, edgeDrawList, meshManager, colormap);
             if (!result.transparentMeshes.empty()) {
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                 renderTransparent(view, proj, meshPass.uboHandle(), result.transparentMeshes);

@@ -28,19 +28,8 @@ void MeshPass::init(const ShaderSources& sources) {
                 glUniformBlockBinding(licShaderProgram, licUboIndex, 0);
             licLutTextureLoc = glGetUniformLocation(licShaderProgram, "uColormapLUT");
             licNumBandsLoc = glGetUniformLocation(licShaderProgram, "uNumBands");
-            licVectorTexLoc = glGetUniformLocation(licShaderProgram, "uVectorTex");
-            licNoiseTexLoc = glGetUniformLocation(licShaderProgram, "uNoiseTex");
-            licBoxMinLoc = glGetUniformLocation(licShaderProgram, "uBoxMin");
-            licBoxMaxLoc = glGetUniformLocation(licShaderProgram, "uBoxMax");
-            licStepsLoc = glGetUniformLocation(licShaderProgram, "uLicSteps");
-            licStepSizeLoc = glGetUniformLocation(licShaderProgram, "uLicStepSize");
-            licNoiseFreqLoc = glGetUniformLocation(licShaderProgram, "uLicNoiseFreq");
-            licUvwScaleLoc = glGetUniformLocation(licShaderProgram, "uUvwScale");
-            licUvwOffsetLoc = glGetUniformLocation(licShaderProgram, "uUvwOffset");
-            licEnhancedLoc = glGetUniformLocation(licShaderProgram, "uLicEnhanced");
+            licTexLoc = glGetUniformLocation(licShaderProgram, "uLicTex");
             licOnlyLoc = glGetUniformLocation(licShaderProgram, "uLicOnly");
-            licIntegratorLoc = glGetUniformLocation(licShaderProgram, "uLicIntegrator");
-            licMagThreshLoc = glGetUniformLocation(licShaderProgram, "uLicMagThresh");
         }
         if (!sources.meshClipGeo.empty() && licShaderProgram.has()) {
             licClipShaderProgram.reset(compileProgramWithGS(
@@ -52,19 +41,8 @@ void MeshPass::init(const ShaderSources& sources) {
                     glUniformBlockBinding(licClipShaderProgram, licClipUboIndex, 0);
                 licClipLutTextureLoc = glGetUniformLocation(licClipShaderProgram, "uColormapLUT");
                 licClipNumBandsLoc = glGetUniformLocation(licClipShaderProgram, "uNumBands");
-                licClipVectorTexLoc = glGetUniformLocation(licClipShaderProgram, "uVectorTex");
-                licClipNoiseTexLoc = glGetUniformLocation(licClipShaderProgram, "uNoiseTex");
-                licClipBoxMinLoc = glGetUniformLocation(licClipShaderProgram, "uBoxMin");
-                licClipBoxMaxLoc = glGetUniformLocation(licClipShaderProgram, "uBoxMax");
-                licClipStepsLoc = glGetUniformLocation(licClipShaderProgram, "uLicSteps");
-                licClipStepSizeLoc = glGetUniformLocation(licClipShaderProgram, "uLicStepSize");
-                licClipNoiseFreqLoc = glGetUniformLocation(licClipShaderProgram, "uLicNoiseFreq");
-                licClipUvwScaleLoc = glGetUniformLocation(licClipShaderProgram, "uUvwScale");
-                licClipUvwOffsetLoc = glGetUniformLocation(licClipShaderProgram, "uUvwOffset");
-                licClipEnhancedLoc = glGetUniformLocation(licClipShaderProgram, "uLicEnhanced");
+                licClipTexLoc = glGetUniformLocation(licClipShaderProgram, "uLicTex");
                 licClipOnlyLoc = glGetUniformLocation(licClipShaderProgram, "uLicOnly");
-                licClipIntegratorLoc = glGetUniformLocation(licClipShaderProgram, "uLicIntegrator");
-                licClipMagThreshLoc = glGetUniformLocation(licClipShaderProgram, "uLicMagThresh");
             }
         }
     }
@@ -215,11 +193,7 @@ void MeshPass::drawOpaque(const RenderRenderState& state,
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-void MeshPass::activateLicProgram(const RenderRenderState& state, const ColormapManager& colormap,
-                                    GLuint vectorTex, GLuint noiseTex,
-                                    const glm::vec3& boxMin, const glm::vec3& boxMax,
-                                    int texDimX, int texDimY, int texDimZ,
-                                    float vectorMaxMagnitude, float robustFloor) {
+void MeshPass::activateLicProgram(const RenderRenderState& state, const ColormapManager& colormap, GLuint licTex) {
     const bool useCrinkleClip = state.crinkleClipMode && licClipShaderProgram.has();
     GlProgram& prog = useCrinkleClip ? licClipShaderProgram : licShaderProgram;
     glUseProgram(prog);
@@ -227,99 +201,18 @@ void MeshPass::activateLicProgram(const RenderRenderState& state, const Colormap
     if (activeUboIndex != GL_INVALID_INDEX)
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, meshUbo);
     GLint numBandsLocActive = useCrinkleClip ? licClipNumBandsLoc : licNumBandsLoc;
-    GLint vecTexLocActive = useCrinkleClip ? licClipVectorTexLoc : licVectorTexLoc;
-    GLint noiseTexLocActive = useCrinkleClip ? licClipNoiseTexLoc : licNoiseTexLoc;
-    GLint boxMinLocActive = useCrinkleClip ? licClipBoxMinLoc : licBoxMinLoc;
-    GLint boxMaxLocActive = useCrinkleClip ? licClipBoxMaxLoc : licBoxMaxLoc;
-    GLint stepsLocActive = useCrinkleClip ? licClipStepsLoc : licStepsLoc;
-    GLint stepSizeLocActive = useCrinkleClip ? licClipStepSizeLoc : licStepSizeLoc;
-    GLint noiseFreqLocActive = useCrinkleClip ? licClipNoiseFreqLoc : licNoiseFreqLoc;
     GLint lutLocActive = useCrinkleClip ? licClipLutTextureLoc : licLutTextureLoc;
-    GLint uvwScaleLocActive = useCrinkleClip ? licClipUvwScaleLoc : licUvwScaleLoc;
-    GLint uvwOffsetLocActive = useCrinkleClip ? licClipUvwOffsetLoc : licUvwOffsetLoc;
-    GLint enhancedLocActive = useCrinkleClip ? licClipEnhancedLoc : licEnhancedLoc;
+    GLint licTexLocActive = useCrinkleClip ? licClipTexLoc : licTexLoc;
     GLint onlyLocActive = useCrinkleClip ? licClipOnlyLoc : licOnlyLoc;
-    GLint integratorLocActive = useCrinkleClip ? licClipIntegratorLoc : licIntegratorLoc;
-    GLint magThreshLocActive = useCrinkleClip ? licClipMagThreshLoc : licMagThreshLoc;
     if (numBandsLocActive != -1) glUniform1f(numBandsLocActive, static_cast<float>(state.scalarColorBands));
-    if (vecTexLocActive != -1 && vectorTex != 0) {
-        glBindTextureUnit(2, vectorTex);
-        glUniform1i(vecTexLocActive, 2);
+    if (licTexLocActive != -1) {
+        glBindTextureUnit(4, licTex);
+        glUniform1i(licTexLocActive, 4);
     }
-    if (noiseTexLocActive != -1 && noiseTex != 0) {
-        glBindTextureUnit(3, noiseTex);
-        glUniform1i(noiseTexLocActive, 3);
-    }
-    if (boxMinLocActive != -1) glUniform3fv(boxMinLocActive, 1, &boxMin.x);
-    if (boxMaxLocActive != -1) glUniform3fv(boxMaxLocActive, 1, &boxMax.x);
-    // LIC steps: UI clamps [4..128]; GPU tolerates [0..128] but product floor is 4.
-    // Use product limits here so legacy 0..3 persisted values auto-heal to 4.
-    if (stepsLocActive != -1) {
-        int taps = std::clamp(state.licSteps, LicLimits::StepsMin, LicLimits::StepsMax);
-        // Budget the per-fragment cost. One tap costs integratorSamples vector
-        // fetches, and enhanced LIC runs the whole kernel twice. Without this
-        // the UI maximum (128 RK4 + enhanced) is ~1024 vector fetches per
-        // direction per fragment, which can exceed the GPU watchdog at 4K.
-        const int integratorSamples = (state.licIntegrator >= 2) ? 4
-                                   : (state.licIntegrator == 1) ? 2 : 1;
-        const int frequencyPasses = state.licEnhanced ? 2 : 1;
-        const int budget = std::max(1, LicLimits::MaxTapsPerDirection / (integratorSamples * frequencyPasses));
-        taps = std::max(LicLimits::StepsMin, std::min(taps, budget));
-        glUniform1i(stepsLocActive, taps);
-    }
-    if (stepSizeLocActive != -1) {
-        glm::vec3 extent = boxMax - boxMin;
-        float diag = glm::length(extent);
-        if (!(diag > 0.0f)) diag = 1.0f;
-        // state.licStepSize is fraction of diagonal; clamp fraction first then scale for consistent upper bound
-        float frac = std::clamp(state.licStepSize, LicLimits::StepSizeMin, LicLimits::StepSizeMax);
-        // Relative floor only: an absolute 1e-6 made a sub-micron scene step
-        // thousands of scene widths per tap. Purely relative keeps minStep
-        // below diag*2 even when diag is denormal.
-        const float minStep = diag * LicLimits::WorldStepMinFraction;
-        float worldStep = frac * diag;
-        worldStep = std::clamp(worldStep, minStep, diag * LicLimits::WorldStepMaxFactor);
-        glUniform1f(stepSizeLocActive, worldStep);
-    }
-    // Noise freq: UI [0.5..64]; clamp here as final guard before shader (shader multiplies UV)
-    if (noiseFreqLocActive != -1) glUniform1f(noiseFreqLocActive, std::clamp(state.licNoiseFreq, LicLimits::NoiseFreqMin, LicLimits::NoiseFreqMax));
-    if (enhancedLocActive != -1) glUniform1i(enhancedLocActive, state.licEnhanced ? 1 : 0);
     if (onlyLocActive != -1) glUniform1i(onlyLocActive, state.licOnly ? 1 : 0);
-    if (integratorLocActive != -1) glUniform1i(integratorLocActive, std::clamp(state.licIntegrator, 0, 2));
-    // Magnitude below which the flow direction counts as undefined. Two relative
-    // floors guard against unit dependence and dynamic-range extremes:
-    //   * maxMag * 1e-6  — scales with the strongest vector in the field
-    //   * robustFloor * 1e-3 — scales with the 5th-percentile (boundary-layer)
-    //     magnitude, so slow near-wall flow is not rejected by a cut-off
-    //     dominated by a fast lid. Whichever is larger wins.
-    // The absolute floor keeps a field that is at rest everywhere from
-    // producing a direction at all.
-    if (magThreshLocActive != -1) {
-        const float relThreshMax = vectorMaxMagnitude > 0.0f ? vectorMaxMagnitude * 1e-6f : 0.0f;
-        const float relThreshFloor = robustFloor > 0.0f ? robustFloor * 1e-3f : 0.0f;
-        glUniform1f(magThreshLocActive, std::max({relThreshMax, relThreshFloor, 1e-30f}));
-    }
-    // General-purpose UVW mapping: interior dims map [0,1] to texel centers to avoid half-texel bleeding;
-    // degenerate slab (dim<=1) has no extent — shader collapses that axis to 0.5 via range-relative epsilon, so no scale needed.
-    glm::vec3 uvwScale(1.0f);
-    glm::vec3 uvwOffset(0.0f);
-    {
-        auto axisScaleOffset = [&](int n, float& s, float& o) {
-            if (n <= 1) { s = 1.0f; o = 0.0f; return; } // slab: single texel, no half-texel offset
-            float inv = 1.0f / static_cast<float>(n);
-            s = float(n - 1) * inv; o = 0.5f * inv;
-        };
-        axisScaleOffset(texDimX, uvwScale.x, uvwOffset.x);
-        axisScaleOffset(texDimY, uvwScale.y, uvwOffset.y);
-        axisScaleOffset(texDimZ, uvwScale.z, uvwOffset.z);
-    }
-    if (uvwScaleLocActive != -1) glUniform3fv(uvwScaleLocActive, 1, &uvwScale.x);
-    if (uvwOffsetLocActive != -1) glUniform3fv(uvwOffsetLocActive, 1, &uvwOffset.x);
     GLuint lutTex = colormap.scalarTexture() ? colormap.scalarTexture() : colormap.vectorTexture();
     if (lutLocActive != -1) {
-        if (lutTex != 0) {
-            glBindTextureUnit(1, lutTex);
-        }
+        if (lutTex != 0) glBindTextureUnit(1, lutTex);
         glUniform1i(lutLocActive, 1);
     }
 }
@@ -333,15 +226,13 @@ MeshPassResult MeshPass::drawLic(const RenderRenderState& state,
                         const std::vector<std::pair<GLuint, int>>& edgeDrawList,
                         const MeshGLManager& meshManager,
                         const ColormapManager& colormap,
-                        const LicResources& licRes) {
-    if (!meshManager.hasMeshes() || !licShaderProgram.has() || !licRes.valid())
+                        GLuint licTex) {
+    if (!meshManager.hasMeshes() || !licShaderProgram.has() || licTex == 0)
         return {};
     return drawCommon(state, view, proj, model, drawList, drawVerts, edgeDrawList,
                       meshManager, colormap,
-                           [&](const RenderRenderState& s, const ColormapManager& c) {
-                           activateLicProgram(s, c, licRes.vectorTex, licRes.noiseTex, licRes.boxMin, licRes.boxMax, licRes.texDimX, licRes.texDimY, licRes.texDimZ, licRes.maxMagnitude, licRes.robustFloor);
-                       },
-                      true);
+                      [&](const RenderRenderState& s, const ColormapManager& c) { activateLicProgram(s, c, licTex); },
+                      false);
 }
 
 template <typename Activator>
@@ -469,29 +360,9 @@ void MeshPass::shutdown() {
     licClipLutTextureLoc = -1;
     licNumBandsLoc = -1;
     licClipNumBandsLoc = -1;
-    licVectorTexLoc = -1;
-    licClipVectorTexLoc = -1;
-    licNoiseTexLoc = -1;
-    licClipNoiseTexLoc = -1;
-    licBoxMinLoc = -1;
-    licClipBoxMinLoc = -1;
-    licBoxMaxLoc = -1;
-    licClipBoxMaxLoc = -1;
-    licStepsLoc = -1;
-    licClipStepsLoc = -1;
-    licStepSizeLoc = -1;
-    licClipStepSizeLoc = -1;
-    licNoiseFreqLoc = -1;
-    licClipNoiseFreqLoc = -1;
-    licUvwScaleLoc = -1;
-    licClipUvwScaleLoc = -1;
-    licUvwOffsetLoc = -1;
-    licClipUvwOffsetLoc = -1;
-    licEnhancedLoc = -1;
-    licClipEnhancedLoc = -1;
+    licTexLoc = -1;
+    licClipTexLoc = -1;
     licOnlyLoc = -1;
     licClipOnlyLoc = -1;
-    licIntegratorLoc = -1;
-    licClipIntegratorLoc = -1;
     wireframePass.shutdown();
 }
