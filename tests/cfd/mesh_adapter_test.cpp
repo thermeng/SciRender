@@ -33,6 +33,20 @@ std::pair<std::uint32_t, std::uint32_t> sortedEdge(std::uint32_t a, std::uint32_
     return a < b ? std::make_pair(a, b) : std::make_pair(b, a);
 }
 
+TEST_CASE("cfd.patch.static_mixer_has_distinct_patch_ids") {
+    test_support::requireSample("cgns/StaticMixer.cgns");
+    const auto res = cfd::loadMesh(test_support::samplePath("cgns/StaticMixer.cgns").string());
+    REQUIRE_MESSAGE(res.error.empty(), res.error);
+    REQUIRE(res.renderMesh);
+    const auto& rm = *res.renderMesh;
+    REQUIRE(rm.attributes.has_value());
+    auto it = rm.attributes->pointScalars.find("Patch");
+    REQUIRE(it != rm.attributes->pointScalars.end());
+    std::map<int, int> hist;
+    for (float v : it->second) ++hist[static_cast<int>(v)];
+    CHECK(hist.size() > 1);
+}
+
 TEST_CASE("cfd.patch.categorical_state") {
     RenderMesh mesh;
     CHECK_FALSE(mesh.hasPatchField());
