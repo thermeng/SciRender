@@ -19,8 +19,9 @@ void PalettePreviewDelegate::paint(QPainter* painter,
     QStyle* style = opt.widget ? opt.widget->style() : QApplication::style();
     style->drawPrimitive(QStyle::PE_PanelItemViewItem, &opt, painter, opt.widget);
 
-    int colormapIndex = index.row();
-    ColormapType type = static_cast<ColormapType>(colormapIndex);
+    const QVariant roleData = index.data(Qt::UserRole);
+    const int colormapIndex = roleData.isValid() ? roleData.toInt() : index.row();
+    const ColormapType type = static_cast<ColormapType>(colormapIndex);
     int previewWidth = 56;
     int previewHeight = 14;
     int margin = 4;
@@ -38,6 +39,7 @@ void PalettePreviewDelegate::paint(QPainter* painter,
     }
     painter->drawImage(previewRect, img);
     QString name = QString::fromUtf8(Colormaps::getName(type));
+    if (!Colormaps::isCurated(type)) name += QStringLiteral(" (legacy)");
     painter->setPen(opt.palette.color(QPalette::Text));
     painter->drawText(opt.rect.adjusted(previewRect.right() + 6, 0, -margin, 0),
                       Qt::AlignVCenter | Qt::AlignLeft, name);
@@ -56,11 +58,21 @@ QComboBox* createColormapCombo(int currentChoice,
     combo->setItemDelegate(new PalettePreviewDelegate(combo));
     combo->setFixedHeight(kControlHeight);
     combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    int count = static_cast<int>(ColormapType::Count);
-    for (int i = 0; i < count; ++i)
-        combo->addItem(QString::fromUtf8(Colormaps::getName(static_cast<ColormapType>(i))));
-    combo->setCurrentIndex(currentChoice);
+
+    const int choice = currentChoice;
+    for (ColormapType type : Colormaps::curatedTypes()) {
+        const int value = static_cast<int>(type);
+        combo->addItem(QString::fromUtf8(Colormaps::getName(type)), value);
+    }
+
+    int currentIdx = combo->findData(choice);
+    if (currentIdx >= 0) combo->setCurrentIndex(currentIdx);
+
     QObject::connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                     [onChoose](int idx) { if (idx >= 0) onChoose(idx); });
+                     [combo, onChoose](int idx) {
+                         if (idx < 0) return;
+                         const QVariant data = combo->itemData(idx);
+                         if (data.isValid()) onChoose(data.toInt());
+                     });
     return combo;
 }

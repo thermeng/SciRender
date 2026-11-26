@@ -1659,6 +1659,30 @@ void RenderSettings::setColormapChoice(int choice) {
     markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
 }
 
+void RenderSettings::setVectorColormapChoice(int v) {
+    if (m_state.vectorColormapChoice == v) return;
+    m_state.vectorColormapChoice = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Vectors);
+}
+
+void RenderSettings::setStreamlineColormapChoice(int v) {
+    if (m_state.streamlineColormapChoice == v) return;
+    m_state.streamlineColormapChoice = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+
+void RenderSettings::setVolumeColormapChoice(int v) {
+    if (m_state.volumeColormapChoice == v) return;
+    m_state.volumeColormapChoice = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+
+void RenderSettings::setVolumeSliceColormapChoice(int v) {
+    if (m_state.volumeSliceColormapChoice == v) return;
+    m_state.volumeSliceColormapChoice = v;
+    markStateDirty(); emit viewChanged(ChangeFlag::Colormap);
+}
+
 void RenderSettings::setColormapReversed(bool reversed) {
     if (m_state.colormapReversed == reversed) return;
     m_state.colormapReversed = reversed;

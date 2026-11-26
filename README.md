@@ -63,7 +63,7 @@ C:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --compiler-runtime package/S
 
 **Mesh & visualization**
 - Loads VTK XML (`.vtu`/`.vts`/`.vti`/`.vtp`/`.vtr`/`.vtm` multiblock), VTK legacy (`.vtk`), STL, and OBJ with auto-detected compression (ZLIB/LZ4/LZMA) and encodings (ASCII/BINARY/APPENDED).
-- Scalar surface coloring with GPU colormap textures; palettes Turbo, Viridis, Inferno, CoolWarm, MutedCoolWarm, BWR, Cividis, Grayscale with reverse toggle and discrete bands.
+- Scalar surface coloring with GPU colormap textures; 11 palettes (Turbo, Viridis, Inferno, Plasma, Cividis, Grayscale, CoolWarm, MutedCoolWarm, RdBu, Spectral, Twilight) with reverse toggle and discrete bands.
 - Vector-field arrow glyphs with stride, scaling, magnitude transform (linear/sqrt/log), placement (vertex/cell-center), and per-component fixed-range windows.
 - Line Integral Convolution (LIC) dense vector-field texture with Euler/Midpoint/RK4 integration, step size, noise frequency, grain, and enhanced 2-pass modes.
 - Streamline integration with configurable step size, max steps, direction, seeding modes, ribbon width, taper, opacity, PBR shading, color modes, and arrowheads.

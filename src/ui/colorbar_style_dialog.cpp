@@ -1,6 +1,7 @@
 #include "ui/colorbar_style_dialog.h"
 #include "ui/uikit.h"
 #include "ui/widgets/colormap_combo.h"
+#include "core/Colormaps.h"
 #include "ui/widgets/range_editor.h"
 
 #include "render/settings/render_settings.h"
@@ -195,8 +196,13 @@ auto* palHeader = uikit::header(QString("Palette — %1").arg(m_barSubtitle), th
             else if (m_barSubtitle == "Volume") { curChoice = m_settings->getVolumeColormapChoice(); curRev = m_settings->getVolumeColormapReversed(); }
             else if (m_barSubtitle == "Slice") { curChoice = m_settings->getVolumeSliceColormapChoice(); curRev = m_settings->getVolumeSliceColormapReversed(); }
             else return;
-            if (m_paletteCombo && m_paletteCombo->currentIndex() != curChoice) {
-                m_paletteCombo->blockSignals(true); m_paletteCombo->setCurrentIndex(curChoice); m_paletteCombo->blockSignals(false);
+            if (m_paletteCombo) {
+                const int idx = m_paletteCombo->findData(curChoice);
+                if (idx >= 0 && m_paletteCombo->currentIndex() != idx) {
+                    m_paletteCombo->blockSignals(true);
+                    m_paletteCombo->setCurrentIndex(idx);
+                    m_paletteCombo->blockSignals(false);
+                }
             }
             if (m_paletteReverse && m_paletteReverse->isChecked() != curRev) {
                 m_paletteReverse->blockSignals(true); m_paletteReverse->setChecked(curRev); m_paletteReverse->blockSignals(false);
@@ -320,7 +326,10 @@ auto* palHeader = uikit::header(QString("Palette — %1").arg(m_barSubtitle), th
         else if (m_barSubtitle == "Streamline") defChoice = 3;
         else if (m_barSubtitle == "Volume") defChoice = 3;
         else if (m_barSubtitle == "Slice") defChoice = 3;
-        if (m_paletteCombo) m_paletteCombo->setCurrentIndex(defChoice);
+        if (m_paletteCombo) {
+            int idx = m_paletteCombo->findData(defChoice);
+            if (idx >= 0) m_paletteCombo->setCurrentIndex(idx);
+        }
         if (m_paletteReverse) m_paletteReverse->setChecked(false);
         if (m_bandCount && m_bandCount->isVisible()) m_bandCount->setValue(0);
         if (m_ticksSpin) m_ticksSpin->setValue(6);

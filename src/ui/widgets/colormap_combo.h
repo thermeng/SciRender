@@ -14,7 +14,7 @@ public:
 };
 
 // Reusable colormap combo with swatch preview.
-// currentChoice = ColormapType index. onChoose called on index change.
+// currentChoice = ColormapType value. onChoose called with the selected ColormapType value.
 QComboBox* createColormapCombo(int currentChoice,
                                std::function<void(int)> onChoose,
                                QWidget* parent = nullptr);

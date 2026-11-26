@@ -667,7 +667,8 @@ public:
     int getStreamlineSeedCount() const { return m_state.streamlineSeedCount; }
     void setStreamlineSeedCount(int v) { v = std::clamp(v, 0, 50000); if (m_state.streamlineSeedCount != v) { m_state.streamlineSeedCount = v; m_renderer.markStreamlineDirty(); markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getStreamlineUseColormap, setStreamlineUseColormap, bool, m_state.streamlineUseColormap, Display)
-    STATE_PROP(getStreamlineColormapChoice, setStreamlineColormapChoice, int, m_state.streamlineColormapChoice, Colormap)
+    int getStreamlineColormapChoice() const { return m_state.streamlineColormapChoice; }
+    void setStreamlineColormapChoice(int v);
     STATE_PROP(getStreamlineColormapReversed, setStreamlineColormapReversed, bool, m_state.streamlineColormapReversed, Colormap)
     QColor getStreamlineColorQml() const { return QColor::fromRgbF(m_state.streamlineColor[0], m_state.streamlineColor[1], m_state.streamlineColor[2]); }
     void setStreamlineColorQml(const QColor& c) { m_state.streamlineColor[0] = c.redF(); m_state.streamlineColor[1] = c.greenF(); m_state.streamlineColor[2] = c.blueF(); markStateDirty(); emit viewChanged(ChangeFlag::Display); }
@@ -723,7 +724,8 @@ public:
     void setParticleAdditive(bool v) { if (m_state.particleAdditive != v) { m_state.particleAdditive = v; markStateDirty(); emit viewChanged(ChangeFlag::Display); } }
     STATE_PROP(getShowVolume, setShowVolume, bool, m_state.showVolume, Display)
     STATE_PROP(getVolumeUseColormap, setVolumeUseColormap, bool, m_state.volumeUseColormap, Colormap)
-    STATE_PROP(getVolumeColormapChoice, setVolumeColormapChoice, int, m_state.volumeColormapChoice, Colormap)
+    int getVolumeColormapChoice() const { return m_state.volumeColormapChoice; }
+    void setVolumeColormapChoice(int v);
     STATE_PROP(getVolumeColormapReversed, setVolumeColormapReversed, bool, m_state.volumeColormapReversed, Colormap)
     STATE_PROP_CAST(getVolumeStepSize, setVolumeStepSize, float, m_state.volumeStepSize, Display)
     STATE_PROP_CAST(getVolumeOpacity, setVolumeOpacity, float, m_state.volumeOpacity, Display)
@@ -748,7 +750,8 @@ public:
     void setSlicePlaneField(int axis, const QString& fieldName);
     QString getSlicePlaneField(int axis) const { return QString::fromStdString(m_state.sliceScalarName[axis]); }
     STATE_PROP(getVolumeSliceUseColormap, setVolumeSliceUseColormap, bool, m_state.volumeSliceUseColormap, Colormap)
-    STATE_PROP(getVolumeSliceColormapChoice, setVolumeSliceColormapChoice, int, m_state.volumeSliceColormapChoice, Colormap)
+    int getVolumeSliceColormapChoice() const { return m_state.volumeSliceColormapChoice; }
+    void setVolumeSliceColormapChoice(int v);
     STATE_PROP(getVolumeSliceColormapReversed, setVolumeSliceColormapReversed, bool, m_state.volumeSliceColormapReversed, Colormap)
 
       // ---- isosurface (marching cubes) ----
@@ -880,7 +883,8 @@ enum class PlotMode { Histogram = 0, Line = 1, Monitor = 2 };
 
     int getVectorColorMode() const { return m_state.vectorColorMode; }
     void setVectorColorMode(int v) { int t = (v < 0) ? 0 : (v > 4 ? 4 : v); if (m_state.vectorColorMode != t) { m_state.vectorColorMode = t; markStateDirty(); emit viewChanged(ChangeFlag::Vectors); } }
-    STATE_PROP(getVectorColormapChoice, setVectorColormapChoice, int, m_state.vectorColormapChoice, Vectors)
+    int getVectorColormapChoice() const { return m_state.vectorColormapChoice; }
+    void setVectorColormapChoice(int v);
     QStringList getAvailableVectors() const {
         QStringList base;
         if (m_meshData.loadedMesh) {
