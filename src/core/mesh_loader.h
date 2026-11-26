@@ -86,6 +86,12 @@ struct RenderMesh {
     std::string scalarName = "";   // Name of active scalar field
     std::vector<std::string> availableScalarNames; // all point-scalar field names for the QML switcher
 
+    // Boundary patch names in stable (sorted) order. Non-empty only for 3D CFD
+    // meshes carrying boundary groups; the synthetic "Patch" scalar uses index
+    // into this list as its categorical value.
+    std::vector<std::string> patchNames;
+    bool hasPatchField() const { return !patchNames.empty(); }
+
     // VTK VECTORS — stored as a single contiguous buffer of vec3 runs. All
     // fields share the same per-vertex count (= vertices.size()/3). The offset
     // (in vec3 units) of each field's run is recorded in pointVectorOffset.

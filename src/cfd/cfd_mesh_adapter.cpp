@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <limits>
+#include <map>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -59,6 +61,78 @@ void canonicalCell(const fvm::Mesh<3>& m, std::size_t cellIndex,
     if (type == cell_topology::kPolyhedron) out = m.cells()[cellIndex];
 }
 
+// Patch ids in boundary-group (sorted name) order, one per mesh face; -1 means
+// the face belongs to no named patch.
+std::vector<int> buildFacePatchMap(const fvm::Mesh<3>& m, std::vector<std::string>& names) {
+    std::vector<int> facePatch(m.nFaces(), -1);
+    for (const auto& [name, faces] : m.boundaryGroups()) {
+        const int id = static_cast<int>(names.size());
+        names.push_back(name);
+        for (std::size_t f : faces) {
+            if (f < facePatch.size()) facePatch[f] = id;
+        }
+    }
+    return facePatch;
+}
+
+// Duplicate surface vertices at patch boundaries so every emitted triangle has
+// one constant patch id. Returns the map from each new vertex to its source
+// vertex, which is composed with computeNormals()'s own split map afterwards.
+std::vector<uint32_t> applyPatchField(RenderMesh& rm, const std::vector<int>& trianglePatch,
+                                      const std::vector<std::string>& names) {
+    if (names.empty() || trianglePatch.empty() ||
+        trianglePatch.size() != rm.indices.size() / 3) return {};
+
+    const std::size_t srcCount = rm.vertices.size() / 3;
+    const uint32_t kNoEmit = std::numeric_limits<uint32_t>::max();
+    std::map<std::pair<uint32_t, int>, uint32_t> emitted;
+    std::vector<float> vertices;
+    std::vector<float> patchValues;
+    std::vector<uint32_t> indices;
+    std::vector<uint32_t> sourceIndex;
+    std::vector<uint32_t> firstEmit(srcCount, kNoEmit);
+    vertices.reserve(rm.vertices.size() * 2);
+    indices.reserve(rm.indices.size());
+    sourceIndex.reserve(srcCount + 8);
+
+    for (std::size_t t = 0; t < trianglePatch.size(); ++t) {
+        const int pid = std::clamp(trianglePatch[t], 0, static_cast<int>(names.size()) - 1);
+        for (int c = 0; c < 3; ++c) {
+            const uint32_t src = rm.indices[t * 3 + c];
+            if (src >= srcCount) continue;
+            const auto key = std::make_pair(src, pid);
+            auto it = emitted.find(key);
+            uint32_t dst = 0;
+            if (it == emitted.end()) {
+                dst = static_cast<uint32_t>(sourceIndex.size());
+                emitted.emplace(key, dst);
+                vertices.push_back(rm.vertices[src * 3]);
+                vertices.push_back(rm.vertices[src * 3 + 1]);
+                vertices.push_back(rm.vertices[src * 3 + 2]);
+                patchValues.push_back(static_cast<float>(pid));
+                sourceIndex.push_back(src);
+                if (firstEmit[src] == kNoEmit) firstEmit[src] = dst;
+            } else {
+                dst = it->second;
+            }
+            indices.push_back(dst);
+        }
+    }
+
+    for (uint32_t& e : rm.cellEdgeIndices) {
+        if (e < srcCount && firstEmit[e] != kNoEmit) e = firstEmit[e];
+    }
+    rm.vertices = std::move(vertices);
+    rm.indices = std::move(indices);
+
+    auto& attrs = mesh_utils::ensureAttributes(rm);
+    attrs.pointScalars["Patch"] = std::move(patchValues);
+    attrs.pointScalarRanges["Patch"] = {0.0f, static_cast<float>(names.size() - 1)};
+    rm.patchNames = names;
+    rm.availableScalarNames.push_back("Patch");
+    return sourceIndex;
+}
+
 template<std::size_t Dim>
 std::shared_ptr<const RenderMesh> buildRenderMesh(const fvm::Mesh<Dim>& m,
                                                   const char* fileFormat = "MSH") {
@@ -69,7 +143,20 @@ std::shared_ptr<const RenderMesh> buildRenderMesh(const fvm::Mesh<Dim>& m,
     rm.fileFormat = fileFormat;
 
     Policy::buildVertices(rm, m);
-    Policy::buildSurface(rm, m);
+    std::vector<uint32_t> patchSource;
+    if constexpr (Dim == 3) {
+        std::vector<std::string> names;
+        const auto facePatch = buildFacePatchMap(m, names);
+        if (!names.empty()) {
+            std::vector<int> trianglePatch;
+            Policy::buildSurface(rm, m, &facePatch, &trianglePatch);
+            patchSource = applyPatchField(rm, trianglePatch, names);
+        } else {
+            Policy::buildSurface(rm, m);
+        }
+    } else {
+        Policy::buildSurface(rm, m);
+    }
 
     // Cell topology (shared by the post-field extrapolation, glyph placement
     // and the least-squares gradient neighbour builder).
@@ -91,9 +178,22 @@ std::shared_ptr<const RenderMesh> buildRenderMesh(const fvm::Mesh<Dim>& m,
 
     // Pre-normal-split point count (what the UI reports and what point fields
     // are sized against).
-    rm.sourcePointCount = static_cast<int>(rm.vertices.size() / 3);
+    rm.sourcePointCount = static_cast<int>(Dim == 3 ? m.vertices().size()
+                                                    : rm.vertices.size() / 3);
     mesh_utils::computeBounds(rm);
     mesh_utils::computeNormals(rm);
+    if constexpr (Dim == 3) {
+        if (!patchSource.empty()) {
+            auto& lut = rm.vertexSourceIndex;
+            if (lut.empty()) {
+                lut = patchSource;
+            } else {
+                for (uint32_t& s : lut) {
+                    if (s < patchSource.size()) s = patchSource[s];
+                }
+            }
+        }
+    }
     if (rm.normals.empty() && !rm.vertices.empty()) {
         rm.normals.assign(rm.vertices.size(), 0.0f);
         for (std::size_t i = 2; i < rm.normals.size(); i += 3) rm.normals[i] = 1.0f;

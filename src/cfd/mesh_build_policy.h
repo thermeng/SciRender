@@ -52,7 +52,12 @@ struct MeshBuildPolicy {
     }
 
     // Build the surface index buffer (+ cell edge indices in 3D).
-    static void buildSurface(RenderMesh& rm, const fvm::Mesh<Dim>& m) {
+    // For 3D, patchOfFace (when given) supplies a patch id per mesh face and
+    // outTrianglePatch receives one id per emitted triangle, in index order.
+    static void buildSurface(RenderMesh& rm, const fvm::Mesh<Dim>& m,
+                             const std::vector<int>* patchOfFace = nullptr,
+                             std::vector<int>* outTrianglePatch = nullptr) {
+        (void)patchOfFace; (void)outTrianglePatch;
         if constexpr (Dim == 2) {
             // Every cell is a surface polygon: fan-triangulate it.
             for (const auto& cell : m.cells()) {
@@ -111,10 +116,13 @@ struct MeshBuildPolicy {
                     if (v >= m.vertices().size()) { inRange = false; break; }
                 }
                 if (!inRange) continue;
+                const int patchId = (patchOfFace && f < patchOfFace->size() && (*patchOfFace)[f] >= 0)
+                                  ? (*patchOfFace)[f] : 0;
                 for (std::size_t i = 1; i + 1 < loop.size(); ++i) {
                     rm.indices.push_back(static_cast<std::uint32_t>(loop[0]));
                     rm.indices.push_back(static_cast<std::uint32_t>(loop[i]));
                     rm.indices.push_back(static_cast<std::uint32_t>(loop[i + 1]));
+                    if (outTrianglePatch) outTrianglePatch->push_back(patchId);
                 }
                 for (std::size_t i = 0; i < loop.size(); ++i) {
                     const auto a = static_cast<std::uint32_t>(loop[i]);

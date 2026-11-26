@@ -18,6 +18,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <map>
@@ -28,6 +29,51 @@ namespace {
 
 std::pair<std::uint32_t, std::uint32_t> sortedEdge(std::uint32_t a, std::uint32_t b) {
     return a < b ? std::make_pair(a, b) : std::make_pair(b, a);
+}
+
+TEST_CASE("cfd.mesh_adapter.pipe_3d_exposes_patch_scalar") {
+    test_support::requireSample("cfd/pipe_3d.msh");
+    const auto res = cfd::loadMesh(test_support::samplePath("cfd/pipe_3d.msh").string());
+
+    REQUIRE_MESSAGE(res.error.empty(), res.error);
+    REQUIRE(res.renderMesh);
+    const auto& rm = *res.renderMesh;
+    REQUIRE(rm.attributes.has_value());
+    REQUIRE_FALSE(rm.patchNames.empty());
+    CHECK(rm.patchNames.size() == res.patches.size());
+
+    auto it = rm.attributes->pointScalars.find("Patch");
+    REQUIRE(it != rm.attributes->pointScalars.end());
+    const auto& values = it->second;
+    REQUIRE(values.size() == rm.vertices.size() / 3);
+    CHECK(std::find(rm.availableScalarNames.begin(), rm.availableScalarNames.end(), "Patch")
+          != rm.availableScalarNames.end());
+
+    auto range = rm.attributes->pointScalarRanges.find("Patch");
+    REQUIRE(range != rm.attributes->pointScalarRanges.end());
+    CHECK(range->second.first == doctest::Approx(0.0f));
+    CHECK(range->second.second == doctest::Approx(static_cast<float>(rm.patchNames.size() - 1)));
+
+    // Patch IDs must be constant across each triangle — a vertex shared by two
+    // patches is split, so no triangle carries a blended/averaged ID.
+    std::size_t mixedTriangles = 0;
+    std::set<int> seenPatches;
+    for (std::size_t t = 0; t + 2 < rm.indices.size(); t += 3) {
+        const std::size_t a = rm.indices[t];
+        const std::size_t b = rm.indices[t + 1];
+        const std::size_t c = rm.indices[t + 2];
+        REQUIRE(a < values.size());
+        REQUIRE(b < values.size());
+        REQUIRE(c < values.size());
+        if (values[a] != values[b] || values[b] != values[c]) ++mixedTriangles;
+        seenPatches.insert(static_cast<int>(values[a]));
+    }
+    CHECK(mixedTriangles == 0);
+    CHECK(seenPatches.size() == rm.patchNames.size());
+    for (int id : seenPatches) {
+        CHECK(id >= 0);
+        CHECK(id < static_cast<int>(rm.patchNames.size()));
+    }
 }
 
 TEST_CASE("cfd.mesh_adapter.obstacle_3d_loads") {
@@ -87,7 +133,10 @@ TEST_CASE("cfd.mesh_adapter.pipe_3d_loads_with_surface_and_topology") {
     REQUIRE(res.renderMesh);
     const auto& rm = *res.renderMesh;
     CHECK(rm.sourcePointCount == static_cast<int>(mesh.vertices().size()));
-    CHECK(rm.vertices.size() / 3 >= mesh.vertices().size());
+    // The patch split keeps only vertices referenced by the boundary surface
+    // (one per (source vertex, patch) pair), so the rendered count can be lower
+    // than the solver mesh's node count. Source indices are validated below.
+    CHECK(rm.vertices.size() / 3 > 0);
     CHECK_FALSE(rm.indices.empty());
     CHECK_FALSE(rm.cellEdgeIndices.empty());
     CHECK(rm.cellOffsets.size() == mesh.nCells());
